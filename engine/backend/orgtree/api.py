@@ -8073,15 +8073,18 @@ def _work_receipt_call(body: AgentCall, a: dict[str, Any], *, rangediff: bool
     and a receipt can never be appended to an item that changed underneath it.
     """
     wid = _work_ref(a)
-    with store.DOC_LOCK:
-        org = store.load_org(body.org)
-        org._require_live(body.node)
-        _work_identity_guard(org)
-        it, _ = org._work_get_for(body.node, wid)     # read right, or refusal
-        rev = int(it.get("rev") or 0)
-        item_slug = str(it["slug"])
-        checkout = _work_checkout(org, body.node, a)
-        logs = [] if rangediff else _work_receipt_logs(org, body.node, a)
+    # PG-3w: this phase only READS (the rev the write compare-and-sets
+    # against, the read right, the checkout grant), so it is a lock-free
+    # `org_read`. The write phase refuses with `stale` if the item moved in
+    # between, exactly as when this phase held DOC_LOCK and released it.
+    org = orgtx.org_read(body.org, sections=["work_items_archive"])
+    org._require_live(body.node)
+    _work_identity_guard(org)
+    it, _ = org._work_get_for(body.node, wid)     # read right, or refusal
+    rev = int(it.get("rev") or 0)
+    item_slug = str(it["slug"])
+    checkout = _work_checkout(org, body.node, a)
+    logs = [] if rangediff else _work_receipt_logs(org, body.node, a)
 
     # ── outside the lock: git and the filesystem ────────────────────────────
     if rangediff:
@@ -8118,24 +8121,28 @@ def _work_receipt_call(body: AgentCall, a: dict[str, Any], *, rangediff: bool
         ref = str(a.get("ref") or "") or (" ".join(command)[:200] or rc["candidate"])
         kind = str(a.get("kind") or "log")
 
-    with store.DOC_LOCK:
-        org = store.load_org(body.org)
+    # PG-3w: the write phase is the archive sweep's own transaction, then one
+    # `org_tx`, which commits nothing when the compare-and-set refuses.
+    def tx_body(org: Org) -> dict[str, Any] | None:
         try:
-            r = org.work_evidence(body.node, wid, kind, ref,
-                                  str(a.get("note") or "") or None,
-                                  execution=rc["execution"], receipt=rc,
-                                  expected_rev=rev)
+            return org.work_evidence(body.node, wid, kind, ref,
+                                     str(a.get("note") or "") or None,
+                                     execution=rc["execution"], receipt=rc,
+                                     expected_rev=rev)
         except StaleRevError:
             # ⚠ CAUGHT BY TYPE, NOT BY MESSAGE TEXT. This is the one refusal
             # the route answers rather than surfaces: the item moved while the
             # tree was being measured, which is normal traffic, not caller
             # error. Matching on the wording would silently stop working the
             # first time somebody improved the sentence.
-            return {"stale": True, "item": item_slug,
-                    "hint": "the item changed while the tree was being "
-                            "measured; nothing was written — read it again "
-                            "and repeat the call"}
-        store.save_org(org)
+            return None
+    worktx.sweep(body.org)
+    r = worktx.run(body.org, tx_body)
+    if r is None:
+        return {"stale": True, "item": item_slug,
+                "hint": "the item changed while the tree was being "
+                        "measured; nothing was written — read it again "
+                        "and repeat the call"}
     tree = rc["tree"]
     return {**r, "item": item_slug, "ref": refs.item(body.org, item_slug),
             "receipt": rc,
@@ -8238,17 +8245,15 @@ def _work_read_call(body: AgentCall, a: dict[str, Any]) -> dict[str, Any]:
             from . import desktop_policy
             if desktop_policy.enabled():
                 raise LedgerError('Git verification is not available in desktop MVP')
-            with store.DOC_LOCK:
-                org = store.load_org(body.org)
-                cap = org.work_verify_capture(body.node, _work_ref(a),
-                                              str(a.get("stage") or ""))
+            # PG-3w: capture is a pure read (lock-free `org_read`); the
+            # write-back is one `org_tx` whose compare-and-set on `rev`
+            # changes nothing when stale, so a stale result commits nothing
+            cap = orgtx.org_read(
+                body.org, sections=["work_items_archive"]).work_verify_capture(
+                    body.node, _work_ref(a), str(a.get("stage") or ""))
             res = workitems.evaluate(cap["stage"], cap["sha"])
-            with store.DOC_LOCK:
-                org = store.load_org(body.org)
-                r = org.work_verify_commit(cap["wid"], cap["stage"], cap["rev"], res)
-                if not r.get("stale"):
-                    store.save_org(org)
-            return r
+            return worktx.run(body.org, lambda org: org.work_verify_commit(
+                cap["wid"], cap["stage"], cap["rev"], res))
         # `list` and `get` only read. The shared snapshot (`org_seq`-guarded,
         # dropped by every save) serves them without a third whole-document
         # parse in a call that has already paid for two — 56 ms of the 266 ms
