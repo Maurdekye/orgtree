@@ -110,7 +110,7 @@ impl TraceSink for Collect {
             EventKind::Outcome { outcome } => format!("outcome:{outcome}"),
             EventKind::Statement { label, .. } => format!("stmt:{label}{}", if e.stub { ":stub" } else { "" }),
             EventKind::CommitUnknown => "commit_unknown".into(),
-            EventKind::Commit => "commit".into(),
+            EventKind::Commit { .. } => "commit".into(),
             EventKind::Rollback => "rollback".into(),
             other => format!("{other:?}"),
         };

@@ -6,8 +6,8 @@
 //! control-plan types do not exist:
 //!
 #![cfg_attr(not(feature = "qualification"), doc = "```compile_fail")]
-#![cfg_attr(feature = "qualification", doc = "```ignore")]
-//! // Fails to compile in a production build: the hook type is absent.
+#![cfg_attr(feature = "qualification", doc = "```")]
+//! // Compiles only in a qualification build: the hook type is absent otherwise.
 //! fn _needs_hook(_: &dyn orgtree_store::hooks::PauseHook) {}
 //! ```
 
@@ -21,12 +21,18 @@ pub const QUALIFICATION: bool = cfg!(feature = "qualification");
 #[derive(Clone, Debug, PartialEq)]
 pub enum EventKind<'a> {
     /// A connection opened through the factory (CONTRACT-M1 §3.8).
-    ConnOpened { purpose: &'a str, backend_pid: Option<i32> },
+    /// `backend_start` (microseconds since the epoch) pairs with the pid so a
+    /// reused pid cannot hide a connection. Never a password or URL (§3.8).
+    ConnOpened { purpose: &'a str, backend_pid: Option<i32>, backend_start: Option<i64>, host: &'a str, port: u16, role: &'a str, database: &'a str },
     Admitted,
     Begin { isolation: &'static str, backend_pid: Option<i32> },
-    Statement { label: &'a str, micros: u64, rows: usize, sqlstate: Option<&'a str> },
+    /// `sql` is the statement text exactly as passed to `Tx::exec`; values
+    /// travel separately and are never traced (v6 PROFILING:14).
+    Statement { label: &'a str, sql: &'a str, micros: u64, rows: usize, sqlstate: Option<&'a str> },
     Retry { reason: &'static str, sqlstate: Option<&'a str>, constraint: Option<&'a str> },
-    Commit,
+    /// `pre_commit_lsn`: `pg_current_wal_insert_lsn()` read just before
+    /// COMMIT (qualification builds only): a lower bound on the commit record.
+    Commit { pre_commit_lsn: Option<&'a str> },
     Rollback,
     CommitUnknown,
     Effects { count: usize },

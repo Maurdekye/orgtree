@@ -316,7 +316,7 @@ impl<'a, S: Session> Tx<'a, S> {
             self.pause(&format!("stmt.{label}.before")).await?;
             if let Some(code) = self.fail_next.take() {
                 let e = DbError::sql(&code);
-                self.emit(EventKind::Statement { label, micros: 0, rows: 0, sqlstate: Some(&code) });
+                self.emit(EventKind::Statement { label, sql, micros: 0, rows: 0, sqlstate: Some(&code) });
                 return Err(e);
             }
         }
@@ -324,8 +324,8 @@ impl<'a, S: Session> Tx<'a, S> {
         let r = self.sess.exec(label, sql, params).await;
         let micros = t0.elapsed().as_micros() as u64;
         match &r {
-            Ok(rows) => self.emit(EventKind::Statement { label, micros, rows: rows.len(), sqlstate: None }),
-            Err(e) => self.emit(EventKind::Statement { label, micros, rows: 0, sqlstate: e.sqlstate() }),
+            Ok(rows) => self.emit(EventKind::Statement { label, sql, micros, rows: rows.len(), sqlstate: None }),
+            Err(e) => self.emit(EventKind::Statement { label, sql, micros, rows: 0, sqlstate: e.sqlstate() }),
         }
         #[cfg(feature = "qualification")]
         if r.is_ok() {
@@ -629,10 +629,17 @@ impl<C: Connector> Executor<C> {
             // Provisional server-side relation check (CONTRACT-M1 §5).
             db!(tx.exec("trace.xact_stats", "SELECT relname, seq_scan, idx_scan, n_tup_ins, n_tup_upd, n_tup_del FROM pg_stat_xact_user_tables", &[]).await, false);
         }
+        #[cfg(feature = "qualification")]
+        let pre_commit_lsn: Option<String> = {
+            let rows = db!(tx.exec("trace.pre_commit_lsn", "SELECT pg_current_wal_insert_lsn()::text", &[]).await, false);
+            rows.first().and_then(|r| r.first()).and_then(|v| v.as_text()).map(str::to_string)
+        };
+        #[cfg(not(feature = "qualification"))]
+        let pre_commit_lsn: Option<String> = None;
         db!(tx.pause("before_commit").await, false);
         let now = tx.now;
         match tx.sess.commit().await {
-            Ok(()) => tx.emit(EventKind::Commit),
+            Ok(()) => tx.emit(EventKind::Commit { pre_commit_lsn: pre_commit_lsn.as_deref() }),
             Err(DbError::ConnectionLost { .. }) => return Step::CommitUnknown { now },
             Err(e) => return self.classify(&mut tx, family, e, claimed, false, false).await,
         }
