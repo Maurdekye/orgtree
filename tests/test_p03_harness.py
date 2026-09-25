@@ -627,6 +627,181 @@ def traced_session(pid: int, sqls: list, factory: str = "executor", start_s: int
     return recs
 
 
+SRC, RCV, CONF, INBOX = ("mail.source.message", "mail.receive.deliver_agent",
+                         "runtime.confirm_input", "mail.inbox.user_inbox")
+
+
+def _decl(shape="workflow", **extra):
+    rel = {"relations": {"mail_sent": {"modes": ["write"], "required": True}},
+           "p01_contract": None, "source": "test"}
+    return {SRC: rel, RCV: rel, CONF: rel,
+            INBOX: {**rel, "shape": "read_snapshot"},
+            "workflows": {"mail.a_to_b": {"shape": shape, "steps": [SRC, RCV, CONF],
+                                          "source": "WS5 A-to-B"}}, **extra}
+
+
+class _Trace:
+    """Collector-shaped records on named streams, with contiguous seqs per stream."""
+
+    def __init__(self):
+        self.records, self._seq = [], {}
+
+    def add(self, kind, op_id, stream="s", **kw):
+        n = self._seq[stream] = self._seq.get(stream, 0) + 1
+        self.records.append({"stream": stream, "seq": n, "kind": kind, "operation_id": op_id,
+                             "attempt": 1, **kw})
+
+    def op(self, op_id, kind, refs, stream="s", commit=True, write=True):
+        self.begin(op_id, kind, refs, stream)
+        self.body(op_id, stream, commit, write)
+
+    def begin(self, op_id, kind, refs, stream="s"):
+        self.add("op_begin", op_id, stream, op_kind=kind, op_tag=None, run_id="r")
+        if refs is not None:
+            self.add("causal_refs", op_id, stream, refs=list(refs))
+        self.add("tx_begin", op_id, stream, backend_pid=1, isolation="read_committed")
+
+    def body(self, op_id, stream="s", commit=True, write=True):
+        self.add("stmt", op_id, stream, mode="write" if write else "read", relations=["mail_sent"])
+        if commit:
+            self.add("tx_end", op_id, stream, outcome="commit", backend_pid=1, sqlstate="00000")
+        self.add("op_end", op_id, stream, outcome="applied", contacts=1)
+
+
+def _a_to_b(t, msg="m1", stream_of=lambda _k: "s"):
+    t.op(f"src-{msg}", SRC, [msg], stream_of(SRC))
+    t.op(f"rcv-{msg}", RCV, [msg], stream_of(RCV))
+    t.op(f"conf-{msg}", CONF, [f"batch-{msg}", msg], stream_of(CONF))
+
+
+class Atomicity(unittest.TestCase):
+    """PROFILING test 2: the A-to-B mail workflow is three committed transactions
+    linked by the message id; declaring it ONE atomic transaction must fail."""
+
+    def test_the_workflow_declared_as_a_workflow_passes(self):
+        t = _Trace()
+        _a_to_b(t)
+        v = oracle.atomicity(_decl(), t.records)
+        self.assertEqual(v["verdict"], "PASSED", v["failures"])
+        self.assertEqual([(i["workflow"], i["commits"], len(i["operations"])) for i in v["instances"]],
+                         [("mail.a_to_b", 3, 3)])
+
+    def test_labelling_the_workflow_one_atomic_transaction_fails(self):
+        t = _Trace()
+        _a_to_b(t)
+        v = oracle.atomicity(_decl(shape="native_tx"), t.records)
+        self.assertEqual(v["verdict"], "FAILED")
+        self.assertEqual(v["failures"], [
+            "workflow mail.a_to_b [batch-m1, m1]: declared ONE atomic transaction, observed 3 "
+            "committed transactions across 3 operations (mail.receive.deliver_agent, "
+            "mail.source.message, runtime.confirm_input)"])
+
+    def test_a_single_committed_transaction_is_consistent_with_native_tx(self):
+        t = _Trace()
+        t.op("src-m1", SRC, ["m1"])
+        t.op("rcv-m1", RCV, ["m1"], commit=False)
+        self.assertEqual(oracle.atomicity(_decl(shape="native_tx"), t.records)["verdict"], "PASSED")
+
+    def test_a_step_without_causal_refs_cannot_be_claimed(self):
+        t = _Trace()
+        t.op("src-m1", SRC, ["m1"])
+        t.op("rcv-m1", RCV, None)
+        t.op("conf-m1", CONF, ["m1"])
+        v = oracle.atomicity(_decl(shape="native_tx"), t.records)
+        self.assertIn("workflow mail.a_to_b: mail.receive.deliver_agent rcv-m1 carries no "
+                      "causal_refs: it cannot be placed in an instance", v["failures"])
+
+    def test_a_receiver_that_began_before_the_source_committed_fails(self):
+        t = _Trace()
+        t.begin("src-m1", SRC, ["m1"])
+        t.begin("rcv-m1", RCV, ["m1"])
+        t.body("src-m1")
+        t.body("rcv-m1")
+        t.op("conf-m1", CONF, ["m1"])
+        v = oracle.atomicity(_decl(), t.records)
+        self.assertEqual(v["failures"], [
+            "workflow mail.a_to_b [m1]: mail.receive.deliver_agent began before "
+            "mail.source.message committed"])
+
+    def test_an_incomplete_instance_fails(self):
+        t = _Trace()
+        t.op("src-m1", SRC, ["m1"])
+        t.op("rcv-m1", RCV, ["m1"])
+        v = oracle.atomicity(_decl(), t.records)
+        self.assertEqual(v["failures"], ["workflow mail.a_to_b [m1]: incomplete instance, "
+                                         "missing steps ['runtime.confirm_input']"])
+
+    def test_instances_are_separated_by_id_and_joined_by_a_batch(self):
+        t = _Trace()
+        for m in ("m1", "m2"):
+            t.op(f"src-{m}", SRC, [m])
+            t.op(f"rcv-{m}", RCV, [m])
+        t.op("conf-b", CONF, ["b1"])
+        v = oracle.atomicity(_decl(), t.records)
+        self.assertEqual(sorted(i["refs"] for i in v["instances"]), [["b1"], ["m1"], ["m2"]])
+        t.op("conf-both", CONF, ["b2", "m1", "m2"])   # one input batch confirms both messages
+        v = oracle.atomicity(_decl(), t.records)
+        self.assertEqual(sorted(i["refs"] for i in v["instances"]),
+                         [["b1"], ["b2", "m1", "m2"]])
+
+    def test_order_across_streams_is_reported_unknown_not_passed_or_failed(self):
+        t = _Trace()
+        _a_to_b(t, stream_of=lambda k: "receiver" if k == RCV else "s")
+        v = oracle.atomicity(_decl(), t.records)
+        self.assertEqual(v["verdict"], "PASSED", v["failures"])
+        self.assertEqual(len(v["unknown_order"]), 2)
+
+    def test_a_read_snapshot_that_writes_fails(self):
+        t = _Trace()
+        t.op("inbox-1", INBOX, None, write=False)
+        self.assertEqual(oracle.atomicity(_decl(), t.records)["failures"], [])
+        t.op("inbox-2", INBOX, None, write=True)
+        self.assertEqual(oracle.atomicity(_decl(), t.records)["failures"],
+                         ["mail.inbox.user_inbox inbox-2: declared read_snapshot but wrote"])
+        t2 = _Trace()
+        t2.op("inbox-3", INBOX, None, write=False)
+        t2.add("xact_stats", "inbox-3", tables=[{"relname": "mail_sent", "n_tup_upd": 1}])
+        self.assertEqual(oracle.atomicity(_decl(), t2.records)["failures"],
+                         ["mail.inbox.user_inbox inbox-3: declared read_snapshot but wrote"])
+
+    def test_an_attempt_that_committed_twice_fails(self):
+        t = _Trace()
+        t.op("src-m1", SRC, ["m1"])
+        t.add("tx_end", "src-m1", outcome="commit", backend_pid=1, sqlstate="00000")
+        self.assertIn("mail.source.message src-m1: an attempt committed more than once",
+                      oracle.atomicity(_decl(), t.records)["failures"])
+
+    def test_a_declared_workflow_never_observed_is_reported(self):
+        v = oracle.atomicity(_decl(), [])
+        self.assertEqual((v["verdict"], v["not_observed"]), ("PASSED", ["mail.a_to_b"]))
+
+    def test_invalid_workflow_declarations_are_refused(self):
+        bad = [
+            {"mail.a_to_b": {"shape": "saga", "steps": [SRC], "source": "x"}},
+            {"mail.a_to_b": {"shape": "workflow", "steps": [], "source": "x"}},
+            {"mail.a_to_b": {"shape": "workflow", "steps": [SRC, SRC], "source": "x"}},
+            {"mail.a_to_b": {"shape": "workflow", "steps": [SRC, "no.such"], "source": "x"}},
+            {"mail.a_to_b": {"shape": "workflow", "steps": [SRC], "source": " "}},
+            [],
+        ]
+        for w in bad:
+            with self.subTest(w=w):
+                d = {**_decl(), "workflows": w}
+                self.assertTrue(oracle.declared_errors(d))
+                self.assertEqual(oracle.atomicity(d, [])["verdict"], "FAILED")
+        d = _decl()
+        d[SRC] = {**d[SRC], "shape": "eventually"}
+        self.assertTrue(oracle.declared_errors(d))
+        self.assertEqual(oracle.declared_errors(_decl()), [])
+        self.assertTrue(oracle.declared_errors({"workflows": {}}))   # workflows alone is empty
+
+    def test_q_c5_ignores_the_workflows_key(self):
+        d = _decl()
+        v = oracle.q_c5(d, [], ["executor"])
+        self.assertNotIn("workflows", v["over_declared"])
+        self.assertFalse([f for f in v["failures"] if "workflows" in f], v["failures"])
+
+
 class ServerLog(unittest.TestCase):
     """Q-C5 hidden access from the server's statement log (lead ruling, decision 3)."""
     A = "SELECT 1 FROM agents WHERE id = $1 FOR SHARE"
