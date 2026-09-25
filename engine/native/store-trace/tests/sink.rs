@@ -197,8 +197,10 @@ fn fingerprint_ignores_whitespace_and_case_only() {
 #[test]
 fn fingerprint_parity_vectors() {
     assert_eq!(fingerprint("SELECT  1\n\tFROM items"), "fnv1a64:6158a631b7695032");
-    assert_eq!(fingerprint("  INSERT INTO items (id) VALUES ($1) "), "fnv1a64:0a695736fd43bdf2");
+    assert_eq!(fingerprint("  INSERT INTO items (id) VALUES ($1) "), "fnv1a64:fb85c40311a61d66");
     assert_eq!(fingerprint("SELECT \u{e9}t\u{e9} FROM Items"), "fnv1a64:4b522fed6fb592eb");
+    // measured on a dev cluster: extended-protocol log lines keep a trailing space
+    assert_eq!(fingerprint("SELECT 1 "), fingerprint("SELECT 1"));
 }
 
 /// `KINDS` from tools/p03/harness/trace.py: the single definition of each record
