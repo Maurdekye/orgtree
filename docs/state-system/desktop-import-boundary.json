@@ -1,0 +1,2222 @@
+{
+  "schema": "orgtree.desktop-import-boundary/v1",
+  "source_contract_sha256": "188de8cb827b7d658868f8fee27f4e220e6bb6f20f07e369f515e1ec8517ce0c",
+  "qualification": {
+    "runtime_census": false,
+    "conversion_authorized": false
+  },
+  "contracts": {
+    "desktop-import.preview": "af32f38e57e2",
+    "desktop-import.import-retired": "238be1fcaf72",
+    "desktop-import.job-start": "cfcf69e53821",
+    "desktop-import.job-current": "8b64c96ff48e",
+    "desktop-import.job-status": "0a316f7b3d2c",
+    "desktop-import.job-cancel": "bbb3e9daae76"
+  },
+  "cases": {
+    "preview_no_token": {
+      "status": 401,
+      "body": {
+        "detail": "missing authentication; provide a desktop or live agent credential"
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "preview_agent_token": {
+      "status": 401,
+      "body": {
+        "detail": "agent credential is invalid or expired; reconnect the agent session"
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "preview_sqlite": {
+      "status": 200,
+      "body": {
+        "organizations": [
+          {
+            "conflict": null,
+            "memory": [
+              {
+                "base": "active",
+                "bytes": null,
+                "files": null,
+                "nodes": [
+                  "active"
+                ],
+                "reason": "No source memory directory",
+                "source": null,
+                "status": "none"
+              },
+              {
+                "base": "idle",
+                "bytes": null,
+                "files": null,
+                "nodes": [
+                  "idle"
+                ],
+                "reason": "No source memory directory",
+                "source": null,
+                "status": "none"
+              }
+            ],
+            "name": "{slug}",
+            "native_context": [
+              {
+                "node": "active",
+                "provider": "claude",
+                "reason": "Native Claude transcript missing; select its source profile or exact file",
+                "status": "held"
+              },
+              {
+                "node": "idle",
+                "provider": "claude",
+                "reason": "Native Claude transcript missing; select its source profile or exact file",
+                "status": "held"
+              }
+            ],
+            "nodes": 2,
+            "slug": "{slug}"
+          }
+        ],
+        "warnings": [
+          "V1 can keep running. Imported active agents and enabled automation may repeat work in the same external projects. The source is copied, never moved.",
+          "Native conversations are cloned where supported. Missing or unsupported native context remains held; readable history alone does not resume an agent. Prompt-cache continuity is not guaranteed."
+        ]
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [
+        ".import-staging/<uuid>/{slug}/original.json",
+        ".import-staging/<uuid>/{slug}/snapshot.db",
+        ".import-staging/<uuid>/{slug}/{slug}.db"
+      ],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "preview_json": {
+      "status": 200,
+      "body": {
+        "organizations": [
+          {
+            "conflict": null,
+            "memory": [
+              {
+                "base": "active",
+                "bytes": null,
+                "files": null,
+                "nodes": [
+                  "active"
+                ],
+                "reason": "No source memory directory",
+                "source": null,
+                "status": "none"
+              },
+              {
+                "base": "idle",
+                "bytes": null,
+                "files": null,
+                "nodes": [
+                  "idle"
+                ],
+                "reason": "No source memory directory",
+                "source": null,
+                "status": "none"
+              }
+            ],
+            "name": "{slug}",
+            "native_context": [
+              {
+                "node": "active",
+                "provider": "claude",
+                "reason": "Native Claude transcript missing; select its source profile or exact file",
+                "status": "held"
+              },
+              {
+                "node": "idle",
+                "provider": "claude",
+                "reason": "Native Claude transcript missing; select its source profile or exact file",
+                "status": "held"
+              }
+            ],
+            "nodes": 2,
+            "slug": "{slug}"
+          }
+        ],
+        "warnings": [
+          "V1 can keep running. Imported active agents and enabled automation may repeat work in the same external projects. The source is copied, never moved.",
+          "Native conversations are cloned where supported. Missing or unsupported native context remains held; readable history alone does not resume an agent. Prompt-cache continuity is not guaranteed."
+        ]
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [
+        ".import-staging/<uuid>/{slug}/original.json",
+        ".import-staging/<uuid>/{slug}/source.json"
+      ],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "preview_conflict": {
+      "status": 200,
+      "body": {
+        "organizations": [
+          {
+            "conflict": "Destination already contains workspaces\\{slug}; choose an unused organization",
+            "memory": [
+              {
+                "base": "active",
+                "bytes": null,
+                "files": null,
+                "nodes": [
+                  "active"
+                ],
+                "reason": "No source memory directory",
+                "source": null,
+                "status": "none"
+              },
+              {
+                "base": "idle",
+                "bytes": null,
+                "files": null,
+                "nodes": [
+                  "idle"
+                ],
+                "reason": "No source memory directory",
+                "source": null,
+                "status": "none"
+              }
+            ],
+            "name": "{slug}",
+            "native_context": [
+              {
+                "node": "active",
+                "provider": "claude",
+                "reason": "Native Claude transcript missing; select its source profile or exact file",
+                "status": "held"
+              },
+              {
+                "node": "idle",
+                "provider": "claude",
+                "reason": "Native Claude transcript missing; select its source profile or exact file",
+                "status": "held"
+              }
+            ],
+            "nodes": 2,
+            "slug": "{slug}"
+          }
+        ],
+        "warnings": [
+          "V1 can keep running. Imported active agents and enabled automation may repeat work in the same external projects. The source is copied, never moved.",
+          "Native conversations are cloned where supported. Missing or unsupported native context remains held; readable history alone does not resume an agent. Prompt-cache continuity is not guaranteed."
+        ]
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [
+        ".import-staging/<uuid>/{slug}/original.json",
+        ".import-staging/<uuid>/{slug}/snapshot.db",
+        ".import-staging/<uuid>/{slug}/{slug}.db"
+      ],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": {
+        "active_nodes": null,
+        "attempts": {},
+        "desktop_import_keys": [],
+        "nodes": {},
+        "recovery_pending": null,
+        "recovery_phase": null
+      },
+      "sends": []
+    },
+    "preview_relative": {
+      "status": 422,
+      "body": {
+        "detail": "Choose an absolute V1 data folder"
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "preview_no_orgs_dir": {
+      "status": 422,
+      "body": {
+        "detail": "V1 data folder must contain an orgs directory"
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "preview_overlap": {
+      "status": 422,
+      "body": {
+        "detail": "V1 and V2 data folders must not overlap"
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "preview_extra_field": {
+      "status": 422,
+      "body": {
+        "detail": [
+          {
+            "input": 1,
+            "loc": [
+              "body",
+              "extra"
+            ],
+            "msg": "Extra inputs are not permitted",
+            "type": "extra_forbidden"
+          }
+        ]
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "preview_mismatch": {
+      "status": 422,
+      "body": {
+        "detail": "{slug}: malformed organization identity"
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [
+        ".import-staging/<uuid>/{slug}/source.json"
+      ],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "preview_ambiguous": {
+      "status": 422,
+      "body": {
+        "detail": "{slug}: ambiguous SQLite and JSON source documents"
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "preview_disk_org": {
+      "status": 422,
+      "body": {
+        "detail": "{slug}: disk-backed V1 data must first be exported to a regular data folder; its scratch is not in this root"
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [
+        ".import-staging/<uuid>/{slug}/source.json"
+      ],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "preview_native_claude": {
+      "status": 200,
+      "body": {
+        "organizations": [
+          {
+            "conflict": null,
+            "memory": [
+              {
+                "base": "active",
+                "bytes": 18,
+                "files": 1,
+                "nodes": [
+                  "active"
+                ],
+                "reason": null,
+                "source": "<path>",
+                "status": "ready"
+              },
+              {
+                "base": "idle",
+                "bytes": null,
+                "files": null,
+                "nodes": [
+                  "idle"
+                ],
+                "reason": "No source memory directory",
+                "source": null,
+                "status": "none"
+              }
+            ],
+            "name": "{slug}",
+            "native_context": [
+              {
+                "node": "active",
+                "provider": "claude",
+                "source_path": "<path>",
+                "status": "available"
+              },
+              {
+                "node": "idle",
+                "provider": "claude",
+                "reason": "Native Claude transcript missing; select its source profile or exact file",
+                "status": "held"
+              }
+            ],
+            "nodes": 2,
+            "slug": "{slug}"
+          }
+        ],
+        "warnings": [
+          "V1 can keep running. Imported active agents and enabled automation may repeat work in the same external projects. The source is copied, never moved.",
+          "Native conversations are cloned where supported. Missing or unsupported native context remains held; readable history alone does not resume an agent. Prompt-cache continuity is not guaranteed."
+        ]
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [
+        ".import-staging/<uuid>/{slug}/original.json",
+        ".import-staging/<uuid>/{slug}/source.json"
+      ],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "preview_native_bad_key": {
+      "status": 422,
+      "body": {
+        "detail": "Invalid native source locators"
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "preview_native_relative": {
+      "status": 422,
+      "body": {
+        "detail": "Native source paths must be absolute"
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "import_sync_retired": {
+      "status": 409,
+      "body": {
+        "detail": "Use the background import jobs API; synchronous import is no longer available. Update the desktop client."
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "import_sync_invalid_body": {
+      "status": 422,
+      "body": {
+        "detail": [
+          {
+            "input": {
+              "source_root": "x"
+            },
+            "loc": [
+              "body",
+              "organizations"
+            ],
+            "msg": "Field required",
+            "type": "missing"
+          }
+        ]
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "job_ok": {
+      "status": 202,
+      "body": {
+        "job": {
+          "bytes_copied": 0,
+          "cancel_requested": false,
+          "cancellable": true,
+          "current_org": null,
+          "error": null,
+          "files_copied": 0,
+          "id": "{rid}",
+          "organizations": [
+            "{slug}"
+          ],
+          "phase": "queued",
+          "publications": [],
+          "result": null,
+          "source_root": "<path>",
+          "state": "queued",
+          "total_bytes": null,
+          "total_files": null
+        }
+      },
+      "final": {
+        "bytes_copied": 103,
+        "cancel_requested": false,
+        "cancellable": false,
+        "current_org": "{slug}",
+        "error": null,
+        "files_copied": 3,
+        "id": "{rid}",
+        "organizations": [
+          "{slug}"
+        ],
+        "phase": "finished",
+        "publications": [
+          {
+            "recovery": "returned",
+            "slug": "{slug}",
+            "state": "published"
+          }
+        ],
+        "result": {
+          "failed": [],
+          "imported": [
+            {
+              "active_nodes": [
+                "active"
+              ],
+              "name": "{slug}",
+              "recovery": {
+                "pending": [],
+                "selected": [
+                  "active"
+                ],
+                "unrecoverable": []
+              },
+              "recovery_pending": false,
+              "slug": "{slug}",
+              "warnings": [
+                "Native conversations are cloned where supported. Missing or unsupported native context remains held; readable history alone does not resume an agent. Prompt-cache continuity is not guaranteed.",
+                "active: native context held: Native Claude transcript missing; select its source profile or exact file",
+                "idle: provider transcript unavailable; organization history and scratch retained",
+                "idle: native context held: Native Claude transcript missing; select its source profile or exact file"
+              ]
+            }
+          ],
+          "warnings": [
+            "V1 can keep running. Imported active agents and enabled automation may repeat work in the same external projects. The source is copied, never moved.",
+            "Native conversations are cloned where supported. Missing or unsupported native context remains held; readable history alone does not resume an agent. Prompt-cache continuity is not guaranteed."
+          ]
+        },
+        "source_root": "<path>",
+        "state": "succeeded",
+        "total_bytes": 103,
+        "total_files": 3
+      },
+      "first_state": null,
+      "mid": null,
+      "dest_added": [
+        ".import-staging/<uuid>/{slug}/snapshot.db",
+        ".import-staging/<uuid>/{slug}/{slug}.db",
+        "import-jobs/current.json",
+        "import-jobs/{rid}.json",
+        "imports/{slug}/history/active.jsonl",
+        "imports/{slug}/original.json",
+        "journals/projects/{slug}/<uuid>.jsonl",
+        "orgs/{slug}.db",
+        "scratch/{slug}/active/notes.md",
+        "workspaces/{slug}/shared.md"
+      ],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [
+        "{slug}.db"
+      ],
+      "imported_org": {
+        "active_nodes": [
+          "active"
+        ],
+        "attempts": {
+          "active": "admitted"
+        },
+        "desktop_import_keys": [
+          "active_nodes",
+          "recovery_attempts",
+          "recovery_intents",
+          "recovery_pending",
+          "recovery_phase",
+          "source_root",
+          "warnings"
+        ],
+        "nodes": {
+          "active": {
+            "continuity": "native_context_held",
+            "inflight": false,
+            "session_unrun": true,
+            "state": "live"
+          },
+          "idle": {
+            "continuity": "native_context_held",
+            "inflight": false,
+            "session_unrun": true,
+            "state": "live"
+          }
+        },
+        "recovery_pending": false,
+        "recovery_phase": "resolved"
+      },
+      "sends": [
+        {
+          "node": "active",
+          "head": "[ORGTREE RESTART] orgtree shut down while you were mid-turn and is back up. The message that drove your interrupted turn is repeated below — you may have already completed part of it; check your recent work and CONTINUE from where you left off (do not redo finished steps).",
+          "view": "original visible prompt",
+          "carries_intent": true,
+          "carries_import_note": true
+        }
+      ]
+    },
+    "job_json_source": {
+      "status": 202,
+      "body": {
+        "job": {
+          "bytes_copied": 0,
+          "cancel_requested": false,
+          "cancellable": true,
+          "current_org": null,
+          "error": null,
+          "files_copied": 0,
+          "id": "{rid}",
+          "organizations": [
+            "{slug}"
+          ],
+          "phase": "queued",
+          "publications": [],
+          "result": null,
+          "source_root": "<path>",
+          "state": "queued",
+          "total_bytes": null,
+          "total_files": null
+        }
+      },
+      "final": {
+        "bytes_copied": 103,
+        "cancel_requested": false,
+        "cancellable": false,
+        "current_org": "{slug}",
+        "error": null,
+        "files_copied": 3,
+        "id": "{rid}",
+        "organizations": [
+          "{slug}"
+        ],
+        "phase": "finished",
+        "publications": [
+          {
+            "recovery": "returned",
+            "slug": "{slug}",
+            "state": "published"
+          }
+        ],
+        "result": {
+          "failed": [],
+          "imported": [
+            {
+              "active_nodes": [
+                "active"
+              ],
+              "name": "{slug}",
+              "recovery": {
+                "pending": [],
+                "selected": [
+                  "active"
+                ],
+                "unrecoverable": []
+              },
+              "recovery_pending": false,
+              "slug": "{slug}",
+              "warnings": [
+                "Native conversations are cloned where supported. Missing or unsupported native context remains held; readable history alone does not resume an agent. Prompt-cache continuity is not guaranteed.",
+                "active: native context held: Native Claude transcript missing; select its source profile or exact file",
+                "idle: provider transcript unavailable; organization history and scratch retained",
+                "idle: native context held: Native Claude transcript missing; select its source profile or exact file"
+              ]
+            }
+          ],
+          "warnings": [
+            "V1 can keep running. Imported active agents and enabled automation may repeat work in the same external projects. The source is copied, never moved.",
+            "Native conversations are cloned where supported. Missing or unsupported native context remains held; readable history alone does not resume an agent. Prompt-cache continuity is not guaranteed."
+          ]
+        },
+        "source_root": "<path>",
+        "state": "succeeded",
+        "total_bytes": 103,
+        "total_files": 3
+      },
+      "first_state": null,
+      "mid": null,
+      "dest_added": [
+        ".import-staging/<uuid>/{slug}/source.json",
+        "import-jobs/current.json",
+        "import-jobs/{rid}.json",
+        "imports/{slug}/history/active.jsonl",
+        "imports/{slug}/original.json",
+        "journals/projects/{slug}/<uuid>.jsonl",
+        "orgs/{slug}.db",
+        "scratch/{slug}/active/notes.md",
+        "workspaces/{slug}/shared.md"
+      ],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [
+        "{slug}.db"
+      ],
+      "imported_org": {
+        "active_nodes": [
+          "active"
+        ],
+        "attempts": {
+          "active": "admitted"
+        },
+        "desktop_import_keys": [
+          "active_nodes",
+          "recovery_attempts",
+          "recovery_intents",
+          "recovery_pending",
+          "recovery_phase",
+          "source_root",
+          "warnings"
+        ],
+        "nodes": {
+          "active": {
+            "continuity": "native_context_held",
+            "inflight": false,
+            "session_unrun": true,
+            "state": "live"
+          },
+          "idle": {
+            "continuity": "native_context_held",
+            "inflight": false,
+            "session_unrun": true,
+            "state": "live"
+          }
+        },
+        "recovery_pending": false,
+        "recovery_phase": "resolved"
+      },
+      "sends": [
+        {
+          "node": "active",
+          "head": "[ORGTREE RESTART] orgtree shut down while you were mid-turn and is back up. The message that drove your interrupted turn is repeated below — you may have already completed part of it; check your recent work and CONTINUE from where you left off (do not redo finished steps).",
+          "view": "original visible prompt",
+          "carries_intent": true,
+          "carries_import_note": true
+        }
+      ]
+    },
+    "job_native_claude": {
+      "status": 202,
+      "body": {
+        "job": {
+          "bytes_copied": 0,
+          "cancel_requested": false,
+          "cancellable": true,
+          "current_org": null,
+          "error": null,
+          "files_copied": 0,
+          "id": "{rid}",
+          "organizations": [
+            "{slug}"
+          ],
+          "phase": "queued",
+          "publications": [],
+          "result": null,
+          "source_root": "<path>",
+          "state": "queued",
+          "total_bytes": null,
+          "total_files": null
+        }
+      },
+      "final": {
+        "bytes_copied": 139,
+        "cancel_requested": false,
+        "cancellable": false,
+        "current_org": "{slug}",
+        "error": null,
+        "files_copied": 5,
+        "id": "{rid}",
+        "organizations": [
+          "{slug}"
+        ],
+        "phase": "finished",
+        "publications": [
+          {
+            "recovery": "returned",
+            "slug": "{slug}",
+            "state": "published"
+          }
+        ],
+        "result": {
+          "failed": [],
+          "imported": [
+            {
+              "active_nodes": [
+                "active"
+              ],
+              "name": "{slug}",
+              "recovery": {
+                "pending": [],
+                "selected": [
+                  "active"
+                ],
+                "unrecoverable": []
+              },
+              "recovery_pending": false,
+              "slug": "{slug}",
+              "warnings": [
+                "Native conversations are cloned where supported. Missing or unsupported native context remains held; readable history alone does not resume an agent. Prompt-cache continuity is not guaranteed.",
+                "idle: provider transcript unavailable; organization history and scratch retained",
+                "idle: native context held: Native Claude transcript missing; select its source profile or exact file"
+              ]
+            }
+          ],
+          "warnings": [
+            "V1 can keep running. Imported active agents and enabled automation may repeat work in the same external projects. The source is copied, never moved.",
+            "Native conversations are cloned where supported. Missing or unsupported native context remains held; readable history alone does not resume an agent. Prompt-cache continuity is not guaranteed."
+          ]
+        },
+        "source_root": "<path>",
+        "state": "succeeded",
+        "total_bytes": 103,
+        "total_files": 3
+      },
+      "first_state": null,
+      "mid": null,
+      "dest_added": [
+        ".import-staging/<uuid>/{slug}/source.json",
+        "import-jobs/current.json",
+        "import-jobs/{rid}.json",
+        "imports/{slug}/history/active.jsonl",
+        "imports/{slug}/memory/active.manifest.json",
+        "imports/{slug}/memory/active/MEMORY.md",
+        "imports/{slug}/native/active/<uuid>.jsonl",
+        "imports/{slug}/native/active/source.jsonl",
+        "imports/{slug}/original.json",
+        "journals/projects/{slug}/<uuid>.jsonl",
+        "orgs/{slug}.db",
+        "scratch/{slug}/active/notes.md",
+        "workspaces/{slug}/shared.md"
+      ],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [
+        ".claude/projects/<key>/memory/MEMORY.md"
+      ],
+      "source_unchanged": true,
+      "orgs_added": [
+        "{slug}.db"
+      ],
+      "imported_org": {
+        "active_nodes": [
+          "active"
+        ],
+        "attempts": {
+          "active": "admitted"
+        },
+        "desktop_import_keys": [
+          "active_nodes",
+          "recovery_attempts",
+          "recovery_intents",
+          "recovery_pending",
+          "recovery_phase",
+          "source_root",
+          "warnings"
+        ],
+        "nodes": {
+          "active": {
+            "continuity": "native_clone",
+            "inflight": false,
+            "session_unrun": null,
+            "state": "live"
+          },
+          "idle": {
+            "continuity": "native_context_held",
+            "inflight": false,
+            "session_unrun": true,
+            "state": "live"
+          }
+        },
+        "recovery_pending": false,
+        "recovery_phase": "resolved"
+      },
+      "sends": [
+        {
+          "node": "active",
+          "head": "[ORGTREE RESTART] orgtree shut down while you were mid-turn and is back up. The message that drove your interrupted turn is repeated below — you may have already completed part of it; check your recent work and CONTINUE from where you left off (do not redo finished steps).",
+          "view": "original visible prompt",
+          "carries_intent": true,
+          "carries_import_note": true
+        }
+      ]
+    },
+    "job_same_id_same_payload": {
+      "status": 202,
+      "body": {
+        "job": {
+          "bytes_copied": 103,
+          "cancel_requested": false,
+          "cancellable": false,
+          "current_org": "{slug}",
+          "error": null,
+          "files_copied": 3,
+          "id": "{rid}",
+          "organizations": [
+            "{slug}"
+          ],
+          "phase": "finished",
+          "publications": [
+            {
+              "recovery": "returned",
+              "slug": "{slug}",
+              "state": "published"
+            }
+          ],
+          "result": {
+            "failed": [],
+            "imported": [
+              {
+                "active_nodes": [
+                  "active"
+                ],
+                "name": "{slug}",
+                "recovery": {
+                  "pending": [],
+                  "selected": [
+                    "active"
+                  ],
+                  "unrecoverable": []
+                },
+                "recovery_pending": false,
+                "slug": "{slug}",
+                "warnings": [
+                  "Native conversations are cloned where supported. Missing or unsupported native context remains held; readable history alone does not resume an agent. Prompt-cache continuity is not guaranteed.",
+                  "active: native context held: Native Claude transcript missing; select its source profile or exact file",
+                  "idle: provider transcript unavailable; organization history and scratch retained",
+                  "idle: native context held: Native Claude transcript missing; select its source profile or exact file"
+                ]
+              }
+            ],
+            "warnings": [
+              "V1 can keep running. Imported active agents and enabled automation may repeat work in the same external projects. The source is copied, never moved.",
+              "Native conversations are cloned where supported. Missing or unsupported native context remains held; readable history alone does not resume an agent. Prompt-cache continuity is not guaranteed."
+            ]
+          },
+          "source_root": "<path>",
+          "state": "succeeded",
+          "total_bytes": 103,
+          "total_files": 3
+        }
+      },
+      "final": null,
+      "first_state": "succeeded",
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": {
+        "active_nodes": [
+          "active"
+        ],
+        "attempts": {
+          "active": "admitted"
+        },
+        "desktop_import_keys": [
+          "active_nodes",
+          "recovery_attempts",
+          "recovery_intents",
+          "recovery_pending",
+          "recovery_phase",
+          "source_root",
+          "warnings"
+        ],
+        "nodes": {
+          "active": {
+            "continuity": "native_context_held",
+            "inflight": false,
+            "session_unrun": true,
+            "state": "live"
+          },
+          "idle": {
+            "continuity": "native_context_held",
+            "inflight": false,
+            "session_unrun": true,
+            "state": "live"
+          }
+        },
+        "recovery_pending": false,
+        "recovery_phase": "resolved"
+      },
+      "sends": [
+        {
+          "node": "active",
+          "head": "[ORGTREE RESTART] orgtree shut down while you were mid-turn and is back up. The message that drove your interrupted turn is repeated below — you may have already completed part of it; check your recent work and CONTINUE from where you left off (do not redo finished steps).",
+          "view": "original visible prompt",
+          "carries_intent": true,
+          "carries_import_note": true
+        }
+      ]
+    },
+    "job_same_id_other_payload": {
+      "status": 409,
+      "body": {
+        "detail": "Import request ID already has a different payload"
+      },
+      "final": null,
+      "first_state": "succeeded",
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": {
+        "active_nodes": [
+          "active"
+        ],
+        "attempts": {
+          "active": "admitted"
+        },
+        "desktop_import_keys": [
+          "active_nodes",
+          "recovery_attempts",
+          "recovery_intents",
+          "recovery_pending",
+          "recovery_phase",
+          "source_root",
+          "warnings"
+        ],
+        "nodes": {
+          "active": {
+            "continuity": "native_context_held",
+            "inflight": false,
+            "session_unrun": true,
+            "state": "live"
+          },
+          "idle": {
+            "continuity": "native_context_held",
+            "inflight": false,
+            "session_unrun": true,
+            "state": "live"
+          }
+        },
+        "recovery_pending": false,
+        "recovery_phase": "resolved"
+      },
+      "sends": [
+        {
+          "node": "active",
+          "head": "[ORGTREE RESTART] orgtree shut down while you were mid-turn and is back up. The message that drove your interrupted turn is repeated below — you may have already completed part of it; check your recent work and CONTINUE from where you left off (do not redo finished steps).",
+          "view": "original visible prompt",
+          "carries_intent": true,
+          "carries_import_note": true
+        }
+      ]
+    },
+    "job_no_ack": {
+      "status": 422,
+      "body": {
+        "detail": "Acknowledge possible duplicate work before importing"
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "job_duplicate_orgs": {
+      "status": 422,
+      "body": {
+        "detail": "Choose unique organizations"
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "job_bad_slug": {
+      "status": 422,
+      "body": {
+        "detail": "Invalid organization slug"
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "job_bad_request_id": {
+      "status": 422,
+      "body": {
+        "detail": [
+          {
+            "ctx": {
+              "error": "invalid character: found `n` at 1"
+            },
+            "input": "nope",
+            "loc": [
+              "body",
+              "request_id"
+            ],
+            "msg": "Input should be a valid UUID, invalid character: found `n` at 1",
+            "type": "uuid_parsing"
+          }
+        ]
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "job_destination_conflict": {
+      "status": 202,
+      "body": {
+        "job": {
+          "bytes_copied": 0,
+          "cancel_requested": false,
+          "cancellable": true,
+          "current_org": null,
+          "error": null,
+          "files_copied": 0,
+          "id": "{rid}",
+          "organizations": [
+            "{slug}"
+          ],
+          "phase": "queued",
+          "publications": [],
+          "result": null,
+          "source_root": "<path>",
+          "state": "queued",
+          "total_bytes": null,
+          "total_files": null
+        }
+      },
+      "final": {
+        "bytes_copied": 0,
+        "cancel_requested": false,
+        "cancellable": false,
+        "current_org": null,
+        "error": "ImportRefused: Destination already contains workspaces\\{slug}; choose an unused organization",
+        "files_copied": 0,
+        "id": "{rid}",
+        "organizations": [
+          "{slug}"
+        ],
+        "phase": "counting",
+        "publications": [],
+        "result": null,
+        "source_root": "<path>",
+        "state": "failed",
+        "total_bytes": 103,
+        "total_files": 3
+      },
+      "first_state": null,
+      "mid": null,
+      "dest_added": [
+        "import-jobs/current.json",
+        "import-jobs/{rid}.json"
+      ],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": {
+        "active_nodes": null,
+        "attempts": {},
+        "desktop_import_keys": [],
+        "nodes": {},
+        "recovery_pending": null,
+        "recovery_phase": null
+      },
+      "sends": []
+    },
+    "job_missing_source_org": {
+      "status": 202,
+      "body": {
+        "job": {
+          "bytes_copied": 0,
+          "cancel_requested": false,
+          "cancellable": true,
+          "current_org": null,
+          "error": null,
+          "files_copied": 0,
+          "id": "{rid}",
+          "organizations": [
+            "ghost"
+          ],
+          "phase": "queued",
+          "publications": [],
+          "result": null,
+          "source_root": "<path>",
+          "state": "queued",
+          "total_bytes": null,
+          "total_files": null
+        }
+      },
+      "final": {
+        "bytes_copied": 0,
+        "cancel_requested": false,
+        "cancellable": false,
+        "current_org": "ghost",
+        "error": "ImportRefused: No source organization: ghost",
+        "files_copied": 0,
+        "id": "{rid}",
+        "organizations": [
+          "ghost"
+        ],
+        "phase": "reading",
+        "publications": [],
+        "result": null,
+        "source_root": "<path>",
+        "state": "failed",
+        "total_bytes": 0,
+        "total_files": 0
+      },
+      "first_state": null,
+      "mid": null,
+      "dest_added": [
+        "import-jobs/current.json",
+        "import-jobs/{rid}.json"
+      ],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "job_lease_held": {
+      "status": 409,
+      "body": {
+        "detail": "An import is already running for this destination. Check its status."
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "job_maintenance_acknowledged": {
+      "status": 409,
+      "body": {
+        "detail": "Native maintenance has reserved engine shutdown. Import was not started."
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "job_hook_unconfigured": {
+      "status": 503,
+      "body": {
+        "detail": "Import recovery hook is not configured"
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "job_previous_interrupted": {
+      "status": 409,
+      "body": {
+        "detail": "Previous import was interrupted. Check its status before starting another."
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [
+        "import-jobs/{rid}.json"
+      ],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "job_recovery_held": {
+      "status": 202,
+      "body": {
+        "job": {
+          "bytes_copied": 0,
+          "cancel_requested": false,
+          "cancellable": true,
+          "current_org": null,
+          "error": null,
+          "files_copied": 0,
+          "id": "{rid}",
+          "organizations": [
+            "{slug}"
+          ],
+          "phase": "queued",
+          "publications": [],
+          "result": null,
+          "source_root": "<path>",
+          "state": "queued",
+          "total_bytes": null,
+          "total_files": null
+        }
+      },
+      "final": {
+        "bytes_copied": 103,
+        "cancel_requested": false,
+        "cancellable": false,
+        "current_org": "{slug}",
+        "error": null,
+        "files_copied": 3,
+        "id": "{rid}",
+        "organizations": [
+          "{slug}"
+        ],
+        "phase": "finished",
+        "publications": [
+          {
+            "recovery": "returned",
+            "slug": "{slug}",
+            "state": "published"
+          }
+        ],
+        "result": {
+          "failed": [],
+          "imported": [
+            {
+              "active_nodes": [
+                "active"
+              ],
+              "name": "{slug}",
+              "recovery_pending": true,
+              "slug": "{slug}",
+              "warnings": [
+                "Native conversations are cloned where supported. Missing or unsupported native context remains held; readable history alone does not resume an agent. Prompt-cache continuity is not guaranteed.",
+                "active: native context held: Native Claude transcript missing; select its source profile or exact file",
+                "idle: provider transcript unavailable; organization history and scratch retained",
+                "idle: native context held: Native Claude transcript missing; select its source profile or exact file",
+                "Copy committed; recovery pending (RuntimeError). Do not repeat import."
+              ]
+            }
+          ],
+          "warnings": [
+            "V1 can keep running. Imported active agents and enabled automation may repeat work in the same external projects. The source is copied, never moved.",
+            "Native conversations are cloned where supported. Missing or unsupported native context remains held; readable history alone does not resume an agent. Prompt-cache continuity is not guaranteed."
+          ]
+        },
+        "source_root": "<path>",
+        "state": "succeeded",
+        "total_bytes": 103,
+        "total_files": 3
+      },
+      "first_state": null,
+      "mid": null,
+      "dest_added": [
+        ".import-staging/<uuid>/{slug}/snapshot.db",
+        ".import-staging/<uuid>/{slug}/{slug}.db",
+        "import-jobs/current.json",
+        "import-jobs/{rid}.json",
+        "imports/{slug}/history/active.jsonl",
+        "imports/{slug}/original.json",
+        "journals/projects/{slug}/<uuid>.jsonl",
+        "orgs/{slug}.db",
+        "scratch/{slug}/active/notes.md",
+        "workspaces/{slug}/shared.md"
+      ],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [
+        "{slug}.db"
+      ],
+      "imported_org": {
+        "active_nodes": [
+          "active"
+        ],
+        "attempts": {
+          "active": "held"
+        },
+        "desktop_import_keys": [
+          "active_nodes",
+          "recovery_attempts",
+          "recovery_intents",
+          "recovery_pending",
+          "recovery_phase",
+          "source_root",
+          "warnings"
+        ],
+        "nodes": {
+          "active": {
+            "continuity": "native_context_held",
+            "inflight": false,
+            "session_unrun": true,
+            "state": "live"
+          },
+          "idle": {
+            "continuity": "native_context_held",
+            "inflight": false,
+            "session_unrun": true,
+            "state": "live"
+          }
+        },
+        "recovery_pending": true,
+        "recovery_phase": "held"
+      },
+      "sends": [
+        {
+          "node": "active",
+          "head": "[ORGTREE RESTART] orgtree shut down while you were mid-turn and is back up. The message that drove your interrupted turn is repeated below — you may have already completed part of it; check your recent work and CONTINUE from where you left off (do not redo finished steps).",
+          "view": "original visible prompt",
+          "carries_intent": true,
+          "carries_import_note": true
+        }
+      ]
+    },
+    "current_none": {
+      "status": 200,
+      "body": {
+        "job": null
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "current_after_job": {
+      "status": 200,
+      "body": {
+        "job": {
+          "bytes_copied": 103,
+          "cancel_requested": false,
+          "cancellable": false,
+          "current_org": "{slug}",
+          "error": null,
+          "files_copied": 3,
+          "id": "{rid}",
+          "organizations": [
+            "{slug}"
+          ],
+          "phase": "finished",
+          "publications": [
+            {
+              "recovery": "returned",
+              "slug": "{slug}",
+              "state": "published"
+            }
+          ],
+          "result": {
+            "failed": [],
+            "imported": [
+              {
+                "active_nodes": [
+                  "active"
+                ],
+                "name": "{slug}",
+                "recovery": {
+                  "pending": [],
+                  "selected": [
+                    "active"
+                  ],
+                  "unrecoverable": []
+                },
+                "recovery_pending": false,
+                "slug": "{slug}",
+                "warnings": [
+                  "Native conversations are cloned where supported. Missing or unsupported native context remains held; readable history alone does not resume an agent. Prompt-cache continuity is not guaranteed.",
+                  "active: native context held: Native Claude transcript missing; select its source profile or exact file",
+                  "idle: provider transcript unavailable; organization history and scratch retained",
+                  "idle: native context held: Native Claude transcript missing; select its source profile or exact file"
+                ]
+              }
+            ],
+            "warnings": [
+              "V1 can keep running. Imported active agents and enabled automation may repeat work in the same external projects. The source is copied, never moved.",
+              "Native conversations are cloned where supported. Missing or unsupported native context remains held; readable history alone does not resume an agent. Prompt-cache continuity is not guaranteed."
+            ]
+          },
+          "source_root": "<path>",
+          "state": "succeeded",
+          "total_bytes": 103,
+          "total_files": 3
+        }
+      },
+      "final": null,
+      "first_state": "succeeded",
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": {
+        "active_nodes": [
+          "active"
+        ],
+        "attempts": {
+          "active": "admitted"
+        },
+        "desktop_import_keys": [
+          "active_nodes",
+          "recovery_attempts",
+          "recovery_intents",
+          "recovery_pending",
+          "recovery_phase",
+          "source_root",
+          "warnings"
+        ],
+        "nodes": {
+          "active": {
+            "continuity": "native_context_held",
+            "inflight": false,
+            "session_unrun": true,
+            "state": "live"
+          },
+          "idle": {
+            "continuity": "native_context_held",
+            "inflight": false,
+            "session_unrun": true,
+            "state": "live"
+          }
+        },
+        "recovery_pending": false,
+        "recovery_phase": "resolved"
+      },
+      "sends": [
+        {
+          "node": "active",
+          "head": "[ORGTREE RESTART] orgtree shut down while you were mid-turn and is back up. The message that drove your interrupted turn is repeated below — you may have already completed part of it; check your recent work and CONTINUE from where you left off (do not redo finished steps).",
+          "view": "original visible prompt",
+          "carries_intent": true,
+          "carries_import_note": true
+        }
+      ]
+    },
+    "current_interrupted": {
+      "status": 200,
+      "body": {
+        "job": {
+          "bytes_copied": 5,
+          "cancel_requested": false,
+          "cancellable": false,
+          "current_org": "{slug}",
+          "error": "Import engine stopped during preparation. No publication was recorded. Staging is retained; nothing was replayed.",
+          "files_copied": 1,
+          "id": "{rid}",
+          "organizations": [
+            "{slug}"
+          ],
+          "phase": "copying",
+          "publications": [],
+          "result": null,
+          "source_root": "<path>",
+          "state": "interrupted",
+          "total_bytes": 20,
+          "total_files": 3
+        }
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [
+        "import-jobs/{rid}.json"
+      ],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "exact_after_job": {
+      "status": 200,
+      "body": {
+        "job": {
+          "bytes_copied": 103,
+          "cancel_requested": false,
+          "cancellable": false,
+          "current_org": "{slug}",
+          "error": null,
+          "files_copied": 3,
+          "id": "{rid}",
+          "organizations": [
+            "{slug}"
+          ],
+          "phase": "finished",
+          "publications": [
+            {
+              "recovery": "returned",
+              "slug": "{slug}",
+              "state": "published"
+            }
+          ],
+          "result": {
+            "failed": [],
+            "imported": [
+              {
+                "active_nodes": [
+                  "active"
+                ],
+                "name": "{slug}",
+                "recovery": {
+                  "pending": [],
+                  "selected": [
+                    "active"
+                  ],
+                  "unrecoverable": []
+                },
+                "recovery_pending": false,
+                "slug": "{slug}",
+                "warnings": [
+                  "Native conversations are cloned where supported. Missing or unsupported native context remains held; readable history alone does not resume an agent. Prompt-cache continuity is not guaranteed.",
+                  "active: native context held: Native Claude transcript missing; select its source profile or exact file",
+                  "idle: provider transcript unavailable; organization history and scratch retained",
+                  "idle: native context held: Native Claude transcript missing; select its source profile or exact file"
+                ]
+              }
+            ],
+            "warnings": [
+              "V1 can keep running. Imported active agents and enabled automation may repeat work in the same external projects. The source is copied, never moved.",
+              "Native conversations are cloned where supported. Missing or unsupported native context remains held; readable history alone does not resume an agent. Prompt-cache continuity is not guaranteed."
+            ]
+          },
+          "source_root": "<path>",
+          "state": "succeeded",
+          "total_bytes": 103,
+          "total_files": 3
+        }
+      },
+      "final": null,
+      "first_state": "succeeded",
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": {
+        "active_nodes": [
+          "active"
+        ],
+        "attempts": {
+          "active": "admitted"
+        },
+        "desktop_import_keys": [
+          "active_nodes",
+          "recovery_attempts",
+          "recovery_intents",
+          "recovery_pending",
+          "recovery_phase",
+          "source_root",
+          "warnings"
+        ],
+        "nodes": {
+          "active": {
+            "continuity": "native_context_held",
+            "inflight": false,
+            "session_unrun": true,
+            "state": "live"
+          },
+          "idle": {
+            "continuity": "native_context_held",
+            "inflight": false,
+            "session_unrun": true,
+            "state": "live"
+          }
+        },
+        "recovery_pending": false,
+        "recovery_phase": "resolved"
+      },
+      "sends": [
+        {
+          "node": "active",
+          "head": "[ORGTREE RESTART] orgtree shut down while you were mid-turn and is back up. The message that drove your interrupted turn is repeated below — you may have already completed part of it; check your recent work and CONTINUE from where you left off (do not redo finished steps).",
+          "view": "original visible prompt",
+          "carries_intent": true,
+          "carries_import_note": true
+        }
+      ]
+    },
+    "exact_unknown": {
+      "status": 404,
+      "body": {
+        "detail": "Import request ID is not recorded"
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "exact_bad_id": {
+      "status": 422,
+      "body": {
+        "detail": [
+          {
+            "ctx": {
+              "error": "invalid character: found `n` at 1"
+            },
+            "input": "nope",
+            "loc": [
+              "path",
+              "request_id"
+            ],
+            "msg": "Input should be a valid UUID, invalid character: found `n` at 1",
+            "type": "uuid_parsing"
+          }
+        ]
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "exact_interrupted": {
+      "status": 200,
+      "body": {
+        "job": {
+          "bytes_copied": 5,
+          "cancel_requested": false,
+          "cancellable": false,
+          "current_org": "{slug}",
+          "error": "Import engine stopped during preparation. No publication was recorded. Staging is retained; nothing was replayed.",
+          "files_copied": 1,
+          "id": "{rid}",
+          "organizations": [
+            "{slug}"
+          ],
+          "phase": "copying",
+          "publications": [],
+          "result": null,
+          "source_root": "<path>",
+          "state": "interrupted",
+          "total_bytes": 20,
+          "total_files": 3
+        }
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [
+        "import-jobs/{rid}.json"
+      ],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "cancel_mid_copy": {
+      "status": 200,
+      "body": {
+        "job": {
+          "bytes_copied": 0,
+          "cancel_requested": true,
+          "cancellable": false,
+          "current_org": "{slug}",
+          "error": null,
+          "files_copied": 0,
+          "id": "{rid}",
+          "organizations": [
+            "{slug}"
+          ],
+          "phase": "copying",
+          "publications": [],
+          "result": null,
+          "source_root": "<path>",
+          "state": "cancelling",
+          "total_bytes": 103,
+          "total_files": 3
+        }
+      },
+      "final": {
+        "bytes_copied": 0,
+        "cancel_requested": true,
+        "cancellable": false,
+        "current_org": "{slug}",
+        "error": "ImportCancelled: Import cancellation requested before publication",
+        "files_copied": 0,
+        "id": "{rid}",
+        "organizations": [
+          "{slug}"
+        ],
+        "phase": "copying",
+        "publications": [],
+        "result": null,
+        "source_root": "<path>",
+        "state": "cancelled",
+        "total_bytes": 103,
+        "total_files": 3
+      },
+      "first_state": null,
+      "mid": {
+        "job": {
+          "bytes_copied": 0,
+          "cancel_requested": false,
+          "cancellable": true,
+          "current_org": "{slug}",
+          "error": null,
+          "files_copied": 0,
+          "id": "{rid}",
+          "organizations": [
+            "{slug}"
+          ],
+          "phase": "copying",
+          "publications": [],
+          "result": null,
+          "source_root": "<path>",
+          "state": "running",
+          "total_bytes": 103,
+          "total_files": 3
+        }
+      },
+      "dest_added": [
+        ".import-staging/<uuid>/{slug}/original.json",
+        ".import-staging/<uuid>/{slug}/snapshot.db",
+        ".import-staging/<uuid>/{slug}/{slug}.db",
+        "import-jobs/current.json",
+        "import-jobs/{rid}.json"
+      ],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "cancel_after_finish": {
+      "status": 200,
+      "body": {
+        "job": {
+          "bytes_copied": 103,
+          "cancel_requested": false,
+          "cancellable": false,
+          "current_org": "{slug}",
+          "error": null,
+          "files_copied": 3,
+          "id": "{rid}",
+          "organizations": [
+            "{slug}"
+          ],
+          "phase": "finished",
+          "publications": [
+            {
+              "recovery": "returned",
+              "slug": "{slug}",
+              "state": "published"
+            }
+          ],
+          "result": {
+            "failed": [],
+            "imported": [
+              {
+                "active_nodes": [
+                  "active"
+                ],
+                "name": "{slug}",
+                "recovery": {
+                  "pending": [],
+                  "selected": [
+                    "active"
+                  ],
+                  "unrecoverable": []
+                },
+                "recovery_pending": false,
+                "slug": "{slug}",
+                "warnings": [
+                  "Native conversations are cloned where supported. Missing or unsupported native context remains held; readable history alone does not resume an agent. Prompt-cache continuity is not guaranteed.",
+                  "active: native context held: Native Claude transcript missing; select its source profile or exact file",
+                  "idle: provider transcript unavailable; organization history and scratch retained",
+                  "idle: native context held: Native Claude transcript missing; select its source profile or exact file"
+                ]
+              }
+            ],
+            "warnings": [
+              "V1 can keep running. Imported active agents and enabled automation may repeat work in the same external projects. The source is copied, never moved.",
+              "Native conversations are cloned where supported. Missing or unsupported native context remains held; readable history alone does not resume an agent. Prompt-cache continuity is not guaranteed."
+            ]
+          },
+          "source_root": "<path>",
+          "state": "succeeded",
+          "total_bytes": 103,
+          "total_files": 3
+        }
+      },
+      "final": null,
+      "first_state": "succeeded",
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": {
+        "active_nodes": [
+          "active"
+        ],
+        "attempts": {
+          "active": "admitted"
+        },
+        "desktop_import_keys": [
+          "active_nodes",
+          "recovery_attempts",
+          "recovery_intents",
+          "recovery_pending",
+          "recovery_phase",
+          "source_root",
+          "warnings"
+        ],
+        "nodes": {
+          "active": {
+            "continuity": "native_context_held",
+            "inflight": false,
+            "session_unrun": true,
+            "state": "live"
+          },
+          "idle": {
+            "continuity": "native_context_held",
+            "inflight": false,
+            "session_unrun": true,
+            "state": "live"
+          }
+        },
+        "recovery_pending": false,
+        "recovery_phase": "resolved"
+      },
+      "sends": [
+        {
+          "node": "active",
+          "head": "[ORGTREE RESTART] orgtree shut down while you were mid-turn and is back up. The message that drove your interrupted turn is repeated below — you may have already completed part of it; check your recent work and CONTINUE from where you left off (do not redo finished steps).",
+          "view": "original visible prompt",
+          "carries_intent": true,
+          "carries_import_note": true
+        }
+      ]
+    },
+    "cancel_unknown": {
+      "status": 404,
+      "body": {
+        "detail": "Import request ID is not recorded"
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "cancel_bad_id": {
+      "status": 422,
+      "body": {
+        "detail": [
+          {
+            "ctx": {
+              "error": "invalid character: found `n` at 1"
+            },
+            "input": "nope",
+            "loc": [
+              "path",
+              "request_id"
+            ],
+            "msg": "Input should be a valid UUID, invalid character: found `n` at 1",
+            "type": "uuid_parsing"
+          }
+        ]
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "cancel_interrupted_record": {
+      "status": 200,
+      "body": {
+        "job": {
+          "bytes_copied": 5,
+          "cancel_requested": true,
+          "cancellable": false,
+          "current_org": "{slug}",
+          "error": null,
+          "files_copied": 1,
+          "id": "{rid}",
+          "organizations": [
+            "{slug}"
+          ],
+          "phase": "copying",
+          "publications": [],
+          "result": null,
+          "source_root": "<path>",
+          "state": "cancelling",
+          "total_bytes": 20,
+          "total_files": 3
+        }
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [
+        "import-jobs/{rid}.cancel"
+      ],
+      "dest_removed": [],
+      "dest_changed": [
+        "import-jobs/{rid}.json"
+      ],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    },
+    "cancel_interrupted_then_read": {
+      "status": 200,
+      "body": {
+        "job": {
+          "bytes_copied": 5,
+          "cancel_requested": true,
+          "cancellable": false,
+          "current_org": "{slug}",
+          "error": "Import engine stopped during preparation. No publication was recorded. Staging is retained; nothing was replayed.",
+          "files_copied": 1,
+          "id": "{rid}",
+          "organizations": [
+            "{slug}"
+          ],
+          "phase": "copying",
+          "publications": [],
+          "result": null,
+          "source_root": "<path>",
+          "state": "interrupted",
+          "total_bytes": 20,
+          "total_files": 3
+        }
+      },
+      "final": null,
+      "first_state": null,
+      "mid": null,
+      "dest_added": [],
+      "dest_removed": [],
+      "dest_changed": [
+        "import-jobs/{rid}.json"
+      ],
+      "home_added": [],
+      "source_unchanged": true,
+      "orgs_added": [],
+      "imported_org": null,
+      "sends": []
+    }
+  },
+  "legacy_defects": [
+    "a cancel of an import job record left active by a stopped engine (no worker owns the destination lease) is accepted: the record turns cancelling and a <id>.cancel marker is written that no worker will consume; the next status read marks the record interrupted and the marker stays (docket cancelling-an-orphaned-desktop-import-job-leaves)"
+  ],
+  "scope": "Legacy boundary of the desktop V1-import routes (P01 F9) on a disposable V2 data root and synthetic V1 sources inside one temp root, through the real desktop app (engine/launch.py load_app, its TokenGate and the real recovery hook). Every process launch is refused and recorded (none happens); supervisor.send_message, the recovery's admission of an imported agent's turn, is a recorder that accepts or holds as each case sets; the process's boot build identity is seeded the way an installed runtime reads it, so the replay does not run git against a source checkout; the destination Claude profile resolves inside the temp root (USERPROFILE). Legacy conformance evidence only: not a runtime census, not PostgreSQL or Rust qualification."
+}

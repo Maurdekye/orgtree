@@ -601,6 +601,33 @@ adds five entry witnesses:
   `FrozenAdminBoundary` (a non-loopback, unbridged request is refused 403 under the frozen profile) stay pending
   with the runtime as owner: they are request-wide admission predicates that no contract or shared facet states yet.
 
+752 is eight more than that 744 (P01 F9, p01-f9-contracts-for-the-desktop-v1-import-route). The rise is expected. 6
+entries and 4 storage sites are mapped, and each of the 6 new contracts opens conflicts, wire and instrumentation.
+F9 contracts the 6 desktop V1-import routes (`desktop_import.py`, `/api/desktop/import-v1`) on a new
+`desktop-import.*` facet family: preview, the retired synchronous import, and the job's start, current, status and
+cancel. Only the desktop launcher mounts them, behind its token gate. The SQLite sites only these routes reach (the V1
+store's private copy and backup in `_read_document`, the V2 candidate in `_write_candidate`) map under rule 1. The
+import worker's thread entry stays pending: no worker entry is bound to its route's contract (the F3 precedent).
+
+They are pinned by `tests/test_state_desktop_import_boundary.py` against
+`docs/state-system/desktop-import-boundary.json` (46 cases), through the real desktop app and its real recovery hook,
+on a disposable data root and synthetic V1 sources:
+- an audit hook refuses every process launch, and none happens;
+- the recovery's admission of an imported agent's turn (`supervisor.send_message`) is a recorder;
+- the boot build identity is seeded the way an installed runtime reads it, because a source checkout would resolve it
+  with git when the recovery replays a turn.
+
+What the routes write:
+- preview is not read-only: it leaves a private copy of each V1 store under `<DATA_ROOT>/.import-staging/`, a refused
+  preview that read the document included;
+- a job publishes each org into the data root (its areas, `imports/<slug>/` and `orgs/<slug>.db`);
+- a native Claude import also publishes the agent's project memory into the destination agent's Claude profile,
+  outside the data root;
+- the status reads rewrite a job record that no worker owns as interrupted.
+
+Recorded legacy defect (docket cancelling-an-orphaned-desktop-import-job-leaves): a cancel of such an orphaned record
+is accepted, and it leaves a marker that nothing consumes. Entries contracted: 119 of 187.
+
 Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the
 native-design citation; those figures were already stale after S2d, which left 45

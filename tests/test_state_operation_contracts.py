@@ -44,9 +44,9 @@ class ContractCoverage(unittest.TestCase):
         self.assertGreater(result["summary"]["storage"]["pending"], 0)
         # THE one registry-wide tripwire (review of S3 candidate 1): every candidate
         # that maps a witness or adds a contract moves these numbers here, and only here.
-        self.assertEqual(result["contracts"], 187)
+        self.assertEqual(result["contracts"], 193)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
-                          result["summary"]["storage"]["mapped"]), (147, 168, 2))
+                          result["summary"]["storage"]["mapped"]), (153, 168, 6))
         # 571 -> 590 (P01 F1): 19 entries and 19 dispatch witnesses mapped, 57 new open dimension occurrences
         # (conflicts, wire and instrumentation on each of the 19 lifecycle contracts), as the Q1 ruling expects
         # 590 -> 608 (P01 F1b): the operator door and 23 of its branches mapped, 42 new open dimension
@@ -78,7 +78,9 @@ class ContractCoverage(unittest.TestCase):
         # 742 -> 744 (p01-inventory-misses-middleware-add-middleware-c): the scan now sees middleware installed by
         # add_middleware and by a direct decorator-factory call; of its 5 new entries the two request-wide
         # admission layers (RecoveryBarrier, FrozenAdminBoundary) stay pending
-        self.assertEqual(len(result["pending"]), 744)
+        # 744 -> 752 (P01 F9): 6 entries and 4 storage witnesses mapped, 18 new open dimension occurrences
+        # (conflicts, wire and instrumentation on each of 6 desktop-import contracts)
+        self.assertEqual(len(result["pending"]), 752)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -130,18 +132,21 @@ class ContractCoverage(unittest.TestCase):
                                                   "antigravity_provenance.py:_Read.__init__",
                                                   "api.py:_share_url", "liveness.py:_observe_port"])
         # P01 F4 maps the two sidecar sites only its operations reach (rule 1): the file_deliveries write and the
-        # reply_events read-only count
-        self.assertEqual(sorted(by["mapped"]), ["filedelivery.py:snapshot", "reply_events.py:count"])
+        # reply_events read-only count. P01 F9 maps the four desktop import sites only its routes reach (rule 1): the
+        # V1 store's private copy and backup (preview and the job) and the V2 candidate store (the job)
+        self.assertEqual(sorted(by["mapped"]), ["desktop_import.py:_read_document"] * 3
+                         + ["desktop_import.py:_write_candidate", "filedelivery.py:snapshot", "reply_events.py:count"])
         # 11 from S2k, plus the 3 mail hub store migration connections the launch.py item's wider scan found, less
-        # the two P01 F4 mapped
-        self.assertEqual(len(by["pending"]), 12)
+        # the two P01 F4 mapped, less the four P01 F9 mapped
+        self.assertEqual(len(by["pending"]), 8)
         self.assertEqual(by["pending"].count("mailhub_runtime.py:MailhubRuntime._migrate_store"), 3)
         # the org store and every census-observed sidecar stay pending, each with its S2k reason
         self.assertLessEqual({"store.py:_open_conn", "toolwait.py:_db", "reply_events.py:_connect",
                               "transcript_records.py:database", "chat_window.py:project_tail"}, set(by["pending"]))
         for i, r in rows.items():
             if r["disposition"] == "mapped":
-                self.assertIn("(P01 F4, rule 1)", r["reason"])
+                self.assertIn("(P01 F9, rule 1)" if where(i).startswith("desktop_import.py:") else "(P01 F4, rule 1)",
+                              r["reason"])
                 continue
             with self.subTest(site=where(i)):
                 step = "launch.py item" if where(i).startswith("mailhub_runtime.py:") else "S2k"
@@ -432,7 +437,8 @@ class ContractCoverage(unittest.TestCase):
     # 121 -> 106: P01 F6 contracted 15 of them
     # 106 -> 95: P01 F7 contracted 11 of them
     # 95 -> 74: P01 F8 contracted 21 of them
-    GENERIC_PENDING_ENTRIES = 74
+    # 74 -> 68: P01 F9 contracted 6 of them
+    GENERIC_PENDING_ENTRIES = 68
 
     def test_every_pending_witness_names_its_owner_or_is_a_generic_entry_point(self):
         kinds = {s["site_id"]: s["kind"] for s in self.source["registrations"]}

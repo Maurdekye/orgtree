@@ -11864,6 +11864,411 @@
           "sha256": "a4d47206132db4abcdb4484bcb09079a65aa049ae7ce55df4a092c04b207d2de"
         }
       ]
+    },
+    "desktop-import.authority": {
+      "dimension": "authority",
+      "status": "specified",
+      "facts": [
+        "Every route is a desktop operator route. Only engine/launch.py's load_app mounts the router (app.include_router(desktop_import.router) on the V1 API app, after it wires the recovery hook with desktop_import.configure), and the app it serves is wrapped in the launcher's TokenGate: a request without the desktop token is refused 401 ('missing authentication; provide a desktop or live agent credential') and so is a request carrying only a live agent credential ('agent credential is invalid or expired; reconnect the agent session', although the credential is valid), because the gate admits an agent token only on POST /api/agent and the steer routes. The router has no dependency of its own. PROFILES: the standard API (orgtree.api alone) never mounts these routes; under the desktop-managed profile desktop_policy.install_routes leaves them in place (it filters accounts, kiosk and /git/ paths). The request-wide middleware (RecoveryBarrier, FrozenAdminBoundary) applies as to every request and is witnessed separately. Pinned by tests/test_state_desktop_import_boundary.py against docs/state-system/desktop-import-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/launch.py",
+          "start": 313,
+          "end": 349,
+          "sha256": "35a769a97f4df2e02046d00769618f087a7be06d809fb79d87aa75e66159a434"
+        },
+        {
+          "path": "engine/launch.py",
+          "start": 156,
+          "end": 195,
+          "sha256": "7fcd8231057ad57fa6da4a66acc584dccc25d9e5dd93afd51c6827163446f580"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 75,
+          "end": 84,
+          "sha256": "6ad0797d97ba7cf5d90b618fbfd851804839d82ba01b565ead3c909f314fc11b"
+        }
+      ]
+    },
+    "desktop-import.reads": {
+      "dimension": "reads",
+      "status": "specified",
+      "facts": [
+        "preview reads the chosen V1 data folder: every orgs/<slug>.db (copied byte for byte with its WAL into private staging, digest-checked before and after, then read through a SQLite backup of that private copy, so the source's own SQLite files are never opened) or orgs/<slug>.json, and per node the native session transcript and the Claude project memory in the source profile (native_sources claude_profile, else the V1 folder's sibling .claude); it reads the V2 destination only to report a per-org conflict. The job routes read the machine-wide job records under <DATA_ROOT>/import-jobs (<id>.json, current.json and a <id>.cancel marker), without the organization document lock; status and current answer a running job from the worker's live record. The job's worker reads the same V1 sources as preview, plus the scratch, workspaces, journals/projects and turnlog areas it copies, under the document lock for the whole copy and publication. No route reads or writes the V1 folder's bytes other than by copying: the source tree is unchanged in every pinned case. Pinned by tests/test_state_desktop_import_boundary.py against docs/state-system/desktop-import-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 110,
+          "end": 125,
+          "sha256": "40c8f5fcc667d2d550cae87b5cfe4e6e82d9813b2110252f42207b96c99488e7"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 221,
+          "end": 261,
+          "sha256": "3fdf5a81b57b59e47d8c8f6581f4b182576aaf4ff63d1f1e62abfa789baa2af4"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 533,
+          "end": 559,
+          "sha256": "49f50d10b219012294afac8675913c57ab29981d155ac2bca7e5d8450be2e150"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_native.py",
+          "start": 63,
+          "end": 93,
+          "sha256": "25dea3190407c8601fda01a2e15d50ab71361dee5c042b33d10342e43ae09eba"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_native.py",
+          "start": 234,
+          "end": 255,
+          "sha256": "9ffea856ff80b21083dff08cf34ed4342f0e588b765edd2122b495faf8dcf917"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import_jobs.py",
+          "start": 160,
+          "end": 180,
+          "sha256": "a56988530ab1f7ce9c29c6a4fc89f02f1f9d45d69fc83b244dd6ad3ce52f389e"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import_jobs.py",
+          "start": 188,
+          "end": 199,
+          "sha256": "f692f985d9e64dbe22225b9891a5815e04fbe5e9333cd0b9e1b233183134d6a3"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 599,
+          "end": 685,
+          "sha256": "dde46051bb8841c6430f3585242d1d01554b0b91bb2a1539eb4c369d101f6e5c"
+        }
+      ]
+    },
+    "desktop-import.writes": {
+      "dimension": "writes",
+      "status": "specified",
+      "facts": [
+        "preview is not read-only: for every org in the source it writes <DATA_ROOT>/.import-staging/<uuid>/<slug>/ (the private copy of the V1 database and WAL and its snapshot.db, or source.json, and original.json once the document validates) and never removes it, a refused preview that got as far as reading the document included. job-start writes the job record and current.json atomically and starts a daemon worker (desktop-import-<id>) that plans, copies each org's areas into new staging, prepares the document (runtime paths remapped to the V2 root, each node's session rebound to a native clone or held, pids and provider bindings cleared, kiosk, sandbox, disk and the network identity archived), writes and verifies a candidate SQLite store, and publishes each org: the areas move into the data root, imports/<slug>/ keeps original.json, history, native and memory, and orgs/<slug>.db appears by an exclusive hard link. A native Claude import also publishes the node's project memory into the DESTINATION agent's Claude profile (CLAUDE_CONFIG_DIR, else USERPROFILE/.claude, projects/<key>/memory), outside the V2 data root. After publication the recovery hook (desktop_recovery.resume_import) records recovery_attempts, recovery_intents and recovery_phase in the imported org's desktop_import metadata. The staging folder is retained after success. job-status and job-current rewrite an active record that no worker owns (the destination lease is free) as interrupted, never replaying it; job-start does the same to the record current.json names before it refuses. job-cancel writes the <id>.cancel marker and the record (state cancelling) for a job in a cancellable phase and returns a finished job unchanged; the worker consumes the marker at its checkpoints. LEGACY: a cancel of an active record that no worker owns is accepted the same way, and the marker is never consumed (docket cancelling-an-orphaned-desktop-import-job-leaves). import-retired writes nothing. Pinned by tests/test_state_desktop_import_boundary.py against docs/state-system/desktop-import-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 533,
+          "end": 559,
+          "sha256": "49f50d10b219012294afac8675913c57ab29981d155ac2bca7e5d8450be2e150"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 221,
+          "end": 261,
+          "sha256": "3fdf5a81b57b59e47d8c8f6581f4b182576aaf4ff63d1f1e62abfa789baa2af4"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import_jobs.py",
+          "start": 218,
+          "end": 279,
+          "sha256": "858ba95afd03a0e8d891c70e799790691e51288688c395d8c8c794f35640ebcb"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import_jobs.py",
+          "start": 282,
+          "end": 416,
+          "sha256": "73ed008acf5ded7f38f9252917f687738f8422f40233106b1348307b8990e7c2"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 599,
+          "end": 685,
+          "sha256": "dde46051bb8841c6430f3585242d1d01554b0b91bb2a1539eb4c369d101f6e5c"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 395,
+          "end": 494,
+          "sha256": "27df6132d3972e4d40fc133e4e974966d183a97d8fe1b5fde1ec32f9cf33fd07"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 562,
+          "end": 579,
+          "sha256": "da7016ffd8b7d284296c1ddc6c3ce820f24f6e5b24f681d3c9dc6b4cafc2909a"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 729,
+          "end": 754,
+          "sha256": "2acee026b9bce93181cbaced97ae9ef3384fef66e993bf8f3edc9cabdb68093f"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_native_claude_memory.py",
+          "start": 440,
+          "end": 472,
+          "sha256": "3ff28538bef87a15d0b54eb3c0bcee5ab7563530bb5088db0a84ed51a83ee908"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_native_claude_memory.py",
+          "start": 284,
+          "end": 336,
+          "sha256": "39d6100eec1af4c1df46114b004946020e843bbdead73e369c40f80c4334d3a7"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_native_claude_rewind.py",
+          "start": 16,
+          "end": 31,
+          "sha256": "5c150048b6ae4aecefa79feb32cf41bb1a6d0cc92b6d74d6ab4e1bb3715f290f"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_recovery.py",
+          "start": 79,
+          "end": 94,
+          "sha256": "853d321748ef19f81afe73bc141477e13a48f83881d51478bcfce212656988be"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_recovery.py",
+          "start": 40,
+          "end": 46,
+          "sha256": "2faea1f2b8cd6664cb0241d37bf75988feaf77edb3a48caae813f87f6bcc5623"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import_jobs.py",
+          "start": 146,
+          "end": 157,
+          "sha256": "358927ffadcf0d09d641c81673c26ee03db954222a44195405e4d5cf279511d7"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import_jobs.py",
+          "start": 107,
+          "end": 143,
+          "sha256": "26a0275dd39659322f955dfffc23fdaaaf3e80a47b8a031158e24516233ab569"
+        }
+      ]
+    },
+    "desktop-import.predicates": {
+      "dimension": "predicates",
+      "status": "specified",
+      "facts": [
+        "preview refuses a relative folder 422, a folder without an orgs directory 422, overlapping V1 and V2 folders 422, an unknown body field 422, a link or reparse point on the way 422, one org stored as both SQLite and JSON 422, a malformed identity (the file name and the document's slug differ) 422, a disk-backed V1 org 422 and an invalid or relative native locator 422; a destination conflict is reported per org, not refused. The store must be bound to an explicit absolute ORGTREE_DATA on SQLite (else 503, from source). import-retired answers 409 to every body that validates, and 422 before that. job-start refuses a missing acknowledgement, duplicate or invalid org slugs and a request_id that is not a UUID 422, an unconfigured recovery hook 503, a request_id already recorded with another payload 409, a destination lease held by another job 409, native maintenance that has reserved engine shutdown 409 and a previous job left interrupted 409; the same request_id with the same payload returns the recorded job. Everything the worker finds wrong (a destination conflict, a missing source org, a source that changed while copying) is recorded on the job as failed, or interrupted once a publication began, after the 202. job-status and job-cancel refuse a request id that is not a UUID 422 and an unknown one 404; job-cancel refuses a job past its cancellable phases 409 and a busy control lock 409. Pinned by tests/test_state_desktop_import_boundary.py against docs/state-system/desktop-import-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 87,
+          "end": 96,
+          "sha256": "185b7763e1eca2ad59627c044efde156800428b9af5551aa3b0b0685eebcc920"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 110,
+          "end": 125,
+          "sha256": "40c8f5fcc667d2d550cae87b5cfe4e6e82d9813b2110252f42207b96c99488e7"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 99,
+          "end": 107,
+          "sha256": "dac5a115124560e82ce1148924aa11b93629104ca66637c32dfbbfb0a8767067"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 221,
+          "end": 261,
+          "sha256": "3fdf5a81b57b59e47d8c8f6581f4b182576aaf4ff63d1f1e62abfa789baa2af4"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 264,
+          "end": 317,
+          "sha256": "b6727a122f28f2d53f371e3acfb921bdb46b4b35653e5ff92835892387b11fec"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 325,
+          "end": 334,
+          "sha256": "31c29bcd75c9af80b386e4921fb0928cd6bceff04982d2ce45d0a4b47c3cc142"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 757,
+          "end": 763,
+          "sha256": "18cd0a2b2ee86662555b6b314d43cc59ad902409f54902812faecb6d7968b151"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_native.py",
+          "start": 63,
+          "end": 93,
+          "sha256": "25dea3190407c8601fda01a2e15d50ab71361dee5c042b33d10342e43ae09eba"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import_jobs.py",
+          "start": 218,
+          "end": 279,
+          "sha256": "858ba95afd03a0e8d891c70e799790691e51288688c395d8c8c794f35640ebcb"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import_jobs.py",
+          "start": 107,
+          "end": 143,
+          "sha256": "26a0275dd39659322f955dfffc23fdaaaf3e80a47b8a031158e24516233ab569"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import_jobs.py",
+          "start": 160,
+          "end": 180,
+          "sha256": "a56988530ab1f7ce9c29c6a4fc89f02f1f9d45d69fc83b244dd6ad3ce52f389e"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 780,
+          "end": 785,
+          "sha256": "c8ca2ae6adbab0af397b783aa9df5253a53bf9020d7a7bf9399b557c0a8d73cd"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 771,
+          "end": 773,
+          "sha256": "dbd964f4d0dcf062552b55b5aa471353c001b93f2caf37d52cacd0e8d1d3b0ed"
+        }
+      ]
+    },
+    "desktop-import.conflicts": {
+      "dimension": "conflicts",
+      "status": "unresolved",
+      "facts": [
+        "One import runs per data root: the worker holds an exclusive destination lease (import-jobs/active.lock) for its lifetime, cancellation and publication serialize on a separate control lock, and the worker holds the organization document lock for the whole copy and publication; status reads take neither (source)."
+      ],
+      "open_questions": [
+        "Implement and qualify native transactions for the V1 import: the machine-wide job records and destination lease, the whole-copy document lock, and publication (areas moved in, then the org store hard-linked) against concurrent engines and writers.",
+        "Owner: P03 (native design and qualification). Closes with: a native design qualified by two engines starting imports into one data root and a writer racing a publication. Not coverable at P01 from available evidence: no native build exists, and P01 has not cited a native design section for these operations."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/desktop_import_jobs.py",
+          "start": 58,
+          "end": 76,
+          "sha256": "60dbdf3c1b2e90325f39163abf26188fa0f40d26888ebda28e9e73bf6616a973"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import_jobs.py",
+          "start": 107,
+          "end": 143,
+          "sha256": "26a0275dd39659322f955dfffc23fdaaaf3e80a47b8a031158e24516233ab569"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import_jobs.py",
+          "start": 282,
+          "end": 416,
+          "sha256": "73ed008acf5ded7f38f9252917f687738f8422f40233106b1348307b8990e7c2"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 599,
+          "end": 685,
+          "sha256": "dde46051bb8841c6430f3585242d1d01554b0b91bb2a1539eb4c369d101f6e5c"
+        }
+      ]
+    },
+    "desktop-import.wire": {
+      "dimension": "wire",
+      "status": "unresolved",
+      "facts": [
+        "The shapes are fixtured in docs/state-system/desktop-import-boundary.json per case."
+      ],
+      "open_questions": [
+        "Carry the fixtured desktop-import shapes to the native/Rust door and decide the recorded legacy defect.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured shapes passing against the native and Rust builds. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 766,
+          "end": 768,
+          "sha256": "07158aca2b3ce1f7c8ca12cc4e966a6f77c44e63f5068bd36de2e56ca17d0e3a"
+        }
+      ]
+    },
+    "desktop-import.receipt": {
+      "dimension": "receipt",
+      "status": "specified",
+      "facts": [
+        "The routes take no operation key and file no op receipt. The job's request_id is its idempotency key: a repeated start with the same payload (a SHA-256 fingerprint of the canonical body) returns the recorded job. The job record keeps a publication receipt per org (state and recovery), written before and after each publication, and nothing is replayed automatically after a crash. Pinned by tests/test_state_desktop_import_boundary.py against docs/state-system/desktop-import-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/desktop_import_jobs.py",
+          "start": 218,
+          "end": 279,
+          "sha256": "858ba95afd03a0e8d891c70e799790691e51288688c395d8c8c794f35640ebcb"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import_jobs.py",
+          "start": 282,
+          "end": 416,
+          "sha256": "73ed008acf5ded7f38f9252917f687738f8422f40233106b1348307b8990e7c2"
+        }
+      ]
+    },
+    "desktop-import.effects": {
+      "dimension": "effects",
+      "status": "specified",
+      "facts": [
+        "job-start starts one daemon thread per job. After each publication the recovery hook reconciles the imported org's active nodes (supervisor.reconcile with active_only): each retained turn is admitted through supervisor.send_message wrapped in the restart-replay text ('[ORGTREE RESTART] orgtree shut down while you were mid-turn...') and carrying both the original intent and the '[V1 COPY IMPORT]' note, with the original visible prompt as its view; in production that admission starts the agent's turn. A held or failed admission leaves the copy committed with 'recovery pending' and is never retried by the job. The replay reads the process's boot build identity, which a source checkout resolves with git against the engine's own folder (an installed runtime reads its build-info.json). store.on_save is notified per published org. The routes themselves launch no process. Pinned by tests/test_state_desktop_import_boundary.py against docs/state-system/desktop-import-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/desktop_import_jobs.py",
+          "start": 218,
+          "end": 279,
+          "sha256": "858ba95afd03a0e8d891c70e799790691e51288688c395d8c8c794f35640ebcb"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_recovery.py",
+          "start": 79,
+          "end": 94,
+          "sha256": "853d321748ef19f81afe73bc141477e13a48f83881d51478bcfce212656988be"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_recovery.py",
+          "start": 63,
+          "end": 77,
+          "sha256": "76573f61e19f5c3b3cb9f01961480a89a5fab6cb2b34b360235bd4ff9c7ce8c5"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 33680,
+          "end": 34184,
+          "sha256": "30b3a0d089bad8eec364e73235169cc6922261dc45414062137ddff7172e1517"
+        }
+      ]
+    },
+    "desktop-import.instrumentation": {
+      "dimension": "instrumentation",
+      "status": "unresolved",
+      "facts": [
+        "The access middleware labels each route. No P02 per-operation record covers this family yet."
+      ],
+      "open_questions": [
+        "Observe every desktop import route with the P02 per-operation probe: actual contacts per outcome, cold and warm, refusals included (the job records, staging and the destination Claude profile are outside the org stores).",
+        "Owner: P02 (p02-contacts-opus55; coordinator ruling Q6 on p01-f1-contracts-for-the-org-lifecycle-and-catal: probed after this family lands). Closes with: a loss-accounted P02 record per row. Not coverable at P01 from available evidence: P01 does not run the P02 probe, and no P02 record covers this family yet."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 766,
+          "end": 768,
+          "sha256": "07158aca2b3ce1f7c8ca12cc4e966a6f77c44e63f5068bd36de2e56ca17d0e3a"
+        }
+      ]
     }
   },
   "contracts": {
@@ -23605,6 +24010,444 @@
         }
       ],
       "domain_mode": "write"
+    },
+    "desktop-import.preview": {
+      "entry_ids": [
+        "af32f38e57e26417422de95c4f029f7ddce04a35045217b5e6d345d0f3d5ac0e"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "desktop-import.authority"
+        ],
+        "reads": [
+          "desktop-import.reads"
+        ],
+        "writes": [
+          "desktop-import.writes"
+        ],
+        "predicates": [
+          "desktop-import.predicates"
+        ],
+        "conflicts": [
+          "desktop-import.conflicts"
+        ],
+        "wire": [
+          "desktop-import.wire"
+        ],
+        "receipt": [
+          "desktop-import.receipt"
+        ],
+        "effects": [
+          "desktop-import.effects"
+        ],
+        "instrumentation": [
+          "desktop-import.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 766,
+          "end": 766,
+          "sha256": "cf2b067acf47159bcce1bd362018e502ff769905ca682c01426d40500f882d91"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 766,
+          "end": 768,
+          "sha256": "07158aca2b3ce1f7c8ca12cc4e966a6f77c44e63f5068bd36de2e56ca17d0e3a"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 533,
+          "end": 559,
+          "sha256": "49f50d10b219012294afac8675913c57ab29981d155ac2bca7e5d8450be2e150"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 110,
+          "end": 125,
+          "sha256": "40c8f5fcc667d2d550cae87b5cfe4e6e82d9813b2110252f42207b96c99488e7"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 221,
+          "end": 261,
+          "sha256": "3fdf5a81b57b59e47d8c8f6581f4b182576aaf4ff63d1f1e62abfa789baa2af4"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_native.py",
+          "start": 63,
+          "end": 93,
+          "sha256": "25dea3190407c8601fda01a2e15d50ab71361dee5c042b33d10342e43ae09eba"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_native.py",
+          "start": 234,
+          "end": 255,
+          "sha256": "9ffea856ff80b21083dff08cf34ed4342f0e588b765edd2122b495faf8dcf917"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "desktop-import.import-retired": {
+      "entry_ids": [
+        "238be1fcaf729f58520f384f2cd29ad9b3d3c61bfdc60e70791b9ba531669c63"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "desktop-import.authority"
+        ],
+        "reads": [
+          "desktop-import.reads"
+        ],
+        "writes": [
+          "desktop-import.writes"
+        ],
+        "predicates": [
+          "desktop-import.predicates"
+        ],
+        "conflicts": [
+          "desktop-import.conflicts"
+        ],
+        "wire": [
+          "desktop-import.wire"
+        ],
+        "receipt": [
+          "desktop-import.receipt"
+        ],
+        "effects": [
+          "desktop-import.effects"
+        ],
+        "instrumentation": [
+          "desktop-import.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 771,
+          "end": 771,
+          "sha256": "b2b3232fe37b50e50f800902470d5d3ff45816c0e7b8c349e0aed5f94268b169"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 771,
+          "end": 773,
+          "sha256": "dbd964f4d0dcf062552b55b5aa471353c001b93f2caf37d52cacd0e8d1d3b0ed"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "desktop-import.job-start": {
+      "entry_ids": [
+        "cfcf69e53821cdd65fd2735d5bad9d132abb34f27884c91fd3bba2d1a9826c41"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "desktop-import.authority"
+        ],
+        "reads": [
+          "desktop-import.reads"
+        ],
+        "writes": [
+          "desktop-import.writes"
+        ],
+        "predicates": [
+          "desktop-import.predicates"
+        ],
+        "conflicts": [
+          "desktop-import.conflicts"
+        ],
+        "wire": [
+          "desktop-import.wire"
+        ],
+        "receipt": [
+          "desktop-import.receipt"
+        ],
+        "effects": [
+          "desktop-import.effects"
+        ],
+        "instrumentation": [
+          "desktop-import.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 780,
+          "end": 780,
+          "sha256": "5fc428600acb1141aa135cb736443eda65ec5fc0078ef878a689aa7affb09c19"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 780,
+          "end": 785,
+          "sha256": "c8ca2ae6adbab0af397b783aa9df5253a53bf9020d7a7bf9399b557c0a8d73cd"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import_jobs.py",
+          "start": 218,
+          "end": 279,
+          "sha256": "858ba95afd03a0e8d891c70e799790691e51288688c395d8c8c794f35640ebcb"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import_jobs.py",
+          "start": 282,
+          "end": 416,
+          "sha256": "73ed008acf5ded7f38f9252917f687738f8422f40233106b1348307b8990e7c2"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 582,
+          "end": 596,
+          "sha256": "72d307ee641b55102add583f7282b8250029e6e5dd86fb5069c8103ef722b417"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 599,
+          "end": 685,
+          "sha256": "dde46051bb8841c6430f3585242d1d01554b0b91bb2a1539eb4c369d101f6e5c"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 729,
+          "end": 754,
+          "sha256": "2acee026b9bce93181cbaced97ae9ef3384fef66e993bf8f3edc9cabdb68093f"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_recovery.py",
+          "start": 79,
+          "end": 94,
+          "sha256": "853d321748ef19f81afe73bc141477e13a48f83881d51478bcfce212656988be"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "desktop-import.job-current": {
+      "entry_ids": [
+        "8b64c96ff48ec3bcddf2c9adb28ab9d2620b6e1c8c785d43839675ced0e305b4"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "desktop-import.authority"
+        ],
+        "reads": [
+          "desktop-import.reads"
+        ],
+        "writes": [
+          "desktop-import.writes"
+        ],
+        "predicates": [
+          "desktop-import.predicates"
+        ],
+        "conflicts": [
+          "desktop-import.conflicts"
+        ],
+        "wire": [
+          "desktop-import.wire"
+        ],
+        "receipt": [
+          "desktop-import.receipt"
+        ],
+        "effects": [
+          "desktop-import.effects"
+        ],
+        "instrumentation": [
+          "desktop-import.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 788,
+          "end": 788,
+          "sha256": "48f1d5f9c35c0098594dd95271b6947d07e83a2dce1956f4cdcfc034a406ee74"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 788,
+          "end": 791,
+          "sha256": "fa34210e5fd64097afcc9d96e3130b508cb7c5a5a931d3b706ba520310d8c769"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import_jobs.py",
+          "start": 188,
+          "end": 199,
+          "sha256": "f692f985d9e64dbe22225b9891a5815e04fbe5e9333cd0b9e1b233183134d6a3"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import_jobs.py",
+          "start": 160,
+          "end": 180,
+          "sha256": "a56988530ab1f7ce9c29c6a4fc89f02f1f9d45d69fc83b244dd6ad3ce52f389e"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import_jobs.py",
+          "start": 146,
+          "end": 157,
+          "sha256": "358927ffadcf0d09d641c81673c26ee03db954222a44195405e4d5cf279511d7"
+        }
+      ],
+      "domain_mode": "conditional_write"
+    },
+    "desktop-import.job-status": {
+      "entry_ids": [
+        "0a316f7b3d2ccb354e862e18bccfb59b47af25f0b3a025e3c7239771cdb9c31c"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "desktop-import.authority"
+        ],
+        "reads": [
+          "desktop-import.reads"
+        ],
+        "writes": [
+          "desktop-import.writes"
+        ],
+        "predicates": [
+          "desktop-import.predicates"
+        ],
+        "conflicts": [
+          "desktop-import.conflicts"
+        ],
+        "wire": [
+          "desktop-import.wire"
+        ],
+        "receipt": [
+          "desktop-import.receipt"
+        ],
+        "effects": [
+          "desktop-import.effects"
+        ],
+        "instrumentation": [
+          "desktop-import.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 800,
+          "end": 800,
+          "sha256": "ab3819b9c37873324f716d40d35a26b4d333cd6bddfb7a3aa397ebdab873a974"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 800,
+          "end": 803,
+          "sha256": "b7c9288e0ce3433ec888845e4545ac215af0de5c54283bf15ac4138bdb82480a"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import_jobs.py",
+          "start": 183,
+          "end": 185,
+          "sha256": "9fa4ed2e00e690ab9835cfcc76a2ef9f49fe9a77181f9706ab0ba3b6db2b793d"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import_jobs.py",
+          "start": 160,
+          "end": 180,
+          "sha256": "a56988530ab1f7ce9c29c6a4fc89f02f1f9d45d69fc83b244dd6ad3ce52f389e"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import_jobs.py",
+          "start": 146,
+          "end": 157,
+          "sha256": "358927ffadcf0d09d641c81673c26ee03db954222a44195405e4d5cf279511d7"
+        }
+      ],
+      "domain_mode": "conditional_write"
+    },
+    "desktop-import.job-cancel": {
+      "entry_ids": [
+        "bbb3e9daae760c5990a6620daee3ae833076f770d116d0ea579677885bc5c805"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "desktop-import.authority"
+        ],
+        "reads": [
+          "desktop-import.reads"
+        ],
+        "writes": [
+          "desktop-import.writes"
+        ],
+        "predicates": [
+          "desktop-import.predicates"
+        ],
+        "conflicts": [
+          "desktop-import.conflicts"
+        ],
+        "wire": [
+          "desktop-import.wire"
+        ],
+        "receipt": [
+          "desktop-import.receipt"
+        ],
+        "effects": [
+          "desktop-import.effects"
+        ],
+        "instrumentation": [
+          "desktop-import.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 794,
+          "end": 794,
+          "sha256": "b2503403050509021c49b9a5c57b59bfe197eca12f6b1c61d7093585288fced2"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 794,
+          "end": 797,
+          "sha256": "da15deb292ade2b72354d8f51934974f69c8e11310273025ffb79247a13ec7db"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_import_jobs.py",
+          "start": 107,
+          "end": 143,
+          "sha256": "26a0275dd39659322f955dfffc23fdaaaf3e80a47b8a031158e24516233ab569"
+        }
+      ],
+      "domain_mode": "conditional_write"
     }
   },
   "wire_cases": [
@@ -25398,6 +26241,48 @@
       "args": {},
       "contract": "git-workspace.pull",
       "domain_mode": "write"
+    },
+    {
+      "name": "POST /api/desktop/import-v1/preview:desktop-import.preview",
+      "entry_id": "af32f38e57e26417422de95c4f029f7ddce04a35045217b5e6d345d0f3d5ac0e",
+      "args": {},
+      "contract": "desktop-import.preview",
+      "domain_mode": "write"
+    },
+    {
+      "name": "POST /api/desktop/import-v1:desktop-import.import-retired",
+      "entry_id": "238be1fcaf729f58520f384f2cd29ad9b3d3c61bfdc60e70791b9ba531669c63",
+      "args": {},
+      "contract": "desktop-import.import-retired",
+      "domain_mode": "read"
+    },
+    {
+      "name": "POST /api/desktop/import-v1/jobs:desktop-import.job-start",
+      "entry_id": "cfcf69e53821cdd65fd2735d5bad9d132abb34f27884c91fd3bba2d1a9826c41",
+      "args": {},
+      "contract": "desktop-import.job-start",
+      "domain_mode": "write"
+    },
+    {
+      "name": "GET /api/desktop/import-v1/jobs/current:desktop-import.job-current",
+      "entry_id": "8b64c96ff48ec3bcddf2c9adb28ab9d2620b6e1c8c785d43839675ced0e305b4",
+      "args": {},
+      "contract": "desktop-import.job-current",
+      "domain_mode": "conditional_write"
+    },
+    {
+      "name": "GET /api/desktop/import-v1/jobs/{request_id}:desktop-import.job-status",
+      "entry_id": "0a316f7b3d2ccb354e862e18bccfb59b47af25f0b3a025e3c7239771cdb9c31c",
+      "args": {},
+      "contract": "desktop-import.job-status",
+      "domain_mode": "conditional_write"
+    },
+    {
+      "name": "POST /api/desktop/import-v1/jobs/{request_id}/cancel:desktop-import.job-cancel",
+      "entry_id": "bbb3e9daae760c5990a6620daee3ae833076f770d116d0ea579677885bc5c805",
+      "args": {},
+      "contract": "desktop-import.job-cancel",
+      "domain_mode": "conditional_write"
     }
   ],
   "limits": [
@@ -27392,51 +28277,105 @@
     },
     {
       "id": "af32f38e57e26417422de95c4f029f7ddce04a35045217b5e6d345d0f3d5ac0e",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "desktop-import.preview"
+      ],
+      "reason": "POST /api/desktop/import-v1/preview: desktop-import.preview (P01 F9).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 766,
+          "end": 766,
+          "sha256": "cf2b067acf47159bcce1bd362018e502ff769905ca682c01426d40500f882d91"
+        }
+      ]
     },
     {
       "id": "238be1fcaf729f58520f384f2cd29ad9b3d3c61bfdc60e70791b9ba531669c63",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "desktop-import.import-retired"
+      ],
+      "reason": "POST /api/desktop/import-v1: desktop-import.import-retired (P01 F9).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 771,
+          "end": 771,
+          "sha256": "b2b3232fe37b50e50f800902470d5d3ff45816c0e7b8c349e0aed5f94268b169"
+        }
+      ]
     },
     {
       "id": "cfcf69e53821cdd65fd2735d5bad9d132abb34f27884c91fd3bba2d1a9826c41",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "desktop-import.job-start"
+      ],
+      "reason": "POST /api/desktop/import-v1/jobs: desktop-import.job-start (P01 F9).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 780,
+          "end": 780,
+          "sha256": "5fc428600acb1141aa135cb736443eda65ec5fc0078ef878a689aa7affb09c19"
+        }
+      ]
     },
     {
       "id": "8b64c96ff48ec3bcddf2c9adb28ab9d2620b6e1c8c785d43839675ced0e305b4",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "desktop-import.job-current"
+      ],
+      "reason": "GET /api/desktop/import-v1/jobs/current: desktop-import.job-current (P01 F9).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 788,
+          "end": 788,
+          "sha256": "48f1d5f9c35c0098594dd95271b6947d07e83a2dce1956f4cdcfc034a406ee74"
+        }
+      ]
     },
     {
       "id": "bbb3e9daae760c5990a6620daee3ae833076f770d116d0ea579677885bc5c805",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "desktop-import.job-cancel"
+      ],
+      "reason": "POST /api/desktop/import-v1/jobs/{request_id}/cancel: desktop-import.job-cancel (P01 F9).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 794,
+          "end": 794,
+          "sha256": "b2503403050509021c49b9a5c57b59bfe197eca12f6b1c61d7093585288fced2"
+        }
+      ]
     },
     {
       "id": "0a316f7b3d2ccb354e862e18bccfb59b47af25f0b3a025e3c7239771cdb9c31c",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "desktop-import.job-status"
+      ],
+      "reason": "GET /api/desktop/import-v1/jobs/{request_id}: desktop-import.job-status (P01 F9).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 800,
+          "end": 800,
+          "sha256": "ab3819b9c37873324f716d40d35a26b4d333cd6bddfb7a3aa397ebdab873a974"
+        }
+      ]
     },
     {
       "id": "c9116e6932f352e682d7f4049ad7fc1fd92edeee166b149635f2d1b53567685d",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 W3): the V1 import job (_run) copies V1 organizations and writes and publishes V2 org stores. Org state, no contract. Owner: the desktop import.",
+      "reason": "Stays pending (P01 W3): the V1 import job's worker (desktop_import_jobs._run) copies V1 organizations and writes and publishes V2 org stores. It is started only by POST /api/desktop/import-v1/jobs, whose operation is contracted as desktop-import.job-start (P01 F9); a worker entry is not bound to its route's contract (no worker witness is mapped, the F3 precedent). Owner: the desktop import.",
       "source_refs": []
     },
     {
@@ -32770,31 +33709,70 @@
     },
     {
       "id": "30ec93d4dcecd42ecd22b3c6cbeccb9d29947578ecc1930d1c1b241317b66935",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 S2k): org state, the private copy and backup of a V1 organization's store that the desktop import reads before it writes a V2 candidate; the import has no contract. Owner: the desktop import.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "desktop-import.preview",
+        "desktop-import.job-start"
+      ],
+      "reason": "Org state: the private copy of a V1 organization's store and its SQLite backup, which the desktop import reads before it writes a V2 candidate; only the desktop import routes desktop-import.preview and desktop-import.job-start reach it (P01 F9, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 244,
+          "end": 244,
+          "sha256": "a4289be80b1a81a327c3ce845ac1a5d4c47603a364760070d9676743f2095187"
+        }
+      ]
     },
     {
       "id": "ce2a626ed1594f37ff576445b9d2db4a0a92543141a0cfcb93d04ba85985a668",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 S2k): org state, the private copy and backup of a V1 organization's store that the desktop import reads before it writes a V2 candidate; the import has no contract. Owner: the desktop import.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "desktop-import.preview",
+        "desktop-import.job-start"
+      ],
+      "reason": "Org state: the private copy of a V1 organization's store and its SQLite backup, which the desktop import reads before it writes a V2 candidate; only the desktop import routes desktop-import.preview and desktop-import.job-start reach it (P01 F9, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 244,
+          "end": 244,
+          "sha256": "a4289be80b1a81a327c3ce845ac1a5d4c47603a364760070d9676743f2095187"
+        }
+      ]
     },
     {
       "id": "93669ca59b5f065aeb95867fafa342302c34d879153dfb3a0d9f090217fd31a1",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 S2k): org state, the private copy and backup of a V1 organization's store that the desktop import reads before it writes a V2 candidate; the import has no contract. Owner: the desktop import.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "desktop-import.preview",
+        "desktop-import.job-start"
+      ],
+      "reason": "Org state: the private copy of a V1 organization's store and its SQLite backup, which the desktop import reads before it writes a V2 candidate; only the desktop import routes desktop-import.preview and desktop-import.job-start reach it (P01 F9, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 246,
+          "end": 246,
+          "sha256": "11727ca075efbe98be1970e718b1ee95eddac5acc4e2102e1185da52ad1e53a5"
+        }
+      ]
     },
     {
       "id": "fbcd23d8d4ca37630c60cd8263a4cfbc59b153cd9209798a0364c4f08ac9b615",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 S2k): org state, the V2 candidate org store the desktop import writes with the store's own DDL; the import has no contract. Owner: the desktop import.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "desktop-import.job-start"
+      ],
+      "reason": "Org state: the V2 candidate org store the desktop import writes with the store's own DDL; only the desktop import routes desktop-import.job-start reach it (P01 F9, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/desktop_import.py",
+          "start": 564,
+          "end": 564,
+          "sha256": "7b15bab43202d0a0750ef659190a4fc068499d1789b5eeb8cbf8dc274e90e4ba"
+        }
+      ]
     },
     {
       "id": "6e5106032f645a9b816765a88c436b0671fcfc5f9828c837b255c34ddb9de085",
