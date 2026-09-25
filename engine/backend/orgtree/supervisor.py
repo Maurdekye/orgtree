@@ -15378,6 +15378,43 @@ def _continue_verb(actor: str) -> str:
             else "`orgtree_continue_on` (node + account)")
 
 
+#: What an account rebind can write besides the seat and its bearer row:
+#: `_moot_asks` (asks → credit/scope requests, and `work_items`, which the
+#: save's attention pass rewrites whenever `asks` moved), `_fold_notices` and
+#: the handoff record's notice. The kiosk/sandbox gates are read FOR SHARE.
+_ASSIGN_SECTIONS = ("asks", "credit_requests", "scope_requests", "notices",
+                    "work_items")
+_ASSIGN_SHARE = ("kiosk", "sandbox")
+_ASSIGN_LOGS: tuple[orgtx.LogName, ...] = ("events", "notice_log")
+
+
+@contextlib.contextmanager
+def _assign_tx(slug: str, nid: str, org: Org | None) -> Iterator[Org]:
+    """The transaction `assign_account` writes in (PG-3e-B).
+
+    With `org` given the CALLER owns the transaction (the agent-tool
+    dispatch, account fallback inside resume_frozen, account removal): the
+    body works on that org and takes no lock of its own — the caller names
+    these rows in ITS lock set. Without one, the rebind is its own org_tx
+    over the seat, the `nid@<gen>` row a provider-crossing archive inserts,
+    and the sections above. The generation is read before the lock and
+    re-checked under it; a split landing in between refuses the rebind
+    before anything is written rather than archive into an unlocked row."""
+    if org is not None:
+        yield org
+        return
+    pre = orgtx.org_read(slug)
+    gen = pre.nodes[nid].get("generation", 0) if nid in pre.nodes else 0
+    with orgtx.org_tx(slug, nodes=[nid, f"{nid}@{gen}"],
+                      sections=_ASSIGN_SECTIONS, share_sections=_ASSIGN_SHARE,
+                      logs=_ASSIGN_LOGS) as tx:
+        if nid in tx.org.nodes and tx.org.nodes[nid].get("generation", 0) != gen:
+            raise RuntimeError(f"{nid} changed generation while its account "
+                               f"change was prepared — nothing was changed; "
+                               f"try again")
+        yield tx.org
+
+
 def assign_account(slug: str, nid: str, account_id: str, *,
                    actor: str,
                    org: Org | None = None, via: str = "manual",
@@ -15430,12 +15467,10 @@ def assign_account(slug: str, nid: str, account_id: str, *,
     # a caller mid-transaction (the agent-tool dispatch) passes its OWN org
     # — mutating a fresh load and saving it would be clobbered by the
     # caller's later save of its stale copy. With `org` given, the caller
-    # owns the save; DOC_LOCK is re-entrant so the with below is safe both
-    # ways.
+    # owns the save and the transaction (`_assign_tx`); without one, this
+    # call's own org_tx commits when the block below exits, on every path.
     _caller_owns_save = org is not None
-    with store.DOC_LOCK:
-        if org is None:
-            org = store.load_org(slug)
+    with _assign_tx(slug, nid, org) as org:
         if nid not in org.nodes:
             raise RuntimeError(f"no node {nid!r} in org {slug!r}")
         node = org.node(nid)
@@ -15544,8 +15579,6 @@ def assign_account(slug: str, nid: str, account_id: str, *,
                        "previous_account": previous or None, "queued": False}
                 if pending:
                     out["cancelled"] = pending.get("account")
-                if not _caller_owns_save:
-                    store.save_org(org)
                 return out
             replaced = pending.get("account") if pending else None
             # R1a-upgrade (round 3): a pre-seq counterpart was ACCEPTED before
@@ -15560,7 +15593,7 @@ def assign_account(slug: str, nid: str, account_id: str, *,
                                         "from": previous or "primary",
                                         "by": actor, "at": now_iso(),
                                         # R1a: acceptance order under this
-                                        # DOC_LOCK; `at` is display only
+                                        # node's row lock; `at` is display only
                                         "seq": next_config_seq(node)}
             org._log("account_queued", actor,
                       {"node": nid, "from": previous or "primary",
@@ -15570,8 +15603,6 @@ def assign_account(slug: str, nid: str, account_id: str, *,
                    "pending_account": requested, "replaced": replaced,
                    "cache_namespace_changed": True,
                    "session_boundary": row["provider"] in ("openai", "google")}
-            if not _caller_owns_save:
-                store.save_org(org)
             return out
         changed = previous != row["id"]
         try:
@@ -15670,8 +15701,6 @@ def assign_account(slug: str, nid: str, account_id: str, *,
             **({"auth_thawed": True} if auth_thawed else {}),
         }
         org._log("account_assign", actor, {**disclosure, "via": via}, [])
-        if not _caller_owns_save:
-            store.save_org(org)
     if notify_change:
         notify(slug, nid, "account")
     # state-audit SH-2 (state-review fix 2026-09-12): the park is gone and the
