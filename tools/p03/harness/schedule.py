@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 import time
 from typing import Any, Callable, Protocol
 
+from .protocol import frame_errors, plan_against_handshake
 from .trace import stream_health
 
 PASSED, FAILED, REFUSED = "PASSED", "FAILED", "REFUSED"
@@ -34,7 +35,7 @@ PASSED, FAILED, REFUSED = "PASSED", "FAILED", "REFUSED"
 
 class Channel(Protocol):
     def handshake(self) -> dict[str, Any]: ...
-    def install_plan(self, plan: list[dict[str, Any]]) -> None: ...
+    def install_plan(self, plan: dict[str, Any]) -> None: ...
     def start(self, tag: str, op_kind: str, args: dict[str, Any]) -> None: ...
     def next_event(self, timeout: float) -> "dict[str, Any] | None": ...
     def release(self, tag: str, point: str) -> None: ...
@@ -53,6 +54,13 @@ class Order:
     #:              | ("absent", event) | ("outcome", tag, outcome)
     #:              | ("sqlstate", tag, code)
     intended: list[tuple[str, ...]]
+    #: unsafe controls this order ARMS through the plan (``<schedule>.<variant>``);
+    #: empty for a safe-build order
+    controls: list[str] = field(default_factory=list)
+    #: non-hold executor actions at points (protocol holds with action fail_next,
+    #: drop_conn or sleep), e.g. {"op_tag": "A", "point": ..., "action": "fail_next",
+    #: "sqlstate": "40001"}
+    faults: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -90,10 +98,15 @@ class RunResult:
                 "complete_contact": self.health.get("complete")}
 
 
-def _plan_for(order: Order, timeout: float) -> list[dict[str, Any]]:
-    """Every point the script waits at is a planned HOLD."""
-    return [{"op_tag": step[1], "point": step[2], "action": "hold", "timeout_s": timeout}
-            for step in order.script if step[0] == "arrive"]
+def _plan_for(schedule_id: str, order: Order, timeout: float) -> dict[str, Any]:
+    """The protocol ``plan`` frame: every point the script waits at is a HOLD, plus
+    the order's fault actions and the controls it arms."""
+    ms = max(1, int(timeout * 1000))
+    holds = [{"op_tag": step[1], "point": step[2], "action": "hold", "timeout_ms": ms}
+             for step in order.script if step[0] == "arrive"]
+    holds += [{"timeout_ms": ms, **f} for f in order.faults]
+    return {"type": "plan", "run_id": f"{schedule_id}/{order.name}", "holds": holds,
+            "controls": list(order.controls)}
 
 
 class _Recorder:
@@ -197,14 +210,9 @@ def run_order(channel: Channel, schedule: Schedule, order: Order) -> RunResult:
     """Drive one order of one schedule and judge it. Never returns PASSED on a guess."""
     recorder = _Recorder()
     hs = channel.handshake()
-    reasons: list[str] = []
-    if hs.get("qualification") is not True:
-        reasons.append("the build reports no qualification pause points: refusing to drive it")
-    points = set(hs.get("points") or ())
-    plan = _plan_for(order, schedule.plan_timeout)
-    unknown = sorted({p["point"] for p in plan} - points)
-    if unknown:
-        reasons.append(f"the plan names pause points the build does not have: {unknown}")
+    plan = _plan_for(schedule.schedule_id, order, schedule.plan_timeout)
+    reasons = [f"invalid plan: {e}" for e in frame_errors(plan)]
+    reasons += plan_against_handshake(plan, hs)
     if reasons:
         return RunResult(schedule.schedule_id, order.name, REFUSED, reasons, [], [],
                          {"complete": False, "problems": ["not run"]}, None, hs)
