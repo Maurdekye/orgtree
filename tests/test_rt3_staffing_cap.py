@@ -58,7 +58,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine/backend'))
 import import_provenance  # noqa: F401,E402
 import racekit  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
-from orgtree import api, ledger, pgdoor, store, supervisor  # noqa: E402
+from orgtree import api, ledger, orgtx, pgdoor, store, supervisor  # noqa: E402
+# These tests prove ROW-lock behaviour, which the transition fence (every
+# org_tx behind DOC_LOCK, plan decision 19) would serialize away — as
+# PG-0's own row-lock suites do, turn it off here.
+orgtx.TRANSITION_FENCE = False
 
 REQUEST = SimpleNamespace(state=SimpleNamespace())
 U = ledger.USER

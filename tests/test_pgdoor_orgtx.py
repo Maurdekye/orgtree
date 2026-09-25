@@ -27,6 +27,10 @@ os.environ['ORGTREE_STORE'] = 'sqlite'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine/backend'))
 import import_provenance  # noqa: F401,E402
 from orgtree import ledger, orgtx, pgdoor, store  # noqa: E402
+# These tests prove ROW-lock behaviour, which the transition fence (every
+# org_tx behind DOC_LOCK, plan decision 19) would serialize away — as
+# PG-0's own row-lock suites do, turn it off here.
+orgtx.TRANSITION_FENCE = False
 from orgtree.ledger import LedgerError  # noqa: E402
 
 U = ledger.USER
