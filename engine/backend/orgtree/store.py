@@ -879,7 +879,16 @@ LIST_LOGS: tuple[str, ...] = ("events", "org_inbox", "notice_log",
                               # doc-blob copy loads eagerly once and
                               # `_write_lazy` converts it to rows on the
                               # next save — no operator migration.
-                              "work_items_archive")
+                              "work_items_archive",
+                              # PG-3d (plan decision 29): the lifecycle ledger
+                              # (lifecycle.py) — every send, watchdog change
+                              # and turn settlement recorded into ONE doc row,
+                              # so under org_tx they all serialized on it. As
+                              # a log a new observation is an unlocked INSERT;
+                              # coalescing edits and the batch prune touch
+                              # existing rows under row CAS. The old blob
+                              # converts on the next save, like the others.
+                              "lifecycle")
 LAZY_SECTIONS: frozenset[str] = frozenset(DICT_LOGS) | frozenset(LIST_LOGS)
 
 #: PG-3d: the mutable per-recipient mail queues, `{owner: [...]}`. Each is
