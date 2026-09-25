@@ -381,6 +381,16 @@ class BracketTests(unittest.TestCase):
         self.assertIsNotNone(owned, "ORGTREE_STORE=postgres beats a sqlite record")
         owned.stop()
 
+    def test_the_variable_and_the_record_agreeing_on_postgres_serves(self) -> None:
+        # a mutation survivor: the N-A refusal must not catch the agreeing case
+        self.mark()
+        self.cutover(self.root)
+        for store in ("postgres", " Postgres "):
+            owned = bracket.start_for_engine(self.root, self.configured(ORGTREE_STORE=store), self.migrator)
+            self.assertIsNotNone(owned)
+            owned.stop()
+        self.assertEqual(self.refusals, [])
+
     def test_another_backend_on_a_cut_over_root_refuses(self) -> None:
         # review N-A: the sqlite/json stores ignore the .pg markers, so that
         # engine would start with every org invisible
