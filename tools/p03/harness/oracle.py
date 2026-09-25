@@ -202,8 +202,12 @@ def lock_family_failures(where: str, s: dict[str, Any], spec: dict[str, Any]) ->
 
 
 def q_c5(declared: dict[str, dict[str, Any]], records: list[dict[str, Any]],
-         factories: Iterable[str]) -> dict[str, Any]:
-    """The oracle's verdict over one run's trace."""
+         factories: Iterable[str], server_log: "Iterable[str] | None" = None) -> dict[str, Any]:
+    """The oracle's verdict over one run's trace.
+
+    ``server_log``: the server statement log lines (jsonlog) for the run window.
+    Given, hidden access is judged by ``serverlog.reconcile`` (the ground truth on a
+    real cluster, decision 3); absent, by ``conn_activity`` records (the fake)."""
     failures = [f"invalid declared table: {e}" for e in declared_errors(declared)]
     if failures:
         return {"verdict": "FAILED", "failures": failures, "over_declared": {},
@@ -258,7 +262,15 @@ def q_c5(declared: dict[str, dict[str, Any]], records: list[dict[str, Any]],
                            and rel not in seen[kind])
             if never:
                 over_declared[kind] = never
-    # hidden access: the server's own per-backend transaction counts
+    if server_log is not None:
+        from .serverlog import reconcile
+        verdict = reconcile(records, list(server_log), factories)
+        failures += verdict["failures"]
+        return {"verdict": "PASSED" if not failures else "FAILED", "failures": failures,
+                "over_declared": over_declared, "unknown_modes": unknown_modes,
+                "operations": len(ops), "hidden_access_source": "server statement log",
+                "limit": verdict.get("limit")}
+    # hidden access (fake executor): the server's own per-backend transaction counts
     traced_tx: dict[int, int] = defaultdict(int)
     for r in records:
         if r.get("kind") == "tx_begin" and isinstance(r.get("backend_pid"), int):
