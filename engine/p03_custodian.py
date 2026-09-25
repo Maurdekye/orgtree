@@ -312,8 +312,14 @@ class OwnedServices:
 def start_for_host(root: Path, env: Mapping[str, str]) -> OwnedServices | None:
     """The host's entry point. None = inert (not a prototype root and no P03
     variables). Raises BracketError when the host must not start the engine."""
-    marked = is_prototype_root(root)
     configured = bool(env.get(CUSTODIAN_ENV, "").strip() or env.get(STORE_SERVICE_ENV, "").strip())
+    if str(root).replace("/", "\\").startswith("\\\\"):
+        # UNC and device paths are never prototype roots, and are not even
+        # looked at (not even for a marker) before this lexical refusal.
+        if configured:
+            raise BracketError(f"refusing {root}: UNC and device paths are never P03 prototype roots")
+        return None
+    marked = is_prototype_root(root)
     if not marked and not configured:
         return None
     if not marked:
