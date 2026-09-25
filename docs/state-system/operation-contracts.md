@@ -570,9 +570,13 @@ coordinator's ruling (decision 1 on the F8 item):
 - an audit hook installed first allows only `git` with its cwd inside the root, the isolated environment present and
   no URL scheme in any argument, and it refuses and records anything else;
 - every git launch runs with no system config, a global config inside the root that has no credential helper and an
-  empty hooks directory, and HOME inside the root.
+  empty hooks directory, and HOME inside the root;
+- every git launch has GIT_CEILING_DIRECTORIES at the root, so git run in a folder that is not a repository stops its
+  upward search at the root instead of finding an enclosing repository outside it; the hook refuses a launch without
+  it, and a control shows this git honours the ceiling.
 The hook sees only Python's own launches, not git's child processes; the isolated configuration is what keeps the
-user's config, credential manager and hooks out of those. Each route's git subcommands are pinned. Only one pin
+user's config, credential manager and hooks out of those. The module's teardown fails if anything was refused or if
+the cases ran without the hook seeing a single git launch. Each route's git subcommands are pinned. Only one pin
 depends on git's output format: register's refusal of a directory outside any repository.
 
 No route writes the org document. The writes land in the machine-wide registry `<DATA_ROOT>/git-workspace.json` and in
