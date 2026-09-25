@@ -214,7 +214,11 @@ impl TraceSink for Events {
             EventKind::Outcome { outcome } => format!("outcome:{}.{}:{key}:{outcome}", e.family, e.verb),
             _ => return,
         };
-        self.0.lock().unwrap().push(s);
+        let mut g = self.0.lock().unwrap();
+        if let EventKind::Retry { .. } = &e.kind {
+            g.push(format!("retry_op:{}.{}:{key}", e.family, e.verb));
+        }
+        g.push(s);
     }
 }
 impl Events {
