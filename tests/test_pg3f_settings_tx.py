@@ -538,6 +538,21 @@ class Semantics(unittest.TestCase):
         self.assertTrue(seen, 'the org_tx never committed (listener unheard)')
         self.assertTrue(seen[-1].changes.is_empty(), seen[-1].changes)
 
+    def test_git_org_facts_carry_the_archived_items(self) -> None:
+        # `work_items_archive` is a LAZY section: org_read captures it only
+        # when named, and gitworkspace's item checks read it from org_facts
+        from orgtree import gitworkspace
+        slug = _fresh_org(work_items_archive=[{'slug': 'old-item', 'title': 't'}])
+        self.assertEqual([it['slug'] for it in
+                          store.load_org(slug).d.get('work_items_archive') or []],
+                         ['old-item'])                  # the fixture really stored it
+        with _Held(lambda: store.DOC_LOCK):
+            done, out, _t = _run(lambda: gitworkspace.org_facts(slug), FREE_S)
+            self.assertTrue(done, 'org_facts waited on DOC_LOCK')
+        self.assertNotIsInstance(out[0], BaseException, out)
+        self.assertEqual([it['slug'] for it in out[0]['work_items_archive']],
+                         ['old-item'])
+
 
 if __name__ == '__main__':
     unittest.main()
