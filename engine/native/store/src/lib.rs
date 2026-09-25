@@ -1,0 +1,38 @@
+//! P03 store core (`CONTRACT-M1.md`).
+//!
+//! * [`exec`]: the C1 command executor — bounded fair pool, per-family
+//!   isolation, receipt claim before any new-execution predicate, bounded
+//!   retries on `40001`/`40P01`/allowlisted `23505` with the same operation
+//!   identity and a fresh attempt timestamp, unknown-commit resolution by the
+//!   same key, effects only after commit.
+//! * [`session`]: the driver boundary. Everything above it is testable with
+//!   the in-memory [`fake`] session (feature `fake`, or in this crate's tests).
+//! * [`hooks`]: trace sink (always), pause points and unsafe controls
+//!   (feature `qualification` only).
+//! * [`claims`]: the r7 C5 output-claim registry.
+//! * [`sent`]: the Sent interface stub WS5 fills in.
+//!
+//! What is NOT here yet: the tokio-postgres session, receipt lookup against a
+//! real database, the store-service binary. Passing these tests proves the
+//! executor's decision logic over a fake session, not PostgreSQL behaviour.
+
+pub mod claims;
+pub mod exec;
+pub mod hooks;
+pub mod pool;
+pub mod receipts;
+pub mod retry;
+pub mod sent;
+pub mod session;
+pub mod value;
+
+#[cfg(any(test, feature = "fake"))]
+pub mod fake;
+
+pub use exec::{
+    Binding, Command, CmdError, Decided, ExecConfig, ExecError, Executor, Family, Isolation,
+    KeyNamespace, OpIdentity, Outcome, Principal, Refusal, Tx,
+};
+pub use session::{Connector, DbError, Session};
+pub use value::{Rows, Val};
+pub use uuid::Uuid;
