@@ -117,8 +117,16 @@ DATA_ROOT: str = os.environ.get("ORGTREE_DATA", os.path.expanduser("~/orgtree"))
 # migrates it offline, and a JSON build pointed at a migrated root will refuse
 # too (`BackendMismatch`). One active format per root, enforced both ways.
 STORE_BACKEND: str = os.environ.get("ORGTREE_STORE", "sqlite").strip().lower() or "sqlite"
-if STORE_BACKEND not in ("json", "sqlite"):
-    raise ValueError(f"ORGTREE_STORE must be 'json' or 'sqlite', not {STORE_BACKEND!r}")
+if STORE_BACKEND not in ("json", "sqlite", "postgres"):
+    raise ValueError(f"ORGTREE_STORE must be 'json', 'sqlite' or 'postgres', "
+                     f"not {STORE_BACKEND!r}")
+# PG-0: `postgres` is the SQLite row backend (the same lazy load, differ and
+# compare-on-save) run through `pgstore.PgConn` against PostgreSQL. ROW_STORE
+# names the code paths the two share; a site that still tests `== "sqlite"`
+# is a SQLite-only fast path whose fallback serves postgres.
+ROW_STORE: bool = STORE_BACKEND in ("sqlite", "postgres")
+#: the per-org file under orgs/: the SQLite database, or PostgreSQL's marker
+DB_EXT: str = ".pg" if STORE_BACKEND == "postgres" else ".db"
 # The census's contact evidence says which store an attempt ran against, so
 # that zero SQLite contacts under the JSON backend cannot read as "touched
 # nothing" (`census_contacts.Tally`).
@@ -598,6 +606,22 @@ def claim_data_root(root: str | None = None) -> None:
             names = set(os.listdir(os.path.join(base, "orgs")))
             shadowed = [s for s in dbs if f"{s}.json" in names]
             raise BackendMismatch(_mismatch_text(base, dbs, shadowed))
+    elif STORE_BACKEND == "postgres" and on_data_root:
+        # PG-0: an org still in a `.json` or `.db` is not on PostgreSQL yet.
+        # Importing it is PG-2's operator step; starting would show it as
+        # missing, so refuse, exactly like the two arms above.
+        stray = sorted(set(pending_migrations(base)) | set(active_databases(base)))
+        if stray:
+            raise BackendMismatch(
+                f"ORGTREE_STORE=postgres, but {base!r} still holds SQLite/JSON "
+                f"orgs not imported to PostgreSQL: {', '.join(stray)}. Import "
+                "them (PG-2), or run with ORGTREE_STORE=sqlite.")
+        from . import pgstore
+        _c = pgstore.connect()
+        try:
+            pgstore.migrate(_c)
+        finally:
+            _c.close()
     os.makedirs(base, exist_ok=True)
     fd = os.open(owner_file(base), os.O_RDWR | os.O_CREAT, 0o644)
     if not _try_lock(fd):
@@ -738,7 +762,7 @@ def _json_path(slug: str) -> str:
 
 
 def _db_path(slug: str) -> str:
-    return os.path.join(_orgs_dir(), _safe_slug(slug) + ".db")
+    return os.path.join(_orgs_dir(), _safe_slug(slug) + DB_EXT)
 
 
 def _premigration_path(slug: str) -> str:
@@ -748,7 +772,7 @@ def _premigration_path(slug: str) -> str:
 def org_path(slug: str) -> str:
     """The org's document on disk under the ACTIVE backend — `<slug>.json` or
     `<slug>.db`. Putting a file at this path IS the restore (delete_org)."""
-    return _db_path(slug) if STORE_BACKEND == "sqlite" else _json_path(slug)
+    return _db_path(slug) if ROW_STORE else _json_path(slug)
 
 
 def scratch_root(slug: str) -> str:
@@ -1222,6 +1246,12 @@ class _Pool:
         """`create=True` only where minting a database is the intent — see
         `_open_conn`. Every read path leaves it False so that a database
         deleted under us raises instead of coming back empty."""
+        pinned = getattr(_orgtx_local, "pinned", None)
+        if pinned is not None and pinned.slug == slug:
+            # PG-0: inside an org_tx on postgres, the load and the save run
+            # on the transaction's own connection (pgstore module docstring)
+            yield pinned
+            return
         with self._lock:
             epoch = self._epoch.get(slug, 0)
             idle = self._idle.get(slug)
@@ -1230,7 +1260,12 @@ class _Pool:
         keep = False
         try:
             if conn is None:
-                conn = _open_conn(_db_path(slug), create=create)
+                if STORE_BACKEND == "postgres":
+                    from . import pgstore
+                    conn = cast("sqlite3.Connection",
+                                pgstore.open_conn(slug, _db_path(slug), create=create))
+                else:
+                    conn = _open_conn(_db_path(slug), create=create)
             census_contacts.note_checkout()
             yield conn
             # a transaction still open on check-in is a bug in the caller;
@@ -3018,6 +3053,11 @@ def _save_sqlite(org: Org) -> None:
             _txg = getattr(_orgtx_local, "guard", None)
             if _txg is not None:
                 _txg(changes)
+            if STORE_BACKEND == "postgres":
+                # revision bump + NOTIFY org_rev, in this same transaction
+                from . import pgstore
+                pgstore.on_save_commit(cast("pgstore.PgConn", conn),
+                                       not changes.is_empty())
             # {COMMIT, publish, seq bump} are one atom with respect to
             # snapshot rebuilds — see the invariant note on `_changed_lock`.
             # A commit outside the gate opens the exact window this closes: a
@@ -3523,7 +3563,7 @@ def _scan_orgs(skip: str = "") -> Iterator[tuple[str, dict[str, Any]]]:
     as well as the summary row can have both from the same parse — see
     `list_orgs_with_docs`. Under SQLite the doc is a `LazyDoc`: the heavy
     logs are not read for a listing."""
-    if STORE_BACKEND == "sqlite":
+    if ROW_STORE:
         for f in sorted(os.listdir(_orgs_dir())):
             # an org that arrived as JSON (restored from a pre-migration
             # trash copy, say) is migrated before it is listed
@@ -3539,9 +3579,9 @@ def _scan_orgs(skip: str = "") -> Iterator[tuple[str, dict[str, Any]]]:
                     _log(f"{slug!r} not listed: {e}")
                     continue
         for f in sorted(os.listdir(_orgs_dir())):
-            if not f.endswith(".db"):
+            if not f.endswith(DB_EXT):
                 continue
-            slug = f[:-3]
+            slug = f[:-len(DB_EXT)]
             if skip and slug == skip:
                 # ⚠ the sqlite arm honours `skip` for the same reason the JSON
                 # arm does, even though its parse is cheaper: `_load_lazy`
@@ -3631,14 +3671,14 @@ def local_net_slugs(loaded: dict[str, Any] | None = None) -> set[str]:
         if row["net_slug"] and not row["kiosk"]:
             out.add(str(row["net_slug"]))
 
-    if STORE_BACKEND == "sqlite":
+    if ROW_STORE:
         skip_slug = str((loaded or {}).get("slug") or "")
         if loaded is not None:
             take(skip_slug, loaded)
         for f in sorted(os.listdir(_orgs_dir())):
-            if not f.endswith(".db"):
+            if not f.endswith(DB_EXT):
                 continue
-            slug = f[:-3]
+            slug = f[:-len(DB_EXT)]
             if slug == skip_slug:
                 continue
             try:
@@ -4093,7 +4133,7 @@ def load_org_snapshot(slug: str, sections: Iterable[str]) -> Org:
     unknown = set(selected) - LAZY_SECTIONS
     if unknown:
         raise ValueError(f"not lazy sections: {sorted(unknown)!r}")
-    if STORE_BACKEND == "sqlite":
+    if ROW_STORE:
         return _load_sqlite_org(slug, selected)
     # `detached()`, because on this backend the delegation below IS the
     # snapshot: `_org_view` already brackets this very call as
@@ -4110,7 +4150,7 @@ def load_org(slug: str) -> Org:
 
 
 def _load_org(slug: str) -> Org:
-    if STORE_BACKEND == "sqlite":
+    if ROW_STORE:
         # THE RESIDENT FAST PATH (rearchitecture Phase B). A load performed
         # while this thread holds the document lock is the front half of a
         # write cycle — the classic idiom at ~300 sites. It is served the
@@ -4597,7 +4637,7 @@ def cached_org(slug: str) -> Org:
         hit = _doc_cache.get(slug)
     if hit is not None and hit[0] == arrival:
         return hit[1]
-    if STORE_BACKEND != "sqlite":
+    if not ROW_STORE:
         # the JSON backend keeps the historical semantics: fresh load,
         # cache only when the seq held still across it
         try:
@@ -4884,7 +4924,7 @@ def write_org(slug: str) -> Generator[Org]:
 
     The JSON backend keeps the exact historical behavior: lock + fresh
     load, no residency."""
-    if STORE_BACKEND != "sqlite":
+    if not ROW_STORE:
         with DOC_LOCK:
             yield load_org(slug)
         return
@@ -4955,13 +4995,13 @@ def cached_list() -> list[dict[str, Any]]:
     filesystem work; nothing is parsed unless its org actually changed.
     Unlike `_scan_orgs` this never migrates stray JSON documents inline —
     the loops have no business migrating; the API listing still does."""
-    if STORE_BACKEND != "sqlite":
+    if not ROW_STORE:
         return list_orgs()
     out: list[dict[str, Any]] = []
     for f in sorted(os.listdir(_orgs_dir())):
-        if not f.endswith(".db"):
+        if not f.endswith(DB_EXT):
             continue
-        slug = f[:-3]
+        slug = f[:-len(DB_EXT)]
         try:
             _safe_slug(slug)
             out.append(_summary_row(slug, cached_org(slug).d))
@@ -5040,7 +5080,7 @@ def _save_org(org: Org) -> None:
         except Exception:                                    # noqa: BLE001
             pass
     global REVISION
-    if STORE_BACKEND == "sqlite":
+    if ROW_STORE:
         # seq bump + change publication happen INSIDE _save_sqlite, under the
         # per-org snapshot gate, atomically with the commit
         _save_sqlite(org)
@@ -5100,7 +5140,7 @@ def delete_org(slug: str) -> None:
     afterwards travels with the database under the same trash stem."""
     p = org_path(slug)                      # validates the slug (see _safe_slug)
     trash = os.path.join(DATA_ROOT, "deleted")
-    ext = ".db" if STORE_BACKEND == "sqlite" else ".json"
+    ext = DB_EXT if ROW_STORE else ".json"
     # Under DOC_LOCK like every other write: without it a load-modify-save
     # cycle already in flight re-creates the doc AFTER the rename and the org
     # comes back from the dead, half-populated and with no trash copy of the
@@ -5142,7 +5182,7 @@ def delete_org(slug: str) -> None:
         # shapes are extras.
         jp = _json_path(slug)
         extras = [(jp + ".premigration", ".json.premigration")]
-        if STORE_BACKEND == "sqlite":
+        if ROW_STORE:
             extras.insert(0, (jp, ".json"))
 
         # ⚠⚠ THE EXTRAS MOVE FIRST, AND A FAILURE HERE ABORTS THE DELETE.
@@ -5201,7 +5241,7 @@ def delete_org(slug: str) -> None:
         except OSError:
             _put_back()
             raise
-        if STORE_BACKEND != "sqlite":
+        if not ROW_STORE:
             try:
                 _rename_retry(p, dest)
             except OSError:
