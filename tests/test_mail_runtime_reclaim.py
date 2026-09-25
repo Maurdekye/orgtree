@@ -13,7 +13,7 @@ _root = tempfile.TemporaryDirectory(prefix='mail-runtime-reclaim-')
 os.environ['ORGTREE_DATA'] = _root.name
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine/backend'))
 import import_provenance  # noqa: F401
-from orgtree import halt, ledger, maildrain, mailruntime, store, supervisor as sup, transcript_ingest
+from orgtree import halt, ledger, maildrain, mailruntime, orgtx, store, supervisor as sup, transcript_ingest
 
 assert Path(store.DATA_ROOT).resolve() == Path(_root.name).resolve()
 SLUGS = []
@@ -174,8 +174,10 @@ class ReclaimTransactionTests(unittest.TestCase):
             if entered:
                 raise OSError('outcome unreadable')
             return self.load(slug)
-        with patch.object(store, 'load_org', side_effect=load), patch.object(store, 'save_org', side_effect=lost):
+        # PG-3d: the confirmation's outcome read is `orgtx.org_read` now
+        with patch.object(store, 'load_org', side_effect=load),                 patch.object(orgtx, 'org_read', side_effect=lambda slug, **_: load(slug)),                 patch.object(store, 'save_org', side_effect=lost):
             self.confirm()
+        self.assertTrue(entered, 'the lost-response injection never ran')
         self.assertEqual(self.st['mail_confirmed'], {self.tok})
         self.confirm()
         self.assert_confirmed()
