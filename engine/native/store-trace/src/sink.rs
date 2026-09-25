@@ -14,6 +14,7 @@
 //! | `ControlExecuted`| `control_executed` | |
 //! | `Pause`          | `pause`      | |
 //! | `Lookup`         | `lookup`     | |
+//! | `XactStats`      | `xact_stats` | the server's per-transaction relation activity (qualification builds) |
 //!
 //! Statements labelled `trace.*` or `exec.*` are the executor's own
 //! infrastructure (they read system views): they are recorded with
@@ -215,6 +216,27 @@ impl TraceSink for Collector {
             }
             EventKind::Lookup { answer } => {
                 self.push(e, "lookup", vec![("answer".into(), s(answer))]);
+            }
+            EventKind::XactStats { tables } => {
+                // the SERVER's per-transaction relation activity (pg_stat_xact_user_tables),
+                // the cross-check of the SQL-text derivation (oracle.py reads it)
+                let rows = tables
+                    .iter()
+                    .map(|t| {
+                        Value::Obj(vec![
+                            ("relname".into(), s(&t.relname)),
+                            ("seq_scan".into(), Value::Int(t.seq_scan)),
+                            ("idx_scan".into(), Value::Int(t.idx_scan)),
+                            ("n_tup_ins".into(), Value::Int(t.n_tup_ins)),
+                            ("n_tup_upd".into(), Value::Int(t.n_tup_upd)),
+                            ("n_tup_del".into(), Value::Int(t.n_tup_del)),
+                        ])
+                    })
+                    .collect();
+                self.push(e, "xact_stats", vec![
+                    ("backend_pid".into(), self.pid(&op, e.attempt)),
+                    ("tables".into(), Value::List(rows)),
+                ]);
             }
         }
     }
