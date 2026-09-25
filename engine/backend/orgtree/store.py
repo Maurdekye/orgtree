@@ -121,12 +121,20 @@ if STORE_BACKEND not in ("json", "sqlite", "postgres"):
     raise ValueError(f"ORGTREE_STORE must be 'json', 'sqlite' or 'postgres', "
                      f"not {STORE_BACKEND!r}")
 # PG-0: `postgres` is the SQLite row backend (the same lazy load, differ and
-# compare-on-save) run through `pgstore.PgConn` against PostgreSQL. ROW_STORE
+# compare-on-save) run through `pgstore.PgConn` against PostgreSQL. row_store()
 # names the code paths the two share; a site that still tests `== "sqlite"`
 # is a SQLite-only fast path whose fallback serves postgres.
-ROW_STORE: bool = STORE_BACKEND in ("sqlite", "postgres")
-#: the per-org file under orgs/: the SQLite database, or PostgreSQL's marker
-DB_EXT: str = ".pg" if STORE_BACKEND == "postgres" else ".db"
+#
+# Both are FUNCTIONS, read at call time, because tests patch STORE_BACKEND
+# on the module at runtime (e.g. test_write_route_timing pins 'json').
+def row_store() -> bool:
+    return STORE_BACKEND in ("sqlite", "postgres")
+
+
+def db_ext() -> str:
+    """The per-org file under orgs/: the SQLite database, or PostgreSQL's
+    marker."""
+    return ".pg" if STORE_BACKEND == "postgres" else ".db"
 # The census's contact evidence says which store an attempt ran against, so
 # that zero SQLite contacts under the JSON backend cannot read as "touched
 # nothing" (`census_contacts.Tally`).
@@ -762,7 +770,7 @@ def _json_path(slug: str) -> str:
 
 
 def _db_path(slug: str) -> str:
-    return os.path.join(_orgs_dir(), _safe_slug(slug) + DB_EXT)
+    return os.path.join(_orgs_dir(), _safe_slug(slug) + db_ext())
 
 
 def _premigration_path(slug: str) -> str:
@@ -772,7 +780,7 @@ def _premigration_path(slug: str) -> str:
 def org_path(slug: str) -> str:
     """The org's document on disk under the ACTIVE backend — `<slug>.json` or
     `<slug>.db`. Putting a file at this path IS the restore (delete_org)."""
-    return _db_path(slug) if ROW_STORE else _json_path(slug)
+    return _db_path(slug) if row_store() else _json_path(slug)
 
 
 def scratch_root(slug: str) -> str:
@@ -1247,10 +1255,12 @@ class _Pool:
         `_open_conn`. Every read path leaves it False so that a database
         deleted under us raises instead of coming back empty."""
         pinned = getattr(_orgtx_local, "pinned", None)
-        if pinned is not None and pinned.slug == slug:
+        pc = pinned.get(slug) if pinned else None
+        if pc is not None:
             # PG-0: inside an org_tx on postgres, the load and the save run
-            # on the transaction's own connection (pgstore module docstring)
-            yield pinned
+            # on the transaction's own connection (pgstore module docstring);
+            # a multi-org org_tx pins one entry per org, all on one connection
+            yield pc
             return
         with self._lock:
             epoch = self._epoch.get(slug, 0)
@@ -1270,7 +1280,9 @@ class _Pool:
             yield conn
             # a transaction still open on check-in is a bug in the caller;
             # never pool it — roll back and drop the connection
-            keep = not conn.in_transaction
+            # postgres: never idle per slug — PgConn.close() hands the server
+            # connection to pgstore's one process-wide pool instead
+            keep = not conn.in_transaction and STORE_BACKEND != "postgres"
         finally:
             with self._lock:
                 self._busy[slug] = self._busy.get(slug, 1) - 1
@@ -2630,7 +2642,8 @@ def _write_log_rows(conn: sqlite3.Connection, table: str,
                     scope_sql: str, scope_args: tuple[Any, ...],
                     insert_sql: str, insert_prefix: tuple[Any, ...],
                     cur: list[Any], snap: list[tuple[int, str]] | None,
-                    *, incremental: AppendLog | None = None
+                    *, incremental: AppendLog | None = None,
+                    cas_old: list[tuple[int, str]] | None = None
                     ) -> list[tuple[int, str]]:
     """Reconcile a single ordered log while retaining proven row identities.
 
@@ -2644,6 +2657,10 @@ def _write_log_rows(conn: sqlite3.Connection, table: str,
     strs = [_dumps(entry) for entry in cur]
     old = list(snap or [])
     old_by_id = {seq: val for seq, val in old}
+    # PG-0 compare-and-set (see _ROW_CAS): the rows this save loaded for the
+    # scope; a delete or update of one applies only if it still holds them
+    cas = old if snap is not None else cas_old
+    cas = cas if _ROW_CAS else None
 
     ids: list[int | None] | None = None
     if incremental is not None and not incremental.full_rewrite \
@@ -2658,7 +2675,13 @@ def _write_log_rows(conn: sqlite3.Connection, table: str,
 
     if snap is not None and ids is not None:
         kept_ids = {cast(int, seq) for seq in ids if seq is not None}
-        _delete_log_seqs(conn, table, (seq for seq, _ in old if seq not in kept_ids))
+        if cas is not None:
+            for seq, oval in old:
+                if seq not in kept_ids:
+                    _cas(conn, f"DELETE FROM {table} WHERE seq=? AND val=?",
+                         (seq, oval), f"{table} row {seq} ({scope_args[0]!r})")
+        else:
+            _delete_log_seqs(conn, table, (seq for seq, _ in old if seq not in kept_ids))
         result: list[tuple[int, str]] = []
         for entry, val, seq in zip(cur, strs, ids):
             if seq is None:
@@ -2666,8 +2689,13 @@ def _write_log_rows(conn: sqlite3.Connection, table: str,
                 result.append((cast(int, cursor.lastrowid), val))
             else:
                 if old_by_id[seq] != val:
-                    conn.execute(f"UPDATE {table} SET at=?, val=? WHERE seq=?",
-                                 (_at_of(entry), val, seq))
+                    if cas is not None:
+                        _cas(conn, f"UPDATE {table} SET at=?, val=? WHERE seq=? AND val=?",
+                             (_at_of(entry), val, seq, old_by_id[seq]),
+                             f"{table} row {seq} ({scope_args[0]!r})")
+                    else:
+                        conn.execute(f"UPDATE {table} SET at=?, val=? WHERE seq=?",
+                                     (_at_of(entry), val, seq))
                 result.append((seq, val))
         return result
 
@@ -2675,7 +2703,20 @@ def _write_log_rows(conn: sqlite3.Connection, table: str,
     # falls back to an exact replacement of this bounded scope.
     if snap is not None and [val for _, val in old] == strs:
         return old
-    conn.execute(f"DELETE FROM {table} WHERE {scope_sql}", scope_args)
+    if cas is not None:
+        # replace only what this save loaded, row by row, and refuse if the
+        # scope holds anything else (a row another writer committed since)
+        for seq, oval in cas:
+            _cas(conn, f"DELETE FROM {table} WHERE seq=? AND val=?", (seq, oval),
+                 f"{table} row {seq} ({scope_args[0]!r})")
+        row = conn.execute(f"SELECT COUNT(*) FROM {table} WHERE {scope_sql}",
+                           scope_args).fetchone()
+        if row is not None and int(row[0]) != 0:
+            raise StaleWrite(f"{table} scope {scope_args!r} gained rows since this "
+                             "save loaded it (another writer committed them); "
+                             "nothing was written")
+    else:
+        conn.execute(f"DELETE FROM {table} WHERE {scope_sql}", scope_args)
     result = []
     for entry, val in zip(cur, strs):
         cursor = conn.execute(insert_sql, (*insert_prefix, _at_of(entry), val))
@@ -2721,7 +2762,19 @@ def _write_dict_log(conn: sqlite3.Connection, sect: str, cur: dict[str, Any],
     new_snap = {owner: list(rows) for owner, rows in snap.items()
                 if owner in cur._present}
     for owner in cur._dropped:
-        conn.execute("DELETE FROM log_d WHERE sect=? AND owner=?", (sect, owner))
+        base = snap.get(owner)
+        if _ROW_CAS and base is not None:
+            for seq, oval in base:
+                _cas(conn, "DELETE FROM log_d WHERE seq=? AND val=?", (seq, oval),
+                     f"log_d row {seq} ({sect!r}, {owner!r})")
+            row = conn.execute("SELECT COUNT(*) FROM log_d WHERE sect=? AND owner=?",
+                               (sect, owner)).fetchone()
+            if row is not None and int(row[0]) != 0:
+                raise StaleWrite(f"{sect}[{owner!r}] gained rows since this save "
+                                 "loaded it (another writer committed them); "
+                                 "nothing was written")
+        else:
+            conn.execute("DELETE FROM log_d WHERE sect=? AND owner=?", (sect, owner))
         new_snap.pop(owner, None)
     # Walk loaded/new real owners in document order.  Raw dict iteration would
     # also see SectionMap's private JSON-encoder seed until a whole-map
@@ -2742,7 +2795,8 @@ def _write_dict_log(conn: sqlite3.Connection, sect: str, cur: dict[str, Any],
             "INSERT INTO log_d(sect, owner, at, val) VALUES(?,?,?,?)",
             (sect, owner), entries, baseline,
             incremental=row_log if isinstance(row_log, AppendLog)
-            and owner not in cur._replaced else None)
+            and owner not in cur._replaced else None,
+            cas_old=snap.get(owner))
     raw_old_owners = _meta_get(conn, _META_OWNERS + sect)
     # Owner names are a separate journal from loaded row snapshots. Merge
     # only this proxy's structural changes into the currently committed
@@ -3606,7 +3660,7 @@ def _scan_orgs(skip: str = "") -> Iterator[tuple[str, dict[str, Any]]]:
     as well as the summary row can have both from the same parse — see
     `list_orgs_with_docs`. Under SQLite the doc is a `LazyDoc`: the heavy
     logs are not read for a listing."""
-    if ROW_STORE:
+    if row_store():
         for f in sorted(os.listdir(_orgs_dir())):
             # an org that arrived as JSON (restored from a pre-migration
             # trash copy, say) is migrated before it is listed
@@ -3622,9 +3676,9 @@ def _scan_orgs(skip: str = "") -> Iterator[tuple[str, dict[str, Any]]]:
                     _log(f"{slug!r} not listed: {e}")
                     continue
         for f in sorted(os.listdir(_orgs_dir())):
-            if not f.endswith(DB_EXT):
+            if not f.endswith(db_ext()):
                 continue
-            slug = f[:-len(DB_EXT)]
+            slug = f[:-len(db_ext())]
             if skip and slug == skip:
                 # ⚠ the sqlite arm honours `skip` for the same reason the JSON
                 # arm does, even though its parse is cheaper: `_load_lazy`
@@ -3714,14 +3768,14 @@ def local_net_slugs(loaded: dict[str, Any] | None = None) -> set[str]:
         if row["net_slug"] and not row["kiosk"]:
             out.add(str(row["net_slug"]))
 
-    if ROW_STORE:
+    if row_store():
         skip_slug = str((loaded or {}).get("slug") or "")
         if loaded is not None:
             take(skip_slug, loaded)
         for f in sorted(os.listdir(_orgs_dir())):
-            if not f.endswith(DB_EXT):
+            if not f.endswith(db_ext()):
                 continue
-            slug = f[:-len(DB_EXT)]
+            slug = f[:-len(db_ext())]
             if slug == skip_slug:
                 continue
             try:
@@ -4176,7 +4230,7 @@ def load_org_snapshot(slug: str, sections: Iterable[str]) -> Org:
     unknown = set(selected) - LAZY_SECTIONS
     if unknown:
         raise ValueError(f"not lazy sections: {sorted(unknown)!r}")
-    if ROW_STORE:
+    if row_store():
         return _load_sqlite_org(slug, selected)
     # `detached()`, because on this backend the delegation below IS the
     # snapshot: `_org_view` already brackets this very call as
@@ -4193,7 +4247,7 @@ def load_org(slug: str) -> Org:
 
 
 def _load_org(slug: str) -> Org:
-    if ROW_STORE:
+    if row_store():
         # THE RESIDENT FAST PATH (rearchitecture Phase B). A load performed
         # while this thread holds the document lock is the front half of a
         # write cycle — the classic idiom at ~300 sites. It is served the
@@ -4680,7 +4734,7 @@ def cached_org(slug: str) -> Org:
         hit = _doc_cache.get(slug)
     if hit is not None and hit[0] == arrival:
         return hit[1]
-    if not ROW_STORE:
+    if not row_store():
         # the JSON backend keeps the historical semantics: fresh load,
         # cache only when the seq held still across it
         try:
@@ -4967,7 +5021,7 @@ def write_org(slug: str) -> Generator[Org]:
 
     The JSON backend keeps the exact historical behavior: lock + fresh
     load, no residency."""
-    if not ROW_STORE:
+    if not row_store():
         with DOC_LOCK:
             yield load_org(slug)
         return
@@ -5038,13 +5092,13 @@ def cached_list() -> list[dict[str, Any]]:
     filesystem work; nothing is parsed unless its org actually changed.
     Unlike `_scan_orgs` this never migrates stray JSON documents inline —
     the loops have no business migrating; the API listing still does."""
-    if not ROW_STORE:
+    if not row_store():
         return list_orgs()
     out: list[dict[str, Any]] = []
     for f in sorted(os.listdir(_orgs_dir())):
-        if not f.endswith(DB_EXT):
+        if not f.endswith(db_ext()):
             continue
-        slug = f[:-len(DB_EXT)]
+        slug = f[:-len(db_ext())]
         try:
             _safe_slug(slug)
             out.append(_summary_row(slug, cached_org(slug).d))
@@ -5123,7 +5177,7 @@ def _save_org(org: Org) -> None:
         except Exception:                                    # noqa: BLE001
             pass
     global REVISION
-    if ROW_STORE:
+    if row_store():
         # seq bump + change publication happen INSIDE _save_sqlite, under the
         # per-org snapshot gate, atomically with the commit
         _save_sqlite(org)
@@ -5194,7 +5248,7 @@ def delete_org(slug: str) -> None:
     afterwards travels with the database under the same trash stem."""
     p = org_path(slug)                      # validates the slug (see _safe_slug)
     trash = os.path.join(DATA_ROOT, "deleted")
-    ext = DB_EXT if ROW_STORE else ".json"
+    ext = db_ext() if row_store() else ".json"
     # Under DOC_LOCK like every other write: without it a load-modify-save
     # cycle already in flight re-creates the doc AFTER the rename and the org
     # comes back from the dead, half-populated and with no trash copy of the
@@ -5236,7 +5290,7 @@ def delete_org(slug: str) -> None:
         # shapes are extras.
         jp = _json_path(slug)
         extras = [(jp + ".premigration", ".json.premigration")]
-        if ROW_STORE:
+        if row_store():
             extras.insert(0, (jp, ".json"))
 
         # ⚠⚠ THE EXTRAS MOVE FIRST, AND A FAILURE HERE ABORTS THE DELETE.
@@ -5295,7 +5349,7 @@ def delete_org(slug: str) -> None:
         except OSError:
             _put_back()
             raise
-        if not ROW_STORE:
+        if not row_store():
             try:
                 _rename_retry(p, dest)
             except OSError:
