@@ -159,6 +159,7 @@ class Rt9Live(unittest.TestCase):
         r = _Rig(on_change, catch_up=catch_up, poll_s=poll_s)
         r.feed.start()
         self.addCleanup(r.feed.stop)
+        self.addCleanup(r.up.set)          # runs first: a held reconnect never blocks stop
         self.assertTrue(_wait(lambda: r.feed.stats.catchups >= 1), "the listener never connected")
         return r
 
