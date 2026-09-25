@@ -313,7 +313,7 @@ class AccountFallbackSettingsTests(unittest.TestCase):
         self.org.d["auto_resume"] = False
         self.org.node("worker")["scope"]["account_fallback"] = False
         self.store.save_org(self.org)
-        with patch.object(self.store, "load_org", wraps=self.store.load_org) as load, \
+        with patch.object(self.store, "_load_sqlite_org", wraps=self.store._load_sqlite_org) as load, \
              patch.object(fallback, "read_board") as read:
             supervisor._auto_resume_org("fallback-settings")
             self.assertEqual(load.call_count, 1)

@@ -19514,8 +19514,8 @@ def _wd_rows(slug: str, wid: str) -> dict[str, Any]:
     except Exception:                                    # noqa: BLE001
         owner = ""
     rows = mailtx.send_rows(owner) if owner else {"sections": [], "logs": []}
-    return mailtx.merge(rows, sections=["watchdogs", "watchdog_history"],
-                        logs=["events"])
+    return mailtx.merge(rows, sections=["watchdogs"],
+                        logs=["events", "watchdog_history"])
 
 
 def _admission_pred_locked(tx: orgtx.OrgTx, org: Org, nid: str) -> bool:
