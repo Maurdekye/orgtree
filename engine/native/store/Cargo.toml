@@ -1,0 +1,31 @@
+[package]
+name = "orgtree-store"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "P03 store core: command executor, receipts, in-flight rows, output claims, Sent stub (CONTRACT-M1.md)"
+license = "MIT"
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = []
+# Pause points, unsafe controls and the harness channel (CONTRACT-M1 §5).
+# Never enabled in a production build.
+qualification = []
+# The in-memory fake session, for pure tests here and in family crates.
+fake = []
+
+[dependencies]
+# Versions are pinned to match every other P03 crate; see DEPENDENCIES.md.
+tokio = { version = "=1.52.3", default-features = false, features = ["sync", "time", "rt", "macros"] }
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.150"
+uuid = { version = "1", default-features = false, features = ["v4", "std", "serde"] }
+
+[dev-dependencies]
+orgtree-store-schema = { path = "../store-schema" }
+tokio = { version = "=1.52.3", default-features = false, features = ["sync", "time", "rt", "macros", "rt-multi-thread"] }
+# The fake session for this crate's own integration tests.
+orgtree-store = { path = ".", features = ["fake"] }
