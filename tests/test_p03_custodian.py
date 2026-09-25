@@ -54,7 +54,8 @@ STUB_STORE = textwrap.dedent('''
         sys.stderr.write("stub store: refusing\\n"); sys.exit(3)
     desc = os.path.join(root, "p03-store-service.json")
     open(desc, "w").write("{}")
-    print(json.dumps({"type": "ready", "pid": os.getpid(), "port": 1, "service_incarnation": "x", "descriptor": desc}), flush=True)
+    pid = os.getpid() + (1 if os.environ.get("STUB_STORE_WRONG_PID") else 0)
+    print(json.dumps({"type": "ready", "pid": pid, "port": 1, "service_incarnation": "x", "descriptor": desc}), flush=True)
     sys.stdin.read()  # exits on EOF, like the real service
     os.remove(desc)
     with open(log, "a", encoding="utf-8") as f:
@@ -133,6 +134,13 @@ class BracketTests(unittest.TestCase):
             bracket.start_for_host(live_root, self.configured())
         self.assertEqual(self.calls(), [])
 
+    def test_a_root_that_contains_live_data_is_refused(self) -> None:
+        home = self.tmp / "home"
+        (home / bracket.MARKER_FILE).write_text("{}")
+        with self.assertRaisesRegex(BracketError, "overlaps protected location"):
+            bracket.start_for_host(home, self.configured())
+        self.assertEqual(self.calls(), [])
+
     def test_the_live_list_is_the_shared_file(self) -> None:
         spec = json.loads(bracket.LIVE_LOCATIONS.read_text(encoding="utf-8"))
         self.assertEqual(spec["schema"], "orgtree.p03.live-locations/v1")
@@ -183,6 +191,14 @@ class BracketTests(unittest.TestCase):
             bracket.start_for_host(self.root, env)
         cmds = [c["args"][0] for c in self.calls() if c["who"] == "custodian"]
         self.assertEqual(cmds[-1], "stop", "the database must be stopped when the bracket fails")
+
+    def test_a_ready_line_from_another_pid_is_refused(self) -> None:
+        self.mark()
+        env = {**self.configured(), "STUB_STORE_WRONG_PID": "1"}
+        with self.assertRaisesRegex(BracketError, "readiness is wrong"):
+            bracket.start_for_host(self.root, env)
+        cmds = [c["args"][0] for c in self.calls() if c["who"] == "custodian"]
+        self.assertEqual(cmds[-1], "stop")
 
     def test_the_engine_token_is_not_passed_on(self) -> None:
         self.mark()
