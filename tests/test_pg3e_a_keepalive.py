@@ -115,6 +115,12 @@ class WorkingCacheKeepalive(unittest.TestCase):
     def setUp(self) -> None:
         orgtx.use_backend(orgtx.SeamBackend())
         self.slug = _org(_slug("ka"))
+        # PG-0 6b8caaa: org_tx takes DOC_LOCK first while TRANSITION_FENCE is
+        # on (the transition default). This test is about the converted
+        # writer's own lock use, so it runs with the fence off.
+        fence = patch.object(orgtx, "TRANSITION_FENCE", False)
+        fence.start()
+        self.addCleanup(fence.stop)
 
     def test_keepalive_banks_cost_and_freshness_without_doc_lock(self) -> None:
         class Proc:
