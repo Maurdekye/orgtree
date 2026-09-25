@@ -629,10 +629,13 @@ pub async fn plan_locked<S: Session>(
         return Ok(Err(Refusal::new("funding.nosuchnode", format!("no such node {target}"))));
     };
     // the path the planner can read `free` on: up to the acting agent, or the top
+    // An agent that is not on the target's chain has no authority over it:
+    // the planner refuses from the (share-locked) topology alone, so nothing
+    // is locked for it.
     let path: BTreeSet<Uuid> = match actor {
         Actor::Agent(a) => match f.chain.iter().position(|x| *x == a) {
             Some(i) => f.chain[..=i].iter().copied().collect(),
-            None => f.chain.iter().copied().collect(),
+            None => BTreeSet::new(),
         },
         Actor::User => f.chain.iter().copied().collect(),
     };

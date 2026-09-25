@@ -346,6 +346,14 @@ pub enum Racer {
     Retire { node: Uuid },
     /// A halt of `node` (READ COMMITTED; updates the authority-epoch row).
     Halt { node: Uuid },
+    /// `mark_unrecoverable` of `node` (SERIALIZABLE; moots nothing).
+    MarkUnrecoverable { node: Uuid },
+    /// A hire of a new seat under `parent` (None = top level), SERIALIZABLE,
+    /// with the island side of C2a P2: the payer's capacity row
+    /// `FOR NO KEY UPDATE` BEFORE computing `free` from its aggregate, then
+    /// updated; at the top level the kiosk pool row last (E8). No bubbling:
+    /// the payer must fund the seat and grant itself.
+    Hire { id: Uuid, name: &'static str, parent: Option<Uuid>, tier: &'static str, grant_centi: i64 },
 }
 
 impl Command for Racer {
@@ -361,6 +369,8 @@ impl Command for Racer {
             Racer::Move { .. } => "move",
             Racer::Retire { .. } => "retire",
             Racer::Halt { .. } => "halt",
+            Racer::MarkUnrecoverable { .. } => "mark_unrecoverable",
+            Racer::Hire { .. } => "hire",
         }
     }
     async fn anchor<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding) -> Result<(), CmdError> {
@@ -383,7 +393,116 @@ impl Command for Racer {
                 }
                 tx.exec("sg.retire.archive", "UPDATE authority_epoch SET lifecycle = 'archived', version = version + 1 WHERE org_id = $1 AND principal_id = $2", &[Val::Uuid(org), Val::Uuid(*node)]).await?;
                 tx.exec("sg.retire.moot", "UPDATE request_batches SET state = 'moot' WHERE org_id = $1 AND asker_id = $2 AND state = 'pending'", &[Val::Uuid(org), Val::Uuid(*node)]).await?;
+                // P2: archiving frees seat and grant from the payer's obligations.
+                let f = tx
+                    .exec(
+                        "sg.retire.edge",
+                        "SELECT issuer_id, grant_centi, (SELECT tier FROM agents WHERE org_id = $1 AND principal_id = $2) FROM funding_edges WHERE org_id = $1 AND child_id = $2",
+                        &[Val::Uuid(org), Val::Uuid(*node)],
+                    )
+                    .await?;
+                if let Some(r) = f.first() {
+                    if let (Some(p), Some(gc), Some(t)) = (r.first().and_then(Val::as_uuid), r.get(1).and_then(Val::as_int), r.get(2).and_then(|v| v.as_text().map(str::to_string))) {
+                        tx.exec("sg.retire.lock_capacity", "SELECT 1 FROM issuer_capacity WHERE org_id = $1 AND principal_id = $2 FOR NO KEY UPDATE", &[Val::Uuid(org), Val::Uuid(p)]).await?;
+                        tx.exec(
+                            "sg.retire.free",
+                            "UPDATE issuer_capacity SET child_grants_centi = child_grants_centi - $3, \
+                             child_seats = jsonb_set(child_seats, ARRAY[$4::text], to_jsonb(coalesce((child_seats->>$4::text)::bigint, 0) - 1)), version = version + 1 \
+                             WHERE org_id = $1 AND principal_id = $2",
+                            &[Val::Uuid(org), Val::Uuid(p), Val::Int(gc), Val::text(t)],
+                        )
+                        .await?;
+                    }
+                }
             }
+            Racer::MarkUnrecoverable { node } => {
+                tx.exec("sg.mark.lock_epoch", "SELECT 1 FROM authority_epoch WHERE org_id = $1 AND principal_id = $2 FOR NO KEY UPDATE", &[Val::Uuid(org), Val::Uuid(*node)]).await?;
+                tx.exec("sg.mark.epoch", "UPDATE authority_epoch SET lifecycle = 'unrecoverable', version = version + 1 WHERE org_id = $1 AND principal_id = $2", &[Val::Uuid(org), Val::Uuid(*node)]).await?;
+            }
+            Racer::Hire { id, name, parent, tier, grant_centi } => {
+                tx.exec("sg.hire.catalog", "SELECT catalog_version FROM catalog_current WHERE org_id = $1 FOR SHARE", &[Val::Uuid(org)]).await?;
+                let price = tx
+                    .exec(
+                        "sg.hire.price",
+                        "SELECT p.seat_centi FROM price_catalog p JOIN catalog_current c ON c.org_id = p.org_id AND c.catalog_version = p.catalog_version WHERE p.org_id = $1 AND p.tier = $2",
+                        &[Val::Uuid(org), Val::text(*tier)],
+                    )
+                    .await?
+                    .first()
+                    .and_then(|r| r.first())
+                    .and_then(Val::as_int)
+                    .unwrap_or(0);
+                let need = price + grant_centi;
+                match parent {
+                    Some(p) => {
+                        tx.exec("sg.hire.lock_capacity", "SELECT 1 FROM issuer_capacity WHERE org_id = $1 AND principal_id = $2 FOR NO KEY UPDATE", &[Val::Uuid(org), Val::Uuid(*p)]).await?;
+                        tx.pause("after_capacity_lock").await?;
+                        let r = tx
+                            .exec(
+                                "sg.hire.free",
+                                "SELECT f.grant_centi - c.child_grants_centi - coalesce((SELECT sum((s.value)::bigint * pc.seat_centi) FROM jsonb_each_text(c.child_seats) s \
+                                   JOIN catalog_current cc ON cc.org_id = c.org_id JOIN price_catalog pc ON pc.org_id = c.org_id AND pc.catalog_version = cc.catalog_version AND pc.tier = s.key), 0)::bigint \
+                                 FROM issuer_capacity c JOIN funding_edges f ON f.org_id = c.org_id AND f.child_id = c.principal_id WHERE c.org_id = $1 AND c.principal_id = $2",
+                                &[Val::Uuid(org), Val::Uuid(*p)],
+                            )
+                            .await?;
+                        let free = r.first().and_then(|r| r.first()).and_then(Val::as_int).unwrap_or(0);
+                        if free < need {
+                            return Ok(Decided::Refused(Refusal::new("chain_short", format!("free {free} < need {need}"))));
+                        }
+                        tx.exec(
+                            "sg.hire.capacity",
+                            "UPDATE issuer_capacity SET child_grants_centi = child_grants_centi + $3, \
+                             child_seats = jsonb_set(child_seats, ARRAY[$4::text], to_jsonb(coalesce((child_seats->>$4::text)::bigint, 0) + 1)), version = version + 1 \
+                             WHERE org_id = $1 AND principal_id = $2",
+                            &[Val::Uuid(org), Val::Uuid(*p), Val::Int(*grant_centi), Val::text(*tier)],
+                        )
+                        .await?;
+                    }
+                    None => {
+                        let k = tx.exec("sg.hire.kiosk", "SELECT pool_centi FROM kiosk_pool WHERE org_id = $1 FOR NO KEY UPDATE", &[Val::Uuid(org)]).await?;
+                        if let Some(r) = k.first() {
+                            let pool = r.first().and_then(Val::as_int).unwrap_or(0);
+                            let held = tx
+                                .exec(
+                                    "sg.hire.kiosk_held",
+                                    "SELECT k.top_grants_centi + coalesce((SELECT sum((s.value)::bigint * pc.seat_centi) FROM jsonb_each_text(k.top_seats) s \
+                                       JOIN catalog_current cc ON cc.org_id = k.org_id JOIN price_catalog pc ON pc.org_id = k.org_id AND pc.catalog_version = cc.catalog_version AND pc.tier = s.key), 0)::bigint \
+                                     FROM kiosk_pool k WHERE k.org_id = $1",
+                                    &[Val::Uuid(org)],
+                                )
+                                .await?
+                                .first()
+                                .and_then(|r| r.first())
+                                .and_then(Val::as_int)
+                                .unwrap_or(0);
+                            if held + need > pool {
+                                return Ok(Decided::Refused(Refusal::new("kiosk_cap", "kiosk credit cap")));
+                            }
+                            tx.exec(
+                                "sg.hire.kiosk_update",
+                                "UPDATE kiosk_pool SET top_grants_centi = top_grants_centi + $2, \
+                                 top_seats = jsonb_set(top_seats, ARRAY[$3::text], to_jsonb(coalesce((top_seats->>$3::text)::bigint, 0) + 1)), version = version + 1 WHERE org_id = $1",
+                                &[Val::Uuid(org), Val::Int(*grant_centi), Val::text(*tier)],
+                            )
+                            .await?;
+                        }
+                    }
+                }
+                tx.exec(
+                    "sg.hire.insert",
+                    "WITH a AS (INSERT INTO agents (org_id, principal_id, name, seat_id, tier, created_at) VALUES ($1, $2, $3, gen_random_uuid(), $4, clock_timestamp()) RETURNING 1), \
+                     n AS (INSERT INTO agent_names (org_id, name, principal_id, kind) SELECT $1, $3, $2, 'active' FROM a RETURNING 1), \
+                     e AS (INSERT INTO authority_epoch (org_id, principal_id, lifecycle, generation) SELECT $1, $2, 'live', 1 FROM a RETURNING 1), \
+                     t AS (INSERT INTO topology_edges (org_id, principal_id, parent_id) SELECT $1, $2, $5 FROM a RETURNING 1), \
+                     f AS (INSERT INTO funding_edges (org_id, child_id, issuer_id, tier, grant_centi) SELECT $1, $2, $5, $4, $6 FROM a RETURNING 1), \
+                     c AS (INSERT INTO issuer_capacity (org_id, principal_id) SELECT $1, $2 FROM a RETURNING 1) \
+                     SELECT count(*) FROM a",
+                    &[Val::Uuid(org), Val::Uuid(*id), Val::text(*name), Val::text(*tier), Val::opt_uuid(*parent), Val::Int(*grant_centi)],
+                )
+                .await?;
+            }
+
             Racer::Halt { node } => {
                 tx.exec("sg.halt.epoch", "UPDATE authority_epoch SET halted = true, version = version + 1 WHERE org_id = $1 AND principal_id = $2", &[Val::Uuid(org), Val::Uuid(*node)]).await?;
             }
@@ -412,4 +531,64 @@ pub async fn while_held<F: std::future::Future>(h: &mut Held, hold_ms: u64, f: F
     };
     let (out, ()) = tokio::join!(run, rel);
     out
+}
+
+// ---------------------------------------------------------------- funding invariants (v6 I12)
+
+/// Every payer's conservation and aggregate facts, from the committed state:
+/// violations as readable strings (empty = conservation holds everywhere).
+/// For each node P: live children's grants plus priced seats never exceed
+/// P's grant (no negative `free`); P's capacity row equals its live
+/// children's grant sum and per-tier seat counts; no grant is fractional.
+pub async fn funding_violations() -> Vec<String> {
+    let c = admin().await;
+    let rows = c
+        .query(
+            "SELECT a.name, f.grant_centi, ic.child_grants_centi, ic.child_seats,
+                    coalesce((SELECT sum(cf.grant_centi) FROM topology_edges ct JOIN authority_epoch ce ON ce.org_id = ct.org_id AND ce.principal_id = ct.principal_id
+                              JOIN funding_edges cf ON cf.org_id = ct.org_id AND cf.child_id = ct.principal_id
+                              WHERE ct.org_id = a.org_id AND ct.parent_id = a.principal_id AND ce.lifecycle <> 'archived'), 0)::bigint AS kid_grants,
+                    coalesce((SELECT sum(p.seat_centi) FROM topology_edges ct JOIN authority_epoch ce ON ce.org_id = ct.org_id AND ce.principal_id = ct.principal_id
+                              JOIN agents ca ON ca.org_id = ct.org_id AND ca.principal_id = ct.principal_id
+                              JOIN catalog_current cc ON cc.org_id = ct.org_id JOIN price_catalog p ON p.org_id = ct.org_id AND p.catalog_version = cc.catalog_version AND p.tier = ca.tier
+                              WHERE ct.org_id = a.org_id AND ct.parent_id = a.principal_id AND ce.lifecycle <> 'archived'), 0)::bigint AS kid_seats,
+                    coalesce((SELECT jsonb_object_agg(tier, n) FROM (SELECT ca.tier, count(*) AS n FROM topology_edges ct JOIN authority_epoch ce ON ce.org_id = ct.org_id AND ce.principal_id = ct.principal_id
+                              JOIN agents ca ON ca.org_id = ct.org_id AND ca.principal_id = ct.principal_id
+                              WHERE ct.org_id = a.org_id AND ct.parent_id = a.principal_id AND ce.lifecycle <> 'archived' GROUP BY ca.tier) x), '{}'::jsonb) AS kid_tiers
+             FROM agents a JOIN funding_edges f ON f.org_id = a.org_id AND f.child_id = a.principal_id
+             JOIN issuer_capacity ic ON ic.org_id = a.org_id AND ic.principal_id = a.principal_id ORDER BY a.name",
+            &[],
+        )
+        .await
+        .unwrap();
+    let mut out = Vec::new();
+    for r in rows {
+        let name: String = r.get(0);
+        let grant: i64 = r.get(1);
+        let agg: i64 = r.get(2);
+        let seats: serde_json::Value = r.get(3);
+        let kid_grants: i64 = r.get(4);
+        let kid_seats: i64 = r.get(5);
+        let kid_tiers: serde_json::Value = r.get(6);
+        if grant % 100 != 0 {
+            out.push(format!("{name}: fractional grant {grant}"));
+        }
+        if kid_grants + kid_seats > grant {
+            out.push(format!("{name}: obligations {} exceed grant {grant} (free {})", kid_grants + kid_seats, grant - kid_grants - kid_seats));
+        }
+        if agg != kid_grants {
+            out.push(format!("{name}: capacity aggregate {agg} != live children's grants {kid_grants}"));
+        }
+        let norm = |v: &serde_json::Value| -> std::collections::BTreeMap<String, i64> {
+            v.as_object().map(|m| m.iter().filter_map(|(k, x)| x.as_i64().filter(|n| *n != 0).map(|n| (k.clone(), n))).collect()).unwrap_or_default()
+        };
+        if norm(&seats) != norm(&kid_tiers) {
+            out.push(format!("{name}: capacity seats {seats} != live children {kid_tiers}"));
+        }
+    }
+    out
+}
+
+pub async fn grant_of(x: Uuid) -> i64 {
+    count(&format!("SELECT grant_centi FROM funding_edges WHERE child_id = '{x}'")).await
 }
