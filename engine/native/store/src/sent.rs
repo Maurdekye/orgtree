@@ -123,7 +123,18 @@ impl MailClass {
 }
 
 /// One send. Build it with a constructor; the fields are private so the
-/// class and the pair rule stay consistent (lead ack A1 condition 1).
+/// class and the pair rule stay consistent (lead ack A1 condition 1). A
+/// struct literal does not compile outside this module:
+///
+/// ```compile_fail
+/// use orgtree_store::sent::{SendRequest, MailSource, Destination, GrantEffect, MailClass};
+/// use orgtree_store::Uuid;
+/// let _ = SendRequest {
+///     source: MailSource::System, dest: Destination::External { handle: "x".into() },
+///     original_message_id: Uuid::nil(), class: MailClass::Notice, kind: "k".into(), body: "b".into(),
+///     urgent_reason: None, fingerprint: "f".into(), grant: GrantEffect::None, attributed: false,
+/// };
+/// ```
 #[derive(Clone, Debug)]
 pub struct SendRequest {
     source: MailSource,
@@ -339,14 +350,6 @@ pub const DELETE_GRANT_SQL: &str = "DELETE FROM audience_grants \
     WHERE org_id = $1 AND grantee_id = $2 AND target_kind = $3 AND target_id = $4";
 pub const LOCK_EPOCH_UPDATE_SQL: &str = "SELECT 1 FROM authority_epoch WHERE org_id = $1 AND principal_id = $2 FOR NO KEY UPDATE";
 
-pub const RESTRICTION_EPOCH_SHARE_SQL: &str = "SELECT version FROM org_controls \
-    WHERE org_id = $1 AND family = 'restriction_epoch' FOR SHARE";
-pub const REGISTRATIONS_SQL: &str = "SELECT service_incarnation FROM read_service_registrations WHERE org_id = $1";
-pub const INSERT_RESTRICTION_SQL: &str = "INSERT INTO restrictions \
-    (org_id, restriction_id, epoch, reason, principals, committed_at) VALUES ($1, $2, $3, $4, ARRAY[$5::uuid], $6)";
-pub const INSERT_OBLIGATION_SQL: &str = "INSERT INTO restriction_obligations \
-    (org_id, restriction_id, service_incarnation) VALUES ($1, $2, $3)";
-
 pub const KIOSK_SQL: &str = "SELECT coalesce((value->>'sealed')::boolean, false) FROM org_controls \
     WHERE org_id = $1 AND family = 'kiosk' FOR SHARE";
 
@@ -406,11 +409,10 @@ pub async fn lock_grantee_for_grant<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, g
 /// current mailbox incarnation. The mailbox row is only READ: the source
 /// never locks or references a receiver head (F3).
 pub async fn resolve_recipient<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, principal: Uuid, lock: RecipientLock) -> Result<Recipient, SendError> {
-    let sql = match lock {
-        RecipientLock::Share => SHARE_EPOCH_SQL,
-        RecipientLock::Grant => LOCK_GRANTEE_SQL,
+    let rows = match lock {
+        RecipientLock::Share => tx.exec("sent.recipient_epoch_share", SHARE_EPOCH_SQL, &[Val::Uuid(org), Val::Uuid(principal)]).await?,
+        RecipientLock::Grant => tx.exec("sent.recipient_epoch_grant", LOCK_GRANTEE_SQL, &[Val::Uuid(org), Val::Uuid(principal)]).await?,
     };
-    let rows = tx.exec("sent.recipient_epoch", sql, &[Val::Uuid(org), Val::Uuid(principal)]).await?;
     let lifecycle = match first_val(&rows).and_then(Val::as_text) {
         None => return Err(refuse("no_such_agent", "NOT DELIVERED — there is no such agent in this organization. NOTHING WAS QUEUED.")),
         Some("unrecoverable") => return Err(refuse("unrecoverable", "NOT DELIVERED — the recipient is unrecoverable, so it cannot receive mail and NOTHING WAS QUEUED.")),
@@ -693,22 +695,6 @@ async fn insert_grant<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, grantee: Uuid, 
     Ok(inserted)
 }
 
-/// Record a restriction on `principal`'s broad authority with one obligation
-/// per registered read service (r7 C5; CONTRACT-M1 §6 F1 lock order).
-async fn record_restriction<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, principal: Uuid, reason: &str, now: i64) -> Result<(), SendError> {
-    let rows = tx.exec("sent.restriction_epoch", RESTRICTION_EPOCH_SHARE_SQL, &[Val::Uuid(org)]).await?;
-    let epoch = first_val(&rows).and_then(Val::as_int).unwrap_or(0);
-    let regs = tx.exec("sent.registrations", REGISTRATIONS_SQL, &[Val::Uuid(org)]).await?;
-    let id = Uuid::new_v4();
-    tx.exec("sent.restriction", INSERT_RESTRICTION_SQL, &[Val::Uuid(org), Val::Uuid(id), Val::Int(epoch), Val::text(reason), Val::Uuid(principal), Val::Ts(now)]).await?;
-    for r in &regs.0 {
-        if let Some(svc) = r.first().and_then(Val::as_uuid) {
-            tx.exec("sent.obligation", INSERT_OBLIGATION_SQL, &[Val::Uuid(org), Val::Uuid(id), Val::Uuid(svc)]).await?;
-        }
-    }
-    Ok(())
-}
-
 /// EXTERN authority for an outside send (E1.1 step 5; `ledger.py:3366-3435`).
 /// Returns `(granted, revoked holders, notice sends to write)`.
 async fn extern_effect<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, sender: Uuid, now: i64) -> Result<(bool, Vec<Uuid>), SendError> {
@@ -745,7 +731,8 @@ async fn extern_effect<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, sender: Uuid, 
             if !controls::fire(&tx.scope(), "Q-C7.skip_epoch_bump") {
                 tx.exec("sent.bump_audience", BUMP_AUDIENCE_SQL, &[Val::Uuid(org), Val::Uuid(h)]).await?;
             }
-            record_restriction(tx, org, h, "extern_replaced", now).await?;
+            // the old holder's broad authority narrows: r7 C5 obligations
+            crate::restrict::record(tx, org, "extern_replaced").await?;
             revoked.push(h);
         }
     }
