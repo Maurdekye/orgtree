@@ -17,6 +17,8 @@ use orgtree_store::sent::{self, SendError};
 use orgtree_store::{Binding, CmdError, Command, Decided, ExecConfig, Executor, Family, Isolation, KeyNamespace, OpIdentity, Principal, Session, Tx, Uuid};
 use tokio::sync::{mpsc, Semaphore};
 
+pub mod stand_ins;
+
 const OWN_CLUSTER: &str = "\\artifacts\\p03-db\\p03-ws5-mail\\";
 
 pub fn url(name: &str) -> String {
@@ -48,6 +50,10 @@ pub fn d() -> Uuid {
 /// echo: top level
 pub fn e() -> Uuid {
     agent_id(5)
+}
+/// foxtrot: child of charlie (depth 3)
+pub fn f() -> Uuid {
+    agent_id(6)
 }
 pub fn mb(agent: Uuid) -> Uuid {
     Uuid::from_u128(agent.as_u128() + 0x100)
@@ -99,7 +105,7 @@ pub async fn reset() {
          INSERT INTO mailboxes (org_id, mailbox_id, owner_kind, owner_id, incarnation, state) VALUES ('{o}', '{u}', 'user', NULL, 1, 'open');",
         u = user_mb()
     );
-    for (id, name, parent) in [(a(), "alpha", None), (b(), "bravo", Some(a())), (c(), "charlie", Some(b())), (d(), "delta", Some(a())), (e(), "echo", None)] {
+    for (id, name, parent, depth) in [(a(), "alpha", None, 0), (b(), "bravo", Some(a()), 1), (c(), "charlie", Some(b()), 2), (d(), "delta", Some(a()), 1), (e(), "echo", None, 0), (f(), "foxtrot", Some(c()), 3)] {
         let p = parent.map(|p| format!("'{p}'")).unwrap_or_else(|| "NULL".into());
         sql.push_str(&format!(
             "INSERT INTO agents (org_id, principal_id, name, seat_id, tier, created_at) VALUES ('{o}', '{id}', '{name}', gen_random_uuid(), 'opus', now());
@@ -107,6 +113,7 @@ pub async fn reset() {
              INSERT INTO authority_epoch (org_id, principal_id, lifecycle, generation) VALUES ('{o}', '{id}', 'live', 1);
              INSERT INTO topology_edges (org_id, principal_id, parent_id) VALUES ('{o}', '{id}', {p});
              INSERT INTO runtime_state (org_id, principal_id, updated_at) VALUES ('{o}', '{id}', now());
+             INSERT INTO scope_rows (org_id, principal_id, depth, visibility, permission_mode) VALUES ('{o}', '{id}', {depth}, 'all', 'default');
              INSERT INTO mailboxes (org_id, mailbox_id, owner_kind, owner_id, incarnation, state) VALUES ('{o}', '{m}', 'agent', '{id}', 1, 'open');",
             m = mb(id)
         ));
@@ -136,11 +143,20 @@ pub async fn uuid_of(sql: &str) -> Uuid {
 pub struct Script {
     actions: Mutex<HashMap<(String, String), HookAction>>,
     holds: Mutex<HashMap<(String, String), (mpsc::UnboundedSender<()>, Arc<Semaphore>)>>,
+    /// Holds by FULL point name (any operation), for reads with minted keys.
+    named: Mutex<HashMap<String, (mpsc::UnboundedSender<()>, Arc<Semaphore>)>>,
 }
 
 impl Script {
     pub fn act(&self, key: &str, point: &str, a: HookAction) {
         self.actions.lock().unwrap().insert((key.into(), point.into()), a);
+    }
+    /// Hold the first operation that reaches the full point `name`.
+    pub fn hold_named(&self, name: &str) -> (mpsc::UnboundedReceiver<()>, Arc<Semaphore>) {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let sem = Arc::new(Semaphore::new(0));
+        self.named.lock().unwrap().insert(name.into(), (tx, sem.clone()));
+        (rx, sem)
     }
     /// Hold operation `key` at `point` (the part after `<family>.<verb>.`):
     /// returns (arrived receiver, release semaphore).
@@ -157,7 +173,7 @@ impl PauseHook for Script {
         let point = p.name.rsplit_once(&format!("{}.{}.", p.family, p.verb)).map(|x| x.1.to_string()).unwrap_or_default();
         let k = (p.op.key.clone(), point);
         let action = self.actions.lock().unwrap().remove(&k);
-        let hold = self.holds.lock().unwrap().remove(&k);
+        let hold = self.holds.lock().unwrap().remove(&k).or_else(|| self.named.lock().unwrap().remove(p.name));
         Box::pin(async move {
             if let Some((arrived, sem)) = hold {
                 let _ = arrived.send(());
@@ -184,6 +200,10 @@ impl TraceSink for Events {
             EventKind::ControlExecuted { id } => format!("control_executed:{id}"),
             EventKind::Retry { reason, sqlstate, .. } => format!("retry:{reason}:{}", sqlstate.unwrap_or("-")),
             EventKind::Statement { label, sqlstate: Some(s), .. } => format!("stmt_err:{label}:{s}"),
+            EventKind::Statement { label, sqlstate: None, .. } => format!("stmt:{label}:{key}"),
+            EventKind::Pause { point } if point.starts_with("runtime.turn.") => format!("mark:{point}"),
+            EventKind::Begin { .. } => format!("begin:{}.{}:{key}", e.family, e.verb),
+            EventKind::Rollback => format!("rollback:{}.{}:{key}", e.family, e.verb),
             EventKind::Commit { .. } => format!("commit:{}.{}:{key}", e.family, e.verb),
             EventKind::Outcome { outcome } => format!("outcome:{}.{}:{key}:{outcome}", e.family, e.verb),
             _ => return,
@@ -338,5 +358,56 @@ impl Command for Island {
             Island::Close(a) => mailbox::close_mailbox(tx, org, *a).await? as i64,
             Island::Fold(a) => mailbox::fold_notices(tx, org, *a).await?.folded as i64,
         }))
+    }
+}
+
+pub fn operator() -> Uuid {
+    Uuid::from_u128(0x0000_0000_0000_4000_8000_0000_0000_0e0e)
+}
+
+/// The human door's binding: the request's `client_op` as the key (E-D4),
+/// or a minted key when it has none (E4).
+pub fn operator_binding(client_op: Option<&str>, fp: &str) -> Binding {
+    let (ns, key, keyed) = match client_op {
+        Some(k) => (KeyNamespace::Operator { operator: operator() }, k.to_string(), true),
+        None => (KeyNamespace::Minted, Uuid::new_v4().to_string(), false),
+    };
+    Binding {
+        principal: Principal::Operator { id: operator() },
+        acting: None,
+        op: OpIdentity { org: org(), ns, key, fingerprint: fp.into(), fingerprint_codec: "legacy-1", caller_keyed: keyed },
+        db_incarnation: incarnation(),
+        op_tag: None,
+    }
+}
+
+// ---------------------------------------------------------------- scheduling helpers
+
+pub type Ex = std::sync::Arc<Executor<Factory>>;
+
+pub fn shared(script: Arc<Script>, controls: Vec<&'static str>) -> (Ex, Arc<Events>) {
+    let (ex, ev) = executor_with(script, controls);
+    (Arc::new(ex), ev)
+}
+
+/// Is the task still running after `ms` (i.e. waiting)?
+pub async fn still_waiting<T>(h: &tokio::task::JoinHandle<T>, ms: u64) -> bool {
+    tokio::time::sleep(Duration::from_millis(ms)).await;
+    !h.is_finished()
+}
+
+impl Events {
+    /// Position of the first commit of the operation with this key.
+    pub fn commit_pos(&self, key: &str) -> Option<usize> {
+        self.0.lock().unwrap().iter().position(|e| e.starts_with("commit:") && e.ends_with(&format!(":{key}")))
+    }
+    /// The achieved commit order of these keys (each key's first commit).
+    pub fn achieved(&self, keys: &[&str]) -> Vec<String> {
+        let mut v: Vec<(usize, String)> = keys.iter().filter_map(|k| self.commit_pos(k).map(|p| (p, k.to_string()))).collect();
+        v.sort();
+        v.into_iter().map(|x| x.1).collect()
+    }
+    pub fn snapshot(&self) -> Vec<String> {
+        self.0.lock().unwrap().clone()
     }
 }

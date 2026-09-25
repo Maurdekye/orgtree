@@ -309,6 +309,8 @@ pub const INSERT_RETRACT_SQL: &str = "INSERT INTO outgoing_intents \
 pub const LOCK_GRANTEE_SQL: &str = "SELECT lifecycle FROM authority_epoch \
     WHERE org_id = $1 AND principal_id = $2 FOR NO KEY UPDATE";
 
+pub const READ_EPOCH_SQL: &str = "SELECT lifecycle FROM authority_epoch WHERE org_id = $1 AND principal_id = $2";
+
 pub const SHARE_EPOCH_SQL: &str = "SELECT lifecycle FROM authority_epoch \
     WHERE org_id = $1 AND principal_id = $2 FOR SHARE";
 
@@ -383,6 +385,9 @@ pub enum RecipientLock {
     /// `FOR NO KEY UPDATE` up front: a send that may insert a grant (N4;
     /// M1 lock strength). Never a share lock upgraded later (Q-AM1 (ii)).
     Grant,
+    /// NO lock at all. Used ONLY by unsafe controls (Q-HM1's "no lock on the
+    /// node's authority-epoch row before the grant is read").
+    Unanchored,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -413,6 +418,7 @@ pub async fn resolve_recipient<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, princi
     let rows = match lock {
         RecipientLock::Share => tx.exec("sent.recipient_epoch_share", SHARE_EPOCH_SQL, &[Val::Uuid(org), Val::Uuid(principal)]).await?,
         RecipientLock::Grant => tx.exec("sent.recipient_epoch_grant", LOCK_GRANTEE_SQL, &[Val::Uuid(org), Val::Uuid(principal)]).await?,
+        RecipientLock::Unanchored => tx.exec("sent.recipient_epoch_read", READ_EPOCH_SQL, &[Val::Uuid(org), Val::Uuid(principal)]).await?,
     };
     let lifecycle = match first_val(&rows).and_then(Val::as_text) {
         None => return Err(refuse("no_such_agent", "NOT DELIVERED — there is no such agent in this organization. NOTHING WAS QUEUED.")),
@@ -792,6 +798,23 @@ pub async fn record_sent<S: Session>(tx: &mut Tx<'_, S>, req: &SendRequest) -> R
         }
     }
     Ok(SentRecord { message_id: req.original_message_id, pair_seq: rec.0, outgoing_intent: rec.1, grant_inserted, extern_revoked })
+}
+
+/// The current open mailbox of `principal`, read without any lock (for a
+/// system notice to a seat whose rows the caller already anchored, e.g. the
+/// deep-reach notices of a human send). Refuses when it has none.
+pub async fn mailbox_of<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, principal: Uuid) -> Result<Destination, SendError> {
+    resolve_mailbox_only(tx, org, principal).await.map(|r| r.dest)
+}
+
+/// §7.4 first-contact user audience `(node, USER)` WITHOUT a send (the human
+/// session command: direct user contact that is not mail). The caller must
+/// hold the node's authority-epoch row `FOR NO KEY UPDATE`. Bumps only when
+/// inserted. Returns whether a grant was inserted.
+pub async fn grant_user_audience<S: Session>(tx: &mut Tx<'_, S>, node: Uuid) -> Result<bool, SendError> {
+    let org = tx.op().org;
+    let now = tx.now().await?;
+    insert_grant(tx, org, node, "user", Uuid::nil(), None, now).await
 }
 
 /// The mailbox of a principal without any lock (the replaced EXTERN holder's

@@ -14,6 +14,9 @@
 --                                mailbox, settled on confirm or abandon;
 --                                cleanup of settled rows is P08's.
 --   extern_handles               current entity-bound (dies with its agent).
+--   seat_session_facts           current entity-bound (one row per seat).
+--   runtime_command_intents      temporary-to-settle: settled or refused by
+--                                the runtime (P08); cleanup is P08's.
 
 -- The mail class (CONTRACT-M1 §8 r5, lead ack A1): 'message' wakes the
 -- recipient; 'passive' is an agent's explicit notice (in mail, no wake);
@@ -101,5 +104,40 @@ CREATE TABLE extern_handles (
     CONSTRAINT extern_handles_handle_len CHECK (octet_length(handle) BETWEEN 1 AND 400)
 );
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON mail_input_batches, extern_handles TO orgtree_runtime;
-GRANT SELECT ON mail_input_batches, extern_handles TO orgtree_repl;
+-- The seat facts the session-command refusals read (S3 §4.6: frozen,
+-- remote-controlled, knowledge bearer, no conversation, just compacted).
+-- SCHEDULE-GRADE stand-in for P08's runtime state: written by the harness
+-- and read by the human session command without a lock (as legacy's
+-- pre-check). A seat with no row has every flag false and a conversation.
+CREATE TABLE seat_session_facts (
+    org_id             uuid    NOT NULL,
+    principal_id       uuid    NOT NULL,
+    frozen             boolean NOT NULL DEFAULT false,
+    remote_controlled  boolean NOT NULL DEFAULT false,
+    knowledge_bearer   boolean NOT NULL DEFAULT false,
+    has_conversation   boolean NOT NULL DEFAULT true,
+    just_compacted     boolean NOT NULL DEFAULT false,
+    version            bigint  NOT NULL DEFAULT 0,
+    CONSTRAINT seat_session_facts_pk PRIMARY KEY (org_id, principal_id),
+    CONSTRAINT seat_session_facts_agent_fk FOREIGN KEY (org_id, principal_id) REFERENCES agents (org_id, principal_id)
+);
+
+-- A human session command accepted by its source transaction (S3 §4.6):
+-- the runtime (P08) runs it after commit and settles the row.
+CREATE TABLE runtime_command_intents (
+    org_id        uuid        NOT NULL,
+    intent_id     uuid        NOT NULL,
+    principal_id  uuid        NOT NULL,
+    command       text        COLLATE "C" NOT NULL,
+    args          jsonb       NOT NULL DEFAULT '{}'::jsonb,
+    state         text        COLLATE "C" NOT NULL DEFAULT 'pending',
+    created_at    timestamptz NOT NULL,
+    settled_at    timestamptz NULL,
+    CONSTRAINT runtime_command_intents_pk PRIMARY KEY (org_id, intent_id),
+    CONSTRAINT runtime_command_intents_agent_fk FOREIGN KEY (org_id, principal_id) REFERENCES agents (org_id, principal_id),
+    CONSTRAINT runtime_command_intents_state CHECK (state IN ('pending', 'settled', 'refused')),
+    CONSTRAINT runtime_command_intents_args_bounded CHECK (octet_length(args::text) <= 65536)
+);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON mail_input_batches, extern_handles, seat_session_facts, runtime_command_intents TO orgtree_runtime;
+GRANT SELECT ON mail_input_batches, extern_handles, seat_session_facts, runtime_command_intents TO orgtree_repl;

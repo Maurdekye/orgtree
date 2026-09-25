@@ -86,7 +86,7 @@ async fn a_redelivery_is_a_duplicate_and_regenerates_the_ack() {
     let m = new_id();
     ex.run(&agent_send(Target::Agent { principal: b() }, m, MailClass::Message), &agent_binding(a(), "r1", "f1")).await.unwrap();
     // receive without the ack (crash between receive and ack)
-    let r = receive::Receive { org: org(), mailbox: mb(b()), message: m };
+    let r = receive::Receive { org: org(), mailbox: mb(b()), message: m, human: false };
     ex.run(&r, &r.binding()).await.unwrap();
     assert_eq!(count("SELECT count(*) FROM outgoing_intents WHERE kind = 'mail.deliver' AND stage = 'pending'").await, 1);
     assert_eq!(receive::deliver(&ex, org(), mb(b()), m).await.unwrap(), Delivery::Done(Received::Duplicate));

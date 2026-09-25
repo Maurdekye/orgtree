@@ -135,11 +135,14 @@ async fn read_sent<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, message: Uuid) -> 
     })
 }
 
-/// Receive one original message into one mailbox.
+/// Receive one original message into one mailbox. `human` names the
+/// mailbox kind (it decides the op kind: `deliver_agent` locks and writes the
+/// head, `deliver_human` never does, E1.4); execution refuses a mismatch.
 pub struct Receive {
     pub org: Uuid,
     pub mailbox: Uuid,
     pub message: Uuid,
+    pub human: bool,
 }
 
 impl Receive {
@@ -166,7 +169,11 @@ impl Command for Receive {
         &RECEIVE
     }
     fn verb(&self) -> &'static str {
-        "deliver"
+        if self.human {
+            "deliver_human"
+        } else {
+            "deliver_agent"
+        }
     }
     async fn anchor<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding) -> Result<(), CmdError> {
         // A receiver executor has no caller: it acts on a captured delegation.
@@ -193,6 +200,9 @@ impl Command for Receive {
         let mrow = mb.first().ok_or_else(|| CmdError::Defect("the captured mailbox does not exist".into()))?;
         let owner_kind = mrow.first().and_then(Val::as_text).unwrap_or("").to_string();
         let owner = mrow.get(1).and_then(Val::as_uuid);
+        if (owner_kind == "user") != self.human {
+            return Err(CmdError::Defect("the delivery named the wrong mailbox kind".into()));
+        }
         if owner_kind == "user" {
             return receive_user(tx, org, mailbox, self.message, &sent).await;
         }
@@ -523,7 +533,8 @@ pub enum Delivery {
 /// transaction spans the two steps; a crash between them leaves the intent
 /// pending, and the redelivery is a duplicate that regenerates the ack.
 pub async fn deliver<C: Connector>(exec: &Executor<C>, org: Uuid, mailbox: Uuid, message: Uuid) -> Result<Delivery, ExecError> {
-    let r = Receive { org, mailbox, message };
+    let human = exec.read(&Route { org, mailbox }, org, None).await?;
+    let r = Receive { org, mailbox, message, human };
     let received = match exec.run(&r, &r.binding()).await? {
         Outcome::Applied(x) | Outcome::Replayed(x) => x,
         Outcome::Refused(rf) if rf.code == "parked" => return Ok(Delivery::Parked),
@@ -533,6 +544,27 @@ pub async fn deliver<C: Connector>(exec: &Executor<C>, org: Uuid, mailbox: Uuid,
     match exec.run(&ack, &receiver_binding(org, &format!("ack:{mailbox}:{message}"))).await? {
         Outcome::Applied(_) | Outcome::Replayed(_) => Ok(Delivery::Done(received)),
         other => Ok(Delivery::NotDone(format!("ack {}", other.name()))),
+    }
+}
+
+/// Which kind of mailbox a delivery targets (a short read before the receive,
+/// so the receive runs as the right op kind).
+pub struct Route {
+    pub org: Uuid,
+    pub mailbox: Uuid,
+}
+
+impl crate::read::Read for Route {
+    type Output = bool;
+    fn family(&self) -> &'static str {
+        "mail.receive"
+    }
+    fn verb(&self) -> &'static str {
+        "route"
+    }
+    async fn run<S: Session>(&self, tx: &mut Tx<'_, S>) -> Result<bool, CmdError> {
+        let rows = tx.exec("receive.route", MAILBOX_SQL, &[Val::Uuid(self.org), Val::Uuid(self.mailbox)]).await?;
+        Ok(rows.first().and_then(|r| r.first()).and_then(Val::as_text) == Some("user"))
     }
 }
 
