@@ -163,6 +163,9 @@ impl Session for PgSession {
     }
 }
 
+const IDENTIFY_SQL: &str = "SELECT pg_backend_pid(), (extract(epoch FROM backend_start) * 1000000)::bigint \
+     FROM pg_stat_activity WHERE pid = pg_backend_pid()";
+
 impl Connector for Factory {
     type S = PgSession;
 
@@ -180,16 +183,16 @@ impl Connector for Factory {
             let _ = connection.await;
         });
         let row = client
-            .query_one(
-                "SELECT pg_backend_pid(), (extract(epoch FROM backend_start) * 1000000)::bigint \
-                 FROM pg_stat_activity WHERE pid = pg_backend_pid()",
-                &[],
-            )
+            .query_one(IDENTIFY_SQL, &[])
             .await
             .map_err(map_err)?;
         let pid: i32 = row.get(0);
         let start: i64 = row.get(1);
         self.register(Some(pid), Some(start));
+        // The identification query is the factory's own statement on this
+        // session: trace it as infrastructure so the server-log
+        // reconciliation (Q-C5) can match it.
+        self.traced_setup("exec.setup.identify", IDENTIFY_SQL);
         Ok(PgSession { client, task, pid: Some(pid), start: Some(start), broken: false })
     }
 }
