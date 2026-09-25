@@ -8057,7 +8057,7 @@
       "status": "specified",
       "facts": [
         "Every write-cycle tool (retool, retire, dissolve, cheap_compact, rehire, move, swap, self_subjugate, switch_model and list_orgs) loads the org document under DOC_LOCK through store.write_org (the resident write cycle); rename loads it under supervisor.rename_node's own DOC_LOCK, and list_tiers reads the shared snapshot (store.cached_org). Before the lock, retire and dissolve load the org once more for their authority pre-guard. Source.",
-        "Reads outside the org document: list_orgs reads every org's catalogue row (store.list_orgs, kiosk orgs dropped) and the mail hub roster (net.remote_peers); list_tiers reads provider discovery (_tier_discovery_payload, machine state behind its own cache, outside the lock); rename reads the turn state of every generation (supervisor.state) and refuses a busy one; switch_model reads the live busy state and the account registry (check_switch_account); a retool naming an account reads the registry (registry.validate_selection); compact reads the turn state and the org killswitch. Source; which of these contacts are org-local is the open instrumentation question.",
+        "Reads outside the org document: list_orgs loads EVERY org's whole document to build the catalogue (store.list_orgs over _scan_orgs, which parses each org; only a summary row per org is kept and kiosk orgs are dropped; relayed from P02's F1 probe, which measured statements on every other org's store, and checked in source) and the mail hub roster (net.remote_peers); list_tiers reads provider discovery (_tier_discovery_payload, machine state behind its own cache, outside the lock); rename reads the turn state of every generation (supervisor.state) and refuses a busy one; switch_model reads the live busy state and the account registry (check_switch_account); a retool naming an account reads the registry (registry.validate_selection); compact reads the turn state and the org killswitch. Source; which of these contacts are org-local is the open instrumentation question.",
         "lifecycle.operator-scope loads the org in the resident write cycle (store.write_org) and reads the node's effective effort before an effort change (source)."
       ],
       "source_refs": [
@@ -8431,7 +8431,8 @@
         "After the save: retire, dissolve and cheap_compact call supervisor.remote_reap(slug); cheap_compact calls supervisor.export_predecessor_transcript(org, node, old_sid, reason='cheap_compact') inside the lock; a rehire whose seat has waiting mail drives it once (supervisor.send_message, mail_ping, no ping_reason; the result says RUNNING), and otherwise nothing is driven and the result says IDLE. Recorded legacy defect: the post-save reap names orgtree_rename but the rename branch returns before it, so a rename never reaps. Pinned. From source: a cross-provider switch copies the transcript the same way and wakes a node whose stale freeze it cleared (drive_unfrozen_by_switch); a retool changing effort sends it live (send_live_effort); an account choice on retool or switch_model notifies after the save.",
         "Every accepted write-cycle call ends with exactly one hub_changed, including the no-ops (a rehire of a live node, a move to the current parent, a switch to the current tier) and list_orgs. Recorded legacy behaviour: list_orgs is a read that takes the write lock, saves and broadcasts. A replay broadcasts nothing. rename and list_tiers never call hub_changed; rename's broadcast is supervisor.notify(slug, new, 'renamed', …) after its own save. rename also kills the parked warm process of every generation (warmpool.kill_node) and moves the scratch directory and the CLI project directory before the save, rolling them back if the save fails (source). Pinned for the broadcasts.",
         "Routes: reorder, dissolve-all, lineage recover and drop-phantom and repair-rename end with hub_changed (account-assign awaits hub.changed, source); compact starts a daemon thread running supervisor.manual_compact and broadcasts nothing itself. Recorded legacy behaviour: dissolve-all tells each later top-level seat that an earlier one was dissolved (lifecycle.dissolved, relation peer) and then dissolves it in the same save. Pinned, except account-assign.",
-        "lifecycle.operator-scope makes NO explicit hub_changed call (store.save_org announces the write, source); an effort change is sent to a running turn after the save (send_live_effort). Pinned by tests/test_state_requests_boundary.py."
+        "lifecycle.operator-scope makes NO explicit hub_changed call (store.save_org announces the write, source); an effort change is sent to a running turn after the save (send_live_effort). Pinned by tests/test_state_requests_boundary.py.",
+        "orgtree_rehire, orgtree_retire, orgtree_dissolve and orgtree_cheap_compact are managed-wait tools (mcptool.MANAGED_WAIT_TOOLS): every call, refusals included, journals in the tool_waits sidecar, outside the org document (relayed from P02's F1 probe; source: the managed-wait wrapper)."
       ],
       "source_refs": [
         {
@@ -8499,6 +8500,12 @@
           "start": 3809,
           "end": 3852,
           "sha256": "8d651c0dedf8d1232b94d32a0d9705f27df4f2fec371ae58332323331814c7f0"
+        },
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2124,
+          "end": 2131,
+          "sha256": "dadca1dc186a102feb2328090f4f3316e0e68f15cbc6318a83ef736006517266"
         }
       ],
       "open_questions": []
