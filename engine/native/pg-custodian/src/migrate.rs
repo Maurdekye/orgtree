@@ -1,9 +1,11 @@
 //! Resumable schema-migration runner (M1 contract §2 row 2; lead ruling
 //! 2026-09-25: option (a), migrations read at run time via `--schema-dir`).
 //!
-//! Input: a directory holding `NNNN_name.sql` files and `SHA256SUMS`
-//! (`<64 lowercase hex>  <file>` per line), i.e. WS2's
-//! `engine/native/store-schema/migrations/`.
+//! Input (see [`read_manifest`]): WS2's `engine/native/store-schema/` folder,
+//! i.e. `migrations/NNNN_name.sql` plus one checksum manifest per workstream
+//! range, `ranges/<ws>.sha256` (`<64 lowercase hex>  <file>` per line) with its
+//! span in `ranges/<ws>.range`; or a flat folder of `.sql` files plus
+//! `SHA256SUMS`.
 //!
 //! THE HASHING RULE, shared with WS2's `store_schema::normalized` (agreed by
 //! mail 2026-09-25): sha256 over the file's UTF-8 bytes with EVERY `\r`
@@ -144,12 +146,92 @@ fn min_writer_of(file: &str, sql: &str) -> Result<u32> {
     }
 }
 
+/// One workstream range from `ranges/<ws>.range` (only `first`/`last` are
+/// read here; the other keys belong to WS2's build).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Range {
+    pub name: String,
+    pub first: u32,
+    pub last: u32,
+}
+
+pub fn parse_range(file: &str, text: &str) -> Result<Range> {
+    let mut first = None;
+    let mut last = None;
+    let mut name = None;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((k, v)) = line.split_once('=') else { continue };
+        match k.trim() {
+            "first" => first = v.trim().parse::<u32>().ok(),
+            "last" => last = v.trim().parse::<u32>().ok(),
+            "name" => name = Some(v.trim().to_string()),
+            _ => {}
+        }
+    }
+    match (first, last) {
+        (Some(f), Some(l)) if f >= 1 && f <= l => Ok(Range { name: name.unwrap_or_else(|| file.to_string()), first: f, last: l }),
+        _ => Err(refuse("migrate.bad_range", format!("{file}: needs integer `first` <= `last`"))),
+    }
+}
+
+/// The manifest for a schema directory, in either layout:
+/// - WS2's range layout (a21856e+): `<dir>/migrations/*.sql`, and the union of
+///   `<dir>/ranges/<ws>.sha256`, each checked against `<dir>/ranges/<ws>.range`:
+///   every listed migration lies inside its own range's span, ranges do not
+///   overlap, and no file is listed by two ranges.
+/// - the flat layout: `<dir>/*.sql` + `<dir>/SHA256SUMS`.
+/// Returns (the folder holding the .sql files, manifest).
+pub fn read_manifest(dir: &Path) -> Result<(std::path::PathBuf, BTreeMap<String, String>)> {
+    let ranges_dir = dir.join("ranges");
+    if !ranges_dir.is_dir() {
+        let mpath = dir.join(MANIFEST_FILE);
+        let mtext = std::fs::read_to_string(&mpath).map_err(|e| CustodianError::io("migrate.no_manifest", &mpath, e))?;
+        return Ok((dir.to_path_buf(), parse_manifest(&mtext)?));
+    }
+    let mut stems = BTreeSet::new();
+    for e in std::fs::read_dir(&ranges_dir).map_err(|e| CustodianError::io("migrate.read_dir", &ranges_dir, e))? {
+        let n = e.map_err(|e| CustodianError::io("migrate.read_dir", &ranges_dir, e))?.file_name().to_string_lossy().to_string();
+        if let Some(s) = n.strip_suffix(".sha256").or_else(|| n.strip_suffix(".range")) {
+            stems.insert(s.to_string());
+        }
+    }
+    if stems.is_empty() {
+        return Err(refuse("migrate.no_manifest", format!("{} has no <ws>.sha256 files", ranges_dir.display())));
+    }
+    let mut ranges: Vec<Range> = Vec::new();
+    let mut manifest = BTreeMap::new();
+    for stem in &stems {
+        let rpath = ranges_dir.join(format!("{stem}.range"));
+        let spath = ranges_dir.join(format!("{stem}.sha256"));
+        let rtext = std::fs::read_to_string(&rpath).map_err(|e| CustodianError::io("migrate.bad_range", &rpath, e))?;
+        let stext = std::fs::read_to_string(&spath).map_err(|e| CustodianError::io("migrate.no_manifest", &spath, e))?;
+        let range = parse_range(&format!("{stem}.range"), &rtext)?;
+        if let Some(o) = ranges.iter().find(|o| range.first <= o.last && o.first <= range.last) {
+            return Err(refuse("migrate.bad_range", format!("range {} ({}-{}) overlaps {} ({}-{})", range.name, range.first, range.last, o.name, o.first, o.last)));
+        }
+        for (file, sha) in parse_manifest(&stext)? {
+            let v = version_of(&file)?;
+            if v < range.first || v > range.last {
+                return Err(refuse("migrate.out_of_range", format!("{stem}.sha256 lists {file}, outside {}-{}", range.first, range.last)));
+            }
+            if manifest.insert(file.clone(), sha).is_some() {
+                return Err(refuse("migrate.bad_manifest", format!("{file} is listed by more than one range")));
+            }
+        }
+        ranges.push(range);
+    }
+    Ok((dir.join("migrations"), manifest))
+}
+
 /// Read and verify a schema directory. Every refusal happens here, before
 /// any database is touched.
 pub fn read_schema_dir(dir: &Path) -> Result<Vec<MigrationFile>> {
-    let mpath = dir.join(MANIFEST_FILE);
-    let mtext = std::fs::read_to_string(&mpath).map_err(|e| CustodianError::io("migrate.no_manifest", &mpath, e))?;
-    let manifest = parse_manifest(&mtext)?;
+    let (sql_dir, manifest) = read_manifest(dir)?;
+    let dir = sql_dir.as_path();
     let mut on_disk = BTreeSet::new();
     for e in std::fs::read_dir(dir).map_err(|e| CustodianError::io("migrate.read_dir", dir, e))? {
         let name = e.map_err(|e| CustodianError::io("migrate.read_dir", dir, e))?.file_name().to_string_lossy().to_string();
@@ -158,10 +240,10 @@ pub fn read_schema_dir(dir: &Path) -> Result<Vec<MigrationFile>> {
         }
     }
     if let Some(f) = on_disk.iter().find(|f| !manifest.contains_key(*f)) {
-        return Err(refuse("migrate.unlisted_file", format!("{f} is not in {MANIFEST_FILE}")));
+        return Err(refuse("migrate.unlisted_file", format!("{f} is not in the manifest")));
     }
     if let Some(f) = manifest.keys().find(|f| !on_disk.contains(*f)) {
-        return Err(refuse("migrate.missing_file", format!("{MANIFEST_FILE} lists {f}, which does not exist")));
+        return Err(refuse("migrate.missing_file", format!("the manifest lists {f}, which does not exist")));
     }
     let mut files = Vec::new();
     for (file, want) in &manifest {
