@@ -25,6 +25,12 @@ cargo run ... -- dev down --agent <you>                      # stop it when idle
 - URLs: `P03_PG_ADMIN_URL`, `P03_PG_RUNTIME_URL`, `P03_PG_REPL_URL`, of the
   form `postgresql://<role>:<password>@127.0.0.1:<port>/orgtree?sslmode=disable`.
   `pg_hba.conf` allows only `127.0.0.1/32` with `scram-sha-256`.
+  **Password in the URL is a P03 dev convenience for disposable loopback
+  clusters only; P10 must replace it** (passfile or in-process handoff).
+  Only `dev env` and `urls` print it; `dev up` prints the redacted form, and
+  no log, trace or receipt may record a connection string with a password
+  (lead ruling 2026-09-25; v6 PROFILING:13). The passwords live in the
+  cluster's `secrets/` folder (`credentials.json`, `pgpass.conf`).
 - Dev settings (not budgets): `shared_buffers` 64MB, `max_connections` 40,
   `max_prepared_transactions` 0, `wal_level` logical, 4 slots / 4 senders,
   `max_slot_wal_keep_size` 256MB.

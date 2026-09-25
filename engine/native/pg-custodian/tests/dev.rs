@@ -29,6 +29,14 @@ fn agent_names_are_confined() {
 }
 
 #[test]
+fn redaction_hides_the_password() {
+    let u = "postgresql://orgtree_runtime:0123abcd@127.0.0.1:45891/orgtree?sslmode=disable";
+    assert_eq!(dev::redact(u), "postgresql://orgtree_runtime:***@127.0.0.1:45891/orgtree?sslmode=disable");
+    assert!(!dev::redact(u).contains("0123abcd"));
+    assert_eq!(dev::redact("host=x password=y"), "***");
+}
+
+#[test]
 fn env_rendering() {
     let mut v = BTreeMap::new();
     v.insert("P03_PG_ADMIN_URL".to_string(), "postgresql://a:b@127.0.0.1:1/orgtree?sslmode=disable".to_string());
