@@ -1011,8 +1011,8 @@ each row records its calls in `spies`:
 "Each contract" means the 19 F1 contracts from P01 F1 (v3 aaad0df). The
 lifecycle family has a 20th contract since P01 F3 (v3 0f7c925):
 `lifecycle.operator-scope` (`POST /api/orgs/{slug}/nodes/{nid}/scope`, the
-operator retool). It has NO rows here. It belongs to the later F3 probe
-item.
+operator retool). It has no rows in this section: its rows are in the F3
+section below.
 
 - **Each contract, cold and warm:**
   - on the agent door: `lifecycle.rename`, `.retool`, `.retire`,
@@ -1094,7 +1094,7 @@ parenthetical is the facet's first open question, not the Owner line.
 
 | Facet | Closing clause | Status | Rows |
 |---|---|---|---|
-| `lifecycle.instrumentation` | a loss-accounted P02 record per lifecycle row (open question: actual contacts per outcome, cold and warm, refusals and keyed replays included, and the org-level locality of each) | partly | covered: every F1 contract cold and warm, per-row loss zero, with the variants, keyed calls (fresh, replay, malformed) and refusals above; org-level locality (only `list_orgs` reads other orgs, declared); agent-level locality within the declared set; `control:lifecycle-third-agent` flagged. NOT covered: `lifecycle.operator-scope` (P01 F3, added at v3 0f7c925), which has NO rows and belongs to the later F3 probe item, so the facet cannot close on this record alone; the success paths of account-assign, lineage-recover and lineage-drop-phantom (refusal rows only); P03 native negative controls |
+| `lifecycle.instrumentation` | a loss-accounted P02 record per lifecycle row (open question: actual contacts per outcome, cold and warm, refusals and keyed replays included, and the org-level locality of each) | partly | covered: every F1 contract cold and warm, per-row loss zero, with the variants, keyed calls (fresh, replay, malformed) and refusals above; org-level locality (only `list_orgs` reads other orgs, declared); agent-level locality within the declared set; `control:lifecycle-third-agent` flagged. `lifecycle.operator-scope` (P01 F3) has its rows in the F3 section (cold, warm and a refusal). NOT covered: the success paths of account-assign, lineage-recover and lineage-drop-phantom (refusal rows only); P03 native negative controls |
 
 Owned elsewhere, with no rows added:
 - `lifecycle.conflicts`: P03/P05;
@@ -1183,6 +1183,189 @@ parenthetical is the facet's first open question, not the Owner line.
 Owned elsewhere, with no rows added:
 - `operator-ops.variant-conflicts`: the native design, then P03;
 - `operator-ops.wire`: the native/Rust conversion.
+
+## P01 F3: asks, reports, scope requests, watchdogs and audiences
+
+The fixture follows `tests/test_state_requests_boundary.py`, one cell per row
+(`rq-<cell>-<cond>-<role>`). Here the cell's head `p` is TOP-LEVEL, like the
+P01 fixture's top, so its asks and presentations go to the user. `m` is its
+report, `k` is `m`'s report and `s` is `m`'s peer. `rq-third` sits under the
+refusal cell's head and is never named. Setups run through the door just
+before a row, outside its window:
+- an open ask;
+- a watchdog (optionally one-shot or paused);
+- an audience request or grant.
+
+As in the P01 fixture, the watchdog smoke run and live effort delivery are
+counting spies (`spies`), turn delivery is the probe's global spy (`wakes`),
+and `hub_changed` is real and counted.
+
+- **Each contract, cold and warm** (22 in all):
+  - on the agent door: `asks.ask`, `.withdraw`, `.present`, `.submit-report`,
+    `.request-scope`; `watchdogs.create`, `.list`, `.pause`, `.resume`,
+    `.remove`, `.supersede`; `audiences.request`, `.forward`, `.grant`,
+    `.deny`, `.revoke`;
+  - on the operator routes (`@user`): `asks.answer`, `asks.batch-resolve`,
+    `lifecycle.operator-scope`, `watchdogs.operator-action`,
+    `audiences.operator-action` and `audiences.list`.
+- **Variants** (warm):
+  - an ask and a scope request from a non-top-level agent (routed to the
+    superior);
+  - a top-level report (presented to the user);
+  - withdraw with no open ask;
+  - an answer that dismisses;
+  - a watchdog list by the owner's ancestor;
+  - an audience request to an agent already reachable;
+  - a keyed watchdog list, fresh and replayed.
+- **Refusals** (warm; no primary write, nothing logical): 17 of them,
+  covering:
+  - an empty question, empty scope items, a presentation by a non-top-level
+    agent;
+  - a command watchdog without bash, a watch target outside the folder, an
+    unknown kind, a pause without authority, a supersede of a persistent dog;
+  - an audience request off the chain, a bad audience action;
+  - no open batch, a stale answer and a stale batch;
+  - an unknown watchdog id and a bad action on the operator routes, and a bad
+    visibility on the operator scope route;
+  - an agent credential on a route (401, before any attempt is recorded).
+- **Agent-level locality:** each row declares P01's pinned mail and notices
+  per cell role. The test asserts them exactly: a report mails the
+  superior; an audience request mails the requester's superior, a forward
+  the target, a grant or deny the requester; a revoke tells the grantee; an
+  answer or batch mails the asker; the operator scope route tells the
+  target; the operator audience grant tells both parties. Nothing outside
+  the actor and its targets is written, `rq-third` is never touched, and a
+  third agent's row is only ever read. The control
+  `control:requests-third-agent` (a watchdog pause whose closing broadcast
+  also posts mail to `rq-third`) is flagged.
+
+Observed and recorded:
+- **`orgtree_watchdog` is a managed-wait tool** (`mcptool.MANAGED_WAIT_TOOLS`):
+  every call, refusals included, journals in the `tool_waits` sidecar.
+- These pinned legacy behaviours are measured, not fixed, and each is
+  confirmed by the rows:
+  - a forwarded report mails the superior and drives nobody;
+  - the operator audience grant tells both parties by notice, posts no mail,
+    and still drives the grantee;
+  - a watchdog list goes through the write cycle and broadcasts but writes
+    nothing to the org, and keyed it files a receipt;
+  - the operator scope route broadcasts nothing itself.
+
+## P01 F2: run control, per product profile
+
+The fixture follows `tests/test_state_control_boundary.py`, one cell per row
+(`ct-<cell>-<cond>-<role>`, the same shape as F3). The unstick cells'
+managers are frozen and the unhalt cells' managers are halted before the
+row. The killswitch latches a whole org, so it runs on two orgs of its own
+(`ks-*`): latch, release, then resume. **EVERY process effect is a counting
+spy** (`spies`), as the ticket requires and as in the P01 fixture:
+- halt's process cut;
+- turn interrupts and the killswitch sweep;
+- the warm-pool process control;
+- remote control;
+- the restart launch and the prime arm and cancel;
+- continue-on's live provider read;
+- the storage check.
+
+The probe never halts, restarts or kills a real process, and the guards
+refuse any process start in any case.
+
+**Profiles.** The app is desktop-managed (`engine.launch` sets
+`ORGTREE_DESKTOP_MANAGED=1`). Where `desktop_policy` changes behaviour, the
+non-desktop profile is probed by clearing that flag for the one call (row
+`env`):
+- `orgtree_self_restart` and all three `orgtree_prime_restart` actions have
+  a `:desktop` row (refused as renamed, no effect) and a `:non-desktop` row
+  (the launch, arm or cancel spy fires), each cold and warm;
+- the kiosk route is stripped from the desktop-built app
+  (`desktop_policy.install_routes` drops every route with `/kiosk` in its
+  path): `control.kiosk:desktop-stripped`, cold and warm, answers 404
+  (P01 pins 405; reported). For the non-desktop profile the real handler
+  (`api.org_kiosk`) is mounted at its own path for these rows only, as a
+  non-desktop build mounts it, and the flag is cleared for the call:
+  `control.kiosk:non-desktop` configures a kiosk org of its own (`kx-*`)
+  cold and warm, and `refusal:kiosk-not-a-kiosk-org` is the handler's 422
+  on an ordinary org. Mounting the route rather than calling the function
+  keeps each call a census-recorded, loss-accounted attempt; the route is
+  removed afterwards.
+
+- **Each contract, cold and warm** (26 in all):
+  - on the agent door: `control.interrupt`, `.unstick`, `.continue-on`,
+    `.halt`, `.unhalt`, `.restart-wake-arm`, `-status` and `-cancel`,
+    `.self-restart`, `.prime-restart-arm`, `-status` and `-cancel`;
+  - on the operator routes: `control.op-interrupt`, `.op-unstick`,
+    `.op-continue-on`, `.op-halt`, `.op-unhalt`, `.op-process`,
+    `.remote-control`, `.steer-claim`, `.steer-ack`, `.steer-state`,
+    `.kiosk`, `.killswitch`, `.killswitch-release` and `.resume`.
+- **Variants** (warm): an unstick of a node that is not frozen; a batch
+  halt; an operator interrupt of a halted node; an operator unhalt of a node
+  that is not halted; a restart wake armed for a subordinate; a release of a
+  killswitch that is not latched.
+- **Refusals** (warm; no primary write, nothing logical): 18 of them:
+  - authority (interrupt self or up, unstick up, continue-on up, halt up);
+  - a batch halt with one target out of reach (nothing is cut);
+  - choosing one's own account (403);
+  - non-desktop self-restart and prime arm below the top level, and a bad
+    prime action;
+  - a restart wake for a superior (403), a recurring wake, a bad wake
+    action;
+  - an unknown node for the process route (404), a bad remote-control
+    action;
+  - resume while the killswitch is latched (409);
+  - the non-desktop kiosk handler on an org that is not a kiosk (422);
+  - an agent credential on a route (401).
+- **Agent-level locality:** the pinned notices are asserted exactly (an
+  unstick tells the unfrozen node), and `ct-third` is never touched. The
+  control `control:control-third-agent` (an interrupt whose closing
+  broadcast also posts mail to `ct-third`) is flagged.
+
+Observed and recorded:
+- **The unhalt carry-over (a finding).** After an AGENT-DOOR unhalt, in the
+  warm condition, the save of every later operation on the org re-writes a
+  `log_d` row naming the unhalted node:
+  - in this run, the next 7 agent-door rows and the operator unstick, halt
+    and unhalt routes;
+  - it stops after the operator unhalt;
+  - cold rows, which drop the shared snapshot first, never show it.
+
+  Reproduced independently by p01-current-gap-opus55 with the exact
+  sequence: the durable document ends with an empty `steer_attempts`
+  entry for the node, and P01 reported it as a product defect. The
+  source:
+  - `halt.unhalt` calls `supervisor.scan_steer_records`;
+  - that reaches `_steer_attempts`, which does
+    `org.d.setdefault("steer_attempts", {}).setdefault(nid, {})` on the
+    loaded document under `DOC_LOCK` without saving;
+  - that leaves an empty dict-log owner on the resident document for later
+    saves to reconcile.
+
+  The operator unhalt route, which runs the same `halt.unhalt`, did not
+  leave a lasting carry-over in this run. The test pins the exact rows and
+  that every such write is a `log_d` write naming that node.
+- **`orgtree_continue_on` is a managed-wait tool**: every call, refusals
+  included, journals in the `tool_waits` sidecar.
+- A batch halt cuts every target before halting each (`halt_cut` 4 for two
+  targets). A batch with one target out of reach refuses before anything is
+  cut, as P01 pins.
+- `hub_changed` fires for the agent-door interrupt and not for the operator
+  route. Halt and unhalt broadcast nothing and notify instead (`halting`,
+  `halted`; `unhalted`).
+
+## Hand-off to P01 (F3 and F2): facet → clause → rows
+
+Clauses from the Owner lines at v3 7c79f28. The parenthetical is each
+facet's first open question, not the Owner line.
+
+| Facet | Closing clause | Status | Rows |
+|---|---|---|---|
+| `asks.instrumentation` | a loss-accounted P02 record per row (open question: actual contacts per outcome, cold and warm, refusals included) | partly | covered: the seven asks contracts cold and warm, the routed, top-level, no-open-ask and dismiss variants, and their refusals, per-row loss zero; locality within the pinned mail and notices; `control:requests-third-agent` flagged. NOT covered: P03 native negative controls |
+| `watchdogs.instrumentation` | a loss-accounted P02 record per row (open question: actual contacts per outcome, cold and warm, refusals included) | partly | covered: the seven watchdog contracts cold and warm, the ancestor list, the keyed list fresh and replayed, and their refusals; the smoke run is a spy. NOT covered: a real smoke run; P03 native negative controls |
+| `audiences.instrumentation` | a loss-accounted P02 record per row (open question: actual contacts per outcome, cold and warm, refusals included) | partly | covered: the seven audience contracts cold and warm, the already-reachable request and the refusals; locality within the pinned mail and notices. NOT covered: P03 native negative controls |
+| `control.instrumentation` | a loss-accounted P02 record per row (open question: every run-control operation, including the process effects the P01 test replaces with spies) | partly | covered: all 26 contracts cold and warm, both profiles for self-restart, prime-restart and the kiosk route (the non-desktop handler through its mounted route), the variants and 18 refusals, per-row loss zero; the unhalt carry-over recorded. NOT covered, by design: the PROCESS EFFECTS themselves, which stay spies here as the ticket requires (never a real halt, restart or kill); P03 native negative controls |
+| `lifecycle.instrumentation` (operator-scope only) | as in the F1 row | covered for `lifecycle.operator-scope` | `lifecycle.operator-scope` cold and warm, and `refusal:op-scope-bad-visibility` |
+
+Owned elsewhere, with no rows added: `asks.*`, `watchdogs.*`, `audiences.*`
+and `control.*` conflicts and wire.
 
 ## Limits
 

@@ -48,10 +48,24 @@ CONTRACTS = {f"reservation.{v}" for v in RESERVATION} | {
     "catalogue.list-orgs", "catalogue.list-tiers"} | {
     f"operator.{v}" for v in (
         "rename", "retire", "rescind", "cheap-compact", "rehire", "dissolve", "delete",
-        "switch-model", "promote", "demote", "move", "reseed", "revoke-dir", "preview")}
+        "switch-model", "promote", "demote", "move", "reseed", "revoke-dir", "preview")} | {
+    f"asks.{v}" for v in ("ask", "withdraw", "present", "submit-report", "request-scope",
+                          "answer", "batch-resolve")} | {
+    f"watchdogs.{v}" for v in ("create", "list", "pause", "resume", "remove", "supersede",
+                               "operator-action")} | {
+    f"audiences.{v}" for v in ("request", "forward", "grant", "deny", "revoke", "operator-action",
+                               "list")} | {"lifecycle.operator-scope"} | {
+    f"control.{v}" for v in (
+        "interrupt", "unstick", "continue-on", "halt", "unhalt", "self-restart",
+        "prime-restart-arm", "prime-restart-cancel", "prime-restart-status", "restart-wake-arm",
+        "restart-wake-cancel", "restart-wake-status", "op-interrupt", "op-unstick",
+        "op-continue-on", "op-halt", "op-unhalt", "op-process", "killswitch",
+        "killswitch-release", "resume", "remote-control", "steer-claim", "steer-ack",
+        "steer-state", "kiosk")}
 #: the managed-wait tools (mcptool.MANAGED_WAIT_TOOLS) among the probed ones
 MANAGED_WAIT = {"orgtree_hire", "orgtree_staff", "orgtree_rehire", "orgtree_retire",
-                "orgtree_dissolve", "orgtree_cheap_compact"}
+                "orgtree_dissolve", "orgtree_cheap_compact", "orgtree_watchdog",
+                "orgtree_continue_on"}
 
 
 class OperationContacts(unittest.TestCase):
@@ -290,13 +304,16 @@ class OperationContacts(unittest.TestCase):
                                 self.HUMAN_CONTROL, self.FUNDING_CONTROL,
                                 self.STAFFING_CONTROL, self.OPERATOR_CONTROL,
                                 self.QS_CONTROL, self.RL_CONTROL, self.LC_CONTROL,
-                                self.VX_CONTROL):
+                                self.VX_CONTROL, self.RQ_CONTROL, self.CT_CONTROL):
                 continue
             with self.subTest(variant=r["variant"], condition=r["condition"]):
                 self.assertEqual(r["agents"]["third_agent_mail"], 0)
                 # a migration transcodes the WHOLE document, every node row
                 # (test_migration_paths_write_and_fail_inside_the_operation)
-                if not (r["variant"] == "migration:legacy-json" and r["condition"] == "cold"):
+                # and the F2 unhalt carry-over, pinned exactly by
+                # test_control_rows_reach_only_the_declared_set
+                if not (r["variant"] == "migration:legacy-json" and r["condition"] == "cold") \
+                        and not (r["variant"] in self.CT_UNHALT_CARRY and r["condition"] == "warm"):
                     self.assertEqual(r["agents"]["third_agent_rows_written"], 0)
             if r["agents"]["mail_producing"]:
                 producing.add(r["contract"])
@@ -314,7 +331,13 @@ class OperationContacts(unittest.TestCase):
                                          f"operator.{v}" for v in (
                                              "rename", "retire", "rescind", "cheap-compact",
                                              "rehire", "dissolve", "delete", "switch-model",
-                                             "promote", "demote", "move", "reseed")})
+                                             "promote", "demote", "move", "reseed")} | {
+                                         "asks.answer", "asks.ask", "asks.batch-resolve",
+                                         "asks.request-scope", "asks.submit-report",
+                                         "audiences.deny", "audiences.forward", "audiences.grant",
+                                         "audiences.operator-action", "audiences.request",
+                                         "audiences.revoke", "control.op-unstick",
+                                         "control.unstick", "lifecycle.operator-scope"})
 
     def test_third_agent_mail_control_is_flagged(self):
         control = self.rows(variant=self.CONTROL)
@@ -1561,7 +1584,7 @@ class OperationContacts(unittest.TestCase):
 
     def lc_rows(self):
         return [r for r in self.doc["rows"] if r["contract"].startswith(("lifecycle.", "catalogue."))
-                and r["variant"] != self.LC_CONTROL]
+                and r["contract"] != "lifecycle.operator-scope" and r["variant"] != self.LC_CONTROL]
 
     def test_lifecycle_contracts_run_cold_and_warm_and_tell_the_pinned_set(self):
         """lifecycle.instrumentation: every F1 contract, cold and warm,
@@ -1813,6 +1836,287 @@ class OperationContacts(unittest.TestCase):
         self.assertGreaterEqual(agents["third_agent_mail"], 1)
         self.assertGreaterEqual(agents["third_agent_rows_written"], 1)
         self.assertIn("vx-third", agents["physical_written"])
+
+    # -- P01 F3: asks, reports, scope requests, watchdogs, audiences -------------------
+    RQ_CONTROL = "control:requests-third-agent"
+    #: contract -> (cell, the cell roles P01 pins as mailed, as told). A cell is
+    #: `rq-<cell>-<cond>-<role>` (build_requests)
+    RQ_MAIN = {
+        "asks.ask": ("ask", (), ()), "asks.withdraw": ("withdraw", (), ()),
+        "asks.present": ("present", (), ()), "asks.submit-report": ("report", ("m",), ()),
+        "asks.request-scope": ("scope", (), ()), "watchdogs.create": ("wdcreate", (), ()),
+        "watchdogs.list": ("wdlist", (), ()), "watchdogs.pause": ("wdpause", (), ()),
+        "watchdogs.resume": ("wdresume", (), ()), "watchdogs.remove": ("wdremove", (), ()),
+        "watchdogs.supersede": ("wdsupersede", (), ()),
+        "audiences.request": ("audreq", ("m",), ()), "audiences.forward": ("audfwd", ("p",), ()),
+        "audiences.grant": ("audgrant", ("k",), ()), "audiences.deny": ("auddeny", ("k",), ()),
+        "audiences.revoke": ("audrevoke", (), ("k",)), "asks.answer": ("answer", ("p",), ()),
+        "asks.batch-resolve": ("batch", ("p",), ()),
+        "lifecycle.operator-scope": ("opscope", (), ("k",)),
+        "watchdogs.operator-action": ("wdop", (), ()),
+        "audiences.operator-action": ("audop", (), ("k", "p")),
+        "audiences.list": ("audlist", (), ()),
+    }
+
+    def rq_rows(self):
+        return [r for r in self.doc["rows"] if r["contract"] in self.RQ_MAIN
+                and r["variant"] != self.RQ_CONTROL]
+
+    def test_requests_contracts_run_cold_and_warm_and_reach_the_pinned_parties(self):
+        """asks/watchdogs/audiences.instrumentation and lifecycle.operator-scope:
+        every F3 contract, cold and warm, loss-accounted; who is mailed and told
+        is P01's pinned case, per cell role."""
+        for contract, (cell, mailed, told) in self.RQ_MAIN.items():
+            for condition in ("cold", "warm"):
+                with self.subTest(contract=contract, condition=condition):
+                    [r] = self.rows(contract=contract, variant=contract, condition=condition)
+                    self.assertEqual(r["http_status"], 200, r["detail"])
+                    self.assertEqual(r["census"]["records"], 1)
+                    self.assertIs(r["harness"]["matches_census"], True)
+                    logical = r["agents"]["logical"]
+                    self.assertEqual(set(logical.get("mail", {})),
+                                     {f"rq-{cell}-{condition}-{x}" for x in mailed})
+                    self.assertEqual(set(logical.get("notices", {})),
+                                     {f"rq-{cell}-{condition}-{x}" for x in told})
+
+    def test_requests_rows_reach_only_the_declared_set(self):
+        rows = self.rq_rows()
+        self.assertGreater(len(rows), 60)
+        for r in rows:
+            agents = r["agents"]
+            with self.subTest(variant=r["variant"], condition=r["condition"]):
+                self.assertEqual((agents["third_agent_mail"], agents["third_agent_rows_written"]),
+                                 (0, 0))
+                self.assertLessEqual(set(agents["physical_written"]),
+                                     {agents["actor"]} | set(agents["targets"]))
+                roles = {role for sect in agents["logical"].values() for role in sect.values()}
+                self.assertLessEqual(roles, {"actor", "target"})
+                self.assertNotIn("rq-third", agents["physical_nodes"])
+                self.assertFalse([s for s in agents["third_sites"] if ":read@" not in s])
+
+    def test_requests_effects_and_pinned_legacy_behaviour(self):
+        def one(variant, condition="warm"):
+            [r] = self.rows(variant=variant, condition=condition)
+            return r
+        for condition in ("cold", "warm"):
+            # a forwarded report mails the superior and drives nobody (legacy)
+            self.assertEqual(one("asks.submit-report", condition)["wakes"]["send_message"], 0)
+            # the operator audience grant tells both by notice, posts no mail,
+            # and still drives the grantee (legacy)
+            grant = one("audiences.operator-action", condition)
+            self.assertEqual((grant["wakes"]["send_message"], "mail" in grant["agents"]["logical"]),
+                             (1, False))
+            # an answer drives the asker once and sparks the user's mail notify
+            self.assertEqual(one("asks.answer", condition)["wakes"],
+                             {"send_message": 1, "mail_notify": 1})
+            self.assertEqual(one("watchdogs.create", condition)["spies"],
+                             {"hub_changed": 1, "wd_smoke": 1})
+            # the operator scope route broadcasts nothing itself
+            self.assertEqual(one("lifecycle.operator-scope", condition)["spies"], {})
+            # a list is a read that goes through the write cycle and broadcasts
+            listed = one("watchdogs.list", condition)
+            self.assertEqual((listed["spies"],
+                              listed["harness"]["stores"]["primary"]["tables_written"]),
+                             ({"hub_changed": 1}, []))
+        # a routed ask and scope request mail and drive the superior once
+        for variant in ("asks.ask:routed", "asks.request-scope:routed"):
+            r = one(variant)
+            self.assertEqual((set(r["agents"]["logical"]["mail"]), r["wakes"]["send_message"]),
+                             ({"rq-routed-warm-m"}, 1), variant)
+        # a keyed list files a receipt (meta); its replay writes nothing to the org
+        self.assertIn("meta", one("watchdogs.list:keyed-fresh")["harness"]["stores"]["primary"]
+                      ["tables_written"])
+        self.assertEqual(one("watchdogs.list:keyed-replay")["harness"]["stores"]["primary"]
+                         ["tables_written"], [])
+        for variant in ("asks.withdraw:no-open-ask", "audiences.request:already-reachable"):
+            r = one(variant)
+            self.assertEqual((r["http_status"], r["harness"]["writes"], r["spies"]),
+                             (200, 0, {"hub_changed": 1}), variant)
+
+    def test_requests_refusals_write_nothing_to_the_org(self):
+        refusals = [r for r in self.rq_rows() if r["variant"].startswith("refusal:")]
+        self.assertEqual(len(refusals), 17)
+        for r in refusals:
+            with self.subTest(variant=r["variant"]):
+                self.assertGreaterEqual(r["http_status"], 400)
+                self.assertEqual(r["harness"]["stores"].get("primary", {}).get("tables_written", []),
+                                 [])
+                self.assertEqual(r["agents"]["logical"], {})
+        self.assertEqual(self.rows(variant="refusal:aud-list-agent-token")[0]["census"]["records"], 0)
+
+    def test_requests_third_agent_control_is_flagged(self):
+        control = self.rows(variant=self.RQ_CONTROL)[0]
+        self.assertEqual(control["http_status"], 200, control["detail"])
+        agents = control["agents"]
+        self.assertEqual(agents["logical"]["mail"], {"rq-third": "third"})
+        self.assertGreaterEqual(agents["third_agent_mail"], 1)
+        self.assertGreaterEqual(agents["third_agent_rows_written"], 1)
+
+    # -- P01 F2: run control, per product profile ------------------------------------
+    CT_CONTROL = "control:control-third-agent"
+    #: contract -> (cell, the variant run cold and warm, its status, the cell roles
+    #: told). A cell is `ct-<cell>-<cond>-<role>` (build_control); None: the
+    #: killswitch orgs
+    CT_MAIN = {
+        "control.interrupt": ("interrupt", "control.interrupt", 200, ()),
+        "control.unstick": ("unstick", "control.unstick", 200, ("m",)),
+        "control.continue-on": ("continue", "control.continue-on", 200, ()),
+        "control.halt": ("halt", "control.halt", 200, ()),
+        "control.unhalt": ("unhalt", "control.unhalt", 200, ()),
+        "control.restart-wake-arm": ("wake", "control.restart-wake-arm", 200, ()),
+        "control.restart-wake-status": ("wake", "control.restart-wake-status", 200, ()),
+        "control.restart-wake-cancel": ("wake", "control.restart-wake-cancel", 200, ()),
+        "control.self-restart": ("restart", "control.self-restart:non-desktop", 200, ()),
+        "control.prime-restart-arm": ("prime", "control.prime-restart-arm:non-desktop", 200, ()),
+        "control.prime-restart-status": ("prime", "control.prime-restart-status:non-desktop", 200,
+                                         ()),
+        "control.prime-restart-cancel": ("prime", "control.prime-restart-cancel:non-desktop", 200,
+                                         ()),
+        "control.op-interrupt": ("opinterrupt", "control.op-interrupt", 200, ()),
+        "control.op-unstick": ("opunstick", "control.op-unstick", 200, ("m",)),
+        "control.op-continue-on": ("opcontinue", "control.op-continue-on", 200, ()),
+        "control.op-halt": ("ophalt", "control.op-halt", 200, ()),
+        "control.op-unhalt": ("opunhalt", "control.op-unhalt", 200, ()),
+        "control.op-process": ("opprocess", "control.op-process", 200, ()),
+        "control.remote-control": ("remote", "control.remote-control", 200, ()),
+        "control.steer-claim": ("steer", "control.steer-claim", 200, ()),
+        "control.steer-ack": ("steer", "control.steer-ack", 200, ()),
+        "control.steer-state": ("steer", "control.steer-state", 200, ()),
+        "control.kiosk": ("kiosk", "control.kiosk:desktop-stripped", 404, ()),
+        "control.killswitch": (None, "control.killswitch", 200, ()),
+        "control.killswitch-release": (None, "control.killswitch-release", 200, ()),
+        "control.resume": (None, "control.resume", 200, ()),
+    }
+    #: the warm rows whose saves re-write a log_d row naming the manager the
+    #: agent door unhalted earlier (an empty steer_attempts entry that
+    #: scan_steer_records set on the shared document), up to the operator unhalt
+    CT_UNHALT_CARRY = {"control.restart-wake-arm", "control.restart-wake-status",
+                       "control.restart-wake-cancel", "control.self-restart:non-desktop",
+                       "control.prime-restart-arm:non-desktop",
+                       "control.prime-restart-status:non-desktop",
+                       "control.prime-restart-cancel:non-desktop", "control.op-unstick",
+                       "control.op-halt", "control.op-unhalt"}
+
+    def ct_rows(self):
+        return [r for r in self.doc["rows"] if r["contract"] in self.CT_MAIN
+                and r["variant"] != self.CT_CONTROL]
+
+    def test_control_contracts_run_cold_and_warm_per_profile(self):
+        """control.instrumentation: every F2 contract, cold and warm,
+        loss-accounted; the restart tools in BOTH profiles (refused on the
+        desktop, served otherwise); the kiosk route stripped on the desktop."""
+        for contract, (cell, variant, status, told) in self.CT_MAIN.items():
+            for condition in ("cold", "warm"):
+                with self.subTest(contract=contract, condition=condition):
+                    [r] = self.rows(contract=contract, variant=variant, condition=condition)
+                    self.assertEqual(r["http_status"], status, r["detail"])
+                    self.assertEqual(r["census"]["records"], 1)
+                    self.assertIs(r["harness"]["matches_census"], True)
+                    self.assertEqual(set(r["agents"]["logical"].get("notices", {})),
+                                     {f"ct-{cell}-{condition}-{x}" for x in told})
+                    if variant.endswith(":non-desktop"):
+                        self.assertIn("ORGTREE_DESKTOP_MANAGED", r["env"])
+                        [desk] = self.rows(contract=contract,
+                                           variant=variant.replace(":non-desktop", ":desktop"),
+                                           condition=condition)
+                        self.assertEqual(desk["http_status"], 422)
+                        self.assertIn("desktop-managed V2 renamed", desk["detail"])
+                        self.assertEqual((desk["spies"], desk["harness"]["writes"]), ({}, 0))
+        # the kiosk route: stripped in the desktop profile (above), and the
+        # non-desktop handler, mounted at its own path for these rows only,
+        # configures a kiosk org, cold and warm, loss-accounted
+        for condition in ("cold", "warm"):
+            with self.subTest(kiosk=condition):
+                [r] = self.rows(contract="control.kiosk", variant="control.kiosk:non-desktop",
+                                condition=condition)
+                self.assertEqual((r["http_status"], r["census"]["records"]), (200, 1), r["detail"])
+                self.assertIs(r["harness"]["matches_census"], True)
+                self.assertIn("ORGTREE_DESKTOP_MANAGED", r["env"])
+                self.assertIn("doc", r["harness"]["stores"]["primary"]["tables_written"])
+        [refused] = self.rows(variant="refusal:kiosk-not-a-kiosk-org")
+        self.assertEqual(refused["http_status"], 422)
+        self.assertIn("not a kiosk org", refused["detail"])
+        self.assertIn("ORGTREE_DESKTOP_MANAGED", refused["env"])
+
+    def test_control_rows_reach_only_the_declared_set(self):
+        rows = self.ct_rows()
+        self.assertGreater(len(rows), 70)
+        carried = set()
+        for r in rows:
+            agents = r["agents"]
+            with self.subTest(variant=r["variant"], condition=r["condition"]):
+                self.assertEqual(agents["third_agent_mail"], 0)
+                written = set(agents["physical_written"]) - {agents["actor"]} - set(agents["targets"])
+                third_writes = [s for s in agents["third_sites"] if ":write@" in s]
+                if written:
+                    # only the unhalt carry-over: log_d rows naming the manager
+                    # the agent door unhalted, in the warm rows after it
+                    self.assertEqual(written, {"ct-unhalt-warm-m"})
+                    self.assertTrue(third_writes)
+                    self.assertFalse([s for s in third_writes if not s.startswith("log_d:write@")])
+                    self.assertEqual(r["condition"], "warm")
+                    carried.add(r["variant"])
+                else:
+                    self.assertEqual(agents["third_agent_rows_written"], 0)
+                    self.assertFalse(third_writes)
+                roles = {role for sect in agents["logical"].values() for role in sect.values()}
+                self.assertLessEqual(roles, {"actor", "target"})
+                self.assertNotIn("ct-third", agents["physical_nodes"])
+        self.assertEqual(carried, self.CT_UNHALT_CARRY)
+
+    def test_control_effects_are_spies_and_pinned_behaviour(self):
+        def one(variant, condition="warm"):
+            [r] = self.rows(variant=variant, condition=condition)
+            return r
+        for condition in ("cold", "warm"):
+            self.assertEqual(one("control.halt", condition)["spies"],
+                             {"halt_cut": 1, "notify": 2})
+            self.assertEqual(one("control.unhalt", condition)["spies"], {"notify": 1})
+            self.assertEqual(one("control.interrupt", condition)["spies"],
+                             {"hub_changed": 1, "interrupt_turn": 1})
+            self.assertEqual(one("control.op-interrupt", condition)["spies"],
+                             {"interrupt_turn": 1})
+            self.assertEqual(one("control.killswitch", condition)["spies"], {"interrupt_all": 1})
+            self.assertEqual(one("control.op-process", condition)["spies"], {"process_control": 1})
+            self.assertEqual(one("control.continue-on", condition)["spies"],
+                             {"continue_on_account": 1})
+            self.assertEqual(one("control.self-restart:non-desktop", condition)["spies"],
+                             {"hub_changed": 1, "launch_self_restart": 1})
+            self.assertEqual(one("control.remote-control", condition)["spies"],
+                             {"hub_changed": 1, "remote_control_start": 1})
+        # a batch halt cuts every target before halting each
+        batch = one("control.halt:batch")
+        self.assertGreaterEqual(batch["spies"]["halt_cut"], 2)
+        self.assertEqual(set(batch["agents"]["physical_written"]),
+                         {"ct-batch-warm-m", "ct-batch-warm-s"})
+        # one target outside the subtree refuses the whole batch; nothing is cut
+        self.assertEqual(one("refusal:halt-batch-partly-outside")["spies"], {})
+        for variant in ("control.unstick:no-op", "control.op-unhalt:not-halted",
+                        "control.killswitch-release:not-latched"):
+            self.assertEqual(one(variant)["harness"]["writes"], 0, variant)
+        self.assertEqual(one("refusal:resume-while-latched")["http_status"], 409)
+
+    def test_control_refusals_write_nothing_to_the_org(self):
+        refusals = [r for r in self.ct_rows() if r["variant"].startswith("refusal:")]
+        # 13 tool refusals, 3 route refusals, resume while latched, and the
+        # non-desktop kiosk handler on an org that is not a kiosk
+        self.assertEqual(len(refusals), 18)
+        for r in refusals:
+            with self.subTest(variant=r["variant"]):
+                self.assertGreaterEqual(r["http_status"], 400)
+                self.assertEqual(r["harness"]["stores"].get("primary", {}).get("tables_written", []),
+                                 [])
+                self.assertEqual(r["agents"]["logical"], {})
+        [token] = self.rows(variant="refusal:route-agent-token", contract="control.killswitch")
+        self.assertEqual(token["census"]["records"], 0)
+
+    def test_control_third_agent_control_is_flagged(self):
+        control = self.rows(variant=self.CT_CONTROL)[0]
+        self.assertEqual(control["http_status"], 200, control["detail"])
+        agents = control["agents"]
+        self.assertEqual(agents["logical"]["mail"], {"ct-third": "third"})
+        self.assertGreaterEqual(agents["third_agent_mail"], 1)
+        self.assertGreaterEqual(agents["third_agent_rows_written"], 1)
 
 
 if __name__ == "__main__":

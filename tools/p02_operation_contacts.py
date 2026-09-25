@@ -3016,6 +3016,634 @@ class Probe:
                refusal="negative control (not a product path)",
                patches=[(api, "_op_lookup_call", lookup_and_mail_third)])
 
+    # -- P01 F3: asks, reports, scope requests, watchdogs, audiences -------------
+    RQ_CELLS = ("ask", "withdraw", "present", "report", "scope", "wdcreate", "wdlist", "wdpause",
+                "wdresume", "wdremove", "wdsupersede", "audreq", "audfwd", "audgrant", "auddeny",
+                "audrevoke", "answer", "batch", "opscope", "wdop", "audop", "audlist")
+    #: warm-only cells: variants, keyed calls, the refusals and the control
+    RQ_EXTRA = ("routed", "reporttop", "noask", "dismiss", "keyed", "ref", "ctl")
+    RQ_OPTIONS = [{"label": "yes", "description": "go"}, {"label": "no", "description": "stop"}]
+    RQ_DOG = {"action": "create", "kind": "file", "target": "notes.txt", "pattern": "done",
+              "interval_s": 60}
+
+    def build_requests(self) -> None:
+        """tests/test_state_requests_boundary.py's shape, one cell per row
+        (distinctive `rq-*` ids): `rq-<cell>-<cond>-<role>`, p TOP-LEVEL (the
+        P01 fixture's top: its asks and presentations go to the user), m p's
+        report (mid), k m's report (leaf), s m's peer (sib). rq-third sits
+        under the ref cell's head, never named."""
+        store, ledger = self.m["store"], self.m["ledger"]
+        user, both = ledger.USER, ("cold", "warm")
+        org = store.create_org("p02-contacts-requests")
+        self.rqslug = str(org.d["slug"])
+        for cell in [f"{c}-{cond}" for c in self.RQ_CELLS for cond in both] + [
+                f"{c}-warm" for c in self.RQ_EXTRA]:
+            p, m = f"rq-{cell}-p", f"rq-{cell}-m"
+            org.hire(user, None, "haiku", 10, p, add_dirs=[], tools={}, charter="fixture")
+            org.hire(p, p, "haiku", 0, m, **self.SCOPE)
+            org.hire(p, m, "haiku", 0, f"rq-{cell}-k", **self.SCOPE)
+            org.hire(p, p, "haiku", 0, f"rq-{cell}-s", **self.SCOPE)
+        org.hire("rq-ref-warm-p", "rq-ref-warm-p", "haiku", 0, "rq-third", **self.SCOPE)
+        org.d["mail"], org.d["audiences"] = {}, []
+        store.save_org(org)
+        for nid in org.nodes:
+            if nid != "rq-third":
+                self.tokens[(self.rqslug, nid)] = self.m["agentauth"].child_env(
+                    self.rqslug, nid)["ORGTREE_AGENT_TOKEN"]
+
+    def requests(self) -> None:
+        """Every F3 contract and lifecycle.operator-scope, cold and warm. As
+        in the P01 fixture, the watchdog smoke run and live effort delivery
+        are counting spies (`spies`); turn delivery is the probe's global
+        spy (`wakes`); hub_changed is real and counted. Setups (an open ask,
+        a watchdog, an audience request or grant) run through the door just
+        before the row, outside its window. `implied` is P01's pinned mail
+        and notices per cell role."""
+        s, api, supervisor = self.rqslug, self.m["api"], self.m["supervisor"]
+        spies: collections.Counter = collections.Counter()
+
+        def spy(name: str, answer: Any = None) -> Callable[..., Any]:
+            def call(*_a: Any, **_k: Any) -> Any:
+                spies[name] += 1
+                return answer
+            return call
+        hub = api.hub_changed
+
+        def hub_counted(*a: Any, **k: Any) -> Any:
+            spies["hub_changed"] += 1
+            return hub(*a, **k)
+        family = [(api, "hub_changed", hub_counted),
+                  (supervisor, "wd_smoke", spy("wd_smoke", {"ok": True})),
+                  (supervisor, "send_live_effort", spy("send_live_effort", "sent"))]
+        saved = [(obj, name, getattr(obj, name)) for obj, name, _ in family]
+        for obj, name, value in family:
+            setattr(obj, name, value)
+        try:
+            self._request_rows(s, api, spies)
+        finally:
+            for obj, name, value in reversed(saved):
+                setattr(obj, name, value)
+
+    def _request_rows(self, s: str, api: Any, spies: collections.Counter) -> None:
+        store, opreceipts = self.m["store"], self.m["opreceipts"]
+        user, op, both = self.m["ledger"].USER, self.OPERATOR, ("cold", "warm")
+
+        def counted(row_of: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+            n0 = dict(spies)
+            row = row_of()
+            row["spies"] = {k: v - n0.get(k, 0) for k, v in sorted(spies.items())
+                            if v - n0.get(k, 0)}
+            return row
+
+        def run(contract: str, variant: str, condition: str, actor: str, tool: str,
+                args: dict[str, Any], **kw: Any) -> dict[str, Any]:
+            return counted(lambda: self.run(contract, variant, condition, s, actor, tool,
+                                            args, **kw))
+
+        def route(contract: str, variant: str, condition: str, method: str, path: str,
+                  body: Any = None, args: "dict[str, Any] | None" = None, headers: Any = op,
+                  **kw: Any) -> dict[str, Any]:
+            def call() -> tuple[int, Any]:
+                resp = self.client.request(method, f"/api/orgs/{s}{path}", json=body,
+                                           headers=headers)
+                try:
+                    return resp.status_code, resp.json()
+                except ValueError:
+                    return resp.status_code, None
+            return counted(lambda: self.run(contract, variant, condition, s, user,
+                                            f"{method} {contract}", args or {}, call=call, **kw))
+
+        def door(actor: str, tool: str, args: dict[str, Any]) -> dict[str, Any]:
+            """A setup call through the agent door, outside any row."""
+            r = self.client.post("/api/agent", json=self.agent_body(s, actor, tool, args),
+                                 headers={"X-Orgtree-Agent-Token": self.tokens[(s, actor)]})
+            if r.status_code != 200:
+                raise RuntimeError(f"setup {tool} answered {r.status_code}: {r.text[:200]}")
+            return r.json()
+
+        def ask(p: str) -> tuple[str, int]:
+            door(p, "orgtree_ask", {"question": "Proceed?", "options": self.RQ_OPTIONS})
+            a = next(a for a in store.load_org(s).d["asks"]
+                     if a["node"] == p and a["status"] == "open")
+            return str(a["id"]), int(a.get("rev") or 1)
+
+        def dog(m: str, once: bool = False, paused: bool = False) -> str:
+            wid = str(door(m, "orgtree_watchdog", {**self.RQ_DOG, "name": "d1",
+                                                   **({"once": True} if once else {})})["id"])
+            if paused:
+                door(m, "orgtree_watchdog", {"action": "pause", "id": wid})
+            return wid
+
+        def aud_request(k: str, p: str) -> None:
+            door(k, "orgtree_audience", {"action": "request", "target": p, "reason": "need"})
+
+        wd = "orgtree_watchdog"
+        for cond in both:
+            def c(cell: str, role: str) -> str:
+                return f"rq-{cell}-{cond}-{role}"
+            run("asks.ask", "asks.ask", cond, c("ask", "p"), "orgtree_ask",
+                {"question": "Proceed?"})
+            ask(c("withdraw", "p"))
+            run("asks.withdraw", "asks.withdraw", cond, c("withdraw", "p"), "orgtree_withdraw_ask",
+                {})
+            run("asks.present", "asks.present", cond, c("present", "p"), "orgtree_present",
+                {"title": "Plan", "body": "# plan"})
+            run("asks.submit-report", "asks.submit-report", cond, c("report", "k"),
+                "orgtree_submit_report", {"title": "Report", "body": "# r"},
+                implied=(c("report", "m"),))
+            run("asks.request-scope", "asks.request-scope", cond, c("scope", "p"),
+                "orgtree_request_scope", {"items": [{"kind": "dir", "path": "C:/x"}],
+                                          "reason": "need"})
+            run("watchdogs.create", "watchdogs.create", cond, c("wdcreate", "m"), wd,
+                {**self.RQ_DOG, "name": "d1"})
+            dog(c("wdlist", "m"))
+            run("watchdogs.list", "watchdogs.list", cond, c("wdlist", "m"), wd, {"action": "list"})
+            wid = dog(c("wdpause", "m"))
+            run("watchdogs.pause", "watchdogs.pause", cond, c("wdpause", "m"), wd,
+                {"action": "pause", "id": wid})
+            wid = dog(c("wdresume", "m"), paused=True)
+            run("watchdogs.resume", "watchdogs.resume", cond, c("wdresume", "m"), wd,
+                {"action": "resume", "id": wid})
+            wid = dog(c("wdremove", "m"))
+            run("watchdogs.remove", "watchdogs.remove", cond, c("wdremove", "m"), wd,
+                {"action": "remove", "id": wid})
+            wid = dog(c("wdsupersede", "m"), once=True)
+            run("watchdogs.supersede", "watchdogs.supersede", cond, c("wdsupersede", "m"), wd,
+                {"action": "supersede", "id": wid, "reason": "obsolete"})
+            # an audience request climbs the chain: it mails the requester's superior
+            run("audiences.request", "audiences.request", cond, c("audreq", "k"),
+                "orgtree_audience", {"action": "request", "target": c("audreq", "p"),
+                                     "reason": "need"}, implied=(c("audreq", "m"),))
+            aud_request(c("audfwd", "k"), c("audfwd", "p"))
+            run("audiences.forward", "audiences.forward", cond, c("audfwd", "m"),
+                "orgtree_audience", {"action": "forward", "from": c("audfwd", "k"),
+                                     "target": c("audfwd", "p")})
+            aud_request(c("audgrant", "k"), c("audgrant", "p"))
+            run("audiences.grant", "audiences.grant", cond, c("audgrant", "p"), "orgtree_audience",
+                {"action": "grant", "from": c("audgrant", "k")})
+            aud_request(c("auddeny", "k"), c("auddeny", "p"))
+            run("audiences.deny", "audiences.deny", cond, c("auddeny", "m"), "orgtree_audience",
+                {"action": "deny", "from": c("auddeny", "k"), "target": c("auddeny", "p")})
+            aud_request(c("audrevoke", "k"), c("audrevoke", "p"))
+            door(c("audrevoke", "p"), "orgtree_audience",
+                 {"action": "grant", "from": c("audrevoke", "k")})
+            run("audiences.revoke", "audiences.revoke", cond, c("audrevoke", "p"),
+                "orgtree_audience", {"action": "revoke", "grantee": c("audrevoke", "k")})
+            # the operator routes (@user on the desktop token)
+            aid, rev = ask(c("answer", "p"))
+            route("asks.answer", "asks.answer", cond, "POST", f"/asks/{aid}/answer",
+                  {"selected": ["yes"], "rev": rev}, implied=(c("answer", "p"),))
+            aid, rev = ask(c("batch", "p"))
+            route("asks.batch-resolve", "asks.batch-resolve", cond, "POST",
+                  f"/nodes/{c('batch', 'p')}/batch", {"revs": {"ask": rev}, "answers": ["yes"]},
+                  args={"node": c("batch", "p")})
+            route("lifecycle.operator-scope", "lifecycle.operator-scope", cond, "POST",
+                  f"/nodes/{c('opscope', 'k')}/scope", {"charter": "op charter"},
+                  args={"node": c("opscope", "k")})
+            wid = dog(c("wdop", "m"))
+            route("watchdogs.operator-action", "watchdogs.operator-action", cond, "POST",
+                  "/watchdogs", {"id": wid, "action": "pause"}, implied=(c("wdop", "m"),))
+            aud_request(c("audop", "k"), c("audop", "p"))
+            route("audiences.operator-action", "audiences.operator-action", cond, "POST",
+                  "/audiences", {"action": "grant", "node": c("audop", "k"),
+                                 "target": c("audop", "p")},
+                  args={"node": c("audop", "k"), "target": c("audop", "p")})
+            aud_request(c("audlist", "k"), c("audlist", "p"))
+            door(c("audlist", "p"), "orgtree_audience",
+                 {"action": "grant", "from": c("audlist", "k")})
+            route("audiences.list", "audiences.list", cond, "GET", "/audiences")
+
+        def w(cell: str, role: str) -> str:
+            return f"rq-{cell}-warm-{role}"
+        # a non-top-level ask and scope request are routed to the superior
+        # (mailed, and it is driven once)
+        run("asks.ask", "asks.ask:routed", "warm", w("routed", "k"), "orgtree_ask",
+            {"question": "Proceed?"}, implied=(w("routed", "m"),))
+        run("asks.request-scope", "asks.request-scope:routed", "warm", w("routed", "k"),
+            "orgtree_request_scope", {"items": [{"kind": "dir", "path": "C:/x"}], "reason": "r"},
+            implied=(w("routed", "m"),))
+        # a top-level report presents to the user instead
+        run("asks.submit-report", "asks.submit-report:top", "warm", w("reporttop", "p"),
+            "orgtree_submit_report", {"title": "R", "body": "b"})
+        run("asks.withdraw", "asks.withdraw:no-open-ask", "warm", w("noask", "p"),
+            "orgtree_withdraw_ask", {})
+        aid, rev = ask(w("dismiss", "p"))
+        route("asks.answer", "asks.answer:dismiss", "warm", "POST", f"/asks/{aid}/answer",
+              {"dismiss": True}, implied=(w("dismiss", "p"),))
+        # an ancestor of the owner sees its descendants' dogs; a list by an
+        # agent outside the chain sees none
+        run("watchdogs.list", "watchdogs.list:ancestor", "warm", w("wdlist", "p"), wd,
+            {"action": "list"})
+        run("audiences.request", "audiences.request:already-reachable", "warm", w("ref", "k"),
+            "orgtree_audience", {"action": "request", "target": w("ref", "m")})
+        # keyed: a keyed watchdog list files a receipt (legacy), and its replay
+        ep = str(self.client.post(
+            "/api/agent", json=self.agent_body(s, w("keyed", "m"), opreceipts.OP_EPOCH, {}),
+            headers={"X-Orgtree-Agent-Token": self.tokens[(s, w("keyed", "m"))]}).json()["epoch"])
+        dog(w("keyed", "m"))
+        key = opreceipts.mint_key()
+        for variant, refusal in (("watchdogs.list:keyed-fresh", None),
+                                 ("watchdogs.list:keyed-replay",
+                                  "keyed replay (answered from the receipt, no effect)")):
+            run("watchdogs.list", variant, "warm", w("keyed", "m"), wd, {"action": "list"},
+                key=key, epoch=ep, refusal=refusal)
+
+        def r(role: str) -> str:
+            return f"rq-ref-warm-{role}"
+        refdog = dog(r("m"))
+        for contract, variant, actor, tool, args, refusal in (
+                ("asks.ask", "refusal:ask-no-question", r("p"), "orgtree_ask", {"question": ""},
+                 "422 a question is required"),
+                ("asks.request-scope", "refusal:scope-no-items", r("p"), "orgtree_request_scope",
+                 {"items": [], "reason": "r"}, "422 items must be a non-empty list"),
+                ("asks.present", "refusal:present-not-top-level", r("k"), "orgtree_present",
+                 {"title": "P", "body": "b"}, "422 presenting needs a direct user audience"),
+                ("watchdogs.create", "refusal:wd-command-without-bash", r("m"), wd,
+                 {**self.RQ_DOG, "name": "x", "kind": "command", "target": "echo hi"},
+                 "422 it needs the bash you do not hold"),
+                ("watchdogs.create", "refusal:wd-target-outside-folder", r("m"), wd,
+                 {**self.RQ_DOG, "name": "x", "target": "C:/Windows/win.ini"},
+                 "422 only files in your working folder"),
+                ("watchdogs.create", "refusal:wd-unknown-kind", r("m"), wd,
+                 {**self.RQ_DOG, "name": "x", "kind": "nope"}, "422 kind must be one of"),
+                ("watchdogs.pause", "refusal:wd-pause-no-authority", r("s"), wd,
+                 {"action": "pause", "id": refdog}, "422 no authority over the owner"),
+                ("watchdogs.supersede", "refusal:wd-supersede-not-one-shot", r("m"), wd,
+                 {"action": "supersede", "id": refdog, "reason": "x"},
+                 "422 only a one-shot watchdog can be superseded"),
+                ("audiences.request", "refusal:aud-request-off-chain", r("k"), "orgtree_audience",
+                 {"action": "request", "target": r("s")},
+                 "422 audience requests climb your own chain"),
+                ("audiences.request", "refusal:aud-bad-action", r("p"), "orgtree_audience",
+                 {"action": "nope"}, "422 action must be request|forward|grant|deny|revoke")):
+            run(contract, variant, "warm", actor, tool, args, refusal=refusal)
+        for contract, variant, method, path, body, refusal in (
+                ("asks.batch-resolve", "refusal:batch-none-open", "POST",
+                 f"/nodes/{r('p')}/batch", {"revs": {}}, "422 no open request batch"),
+                ("watchdogs.operator-action", "refusal:wd-op-unknown-id", "POST", "/watchdogs",
+                 {"id": "nope", "action": "pause"}, "422 no watchdog 'nope'"),
+                ("audiences.operator-action", "refusal:aud-op-bad-action", "POST", "/audiences",
+                 {"action": "nope", "node": r("k")}, "422 action must be grant|deny|revoke"),
+                ("lifecycle.operator-scope", "refusal:op-scope-bad-visibility", "POST",
+                 f"/nodes/{r('k')}/scope", {"org_visibility": "bogus"},
+                 "422 org_visibility must be one of")):
+            route(contract, variant, "warm", method, path, body, refusal=refusal)
+        aid, rev = ask(r("p"))
+        route("asks.answer", "refusal:answer-stale-rev", "warm", "POST", f"/asks/{aid}/answer",
+              {"selected": ["yes"], "rev": rev + 98}, refusal="422 the card changed after it rendered")
+        route("asks.batch-resolve", "refusal:batch-stale-rev", "warm", "POST",
+              f"/nodes/{r('p')}/batch", {"revs": {"ask": rev + 98}, "answers": ["yes"]},
+              refusal="422 a request was appended or amended")
+        route("audiences.list", "refusal:aud-list-agent-token", "warm", "GET", "/audiences",
+              headers={"X-Orgtree-Agent-Token": self.tokens[(s, r("p"))]},
+              refusal="401 an agent credential is refused here")
+
+        # agent-level locality control: a watchdog pause whose closing tree
+        # broadcast (api.hub_changed) ALSO posts mail to a third agent
+        def mail_third(*_a: Any, **_k: Any) -> None:
+            spies["hub_changed"] += 1
+            with store.write_org(s) as o:
+                o.post_mail("rq-ref-warm-p", "rq-third", "p02 control: mail to a third agent")
+                store.save_org(o)
+        wid = dog(w("ctl", "m"))
+        run("watchdogs.pause", "control:requests-third-agent", "warm", w("ctl", "m"), wd,
+            {"action": "pause", "id": wid}, refusal="negative control (not a product path)",
+            patches=[(api, "hub_changed", mail_third)])
+
+    # -- P01 F2: run control, per product profile -------------------------------
+    CT_CELLS = ("interrupt", "unstick", "continue", "halt", "unhalt", "wake", "restart",
+                "prime", "opinterrupt", "opunstick", "opcontinue", "ophalt", "opunhalt",
+                "opprocess", "remote", "steer", "kiosk")
+    #: warm-only cells: variants, the refusals and the control
+    CT_EXTRA = ("unsticknoop", "batch", "ref", "ctl")
+    CT_FROZEN = {"limit": "weekly", "at": "2026-01-01T00:00:00Z", "reason": "fixture"}
+
+    def build_control(self) -> None:
+        """tests/test_state_control_boundary.py's shape, one cell per row
+        (distinctive `ct-*` ids): `ct-<cell>-<cond>-<role>`, p TOP-LEVEL (the
+        P01 fixture's top), m p's report (mid), k m's report (leaf), s m's
+        peer (sib); ct-third under the ref cell's head, never named. The
+        unstick cells' managers are frozen and the unhalt cells' managers are
+        halted before the workload. The killswitch latches a whole org, so it
+        runs on two orgs of its own (`ks-*`)."""
+        store, ledger = self.m["store"], self.m["ledger"]
+        user, both = ledger.USER, ("cold", "warm")
+        org = store.create_org("p02-contacts-control")
+        self.ctslug = str(org.d["slug"])
+        for cell in [f"{c}-{cond}" for c in self.CT_CELLS for cond in both] + [
+                f"{c}-warm" for c in self.CT_EXTRA]:
+            p, m = f"ct-{cell}-p", f"ct-{cell}-m"
+            org.hire(user, None, "haiku", 10, p, add_dirs=[], tools={}, charter="fixture")
+            org.hire(p, p, "haiku", 0, m, **self.SCOPE)
+            org.hire(p, m, "haiku", 0, f"ct-{cell}-k", **self.SCOPE)
+            org.hire(p, p, "haiku", 0, f"ct-{cell}-s", **self.SCOPE)
+        org.hire("ct-ref-warm-p", "ct-ref-warm-p", "haiku", 0, "ct-third", **self.SCOPE)
+        for cond in both:
+            for cell in ("unstick", "opunstick"):
+                org.node(f"ct-{cell}-{cond}-m")["frozen"] = dict(self.CT_FROZEN)
+        org.d["mail"], org.d["audiences"] = {}, []
+        store.save_org(org)
+        for nid in org.nodes:
+            if nid != "ct-third":
+                self.tokens[(self.ctslug, nid)] = self.m["agentauth"].child_env(
+                    self.ctslug, nid)["ORGTREE_AGENT_TOKEN"]
+        self.ks: dict[str, str] = {}
+        for cond in both:
+            org = store.create_org(f"p02-contacts-killswitch-{cond}")
+            self.ks[cond] = str(org.d["slug"])
+            org.hire(user, None, "haiku", 6, f"ks-{cond}-top", add_dirs=[], tools={},
+                     charter="fixture")
+            org.hire(f"ks-{cond}-top", f"ks-{cond}-top", "haiku", 0, f"ks-{cond}-kid",
+                     **self.SCOPE)
+            org.d["mail"], org.d["audiences"] = {}, []
+            store.save_org(org)
+        # the non-desktop kiosk handler configures a kiosk org (a creation-
+        # time type): one per condition, disabled, as P01's fixture shapes it
+        self.kx: dict[str, str] = {}
+        for cond in both:
+            org = store.create_org(f"p02-contacts-kiosk-{cond}")
+            self.kx[cond] = str(org.d["slug"])
+            org.hire(user, None, "haiku", 2, f"kx-{cond}-top", add_dirs=[], tools={},
+                     charter="fixture")
+            org.d["kiosk"] = {"enabled": False, "credits": 0, "spend_limit": 0.0,
+                              "storage_limit_mb": 0}
+            org.d["mail"], org.d["audiences"] = {}, []
+            store.save_org(org)
+
+    def control(self) -> None:
+        """Every F2 contract, cold and warm, in the desktop-managed profile
+        (the app's own: engine.launch sets ORGTREE_DESKTOP_MANAGED=1), and in
+        the non-desktop profile (the flag cleared for the call) where
+        desktop_policy changes the behaviour: self-restart and prime-restart
+        (refused on the desktop, served otherwise) and the kiosk route
+        (stripped from the desktop app). EVERY process effect is a counting
+        spy (`spies`), as in the P01 fixture: halt's process cut, turn
+        interrupts, the killswitch sweep, the warm-pool process control,
+        remote control, the restart launch, the prime arm/cancel, continue-
+        on's live provider read, the storage check. The probe never halts,
+        restarts or kills a real process; the guards refuse any process
+        start in any case."""
+        from orgtree import halt
+        s, api, supervisor = self.ctslug, self.m["api"], self.m["supervisor"]
+        spies: collections.Counter = collections.Counter()
+
+        def spy(name: str, answer: Any = None) -> Callable[..., Any]:
+            def call(*_a: Any, **_k: Any) -> Any:
+                spies[name] += 1
+                return copy.deepcopy(answer)
+            return call
+        hub = api.hub_changed
+
+        def hub_counted(*a: Any, **k: Any) -> Any:
+            spies["hub_changed"] += 1
+            return hub(*a, **k)
+        family = [(api, "hub_changed", hub_counted),
+                  (supervisor, "notify", spy("notify")),
+                  (supervisor, "launch_self_restart", spy("launch_self_restart",
+                                                          {"launched": "spy"})),
+                  (supervisor, "arm_prime_restart", spy("arm_prime_restart", {"armed": True})),
+                  (supervisor, "cancel_prime_restart", spy("cancel_prime_restart",
+                                                           {"cancelled": True})),
+                  (supervisor, "primed_restart", lambda *_a, **_k: None),
+                  (supervisor, "remote_control_start", spy("remote_control_start",
+                                                           {"started": True})),
+                  (supervisor, "remote_control_stop", spy("remote_control_stop",
+                                                          {"stopped": True})),
+                  (supervisor, "interrupt_turn", spy("interrupt_turn",
+                                                     {"interrupted": False, "reason": "spy"})),
+                  (supervisor, "interrupt_all", spy("interrupt_all", {"interrupted": []})),
+                  (supervisor, "maybe_storage_check", spy("maybe_storage_check")),
+                  (api, "_continue_on_account", spy("continue_on_account", {"switched": True})),
+                  (api.warmpool, "process_control", spy("process_control", {"process": "spy"})),
+                  (halt, "_cut", spy("halt_cut"))]
+        saved = [(obj, name, getattr(obj, name)) for obj, name, _ in family]
+        for obj, name, value in family:
+            setattr(obj, name, value)
+        try:
+            self._control_rows(s, api, spies)
+        finally:
+            for obj, name, value in reversed(saved):
+                setattr(obj, name, value)
+
+    def _control_rows(self, s: str, api: Any, spies: collections.Counter) -> None:
+        store = self.m["store"]
+        user, op, both = self.m["ledger"].USER, self.OPERATOR, ("cold", "warm")
+        nd = {"ORGTREE_DESKTOP_MANAGED": None}      # the non-desktop profile, for the call
+
+        def counted(row_of: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+            n0 = dict(spies)
+            row = row_of()
+            row["spies"] = {k: v - n0.get(k, 0) for k, v in sorted(spies.items())
+                            if v - n0.get(k, 0)}
+            return row
+
+        def run(contract: str, variant: str, condition: str, actor: str, tool: str,
+                args: dict[str, Any], **kw: Any) -> dict[str, Any]:
+            return counted(lambda: self.run(contract, variant, condition, s, actor, tool,
+                                            args, **kw))
+
+        def route(contract: str, variant: str, condition: str, method: str, path: str,
+                  body: Any = None, args: "dict[str, Any] | None" = None, headers: Any = op,
+                  slug: str = s, **kw: Any) -> dict[str, Any]:
+            def call() -> tuple[int, Any]:
+                resp = self.client.request(method, f"/api/orgs/{slug}{path}", json=body,
+                                           headers=headers)
+                try:
+                    return resp.status_code, resp.json()
+                except ValueError:
+                    return resp.status_code, None
+            return counted(lambda: self.run(contract, variant, condition, slug, user,
+                                            f"{method} {contract}", args or {}, call=call, **kw))
+
+        def halted(m: str) -> None:
+            """Setup: the operator halts `m` (outside any row)."""
+            r = self.client.post(f"/api/orgs/{s}/nodes/{m}/halt", headers=op)
+            if r.status_code != 200:
+                raise RuntimeError(f"setup halt answered {r.status_code}: {r.text[:200]}")
+
+        desktop = {"orgtree_self_restart": "422 desktop-managed V2 renamed the tool",
+                   "orgtree_prime_restart": "422 desktop-managed V2 renamed the tool"}
+        for cond in both:
+            def c(cell: str, role: str) -> str:
+                return f"ct-{cell}-{cond}-{role}"
+            run("control.interrupt", "control.interrupt", cond, c("interrupt", "p"),
+                "orgtree_interrupt", {"node": c("interrupt", "m")})
+            run("control.unstick", "control.unstick", cond, c("unstick", "p"), "orgtree_unstick",
+                {"node": c("unstick", "m")})
+            run("control.continue-on", "control.continue-on", cond, c("continue", "p"),
+                "orgtree_continue_on", {"node": c("continue", "m"), "account": "acct-x"})
+            run("control.halt", "control.halt", cond, c("halt", "p"), "orgtree_halt",
+                {"node": c("halt", "m")})
+            halted(c("unhalt", "m"))
+            run("control.unhalt", "control.unhalt", cond, c("unhalt", "p"), "orgtree_unhalt",
+                {"node": c("unhalt", "m")})
+            for action in ("arm", "status", "cancel"):
+                run(f"control.restart-wake-{action}", f"control.restart-wake-{action}", cond,
+                    c("wake", "m"), "orgtree_restart_wake",
+                    {"action": action, **({"reason": "r"} if action == "arm" else {})})
+            # desktop profile: the standard restart tools are refused (renamed)
+            run("control.self-restart", "control.self-restart:desktop", cond, c("restart", "p"),
+                "orgtree_self_restart", {}, refusal=desktop["orgtree_self_restart"])
+            run("control.self-restart", "control.self-restart:non-desktop", cond,
+                c("restart", "p"), "orgtree_self_restart", {}, env=nd)
+            for action in ("arm", "status", "cancel"):
+                contract = f"control.prime-restart-{action}"
+                run(contract, f"{contract}:desktop", cond, c("prime", "p"), "orgtree_prime_restart",
+                    {"action": action}, refusal=desktop["orgtree_prime_restart"])
+                run(contract, f"{contract}:non-desktop", cond, c("prime", "p"),
+                    "orgtree_prime_restart",
+                    {"action": action, **({"reason": "r"} if action == "arm" else {})}, env=nd)
+            # the operator routes (@user on the desktop token)
+            base = "/nodes/{}"
+            route("control.op-interrupt", "control.op-interrupt", cond, "POST",
+                  base.format(c("opinterrupt", "m")) + "/interrupt",
+                  args={"node": c("opinterrupt", "m")})
+            route("control.op-unstick", "control.op-unstick", cond, "POST",
+                  base.format(c("opunstick", "m")) + "/unstick",
+                  args={"node": c("opunstick", "m")})
+            route("control.op-continue-on", "control.op-continue-on", cond, "POST",
+                  base.format(c("opcontinue", "m")) + "/continue-on", {"account": "acct-x"},
+                  args={"node": c("opcontinue", "m")})
+            route("control.op-halt", "control.op-halt", cond, "POST",
+                  base.format(c("ophalt", "m")) + "/halt", args={"node": c("ophalt", "m")})
+            halted(c("opunhalt", "m"))
+            route("control.op-unhalt", "control.op-unhalt", cond, "POST",
+                  base.format(c("opunhalt", "m")) + "/unhalt", args={"node": c("opunhalt", "m")})
+            route("control.op-process", "control.op-process", cond, "POST",
+                  base.format(c("opprocess", "m")) + "/process", {"action": "stop"},
+                  args={"node": c("opprocess", "m")})
+            route("control.remote-control", "control.remote-control", cond, "POST",
+                  base.format(c("remote", "m")) + "/remote-control", {"action": "start"},
+                  args={"node": c("remote", "m")})
+            route("control.steer-claim", "control.steer-claim", cond, "POST",
+                  base.format(c("steer", "m")) + "/steer", {}, args={"node": c("steer", "m")})
+            route("control.steer-ack", "control.steer-ack", cond, "POST",
+                  base.format(c("steer", "m")) + "/steer/ack",
+                  {"delivery_id": "d", "tool_use_id": "t"}, args={"node": c("steer", "m")})
+            route("control.steer-state", "control.steer-state", cond, "GET",
+                  base.format(c("steer", "m")) + "/steer-state", args={"node": c("steer", "m")})
+            # the kiosk route is stripped from the desktop-built app
+            # (desktop_policy drops every route whose path has /kiosk); the
+            # non-desktop handler is not mounted here, so it has no row.
+            # Observed 404 (P01 pins 405)
+            route("control.kiosk", "control.kiosk:desktop-stripped", cond, "POST", "/kiosk",
+                  {"enabled": True}, refusal="the route is stripped in the desktop profile")
+            # the killswitch latches the whole org: its own org per condition
+            ks = self.ks[cond]
+            if cond == "warm":
+                store.load_org(ks)
+            kids = tuple(sorted(_NODES[ks]))
+            route("control.killswitch", "control.killswitch", cond, "POST", "/killswitch",
+                  slug=ks, implied=kids)
+            if cond == "warm":
+                route("control.resume", "refusal:resume-while-latched", cond, "POST", "/resume",
+                      slug=ks, refusal="409 release the killswitch before resuming")
+            route("control.killswitch-release", "control.killswitch-release", cond, "POST",
+                  "/killswitch/release", slug=ks, implied=kids)
+            route("control.resume", "control.resume", cond, "POST", "/resume", slug=ks,
+                  implied=kids)
+
+        def w(cell: str, role: str) -> str:
+            return f"ct-{cell}-warm-{role}"
+        # the NON-DESKTOP kiosk handler: desktop_policy.install_routes strips
+        # every /kiosk route from the desktop-built app, so the real handler
+        # (api.org_kiosk) is mounted at its own path for these rows only, as a
+        # non-desktop build mounts it, and the desktop flag is cleared for the
+        # call. Through the mounted route the call is a census-recorded,
+        # loss-accounted attempt like every other row; the route is removed
+        # afterwards (the desktop rows above ran without it).
+        kiosk_route = "/api/orgs/{slug}/kiosk"
+        api.app.add_api_route(kiosk_route, api.org_kiosk, methods=["POST"])
+        mounted = api.app.router.routes[-1]
+        try:
+            for cond in both:
+                kx = self.kx[cond]
+                if cond == "warm":
+                    store.load_org(kx)
+                route("control.kiosk", "control.kiosk:non-desktop", cond, "POST", "/kiosk",
+                      {"enabled": True}, slug=kx, env=nd)
+            route("control.kiosk", "refusal:kiosk-not-a-kiosk-org", "warm", "POST", "/kiosk",
+                  {"enabled": True}, env=nd,
+                  refusal="422 non-desktop: not a kiosk org (a creation-time type)")
+        finally:
+            api.app.router.routes.remove(mounted)
+        run("control.unstick", "control.unstick:no-op", "warm", w("unsticknoop", "p"),
+            "orgtree_unstick", {"node": w("unsticknoop", "m")})
+        run("control.halt", "control.halt:batch", "warm", w("batch", "p"), "orgtree_halt",
+            {"nodes": [w("batch", "m"), w("batch", "s")]},
+            implied=(w("batch", "m"), w("batch", "s")))
+        # the op-halt cell's manager is halted now: interrupt it, then unhalt
+        # the op-interrupt cell's manager, which is not halted (a no-op)
+        route("control.op-interrupt", "control.op-interrupt:halted", "warm", "POST",
+              f"/nodes/{w('ophalt', 'm')}/interrupt", args={"node": w("ophalt", "m")})
+        route("control.op-unhalt", "control.op-unhalt:not-halted", "warm", "POST",
+              f"/nodes/{w('opinterrupt', 'm')}/unhalt", args={"node": w("opinterrupt", "m")})
+        run("control.restart-wake-arm", "control.restart-wake-arm:subordinate", "warm",
+            w("wake", "m"), "orgtree_restart_wake", {"action": "arm", "target": w("wake", "k")})
+        route("control.killswitch-release", "control.killswitch-release:not-latched", "warm",
+              "POST", "/killswitch/release", slug=self.ks["warm"],
+              implied=tuple(sorted(_NODES[self.ks["warm"]])))
+
+        def r(role: str) -> str:
+            return f"ct-ref-warm-{role}"
+        for contract, variant, actor, tool, args, env, refusal in (
+                ("control.interrupt", "refusal:interrupt-self", r("m"), "orgtree_interrupt",
+                 {"node": r("m")}, None, "422 no authority over itself"),
+                ("control.interrupt", "refusal:interrupt-up", r("m"), "orgtree_interrupt",
+                 {"node": r("p")}, None, "422 no authority over its superior"),
+                ("control.unstick", "refusal:unstick-up", r("m"), "orgtree_unstick",
+                 {"node": r("p")}, None, "422 no authority over its superior"),
+                ("control.continue-on", "refusal:continue-own-account", r("m"),
+                 "orgtree_continue_on", {"node": r("m"), "account": "a"}, None,
+                 "403 you cannot choose your own account"),
+                ("control.continue-on", "refusal:continue-up", r("m"), "orgtree_continue_on",
+                 {"node": r("p"), "account": "a"}, None, "422 no authority over its superior"),
+                ("control.halt", "refusal:halt-up", r("m"), "orgtree_halt", {"node": r("p")},
+                 None, "422 no authority over its superior"),
+                ("control.halt", "refusal:halt-batch-partly-outside", r("m"), "orgtree_halt",
+                 {"nodes": [r("k"), r("p")]}, None,
+                 "422 one target outside the subtree refuses the whole batch; nothing is cut"),
+                ("control.self-restart", "refusal:self-restart-not-top-level", r("k"),
+                 "orgtree_self_restart", {}, nd, "422 non-desktop: a self-restart needs top level"),
+                ("control.prime-restart-arm", "refusal:prime-arm-not-top-level", r("k"),
+                 "orgtree_prime_restart", {"action": "arm"}, nd,
+                 "422 non-desktop: a primed restart needs top level"),
+                ("control.prime-restart-arm", "refusal:prime-bad-action", r("p"),
+                 "orgtree_prime_restart", {"action": "nope"}, nd,
+                 "422 non-desktop: action must be arm|cancel|status"),
+                ("control.restart-wake-arm", "refusal:wake-target-up", r("m"),
+                 "orgtree_restart_wake", {"action": "arm", "target": r("p")}, None,
+                 "403 only for yourself or your subordinates"),
+                ("control.restart-wake-arm", "refusal:wake-mode-every", r("m"),
+                 "orgtree_restart_wake", {"action": "arm", "mode": "every"}, None,
+                 "422 only one-shot restart wakes are supported"),
+                ("control.restart-wake-arm", "refusal:wake-bad-action", r("m"),
+                 "orgtree_restart_wake", {"action": "nope"}, None,
+                 "422 action must be arm|cancel|status")):
+            run(contract, variant, "warm", actor, tool, args, env=env, refusal=refusal)
+        for contract, variant, path, body, headers, refusal in (
+                ("control.op-process", "refusal:process-unknown-node", "/nodes/nobody/process",
+                 {"action": "stop"}, op, "404 no such node"),
+                ("control.remote-control", "refusal:remote-bad-action",
+                 f"/nodes/{r('m')}/remote-control", {"action": "nope"}, op,
+                 "422 action must be start or stop"),
+                ("control.killswitch", "refusal:route-agent-token", "/killswitch", None,
+                 {"X-Orgtree-Agent-Token": self.tokens[(s, r("p"))]},
+                 "401 an agent credential is refused here")):
+            route(contract, variant, "warm", "POST", path, body, headers=headers, refusal=refusal)
+
+        # agent-level locality control: an interrupt whose closing tree
+        # broadcast (api.hub_changed) ALSO posts mail to a third agent
+        def mail_third(*_a: Any, **_k: Any) -> None:
+            spies["hub_changed"] += 1
+            with store.write_org(s) as o:
+                o.post_mail("ct-ref-warm-p", "ct-third", "p02 control: mail to a third agent")
+                store.save_org(o)
+        run("control.interrupt", "control:control-third-agent", "warm", w("ctl", "p"),
+            "orgtree_interrupt", {"node": w("ctl", "m")},
+            refusal="negative control (not a product path)",
+            patches=[(api, "hub_changed", mail_third)])
+
     # -- P01 F1b: the operator ops door's remaining operations and its preview ---
     VX_CELLS = ("rename", "retire", "rescind", "cc", "rehire", "dissolve", "delete", "switch",
                 "promote", "demote", "move", "reseed", "revoke", "preview")
@@ -3681,12 +4309,16 @@ class Probe:
             self.build_receipts()
             self.build_lifecycle()
             self.build_opvariants()
+            self.build_requests()
+            self.build_control()
         self.build_human()
         for slug in ((self.dslug, self.hslug) if json_backend else
                      (self.rslug, self.mslug, self.dslug, self.pslug, self.sslug,
                       self.stslug, self.ovslug, self.mlslug, self.hslug, self.fslug,
                       self.stfslug, self.opslug, self.qsslug, self.wrslug, self.rlslug,
-                      self.lcslug, *self.lc_all.values(), self.vxslug)):
+                      self.lcslug, *self.lc_all.values(), self.vxslug,
+                      self.rqslug, self.ctslug, *self.ks.values(),
+                      *self.kx.values())):
             _NODES[slug] = {str(n) for n in self.m["store"].load_org(slug).nodes}
         self.operator("post", "/api/diagnostics/operation-census/reset")
         self.operator("post", "/api/diagnostics/operation-census", json={"enabled": True})
@@ -3715,6 +4347,8 @@ class Probe:
             self.receipts()
             self.lifecycle()
             self.op_variants()
+            self.requests()
+            self.control()
         w1 = self.census_state()
         self.load_table_catalogue()
         self.map_tables()
