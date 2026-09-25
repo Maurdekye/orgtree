@@ -14,3 +14,5 @@ Direct dependencies of `orgtree-store`:
 | `bytes` | 1.12.1 | MIT | `ToSql` buffer type required by the driver's parameter trait |
 
 Transitive dependencies are recorded exactly in `Cargo.lock` (notably `postgres-protocol` 0.6.12 and `postgres-types` 0.2.14, MIT OR Apache-2.0). The reviewer checks that other P03 crates lock the same versions of `tokio`, `serde`, `serde_json`, `uuid` and `tokio-postgres`.
+
+In-repo path dependencies added by WS4 (no third-party code): `orgtree-funding-core` (`../funding-core`, the reviewed pure funding planner; the decide half of `reallocate`, the credit decision and preview, r7 C6), which brings `orgtree-backend-codec` and `orgtree-work-name-codec` by path.

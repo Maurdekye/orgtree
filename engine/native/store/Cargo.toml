@@ -27,6 +27,10 @@ tokio-postgres = { version = "0.7", default-features = false, features = ["runti
 bytes = "1"
 # key grammar and horizon/skew constants for receipt lookup (read-only)
 orgtree-op-receipt-codec = { path = "../op-receipt-codec" }
+# WS4: the reviewed pure funding planner (legacy reallocate/_chain_acquire
+# rules) is the decide half of reallocate, the credit decision and preview
+# (r7 C6). In-repo path dependency; no third-party code.
+orgtree-funding-core = { path = "../funding-core" }
 
 [dev-dependencies]
 orgtree-store-schema = { path = "../store-schema" }
