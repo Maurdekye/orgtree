@@ -930,7 +930,8 @@ class ContactFacets(unittest.TestCase):
                           "exchange.extern-wait", "exchange.extern-wait:timeout", "exchange.org-inbox-send:org",
                           "exchange.org-inbox-send:org-attachment", "exchange.org-inbox-send:org-kiosk"}
     EXCHANGE_PRE_CENSUS = {"refusal:route-no-token", "refusal:route-agent-token", "refusal:extern-no-token",
-                           "refusal:externtool-no-credential"}
+                           "refusal:externtool-no-credential", "refusal:externtool-send-no-credential",
+                           "refusal:externtool-read-no-credential", "refusal:externtool-wait-no-credential"}
     FOREIGN_WRITE_SITES = ("orgtree.store:_write_doc", "orgtree.store:_write_log_rows", "orgtree.store:_save_sqlite")
 
     def test_f4_exchange_contacts_and_org_locality(self):
@@ -938,7 +939,7 @@ class ContactFacets(unittest.TestCase):
         self.assertEqual(len(names), 15)
         for name in names:
             self.assertEqual({r["condition"] for r in rows if r["contract"] == name}, {"cold", "warm"}, name)
-        self.assertEqual(sum(r["variant"].startswith("refusal:") for r in rows), 33)
+        self.assertEqual(sum(r["variant"].startswith("refusal:") for r in rows), 36)
         for r in rows:
             with self.subTest(variant=r["variant"], condition=r["condition"]):
                 self.assertEqual(r["unknown_contacts"], [])
@@ -964,11 +965,13 @@ class ContactFacets(unittest.TestCase):
         missing = self.exact("exchange.org-inbox-send", "exchange.org-inbox-send:org-missing", "warm")
         self.assertEqual(self.foreign(missing), 0)
         # the extern rows record the peer's sighting, refusals included, but not a bad peer id or a missing token
+        # (the externtool verbs' client sends none)
+        unsighted = ("refusal:extern-send-bad-peer", "refusal:extern-no-token", "refusal:externtool-send-no-credential",
+                     "refusal:externtool-read-no-credential", "refusal:externtool-wait-no-credential")
         for r in rows:
             if r["contract"].startswith("exchange.extern-"):
                 wrote = "data:other@orgtree.store:_peers_write" in r["audit"].get("file_write", {})
-                self.assertEqual(wrote, r["variant"] not in ("refusal:extern-send-bad-peer", "refusal:extern-no-token"),
-                                 (r["variant"], r["condition"]))
+                self.assertEqual(wrote, r["variant"] not in unsighted, (r["variant"], r["condition"]))
 
     QS_READS = ("quick-staff.options", "quick-staff.options-refresh", "quick-staff.preview",
                 "quick-staff.preview:under-assignee", "quick-staff.preview:top-level",
