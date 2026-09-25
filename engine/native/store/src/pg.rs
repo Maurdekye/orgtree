@@ -192,7 +192,7 @@ impl Connector for Factory {
         // The identification query is the factory's own statement on this
         // session: trace it as infrastructure so the server-log
         // reconciliation (Q-C5) can match it.
-        self.traced_setup("exec.setup.identify", IDENTIFY_SQL);
+        self.traced_setup("exec.setup.identify", IDENTIFY_SQL, Some(pid));
         Ok(PgSession { client, task, pid: Some(pid), start: Some(start), broken: false })
     }
 }

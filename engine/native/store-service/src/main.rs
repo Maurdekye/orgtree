@@ -12,7 +12,7 @@ use std::sync::Arc;
 use orgtree_store::conn::{Factory, PgConfig};
 use orgtree_store::hooks::Hooks;
 use orgtree_store::lookup::{Liveness, INCARNATION_SQL};
-use orgtree_store::{Connector, ExecConfig, Executor, Isolation, Session, Val};
+use orgtree_store::{Connector, ExecConfig, Executor, Val};
 use orgtree_store_service::descriptor::{self, Descriptor, DESCRIPTOR_SCHEMA};
 use orgtree_store_service::handler::StoreHandler;
 use orgtree_store_service::{guard, server};
@@ -56,12 +56,10 @@ async fn main() {
     // The store incarnation the custodian wrote.
     let db_incarnation = {
         let mut s = liveness_factory.connect().await.unwrap_or_else(|e| fail(format!("connect: {e:?}")));
-        s.begin(Isolation::RepeatableReadReadOnly).await.unwrap_or_else(|e| fail(format!("{e:?}")));
-        let rows = s.exec("service.incarnation", INCARNATION_SQL, &[]).await.unwrap_or_else(|e| fail(format!("{e:?}")));
-        let _ = s.rollback().await;
+        let rows = orgtree_store::lookup::traced_exec(&mut s, &hooks, "exec.service.incarnation", INCARNATION_SQL, &[]).await.unwrap_or_else(|e| fail(format!("{e:?}")));
         rows.first().and_then(|r| r.first()).and_then(Val::as_uuid).unwrap_or_else(|| fail("store_incarnation is empty: run the custodian's migrations first"))
     };
-    let live = Liveness::register(&liveness_factory, "store-service", db_incarnation).await.unwrap_or_else(|e| fail(format!("register: {e:?}")));
+    let live = Liveness::register(&liveness_factory, &hooks, "store-service", db_incarnation).await.unwrap_or_else(|e| fail(format!("register: {e:?}")));
     let service_incarnation = live.incarnation;
 
     let exec = Executor::new(main_pool, 8, reserved, 2, ExecConfig::default(), hooks);

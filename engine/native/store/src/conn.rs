@@ -94,9 +94,9 @@ impl Factory {
     }
 
     /// Trace a statement the factory itself ran on a new session.
-    pub(crate) fn traced_setup(&self, label: &str, sql: &str) {
+    pub(crate) fn traced_setup(&self, label: &str, sql: &str, backend_pid: Option<i32>) {
         let s = Scope { hooks: &self.hooks, family: "conn", verb: self.purpose, op: None, op_tag: None, attempt: 0 };
-        s.emit(EventKind::Statement { label, sql, micros: 0, rows: 1, sqlstate: None }, false);
+        s.emit(EventKind::Statement { label, sql, micros: 0, rows: 1, sqlstate: None, backend_pid }, false);
     }
 
     /// The registration path, callable without a database (credential test).
