@@ -15436,7 +15436,8 @@ def assign_account(slug: str, nid: str, account_id: str, *,
                    org: Org | None = None, via: str = "manual",
                    allow_frozen: bool = False,
                    immediate: bool = False,
-                   notify_change: bool = True) -> dict[str, Any]:
+                   notify_change: bool = True,
+                   doc_held: bool = False) -> dict[str, Any]:
     """Reassign a node's account binding — the ONE writer both surfaces call
     (design D2d). Authority is checked by the CALLER (operator token, or
     org.is_ancestor for the agent tool); everything about the ACCOUNT is
@@ -15477,7 +15478,14 @@ def assign_account(slug: str, nid: str, account_id: str, *,
 
     `immediate` opens the busy door for a rebind that owes NO session boundary
     (account removal, 2026-09-21 — see `account_removal`). It changes nothing
-    else: the frozen policy, the validation and the disclosure are the same."""
+    else: the frozen policy, the validation and the disclosure are the same.
+
+    `doc_held` (with `org`): the caller already holds this document under a
+    row transaction (the pgdoor door), so this call must NOT take DOC_LOCK —
+    acquiring it under row locks is the deadlock plan decision 26 forbids
+    (a legacy cycle holding DOC_LOCK waits on the door's row). Since PG-3e-B
+    any `org=` call takes no lock at all (`_assign_tx`), so the flag now only
+    refuses a door call that forgot its org; the caller owns the save."""
     from . import warmpool
     st = state(slug, nid)
     # a caller mid-transaction (the agent-tool dispatch) passes its OWN org
@@ -15486,6 +15494,8 @@ def assign_account(slug: str, nid: str, account_id: str, *,
     # owns the save and the transaction (`_assign_tx`); without one, this
     # call's own org_tx commits when the block below exits, on every path.
     _caller_owns_save = org is not None
+    if doc_held and org is None:
+        raise RuntimeError("assign_account(doc_held=True) needs the caller's org")
     with _assign_tx(slug, nid, org) as org:
         if nid not in org.nodes:
             raise RuntimeError(f"no node {nid!r} in org {slug!r}")
