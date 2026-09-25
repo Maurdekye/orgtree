@@ -222,6 +222,15 @@ class Recognition(Base):
                          "dict-log section 'mystery_d'", "'events' is a lazy log but is stored as a document row"):
             self.assertIn(expected, found)
 
+    def test_a_nul_in_plain_text_meta_is_a_problem(self) -> None:
+        # PostgreSQL text refuses NUL too; plain meta values are not JSON, so
+        # only the raw check can see it.
+        org = self.rows_for(sample_doc())
+        org.rows["meta"] = [(k, v) for k, v in org.rows["meta"] if k != "source_json_sha256"]
+        org.rows["meta"].append(("source_json_sha256", "ab\x00cd"))
+        self.assertIn("meta row 'source_json_sha256': value contains a NUL character, which PostgreSQL refuses",
+                      pgimport.problems(org))
+
     def test_unknown_meta_keys_are_problems_but_owner_lists_are_not(self) -> None:
         org = self.rows_for(sample_doc())
         org.rows["meta"].append(("owners:mail_log", "[]"))
@@ -261,6 +270,14 @@ class Manifests(Base):
                         [("n2", 0, '{"a":1,"b":2}')], [("n1", 0, '{"a":1,"b":2}'), ("n3", 2, "{}")],
                         [("n1", 0, '{"a":1.0,"b":2}')]):
             self.assertNotEqual(pgimport.manifest(dict(rows, nodes=changed)), base, changed)
+
+    def test_the_order_rows_are_read_back_in_does_not_matter(self) -> None:
+        # A PostgreSQL SELECT without ORDER BY may return rows in any order.
+        rows = {t: [] for t in pgimport.TABLES}
+        rows["log_l"] = [(1, "events", None, '{"k":1}'), (2, "events", None, '{"k":2}'), (3, "notice_log", None, "3")]
+        rows["doc"] = [("a", "1"), ("b", "2")]
+        shuffled = {t: list(reversed(v)) for t, v in rows.items()}
+        self.assertEqual(pgimport.manifest(shuffled), pgimport.manifest(rows))
 
     def test_log_rows_are_checked_per_section(self) -> None:
         rows = {t: [] for t in pgimport.TABLES}
