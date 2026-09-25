@@ -33,9 +33,18 @@ name = "orgtree-pg-custodian"
 version = "0.1.0"
 dependencies = [
  "orgtree-op-receipt-codec",
+ "orgtree-prototype-guard",
  "serde",
  "serde_json",
  "windows-sys",
+]
+
+[[package]]
+name = "orgtree-prototype-guard"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
