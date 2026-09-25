@@ -83,7 +83,7 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Callable, Generator, Iterable, Iterator
+from collections.abc import Callable, Generator, Iterable, Iterator, Mapping
 from typing import Any, cast
 
 from . import census_contacts
@@ -881,6 +881,89 @@ LIST_LOGS: tuple[str, ...] = ("events", "org_inbox", "notice_log",
                               # next save — no operator migration.
                               "work_items_archive")
 LAZY_SECTIONS: frozenset[str] = frozenset(DICT_LOGS) | frozenset(LIST_LOGS)
+
+#: PG-3d: the mutable per-recipient mail queues, `{owner: [...]}`. Each is
+#: stored as a CONTAINER `doc` row (`"{}"`) plus ONE `doc` row per owner,
+#: keyed `f"{sect}{SPLIT_SEP}{owner}"`, so an `org_tx` can lock one
+#: recipient's queue (`sections=[("mail", nid)]`) instead of every queue in
+#: the org. The in-memory shape is unchanged. A whole-section blob written
+#: before the split loads as it is and is rewritten as rows by the next save
+#: (orgtx's one-time heal does that before any row lock); a value that is not
+#: a dict of lists stays one blob row.
+SPLIT_SECTIONS: frozenset[str] = frozenset({"mail", "delivering", "notices"})
+SPLIT_SEP = "\x1f"
+
+
+def split_section_of(key: str) -> str | None:
+    """The split section an owner row's `doc` key belongs to, else None."""
+    sect, sep, _ = key.partition(SPLIT_SEP)
+    return sect if sep and sect in SPLIT_SECTIONS else None
+
+
+def _split_rows(k: str, v: Any) -> dict[str, str]:
+    """The `doc` rows that store top-level key `k` holding `v`."""
+    if k in SPLIT_SECTIONS and isinstance(v, dict) \
+            and all(isinstance(lst, list) for lst in dict.values(v)):
+        rows = {k: "{}"}
+        for owner, lst in dict.items(v):
+            rows[k + SPLIT_SEP + owner] = _dumps(lst)
+        return rows
+    return {k: _dumps(v)}
+
+
+def _snap_rows(snap: Mapping[str, str], k: str) -> dict[str, str]:
+    """`k`'s rows in a `doc` snapshot: its own and, for a split section,
+    its owner rows."""
+    out = {k: snap[k]} if k in snap else {}
+    if k in SPLIT_SECTIONS:
+        pre = k + SPLIT_SEP
+        out.update((kk, vv) for kk, vv in snap.items() if kk.startswith(pre))
+    return out
+
+
+def _assemble(k: str, rows: Mapping[str, str]) -> Any:
+    """The value of top-level key `k` from its `doc` rows (`rows[k]` must
+    exist): a split section's owner rows merge into its container, in key
+    order."""
+    v = json.loads(rows[k])
+    if k in SPLIT_SECTIONS and isinstance(v, dict):
+        pre = k + SPLIT_SEP
+        for kk in sorted(rows):
+            if kk.startswith(pre):
+                dict.__setitem__(v, kk[len(pre):], json.loads(rows[kk]))
+    return v
+
+
+def _group_doc_rows(doc_rows: dict[str, str]) -> dict[str, dict[str, str]]:
+    """Split raw `doc` rows by top-level key: `{k: {row key: val}}`. Owner
+    rows join their section; an owner row without a container row is an
+    orphan and is left out (the next full-reconcile save deletes it)."""
+    out: dict[str, dict[str, str]] = {}
+    for kk, vv in doc_rows.items():
+        if split_section_of(kk) is None:
+            out.setdefault(kk, {})[kk] = vv
+    for kk, vv in doc_rows.items():
+        sect = split_section_of(kk)
+        if sect is not None and sect in out:
+            out[sect][kk] = vv
+    return out
+
+
+def _read_doc_key(conn: Any, k: str) -> dict[str, str]:
+    """`k`'s `doc` rows read directly (`{}` if absent)."""
+    row = conn.execute("SELECT val FROM doc WHERE key=?", (k,)).fetchone()
+    if row is None:
+        return {}
+    rows = {k: cast(str, row[0])}
+    if k in SPLIT_SECTIONS:
+        # a prefix match, not a range: PostgreSQL's collation need not order
+        # the separator the way SQLite's byte order does
+        pre = k + SPLIT_SEP
+        for kk, vv in conn.execute(
+                "SELECT key, val FROM doc WHERE substr(key, 1, ?) = ?",
+                (len(pre), pre)).fetchall():
+            rows[cast(str, kk)] = cast(str, vv)
+    return rows
 
 _SCHEMA_VERSION = "1"
 
@@ -2471,11 +2554,14 @@ def _load_lazy(conn: sqlite3.Connection, slug: str,
         # row, and under concurrent Python-busy threads each yield costs a
         # full switch interval: 709 rows × ~5 ms stolen slices turned this
         # 100 ms load into 18-20 s (measured, 2026-09-19 incident).
-        doc_rows: dict[str, str] = {cast(str, k): cast(str, v) for k, v in
-                                    conn.execute("SELECT key, val FROM doc").fetchall()}
+        raw_doc: dict[str, str] = {cast(str, k): cast(str, v) for k, v in
+                                   conn.execute("SELECT key, val FROM doc").fetchall()}
         node_rows = [(cast(str, i), cast(str, v)) for i, v in
                      conn.execute("SELECT id, val FROM nodes ORDER BY ord").fetchall()]
-        d._eager_bytes = (sum(len(v) for v in doc_rows.values())
+        # PG-3d: a split section's owner rows travel with its container row
+        grouped = _group_doc_rows(raw_doc)
+        doc_rows: dict[str, str] = {k: rows[k] for k, rows in grouped.items()}
+        d._eager_bytes = (sum(len(v) for v in raw_doc.values())
                           + sum(len(v) for _, v in node_rows))
         present: set[str] = set()
         for sect in DICT_LOGS:
@@ -2572,8 +2658,8 @@ def _load_lazy(conn: sqlite3.Connection, slug: str,
         elif k in doc_rows:
             # includes a lazy-named key (or `nodes`) stored as a blob because
             # its value had the wrong shape
-            d._snap_doc[k] = doc_rows[k]
-            dict.__setitem__(d, k, json.loads(doc_rows[k]))
+            d._snap_doc.update(grouped[k])
+            dict.__setitem__(d, k, _assemble(k, grouped[k]))
         elif k in LAZY_SECTIONS:
             if k in preloaded:
                 d._snap_logs[k] = preload_snaps[k]
@@ -2927,20 +3013,30 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
             continue
         if touched is not None and k not in touched \
                 and snap_doc is not None and k in snap_doc:
-            new_doc[k] = snap_doc[k]
+            new_doc.update(_snap_rows(snap_doc, k))
             continue
-        s = _dumps(v)
-        new_doc[k] = s
-        if changes is not None:
-            changes.dumped_bytes += len(s)
-        if snap_doc is None or snap_doc.get(k) != s:
-            if _ROW_CAS and snap_doc is not None and k in snap_doc:
-                _cas(conn, "UPDATE doc SET val=? WHERE key=? AND val=?",
-                     (s, k, snap_doc[k]), f"section {k!r}")
-            else:
-                conn.execute(_UPSERT_DOC, (k, s))
+        # PG-3d: a split section is its container row plus one row per
+        # owner, each compared (and CAS-guarded) on its own; an owner row
+        # missing here is deleted by the loop below
+        for rk, s in _split_rows(k, v).items():
+            new_doc[rk] = s
             if changes is not None:
-                changes.doc_upserts.append(k)
+                changes.dumped_bytes += len(s)
+            if snap_doc is None or snap_doc.get(rk) != s:
+                if _ROW_CAS and snap_doc is not None and rk in snap_doc:
+                    _cas(conn, "UPDATE doc SET val=? WHERE key=? AND val=?",
+                         (s, rk, snap_doc[rk]), f"section {rk!r}")
+                elif _ROW_CAS and snap_doc is not None and rk != k:
+                    # a NEW owner row: another writer may have created it
+                    # since this save loaded (the whole-section CAS used to
+                    # catch that), so an insert that finds it is stale
+                    _cas(conn, "INSERT INTO doc(key,val) VALUES(?,?) "
+                               "ON CONFLICT(key) DO NOTHING",
+                         (rk, s), f"section {rk!r}")
+                else:
+                    conn.execute(_UPSERT_DOC, (rk, s))
+                if changes is not None:
+                    changes.doc_upserts.append(rk)
     known_doc = set(snap_doc) if snap_doc is not None else db_doc_keys
     for k in known_doc - set(new_doc) - LAZY_SECTIONS - set(ROWED):
         if _ROW_CAS and snap_doc is not None and k in snap_doc:
@@ -3113,8 +3209,7 @@ def _verify_scoped_save(d: dict[str, Any], lazy: LazyDoc) -> None:
     for k in list(dict.keys(d)):
         if k in ROWED or k in LAZY_SECTIONS:
             continue
-        s = _dumps(dict.__getitem__(d, k))
-        if lazy._snap_doc.get(k) != s:
+        if _split_rows(k, dict.__getitem__(d, k)) != _snap_rows(lazy._snap_doc, k):
             raise RuntimeError(
                 f"scoped save verification failed: doc key {k!r} differs "
                 "from its adopted baseline — a mutation escaped the read "
@@ -4133,13 +4228,19 @@ def read_mail_tails(slug: str, nid: str, keep: int, slack: int = 40
         if conn.execute("SELECT 1 FROM doc WHERE key IN "
                         "('mail_log','user_mail_log') LIMIT 1").fetchone():
             return None
-        def doc_map(key: str) -> dict[str, Any]:
+        def owner_list(key: str) -> list[Any]:
+            # PG-3d: the owner's own row, else a pre-split whole-section blob
+            row = conn.execute("SELECT val FROM doc WHERE key=?",
+                               (key + SPLIT_SEP + nid,)).fetchone()
+            if row is not None:
+                v = json.loads(cast(str, row[0]))
+                return list(v) if isinstance(v, list) else []
             row = conn.execute("SELECT val FROM doc WHERE key=?",
                                (key,)).fetchone()
             v = json.loads(cast(str, row[0])) if row is not None else {}
-            return v if isinstance(v, dict) else {}
-        box = list(doc_map("mail").get(nid) or [])
-        delivering = list(doc_map("delivering").get(nid) or [])
+            return list((v if isinstance(v, dict) else {}).get(nid) or [])
+        box = owner_list("mail")
+        delivering = owner_list("delivering")
         pending_est = len(box) + sum(len(b.get("mail") or [])
                                      for b in delivering if isinstance(b, dict))
         cap = keep + slack + pending_est
@@ -4588,10 +4689,9 @@ def _assemble_snapshot(slug: str, prev: Org) -> tuple[Org, int] | None:
                     for k in keys:
                         if k == "nodes":
                             continue
-                        row = conn.execute("SELECT val FROM doc WHERE key=?",
-                                           (k,)).fetchone()
-                        if row is not None:
-                            fresh_doc[k] = cast(str, row[0])
+                        rows = _read_doc_key(conn, k)   # PG-3d: + owner rows
+                        if rows:
+                            fresh_doc.update(rows)
                         elif k in LAZY_SECTIONS:
                             if k in DICT_LOGS:
                                 if conn.execute("SELECT 1 FROM log_d WHERE sect=? "
@@ -4661,15 +4761,16 @@ def _assemble_snapshot(slug: str, prev: Org) -> tuple[Org, int] | None:
                     continue
                 if k in keys:
                     if k in fresh_doc:
-                        d2._snap_doc[k] = fresh_doc[k]
-                        dict.__setitem__(d2, k, json.loads(fresh_doc[k]))
+                        rows = _snap_rows(fresh_doc, k)
+                        d2._snap_doc.update(rows)
+                        dict.__setitem__(d2, k, _assemble(k, rows))
                     # else: a deleted key, or a lazy section that stays
                     # unmaterialized (presence already in fresh_present)
                     continue
                 if k in prev_d._snap_doc:
                     if not dict.__contains__(prev_d, k):
                         raise _AssembleBail(f"snap without value for {k!r}")
-                    d2._snap_doc[k] = prev_d._snap_doc[k]
+                    d2._snap_doc.update(_snap_rows(prev_d._snap_doc, k))
                     dict.__setitem__(d2, k, dict.__getitem__(prev_d, k))
                 elif k in LAZY_SECTIONS:
                     if k in prev_d._present or dict.__contains__(prev_d, k):
@@ -4867,11 +4968,14 @@ def _advance_resident(slug: str, d: LazyDoc) -> bool:
                             else:
                                 d._present.discard(k)
                         continue
+                    # PG-3d: a split section's owner rows are replaced whole
+                    for old in _snap_rows(d._snap_doc, k):
+                        d._snap_doc.pop(old, None)
                     if row is not None:
-                        d._snap_doc[k] = cast(str, row[0])
-                        dict.__setitem__(d, k, json.loads(cast(str, row[0])))
+                        rows = _read_doc_key(conn, k)
+                        d._snap_doc.update(rows)
+                        dict.__setitem__(d, k, _assemble(k, rows))
                     else:
-                        d._snap_doc.pop(k, None)
                         if dict.__contains__(d, k):
                             dict.__delitem__(d, k)
                 if nids:
@@ -4930,7 +5034,7 @@ def _settle_marks(d: LazyDoc) -> None:
         if k in ROWED or k in LAZY_SECTIONS:
             continue
         if dict.__contains__(d, k) and k in d._snap_doc \
-                and d._snap_doc[k] == _dumps(dict.__getitem__(d, k)):
+                and _snap_rows(d._snap_doc, k) == _split_rows(k, dict.__getitem__(d, k)):
             d._touched.discard(k)
     nodes = dict.get(d, "nodes")
     if isinstance(nodes, NodesMap):
@@ -5069,7 +5173,7 @@ def _resident_dirty(d: LazyDoc) -> list[str]:
         if k in ROWED or k in LAZY_SECTIONS:
             continue
         if dict.__contains__(d, k):
-            if d._snap_doc.get(k) != _dumps(dict.__getitem__(d, k)):
+            if _snap_rows(d._snap_doc, k) != _split_rows(k, dict.__getitem__(d, k)):
                 dirty.append(k)
         elif k in d._snap_doc:
             dirty.append(k)                     # deleted but never saved

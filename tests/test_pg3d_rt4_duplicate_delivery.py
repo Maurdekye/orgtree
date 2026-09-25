@@ -37,6 +37,10 @@ import import_provenance  # noqa: F401,E402
 
 from orgtree import halt, ledger, maildrain, mailruntime, orgtx, store, supervisor as sup  # noqa: E402
 
+# row-lock behaviour (and a lockless control that must NOT wait), which the
+# transition fence (plan decision 19) would serialize away
+orgtx.TRANSITION_FENCE = False
+
 SLUGS: list[str] = []
 
 

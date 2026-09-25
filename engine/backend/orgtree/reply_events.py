@@ -135,23 +135,40 @@ def incarnation(org, nid):
     """Persist independent identity across rename/compaction, never recreation."""
     if org.d.get('reply_incarnation') and org.node(nid).get('reply_incarnation'):
         return org.d['reply_incarnation'] + ':' + org.node(nid)['reply_incarnation']
-    with store.DOC_LOCK:
-        persisted = Path(store.org_path(org.d['slug'])).exists()
-        current = store.load_org(org.d['slug']) if persisted else org
-        current.d.setdefault('reply_incarnation', uuid.uuid4().hex)
-        current.node(nid).setdefault('reply_incarnation', uuid.uuid4().hex)
-        if persisted:
-            store.save_org(current)
-        if not getattr(org, '_shared_snapshot', False):
-            # memoize onto a request-private org so later calls in the same
-            # pass fast-path. A SHARED snapshot (store.cached_org) is
-            # read-only by contract (perf-review round 2) and is never
-            # stamped: the mint's save bumped the org seq, so the next
-            # cached_org() reload carries the minted ids anyway.
-            org.d['reply_incarnation'] = current.d['reply_incarnation']
-            org.node(nid)['reply_incarnation'] = current.node(nid)['reply_incarnation']
-        return (current.d['reply_incarnation'] + ':'
-                + current.node(nid)['reply_incarnation'])
+    from . import orgtx
+    if orgtx.current_tx(org.d['slug']) is not None:
+        # PG-3d: called with the Org of a transaction already open on this
+        # org (a quoted user reply): mint on THAT Org — the caller names
+        # nodes=[nid] and sections=['reply_incarnation'] — instead of a
+        # second org_tx (NestedTx) or DOC_LOCK after org_tx (forbidden).
+        return (org.d.setdefault('reply_incarnation', uuid.uuid4().hex) + ':'
+                + org.node(nid).setdefault('reply_incarnation', uuid.uuid4().hex))
+    persisted = Path(store.org_path(org.d['slug'])).exists()
+    if not persisted or getattr(store.DOC_LOCK, '_is_owned', lambda: False)():
+        # PG-3r: an unsaved org, or a caller still inside a legacy DOC_LOCK
+        # hold, keeps the legacy mint: that caller's resident document is the
+        # one it will save, and an org_tx here would race its later save.
+        with store.DOC_LOCK:
+            current = store.load_org(org.d['slug']) if persisted else org
+            org_id = current.d.setdefault('reply_incarnation', uuid.uuid4().hex)
+            node_id = current.node(nid).setdefault('reply_incarnation', uuid.uuid4().hex)
+            if persisted:
+                store.save_org(current)
+    else:
+        # PG-3r: the mint is one row transaction on the org-level id section
+        # and the node row; ids another pass minted first are kept.
+        with orgtx.org_tx(org.d['slug'], sections=['reply_incarnation'], nodes=[nid]) as tx:
+            org_id = tx.d.setdefault('reply_incarnation', uuid.uuid4().hex)
+            node_id = tx.org.node(nid).setdefault('reply_incarnation', uuid.uuid4().hex)
+    if not getattr(org, '_shared_snapshot', False):
+        # memoize onto a request-private org so later calls in the same
+        # pass fast-path. A SHARED snapshot (store.cached_org) is
+        # read-only by contract (perf-review round 2) and is never
+        # stamped: the mint's save bumped the org seq, so the next
+        # cached_org() reload carries the minted ids anyway.
+        org.d['reply_incarnation'] = org_id
+        org.node(nid)['reply_incarnation'] = node_id
+    return org_id + ':' + node_id
 
 
 def lookup(slug, nid, generation, eid, scope):
@@ -174,11 +191,16 @@ def count(slug, nid):
 
 
 def clear(org, nid):
+    """PG-3d: inside a transaction open on this org (which must name
+    `nodes=[nid]`) the new incarnation commits with it; otherwise it is
+    saved here, as before."""
+    from .mailtx import tx_open
     with _connect() as connection:
         deleted = connection.execute('DELETE FROM events WHERE org=? AND agent=?', (org.d['slug'],nid)).rowcount
     connection.close()
     org.node(nid)['reply_incarnation'] = uuid.uuid4().hex
-    store.save_org(org)
+    if not tx_open(org.d['slug']):
+        store.save_org(org)
     return deleted
 
 
