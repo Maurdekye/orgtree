@@ -28,7 +28,9 @@ pub enum EventKind<'a> {
     Begin { isolation: &'static str, backend_pid: Option<i32> },
     /// `sql` is the statement text exactly as passed to `Tx::exec`; values
     /// travel separately and are never traced (v6 PROFILING:14).
-    Statement { label: &'a str, sql: &'a str, micros: u64, rows: usize, sqlstate: Option<&'a str> },
+    /// `backend_pid`: the session's server pid, so every statement is
+    /// attributable to a session even outside an operation.
+    Statement { label: &'a str, sql: &'a str, micros: u64, rows: usize, sqlstate: Option<&'a str>, backend_pid: Option<i32> },
     Retry { reason: &'static str, sqlstate: Option<&'a str>, constraint: Option<&'a str> },
     /// `pre_commit_lsn`: `pg_current_wal_insert_lsn()` read just before
     /// COMMIT (qualification builds only): a lower bound on the commit record.

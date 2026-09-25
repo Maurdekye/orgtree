@@ -261,29 +261,46 @@ fn fence_params(req: &LookupReq) -> Vec<Val> {
 pub struct Liveness<S: Session> {
     pub incarnation: Uuid,
     sess: S,
+    hooks: crate::hooks::Hooks,
+}
+
+/// Run one statement on a session outside any operation, TRACED as
+/// infrastructure (`exec.service.*` labels; WS7's reconciler matches every
+/// logged statement to a traced one on the same pid).
+pub async fn traced_exec<S: Session>(sess: &mut S, hooks: &crate::hooks::Hooks, label: &'static str, sql: &'static str, params: &[Val]) -> Result<crate::Rows, DbError> {
+    let t0 = std::time::Instant::now();
+    let r = sess.exec(label, sql, params).await;
+    let s = crate::hooks::Scope { hooks, family: "exec", verb: "service", op: None, op_tag: None, attempt: 0 };
+    let micros = t0.elapsed().as_micros() as u64;
+    let pid = sess.backend_pid();
+    match &r {
+        Ok(rows) => s.emit(EventKind::Statement { label, sql, micros, rows: rows.len(), sqlstate: None, backend_pid: pid }, false),
+        Err(e) => s.emit(EventKind::Statement { label, sql, micros, rows: 0, sqlstate: e.sqlstate(), backend_pid: pid }, false),
+    }
+    r
 }
 
 impl<S: Session> Liveness<S> {
-    pub async fn register<C: Connector<S = S>>(connector: &C, kind: &str, db_incarnation: Uuid) -> Result<Liveness<S>, DbError> {
+    pub async fn register<C: Connector<S = S>>(connector: &C, hooks: &crate::hooks::Hooks, kind: &str, db_incarnation: Uuid) -> Result<Liveness<S>, DbError> {
         let mut sess = connector.connect().await?;
         let incarnation = Uuid::new_v4();
         let pid = sess.backend_pid().ok_or_else(|| DbError::lost())?;
         let start = sess.backend_start().ok_or_else(|| DbError::lost())?;
-        sess.begin(Isolation::ReadCommitted).await?;
-        sess.exec(
-            "service.register",
+        // one statement in autocommit: atomic, and no untraced BEGIN/COMMIT
+        traced_exec(
+            &mut sess,
+            hooks,
+            "exec.service.register",
             REGISTER_SERVICE_SQL,
             &[Val::Uuid(incarnation), Val::text(kind), Val::Uuid(db_incarnation), Val::Int(pid as i64), Val::Int(start)],
         )
         .await?;
-        sess.commit().await?;
-        Ok(Liveness { incarnation, sess })
+        Ok(Liveness { incarnation, sess, hooks: hooks.clone() })
     }
 
     pub async fn stop(mut self) -> Result<(), DbError> {
-        self.sess.begin(Isolation::ReadCommitted).await?;
-        self.sess.exec("service.stop", STOP_SERVICE_SQL, &[Val::Uuid(self.incarnation)]).await?;
-        self.sess.commit().await
+        let h = self.hooks.clone();
+        traced_exec(&mut self.sess, &h, "exec.service.stop", STOP_SERVICE_SQL, &[Val::Uuid(self.incarnation)]).await.map(|_| ())
     }
 
     pub fn session(&self) -> &S {

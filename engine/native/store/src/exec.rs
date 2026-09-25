@@ -370,16 +370,18 @@ impl<'a, S: Session> Tx<'a, S> {
             self.pause(&format!("stmt.{label}.before")).await?;
             if let Some(code) = self.fail_next.take() {
                 let e = DbError::sql(&code);
-                self.emit(EventKind::Statement { label, sql, micros: 0, rows: 0, sqlstate: Some(&code) });
+                let pid = self.sess.backend_pid();
+                self.emit(EventKind::Statement { label, sql, micros: 0, rows: 0, sqlstate: Some(&code), backend_pid: pid });
                 return Err(e);
             }
         }
         let t0 = Instant::now();
         let r = self.sess.exec(label, sql, params).await;
         let micros = t0.elapsed().as_micros() as u64;
+        let pid = self.sess.backend_pid();
         match &r {
-            Ok(rows) => self.emit(EventKind::Statement { label, sql, micros, rows: rows.len(), sqlstate: None }),
-            Err(e) => self.emit(EventKind::Statement { label, sql, micros, rows: 0, sqlstate: e.sqlstate() }),
+            Ok(rows) => self.emit(EventKind::Statement { label, sql, micros, rows: rows.len(), sqlstate: None, backend_pid: pid }),
+            Err(e) => self.emit(EventKind::Statement { label, sql, micros, rows: 0, sqlstate: e.sqlstate(), backend_pid: pid }),
         }
         #[cfg(feature = "qualification")]
         if r.is_ok() {
@@ -758,7 +760,8 @@ impl<C: Connector> Executor<C> {
         #[cfg(feature = "qualification")]
         if let Some(code) = tx.fail_next.take() {
             let e = DbError::sql(&code);
-            tx.emit(EventKind::Statement { label: "exec.commit", sql: "COMMIT", micros: 0, rows: 0, sqlstate: Some(&code) });
+            let pid = tx.sess.backend_pid();
+            tx.emit(EventKind::Statement { label: "exec.commit", sql: "COMMIT", micros: 0, rows: 0, sqlstate: Some(&code), backend_pid: pid });
             return self.classify(&mut tx, family, e, claimed, false, true).await;
         }
         let now = tx.now;
