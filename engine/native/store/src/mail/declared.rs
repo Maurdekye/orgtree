@@ -125,7 +125,7 @@ pub fn declared() -> Value {
         m.insert(format!("mail.inbox.{v}"), inbox_read("mail.node-inbox", "mail/inbox.rs NodeInbox (one RR RO snapshot; parts only under Q-IB3's control)"));
     }
     m.insert(
-        "mail.receive.deliver".into(),
+        "mail.receive.deliver_agent".into(),
         entry(
             vec![
                 receipts(),
@@ -137,9 +137,24 @@ pub fn declared() -> Value {
                 ("outgoing_intents", rel(W, false)),
             ],
             None,
-            "mail/receive.rs Receive (S3 E1.3 agent mailbox with head P8; E1.4 human mailbox: no head write)",
+            "mail/receive.rs Receive, agent mailbox (S3 E1.3: head FOR UPDATE first, P8)",
         ),
     );
+    m.insert(
+        "mail.receive.deliver_human".into(),
+        entry(
+            vec![
+                receipts(),
+                ("mail_sent", rel(R, true)),
+                ("mailboxes", rel(R, true)),
+                ("mailbox_messages", rel(RW, true)),
+                ("mail_pair_highwater", rel(&["read", "for_no_key_update", "write"], false)),
+            ],
+            None,
+            "mail/receive.rs Receive, human mailbox (S3 E1.4: no head row is locked or written)",
+        ),
+    );
+    m.insert("mail.receive.route".into(), entry(vec![("mailboxes", rel(R, true))], None, "mail/receive.rs Route (read: which mailbox kind a delivery targets)"));
     m.insert(
         "mail.receive.retract".into(),
         entry(
@@ -154,6 +169,21 @@ pub fn declared() -> Value {
             "mail/receive.rs Retract (S3 E1.5)",
         ),
     );
+    for (verb, extra) in [("grant", false), ("revoke", true)] {
+        let mut rels = vec![
+            receipts(),
+            ("authority_epoch", rel(&["read", "for_share", "for_no_key_update", "write"], true)),
+            ("org_controls", rel(&["read", "for_share"], true)),
+            ("topology_edges", rel(&["read", "for_share"], true)),
+            ("mailboxes", rel(R, true)),
+            ("audience_grants", rel(if extra { RW } else { &["read", "write"] }, true)),
+        ];
+        if extra {
+            rels.push(("restrictions", rel(W, false)));
+            rels.push(("restriction_obligations", rel(W, false)));
+        }
+        m.insert(format!("audiences.{verb}"), entry(rels, Some(if extra { "audiences.revoke" } else { "audiences.grant" }), "mail/audience.rs Audience (schedule-grade; r7 C2a P1)"));
+    }
     m.insert("mail.ack.ack".into(), entry(vec![receipts(), ("outgoing_intents", rel(RW, true))], None, "mail/receive.rs Ack (source settles its intent)"));
     m.insert(
         "mail.recovery.sweep".into(),

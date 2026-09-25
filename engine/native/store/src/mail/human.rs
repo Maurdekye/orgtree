@@ -21,7 +21,7 @@ use crate::Tx;
 pub static MAIL_HUMAN: Family = Family { name: "mail.human", isolation: Isolation::ReadCommitted, retry_unique: &[] };
 pub static INBOX: Family = Family { name: "mail.inbox", isolation: Isolation::ReadCommitted, retry_unique: &[] };
 
-pub const CONTROLS: &[&str] = &["Q-HM3.effects_before_refusals", "Q-HM4.chain_unanchored", "Q-IB1.rewrite_unread_list"];
+pub const CONTROLS: &[&str] = &["Q-HM3.effects_before_refusals", "Q-HM4.chain_unanchored", "Q-IB1.rewrite_unread_list", "Q-IB2.commit_empty_mark"];
 
 pub const EDGE_SHARE_SQL: &str = "SELECT parent_id FROM topology_edges WHERE org_id = $1 AND principal_id = $2 FOR SHARE";
 pub const EDGE_READ_SQL: &str = "SELECT parent_id FROM topology_edges WHERE org_id = $1 AND principal_id = $2";
@@ -121,7 +121,7 @@ impl Command for HumanSend {
         // step 3: the node's epoch row FOR NO KEY UPDATE from the start, since
         // this send may insert the first-contact grant (E1.1 step 5, N4).
         // Q-HM1's control takes it FOR SHARE (no lock before the grant read).
-        let lock = if controls::fire(&tx.scope(), "Q-HM1.no_lock_no_key") { RecipientLock::Share } else { RecipientLock::Grant };
+        let lock = if controls::fire(&tx.scope(), "Q-HM1.no_lock_no_key") { RecipientLock::Unanchored } else { RecipientLock::Grant };
         let rcpt = match sent::resolve_recipient(tx, org, self.node, lock).await {
             Ok(r) => r,
             Err(SendError::Refused(r)) => return Ok(Decided::Refused(r)),
@@ -335,6 +335,11 @@ impl Command for MarkRead {
                 let r = tx.exec("inbox.mark", MARK_READ_SQL, &[Val::Uuid(org), Val::Uuid(mailbox), Val::Ts(now), Val::Uuid(*id)]).await?;
                 marked += r.len() as i64;
             }
+        }
+        if marked == 0 && controls::fire(&tx.scope(), "Q-IB2.commit_empty_mark") {
+            // Unsafe control: legacy's unconditional broadcast — the empty
+            // mark commits (its receipt row is a published group).
+            return Ok(Decided::Applied(0));
         }
         if marked == 0 {
             // E-D6: nothing changed, so nothing commits and nothing publishes
