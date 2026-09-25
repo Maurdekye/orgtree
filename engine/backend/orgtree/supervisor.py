@@ -14023,9 +14023,10 @@ def _working_lifecycle_keeper_pass(
 
 
 #: What a docket reassignment writes besides node rows: the item, the
-#: assignment mail and its notice (PG-3e-B; the work-item family's rows).
-_ABANDONED_SECTIONS = ("work_items", "mail", "notices", "asks")
-_ABANDONED_LOGS: tuple[orgtx.LogName, ...] = ("events", "notice_log")
+#: assignment mail (mail + mail_log), its notice and the lifecycle record
+#: (PG-3e-B; the work-item family's rows, found by running the pass).
+_ABANDONED_SECTIONS = ("work_items", "mail", "notices", "asks", "lifecycle")
+_ABANDONED_LOGS: tuple[orgtx.LogName, ...] = ("events", "notice_log", "mail_log")
 
 
 def _abandoned_docket_recovery_pass(now: float | None = None) -> None:
