@@ -419,5 +419,94 @@ class Rename(unittest.TestCase):
         self.assertTrue((self.scratch / "beta" / "note.txt").exists())
 
 
+class Rehire(unittest.TestCase):
+    """lifecycle_tx.rehire: the legacy `Org.rehire` on `_rehire_rows`."""
+
+    def build(self, slug):
+        org = store.create_org(slug)
+        org.hire(ledger.USER, None, "luna", 6, "root")
+        org.hire(ledger.USER, "root", "luna", 2, "mid")
+        org.hire(ledger.USER, "mid", "luna", 0, "leaf")
+        org.hire(ledger.USER, "root", "luna", 0, "solo")
+        org.dissolve(ledger.USER, "mid")                    # mid + leaf archived
+        org.retire(ledger.USER, "solo")
+        org.d.setdefault("watchdogs", []).append(
+            {"id": "w1", "name": "dog", "owner": "solo", "state": "paused",
+             "paused_why": org.WATCHDOG_ARCHIVE_PAUSE})
+        store.save_org(org)
+
+    def setUp(self):
+        self.slug = "pg3a-rh-" + str(time.time_ns())
+        self.build(self.slug)
+
+    def tearDown(self):
+        store._POOL.close_all(self.slug)
+
+    def view(self, slug):
+        o = store.load_org(slug)
+        return ({k: (v["parent"], v["grant"], v["state"]) for k, v in o.nodes.items()},
+                [(w["id"], w["state"]) for w in o.d.get("watchdogs") or []],
+                [e["op"] for e in o.d["events"]][-4:])
+
+    def parity(self, actor, nid, **kw):
+        twin = "pg3a-rh-twin-" + str(time.time_ns())
+        self.build(twin)
+        with store.DOC_LOCK:
+            o = store.load_org(twin)
+            legacy = o.rehire(actor, nid, **kw)
+            store.save_org(o)
+        mine = lifecycle_tx.rehire(self.slug, actor, nid, **kw)
+        self.assertEqual(mine, legacy)
+        self.assertEqual(self.view(self.slug), self.view(twin))
+        store._POOL.close_all(twin)
+        return mine
+
+    def test_rehire_a_leaf_rearms_its_archive_paused_watchdog(self):
+        self.parity(ledger.USER, "solo")
+        o = store.load_org(self.slug)
+        self.assertEqual(o.node("solo")["state"], "live")
+        self.assertEqual([w["state"] for w in o.d["watchdogs"]], ["armed"])
+
+    def test_rehire_under_an_archived_parent_rehires_the_chain_first(self):
+        r = self.parity(ledger.USER, "leaf")
+        o = store.load_org(self.slug)
+        self.assertEqual((o.node("mid")["state"], o.node("leaf")["state"]),
+                         ("live", "live"))
+        self.assertTrue(any("rehired first" in w for w in r["warnings"]))
+
+    def test_rehire_of_an_unrecoverable_node_reseeds(self):
+        for slug in (self.slug,):
+            with store.DOC_LOCK:
+                o = store.load_org(slug)
+                o.rehire(ledger.USER, "solo")
+                o.mark_unrecoverable("solo", "gone")
+                store.save_org(o)
+        twin = "pg3a-rh-rs-" + str(time.time_ns())
+        self.build(twin)
+        with store.DOC_LOCK:
+            o = store.load_org(twin)
+            o.rehire(ledger.USER, "solo")
+            o.mark_unrecoverable("solo", "gone")
+            store.save_org(o)
+        with store.DOC_LOCK:
+            o = store.load_org(twin)
+            legacy = o.rehire(ledger.USER, "solo")
+            store.save_org(o)
+        mine = lifecycle_tx.rehire(self.slug, ledger.USER, "solo")
+        strip = lambda r: {k: v for k, v in r.items() if k not in ("session_id",)}  # noqa: E731
+        self.assertEqual(sorted(strip(mine)), sorted(strip(legacy)))
+        a, b = store.load_org(twin), store.load_org(self.slug)
+        self.assertEqual(sorted(a.nodes), sorted(b.nodes))
+        self.assertIn("solo@0", b.nodes)
+        self.assertEqual(b.node("solo")["state"], "live")
+        store._POOL.close_all(twin)
+
+    def test_a_refused_rehire_writes_nothing(self):
+        before = self.view(self.slug)
+        with self.assertRaises(ledger.LedgerError):
+            lifecycle_tx.rehire(self.slug, ledger.USER, "solo", tier="no-such-tier")
+        self.assertEqual(self.view(self.slug), before)
+
+
 if __name__ == "__main__":
     unittest.main()
