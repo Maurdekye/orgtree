@@ -13014,6 +13014,20 @@ class Org:
         if named:
             self._log("work_slugs", "orgtree",
                       {"slugs": named, "why": "backfilled on the next write"}, [])
+        # PG-3w (plan decision 13): under `org_tx` the ARCHIVE MOVE runs as its
+        # own transaction (`worktx.sweep`) before the action's, so an edit to
+        # one item does not have to lock the archive and every other item's
+        # outcome. The action transaction sets this flag and skips the move;
+        # the identity check and the slug backfill above still run here.
+        if getattr(self, "_work_defer_archive", False):
+            return []
+        return self._work_archive_eligible(now_ts)
+
+    def _work_archive_eligible(self, now_ts: float | None = None) -> list[str]:
+        """The archive move of `_work_sweep`, on its own. The caller holds
+        the `work_items` row, so eligibility is re-checked under that lock and
+        a reopen or update that committed first is honoured (decision 13 a)."""
+        now_ts = _time.time() if now_ts is None else now_ts
         active = self._work_active()
         moved: list[str] = []
         # ⚠ THE OUTCOME IS RECORDED PER ITEM, not asserted once for the batch.
