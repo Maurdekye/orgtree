@@ -10011,7 +10011,7 @@
       "dimension": "predicates",
       "status": "specified",
       "facts": [
-        "prime_restart and restart_wake: an action other than arm, cancel or status is refused ('action must be arm|cancel|status'); an OMITTED action defaults to arm at the door (str(a.get('action') or 'arm')), which the selector cannot express, so the selector cases name the action; restart_wake refuses a mode other than one_shot. remote-control: the action must be start or stop. process: an unknown node is 404. resume: 409 while the killswitch is latched ('release it before resuming'). kiosk (non-desktop): the org must already be a kiosk, and a credits cap below the current top-level holdings is refused ('cap below current holdings …'). Pinned by tests/test_state_control_boundary.py against docs/state-system/control-boundary.json."
+        "prime_restart and restart_wake: an action other than arm, cancel or status is refused ('action must be arm|cancel|status'); every falsy action (omitted, null, empty, 0, false) arms, because the door reads str(a.get('action') or 'arm'), and the selectors use that same reading (action normalization str_or_arm), so it selects the arm contract, while an unknown action ('bogus', 'ARM', ' arm', 1) selects no contract and the door refuses it; restart_wake refuses a mode other than one_shot. remote-control: the action must be start or stop. process: an unknown node is 404. resume: 409 while the killswitch is latched ('release it before resuming'). kiosk (non-desktop): the org must already be a kiosk, and a credits cap below the current top-level holdings is refused ('cap below current holdings …'). Pinned by tests/test_state_control_boundary.py against docs/state-system/control-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -16622,7 +16622,7 @@
         "orgtree_prime_restart"
       ],
       "action": "arm",
-      "action_normalization": "str_or_empty",
+      "action_normalization": "str_or_arm",
       "when": {
         "always": true
       },
@@ -16697,7 +16697,7 @@
         "orgtree_restart_wake"
       ],
       "action": "arm",
-      "action_normalization": "str_or_empty",
+      "action_normalization": "str_or_arm",
       "when": {
         "always": true
       },
@@ -16760,7 +16760,7 @@
         "orgtree_prime_restart"
       ],
       "action": "cancel",
-      "action_normalization": "str_or_empty",
+      "action_normalization": "str_or_arm",
       "when": {
         "always": true
       },
@@ -16835,7 +16835,7 @@
         "orgtree_restart_wake"
       ],
       "action": "cancel",
-      "action_normalization": "str_or_empty",
+      "action_normalization": "str_or_arm",
       "when": {
         "always": true
       },
@@ -16898,7 +16898,7 @@
         "orgtree_prime_restart"
       ],
       "action": "status",
-      "action_normalization": "str_or_empty",
+      "action_normalization": "str_or_arm",
       "when": {
         "always": true
       },
@@ -16967,7 +16967,7 @@
         "orgtree_restart_wake"
       ],
       "action": "status",
-      "action_normalization": "str_or_empty",
+      "action_normalization": "str_or_arm",
       "when": {
         "always": true
       },

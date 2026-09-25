@@ -116,6 +116,10 @@ def select(document, entry_id, args):
             value = str(value or "").strip().lower()
         elif mode == "str_or_empty":
             value = str(value or "")
+        elif mode == "str_or_arm":
+            # the agent door's own reading for orgtree_prime_restart and orgtree_restart_wake:
+            # str(a.get("action") or "arm"), so every falsy action arms (P01 F2 review, rev 11)
+            value = str(value or "arm")
         return value == contract["action"]
 
     return [key for key, contract in document["contracts"].items()
@@ -210,7 +214,8 @@ def validate(document, source, repo):
             require(set(contract["tools"]) == expected_names, where + ": entry/tool binding mismatch")
         strings(contract["tools"], where + ".tools", nonempty=False)
         require(contract["action"] is None or text(contract["action"]), where + ": action must be null or text")
-        require(contract["action_normalization"] in {"identity", "str_or_empty", "str_or_empty_strip_lower"},
+        require(contract["action_normalization"] in {"identity", "str_or_empty", "str_or_empty_strip_lower",
+                                                     "str_or_arm"},
                 where + ": unknown action normalization")
         require(contract["domain_mode"] in {"read", "write", "conditional_write"}, where + ": invalid domain mode")
         refs(contract["source_refs"], where)

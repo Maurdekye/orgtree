@@ -100,15 +100,37 @@ class BoundaryBinding(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     boundary(d)
 
-    def test_action_selectors_and_the_default_they_cannot_express(self):
+    def test_action_selectors_read_the_action_as_the_door_does(self):
+        # the door reads str(a.get("action") or "arm") and refuses anything but arm, cancel and status; the
+        # selectors use the same reading (str_or_arm; F2 review, rev 11), so every falsy action selects arm and an
+        # unknown action selects nothing (the door's 422 is pinned in test_restart_wake_lives_in_its_own_sidecar and
+        # test_non_desktop_profile_gates_and_launches)
         registry = contracts.load(ROOT / 'docs/state-system/operation-contracts.json')
         for tool, fam in (('orgtree_prime_restart', 'control.prime-restart-'),
                           ('orgtree_restart_wake', 'control.restart-wake-')):
             [card] = {e for c in registry['contracts'].values() if tool in c['tools'] for e in c['entry_ids']}
             for act in ('arm', 'cancel', 'status'):
                 self.assertEqual(contracts.select(registry, card, {'action': act}), [fam + act])
-            # the door defaults an omitted action to arm; the selector normalises it to '' and selects nothing
-            self.assertEqual(contracts.select(registry, card, {}), [])
+            for falsy in ({}, {'action': None}, {'action': ''}, {'action': 0}, {'action': False}, {'action': []}):
+                with self.subTest(tool=tool, args=falsy):
+                    self.assertEqual(contracts.select(registry, card, falsy), [fam + 'arm'])
+            for unknown in ('bogus', 'ARM', ' arm', 1, True):
+                with self.subTest(tool=tool, action=unknown):
+                    self.assertEqual(contracts.select(registry, card, {'action': unknown}), [])
+
+    def test_the_door_arms_on_a_falsy_action(self):
+        # the other half of the selector case above, observed at the door: an empty action arms the wake
+        r = TestClient(app, raise_server_exceptions=False)
+        self.addCleanup(r.close)
+        org = store.create_org('p01-control-falsy')
+        self.addCleanup(lambda: (store._POOL.close_all(org.d['slug']), store.delete_org(org.d['slug'])))
+        org.hire(ledger.USER, None, 'haiku', 5, 'solo', add_dirs=[], tools={}, charter='fixture')
+        store.save_org(org)
+        token = agentauth.child_env(org.d['slug'], 'solo')['ORGTREE_AGENT_TOKEN']
+        with patch.object(api, 'hub_changed'):
+            out = r.post('/api/agent', json=dict(org=org.d['slug'], node='solo', tool='orgtree_restart_wake',
+                                                 args={'action': ''}), headers={'X-Orgtree-Agent-Token': token})
+        self.assertEqual((out.status_code, out.json().get('armed')), (200, True), out.text)
 
     def test_relaunch_and_alias_branches_stay_pending_with_their_reason(self):
         registry = contracts.load(ROOT / 'docs/state-system/operation-contracts.json')
