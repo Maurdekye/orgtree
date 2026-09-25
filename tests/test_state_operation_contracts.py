@@ -43,9 +43,9 @@ class ContractCoverage(unittest.TestCase):
         self.assertGreater(result["summary"]["storage"]["pending"], 0)
         # THE one registry-wide tripwire (review of S3 candidate 1): every candidate
         # that maps a witness or adds a contract moves these numbers here, and only here.
-        self.assertEqual(result["contracts"], 158)
+        self.assertEqual(result["contracts"], 169)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
-                          result["summary"]["storage"]["mapped"]), (122, 164, 2))
+                          result["summary"]["storage"]["mapped"]), (133, 164, 2))
         # 571 -> 590 (P01 F1): 19 entries and 19 dispatch witnesses mapped, 57 new open dimension occurrences
         # (conflicts, wire and instrumentation on each of the 19 lifecycle contracts), as the Q1 ruling expects
         # 590 -> 608 (P01 F1b): the operator door and 23 of its branches mapped, 42 new open dimension
@@ -65,7 +65,9 @@ class ContractCoverage(unittest.TestCase):
         # occurrences (conflicts, wire and instrumentation on each of 15 exchange contracts)
         # 664 -> 692 (P01 F6): 15 entries and 2 dispatch witnesses mapped, 45 new open dimension occurrences
         # (conflicts, wire and instrumentation on each of 15 org-read contracts)
-        self.assertEqual(len(result["pending"]), 692)
+        # 692 -> 714 (P01 F7): 11 entries mapped, 33 new open dimension occurrences (conflicts, wire and
+        # instrumentation on each of 11 org-admin contracts)
+        self.assertEqual(len(result["pending"]), 714)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -387,7 +389,8 @@ class ContractCoverage(unittest.TestCase):
     # 162 -> 140: P01 F2 contracted 22 of them
     # 140 -> 121: P01 F4 contracted 19 of them (its 20th entry, orgtree_send_file_once, had its own reason)
     # 121 -> 106: P01 F6 contracted 15 of them
-    GENERIC_PENDING_ENTRIES = 106
+    # 106 -> 95: P01 F7 contracted 11 of them
+    GENERIC_PENDING_ENTRIES = 95
 
     def test_every_pending_witness_names_its_owner_or_is_a_generic_entry_point(self):
         kinds = {s["site_id"]: s["kind"] for s in self.source["registrations"]}

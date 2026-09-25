@@ -504,6 +504,31 @@ the org list, the extern scans (the org-filtered read included) and the `@org:` 
 delivered `@org:` send writes it. The family's third-agent control fires, and no other row touches a third
 agent. Asserted in `tests/test_state_p02_contact_facets.py`.
 
+714 is twenty-two more than that 692 (P01 F7, p01-f7-contracts-for-org-administration-11-route). The rise is
+expected: 11 entries are mapped and each new contract opens conflicts, wire and instrumentation. F7 contracts the
+11 org administration routes on a new `org-admin.*` facet family:
+- org create and delete;
+- settings and the hire defaults;
+- the org.md write and the bridge-credential rotation;
+- disk delete, resize and resize apply;
+- the legacy sweep preview and the sweep.
+
+They are pinned by `tests/test_state_org_admin_boundary.py` against `docs/state-system/org-admin-boundary.json`
+(67 cases). The WSL command runner is a recorded fake, a mounted org disk is a temp folder, and hub, net,
+sandbox, container and docker calls are spies. The desktop-managed profile refuses a kiosk or sandboxed create,
+so the standard-profile cases cover those branches. The frozen profile gates the rotation, which the probe
+reaches only as refusals.
+
+A refused settings call writes nothing, even when earlier fields had already been applied to the cached document:
+the outermost lock release discards a document that changed without a save. The sweep deletes the sandbox root,
+the org's host workspace and its scratch root.
+
+Recorded legacy defects:
+- the org.md write reports the character count as `bytes`;
+- disk delete returns the raw OSError text, host path included, to admins and kiosk visitors alike.
+
+Entries contracted: 99 of 194.
+
 Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the
 native-design citation; those figures were already stale after S2d, which left 45

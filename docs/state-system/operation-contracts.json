@@ -11232,6 +11232,359 @@
           "sha256": "e3791b8fb85cd78089ba31de46cf1f20bf6c3c075bc584012ce16048268b5a5e"
         }
       ]
+    },
+    "org-admin.authority": {
+      "dimension": "authority",
+      "status": "specified",
+      "facts": [
+        "Every route is an operator route behind the desktop TokenGate of both current launch paths (an agent credential is refused 401 'agent credential is invalid or expired; reconnect the agent session') and acts as the user. PROFILES (decision 1 on p01-f2-contracts-for-the-run-control-entry-point): engine.launch sets the desktop-managed profile, under which desktop_policy.validate refuses a kiosk or sandboxed org at creation 422 ('Not available in desktop MVP: kiosk' and '… sandbox, disk_mb'), so no desktop org carries a virtual disk and the disk and sweep routes answer 409 there; under the standard profile a kiosk or sandboxed org is created (org-admin.writes). The frozen DEPLOYMENT profile refuses an unsandboxed create 422 ('the frozen deployment profile requires every org to be sandboxed …'). The bridge-credential rotation answers 409 under the standard deployment profile ('rotatable bridge credentials are active only in the frozen deployment profile') and under the frozen one attests the org's sandbox credential first, a non-sandboxed org answering 503. Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json.",
+        "The public kiosk gateway, which the desktop launcher does not start, is read from source: its path filter (api._public_denied) refuses create, delete, settings, the org.md write and the bridge-credential rotation 403 ('kiosk: configuration is managed from the admin side'); disk resize, resize apply and both sweep routes refuse a kiosk caller 403 themselves ('admin side only'); hire defaults admits a visitor but drops default_account and never raises the ceiling; disk delete classifies each path for a visitor (credential files blocked)."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/launch.py",
+          "start": 156,
+          "end": 195,
+          "sha256": "7fcd8231057ad57fa6da4a66acc584dccc25d9e5dd93afd51c6827163446f580"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_policy.py",
+          "start": 9,
+          "end": 16,
+          "sha256": "f1ae0dc9c5d2ca855496c5540206c77f82865a78ed29e92a6876859b76f12543"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1031,
+          "end": 1126,
+          "sha256": "ef684ae246bae2fad111b9194802462db256985a1035ecc9f6b35288305da20a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1796,
+          "end": 1815,
+          "sha256": "b54aab2d7e252bb58a276765d3d95b39979774b42435d2e8b61bead47c2f8fa6"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1841,
+          "end": 1992,
+          "sha256": "4a966ce6b7694de41c95e1de0c8f7234ed3a255775000c4c3ddd26525f100dbd"
+        }
+      ]
+    },
+    "org-admin.reads": {
+      "dimension": "reads",
+      "status": "specified",
+      "facts": [
+        "create reads the global defaults (defaults.json through load_org_defaults) and validates them with the request. delete reads the org's document before the rename, to unregister it from its mail hubs. settings, hire defaults and the disk resize read the org's document; the org.md write reads the org's workspace path. disk delete reads the disk usage, walks a directory's subtree (inside the WSL distro; in the test a temp folder) and classifies each path. The sweep preview lists the legacy volumes (docker volume inspect per system folder) and the host folders (the sandbox root, the org's host workspace and its scratch root) and sums their sizes. Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3297,
+          "end": 3316,
+          "sha256": "1d1b75a74353a797fef4b6cd36bde13740dcee871941af78d118e8e3679e44e2"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1995,
+          "end": 2031,
+          "sha256": "4fa03ec7e63720f8957918a90264fdb54b6ce467105b0a96e6e129af55d1a2e6"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13623,
+          "end": 13688,
+          "sha256": "9dabd44040813f4367ac6c68bcc28b68760ec67fb8485843ab118a2be327f18c"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13807,
+          "end": 13821,
+          "sha256": "931e1cef01b621337399ab2ed79626437fe5f22e604e1387a44e7e9df4e99fac"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13824,
+          "end": 13841,
+          "sha256": "61ce3071a8cd7bd94fe6815d271fc99308c32c8b2b2ed843546b118feac94e57"
+        }
+      ]
+    },
+    "org-admin.writes": {
+      "dimension": "writes",
+      "status": "specified",
+      "facts": [
+        "create writes a new org document (the born sections are pinned) with the global defaults except prefer_reserve and net_hub_address, the latter only choosing the local hub's address; a non-kiosk org also mints its network identity and hub list (the local entry unless net_autoconnect is off, then the typed addresses). Under the standard profile a kiosk org is born with a kiosk section (token and sandbox secret minted), default_top_grant 0 and no identity, and a sandboxed org with a sandbox section and a warmed container (a spy); a kiosk whose ceiling cannot be normalized is unwound, its store renamed into <DATA_ROOT>/deleted/ and unregistered, and answers 422. delete renames the org's store into <DATA_ROOT>/deleted/<slug>-<timestamp>.db, unregisters it from its hubs, forgets its runtime state, reaps its remote servers and removes its container (spies); scratch folders stay. Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json.",
+        "settings writes only the sections a request names and saves once: the caps, compact_at (clamped to 50-95 percent), the fable policies, the hire defaults through the ledger (an event), default_effort, the auto-resume flags, headless (which forces auto_resume on), the org inbox mode, the cascades, the org folders (a removal revokes the folder from every node, writing nodes and events), the fable lock clear (writing the lock, the nodes' limit locks, events and notices) and, for a non-kiosk org, the hub list, re-keying orphaned spool entries to the first enabled hub; a kiosk org's hub fields are ignored and an empty request writes nothing. hire defaults writes the defaults through the ledger (an event). The org.md write replaces the workspace CLAUDE.md whole and writes no org section. disk resize writes the disk section: a grow sets size_mb after growing the image, a shrink stages pending_size_mb and a same-size or cancel request clears it; resize apply stops the container and applies the pending shrink (spies). disk delete unlinks the allowed paths on the disk, a directory all or nothing. The sweep removes the legacy volumes (docker volume rm) and deletes the sandbox root, the org's host workspace and its scratch root with rmtree, leaving the org's workspace path naming a deleted folder. Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1841,
+          "end": 1992,
+          "sha256": "4a966ce6b7694de41c95e1de0c8f7234ed3a255775000c4c3ddd26525f100dbd"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1995,
+          "end": 2031,
+          "sha256": "4fa03ec7e63720f8957918a90264fdb54b6ce467105b0a96e6e129af55d1a2e6"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3406,
+          "end": 3633,
+          "sha256": "a4d8a04e0177366904c9971c2690df0e5c37e71ab0cc7a0bcb869d6c7bb42867"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1909,
+          "end": 1986,
+          "sha256": "9970366684eac3a6dd9fd101a3ddd1f4d2316373070bcd7d159993463aff632f"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 11047,
+          "end": 11064,
+          "sha256": "326b58df94413222141c2090e775f9eca1dadb98c5ae0d1f85bb7cf70f21c8e3"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 7296,
+          "end": 7306,
+          "sha256": "2fc918aa8f11432cf4da848c22c63fdcaefbacb9c71f3f97d52058326d700c36"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9561,
+          "end": 9608,
+          "sha256": "0672c2fef6d67cbe6953065bc0c0453f5e005615e13b8326f36ad5f73eac1c08"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13709,
+          "end": 13756,
+          "sha256": "6f98abd4687fa437a55ca03886c36238186a3c665d1e9e089c6ebed859734a78"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13759,
+          "end": 13782,
+          "sha256": "f947489a64d47e0b30fccb7561997fe7bf5a51e0b9849d0e0e114c7dfa960c34"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13623,
+          "end": 13688,
+          "sha256": "9dabd44040813f4367ac6c68bcc28b68760ec67fb8485843ab118a2be327f18c"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13844,
+          "end": 13871,
+          "sha256": "8d6e4c74eda823f690b74d1cd44b6ab1283411d8ef5cfdd8241432f58138926d"
+        }
+      ]
+    },
+    "org-admin.predicates": {
+      "dimension": "predicates",
+      "status": "specified",
+      "facts": [
+        "create refuses an empty or letterless name 400 ('name is mandatory …'), an existing name 400 ('org … already exists') and a sandboxed disk under 4096 MB 422. delete, settings, the org.md write, the rotation and the disk and sweep routes answer an unknown org 404; hire defaults answers it 422 ('no such org: …'). settings refuses a malformed org_dirs entry 422, fable as the auto-autopsy model 422, an unknown tier 422, headless while either fable policy is 'halt' 422, headless on a kiosk 422 and a malformed net_hubs entry 422 (source: disabling multi-holder mode with several holders 422). A refused settings call writes nothing even after earlier fields were applied to the cached document (folder revokes and the fable lock clear included): the outermost lock release discards a document changed without a save (store._on_doc_lock_release). hire defaults refuses an unknown visibility 422. The org.md write refuses an org with no workspace 422. The disk and sweep routes answer 409 without a virtual disk; disk resize refuses no size 422 and a shrink under 4096 MB 422 (or, source, below usage with the MB to free); resize apply refuses no pending resize 422 and a shrink the apply keeps pending 422 with what to free; the sweeps refuse an unmounted disk 503. disk delete refuses per path, answering 200: a path outside the disk ('path escapes the org disk'), a system seed path and a protected transcript, and it reports an unlink error. Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1841,
+          "end": 1992,
+          "sha256": "4a966ce6b7694de41c95e1de0c8f7234ed3a255775000c4c3ddd26525f100dbd"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3406,
+          "end": 3633,
+          "sha256": "a4d8a04e0177366904c9971c2690df0e5c37e71ab0cc7a0bcb869d6c7bb42867"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 4801,
+          "end": 4843,
+          "sha256": "f8e874e54b96044992567c4de6427f80c450eff14e20b5776a51b87819af8451"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3759,
+          "end": 3781,
+          "sha256": "92a70b4c5723109859700d8232073b8fc8f2f16a560064605b0f7971761ad200"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9561,
+          "end": 9608,
+          "sha256": "0672c2fef6d67cbe6953065bc0c0453f5e005615e13b8326f36ad5f73eac1c08"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13425,
+          "end": 13433,
+          "sha256": "3c59418ad6877284248d5abce0175753cfc3cae22c906e2abf6ff74fe52e80cd"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13709,
+          "end": 13756,
+          "sha256": "6f98abd4687fa437a55ca03886c36238186a3c665d1e9e089c6ebed859734a78"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13759,
+          "end": 13782,
+          "sha256": "f947489a64d47e0b30fccb7561997fe7bf5a51e0b9849d0e0e114c7dfa960c34"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13436,
+          "end": 13451,
+          "sha256": "5a28b726e910e90025fd3670d8a03f30ddfc8d919709e6a29ec216f8632f5531"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13457,
+          "end": 13487,
+          "sha256": "2fd5c71d980164682902f8ac863837f6480408c98dc284910996328376832daf"
+        }
+      ]
+    },
+    "org-admin.conflicts": {
+      "dimension": "conflicts",
+      "status": "unresolved",
+      "facts": [
+        "create and delete call store.create_org and store.delete_org without the document lock (the store's own locking applies) and take it for each follow-up save; the org.md write is an async route that loads the org and writes the file on the event loop without the document lock; disk delete and the sweep change the org disk and host folders outside any org transaction (source)."
+      ],
+      "open_questions": [
+        "Implement and qualify native transactions for the org administration writes: create and delete against a concurrent writer, the settings save, and the disk and sweep changes outside the org store.",
+        "Owner: P03 (native design and qualification). Closes with: a native design qualified by a settings save and a delete racing a turn's own save. Not coverable at P01 from available evidence: no native build exists, and P01 has not cited a native design section for these operations."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1841,
+          "end": 1992,
+          "sha256": "4a966ce6b7694de41c95e1de0c8f7234ed3a255775000c4c3ddd26525f100dbd"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1995,
+          "end": 2031,
+          "sha256": "4fa03ec7e63720f8957918a90264fdb54b6ce467105b0a96e6e129af55d1a2e6"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9561,
+          "end": 9608,
+          "sha256": "0672c2fef6d67cbe6953065bc0c0453f5e005615e13b8326f36ad5f73eac1c08"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13844,
+          "end": 13871,
+          "sha256": "8d6e4c74eda823f690b74d1cd44b6ab1283411d8ef5cfdd8241432f58138926d"
+        }
+      ]
+    },
+    "org-admin.wire": {
+      "dimension": "wire",
+      "status": "unresolved",
+      "facts": [
+        "The shapes are fixtured in docs/state-system/org-admin-boundary.json per case."
+      ],
+      "open_questions": [
+        "Carry the fixtured org-admin shapes to the native/Rust door and decide each recorded legacy defect.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured shapes passing against the native and Rust builds. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1841,
+          "end": 1992,
+          "sha256": "4a966ce6b7694de41c95e1de0c8f7234ed3a255775000c4c3ddd26525f100dbd"
+        }
+      ]
+    },
+    "org-admin.receipt": {
+      "dimension": "receipt",
+      "status": "specified",
+      "facts": [
+        "The routes take no operation key and file no receipt. Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3392,
+          "end": 3403,
+          "sha256": "d2bd345e3b09cd7a424bb8d96891de3046f2574367ffcc11eee2ba56cafc05d2"
+        }
+      ]
+    },
+    "org-admin.effects": {
+      "dimension": "effects",
+      "status": "specified",
+      "facts": [
+        "settings broadcasts (hub_changed) and kicks the net daemon; hire defaults broadcasts; the org.md write and the rotation announce through hub.changed; delete unregisters from the hubs, forgets runtime state, reaps remote servers and removes the container; create warms a sandboxed org's container; disk delete and a grow run the storage check; resize apply stops the container. All are spies in the test. The org.md write drives no agent itself (its docstring's restart of every agent happens outside the route, source). Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json for the spy calls."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3406,
+          "end": 3633,
+          "sha256": "a4d8a04e0177366904c9971c2690df0e5c37e71ab0cc7a0bcb869d6c7bb42867"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1995,
+          "end": 2031,
+          "sha256": "4fa03ec7e63720f8957918a90264fdb54b6ce467105b0a96e6e129af55d1a2e6"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9561,
+          "end": 9608,
+          "sha256": "0672c2fef6d67cbe6953065bc0c0453f5e005615e13b8326f36ad5f73eac1c08"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1824,
+          "end": 1838,
+          "sha256": "2ac625610bb258f7994a3a10d394c237052269f26c7346fa538ae39a587b180b"
+        }
+      ]
+    },
+    "org-admin.instrumentation": {
+      "dimension": "instrumentation",
+      "status": "unresolved",
+      "facts": [
+        "The access middleware labels each route. No P02 per-operation record covers this family yet."
+      ],
+      "open_questions": [
+        "Observe every org administration route with the P02 per-operation probe: actual contacts per outcome, cold and warm, refusals included (create and delete cross orgs: the new org and the deleted store).",
+        "Owner: P02 (p02-contacts-opus55; coordinator ruling Q6 on p01-f1-contracts-for-the-org-lifecycle-and-catal: probed after this family lands). Closes with: a loss-accounted P02 record per row. Not coverable at P01 from available evidence: P01 does not run the P02 probe, and no P02 record covers this family yet."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3392,
+          "end": 3403,
+          "sha256": "d2bd345e3b09cd7a424bb8d96891de3046f2574367ffcc11eee2ba56cafc05d2"
+        }
+      ]
     }
   },
   "contracts": {
@@ -21132,6 +21485,737 @@
         }
       ],
       "domain_mode": "read"
+    },
+    "org-admin.create": {
+      "entry_ids": [
+        "02c9404c4f652d4bfd2e6d145068e495765cfc03b4e99f560f47832cdb7ff29c"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "org-admin.authority"
+        ],
+        "reads": [
+          "org-admin.reads"
+        ],
+        "writes": [
+          "org-admin.writes"
+        ],
+        "predicates": [
+          "org-admin.predicates"
+        ],
+        "conflicts": [
+          "org-admin.conflicts"
+        ],
+        "wire": [
+          "org-admin.wire"
+        ],
+        "receipt": [
+          "org-admin.receipt"
+        ],
+        "effects": [
+          "org-admin.effects"
+        ],
+        "instrumentation": [
+          "org-admin.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1841,
+          "end": 1841,
+          "sha256": "f66981389518b8fe62869ea876f7f82cc7543b542fde144fdf8d379c07900bd2"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1841,
+          "end": 1992,
+          "sha256": "4a966ce6b7694de41c95e1de0c8f7234ed3a255775000c4c3ddd26525f100dbd"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3297,
+          "end": 3316,
+          "sha256": "1d1b75a74353a797fef4b6cd36bde13740dcee871941af78d118e8e3679e44e2"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_policy.py",
+          "start": 9,
+          "end": 16,
+          "sha256": "f1ae0dc9c5d2ca855496c5540206c77f82865a78ed29e92a6876859b76f12543"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 5059,
+          "end": 5074,
+          "sha256": "4a72bf05a75852cbd8073ade229b2c1f71e602a1b710e5d6a1ac434c472eb565"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "org-admin.delete": {
+      "entry_ids": [
+        "ad058027db1a6951f566d08ec7d174198d158db9081c23b66b9c5eb79c935367"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "org-admin.authority"
+        ],
+        "reads": [
+          "org-admin.reads"
+        ],
+        "writes": [
+          "org-admin.writes"
+        ],
+        "predicates": [
+          "org-admin.predicates"
+        ],
+        "conflicts": [
+          "org-admin.conflicts"
+        ],
+        "wire": [
+          "org-admin.wire"
+        ],
+        "receipt": [
+          "org-admin.receipt"
+        ],
+        "effects": [
+          "org-admin.effects"
+        ],
+        "instrumentation": [
+          "org-admin.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1995,
+          "end": 1995,
+          "sha256": "a5d25bdcc97b6b244678d944b2f5cdcc81b1bae86da184ca0635ce5d263075c9"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1995,
+          "end": 2031,
+          "sha256": "4fa03ec7e63720f8957918a90264fdb54b6ce467105b0a96e6e129af55d1a2e6"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 5077,
+          "end": 5228,
+          "sha256": "e20a626f5ec829dd326fa208aaf571bb4bf5417885fa626f7a77fef8311e7ec6"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "org-admin.bridge-rotate": {
+      "entry_ids": [
+        "3b17ebec10381c460845ba1c3b6df79ef06052595ef1af3ff6f9a3a4a3a233e9"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "org-admin.authority"
+        ],
+        "reads": [
+          "org-admin.reads"
+        ],
+        "writes": [
+          "org-admin.writes"
+        ],
+        "predicates": [
+          "org-admin.predicates"
+        ],
+        "conflicts": [
+          "org-admin.conflicts"
+        ],
+        "wire": [
+          "org-admin.wire"
+        ],
+        "receipt": [
+          "org-admin.receipt"
+        ],
+        "effects": [
+          "org-admin.effects"
+        ],
+        "instrumentation": [
+          "org-admin.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1824,
+          "end": 1824,
+          "sha256": "616a434854547b3ceb4ed8608c126c4b25769ef9a0ba3327b666b53d80a4068a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1824,
+          "end": 1838,
+          "sha256": "2ac625610bb258f7994a3a10d394c237052269f26c7346fa538ae39a587b180b"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1796,
+          "end": 1815,
+          "sha256": "b54aab2d7e252bb58a276765d3d95b39979774b42435d2e8b61bead47c2f8fa6"
+        },
+        {
+          "path": "engine/backend/orgtree/bridgeauth.py",
+          "start": 309,
+          "end": 342,
+          "sha256": "0bf7f6c68b0fa23e06d2839f84089055340a051c331cd32af8ddefae2043e65a"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "org-admin.settings": {
+      "entry_ids": [
+        "10fe170d257014a685ab6d2332ba89e470f8806aa34aa3b1b18f6fc90c4278b6"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "org-admin.authority"
+        ],
+        "reads": [
+          "org-admin.reads"
+        ],
+        "writes": [
+          "org-admin.writes"
+        ],
+        "predicates": [
+          "org-admin.predicates"
+        ],
+        "conflicts": [
+          "org-admin.conflicts"
+        ],
+        "wire": [
+          "org-admin.wire"
+        ],
+        "receipt": [
+          "org-admin.receipt"
+        ],
+        "effects": [
+          "org-admin.effects"
+        ],
+        "instrumentation": [
+          "org-admin.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3392,
+          "end": 3392,
+          "sha256": "bfdded5f34aa3eab79a4caf5c99a076c428d934b3fbde42ccc407b0c85256fe6"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3392,
+          "end": 3403,
+          "sha256": "d2bd345e3b09cd7a424bb8d96891de3046f2574367ffcc11eee2ba56cafc05d2"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3406,
+          "end": 3633,
+          "sha256": "a4d8a04e0177366904c9971c2690df0e5c37e71ab0cc7a0bcb869d6c7bb42867"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1909,
+          "end": 1986,
+          "sha256": "9970366684eac3a6dd9fd101a3ddd1f4d2316373070bcd7d159993463aff632f"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 11047,
+          "end": 11064,
+          "sha256": "326b58df94413222141c2090e775f9eca1dadb98c5ae0d1f85bb7cf70f21c8e3"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 7296,
+          "end": 7306,
+          "sha256": "2fc918aa8f11432cf4da848c22c63fdcaefbacb9c71f3f97d52058326d700c36"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "org-admin.hire-defaults": {
+      "entry_ids": [
+        "a6c3f38c31068b604de88b1e7bc52e42a4f0cbdf5421bb23c04306dc9b7ba692"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "org-admin.authority"
+        ],
+        "reads": [
+          "org-admin.reads"
+        ],
+        "writes": [
+          "org-admin.writes"
+        ],
+        "predicates": [
+          "org-admin.predicates"
+        ],
+        "conflicts": [
+          "org-admin.conflicts"
+        ],
+        "wire": [
+          "org-admin.wire"
+        ],
+        "receipt": [
+          "org-admin.receipt"
+        ],
+        "effects": [
+          "org-admin.effects"
+        ],
+        "instrumentation": [
+          "org-admin.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3759,
+          "end": 3759,
+          "sha256": "e1576b81def43dcdc66b333787eda25b1c90ba4a492d1e7833dceb8a388a5044"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3759,
+          "end": 3781,
+          "sha256": "92a70b4c5723109859700d8232073b8fc8f2f16a560064605b0f7971761ad200"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 1909,
+          "end": 1986,
+          "sha256": "9970366684eac3a6dd9fd101a3ddd1f4d2316373070bcd7d159993463aff632f"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "org-admin.orgmd-write": {
+      "entry_ids": [
+        "930cb8d0181b2a0c50d78ff395d9332dfdbc4bcacf1aee4b4130e2c8e7116c23"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "org-admin.authority"
+        ],
+        "reads": [
+          "org-admin.reads"
+        ],
+        "writes": [
+          "org-admin.writes"
+        ],
+        "predicates": [
+          "org-admin.predicates"
+        ],
+        "conflicts": [
+          "org-admin.conflicts"
+        ],
+        "wire": [
+          "org-admin.wire"
+        ],
+        "receipt": [
+          "org-admin.receipt"
+        ],
+        "effects": [
+          "org-admin.effects"
+        ],
+        "instrumentation": [
+          "org-admin.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9561,
+          "end": 9561,
+          "sha256": "bcc6826a5f8ef227723f5f5adbef0b399aadbd31af04d8f35b0f55577c9dfa18"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9561,
+          "end": 9608,
+          "sha256": "0672c2fef6d67cbe6953065bc0c0453f5e005615e13b8326f36ad5f73eac1c08"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "org-admin.disk-delete": {
+      "entry_ids": [
+        "f096e38213dd48cbd126eac9d83660e55130c57141ffba9e9d8be9aea322562f"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "org-admin.authority"
+        ],
+        "reads": [
+          "org-admin.reads"
+        ],
+        "writes": [
+          "org-admin.writes"
+        ],
+        "predicates": [
+          "org-admin.predicates"
+        ],
+        "conflicts": [
+          "org-admin.conflicts"
+        ],
+        "wire": [
+          "org-admin.wire"
+        ],
+        "receipt": [
+          "org-admin.receipt"
+        ],
+        "effects": [
+          "org-admin.effects"
+        ],
+        "instrumentation": [
+          "org-admin.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13623,
+          "end": 13623,
+          "sha256": "63ca691bf08e6114e4cc245979206b6d2f775bd6d76adf80cb7ed99294bcf292"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13623,
+          "end": 13688,
+          "sha256": "9dabd44040813f4367ac6c68bcc28b68760ec67fb8485843ab118a2be327f18c"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13425,
+          "end": 13433,
+          "sha256": "3c59418ad6877284248d5abce0175753cfc3cae22c906e2abf6ff74fe52e80cd"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13436,
+          "end": 13451,
+          "sha256": "5a28b726e910e90025fd3670d8a03f30ddfc8d919709e6a29ec216f8632f5531"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13457,
+          "end": 13487,
+          "sha256": "2fd5c71d980164682902f8ac863837f6480408c98dc284910996328376832daf"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "org-admin.disk-resize": {
+      "entry_ids": [
+        "6efa8fe24f914e1b64f92a701ac6fd426b6b1dbde20e4d3f8e69161909ff63a8"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "org-admin.authority"
+        ],
+        "reads": [
+          "org-admin.reads"
+        ],
+        "writes": [
+          "org-admin.writes"
+        ],
+        "predicates": [
+          "org-admin.predicates"
+        ],
+        "conflicts": [
+          "org-admin.conflicts"
+        ],
+        "wire": [
+          "org-admin.wire"
+        ],
+        "receipt": [
+          "org-admin.receipt"
+        ],
+        "effects": [
+          "org-admin.effects"
+        ],
+        "instrumentation": [
+          "org-admin.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13709,
+          "end": 13709,
+          "sha256": "f05c335858a69de1da9dde0a4c703c0e3060ebf4ad07e19d92adc72fa98d2381"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13709,
+          "end": 13756,
+          "sha256": "6f98abd4687fa437a55ca03886c36238186a3c665d1e9e089c6ebed859734a78"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13425,
+          "end": 13433,
+          "sha256": "3c59418ad6877284248d5abce0175753cfc3cae22c906e2abf6ff74fe52e80cd"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13696,
+          "end": 13706,
+          "sha256": "295ad884d28ecf27af716f0c20bca53a583f85c5486b84998fa4ecaef42eca85"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "org-admin.disk-resize-apply": {
+      "entry_ids": [
+        "11523cde8191de8f0b53d33661abf08d4cb8be1f06f8330a4060c375ef38b759"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "org-admin.authority"
+        ],
+        "reads": [
+          "org-admin.reads"
+        ],
+        "writes": [
+          "org-admin.writes"
+        ],
+        "predicates": [
+          "org-admin.predicates"
+        ],
+        "conflicts": [
+          "org-admin.conflicts"
+        ],
+        "wire": [
+          "org-admin.wire"
+        ],
+        "receipt": [
+          "org-admin.receipt"
+        ],
+        "effects": [
+          "org-admin.effects"
+        ],
+        "instrumentation": [
+          "org-admin.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13759,
+          "end": 13759,
+          "sha256": "e0c911a533f2463bc58dd0e673c79536de5999ddd71c6fa0ffe465c2053e05de"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13759,
+          "end": 13782,
+          "sha256": "f947489a64d47e0b30fccb7561997fe7bf5a51e0b9849d0e0e114c7dfa960c34"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13425,
+          "end": 13433,
+          "sha256": "3c59418ad6877284248d5abce0175753cfc3cae22c906e2abf6ff74fe52e80cd"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "org-admin.sweep-preview": {
+      "entry_ids": [
+        "f5c06e89664d0e0f9fdc70f5e9521385ef3b63e73406dd672c8b9720b93a36f5"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "org-admin.authority"
+        ],
+        "reads": [
+          "org-admin.reads"
+        ],
+        "writes": [
+          "org-admin.writes"
+        ],
+        "predicates": [
+          "org-admin.predicates"
+        ],
+        "conflicts": [
+          "org-admin.conflicts"
+        ],
+        "wire": [
+          "org-admin.wire"
+        ],
+        "receipt": [
+          "org-admin.receipt"
+        ],
+        "effects": [
+          "org-admin.effects"
+        ],
+        "instrumentation": [
+          "org-admin.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13824,
+          "end": 13824,
+          "sha256": "298a93ce472e713969533ed496e88a0ba968b98301371459d6ba4b70f895a085"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13824,
+          "end": 13841,
+          "sha256": "61ce3071a8cd7bd94fe6815d271fc99308c32c8b2b2ed843546b118feac94e57"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13425,
+          "end": 13433,
+          "sha256": "3c59418ad6877284248d5abce0175753cfc3cae22c906e2abf6ff74fe52e80cd"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13807,
+          "end": 13821,
+          "sha256": "931e1cef01b621337399ab2ed79626437fe5f22e604e1387a44e7e9df4e99fac"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "org-admin.sweep": {
+      "entry_ids": [
+        "6bf10642dcf4dc6d3681e9c16558ae637a1d1ae08e03599a8721a11c89c0dcda"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "org-admin.authority"
+        ],
+        "reads": [
+          "org-admin.reads"
+        ],
+        "writes": [
+          "org-admin.writes"
+        ],
+        "predicates": [
+          "org-admin.predicates"
+        ],
+        "conflicts": [
+          "org-admin.conflicts"
+        ],
+        "wire": [
+          "org-admin.wire"
+        ],
+        "receipt": [
+          "org-admin.receipt"
+        ],
+        "effects": [
+          "org-admin.effects"
+        ],
+        "instrumentation": [
+          "org-admin.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13844,
+          "end": 13844,
+          "sha256": "c192e79625309234e02614cf6c7109a652eba89094f236b10114665b5bfaf25b"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13844,
+          "end": 13871,
+          "sha256": "8d6e4c74eda823f690b74d1cd44b6ab1283411d8ef5cfdd8241432f58138926d"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13425,
+          "end": 13433,
+          "sha256": "3c59418ad6877284248d5abce0175753cfc3cae22c906e2abf6ff74fe52e80cd"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13807,
+          "end": 13821,
+          "sha256": "931e1cef01b621337399ab2ed79626437fe5f22e604e1387a44e7e9df4e99fac"
+        }
+      ],
+      "domain_mode": "write"
     }
   },
   "wire_cases": [
@@ -22750,6 +23834,83 @@
       "args": {},
       "contract": "org-read.disk-file",
       "domain_mode": "read"
+    },
+    {
+      "name": "POST /api/orgs:org-admin.create",
+      "entry_id": "02c9404c4f652d4bfd2e6d145068e495765cfc03b4e99f560f47832cdb7ff29c",
+      "args": {},
+      "contract": "org-admin.create",
+      "domain_mode": "write"
+    },
+    {
+      "name": "DELETE /api/orgs/{slug}:org-admin.delete",
+      "entry_id": "ad058027db1a6951f566d08ec7d174198d158db9081c23b66b9c5eb79c935367",
+      "args": {},
+      "contract": "org-admin.delete",
+      "domain_mode": "write"
+    },
+    {
+      "name": "POST /api/orgs/{slug}/bridge-credential/rotate:org-admin.bridge-rotate",
+      "entry_id": "3b17ebec10381c460845ba1c3b6df79ef06052595ef1af3ff6f9a3a4a3a233e9",
+      "args": {},
+      "contract": "org-admin.bridge-rotate",
+      "domain_mode": "write"
+    },
+    {
+      "name": "POST /api/orgs/{slug}/settings:org-admin.settings",
+      "entry_id": "10fe170d257014a685ab6d2332ba89e470f8806aa34aa3b1b18f6fc90c4278b6",
+      "args": {},
+      "contract": "org-admin.settings",
+      "domain_mode": "write"
+    },
+    {
+      "name": "POST /api/orgs/{slug}/defaults:org-admin.hire-defaults",
+      "entry_id": "a6c3f38c31068b604de88b1e7bc52e42a4f0cbdf5421bb23c04306dc9b7ba692",
+      "args": {},
+      "contract": "org-admin.hire-defaults",
+      "domain_mode": "write"
+    },
+    {
+      "name": "PUT /api/orgs/{slug}/orgmd:org-admin.orgmd-write",
+      "entry_id": "930cb8d0181b2a0c50d78ff395d9332dfdbc4bcacf1aee4b4130e2c8e7116c23",
+      "args": {},
+      "contract": "org-admin.orgmd-write",
+      "domain_mode": "write"
+    },
+    {
+      "name": "POST /api/orgs/{slug}/disk/delete:org-admin.disk-delete",
+      "entry_id": "f096e38213dd48cbd126eac9d83660e55130c57141ffba9e9d8be9aea322562f",
+      "args": {},
+      "contract": "org-admin.disk-delete",
+      "domain_mode": "write"
+    },
+    {
+      "name": "POST /api/orgs/{slug}/disk/resize:org-admin.disk-resize",
+      "entry_id": "6efa8fe24f914e1b64f92a701ac6fd426b6b1dbde20e4d3f8e69161909ff63a8",
+      "args": {},
+      "contract": "org-admin.disk-resize",
+      "domain_mode": "write"
+    },
+    {
+      "name": "POST /api/orgs/{slug}/disk/resize/apply:org-admin.disk-resize-apply",
+      "entry_id": "11523cde8191de8f0b53d33661abf08d4cb8be1f06f8330a4060c375ef38b759",
+      "args": {},
+      "contract": "org-admin.disk-resize-apply",
+      "domain_mode": "write"
+    },
+    {
+      "name": "GET /api/orgs/{slug}/sweep-legacy:org-admin.sweep-preview",
+      "entry_id": "f5c06e89664d0e0f9fdc70f5e9521385ef3b63e73406dd672c8b9720b93a36f5",
+      "args": {},
+      "contract": "org-admin.sweep-preview",
+      "domain_mode": "read"
+    },
+    {
+      "name": "POST /api/orgs/{slug}/sweep-legacy:org-admin.sweep",
+      "entry_id": "6bf10642dcf4dc6d3681e9c16558ae637a1d1ae08e03599a8721a11c89c0dcda",
+      "args": {},
+      "contract": "org-admin.sweep",
+      "domain_mode": "write"
     }
   ],
   "limits": [
@@ -22988,24 +24149,51 @@
     },
     {
       "id": "3b17ebec10381c460845ba1c3b6df79ef06052595ef1af3ff6f9a3a4a3a233e9",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org-admin.bridge-rotate"
+      ],
+      "reason": "POST /api/orgs/{slug}/bridge-credential/rotate: org-admin.bridge-rotate (P01 F7).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1824,
+          "end": 1824,
+          "sha256": "616a434854547b3ceb4ed8608c126c4b25769ef9a0ba3327b666b53d80a4068a"
+        }
+      ]
     },
     {
       "id": "02c9404c4f652d4bfd2e6d145068e495765cfc03b4e99f560f47832cdb7ff29c",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org-admin.create"
+      ],
+      "reason": "POST /api/orgs: org-admin.create (P01 F7).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1841,
+          "end": 1841,
+          "sha256": "f66981389518b8fe62869ea876f7f82cc7543b542fde144fdf8d379c07900bd2"
+        }
+      ]
     },
     {
       "id": "ad058027db1a6951f566d08ec7d174198d158db9081c23b66b9c5eb79c935367",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org-admin.delete"
+      ],
+      "reason": "DELETE /api/orgs/{slug}: org-admin.delete (P01 F7).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1995,
+          "end": 1995,
+          "sha256": "a5d25bdcc97b6b244678d944b2f5cdcc81b1bae86da184ca0635ce5d263075c9"
+        }
+      ]
     },
     {
       "id": "5b527f8f0e842519c360e719b5a5945ac21bde45f7ed7de0b05458ef85ab29f8",
@@ -23078,10 +24266,19 @@
     },
     {
       "id": "10fe170d257014a685ab6d2332ba89e470f8806aa34aa3b1b18f6fc90c4278b6",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org-admin.settings"
+      ],
+      "reason": "POST /api/orgs/{slug}/settings: org-admin.settings (P01 F7).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3392,
+          "end": 3392,
+          "sha256": "bfdded5f34aa3eab79a4caf5c99a076c428d934b3fbde42ccc407b0c85256fe6"
+        }
+      ]
     },
     {
       "id": "298626b210b4ed959f9131db158887c7950fdffa24a3a8bc1e8a63694b60f821",
@@ -23101,10 +24298,19 @@
     },
     {
       "id": "a6c3f38c31068b604de88b1e7bc52e42a4f0cbdf5421bb23c04306dc9b7ba692",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org-admin.hire-defaults"
+      ],
+      "reason": "POST /api/orgs/{slug}/defaults: org-admin.hire-defaults (P01 F7).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 3759,
+          "end": 3759,
+          "sha256": "e1576b81def43dcdc66b333787eda25b1c90ba4a492d1e7833dceb8a388a5044"
+        }
+      ]
     },
     {
       "id": "cf7e024234ef90fa88e7aa48612d4320f349b690e520f9f086c4a2db7fdb9318",
@@ -24250,10 +25456,19 @@
     },
     {
       "id": "930cb8d0181b2a0c50d78ff395d9332dfdbc4bcacf1aee4b4130e2c8e7116c23",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org-admin.orgmd-write"
+      ],
+      "reason": "PUT /api/orgs/{slug}/orgmd: org-admin.orgmd-write (P01 F7).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9561,
+          "end": 9561,
+          "sha256": "bcc6826a5f8ef227723f5f5adbef0b399aadbd31af04d8f35b0f55577c9dfa18"
+        }
+      ]
     },
     {
       "id": "263876d50f597b43b68dfe0d9910930bcc5393bbd0844e426a8fa20f14f7b3fa",
@@ -24383,38 +25598,83 @@
     },
     {
       "id": "f096e38213dd48cbd126eac9d83660e55130c57141ffba9e9d8be9aea322562f",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org-admin.disk-delete"
+      ],
+      "reason": "POST /api/orgs/{slug}/disk/delete: org-admin.disk-delete (P01 F7).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13623,
+          "end": 13623,
+          "sha256": "63ca691bf08e6114e4cc245979206b6d2f775bd6d76adf80cb7ed99294bcf292"
+        }
+      ]
     },
     {
       "id": "6efa8fe24f914e1b64f92a701ac6fd426b6b1dbde20e4d3f8e69161909ff63a8",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org-admin.disk-resize"
+      ],
+      "reason": "POST /api/orgs/{slug}/disk/resize: org-admin.disk-resize (P01 F7).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13709,
+          "end": 13709,
+          "sha256": "f05c335858a69de1da9dde0a4c703c0e3060ebf4ad07e19d92adc72fa98d2381"
+        }
+      ]
     },
     {
       "id": "11523cde8191de8f0b53d33661abf08d4cb8be1f06f8330a4060c375ef38b759",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org-admin.disk-resize-apply"
+      ],
+      "reason": "POST /api/orgs/{slug}/disk/resize/apply: org-admin.disk-resize-apply (P01 F7).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13759,
+          "end": 13759,
+          "sha256": "e0c911a533f2463bc58dd0e673c79536de5999ddd71c6fa0ffe465c2053e05de"
+        }
+      ]
     },
     {
       "id": "f5c06e89664d0e0f9fdc70f5e9521385ef3b63e73406dd672c8b9720b93a36f5",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org-admin.sweep-preview"
+      ],
+      "reason": "GET /api/orgs/{slug}/sweep-legacy: org-admin.sweep-preview (P01 F7).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13824,
+          "end": 13824,
+          "sha256": "298a93ce472e713969533ed496e88a0ba968b98301371459d6ba4b70f895a085"
+        }
+      ]
     },
     {
       "id": "6bf10642dcf4dc6d3681e9c16558ae637a1d1ae08e03599a8721a11c89c0dcda",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org-admin.sweep"
+      ],
+      "reason": "POST /api/orgs/{slug}/sweep-legacy: org-admin.sweep (P01 F7).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13844,
+          "end": 13844,
+          "sha256": "c192e79625309234e02614cf6c7109a652eba89094f236b10114665b5bfaf25b"
+        }
+      ]
     },
     {
       "id": "9348ad49269057fa35ecb00c4606ab2ad791e54b87cc63639ecc6ac6c22b7eda",
