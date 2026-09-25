@@ -132,16 +132,27 @@ def identity(slug, nid):
 
 
 def incarnation(org, nid):
-    """Persist independent identity across rename/compaction, never recreation."""
+    """Persist independent identity across rename/compaction, never recreation.
+
+    PG-3d: minted in a row transaction on the node row and the org's
+    `reply_incarnation`, not DOC_LOCK. Called with the Org of a transaction
+    already open on this org (a reply send), it mints on THAT Org — the
+    caller must name `nodes=[nid]` and `sections=['reply_incarnation']` —
+    instead of opening a second one (which would raise NestedTx)."""
+    from .mailtx import tx_open
     if org.d.get('reply_incarnation') and org.node(nid).get('reply_incarnation'):
         return org.d['reply_incarnation'] + ':' + org.node(nid)['reply_incarnation']
-    with store.DOC_LOCK:
-        persisted = Path(store.org_path(org.d['slug'])).exists()
-        current = store.load_org(org.d['slug']) if persisted else org
+    slug = org.d['slug']
+    if tx_open(slug):
+        org.d.setdefault('reply_incarnation', uuid.uuid4().hex)
+        org.node(nid).setdefault('reply_incarnation', uuid.uuid4().hex)
+        return org.d['reply_incarnation'] + ':' + org.node(nid)['reply_incarnation']
+    persisted = Path(store.org_path(slug)).exists()
+    with (orgtx.org_tx(slug, nodes=[nid], sections=['reply_incarnation']) if persisted
+          else _nullcontext()) as tx:
+        current = tx.org if persisted else org
         current.d.setdefault('reply_incarnation', uuid.uuid4().hex)
         current.node(nid).setdefault('reply_incarnation', uuid.uuid4().hex)
-        if persisted:
-            store.save_org(current)
         if not getattr(org, '_shared_snapshot', False):
             # memoize onto a request-private org so later calls in the same
             # pass fast-path. A SHARED snapshot (store.cached_org) is
@@ -152,6 +163,14 @@ def incarnation(org, nid):
             org.node(nid)['reply_incarnation'] = current.node(nid)['reply_incarnation']
         return (current.d['reply_incarnation'] + ':'
                 + current.node(nid)['reply_incarnation'])
+
+
+class _nullcontext:
+    def __enter__(self):
+        return None
+
+    def __exit__(self, *exc):
+        return False
 
 
 def lookup(slug, nid, generation, eid, scope):
@@ -174,11 +193,16 @@ def count(slug, nid):
 
 
 def clear(org, nid):
+    """PG-3d: inside a transaction open on this org (which must name
+    `nodes=[nid]`) the new incarnation commits with it; otherwise it is
+    saved here, as before."""
+    from .mailtx import tx_open
     with _connect() as connection:
         deleted = connection.execute('DELETE FROM events WHERE org=? AND agent=?', (org.d['slug'],nid)).rowcount
     connection.close()
     org.node(nid)['reply_incarnation'] = uuid.uuid4().hex
-    store.save_org(org)
+    if not tx_open(org.d['slug']):
+        store.save_org(org)
     return deleted
 
 
