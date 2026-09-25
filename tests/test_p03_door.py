@@ -17,6 +17,8 @@ import threading
 import unittest
 from pathlib import Path
 
+from fastapi import Request  # module level: FastAPI resolves the string annotations here
+
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import p03_door
 
@@ -337,6 +339,188 @@ class Client(Base):
         with self.assertRaises(ConnectionError):
             p03_door.StoreClient(root, timeout=5)
         srv.join(5)
+
+
+class Registry(unittest.TestCase):
+    """The family registration seam (lead 2026-09-25 11:49Z): unregistered
+    requests pass through, authentication runs before any handler, and a
+    duplicate registration is refused. A real FastAPI app with the router
+    installed as ``api.py`` installs it; authentication is injected."""
+
+    def setUp(self) -> None:
+        from fastapi import FastAPI, HTTPException
+        from fastapi.testclient import TestClient
+
+        self._saved = (set(p03_door._FAMILIES), dict(p03_door._TOOLS), dict(p03_door._ROUTES), p03_door.SLICE_TOOLS)
+        self.addCleanup(self._restore)
+        self.HTTPException = HTTPException
+        self.events: list[tuple] = []
+        self.refuse_agent = False
+        app = FastAPI()
+
+        @app.post("/api/agent")
+        async def downstream_agent(request: Request):
+            self.events.append(("downstream", await request.json()))
+            return {"downstream": True}
+
+        @app.get("/api/elsewhere/{x}")
+        def downstream_rest(x: str):
+            self.events.append(("downstream-rest", x))
+            return {"downstream": x}
+
+        def agent_auth(body, request):
+            self.events.append(("auth", body.get("node")))
+            if self.refuse_agent:
+                raise HTTPException(403, "refused by the test")
+            return {"node": body.get("node")}
+
+        app.middleware("http")(p03_door._Router(Path("."), agent_auth=agent_auth))
+
+        class StateFromHeader:
+            """Stands in for the kiosk and bridge middlewares, which sit
+            outside the door and mark the scope state."""
+
+            def __init__(self, inner):
+                self.inner = inner
+
+            async def __call__(self, scope, receive, send):
+                for k, v in scope.get("headers", []):
+                    if k == b"x-test-bridge":
+                        scope.setdefault("state", {})["bridge_slug"] = v.decode()
+                await self.inner(scope, receive, send)
+
+        app.add_middleware(StateFromHeader)
+        self.client = TestClient(app)
+
+    def _restore(self) -> None:
+        fam, tools, routes, slice_tools = self._saved
+        p03_door._FAMILIES.clear(); p03_door._FAMILIES.update(fam)
+        p03_door._TOOLS.clear(); p03_door._TOOLS.update(tools)
+        p03_door._ROUTES.clear(); p03_door._ROUTES.update(routes)
+        p03_door.SLICE_TOOLS = slice_tools
+
+    def handler(self, name):
+        def h(identity, body, op_tag, **params):
+            self.events.append(("handler", name, identity, op_tag, params))
+            return {"handled": name}
+        return h
+
+    def call(self, tool, node="a1", **extra):
+        return self.client.post("/api/agent", json={"org": "o", "node": node, "tool": tool, "args": {}, **extra},
+                                headers={p03_door.OP_TAG_HEADER: "tag-7"})
+
+    def test_unregistered_requests_pass_through_untouched(self):
+        p03_door.register("mail", tools={"orgtree_message": self.handler("msg")},
+                          routes={("GET", "/api/p03/mail/{box}"): self.handler("box")})
+        r = self.call("orgtree_work")
+        self.assertEqual(r.json(), {"downstream": True})
+        # the door read the body, and the app downstream still read all of it
+        self.assertEqual(self.events, [("downstream", {"org": "o", "node": "a1", "tool": "orgtree_work", "args": {}})])
+        self.events.clear()
+        self.assertEqual(self.client.get("/api/elsewhere/q").json(), {"downstream": "q"})
+        self.assertEqual(self.events, [("downstream-rest", "q")])
+        self.assertEqual(p03_door.SLICE_TOOLS, frozenset({"orgtree_message"}))
+
+    def test_a_registered_tool_is_authenticated_before_its_handler(self):
+        p03_door.register("mail", tools={"orgtree_message": self.handler("msg")})
+        r = self.call("orgtree_message")
+        self.assertEqual(r.json(), {"handled": "msg"})
+        self.assertEqual(self.events, [("auth", "a1"), ("handler", "msg", {"node": "a1"}, "tag-7", {})])
+        # a keyed call is routed by the verb it wraps
+        self.events.clear()
+        r = self.client.post("/api/agent", json={"org": "o", "node": "a2", "tool": "orgtree_op_call",
+                                                 "args": {"tool": "orgtree_message", "args": {}}})
+        self.assertEqual(r.json(), {"handled": "msg"})
+        self.assertEqual([e[0] for e in self.events], ["auth", "handler"])
+
+    def test_a_refused_caller_never_reaches_the_handler(self):
+        p03_door.register("mail", tools={"orgtree_message": self.handler("msg")})
+        self.refuse_agent = True
+        r = self.call("orgtree_message")
+        self.assertEqual((r.status_code, r.json()), (403, {"detail": "refused by the test"}))
+        self.assertEqual(self.events, [("auth", "a1")], "the handler ran for a refused caller")
+
+    def test_a_registered_route_gets_the_operator_check_first(self):
+        p03_door.register("mail", routes={("GET", "/api/p03/mail/{box}"): self.handler("box")})
+        r = self.client.get("/api/p03/mail/b9", headers={p03_door.OP_TAG_HEADER: "t"})
+        self.assertEqual(r.json(), {"handled": "box"})
+        self.assertEqual(self.events, [("handler", "box", {}, "t", {"box": "b9"})])
+        self.events.clear()
+        r = self.client.get("/api/p03/mail/b9", headers={"x-test-bridge": "other-org"})
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(self.events, [], "the handler ran for a bridge caller")
+
+    def test_a_route_can_carry_its_own_check(self):
+        def deny(request):
+            self.events.append(("route-auth",))
+            raise self.HTTPException(401, "no")
+        p03_door.register("mail", routes={("POST", "/api/p03/mail"): (self.handler("post"), deny)})
+        r = self.client.post("/api/p03/mail", json={"x": 1})
+        self.assertEqual(r.status_code, 401)
+        self.assertEqual(self.events, [("route-auth",)])
+
+    def test_duplicates_are_refused_and_nothing_of_the_call_is_kept(self):
+        p03_door.register("mail", tools={"orgtree_message": self.handler("msg")},
+                          routes={("GET", "/api/p03/mail/{box}"): self.handler("box")})
+        with self.assertRaises(p03_door.DuplicateRegistration):
+            p03_door.register("contacts", tools={"orgtree_contacts": self.handler("c"),
+                                                 "orgtree_message": self.handler("again")})
+        self.assertNotIn("orgtree_contacts", p03_door._TOOLS, "a refused call left a tool behind")
+        self.assertNotIn("contacts", p03_door._FAMILIES)
+        for key in (("GET", "/api/p03/mail/{other}"), ("GET", "/api/p03/mail/inbox"), ("get", "/api/p03/mail/{box}")):
+            with self.assertRaises(p03_door.DuplicateRegistration, msg=key):
+                p03_door.register("contacts", routes={key: self.handler("c")})
+        with self.assertRaises(p03_door.DuplicateRegistration):
+            p03_door.register("mail", tools={"orgtree_other": self.handler("o")})
+        # a different method on the same path is a different route
+        p03_door.register("contacts", routes={("POST", "/api/p03/mail/{box}"): self.handler("c")})
+        with self.assertRaises(ValueError):
+            p03_door.register("x", routes={("POST", "/api/agent"): self.handler("x")})
+
+
+class RealAgentAuth(unittest.TestCase):
+    """``_agent_auth`` runs ``api._agent_identity`` and the halt gates. A fake
+    ``orgtree.api`` stands in, so the test never loads the real app."""
+
+    def setUp(self) -> None:
+        import sys
+        import types
+        from fastapi import HTTPException
+        from pydantic import BaseModel
+
+        class AgentCall(BaseModel):
+            org: str
+            node: str
+            tool: str
+            args: dict = {}
+
+        self.seen: list[tuple] = []
+        self.blocked = None
+        fake = types.ModuleType("orgtree.api")
+        fake.AgentCall = AgentCall
+        fake._agent_identity = lambda call, request, durable=False: (
+            self.seen.append(("identity", call.node, durable)) or {"node": call.node})
+        fake.supervisor = types.SimpleNamespace(halt=types.SimpleNamespace(
+            blocked=lambda org, node: self.blocked))
+        import orgtree
+        self.assertNotIn("orgtree.api", sys.modules, "the real api is loaded; this test would not use the fake")
+        sys.modules["orgtree.api"] = fake
+        self.addCleanup(sys.modules.pop, "orgtree.api", None)
+        self.addCleanup(lambda: orgtree.__dict__.pop("api", None))
+        self.HTTPException = HTTPException
+
+    def test_identity_then_halt(self):
+        body = {"org": "o", "node": "a1", "tool": "t", "args": {}}
+        self.assertEqual(p03_door._agent_auth(body, object()), {"node": "a1"})
+        self.assertEqual(self.seen, [("identity", "a1", True)])
+        for state in ("halt", "killswitch"):
+            self.blocked = state
+            with self.assertRaises(self.HTTPException) as cm:
+                p03_door._agent_auth(body, object())
+            self.assertEqual(cm.exception.status_code, 409, state)
+        with self.assertRaises(self.HTTPException) as cm:
+            p03_door._agent_auth({"org": "o"}, object())
+        self.assertEqual(cm.exception.status_code, 422)
 
 
 if __name__ == "__main__":
