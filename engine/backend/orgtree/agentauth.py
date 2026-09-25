@@ -29,9 +29,16 @@ def child_env(slug: str, nid: str, *, generation: int | None = None,
     # Reusing them avoids reloading the whole organization once per forecasted
     # agent. The HTTP authorization path still validates both against live state.
     if generation is None or seat_id is None:
-        from . import store
-        with store.DOC_LOCK:
+        from . import orgtx, store
+        # PG-3r: a caller still inside a legacy DOC_LOCK hold may have changed
+        # this node (a new generation) without saving yet; only the resident
+        # document it holds shows that, so keep the old read there. Everyone
+        # else reads the committed row lock-free. A caller inside an org_tx
+        # must pass generation and seat_id: org_read cannot see its changes.
+        if getattr(store.DOC_LOCK, "_is_owned", lambda: False)():
             node = store.load_org(slug).node(nid)
+        else:
+            node = orgtx.org_read(slug).node(nid)
         if generation is None:
             generation = int(node.get('generation', 0))
         if seat_id is None:
