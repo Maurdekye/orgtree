@@ -7,22 +7,38 @@ scratch folders and the history and event readers are real. Each case's observat
 and compared with docs/state-system/org-read-boundary.json, and each test pins a fact stated in
 docs/state-system/operation-contracts.json (org-read.*).
 
-No case launches a real process. The org disk module's command runner (disk._run, which shells out to WSL) is a
-recorded fake WSL (a docker-desktop distro whose mount root exists and whose org disk is not mounted), the disk's
-Windows path is a temp folder, and while a case runs an audit hook refuses and records any process launch.
+This module launches no process. An audit hook installed before anything else is imported refuses and records any
+process launch for the whole run (imports, the app's construction, every case). The org disk module's command runner
+(disk._run, which shells out to WSL) is a recorded fake WSL (a docker-desktop distro whose mount root exists and
+whose org disk is not mounted), and the disk's Windows path is a temp folder.
 """
 from __future__ import annotations
 
-import base64
-import copy
-import json
-import os
-from pathlib import Path
-import subprocess
 import sys
-import tempfile
-import unittest
-from unittest.mock import patch
+
+# ---- the no-process guard, first: any process launch is refused (before the child exists) and recorded
+LAUNCH_EVENTS = ('subprocess.Popen', 'os.system', 'os.posix_spawn', 'os.spawn', 'os.startfile', 'os.exec')
+GUARD = {'on': True}
+LAUNCHES: list = []
+
+
+def _no_process(event, args):
+    if GUARD['on'] and event in LAUNCH_EVENTS:
+        LAUNCHES.append((event, repr(args)[:200]))
+        raise RuntimeError('real process launch refused by the boundary test guard: ' + event)
+
+
+sys.addaudithook(_no_process)
+
+import base64  # noqa: E402
+import copy  # noqa: E402
+import json  # noqa: E402
+import os  # noqa: E402
+from pathlib import Path  # noqa: E402
+import subprocess  # noqa: E402
+import tempfile  # noqa: E402
+import unittest  # noqa: E402
+from unittest.mock import patch  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
@@ -46,20 +62,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from orgtree import agentauth, api, deployment, disk, ledger, store, supervisor  # noqa: E402
 
 assert Path(store.DATA_ROOT).resolve() == _data.resolve(), 'this process would have written to the live root'
-
-# ---- the no-process guard: while a case runs, any process launch is refused (before the child exists) and recorded
-LAUNCH_EVENTS = ('subprocess.Popen', 'os.system', 'os.posix_spawn', 'os.spawn', 'os.startfile', 'os.exec')
-GUARD = {'on': False}
-LAUNCHES: list = []
-
-
-def _no_process(event, args):
-    if GUARD['on'] and event in LAUNCH_EVENTS:
-        LAUNCHES.append((event, repr(args)[:200]))
-        raise RuntimeError('real process launch refused by the boundary test guard: ' + event)
-
-
-sys.addaudithook(_no_process)
+assert LAUNCHES == [], LAUNCHES      # nothing above (the imports, the app's construction) tried to launch a process
 DISKS = Path(_temp) / 'disks'
 
 
@@ -70,7 +73,8 @@ def fake_wsl(args, timeout=60):
     ok = args == ['wsl', '-l', '-q'] or script.startswith('mkdir -p ')
     return subprocess.CompletedProcess(args, 0 if ok else 1, 'docker-desktop\n' if args[1:2] == ['-l'] else '', '')
 
-OP = {'X-Orgtree-Desktop-Token': 'operator'}
+
+OP ={'X-Orgtree-Desktop-Token': 'operator'}
 NO_TOOLS = {'bash': False, 'web': False, 'edit': False, 'subagents': False, 'mcp': []}
 SCOPE = {'add_dirs': [], 'tools': NO_TOOLS, 'org_visibility': 'team', 'charter': 'fixture'}
 FIELDS = {'schema', 'source_contract_sha256', 'qualification', 'contracts', 'cases', 'legacy_defects', 'scope'}
@@ -177,7 +181,6 @@ class Spies:
             p = patch.object(disk, cache, new=empty)
             p.start()
             self.ps.append(p)
-        GUARD["on"] = True
         return self
 
     def calls(self):
@@ -186,7 +189,6 @@ class Spies:
                                               "transcript_path", "_run", "windows_path")}
 
     def __exit__(self, *e):
-        GUARD["on"] = False
         for p in reversed(self.ps):
             p.stop()
 
@@ -478,12 +480,9 @@ class OrgReadBoundary(unittest.TestCase):
 
     def test_the_guard_refuses_a_real_launch_before_it_happens(self):
         before = len(LAUNCHES)
-        GUARD['on'] = True
-        try:
-            with self.assertRaises(RuntimeError):
-                subprocess.run([sys.executable, '-c', 'raise SystemExit(7)'], capture_output=True)
-        finally:
-            GUARD['on'] = False
+        self.assertTrue(GUARD['on'])         # on for the whole module, never switched off
+        with self.assertRaises(RuntimeError):
+            subprocess.run([sys.executable, '-c', 'raise SystemExit(7)'], capture_output=True)
         self.assertEqual([e for e, _ in LAUNCHES[before:]], ['subprocess.Popen'])
         del LAUNCHES[before:]
 
@@ -491,6 +490,11 @@ class OrgReadBoundary(unittest.TestCase):
         self.check('bridge_standard', 'bridge_frozen', 'bridge_frozen_no_org', 'disk_none', 'disk_dir_none',
                    'disk_file_none', 'disk_fake', 'disk_dir_fake', 'disk_dir_escape', 'disk_file_escape',
                    'disk_file_missing', 'disk_no_org', 'agent_token')
+
+
+def tearDownModule():
+    # a launch the product caught and swallowed fails no case; it still fails the module
+    assert LAUNCHES == [], LAUNCHES
 
 
 if __name__ == '__main__':
