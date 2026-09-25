@@ -352,3 +352,74 @@ def rehire(slug: str, actor: str, nid: str, grant: float | None = None,
     return _run("rehire", slug, lambda o: _rehire_rows(o, actor, nid),
                 lambda org, hn, hs: rehire_body(org, hn, hs, actor, nid, grant,
                                                 tier, raise_ceiling))
+
+
+# ---------------------------------------------------------------- delete
+# §delete (USER only). Like rename, the row set is derived from the census
+# (`NODE_KEYED_SECTIONS`, every section whose `on_delete` is `purged` or
+# `marked`) so a new per-node record the census learns about is locked here
+# without touching this file.
+#   nodes FOR UPDATE: `_taken_with(nid)` — the subtree and every lineage stack
+#     to a fixpoint (all popped; `bg_open` on any of them refuses);
+#   nodes FOR SHARE: the PARENT and every ancestor. The parent's children are
+#     the peers notified, and a hire under the parent locks it FOR UPDATE, so
+#     the peer list cannot change under the delete;
+#   sections: every purged/marked doc section, the notices, and the two
+#     banked-cost keys;
+#   logs: every purged dict log by name AND by each doomed owner row, every
+#     purged/marked list log by name, plus `events` / `notice_log`.
+
+
+def _delete_plan(org, actor: str, nid: str
+                 ) -> tuple[set[str], set[str], tuple[str, ...], tuple[Any, ...]]:
+    sections = {"notices", "deleted_cost_usd", "deleted_cost_usd_unknown"}
+    logs: set[Any] = {"events", "notice_log"}
+    n = org.nodes.get(nid)
+    doomed = set(org._taken_with(nid)) if n is not None else {nid}
+    for key, (_cls, _shape, on_delete) in NODE_KEYED_SECTIONS.items():
+        if on_delete not in ("purged", "marked") or key == "nodes":
+            continue
+        if key in store.DICT_LOGS:
+            logs.add(key)
+            logs |= {(key, k) for k in doomed}
+        elif key in store.LIST_LOGS:
+            logs.add(key)
+        else:
+            sections.add(key)
+    share: set[str] = set()
+    if n is not None:
+        parent = n["parent"]
+        if parent is not None and parent in org.nodes:
+            share.add(parent)
+        share |= _anc(org, nid)
+        if actor in org.nodes:
+            share.add(actor)
+    return (doomed, share - doomed, tuple(sorted(sections)),
+            tuple(sorted(logs, key=lambda x: (isinstance(x, tuple), str(x)))))
+
+
+def delete_body(tx, actor: str, nid: str) -> dict[str, Any]:
+    """The door body: re-derive the plan on the LOCKED document (Widen on a
+    gap — a hire under the subtree, a new generation), then the legacy
+    method."""
+    upd, share, _s, _l = _delete_plan(tx.org, actor, nid)
+    miss_u = upd - set(tx.lock_nodes)
+    miss_s = share - set(tx.lock_nodes) - set(tx.share_nodes)
+    if miss_u or miss_s:
+        raise Widen(miss_u, miss_s)
+    return tx.org.delete(actor, nid)
+
+
+def delete(slug: str, actor: str, nid: str) -> dict[str, Any]:
+    """Standalone runner: plan from a snapshot, one halt.txn, re-run on Widen."""
+    upd, share, sections, logs = _delete_plan(store.cached_org(slug), actor, nid)
+    for _ in range(MAX_WIDEN + 1):
+        try:
+            with halt.txn(slug, nodes=upd, share_nodes=share - upd,
+                          sections=sections, logs=logs) as tx:
+                return delete_body(tx, actor, nid)
+        except Widen as w:
+            upd |= w.nodes
+            share |= w.share_nodes
+    raise LedgerError(f"delete: the lock set kept growing after {MAX_WIDEN} "
+                      "widenings — nothing was applied; retry")
