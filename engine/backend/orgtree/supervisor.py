@@ -27691,8 +27691,11 @@ def hard_freeze(slug: str, kind: str, error: str) -> None:
     limit past current usage — after which the ▶ resume button replays the
     interrupted turns."""
     flag = kind + "_frozen"
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
+    # PG-3e-A: every node row (orgtx.ALL — it also excludes a node being
+    # created mid-sweep) and the flag's section, in one row transaction. Its
+    # callers hold no transaction on the org, so this never nests.
+    with orgtx.org_tx(slug, nodes=orgtx.ALL, sections=[flag]) as _hf_tx:
+        org = _hf_tx.org
         if org.d.get(flag):
             return
         org.d[flag] = True
@@ -27718,7 +27721,6 @@ def hard_freeze(slug: str, kind: str, error: str) -> None:
                         _append_resume(fz, inf["text"][-8000:],
                                        str(inf.get("view") or "")[-8000:])
                         halt.link_freeze_replay(slug, nid, fz)
-        store.save_org(org)
     interrupt_all(slug)
     notify(slug, "", flag)
 
