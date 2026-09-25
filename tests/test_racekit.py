@@ -189,10 +189,20 @@ class RaceKit(unittest.TestCase):
                 racekit.Race().__enter__()
 
     def test_refuses_a_data_root_outside_temp(self) -> None:
-        outside = str(Path(__file__).resolve().parents[1])
-        with patch.object(store, 'DATA_ROOT', outside):
-            with self.assertRaisesRegex(racekit.RaceFailure, 'not a throwaway'):
-                racekit.Race().__enter__()
+        # outside temp by construction (review f1: a checkout may itself live
+        # under %TEMP%), and the temp folder itself
+        tmp = Path(tempfile.gettempdir()).resolve()
+        for outside in (str(tmp.parent), str(tmp)):
+            with patch.object(store, 'DATA_ROOT', outside):
+                with self.assertRaisesRegex(racekit.RaceFailure, 'not a throwaway'):
+                    racekit.Race().__enter__()
+
+    def test_disposable_pg_refuses_a_non_loopback_server(self) -> None:
+        with self.assertRaisesRegex(ValueError, 'loopback'):
+            racekit.disposable_pg('postgresql://admin@db.example.com:5432/postgres', 'orgtree_x')
+
+    def test_row_wait_events_are_only_org_tx_lock_waits(self) -> None:
+        self.assertEqual(racekit.ROW_WAIT_EVENTS, {'advisory', 'transactionid', 'tuple'})
 
     def test_refuses_an_undeclared_postgres(self) -> None:
         with patch.object(store, 'STORE_BACKEND', 'postgres'), \

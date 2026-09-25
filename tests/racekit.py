@@ -11,8 +11,9 @@ green whether or not the code is safe. Each family's race test (PYPG-PLAN.md
     the test puts in its own code, until the test releases it;
   * PROVE that another actor is WAITING ON A ROW LOCK, from the lock
     manager's own state — the fake's `RowLocks` wait-for table, or
-    PostgreSQL's `pg_stat_activity.wait_event_type = 'Lock'` for that
-    actor's own backend pid. Never from "it has not finished yet";
+    PostgreSQL's `pg_stat_activity` Lock wait (advisory / transactionid /
+    tuple — the waits org_tx's row locking takes) for that actor's own
+    backend pid. Never from "it has not finished yet";
   * RECORD the achieved order of every point every actor passed, and FAIL
     unless the order the test expects is the order that happened.
 
@@ -78,6 +79,11 @@ WAIT_S = 5.0
 
 _disposable_urls: set[str] = set()
 
+#: pg_stat_activity.wait_event values (type 'Lock') that org_tx's row locking
+#: produces: its per-row advisory lock, and a FOR UPDATE/SHARE row wait.
+ROW_WAIT_EVENTS = frozenset({"advisory", "transactionid", "tuple"})
+_LOOPBACK = re.compile(r"@(127\.0\.0\.1|localhost|\[::1\])(:\d+)?(/|$)")
+
 
 class RaceFailure(AssertionError):
     """The forced interleaving did not happen, or was not the one expected."""
@@ -87,6 +93,8 @@ def disposable_pg(admin_url: str, prefix: str) -> str:
     """Create a throwaway database `<prefix>_t<pid>` on the DISPOSABLE server
     `admin_url`, and return its URL. Only a URL returned here arms a Race on
     the PostgreSQL backend. Drop it with `drop_disposable_pg`."""
+    if not _LOOPBACK.search(admin_url):
+        raise ValueError("disposable_pg needs a loopback (disposable) server")
     import psycopg
     if not re.fullmatch(r"[a-z][a-z0-9_]{0,40}", prefix):
         raise ValueError(f"bad database prefix {prefix!r}")
@@ -319,7 +327,10 @@ class Race:
             row = probe.execute(
                 "SELECT wait_event_type, wait_event FROM pg_stat_activity WHERE pid = %s",
                 (a.pg_pids[-1],)).fetchone()
-            if row is None or row[0] != "Lock":
+            # only the waits org_tx itself takes: its per-row advisory lock, and
+            # a FOR UPDATE/SHARE row wait (transactionid / tuple). A relation,
+            # extend or other heavyweight wait is not a row-lock wait (review f2a)
+            if row is None or row[0] != "Lock" or row[1] not in ROW_WAIT_EVENTS:
                 return None
             return f"postgres Lock/{row[1]} (pid {a.pg_pids[-1]})"
         self._waiting = waiting
