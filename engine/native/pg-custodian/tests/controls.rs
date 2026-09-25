@@ -274,12 +274,37 @@ fn d_a_live_directory_copy_restores_inconsistently_under_writes() {
             json!({"restore": "started", "count_l": c[0][0], "count_r": c[0][1], "invariant_broken": true})
         }
     };
+    // SAFE arm, same scenario: the same tables and the same kind of writer,
+    // backed up by the custodian's same-snapshot dump while it commits.
+    let rt = cluster::start(&r, &b, None).unwrap();
+    let workload2: String = (0..3000).map(|i| format!("BEGIN; INSERT INTO l VALUES ({i}); INSERT INTO r VALUES ({i}); COMMIT;\n")).collect();
+    let (bb, rtt) = (b.clone(), rt.clone());
+    let writer = std::thread::spawn(move || cluster::psql_stdin(&bb, &rtt, cluster::APP_DB, &workload2, false).unwrap());
+    let before: u64 = cluster::psql(&b, &rt, cluster::APP_DB, "select count(*) from l").unwrap()[0][0].parse().unwrap();
+    let out = copy.parent().unwrap().join("safe-backup");
+    let manifest = orgtree_pg_custodian::backup::backup(&r, &b, &out, &env).unwrap();
+    let after: u64 = cluster::psql(&b, &rt, cluster::APP_DB, "select count(*) from l").unwrap()[0][0].parse().unwrap();
+    writer.join().unwrap();
+    cluster::stop(&r, &b, false, false).unwrap();
+    let dst = fresh("d-safe-dst");
+    let dr = guard::init_root(&dst, &env).unwrap();
+    let _g2 = StopOnPanic(vec![data_of(&dst)], b.exe("pg_ctl"));
+    cluster::init(&dr, &b, &InitOptions::default()).unwrap();
+    let rt_d = cluster::start(&dr, &b, None).unwrap();
+    orgtree_pg_custodian::backup::restore(&dr, &b, &out).unwrap();
+    let c = cluster::psql(&b, &rt_d, cluster::APP_DB, "select (select count(*) from l), (select count(*) from r)").unwrap();
+    assert_eq!(c[0][0], c[0][1], "the SAFE backup must restore consistently");
+    assert!(before < after, "the safe arm's writer must have been committing during its backup ({before}..{after})");
+    cluster::stop(&dr, &b, false, false).unwrap();
+    cluster::destroy(&dr, &b).unwrap();
     cluster::destroy(&r, &b).unwrap();
     let _ = std::fs::remove_dir_all(copy.parent().unwrap());
     println!(
         "P03-WS1-CONTROL {}",
         json!({"id": "WS1.d.backup_by_live_copy", "executed_records": executed, "files_copied": files,
+               "copy_order": "STAGED worst case, disclosed (see the control_executed record)",
                "unsafe": outcome,
-               "safe": "see backup_under_concurrent_writes_restores_consistently_under_a_new_incarnation (smoke_cluster.rs): same-snapshot dump restores with the invariant intact"})
+               "safe": {"method": "same-snapshot pg_dump under a concurrent writer, same tables", "writer_rows_during_backup": [before, after],
+                        "snapshot_rows_l": manifest.tables["public.l"].rows, "restored_l": c[0][0], "restored_r": c[0][1], "invariant_intact": true}})
     );
 }
