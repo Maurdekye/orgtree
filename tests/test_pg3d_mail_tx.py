@@ -99,7 +99,7 @@ class MailTx(unittest.TestCase):
         MailTx.n += 1
         self.slug = f'pg3dmail{MailTx.n}'
         org = store.create_org(self.slug)
-        org.hire(ledger.USER, None, 'haiku', 0, 'boss')
+        org.hire(ledger.USER, None, 'haiku', 3, 'boss')
         org.hire('boss', 'boss', 'haiku', 0, 'deep', add_dirs=[],
                  tools={'bash': False, 'web': False, 'edit': False, 'subagents': False, 'mcp': []},
                  org_visibility='self', charter='a deep test agent')
