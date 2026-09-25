@@ -130,9 +130,8 @@ def tx_open(slug: str) -> bool:
     """Is an `org_tx` open on `slug` on THIS thread? (A mail helper called
     with a transaction's Org mutates it rather than opening a second
     transaction, which would raise NestedTx.) Reads orgtx's per-thread
-    registry; PG-0 is asked for a public equivalent."""
-    slugs = getattr(orgtx._open, "slugs", None) or set()   # pyright: ignore[reportPrivateUsage]
-    return slug in slugs
+    registry through PG-0's public `orgtx.current_tx`."""
+    return orgtx.current_tx(slug) is not None
 
 
 @contextlib.contextmanager
