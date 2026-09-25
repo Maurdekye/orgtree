@@ -19500,7 +19500,8 @@ def _resume_rows(slug: str, pick: set[str] | None) -> dict[str, Any]:
 
 def _wd_rows(slug: str, wid: str) -> dict[str, Any]:
     """PG-3e-A: the rows a watchdog fire/alert writes — the org's
-    `watchdogs` list and `watchdog_history`, the events log, and the mail
+    `watchdogs` list and its `watchdog_tombs` (a one-shot fire leaves
+    one), the `watchdog_history` and events logs, and the mail
     rows of the dog's OWNER (a deposit, PG-3d's `mailtx.send_rows`). The
     owner is fixed when the dog is armed, so reading it from the cached
     snapshot is exact; an unknown dog locks no owner and the ledger call
@@ -19514,7 +19515,7 @@ def _wd_rows(slug: str, wid: str) -> dict[str, Any]:
     except Exception:                                    # noqa: BLE001
         owner = ""
     rows = mailtx.send_rows(owner) if owner else {"sections": [], "logs": []}
-    return mailtx.merge(rows, sections=["watchdogs"],
+    return mailtx.merge(rows, sections=["watchdogs", "watchdog_tombs"],
                         logs=["events", "watchdog_history"])
 
 
