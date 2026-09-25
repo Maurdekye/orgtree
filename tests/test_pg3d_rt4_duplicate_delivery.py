@@ -105,6 +105,10 @@ class RT4DuplicateDelivery(unittest.TestCase):
         sup._confirm_delivered(self.slug, 'worker', [self.tok])
 
     def reclaim(self) -> None:
+        # the fold-back runs as ANOTHER ENGINE would: with none of this
+        # process's in-memory confirmation evidence (the row lock, not a
+        # shared dict, is what must keep the two apart under PostgreSQL)
+        sup._state.pop((self.slug, 'worker'), None)
         sup.reclaim_orphans(self.slug, 'worker', now=time.time())
 
     def race(self, hold: Hold, first, second) -> None:
@@ -147,8 +151,9 @@ class RT4DuplicateDelivery(unittest.TestCase):
         self.assertTrue(self.second_waited, 'the second confirmation did not wait on the journal row')
         self.assertEqual(self.copies(), (1, 0, 0))
         d = store.load_org(self.slug).d
-        receipts = [r for r in (d.get('mail_transitions') or {}).get('worker') or []
-                    if self.tok in (r.get('before') or [])]
+        rows = (d.get('mail_transitions') or {}).get('worker') or []
+        rows = list(rows.values()) if isinstance(rows, dict) else list(rows)
+        receipts = [r for r in rows if isinstance(r, dict) and self.tok in (r.get('before') or [])]
         self.assertEqual(len(receipts), 1, receipts)
 
     def test_confirm_first_then_fold_back_delivers_once(self) -> None:
