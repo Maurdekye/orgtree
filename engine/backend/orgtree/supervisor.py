@@ -7727,36 +7727,50 @@ def _envelope_decide(org: Org, nid: str, kind: str, dig: str, now: float,
     return full, snap["seq"]
 
 
-@halt.delivery(lambda: None)
 def _commit_envelope(slug: str, nid: str,
                      pending: dict[str, envelope.Snapshot]) -> None:
     """Record what the agent has now demonstrably read (D-223).
 
     Broad failure handling is deliberate and matches the rest of the envelope:
     this is bookkeeping that makes later turns CHEAPER, and losing it costs one
-    redundant full block. It must never be able to fail a turn.
+    redundant full block. It must never be able to fail a turn — which is why
+    the swallow sits HERE, outside the halt gate: the gate's transaction
+    commits after the body returns, so a failed commit surfaces from the gate
+    itself, not from inside the body (PG-3e-A).
     """
     if not pending:
         return
     try:
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            if nid in org.nodes:
-                n = org.node(nid)
-                live = str(n.get("session_id") or "")
-                for kind, snap in pending.items():
-                    # ⚠ RE-CHECK THE SESSION UNDER THE LOCK. Between rendering
-                    # and confirming, the node may have been re-seeded, forked
-                    # or cheap-compacted onto a different session. The block
-                    # went to the OLD conversation; recording it against the
-                    # new one would point a successor at a snapshot that is not
-                    # in its context and never was.
-                    if snap["sid"] == live:
-                        envelope.write(n, kind, snap)
-                store.save_org(org)
+        if _commit_envelope_tx(slug, nid, pending) is None:
+            return                                  # halted: gate refused
     except Exception:                                      # noqa: BLE001
         pass
     pending.clear()
+
+
+@halt.delivery(lambda: None)
+def _commit_envelope_tx(slug: str, nid: str,
+                        pending: dict[str, envelope.Snapshot]) -> bool:
+    """`_commit_envelope`'s write, on the halt gate's own transaction: the
+    envelope records live on the agent's node row, which the gate holds FOR
+    UPDATE (PG-3e-A)."""
+    tx = halt.current_tx()
+    if tx is None:                                  # the org is gone
+        return True
+    org = tx.org
+    if nid in org.nodes:
+        n = org.node(nid)
+        live = str(n.get("session_id") or "")
+        for kind, snap in pending.items():
+            # ⚠ RE-CHECK THE SESSION UNDER THE LOCK. Between rendering
+            # and confirming, the node may have been re-seeded, forked
+            # or cheap-compacted onto a different session. The block
+            # went to the OLD conversation; recording it against the
+            # new one would point a successor at a snapshot that is not
+            # in its context and never was.
+            if snap["sid"] == live:
+                envelope.write(n, kind, snap)
+    return True
 
 
 def turn_usage_block(org: Org, nid: str, now: float | None = None, *,
@@ -11169,13 +11183,17 @@ def _envelope(slug: str, nid: str, text: str,
     because images are unwanted mid-task, but because `additionalContext` is
     a string and there is nowhere to put one."""
     tok = None
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
+    # PG-3e-A: one halt transaction over the drain rows (`_envelope_rows`).
+    # Inside `_admit_message`'s admission gate it JOINS the gate's
+    # transaction, which declares the same rows; on the turn path it is its
+    # own transaction. The halt decision is taken on the LOCKED row.
+    with halt.txn(slug, **_envelope_rows(nid)) as _env_tx:
+        org = _env_tx.org
         if nid not in org.nodes:
             if view_out is not None:
                 view_out.append(base_view)
             return text, None, []
-        halt.check(slug, nid)
+        _halt_check_locked(org, nid)
         held = list(owned_toks or [])         # materialised ONCE (a generator would be spent)
         st = state(slug, nid)
         with _state_lock:
@@ -11201,7 +11219,6 @@ def _envelope(slug: str, nid: str, text: str,
                                  segments=(_segments_for(mail, pending, None)
                                            if owned is not None or carried is not None
                                            else segments))
-            store.save_org(org)
     if segments_out is not None:
         segments_out.append(segments)
     prelude = []
@@ -13323,23 +13340,34 @@ def _working_checkup_reserve(slug: str, nid: str, now: float) -> str | None:
         return mid
 
 
-@halt.delivery(lambda: None)
 def _auto_wake_cancel(slug: str, nid: str, mid: str) -> None:
     """Withdraw an automatic wake's reservation that lost the idle-admission
-    race — the checkup's and the docket reminder's alike."""
+    race — the checkup's and the docket reminder's alike. A failure is
+    swallowed HERE, outside the halt gate, because the gate's transaction
+    commits after the body returns (PG-3e-A)."""
     try:
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            box = (org.d.get("mail") or {}).get(nid) or []
-            before = len(box)
-            box[:] = [m for m in box if m.get("id") != mid]
-            if len(box) == before:
-                return          # already drained: the real turn owns it
-            log = (org.d.get("mail_log") or {}).get(nid) or []
-            log[:] = [m for m in log if m.get("id") != mid]
-            store.save_org(org)
+        _auto_wake_cancel_tx(slug, nid, mid)
     except (LedgerError, OSError):
         pass
+
+
+@halt.delivery(lambda: None,
+               rows=lambda slug, nid, mid: mailtx.retract_rows(nid))
+def _auto_wake_cancel_tx(slug: str, nid: str, mid: str) -> None:
+    """`_auto_wake_cancel`'s write on the halt gate's transaction: the agent's
+    row (the gate's), the pending `mail` boxes and the agent's `mail_log`
+    archive (`mailtx.retract_rows`)."""
+    tx = halt.current_tx()
+    if tx is None:                                  # the org is gone
+        return
+    org = tx.org
+    box = (org.d.get("mail") or {}).get(nid) or []
+    before = len(box)
+    box[:] = [m for m in box if m.get("id") != mid]
+    if len(box) == before:
+        return          # already drained: the real turn owns it
+    log = (org.d.get("mail_log") or {}).get(nid) or []
+    log[:] = [m for m in log if m.get("id") != mid]
 
 
 def _note_working_activity(slug: str, nid: str,
@@ -19438,6 +19466,19 @@ def _admission_rows(slug: str, nid: str, *, compact: bool = False
     return {"nodes": [nid, f"{nid}@{gen}"],
             "sections": list(ADMISSION_COMPACT_SECTIONS),
             "share_sections": share, "logs": list(ADMISSION_COMPACT_LOGS)}
+
+
+def _envelope_rows(nid: str) -> dict[str, Any]:
+    """PG-3e-A: the rows `_envelope`'s drain writes — the agent's row, the
+    drain sections (PG-3d's `mailtx.reclaim_rows` plus
+    `ADMISSION_WRITE_SECTIONS`) and `mail_log` — with the killswitch FOR
+    SHARE for the locked halt decision. `_admit_message`'s gate declares
+    exactly these so the envelope joins it."""
+    sections = list(dict.fromkeys(
+        [*mailtx.reclaim_rows(nid).get("sections", ()),
+         *ADMISSION_WRITE_SECTIONS]))
+    return {"nodes": [nid], "sections": sections,
+            "share_sections": [halt.KILLSWITCH], "logs": list(ADMISSION_LOGS)}
 
 
 @contextlib.contextmanager
@@ -26833,7 +26874,7 @@ def send_message(slug: str, nid: str, text: str,
                           restart_replay=restart_replay, _inventory=_inventory)
 
 
-@halt.admission
+@halt.admission(rows=lambda slug, nid, *_a, **_k: _envelope_rows(nid))
 def _admit_message(slug: str, nid: str, text: str,
                    command: bool = False, wake: bool = True,
                    mail_ping: bool = False,
@@ -26916,8 +26957,14 @@ def _admit_message(slug: str, nid: str, text: str,
     # limit and, since 2026-08-06, the connection backoff, which reuses the
     # same flag. So NEW MAIL IS NOT AN ESCAPE HATCH from a freeze of either
     # kind: it is accepted, queued: 0, and nothing starts.
-    with store.DOC_LOCK:
-        _o = store.load_org(slug)
+    # PG-3e-A: the admission gate's transaction (`_envelope_rows`: the
+    # agent's row, the drain sections, mail_log) is the org this door reads
+    # and writes; its writes commit with the gate. Only a gate that ran
+    # WITHOUT a transaction (the org does not exist) falls to the legacy
+    # load, which refuses it exactly as before.
+    _adm_tx = halt.current_tx()
+    with (contextlib.nullcontext() if _adm_tx is not None else store.DOC_LOCK):
+        _o = _adm_tx.org if _adm_tx is not None else store.load_org(slug)
         send_mail_ids = ([str(m['id']) for m in
                          (_o.d.get('mail') or {}).get(nid, []) if m.get('id')]
                          if mail_ping else None)
@@ -26925,7 +26972,7 @@ def _admit_message(slug: str, nid: str, text: str,
         if not send_mail_ids:
             send_mail_ids = None
         if (wake and not command and not idle_only and nid in _o.nodes
-                and maildrain.request(_o, nid)):
+                and maildrain.request(_o, nid) and _adm_tx is None):
             store.save_org(_o)
         if nid in _o.nodes and (native_reason := _native_context_hold(_o, nid, inventory=_inventory)):
             return {'accepted':False,'queued':0,'native_context_held':True,'error':native_reason}
@@ -26986,10 +27033,13 @@ def _admit_message(slug: str, nid: str, text: str,
                     or st.get("steer") or st.get("cache_keepalive")
                     or st.get("proc_control")):
                 return {"accepted": False, "queued": 0, "not_idle": True}
-        with store.DOC_LOCK:
-            pending_org = store.load_org(slug)
-            if maildrain.request(pending_org, nid):
-                store.save_org(pending_org)
+        if _adm_tx is not None:                   # PG-3e-A: the gate's row
+            maildrain.request(_adm_tx.org, nid)
+        else:
+            with store.DOC_LOCK:
+                pending_org = store.load_org(slug)
+                if maildrain.request(pending_org, nid):
+                    store.save_org(pending_org)
         with _state_lock:
             st['busy'] = True
         _start_turn_worker(slug, nid,
@@ -30700,9 +30750,25 @@ def _steer_late_transition(st: dict[str, Any], entry: dict[str, Any],
     return "reclaim", reclaimed, escaped
 
 
-@halt.delivery(lambda: False)
 def _note_steer_attempt(slug: str, nid: str, toks: Iterable[str],
                         outcome: str, reason: str = "") -> bool:
+    """See `_note_steer_attempt_tx`. PG-3e-A: the halt gate's transaction
+    commits AFTER the body returns, so a failed commit surfaces from the gate
+    itself — it is caught HERE, where it still means "the mark is not
+    durable" (False), exactly as a failed save did."""
+    drop = [str(t) for t in toks]           # materialised once for both calls
+    if not drop:
+        return True
+    try:
+        return _note_steer_attempt_tx(slug, nid, drop, outcome, reason)
+    except Exception:                                        # noqa: BLE001
+        return False
+
+
+@halt.delivery(lambda: False,
+               rows=lambda slug, nid, *_a, **_k: {"sections": ["delivering"]})
+def _note_steer_attempt_tx(slug: str, nid: str, toks: Iterable[str],
+                           outcome: str, reason: str = "") -> bool:
     """Mark the DURABLE delivering batches behind a steer with the attempt's
     outcome (audit D3): `attempt = {via, outcome, at, n, reason}`. A restart
     then knows that a batch it folds back may already have reached the model
@@ -30717,26 +30783,23 @@ def _note_steer_attempt(slug: str, nid: str, toks: Iterable[str],
     drop = {str(t) for t in toks}
     if not drop:
         return True
-    try:
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            if nid not in org.nodes:
-                return True
-            hit = False
-            for b in (org.d.get("delivering") or {}).get(nid) or []:
-                if b.get("tok") in drop:
-                    prev = b.get("attempt") if isinstance(b.get("attempt"), dict) else {}
-                    b["attempt"] = {"via": "steer", "outcome": str(outcome),
-                                    "at": now_iso(),
-                                    "n": int(prev.get("n") or 0) + 1,
-                                    "reason": str(reason or "")[:200]}
-                    mailruntime.note_engine(b)
-                    hit = True
-            if hit:
-                store.save_org(org)
-            return True
-    except Exception:                                        # noqa: BLE001
-        return False
+    # PG-3e-A: the gate's transaction holds the agent's row and the
+    # `delivering` journal; the mark commits with it.
+    tx = halt.current_tx()
+    if tx is None:                                  # the org is gone
+        return True
+    org = tx.org
+    if nid not in org.nodes:
+        return True
+    for b in (org.d.get("delivering") or {}).get(nid) or []:
+        if b.get("tok") in drop:
+            prev = b.get("attempt") if isinstance(b.get("attempt"), dict) else {}
+            b["attempt"] = {"via": "steer", "outcome": str(outcome),
+                            "at": now_iso(),
+                            "n": int(prev.get("n") or 0) + 1,
+                            "reason": str(reason or "")[:200]}
+            mailruntime.note_engine(b)
+    return True
 
 
 def _steer_fold_log(slug: str, nid: str, n: int, where: str,
@@ -30850,77 +30913,87 @@ def commit_steer(slug: str, nid: str, msgs: list[Any], *,
         st.setdefault("mail_confirmed", set()).update(toks)
 
     def _record() -> None:
-        with store.DOC_LOCK:
-            try:
-                org = store.load_org(slug)
-            except Exception:                   # noqa: BLE001
-                return
-            if nid not in org.nodes:
-                return
-            with _state_lock:
-                mailruntime.settle_confirmation(org, st, nid)
-                mailruntime.release_rowless(org, st, nid, toks)
-            receipt = mailruntime.confirmation_receipt(org, nid, toks,
-                operation=lifecycle.new_operation("steer-confirm")) if toks else None
-            if toks and receipt is None:
-                return  # Already durable; do not append the visible row twice.
-            dlmap = org.d.get("delivering") or {}
-            dl = dlmap.get(nid) or []
-            by_tok = {str(b.get("tok") or ""): b for b in dl}
-            for i, m in enumerate(msgs):
-                if isinstance(m, dict):
-                    for t in m.get("toks") or []:
-                        b = by_tok.get(str(t))
-                        if b and isinstance(b.get("segments"), list):
-                            per_carrier[i].extend(b["segments"])
-            if any(views):
-                log = org.d.setdefault("steered_log", {}).setdefault(nid, [])
-                for i, t in enumerate(views):
-                    if not t:
-                        continue
-                    s = str(t)
-                    saved = {"at": stamp, "text": s[:100000], "level": level,
-                             "visible_id": "steer:" + uuid.uuid4().hex,
-                                **({"truncated": True}
-                                   if len(s) > 100000 else {}),
-                                **({"segments": per_carrier[i]}
-                                   if per_carrier[i] else {})}
-                    log.append(saved)
-                    committed.append((org, saved))
-
-            drop = set(toks)
-            if dl and drop:
-                keep = [b for b in dl if b.get("tok") not in drop]
-                if keep:
-                    dlmap[nid] = keep
-                else:
-                    dlmap.pop(nid, None)
-            halt.confirmed(org, nid, drop, msgs)
-            if receipt is not None:
-                mailruntime.write_reclaim_receipt(org, receipt)
-                mailruntime.settle_replay(org, nid)
+        # PG-3e-A: one halt transaction over the confirmation rows
+        # (`_steer_commit_rows`). Called from `pop_steer` it JOINS that gate's
+        # transaction (which declares the same rows) and commits with it; from
+        # a codex/antigravity pump it is its own transaction. A failure after
+        # the receipt was prepared is settled by the receipt, as the save path
+        # was: a body that raised committed nothing (outcome is not
+        # "committed", so it re-raises); a commit whose RESPONSE was lost
+        # after it landed reads back as committed and proceeds.
+        receipt: dict[str, Any] | None = None
+        try:
+            with halt.txn(slug, **_steer_commit_rows(nid)) as _cs_tx:
+                org = _cs_tx.org
+                if nid not in org.nodes:
+                    return
                 with _state_lock:
-                    mailruntime.compact_receipts(org, st, nid,
-                                                 keep=(receipt["operation"],))
-            try:
-                store.save_org(org)
-            except Exception:
-                if receipt is None:
-                    raise
-                fresh = store.load_org(slug)
-                if mailruntime.reclaim_outcome(fresh, receipt) != "committed":
-                    raise
-                org = fresh
-            with _state_lock:
-                mailruntime.settle_confirmation(org, st, nid)
+                    mailruntime.settle_confirmation(org, st, nid)
+                    mailruntime.release_rowless(org, st, nid, toks)
+                receipt = mailruntime.confirmation_receipt(org, nid, toks,
+                    operation=lifecycle.new_operation("steer-confirm")) if toks else None
+                if toks and receipt is None:
+                    return  # Already durable; do not append the visible row twice.
+                dlmap = org.d.get("delivering") or {}
+                dl = dlmap.get(nid) or []
+                by_tok = {str(b.get("tok") or ""): b for b in dl}
+                for i, m in enumerate(msgs):
+                    if isinstance(m, dict):
+                        for t in m.get("toks") or []:
+                            b = by_tok.get(str(t))
+                            if b and isinstance(b.get("segments"), list):
+                                per_carrier[i].extend(b["segments"])
+                if any(views):
+                    log = org.d.setdefault("steered_log", {}).setdefault(nid, [])
+                    for i, t in enumerate(views):
+                        if not t:
+                            continue
+                        s = str(t)
+                        saved = {"at": stamp, "text": s[:100000], "level": level,
+                                 "visible_id": "steer:" + uuid.uuid4().hex,
+                                    **({"truncated": True}
+                                       if len(s) > 100000 else {}),
+                                    **({"segments": per_carrier[i]}
+                                       if per_carrier[i] else {})}
+                        log.append(saved)
+                        committed.append((org, saved))
+
+                drop = set(toks)
+                if dl and drop:
+                    keep = [b for b in dl if b.get("tok") not in drop]
+                    if keep:
+                        dlmap[nid] = keep
+                    else:
+                        dlmap.pop(nid, None)
+                halt.confirmed(org, nid, drop, msgs)
+                if receipt is not None:
+                    mailruntime.write_reclaim_receipt(org, receipt)
+                    mailruntime.settle_replay(org, nid)
+                    with _state_lock:
+                        mailruntime.compact_receipts(org, st, nid,
+                                                     keep=(receipt["operation"],))
+        except Exception:
+            if receipt is None:
+                raise
+            fresh = orgtx.org_read(slug)
+            if mailruntime.reclaim_outcome(fresh, receipt) != "committed":
+                raise
+            org = fresh
+        with _state_lock:
+            mailruntime.settle_confirmation(org, st, nid)
     if out or toks:
         try:
             _record()
         except Exception:                                   # noqa: BLE001
             committed.clear()
     if committed:
-        for org, saved in committed:
-            _emit_committed_steer(org, nid, saved)
+        def _emit() -> None:
+            for org, saved in committed:
+                _emit_committed_steer(org, nid, saved)
+        # durable first, visible second: inside `pop_steer`'s gate the rows
+        # commit when the GATE does (PG-3e-A), so the frames wait for it
+        if not halt._after(_emit):  # pyright: ignore[reportPrivateUsage]
+            _emit()
         return out
     for i, raw in enumerate(out):
         body = str(raw)
@@ -30931,7 +31004,15 @@ def commit_steer(slug: str, nid: str, msgs: list[Any], *,
     return out
 
 
-@halt.delivery(list)
+def _steer_commit_rows(nid: str) -> dict[str, Any]:
+    """PG-3e-A: the rows `commit_steer` writes — PG-3d's confirmation rows
+    (`mailtx.confirm_rows`: the agent's row, `delivering`,
+    `mail_transitions`) and the agent's `steered_log`."""
+    return mailtx.merge(mailtx.confirm_rows(nid), logs=[("steered_log", nid)])
+
+
+@halt.delivery(list, rows=lambda slug, nid, *_a, defer_commit=False, **_k:
+               None if defer_commit else _steer_commit_rows(nid))
 def pop_steer(slug: str, nid: str, *, return_carriers: bool = False,
               defer_commit: bool = False) -> list[Any]:
     """The steering hook's fetch: up to 32 pending carriers, atomically in FIFO order.
@@ -31106,9 +31187,32 @@ def _supersede_steer_attempts(org: Org, nid: str, new_did: str, toks: Iterable[s
             atts[k]["resolved"] = "superseded"
 
 
-@halt.delivery(lambda: (None, []))
 def claim_steer(slug: str, nid: str, tool_use_id: str,
                 transcript_path: str = "") -> tuple[str | None, list[Any]]:
+    """See `_claim_steer_tx`. PG-3e-A: the halt gate's transaction commits
+    AFTER the body returns, so contract step 3 (a claim that is not durable
+    releases its RAM claims and returns nothing) is enforced HERE, around
+    the gate, where a failed commit surfaces."""
+    scan_steer_records(slug, nid)           # positive-only: a record may have landed
+    held: dict[str, Any] = {}
+    try:
+        return _claim_steer_tx(slug, nid, tool_use_id, transcript_path, held)
+    except Exception:                                        # noqa: BLE001
+        did = held.get("did")
+        with _state_lock:
+            for c in held.get("chosen") or []:
+                if c.get("claim", {}).get("delivery_id") == did:
+                    c["claim"] = None
+        return None, []
+
+
+@halt.delivery(lambda: (None, []),
+               rows=lambda slug, nid, *_a, **_k: {
+                   "sections": ["delivering"],
+                   "logs": [("steer_attempts", nid)]})
+def _claim_steer_tx(slug: str, nid: str, tool_use_id: str,
+                    transcript_path: str, held: dict[str, Any]
+                    ) -> tuple[str | None, list[Any]]:
     """The hook's fetch, D1-safe: hand out everything offerable under a lease
     and a durable attempt record, commit nothing. Returns (delivery_id, texts);
     (None, []) when nothing is offerable or the claim could not be made
@@ -31122,8 +31226,11 @@ def claim_steer(slug: str, nid: str, tool_use_id: str,
       3. if that save fails, the RAM claims are released and nothing is
          returned — a delivery whose claim is not durable never happens.
     Lock order is `_state_lock` (released) then DOC_LOCK, the order every
-    other site in this file uses."""
-    scan_steer_records(slug, nid)           # positive-only: a record may have landed
+    other site in this file uses.
+
+    PG-3e-A: runs on the halt gate's transaction (the agent's row, the
+    `delivering` journal, the agent's `steer_attempts`); `held` hands the RAM
+    claims back to `claim_steer`, which releases them if the commit fails."""
     st = state(slug, nid)
     now = time.time()
     did = os.urandom(8).hex()
@@ -31147,59 +31254,54 @@ def claim_steer(slug: str, nid: str, tool_use_id: str,
             chosen.append(c)
         if not chosen:
             return None, []
+        held.update(did=did, chosen=chosen)
     out, views, toks = _steer_parts(chosen)
     unconfirmable = False
+    tx = halt.current_tx()
+    if tx is None:                                  # the org is gone
+        raise LedgerError(f"no such org: {slug}")
+    org = tx.org
+    if nid not in org.nodes:
+        raise LedgerError("node gone")
+    if not transcript_path:
+        # the hook did not say where the CLI records (an older or
+        # foreign payload): fall back to the session's transcript the
+        # supervisor already knows how to find; if THAT is unknown the
+        # delivery can never be confirmed -- say so now, once, rather
+        # than fold every message at the boundary in silence
+        transcript_path = transcript_path_for_node(org, nid) or ""
+        if not transcript_path:
+            unconfirmable = True
+            if not st.get("steer_unconfirmable_said"):
+                st["steer_unconfirmable_said"] = True
+                print(f"[orgtree] {slug}/{nid}: steer claim {did} has no transcript "
+                      f"path -- the CLI's record cannot be found, so this delivery "
+                      f"is UNCONFIRMABLE (delivered, folded at the boundary, redelivered)")
     try:
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            if nid not in org.nodes:
-                raise LedgerError("node gone")
-            if not transcript_path:
-                # the hook did not say where the CLI records (an older or
-                # foreign payload): fall back to the session's transcript the
-                # supervisor already knows how to find; if THAT is unknown the
-                # delivery can never be confirmed -- say so now, once, rather
-                # than fold every message at the boundary in silence
-                transcript_path = transcript_path_for_node(org, nid) or ""
-                if not transcript_path:
-                    unconfirmable = True
-                    if not st.get("steer_unconfirmable_said"):
-                        st["steer_unconfirmable_said"] = True
-                        print(f"[orgtree] {slug}/{nid}: steer claim {did} has no transcript "
-                              f"path -- the CLI's record cannot be found, so this delivery "
-                              f"is UNCONFIRMABLE (delivered, folded at the boundary, redelivered)")
-            try:
-                size = os.path.getsize(transcript_path) if transcript_path else 0
-            except OSError:
-                size = 0
-            mail_ids: list[str] = []
-            for b in (org.d.get("delivering") or {}).get(nid) or []:
-                if b.get("tok") in toks:
-                    cl = b.setdefault("claim", {})
-                    cl.update({"delivery_id": did, "tool_use_id": tool_use_id,
-                               "claimed_at": now, "lease_until": now + STEER_CLAIM_LEASE_S})
-                    b["attempts"] = int(b.get("attempts") or 0) + 1
-                    b.setdefault("delivery_ids", []).append(did)
-                    mail_ids.extend(str(m.get("id")) for m in b.get("mail") or [] if m.get("id"))
-            by_tok = {str(b.get("tok") or ""): b for b in (org.d.get("delivering") or {}).get(nid) or []}
-            view_segments = [[segment for tok in carrier.get("toks") or []
-                              for segment in (by_tok.get(str(tok), {}).get("segments") or [])]
-                             for carrier in chosen]
-            _steer_attempts(org, nid)[did] = {
-                "at": now_iso(), "tool_use_id": tool_use_id, "toks": list(toks),
-                "mail_ids": mail_ids, "transcript_path": transcript_path,
-                "tp_offset": size, **({"unconfirmable": True} if unconfirmable else {}),
-                "views": [str(v)[:100000] for v in views], "view_segments": view_segments, "texts_n": len(out),
-                "retried": any(int(c["claim"].get("attempts") or 0) > 1 for c in chosen)}
-            _supersede_steer_attempts(org, nid, did, toks)
-            _trim_steer_attempts(org, nid)
-            store.save_org(org)
-    except Exception:                                        # noqa: BLE001
-        with _state_lock:
-            for c in chosen:
-                if c.get("claim", {}).get("delivery_id") == did:
-                    c["claim"] = None
-        return None, []
+        size = os.path.getsize(transcript_path) if transcript_path else 0
+    except OSError:
+        size = 0
+    mail_ids: list[str] = []
+    for b in (org.d.get("delivering") or {}).get(nid) or []:
+        if b.get("tok") in toks:
+            cl = b.setdefault("claim", {})
+            cl.update({"delivery_id": did, "tool_use_id": tool_use_id,
+                       "claimed_at": now, "lease_until": now + STEER_CLAIM_LEASE_S})
+            b["attempts"] = int(b.get("attempts") or 0) + 1
+            b.setdefault("delivery_ids", []).append(did)
+            mail_ids.extend(str(m.get("id")) for m in b.get("mail") or [] if m.get("id"))
+    by_tok = {str(b.get("tok") or ""): b for b in (org.d.get("delivering") or {}).get(nid) or []}
+    view_segments = [[segment for tok in carrier.get("toks") or []
+                      for segment in (by_tok.get(str(tok), {}).get("segments") or [])]
+                     for carrier in chosen]
+    _steer_attempts(org, nid)[did] = {
+        "at": now_iso(), "tool_use_id": tool_use_id, "toks": list(toks),
+        "mail_ids": mail_ids, "transcript_path": transcript_path,
+        "tp_offset": size, **({"unconfirmable": True} if unconfirmable else {}),
+        "views": [str(v)[:100000] for v in views], "view_segments": view_segments, "texts_n": len(out),
+        "retried": any(int(c["claim"].get("attempts") or 0) > 1 for c in chosen)}
+    _supersede_steer_attempts(org, nid, did, toks)
+    _trim_steer_attempts(org, nid)
     return did, out
 
 
@@ -31220,34 +31322,43 @@ def transcript_path_for_node(org: Org, nid: str) -> str | None:
     return transcript_path(sid, _transcript_root(org, nid) or os.path.expanduser('~/.claude'))
 
 
-@halt.delivery(lambda: {"status": "halted"})
+@halt.delivery(lambda: {"status": "halted"},
+               rows=lambda slug, nid, *_a, **_k: {
+                   "sections": ["delivering"],
+                   "logs": [("steer_attempts", nid)]})
 def ack_steer(slug: str, nid: str, delivery_id: str, tool_use_id: str) -> dict[str, Any]:
     """The hook's receipt. Validated in order — issued, owner matches, not
     already acked — then applied to every batch and carrier the delivery
-    covered. Commits nothing: the record does that."""
+    covered. Commits nothing: the record does that.
+
+    PG-3e-A: on the halt gate's transaction (the agent's row, `delivering`,
+    the agent's `steer_attempts`); the RAM carriers are marked acked only
+    once it has COMMITTED."""
     st = state(slug, nid)
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-        except Exception:                                    # noqa: BLE001
-            return {"status": "unavailable"}
-        att = _steer_attempts(org, nid).get(delivery_id) if nid in org.nodes else None
-        if att is None:
-            return {"status": "unknown"}
-        if att.get("tool_use_id") != tool_use_id:
-            return {"status": "owner-mismatch"}
-        if att.get("acked_at"):
-            return {"status": "already-acked"}
-        att["acked_at"] = now_iso()
-        for b in (org.d.get("delivering") or {}).get(nid) or []:
-            if delivery_id in (b.get("delivery_ids") or []):
-                b.setdefault("acked_ids", []).append(delivery_id)
-        store.save_org(org)
-    with _state_lock:
-        for c in list(st.get("steer") or []) + list(st["queue"]):
-            cl = c.get("claim") if isinstance(c, dict) else None
-            if cl and cl.get("delivery_id") == delivery_id:
-                cl["acked"] = True
+    tx = halt.current_tx()
+    if tx is None:                                  # the org is gone
+        return {"status": "unavailable"}
+    org = tx.org
+    atts = (org.d.get("steer_attempts") or {}).get(nid) or {}
+    att = atts.get(delivery_id) if nid in org.nodes else None
+    if att is None:
+        return {"status": "unknown"}
+    if att.get("tool_use_id") != tool_use_id:
+        return {"status": "owner-mismatch"}
+    if att.get("acked_at"):
+        return {"status": "already-acked"}
+    att["acked_at"] = now_iso()
+    for b in (org.d.get("delivering") or {}).get(nid) or []:
+        if delivery_id in (b.get("delivery_ids") or []):
+            b.setdefault("acked_ids", []).append(delivery_id)
+
+    def _mark() -> None:
+        with _state_lock:
+            for c in list(st.get("steer") or []) + list(st["queue"]):
+                cl = c.get("claim") if isinstance(c, dict) else None
+                if cl and cl.get("delivery_id") == delivery_id:
+                    cl["acked"] = True
+    halt._after(_mark)  # pyright: ignore[reportPrivateUsage]
     return {"status": "receipt"}
 
 
@@ -31399,7 +31510,42 @@ def _carrier_confirmed(c: Any, did: str, toks: set[str]) -> bool:
     return did == cl.get("delivery_id") or did in (cl.get("ids") or [])
 
 
-@halt.delivery(dict)
+def _steer_record_rows(nid: str) -> dict[str, Any]:
+    """PG-3e-A: the rows committing a recorded steer writes
+    (`_apply_steer_record` + `_trim_steer_attempts`): PG-3d's confirmation
+    rows (the agent's row — its `halt_queue` —, `delivering`,
+    `mail_transitions`), the pending `mail` box a reclaim edits, and the
+    agent's `steered_log` and `steer_attempts`."""
+    return mailtx.merge(mailtx.confirm_rows(nid), sections=["mail"],
+                        logs=[("steered_log", nid), ("steer_attempts", nid)])
+
+
+@halt.delivery(lambda: None,
+               rows=lambda slug, nid, *_a, **_k: _steer_record_rows(nid))
+def _scan_steer_commit(slug: str, nid: str, hits: Mapping[str, str]
+                       ) -> tuple[Org, list[tuple[str, dict[str, Any]]]] | None:
+    """`scan_steer_records`' write: commit every recorded, still-unrecorded
+    attempt in `hits`, on the halt gate's transaction. Returns the org as
+    committed and what to announce; None when halted or the agent is gone."""
+    tx = halt.current_tx()
+    if tx is None:                                  # the org is gone
+        return None
+    org = tx.org
+    if nid not in org.nodes:
+        return None
+    atts = _steer_attempts(org, nid)
+    announce: list[tuple[str, dict[str, Any]]] = []
+    for did in hits:
+        att = atts.get(did)
+        if att is None or att.get("recorded_at"):
+            continue
+        net_ids, row = _apply_steer_record(org, nid, did, att, now_iso())
+        announce.append((did, {"att": att, "net_ids": net_ids, "row": row}))
+    if announce:
+        _trim_steer_attempts(org, nid)
+    return org, announce
+
+
 def scan_steer_records(slug: str, nid: str) -> dict[str, int]:
     """Read the transcripts named by this node's unresolved attempts and
     COMMIT every delivery the CLI has recorded. Idempotent: a recorded attempt
@@ -31408,13 +31554,23 @@ def scan_steer_records(slug: str, nid: str) -> dict[str, int]:
     at reconcile. Best-effort and cheap: reads from the claim-time offset."""
     st = state(slug, nid)
     out: dict[str, int] = {}
+    # PG-3e-A: the halt gate guards only the WRITE (`_scan_steer_commit`),
+    # so the transcript read below holds no row lock. This lock-free
+    # pre-gate keeps a halted agent's scan a no-op, as the gate around the
+    # whole function did.
+    if halt.blocked(slug, nid):
+        return out
     try:
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            if nid not in org.nodes:
-                return out
-            atts = _steer_attempts(org, nid)
-            pending = {k: a for k, a in atts.items() if _attempt_open(a)}
+        try:
+            org = orgtx.org_read(slug)          # lock-free snapshot
+        except LedgerError:
+            return out
+        if nid not in org.nodes:
+            return out
+        # read-only: never `_steer_attempts` (its setdefault would write
+        # into the shared snapshot)
+        atts = (org.d.get("steer_attempts") or {}).get(nid) or {}
+        pending = {k: a for k, a in atts.items() if _attempt_open(a)}
         if not pending:
             return out
         # the file is read OUTSIDE DOC_LOCK, from a per-attempt cursor kept in
@@ -31457,23 +31613,10 @@ def scan_steer_records(slug: str, nid: str) -> dict[str, int]:
         _adopt(k for k in pending if k not in hits)
         if not hits:
             return out
-        announce: list[tuple[str, dict[str, Any]]] = []
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            if nid not in org.nodes:
-                return out
-            atts = _steer_attempts(org, nid)
-            changed = False
-            for did, tool in hits.items():
-                att = atts.get(did)
-                if att is None or att.get("recorded_at"):
-                    continue
-                net_ids, row = _apply_steer_record(org, nid, did, att, now_iso())
-                announce.append((did, {"att": att, "net_ids": net_ids, "row": row}))
-                changed = True
-            if changed:
-                _trim_steer_attempts(org, nid)
-                store.save_org(org)
+        committed = _scan_steer_commit(slug, nid, hits)
+        if committed is None:
+            return out                  # halted, or the agent is gone
+        org, announce = committed
         _adopt(hits)             # durable now: the rows may be left behind
         for did, info in announce:
             ctoks = {str(t) for t in info["att"].get("toks") or []}
