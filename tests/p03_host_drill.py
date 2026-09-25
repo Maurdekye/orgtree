@@ -96,6 +96,8 @@ class HostDrills(unittest.TestCase):
         self.assertEqual(owned.database["action"], "initialized+started")
         owned_migration = owned.migration.get("applied_now")
         self.assertTrue(owned_migration, "the first launch must migrate the fresh database")
+        schema = owned.migration["schema"]
+        self.assertTrue(schema["schema_dir_resolved"] and schema["manifests"] and schema["verified"], schema)
         owned_ready = {k: owned.store.ready.get(k) for k in ("type", "pid", "port")}
         self.assertTrue((root / bracket.STORE_DESCRIPTOR).is_file())
         status = self.custodian_json("status", "--root", str(root))
@@ -106,7 +108,7 @@ class HostDrills(unittest.TestCase):
         self.assertEqual(self.custodian_json("status", "--root", str(root))["cluster"]["state"], "stopped")
         self.assertTrue(self.custodian_json("destroy", "--root", str(root))["ok"])
         report("first launch (host bracket, real custodian)", "passed",
-               {"database": "initialized+started", "migrated": owned_migration, "store_service": self.store_kind,
+               {"database": "initialized+started", "migrated": owned_migration, "schema": schema, "store_service": self.store_kind,
                 "store_ready": owned_ready, "reverse_stop": stopped})
 
     def test_abrupt_host_exit_then_the_next_host_attaches(self) -> None:

@@ -140,6 +140,19 @@ fn the_range_layout_reads_the_union_of_ranges() {
 }
 
 #[test]
+fn the_run_records_which_schema_it_used() {
+    let d = range_layout(&[("ws2", 1, 99, &[("0001_a.sql", A), ("0002_b.sql", B)])]);
+    let files = migrate::read_schema_dir(&d.0).unwrap();
+    let ev = migrate::schema_evidence(&d.0, &files).unwrap();
+    let ws2 = std::fs::read_to_string(d.0.join("ranges").join("ws2.sha256")).unwrap();
+    assert_eq!(ev.manifests["ranges/ws2.sha256"], migrate::checksum(&ws2));
+    assert!(ev.manifests.contains_key("ranges/ws2.range"));
+    assert_eq!(ev.verified, vec![(1, "0001_a.sql".to_string(), migrate::checksum(A)), (2, "0002_b.sql".to_string(), migrate::checksum(B))]);
+    assert!(!ev.schema_dir_resolved.starts_with("\\\\?\\"), "{}", ev.schema_dir_resolved);
+    assert!(std::path::Path::new(&ev.schema_dir_resolved).is_dir());
+}
+
+#[test]
 fn range_layout_refusals() {
     // A migration listed outside its own range's span.
     let d = range_layout(&[("ws2", 1, 99, &[("0001_a.sql", A), ("0100_b.sql", B)])]);
