@@ -24,16 +24,22 @@ CREATE TABLE request_batches (
 CREATE UNIQUE INDEX request_batches_one_pending
     ON request_batches (org_id, asker_id, kind) WHERE state = 'pending';
 
--- Charters: immutable versions, one head per principal (v6 §Charter).
+-- Charters: immutable versions, one head per principal AND KIND (v6
+-- §Charter; SCHEMA-CATALOG:11, DATA-PLACEMENT:14 list two kinds of head):
+-- each node has a `role` charter and a `team` charter, both captured in the
+-- turn-start vector (Q-CR r2). Freeze amendment 1, lead decision 2 on
+-- p03-ws2-store-core-schema-slice-command-executor.
 CREATE TABLE charter_versions (
     org_id        uuid        NOT NULL,
     principal_id  uuid        NOT NULL,
+    charter_kind  text        COLLATE "C" NOT NULL,
     version       bigint      NOT NULL,
     body          text        NOT NULL,
     body_sha256   text        COLLATE "C" NOT NULL,
     saved_at      timestamptz NOT NULL,
-    CONSTRAINT charter_versions_pk PRIMARY KEY (org_id, principal_id, version),
+    CONSTRAINT charter_versions_pk PRIMARY KEY (org_id, principal_id, charter_kind, version),
     CONSTRAINT charter_versions_agent_fk FOREIGN KEY (org_id, principal_id) REFERENCES agents (org_id, principal_id),
+    CONSTRAINT charter_versions_kind CHECK (charter_kind IN ('role', 'team')),
     CONSTRAINT charter_versions_version CHECK (version > 0),
     CONSTRAINT charter_versions_body_bounded CHECK (octet_length(body) <= 1048576)
 );
@@ -41,10 +47,12 @@ CREATE TABLE charter_versions (
 CREATE TABLE charter_heads (
     org_id          uuid   NOT NULL,
     principal_id    uuid   NOT NULL,
+    charter_kind    text   COLLATE "C" NOT NULL,
     current_version bigint NOT NULL,
-    CONSTRAINT charter_heads_pk PRIMARY KEY (org_id, principal_id),
-    CONSTRAINT charter_heads_version_fk FOREIGN KEY (org_id, principal_id, current_version)
-        REFERENCES charter_versions (org_id, principal_id, version)
+    CONSTRAINT charter_heads_pk PRIMARY KEY (org_id, principal_id, charter_kind),
+    CONSTRAINT charter_heads_kind CHECK (charter_kind IN ('role', 'team')),
+    CONSTRAINT charter_heads_version_fk FOREIGN KEY (org_id, principal_id, charter_kind, current_version)
+        REFERENCES charter_versions (org_id, principal_id, charter_kind, version)
 );
 
 -- Minimal runtime claims (WS5 scope: mail Read confirmation, kickoff and

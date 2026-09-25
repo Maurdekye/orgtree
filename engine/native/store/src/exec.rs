@@ -347,8 +347,21 @@ impl<'a, S: Session> Tx<'a, S> {
         r
     }
 
-    pub(crate) async fn set_lock_timeout(&mut self, ms: u64) -> Result<(), DbError> {
-        self.exec("exec.lock_timeout", "SELECT set_config('lock_timeout', $1, true)", &[Val::text(format!("{ms}ms"))]).await.map(|_| ())
+    /// C8: bound every wait of this transaction (`SET LOCAL` semantics).
+    /// Does nothing when no timeout is configured.
+    pub(crate) async fn set_timeouts(&mut self, cfg: &ExecConfig) -> Result<(), DbError> {
+        if cfg.lock_timeout_ms.is_none() && cfg.statement_timeout_ms.is_none() && cfg.idle_in_transaction_timeout_ms.is_none() {
+            return Ok(());
+        }
+        let v = |o: Option<u64>| Val::text(format!("{}ms", o.unwrap_or(0)));
+        self.exec(
+            "exec.timeouts",
+            "SELECT set_config('lock_timeout', $1, true), set_config('statement_timeout', $2, true), \
+             set_config('idle_in_transaction_session_timeout', $3, true)",
+            &[v(cfg.lock_timeout_ms), v(cfg.statement_timeout_ms), v(cfg.idle_in_transaction_timeout_ms)],
+        )
+        .await
+        .map(|_| ())
     }
 
     pub(crate) async fn rollback_quiet(&mut self) {
@@ -528,14 +541,36 @@ pub struct ExecConfig {
     pub backoff_base: Duration,
     pub backoff_cap: Duration,
     /// `lock_timeout` for every executor transaction (C8); None = server
-    /// default. Values are WS8's to propose.
+    /// default (no limit). Values are WS8's to propose; the defaults below
+    /// are provisional, but NON-None so a stuck original can never make a
+    /// lookup or a resolution wait forever (review finding 4).
     pub lock_timeout_ms: Option<u64>,
+    pub statement_timeout_ms: Option<u64>,
+    pub idle_in_transaction_timeout_ms: Option<u64>,
 }
 
 impl Default for ExecConfig {
     fn default() -> Self {
-        ExecConfig { max_attempts: 8, backoff_base: Duration::from_millis(2), backoff_cap: Duration::from_millis(200), lock_timeout_ms: None }
+        ExecConfig {
+            max_attempts: 8,
+            backoff_base: Duration::from_millis(2),
+            backoff_cap: Duration::from_millis(200),
+            lock_timeout_ms: Some(5_000),
+            statement_timeout_ms: Some(30_000),
+            idle_in_transaction_timeout_ms: Some(60_000),
+        }
     }
+}
+
+enum Resolution<T> {
+    /// A committed receipt exists under the key: its outcome is the answer.
+    Committed(Outcome<T>),
+    /// Our probe claim went in: the original rolled back.
+    NotCommitted,
+    /// The probe's wait hit the lock timeout: still unknown.
+    StillInDoubt,
+    Retry(DbError),
+    Fatal(ExecError),
 }
 
 enum Step<T> {
@@ -606,6 +641,37 @@ impl<C: Connector> Executor<C> {
                     let s = Scope { hooks: &self.hooks, family: family.name, verb: cmd.verb(), op: Some(&binding.op), op_tag: binding.op_tag.as_deref(), attempt };
                     if controls::fire(&s, "Q-C5.hidden_pooled_statement") {
                         let _ = conn.exec("hidden", "SELECT 1", &[]).await;
+                    }
+                }
+                // After a lost COMMIT, settle the in-doubt original FIRST, by
+                // re-claiming its key before any anchor or predicate runs (the
+                // claim INSERT waits for the original's backend to finish). An
+                // anchor must never answer for an operation that may have
+                // committed (review finding 1; v6 I04/I05).
+                if resolving {
+                    let s = Scope { hooks: &self.hooks, family: family.name, verb: cmd.verb(), op: Some(&binding.op), op_tag: binding.op_tag.as_deref(), attempt };
+                    match self.resolve(&mut *conn, cmd, &binding, attempt).await {
+                        Resolution::Committed(o) => {
+                            s.emit(EventKind::Outcome { outcome: o.name() }, false);
+                            return Ok(o);
+                        }
+                        Resolution::Fatal(e) => {
+                            s.emit(EventKind::Outcome { outcome: "error" }, false);
+                            return Err(e);
+                        }
+                        Resolution::StillInDoubt => {
+                            s.emit(EventKind::Outcome { outcome: "unknown" }, false);
+                            return Ok(Outcome::Unknown);
+                        }
+                        Resolution::Retry(e) => {
+                            s.emit(EventKind::Retry { reason: "resolution", sqlstate: e.sqlstate(), constraint: e.constraint() }, false);
+                            last_sqlstate = e.sqlstate().map(str::to_string);
+                            drop(conn);
+                            tokio::time::sleep(retry::backoff(attempt, self.cfg.backoff_base, self.cfg.backoff_cap)).await;
+                            continue;
+                        }
+                        // the original provably did not commit: an ordinary attempt follows
+                        Resolution::NotCommitted => resolving = false,
                     }
                 }
                 self.attempt(&mut *conn, cmd, &binding, attempt, prev_now).await
@@ -693,9 +759,7 @@ impl<C: Connector> Executor<C> {
             tx.emit(EventKind::Begin { isolation: family.isolation.name(), backend_pid: pid });
             db!(r, false);
         }
-        if let Some(ms) = self.cfg.lock_timeout_ms {
-            db!(tx.set_lock_timeout(ms).await, false);
-        }
+        db!(tx.set_timeouts(&self.cfg).await, false);
         #[cfg(feature = "qualification")]
         {
             let rows = db!(tx.exec("trace.xact_stats_begin", XACT_STATS_SQL, &[]).await, false);
@@ -852,6 +916,52 @@ impl<C: Connector> Executor<C> {
             f();
         }
         Step::Done(Outcome::Applied(out))
+    }
+
+    /// Settle an in-doubt commit by re-claiming the SAME key on a fresh
+    /// connection. Probe transaction only: always rolled back.
+    async fn resolve<S: Session, Cmd: Command>(&self, sess: &mut S, cmd: &Cmd, b: &Binding, attempt: u32) -> Resolution<Cmd::Output> {
+        let family = cmd.family();
+        let mut tx = Tx::new(sess, &self.hooks, family.name, cmd.verb(), &b.op, b.op_tag.as_deref(), attempt, None);
+        if let Err(e) = tx.begin(Isolation::ReadCommitted).await {
+            return Resolution::Retry(e);
+        }
+        if let Err(e) = tx.set_timeouts(&self.cfg).await {
+            self.rollback(&mut tx).await;
+            return Resolution::Retry(e);
+        }
+        let _ = tx.pause("resolve").await;
+        let claimed = receipts::claim(&mut tx, b, family.name, cmd.verb()).await;
+        let r = match claimed {
+            Ok(true) => Resolution::NotCommitted,
+            Ok(false) => match receipts::read(&mut tx, &b.op).await {
+                Err(e) => Resolution::Retry(e),
+                Ok(None) => Resolution::Fatal(ExecError::Defect("claim inserted nothing but no row is visible".into())),
+                Ok(Some(s)) => match receipts::classify(&s, &b.op.fingerprint) {
+                    Existing::Conflict => Resolution::Committed(Outcome::Conflict),
+                    Existing::Fenced => Resolution::Committed(Outcome::Fenced),
+                    Existing::Invalid(m) => Resolution::Fatal(ExecError::Defect(m)),
+                    Existing::Replay(v) | Existing::Compensated(v) => {
+                        let compensated = s.state == "compensated";
+                        match serde_json::from_value::<Cmd::Output>(v) {
+                            Err(e) => Resolution::Fatal(ExecError::Decode(e.to_string())),
+                            Ok(out) => match cmd.may_disclose(&mut tx, b, &out).await {
+                                Ok(false) => Resolution::Committed(Outcome::NotDisclosed),
+                                Ok(true) if compensated => Resolution::Committed(Outcome::Compensated(out)),
+                                Ok(true) => Resolution::Committed(Outcome::Replayed(out)),
+                                // disclosure could not be decided: committed
+                                // but withheld, never "refused"
+                                Err(_) => Resolution::Committed(Outcome::NotDisclosed),
+                            },
+                        }
+                    }
+                },
+            },
+            Err(e) if e.sqlstate() == Some("55P03") => Resolution::StillInDoubt,
+            Err(e) => Resolution::Retry(e),
+        };
+        self.rollback(&mut tx).await;
+        r
     }
 
     async fn rollback<S: Session>(&self, tx: &mut Tx<'_, S>) {

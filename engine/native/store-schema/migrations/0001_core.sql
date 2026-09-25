@@ -141,21 +141,20 @@ CREATE TABLE scope_rows (
 CREATE INDEX scope_rows_top_down ON scope_rows (org_id, depth, principal_id);
 
 -- Minimal runtime state (E-D13, r7 C2a P4). Frequently written: never an
--- anchor for authority.
+-- anchor for authority. The agent's reported STATUS is not here: S3 §4.1
+-- keeps it in its own narrow per-seat row, added by WS4 in 0200 (lead
+-- request 2026-09-25), so status lives in exactly one place.
 CREATE TABLE runtime_state (
     org_id        uuid        NOT NULL,
     principal_id  uuid        NOT NULL,
     busy          boolean     NOT NULL DEFAULT false,
-    status        text        COLLATE "C" NOT NULL DEFAULT 'idle',
-    status_note   text        NULL,
     bg_open       integer     NOT NULL DEFAULT 0,
     updated_at    timestamptz NOT NULL,
     version       bigint      NOT NULL DEFAULT 0,
     CONSTRAINT runtime_state_pk PRIMARY KEY (org_id, principal_id),
     CONSTRAINT runtime_state_agent_fk FOREIGN KEY (org_id, principal_id)
         REFERENCES agents (org_id, principal_id),
-    CONSTRAINT runtime_state_bg_open CHECK (bg_open >= 0),
-    CONSTRAINT runtime_state_note_bounded CHECK (status_note IS NULL OR octet_length(status_note) <= 16384)
+    CONSTRAINT runtime_state_bg_open CHECK (bg_open >= 0)
 );
 
 -- Audience grants. Every insert or delete bumps the grantee's
