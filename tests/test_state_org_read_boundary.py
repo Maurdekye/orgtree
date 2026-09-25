@@ -6,6 +6,10 @@ it); drives, notices and broadcasts are spies; the routes, the ledger, the chat 
 scratch folders and the history and event readers are real. Each case's observation is normalized (one NORM block)
 and compared with docs/state-system/org-read-boundary.json, and each test pins a fact stated in
 docs/state-system/operation-contracts.json (org-read.*).
+
+No case launches a real process. The org disk module's command runner (disk._run, which shells out to WSL) is a
+recorded fake WSL (a docker-desktop distro whose mount root exists and whose org disk is not mounted), the disk's
+Windows path is a temp folder, and while a case runs an audit hook refuses and records any process launch.
 """
 from __future__ import annotations
 
@@ -14,6 +18,7 @@ import copy
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -38,9 +43,32 @@ import import_provenance  # noqa: E402,F401
 from engine.launch import load_app  # noqa: E402
 app, *_ = load_app()
 from fastapi.testclient import TestClient  # noqa: E402
-from orgtree import agentauth, api, deployment, ledger, store, supervisor  # noqa: E402
+from orgtree import agentauth, api, deployment, disk, ledger, store, supervisor  # noqa: E402
 
 assert Path(store.DATA_ROOT).resolve() == _data.resolve(), 'this process would have written to the live root'
+
+# ---- the no-process guard: while a case runs, any process launch is refused (before the child exists) and recorded
+LAUNCH_EVENTS = ('subprocess.Popen', 'os.system', 'os.posix_spawn', 'os.spawn', 'os.startfile', 'os.exec')
+GUARD = {'on': False}
+LAUNCHES: list = []
+
+
+def _no_process(event, args):
+    if GUARD['on'] and event in LAUNCH_EVENTS:
+        LAUNCHES.append((event, repr(args)[:200]))
+        raise RuntimeError('real process launch refused by the boundary test guard: ' + event)
+
+
+sys.addaudithook(_no_process)
+DISKS = Path(_temp) / 'disks'
+
+
+def fake_wsl(args, timeout=60):
+    """disk._run on a machine with a docker-desktop distro, a writable mount root and no mounted org disk."""
+    CUR['wsl'].append(list(args))
+    script = args[-1] if args[:1] == ['wsl'] and '-c' in args else ''
+    ok = args == ['wsl', '-l', '-q'] or script.startswith('mkdir -p ')
+    return subprocess.CompletedProcess(args, 0 if ok else 1, 'docker-desktop\n' if args[1:2] == ['-l'] else '', '')
 
 OP = {'X-Orgtree-Desktop-Token': 'operator'}
 NO_TOOLS = {'bash': False, 'web': False, 'edit': False, 'subagents': False, 'mcp': []}
@@ -140,14 +168,25 @@ class Spies:
         add(supervisor, "transcript_path_for_node", side_effect=lambda *a, **k: str(CUR["transcript"]))
         add(supervisor, "transcript_path", side_effect=lambda *a, **k: str(CUR["transcript"])
             if CUR["transcript"].exists() else None)
+        # the org disk: a recorded fake WSL and a temp Windows path, the module's caches cleared per case
+        CUR["wsl"] = []
+        add(disk, "_run", side_effect=fake_wsl)
+        add(disk, "windows_path", side_effect=lambda slug: str(DISKS / slug))
+        for cache, empty in (("_distro_cache", None), ("_mount_root_cache", None), ("_usage_cache", {}),
+                             ("_tree_cache", {})):
+            p = patch.object(disk, cache, new=empty)
+            p.start()
+            self.ps.append(p)
+        GUARD["on"] = True
         return self
 
     def calls(self):
         return {k: len(m.call_args_list) for k, m in self.s.items()
                 if m.call_count and k not in ("delivery_note", "maybe_storage_check", "transcript_path_for_node",
-                                              "transcript_path")}
+                                              "transcript_path", "_run", "windows_path")}
 
     def __exit__(self, *e):
+        GUARD["on"] = False
         for p in reversed(self.ps):
             p.stop()
 
@@ -310,6 +349,7 @@ def observe(name):
             pre(client)
             for m in sp.s.values():
                 m.reset_mock()
+            CUR['wsl'].clear()
         b = durable(CUR['slug'])
         r = request(client)
         a = durable(CUR['slug'])
@@ -419,6 +459,33 @@ class OrgReadBoundary(unittest.TestCase):
         self.assertEqual(got['net_first'][0]['sections'], ['net_autoconnect', 'net_hubs', 'net_identity'])
         self.assertEqual(got['net_second'][0]['sections'], [])
         self.assertEqual(got['net_kiosk'][1], {'identity': None, 'hubs': [], 'autoconnect': False})
+
+    def test_the_disk_routes_ask_wsl_exactly_this_and_no_case_launches_a_process(self):
+        test_f = 'test -f /mnt/host/wsl/orgtree-disk/{slug}/.orgtree-disk'
+        expected = {'disk_fake': [test_f, test_f], 'disk_dir_fake': [test_f], 'disk_file_missing': [],
+                    'disk_dir_escape': [], 'disk_file_escape': [], 'disk_none': []}
+        before = len(LAUNCHES)
+        for name, checks in expected.items():
+            with self.subTest(case=name):
+                seen, _body, _docs, cur = observe(name)
+                self.assertEqual(seen, self.spec['cases'][name], name)
+                scripts = [a[-1].replace(cur['slug'], '{slug}') for a in cur['wsl'] if a[1:2] == ['-d']]
+                # detection and the mount root come first whenever the disk module runs a command at all
+                self.assertEqual([a for a in cur['wsl'] if a[1:2] != ['-d']], [['wsl', '-l', '-q']] if checks else [])
+                self.assertEqual(scripts, ['mkdir -p /mnt/host/wsl/orgtree-disk'] + checks if checks else [])
+                self.assertTrue(all(a[:4] == ['wsl', '-d', 'docker-desktop', '-e'] for a in cur['wsl'] if a[1:2] == ['-d']))
+        self.assertEqual(LAUNCHES[before:], [])
+
+    def test_the_guard_refuses_a_real_launch_before_it_happens(self):
+        before = len(LAUNCHES)
+        GUARD['on'] = True
+        try:
+            with self.assertRaises(RuntimeError):
+                subprocess.run([sys.executable, '-c', 'raise SystemExit(7)'], capture_output=True)
+        finally:
+            GUARD['on'] = False
+        self.assertEqual([e for e, _ in LAUNCHES[before:]], ['subprocess.Popen'])
+        del LAUNCHES[before:]
 
     def test_bridge_credential_per_deployment_profile_and_the_org_disk(self):
         self.check('bridge_standard', 'bridge_frozen', 'bridge_frozen_no_org', 'disk_none', 'disk_dir_none',
