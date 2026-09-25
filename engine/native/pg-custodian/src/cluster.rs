@@ -311,8 +311,10 @@ pub fn lock_is_stale(pid_present: bool, holder_created_unix: Option<u64>, lock_s
     }
 }
 
-fn wait_for_new_postmaster(data: &Path, bin: &PgBin, port: u16, launched_unix: u64) -> Result<(u32, Option<u16>)> {
-    let deadline = Instant::now() + Duration::from_secs(START_TIMEOUT_SECS);
+/// Wait until postmaster.pid names OUR new postmaster (our image, created
+/// after the launch, the asked port, status ready). Public for its tests.
+pub fn wait_for_new_postmaster(data: &Path, bin: &PgBin, port: u16, launched_unix: u64, timeout: Duration) -> Result<(u32, Option<u16>)> {
+    let deadline = Instant::now() + timeout;
     let ours = bin.exe("postgres");
     let mut last = String::from("no postmaster.pid");
     loop {
@@ -742,7 +744,7 @@ pub fn start(root: &PrototypeRoot, bin: &PgBin, port: Option<u16>) -> Result<Run
     // pg_ctl's "started" is a claim; the lock file must name OUR new
     // postmaster (our image, created after the launch, on the asked port,
     // status ready) before anything is trusted.
-    let (pid, pid_port) = wait_for_new_postmaster(&layout.data, bin, port, launched_unix)?;
+    let (pid, pid_port) = wait_for_new_postmaster(&layout.data, bin, port, launched_unix, Duration::from_secs(START_TIMEOUT_SECS))?;
     let runtime = RuntimeRecord {
         schema: RUNTIME_SCHEMA.into(),
         root_id: instance.root_id.clone(),
