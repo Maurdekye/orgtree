@@ -15,8 +15,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+import contextlib
+from typing import Iterator
+
 from . import halt, store
-from .ledger import USER, LedgerError
+from .ledger import NODE_KEYED_SECTIONS, USER, LedgerError, slugify
 
 
 @dataclass(frozen=True)
@@ -217,3 +220,86 @@ def _archive_op(op: str, parent: bool = False):
 retire_body, retire = _archive_op("retire")
 dissolve_body, dissolve = _archive_op("dissolve")
 rescind_body, rescind = _archive_op("rescind", parent=True)
+
+
+# ---------------------------------------------------------------- rename
+# §rename (user ruling 2026-08-05; lead decisions 14 + 18.6). The identity
+# rename re-keys the WHOLE document around a seat, so its row set is derived
+# from the census the ledger itself re-keys by (`NODE_KEYED_SECTIONS`, class
+# `rekey`) rather than written out by hand: a new per-node section the census
+# learns about is locked here without anyone touching this file.
+#   nodes FOR UPDATE: the stack (`nid`, `nid@g…`), the new ids (inserted), and
+#     every node whose parent / predecessor / successor names the stack (its
+#     pointer is rewritten);
+#   nodes FOR SHARE: the ancestor chain (authority) and the actor;
+#   sections: every `rekey` doc section, plus `orphan_keys` (a freed target's
+#     leftover rows are set aside, never overwritten);
+#   logs: every `rekey` log section — a dict log by name AND by the old and new
+#     owner rows it moves — plus `events` / `notice_log`.
+
+
+def _rename_plan(org, actor: str, nid: str, new_name: str
+                 ) -> tuple[set[str], set[str], tuple[str, ...], tuple[Any, ...]]:
+    n = org.nodes.get(nid)
+    if n is None:
+        return {nid}, set(), (), ()
+    stack = [nid] + [k for k in org.nodes if k.startswith(nid + "@")]
+    new = slugify(new_name)
+    renamed = {k: new + k[len(nid):] for k in stack}
+    upd = set(stack) | set(renamed.values())
+    for k, v in org.nodes.items():
+        if any(v.get(f) in renamed for f in ("parent", "predecessor", "successor")):
+            upd.add(k)
+    share = set()
+    if actor in org.nodes:
+        share.add(actor)
+    share |= _anc(org, nid)
+    sections: list[str] = ["orphan_keys"]
+    logs: list[Any] = ["events", "notice_log"]
+    owners = [*renamed, *renamed.values()]
+    for key, (cls, _shape, _) in NODE_KEYED_SECTIONS.items():
+        if cls != "rekey" or key == "nodes":
+            continue
+        if key in store.DICT_LOGS:
+            logs.append(key)
+            logs.extend((key, o) for o in owners)
+        elif key in store.LIST_LOGS:
+            logs.append(key)
+        else:
+            sections.append(key)
+    return upd, share - upd, tuple(sorted(set(sections))), tuple(logs)
+
+
+def rename_rows(slug: str, actor: str, nid: str, new_name: str):
+    """The first-attempt plan, from the unlocked snapshot:
+    (nodes, share_nodes, sections, logs)."""
+    return _rename_plan(store.cached_org(slug), actor, nid, new_name)
+
+
+@contextlib.contextmanager
+def rename_tx(slug: str, plan) -> Iterator[Any]:
+    """ONE attempt: a transaction on `plan` (from `rename_rows`, widened by
+    the caller on `Widen`). The body must call `check_rename_rows(tx, …)`
+    FIRST — before any side effect — so a stale snapshot re-runs instead of
+    writing unlocked rows. Joins a transaction the caller already holds on
+    this org (lead decision 14: callers that hold the lock call rename
+    re-entrantly) — `halt.txn`'s join, which refuses a gap."""
+    upd, share, sections, logs = plan
+    with halt.txn(slug, nodes=upd, share_nodes=share, sections=sections,
+                  logs=logs) as tx:
+        yield tx
+
+
+def widen_plan(plan, w: "Widen"):
+    upd, share, sections, logs = plan
+    return upd | w.nodes, share | w.share_nodes, sections, logs
+
+
+def check_rename_rows(tx, actor: str, nid: str, new_name: str) -> None:
+    """Re-derive the rename's rows on the LOCKED document; Widen if the
+    snapshot missed any (a hire under the node, a new generation)."""
+    upd, share, _s, _l = _rename_plan(tx.org, actor, nid, new_name)
+    miss_u = upd - set(tx.lock_nodes)
+    miss_s = share - set(tx.lock_nodes) - set(tx.share_nodes)
+    if miss_u or miss_s:
+        raise Widen(miss_u, miss_s)
