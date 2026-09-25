@@ -24,6 +24,8 @@ pub const CONTROLS: &[&str] = &[
     "Q-RL1.late_receipt_separate_fence",
     "Q-RL3.skip_inflight_check",
     "Q-C5.hidden_pooled_statement",
+    "Q-C1.org_wide_lock",
+    "Q-C6.register_without_lock",
 ];
 
 /// The handshake's DECLARED-CONTACTS table (CONTRACT-M1 §5 r4; WS7

@@ -24,6 +24,7 @@ pub mod lookup;
 pub mod pg;
 pub mod pool;
 pub mod receipts;
+pub mod restrict;
 pub mod retry;
 pub mod sent;
 pub mod session;

@@ -293,6 +293,10 @@ impl<'a, S: Session> Tx<'a, S> {
         r
     }
 
+    pub(crate) async fn set_lock_timeout(&mut self, ms: u64) -> Result<(), DbError> {
+        self.exec("exec.lock_timeout", "SELECT set_config('lock_timeout', $1, true)", &[Val::text(format!("{ms}ms"))]).await.map(|_| ())
+    }
+
     pub(crate) async fn rollback_quiet(&mut self) {
         if !self.sess.is_broken() {
             let _ = self.sess.rollback().await;
@@ -467,11 +471,14 @@ pub struct ExecConfig {
     pub max_attempts: u32,
     pub backoff_base: Duration,
     pub backoff_cap: Duration,
+    /// `lock_timeout` for every executor transaction (C8); None = server
+    /// default. Values are WS8's to propose.
+    pub lock_timeout_ms: Option<u64>,
 }
 
 impl Default for ExecConfig {
     fn default() -> Self {
-        ExecConfig { max_attempts: 8, backoff_base: Duration::from_millis(2), backoff_cap: Duration::from_millis(200) }
+        ExecConfig { max_attempts: 8, backoff_base: Duration::from_millis(2), backoff_cap: Duration::from_millis(200), lock_timeout_ms: None }
     }
 }
 
@@ -501,6 +508,10 @@ impl<C: Connector> Executor<C> {
 
     pub fn reserved(&self) -> &Pool<C> {
         &self.reserved
+    }
+
+    pub fn config(&self) -> &ExecConfig {
+        &self.cfg
     }
 
     pub fn hooks(&self) -> &Hooks {
@@ -622,8 +633,16 @@ impl<C: Connector> Executor<C> {
             tx.emit(EventKind::Begin { isolation: family.isolation.name(), backend_pid: pid });
             db!(r, false);
         }
+        if let Some(ms) = self.cfg.lock_timeout_ms {
+            db!(tx.set_lock_timeout(ms).await, false);
+        }
         db!(tx.pause("begin").await, false);
         cmd!(cmd.anchor(&mut tx, b).await);
+        // Q-C1 unsafe control: a per-organization lock taken by every command,
+        // which makes writers of different rows wait on each other.
+        if controls::fire(&tx.scope(), "Q-C1.org_wide_lock") {
+            db!(tx.exec("exec.q_c1_org_wide_lock", "SELECT 1 FROM organizations WHERE org_id = $1 FOR UPDATE", &[Val::Uuid(b.op.org)]).await, false);
+        }
         db!(tx.pause("after_anchor").await, false);
 
         let late_receipt = controls::fire(&tx.scope(), "Q-RL1.late_receipt_separate_fence");

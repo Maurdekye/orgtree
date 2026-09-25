@@ -136,6 +136,9 @@ impl<C: Connector> Executor<C> {
         let mut tx = Tx::new_internal(sess, hooks, "receipt", "lookup", &req.op, None, 1, None);
         let fail = |e: DbError| ExecError::Sql(e);
         tx.begin(Isolation::ReadCommitted).await.map_err(fail)?;
+        if let Some(ms) = self.config().lock_timeout_ms {
+            tx.set_lock_timeout(ms).await.map_err(fail)?;
+        }
         let a = tx.exec("lookup.anchor", ANCHOR_SQL, &[Val::Uuid(req.op.org), Val::Uuid(req.caller)]).await.map_err(fail)?;
         let live = a.first().map_or(false, |r| r.first().and_then(Val::as_text) == Some("live") && r.get(1).and_then(Val::as_int) == Some(req.caller_generation));
         if !live {

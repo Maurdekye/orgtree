@@ -239,7 +239,7 @@ fn executor(script: Arc<Script>, controls: Vec<&'static str>) -> (Executor<Facto
         4,
         Factory::new(cfg, "lookup", h.clone()),
         2,
-        ExecConfig { max_attempts: 6, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5) },
+        ExecConfig { max_attempts: 6, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5), lock_timeout_ms: None },
         h,
     );
     (ex, ev)
@@ -503,7 +503,7 @@ fn executor_via(port: u16, controls: Vec<&'static str>) -> (Executor<Factory>, A
         2,
         Factory::new(cfg, "lookup", h.clone()),
         1,
-        ExecConfig { max_attempts: 6, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5) },
+        ExecConfig { max_attempts: 6, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5), lock_timeout_ms: None },
         h,
     );
     (ex, ev)
