@@ -13011,7 +13011,12 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 routed = result.get("routed")
                 if routed and not result.get("deferred"):
                     drive.append(str(routed))
-            _kiosk_cap_check(org)
+            # PG-3c (lead decision 18.8): the kiosk cap reads EVERY live node
+            # (Org.audit), which no row lock covers. Tools proven unable to
+            # change top-level holdings skip it (rcdoor.KIOSK_EXEMPT; proof:
+            # tests/test_pg3c_kiosk_exempt.py); everything else keeps it.
+            if body.tool not in rcdoor.KIOSK_EXEMPT:
+                _kiosk_cap_check(org)
             selection = result.pop("_account_selection", None)
             if selection is not None:
                 target, account, via = selection
