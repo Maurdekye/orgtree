@@ -25060,8 +25060,8 @@ def _after_turn(slug: str, nid: str, org: Org, res: dict[str, Any],
     spend_total = None
     cache_event: dict[str, Any] | None = None
     if cost or occ or cw or denials or res:
-        with store.DOC_LOCK:
-            o2 = store.load_org(slug)
+        with halt.txn(slug, **{"nodes": [nid], "sections": ["api_cost_usd"] if on_key else []}) as _cb_tx:  # PG-3e-A
+            o2 = _cb_tx.org
             if nid not in o2.nodes:
                 return
             n = o2.node(nid)
@@ -25236,7 +25236,6 @@ def _after_turn(slug: str, nid: str, org: Org, res: dict[str, Any],
                 # remains authoritative; the next forecast stays conservative.
                 print(f"[orgtree] {slug}/{nid}: cache receipt reconciliation "
                       f"unavailable ({type(exc).__name__}: {exc})")
-            store.save_org(o2)
             spend_total = o2.cost_total()   # incl. deleted agents' burn
             kcfg = kiosk_cfg(o2)
     else:
