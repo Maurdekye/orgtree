@@ -315,6 +315,11 @@ class ContactOracle(unittest.TestCase):
                      relations=["pg_stat_xact_user_tables"], sqlstate="00000", infrastructure=True)
         self.assertEqual(oracle.q_c5(EDIT_DECLARED, records + [infra], ["fake-pool"])["verdict"],
                          "PASSED")
+        # a connection-setup statement belongs to NO operation: it opens no slot
+        setup = dict(infra, operation_id="none", attempt=0, stmt_label="exec.setup.identify",
+                     op_kind="conn.executor")
+        verdict = oracle.q_c5(EDIT_DECLARED, records + [setup], ["fake-pool"])
+        self.assertEqual(verdict["verdict"], "PASSED", verdict["failures"])
 
     def test_lock_family_cross_check(self):
         """Decision 4: the server confirms the row-lock FAMILY; the exact mode stays unknown."""
