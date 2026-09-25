@@ -223,6 +223,7 @@ class TxSpec:
 SpecFn = Callable[[Any, Any, "dict[str, Any]"], TxSpec]
 LOCKS: "dict[str, TxSpec | SpecFn]" = {}
 BODIES: "dict[str, Callable[[AgentTx], Any]]" = {}
+KIOSK_EXEMPT: "set[str]" = set()
 # a body may widen this many times before the door gives up (each widening is
 # a full rollback and re-run, so a runaway would be a livelock, not a bug)
 MAX_WIDEN = 3
@@ -238,11 +239,15 @@ class Widen(Exception):
 
 
 def declare(name: str, spec: "TxSpec | SpecFn",
-            body: "Callable[[AgentTx], Any] | None" = None) -> None:
+            body: "Callable[[AgentTx], Any] | None" = None, *,
+            kiosk_exempt: bool = False) -> None:
     """Register one tool (`orgtree_*`) or operator op: its rows, and for an
     agent tool the body `agent_call` runs on the door (`body(tx) -> result`).
-    Re-declaring a name with a DIFFERENT spec or body is refused: two families
-    claiming one tool is a merge bug, and last-wins would hide it."""
+    `kiosk_exempt` (lead decision 18.8): the tool is PROVEN unable to move
+    top-level holdings, so the door skips the kiosk credit-cap check for it —
+    the family carries the proof. Re-declaring a name with a DIFFERENT spec
+    or body is refused: two families claiming one tool is a merge bug, and
+    last-wins would hide it."""
     old, old_body = LOCKS.get(name), BODIES.get(name)
     if (old is not None and old != spec) or (
             old_body is not None and body is not None and old_body != body):
@@ -250,6 +255,8 @@ def declare(name: str, spec: "TxSpec | SpecFn",
     LOCKS[name] = spec
     if body is not None:
         BODIES[name] = body
+    if kiosk_exempt:
+        KIOSK_EXEMPT.add(name)
 
 
 def declared(name: str) -> bool:
@@ -378,10 +385,23 @@ class After:
     callables run with the result once the commit has succeeded."""
     drive: list[str] = field(default_factory=list)
     then: "list[Callable[[Any], None]]" = field(default_factory=list)
+    # set when the call was a REPLAY of a receipted key: nothing ran, nothing
+    # committed, and the caller must skip every post-commit step too
+    replayed: bool = False
 
     def reset(self) -> None:
         self.drive.clear()
         self.then.clear()
+        self.replayed = False
+
+
+class _Replay(Exception):
+    """Carries a replayed key's payload OUT of the transaction, so org_tx
+    rolls back instead of committing (and saving) an empty one."""
+
+    def __init__(self, payload: Any) -> None:
+        super().__init__("replay")
+        self.payload = payload
 
 
 @dataclass
@@ -493,8 +513,8 @@ def agent_tx(body: Any, a: dict[str, Any],
         _gate(org, body.node)
         rcpt = st["rcpt"] = admit(org, body, a)
         if rcpt is not None and "replay" in rcpt:
-            # nothing changed; the clean exit commits an empty tx
-            return rcpt["replay"]
+            # nothing may run and nothing may be saved: leave by exception
+            raise _Replay(rcpt["replay"])
         result = fn(AgentTx(org=org, node=body.node, args=a, spec=held, tx=h,
                             call=body, after=aft, pre=dict(pre or {})))
         if rcpt is not None:
@@ -502,12 +522,14 @@ def agent_tx(body: Any, a: dict[str, Any],
             file(org, body, a, rcpt, result)
         return result
 
-    h, result = _run(body.org, agent_spec(body, a, base), step)
-    rcpt = st.get("rcpt")
-    if rcpt and "replay" in rcpt:
+    try:
+        h, result = _run(body.org, agent_spec(body, a, base), step)
+    except _Replay as r:
         aft.reset()
-    elif on_commit is not None:
-        on_commit(h.org, rcpt)
+        aft.replayed = True
+        return r.payload
+    if on_commit is not None:
+        on_commit(h.org, st.get("rcpt"))
     return result
 
 
