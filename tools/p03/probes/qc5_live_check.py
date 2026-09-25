@@ -27,11 +27,25 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "tools"))
-from p03.harness import serverlog  # noqa: E402
+from p03.harness import oracle, serverlog  # noqa: E402
 from p03.harness.trace import stream_health  # noqa: E402
 
 CONTROL = "Q-C5.hidden_pooled_statement"
+NO_BASELINE = "Q-C5.no_xact_baseline"
 FACTORIES = ["executor", "lookup"]
+#: the declared contacts of the two commands live_qc5.rs runs (their SQL is in that file)
+DECLARED = {
+    "status.set": {"relations": {
+        "authority_epoch": {"modes": ["read", "for_share"], "required": True},
+        "runtime_state": {"modes": ["read", "for_no_key_update", "write"], "required": True},
+        "outgoing_intents": {"modes": ["write"], "required": True},
+        "operation_receipts": {"modes": ["read", "write"], "required": True}},
+        "p01_contract": None, "source": "live_qc5.rs SetStatus (WS2 tests/pg.rs shape)"},
+    "probe.read_agent": {"relations": {
+        "agents": {"modes": ["read"], "required": True},
+        "operation_receipts": {"modes": ["read", "write"], "required": True}},
+        "p01_contract": None, "source": "live_qc5.rs ReadAgent"},
+}
 
 
 def log_lines(log_dir: Path) -> list[str]:
@@ -62,7 +76,7 @@ def window(lines: list[str], meta: dict) -> "tuple[list[str] | None, str]":
 def check(out_dir: Path, log_dir: Path) -> dict:
     lines = log_lines(log_dir)
     report: dict = {"limit": serverlog.LIMIT, "scenarios": {}, "problems": []}
-    for name in ("clean", "hidden"):
+    for name in ("clean", "hidden", "mixed", "mixed_nobaseline"):
         meta = json.loads((out_dir / f"{name}.meta.json").read_text(encoding="utf-8"))
         records = [json.loads(ln) for ln in
                    (out_dir / f"{name}.records.jsonl").read_text(encoding="utf-8").splitlines() if ln]
@@ -90,6 +104,32 @@ def check(out_dir: Path, log_dir: Path) -> dict:
             p.append(f"{name}: no server-log lines in the window: the run left no evidence")
         if len(exec_sessions) != 1:
             p.append(f"{name}: expected one pooled executor session, saw {len(exec_sessions)}")
+        if name in ("mixed", "mixed_nobaseline"):
+            # decision 6: two DIFFERENT kinds on one pooled connection; the full Q-C5
+            # oracle with the server log as the hidden-access ground truth
+            fired = [r for r in records if r.get("kind") == "control_executed"]
+            q = oracle.q_c5(DECLARED, records, FACTORIES, server_log=win)
+            s["q_c5"] = {k: q[k] for k in ("verdict", "failures", "over_declared")}
+            s["control_executed"] = len([r for r in fired if r.get("control_id") == NO_BASELINE])
+            if verdict["verdict"] != "PASSED":
+                p.append(f"{name}: the log does not reconcile with the trace: {verdict['failures']}")
+            if name == "mixed":
+                if fired:
+                    p.append("mixed: a control fired although none was armed")
+                if q["verdict"] != "PASSED":
+                    p.append(f"mixed: Q-C5 failed with the baseline difference in place: {q['failures']}")
+            else:
+                if not s["control_executed"]:
+                    p.append("mixed_nobaseline: control did not run: no control_executed record")
+                charged = [f for f in q["failures"] if f.startswith("probe.read_agent")
+                           and "server observed undeclared relation" in f]
+                other = [f for f in q["failures"] if f not in charged]
+                if not charged:
+                    p.append("mixed_nobaseline: without the baseline the second operation was NOT "
+                             "charged with the first operation's relations: the mutation survived")
+                if other:
+                    p.append(f"mixed_nobaseline: failures other than the carried-over relations: {other}")
+            continue
         if name == "clean":
             if executed:
                 p.append("clean: a control fired although none was armed")

@@ -35,6 +35,8 @@ use orgtree_store_trace::sink::Collector;
 
 const OWN_CLUSTER: &str = "\\artifacts\\p03-db\\p02-contacts-opus55\\";
 const CONTROL: &str = "Q-C5.hidden_pooled_statement";
+/// WS2's switch that disables the xact_stats baseline subtraction (decision 6)
+const NO_BASELINE: &str = "Q-C5.no_xact_baseline";
 
 fn var(name: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| panic!("{name} is not set: this DB test did NOT run"))
@@ -87,6 +89,36 @@ impl Command for SetStatus {
             .await?;
         tx.exec("status.intent", INTENT, &[Val::Uuid(b.op.org), Val::Uuid(id)]).await?;
         Ok(Decided::Applied(rows.first().and_then(|r| r.first()).and_then(Val::as_int).unwrap_or(-1)))
+    }
+}
+
+// ---- a second, DIFFERENT operation kind: it only reads the caller's agent row.
+// Run after SetStatus on the same pooled connection, it must be charged with its own
+// relations only (decision 6: xact_stats as this transaction's difference).
+
+static PROBE: Family = Family { name: "probe", isolation: Isolation::ReadCommitted, retry_unique: &[] };
+const READ_AGENT: &str = "SELECT tier FROM agents WHERE org_id = $1 AND principal_id = $2";
+
+struct ReadAgent;
+
+impl Command for ReadAgent {
+    type Output = i64;
+    fn family(&self) -> &'static Family {
+        &PROBE
+    }
+    fn verb(&self) -> &'static str {
+        "read_agent"
+    }
+    async fn anchor<S: Session>(&self, tx: &mut Tx<'_, S>, b: &Binding) -> Result<(), CmdError> {
+        let Principal::Agent { id, .. } = b.principal else { return Err(CmdError::Defect("agent only".into())) };
+        tx.exec("probe.read_agent", READ_AGENT, &[Val::Uuid(b.op.org), Val::Uuid(id)]).await?;
+        Ok(())
+    }
+    async fn may_disclose<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding, _o: &i64) -> Result<bool, CmdError> {
+        Ok(true)
+    }
+    async fn execute<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding) -> Result<Decided<i64>, CmdError> {
+        Ok(Decided::Applied(1))
     }
 }
 
@@ -165,12 +197,14 @@ async fn session_id(a: &tokio_postgres::Client) -> String {
     .get(0)
 }
 
-async fn scenario(name: &str, armed: Vec<&'static str>, known: &BTreeSet<String>, a: &tokio_postgres::Client, out: &PathBuf) {
+async fn scenario(name: &str, armed: Vec<&'static str>, mixed: bool, known: &BTreeSet<String>,
+                  a: &tokio_postgres::Client, out: &PathBuf) {
     let nonce = Uuid::new_v4().simple().to_string();
     // literal markers: the checker takes the server-log lines between them
     a.batch_execute(&format!("SELECT 'p03-ws7-qc5-start-{name}-{nonce}'")).await.unwrap();
     let c = Arc::new(Collector::new(&format!("qc5-{name}"), 1 << 16, &format!("qc5-{name}-{nonce}"), known.clone()));
     let mut h = Hooks::with_trace(c.clone());
+    let armed_ids = armed.clone();
     h.controls = Some(Arc::new(Arm(armed)));
     let cfg = PgConfig::from_url(&var("P03_PG_RUNTIME_URL")).unwrap();
     {
@@ -179,13 +213,18 @@ async fn scenario(name: &str, armed: Vec<&'static str>, known: &BTreeSet<String>
             1, // ONE pooled connection: both operations run on the same pid
             Factory::new(cfg, "lookup", h.clone()),
             1,
-            ExecConfig { max_attempts: 3, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5) },
+            ExecConfig { max_attempts: 3, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5), lock_timeout_ms: None },
             h,
         );
-        for (i, tag) in ["A", "B"].iter().enumerate() {
-            let o = ex.run(&SetStatus(if i == 0 { "one" } else { "two" }), &binding(&key(), tag)).await;
-            assert!(o.is_ok(), "{name}: operation {tag} failed: {o:?}");
-        }
+        let o = ex.run(&SetStatus("one"), &binding(&key(), "A")).await;
+        assert!(o.is_ok(), "{name}: operation A failed: {o:?}");
+        // mixed: the second operation is a DIFFERENT kind on the same connection
+        let o = if mixed {
+            ex.run(&ReadAgent, &binding(&key(), "B")).await
+        } else {
+            ex.run(&SetStatus("two"), &binding(&key(), "B")).await
+        };
+        assert!(o.is_ok(), "{name}: operation B failed: {o:?}");
     } // the executor and its pool close here
     tokio::time::sleep(Duration::from_millis(300)).await;
     a.batch_execute(&format!("SELECT 'p03-ws7-qc5-end-{name}-{nonce}'")).await.unwrap();
@@ -193,9 +232,10 @@ async fn scenario(name: &str, armed: Vec<&'static str>, known: &BTreeSet<String>
     records.extend(c.end(true));
     let lines: Vec<String> = records.iter().map(|r| r.to_json()).collect();
     std::fs::write(out.join(format!("{name}.records.jsonl")), lines.join("\n") + "\n").unwrap();
+    let armed_json: Vec<String> = armed_ids.iter().map(|id| format!("\"{id}\"")).collect();
     let meta = format!(
-        "{{\"scenario\":\"{name}\",\"nonce\":\"{nonce}\",\"armed\":[{}],\"admin_session\":\"{}\",\"stream\":\"qc5-{name}\"}}",
-        if name == "hidden" { format!("\"{CONTROL}\"") } else { String::new() },
+        "{{\"scenario\":\"{name}\",\"nonce\":\"{nonce}\",\"armed\":[{}],\"mixed\":{mixed},\"admin_session\":\"{}\",\"stream\":\"qc5-{name}\"}}",
+        armed_json.join(","),
         session_id(a).await
     );
     std::fs::write(out.join(format!("{name}.meta.json")), meta).unwrap();
@@ -216,6 +256,10 @@ async fn qc5_hidden_pooled_statement_evidence() {
         .map(|r| r.get::<_, String>(0))
         .collect();
     assert!(known.contains("runtime_state") && known.contains("operation_receipts"), "{known:?}");
-    scenario("clean", vec![], &known, &a, &out).await;
-    scenario("hidden", vec![CONTROL], &known, &a, &out).await;
+    scenario("clean", vec![], false, &known, &a, &out).await;
+    scenario("hidden", vec![CONTROL], false, &known, &a, &out).await;
+    // decision 6's mutation control: two DIFFERENT kinds on one pooled connection,
+    // with the xact_stats baseline difference, then with it disabled
+    scenario("mixed", vec![], true, &known, &a, &out).await;
+    scenario("mixed_nobaseline", vec![NO_BASELINE], true, &known, &a, &out).await;
 }
