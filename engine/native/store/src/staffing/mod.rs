@@ -33,6 +33,9 @@ pub const CONTROLS: &[&str] = &[
     "Q-ST5.share_destination_only",
     // P2 (WS4's control, also armed at the hire's own payer update)
     "Q-C8.lock_not_update",
+    // the operator door: a whole-document lock; the key accepted, unbound
+    "Q-OP1.document_lock",
+    "Q-OP4.key_unbound",
 ];
 
 /// Family-specific pause points (`<family>.<verb>.<point>`).
@@ -69,6 +72,7 @@ pub fn declared() -> Value {
                 ("kiosk_pool", rel(&["read", "for_no_key_update", "write"], false)),
                 ("lineage_bearers", rel(R, false)),
                 ("runtime_state", rel(W, true)),
+                ("status_rows", rel(W, true)),
                 ("seat_config", rel(W, true)),
                 ("charter_versions", rel(W, false)),
                 ("charter_heads", rel(W, false)),

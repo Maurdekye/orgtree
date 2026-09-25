@@ -80,6 +80,9 @@ pub const NEXT_ORD_SQL: &str = "SELECT coalesce(max(ord), -1) + 1 FROM topology_
 pub const NEXT_TOP_ORD_SQL: &str = "SELECT coalesce(max(ord), -1) + 1 FROM topology_edges WHERE org_id = $1 AND parent_id IS NULL";
 pub const INSERT_EDGE_SQL: &str = "INSERT INTO topology_edges (org_id, principal_id, parent_id, ord) VALUES ($1, $2, $3, $4)";
 pub const INSERT_SCOPE_SQL: &str = "INSERT INTO scope_rows (org_id, principal_id, depth, tools, folders, visibility, permission_mode) VALUES ($1, $2, $3, $4, $5, $6, $7)";
+/// Legacy `_new_node`: "a new hire is IDLE, not stateless" (user ruling
+/// 2026-08-02) — the seat's status row (WS4's narrow row, 0200).
+pub const INSERT_STATUS_SQL: &str = "INSERT INTO status_rows (org_id, principal_id, last_status)     VALUES ($1, $2, jsonb_build_object('status', 'idle', 'summary', 'hired — awaiting work', 'at', $3::timestamptz))";
 pub const INSERT_RUNTIME_SQL: &str = "INSERT INTO runtime_state (org_id, principal_id, updated_at) VALUES ($1, $2, $3)";
 pub const INSERT_CONFIG_SQL: &str = "INSERT INTO seat_config (org_id, principal_id, tier, account_id, account_primary, harness) VALUES ($1, $2, $3, $4, $5, $6)";
 pub const INSERT_FUNDING_EDGE_SQL: &str = "INSERT INTO funding_edges (org_id, child_id, issuer_id, tier, grant_centi) VALUES ($1, $2, $3, $4, $5)";
@@ -258,13 +261,17 @@ pub async fn hire_in<S: Session>(
         }
         _ => None,
     };
+    // Q-OP3's control is legacy's pre-guard: every authority and liveness
+    // fact is a plain read, done before the racing retire commits, and
+    // nothing is anchored. Everywhere else the facts are anchored (C3).
+    let anchored = unsafe_rc != Some("Q-OP3.rc_acting_prechecked");
     // C3: the destination's chain, edge rows FOR SHARE leaf upward.
     let chain: Vec<Uuid> = match dest {
-        Some(d) => island::chain_up(tx, org, d, true).await?,
+        Some(d) => island::chain_up(tx, org, d, anchored).await?,
         None => Vec::new(),
     };
     let dest_epoch = match dest {
-        Some(d) => island::lock_epoch(tx, "staffing.dest_epoch", org, d, Lock::Share).await?,
+        Some(d) => island::lock_epoch(tx, "staffing.dest_epoch", org, d, if anchored { Lock::Share } else { Lock::Read }).await?,
         None => None,
     };
     let dname = match dest {
@@ -307,6 +314,13 @@ pub async fn hire_in<S: Session>(
                 ),
             );
         }
+    }
+    if door == Door::Operator && controls::fire(&tx.scope(), "Q-OP1.document_lock") {
+        // Q-OP1's control: legacy's whole-document lock at the operator door
+        // (DOC_LOCK serialises every writer of the org). Modelled as a SHARE
+        // lock on the Sent table, which every mail source transaction
+        // inserts into, so an unrelated agent send must wait for this hire.
+        tx.exec("staffing.q_op1_document_lock", "LOCK TABLE mail_sent IN SHARE MODE", &[]).await?;
     }
     // ---- Org.hire, in legacy's order
     let Some(tier) = spec.tier.clone() else { return refuse("invalid", "hire needs tier and name") };
@@ -415,11 +429,11 @@ pub async fn hire_in<S: Session>(
     // P3: the scope rows of the whole chain FOR SHARE, top-down; the parent's
     // is the one the clamps read.
     let top_down: Vec<Uuid> = chain.iter().rev().copied().collect();
-    let scope_lock = if controls::fire(&tx.scope(), "Q-ST5.share_destination_only") { Lock::Read } else { Lock::Share };
+    let scope_lock = if !anchored || controls::fire(&tx.scope(), "Q-ST5.share_destination_only") { Lock::Read } else { Lock::Share };
     let mut scopes = Vec::new();
     for (i, x) in top_down.iter().enumerate() {
         // Q-ST5's control: only the destination's row is share-locked.
-        let lk = if i + 1 == top_down.len() { Lock::Share } else { scope_lock };
+        let lk = if i + 1 == top_down.len() && anchored { Lock::Share } else { scope_lock };
         scopes.extend(island::lock_scope_rows(tx, "staffing.scope_chain", org, &[*x], lk).await?);
     }
     let parent_scope = match dest {
@@ -486,6 +500,7 @@ pub async fn hire_in<S: Session>(
     )
     .await?;
     tx.exec("staffing.insert_runtime", INSERT_RUNTIME_SQL, &[Val::Uuid(org), Val::Uuid(principal), Val::Ts(now)]).await?;
+    tx.exec("staffing.insert_status", INSERT_STATUS_SQL, &[Val::Uuid(org), Val::Uuid(principal), Val::Ts(now)]).await?;
     tx.exec(
         "staffing.insert_config",
         INSERT_CONFIG_SQL,
@@ -577,6 +592,21 @@ pub async fn hire_in<S: Session>(
 /// operation (E1: the original message id is part of the op identity).
 fn kickoff_message_id(b: &Binding, principal: Uuid) -> Uuid {
     stable_id(&format!("kickoff|{}|{}|{}|{}|{}", b.op.org, b.op.ns.kind(), b.op.ns.id(), b.op.key, principal))
+}
+
+/// The operator door's operation identity (E4, decision E-D9): with a
+/// caller key, the key under `(organization, operator, key)`; without one, a
+/// key minted once for this request (a retry is a new operation: legacy).
+/// Q-OP4's unsafe control accepts the key but does not bind it at all.
+pub fn operator_identity(hooks: &crate::hooks::Hooks, org: Uuid, operator: Uuid, key: Option<&str>, fingerprint: &str) -> crate::exec::OpIdentity {
+    use crate::exec::{KeyNamespace, OpIdentity};
+    let minted = OpIdentity::minted(org, fingerprint, "legacy-1");
+    let Some(k) = key else { return minted };
+    let scope = crate::hooks::Scope { hooks, family: STAFFING.name, verb: "operator_hire", op: Some(&minted), op_tag: None, attempt: 0 };
+    if controls::fire(&scope, "Q-OP4.key_unbound") {
+        return minted;
+    }
+    OpIdentity { org, ns: KeyNamespace::Operator { operator }, key: k.to_string(), fingerprint: fingerprint.to_string(), fingerprint_codec: "legacy-1", caller_keyed: true }
 }
 
 /// A deterministic id from a seed (the same on every attempt of one
