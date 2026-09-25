@@ -343,5 +343,81 @@ class Archive(unittest.TestCase):
         self.assertEqual(lifecycle_tx._archive_rows(o, ledger.USER, "a")[0], {"a", "a1"})
 
 
+class Rename(unittest.TestCase):
+    """supervisor.rename_node on lifecycle_tx's row plan."""
+
+    def setUp(self):
+        from orgtree import supervisor as sup, warmpool
+        self.sup = sup
+        self.slug = "pg3a-rn-" + str(time.time_ns())
+        org = store.create_org(self.slug)
+        org.hire(ledger.USER, None, "luna", 0, "boss")
+        org.hire(ledger.USER, "boss", "luna", 0, "alpha")
+        org.hire(ledger.USER, "alpha", "luna", 0, "kid")     # its pointer moves
+        store.save_org(org)
+        self.enterContext(patch.object(warmpool, "kill_node"))
+        self.enterContext(patch.object(sup, "notify"))
+        self.scratch = Path(store.scratch_root(self.slug))
+        (self.scratch / "alpha").mkdir(parents=True, exist_ok=True)
+        (self.scratch / "alpha" / "note.txt").write_text("mine")
+
+    def tearDown(self):
+        store._POOL.close_all(self.slug)
+
+    def test_rename_rekeys_the_stack_and_its_children_and_moves_the_folder(self):
+        r = self.sup.rename_node(self.slug, "alpha", "beta", actor=ledger.USER)
+        self.assertEqual(r["node"], "beta")
+        o = store.load_org(self.slug)
+        self.assertIn("beta", o.nodes)
+        self.assertNotIn("alpha", o.nodes)
+        self.assertEqual(o.node("kid")["parent"], "beta")
+        self.assertTrue((self.scratch / "beta" / "note.txt").exists())
+        self.assertFalse((self.scratch / "alpha").exists())
+
+    def test_the_plan_holds_the_children_and_the_new_id(self):
+        upd, share, sections, logs = lifecycle_tx._rename_plan(
+            store.load_org(self.slug), ledger.USER, "alpha", "beta")
+        self.assertTrue({"alpha", "beta", "kid"} <= upd)
+        self.assertIn("boss", share)
+        self.assertIn("audiences", sections)
+        self.assertIn(("mail_log", "alpha"), logs)
+        self.assertIn(("mail_log", "beta"), logs)
+
+    def test_a_refused_commit_puts_the_folder_back(self):
+        # negative control: a plan missing the child's row makes the commit
+        # refuse (the child's parent pointer is rewritten) — and the folder
+        # the body already moved must be moved back
+        real = lifecycle_tx._rename_plan
+
+        def short(org, actor, nid, new_name):
+            upd, share, sections, logs = real(org, actor, nid, new_name)
+            return upd - {"kid"}, share, sections, logs
+        with patch.object(lifecycle_tx, "_rename_plan", short), \
+                patch.object(lifecycle_tx, "check_rename_rows", lambda *a: None):
+            with self.assertRaises(orgtx.UnlockedWrite):
+                self.sup.rename_node(self.slug, "alpha", "beta", actor=ledger.USER)
+        self.assertTrue((self.scratch / "alpha" / "note.txt").exists())
+        self.assertFalse((self.scratch / "beta").exists())
+        o = store.load_org(self.slug)
+        self.assertIn("alpha", o.nodes)
+        self.assertEqual(o.node("kid")["parent"], "alpha")
+
+    def test_a_stale_plan_widens_before_any_folder_moves(self):
+        real = lifecycle_tx._rename_plan
+        calls = []
+
+        def stale_first(org, actor, nid, new_name):
+            upd, share, sections, logs = real(org, actor, nid, new_name)
+            calls.append(1)
+            if len(calls) == 1:
+                return upd - {"kid"}, share, sections, logs
+            return upd, share, sections, logs
+        with patch.object(lifecycle_tx, "_rename_plan", stale_first):
+            r = self.sup.rename_node(self.slug, "alpha", "beta", actor=ledger.USER)
+        self.assertEqual(r["node"], "beta")
+        self.assertGreaterEqual(len(calls), 3)      # snapshot, locked re-check (widen), re-check
+        self.assertTrue((self.scratch / "beta" / "note.txt").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
