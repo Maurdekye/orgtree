@@ -1,0 +1,26 @@
+[package]
+name = "orgtree-store-service"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "P03 store service: the Rust process the thin Python doors call over an authenticated loopback channel (CONTRACT-M1 §9)"
+license = "MIT"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "orgtree-store-service"
+path = "src/main.rs"
+
+[features]
+default = []
+qualification = ["orgtree-store/qualification"]
+
+[dependencies]
+orgtree-store = { path = "../store" }
+# Same pins as every P03 crate (engine/native/store/DEPENDENCIES.md).
+tokio = { version = "=1.52.3", default-features = false, features = ["sync", "time", "rt", "rt-multi-thread", "macros", "net", "io-util", "signal"] }
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.150"
+uuid = { version = "1", default-features = false, features = ["v4", "std", "serde"] }
