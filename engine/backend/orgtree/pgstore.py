@@ -33,7 +33,8 @@ store.py's differ was re-implemented.
     transaction — and its locks — end only when org_tx commits.
 
 The driver is psycopg 3, imported only when this backend is selected.
-Connection URL: `ORGTREE_PG_URL` (set by PG-1's managed-process bracket).
+Connection: `ORGTREE_PG_CONNINFO` (a libpq string set by PG-1's managed-process
+bracket), else `ORGTREE_PG_URL` (tests and development).
 """
 
 from __future__ import annotations
@@ -112,12 +113,14 @@ def migrate(target: Any, d: pathlib.Path = MIGRATIONS_DIR) -> dict[str, Any]:
     own = isinstance(target, str)
     conn = connect(target) if own else target
     try:
-        if conn.execute("SELECT to_regclass('public.schema_migrations')").fetchone()[0] is None:
-            conn.execute("CREATE TABLE public.schema_migrations ("
-                         "name text PRIMARY KEY, sha256 text NOT NULL, "
-                         "applied_at timestamptz NOT NULL DEFAULT now())")
+        # the lock first, so two first-boot migrators cannot race to create
+        # the bookkeeping table (review N7)
         conn.execute("SELECT pg_advisory_lock(%s)", (_MIGRATE_LOCK_KEY,))
         try:
+            if conn.execute("SELECT to_regclass('public.schema_migrations')").fetchone()[0] is None:
+                conn.execute("CREATE TABLE public.schema_migrations ("
+                             "name text PRIMARY KEY, sha256 text NOT NULL, "
+                             "applied_at timestamptz NOT NULL DEFAULT now())")
             applied = {str(n): str(s) for n, s in conn.execute(
                 "SELECT name, sha256 FROM public.schema_migrations").fetchall()}
             files = migration_files(d)
@@ -261,6 +264,17 @@ class PgConn:
         self.commit_armed = False
         #: the revision the last committed save bumped to
         self.last_revision: int | None = None
+        #: set when several orgs share ONE server connection (a multi-org
+        #: org_tx): holds the org_id whose schema the search_path names now,
+        #: and every statement switches it first when it is another org's
+        self.path_holder: list[int | None] | None = None
+
+    def use(self) -> None:
+        """Point the shared connection's search_path at this org's schema."""
+        h = self.path_holder
+        if h is not None and h[0] != self.org_id:
+            self.raw.execute(f"SET search_path TO org_{int(self.org_id)}, public")
+            h[0] = self.org_id
 
     @property
     def in_transaction(self) -> bool:
@@ -279,6 +293,7 @@ class PgConn:
             if st.kind != "sql":
                 self.raw.execute(st.sql)
                 return _EMPTY
+            self.use()
             cur = self.raw.execute(st.sql, tuple(params) if params else None)
             rows: list[tuple[Any, ...]] = cur.fetchall() if cur.description else []
         except Exception as e:
@@ -335,7 +350,9 @@ def _release(raw: Any) -> None:
              and raw.info.transaction_status == pq.TransactionStatus.IDLE)
     if clean:
         try:
-            raw.execute("RESET search_path")
+            # every session setting, not just search_path: nothing a checkout
+            # SET may reach the next one (review B3)
+            raw.execute("RESET ALL")
         except Exception:                                   # noqa: BLE001
             clean = False
     if clean:
@@ -419,6 +436,7 @@ def on_save_commit(conn: PgConn, changed: bool) -> None:
     same transaction, when the save changed anything."""
     if not changed:
         return
+    conn.use()
     try:
         row = conn.raw.execute(
             "UPDATE public.orgs SET revision = revision + 1 WHERE org_id = %s "
