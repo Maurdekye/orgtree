@@ -3656,11 +3656,12 @@ def org_kiosk(slug: str, body: KioskCfg) -> dict[str, Any]:
     """Admin-only (the public gateway 403s the path): enable/disable an org as
     a kiosk, adjust its caps, rotate its secret URL. Raising a breached limit
     clears the matching hard freeze — ▶ resume then replays halted turns."""
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
+    # PG-3f: one org_tx over the kiosk rows and EVERY node row (the
+    # ceiling sweep and the freeze clear touch them all); never DOC_LOCK
+    from . import settingstx
+
+    def _body(tx: Any) -> tuple[Any, list[str], list[str], list[str], bool]:
+        org = tx.org
         if not org.d.get("kiosk"):
             # kiosk is a creation-time TYPE (user ruling) — no conversion
             raise HTTPException(
@@ -3734,8 +3735,16 @@ def org_kiosk(slug: str, body: KioskCfg) -> dict[str, Any]:
             drive_after = [k for k, v in org.nodes.items()
                            if v["state"] == "live" and not v.get("frozen")
                            and (org.d.get("mail") or {}).get(k)]
-        store.save_org(org)
         need_freeze = over and not org.d.get("spend_frozen")
+        return k, cleared, ceiling_warnings, drive_after, need_freeze
+    try:
+        k, cleared, ceiling_warnings, drive_after, need_freeze = \
+            settingstx.whole_org_tx(
+                slug, _body, sections=settingstx.KIOSK_SECTIONS,
+                share_sections=settingstx.KIOSK_SHARE,
+                logs=settingstx.KIOSK_LOGS)
+    except LedgerError as e:
+        raise HTTPException(404, str(e))
     # limits apply in REAL TIME (user ruling), both directions: lowering the
     # spend limit below what's already spent freezes now, not at the next
     # turn's end; the storage recheck applies/lifts the write block likewise

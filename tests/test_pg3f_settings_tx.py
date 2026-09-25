@@ -326,6 +326,84 @@ class DesktopRecovery(unittest.TestCase):
         self.assertEqual(out[0]['results'][0]['phase'], 'handled', out)
 
 
+ALL_TOOLS = {'bash': True, 'web': True, 'edit': True, 'subagents': True, 'mcp': ['*']}
+NO_TOOLS = {'bash': False, 'web': False, 'edit': False, 'subagents': False, 'mcp': []}
+CEILING = {'tools': NO_TOOLS, 'add_dirs': [], 'org_visibility': 'team',
+           'permission_mode': 'acceptEdits'}
+
+
+class KioskWholeOrg(unittest.TestCase):
+    """api.org_kiosk: the kiosk rows + EVERY node row in one org_tx."""
+
+    def setUp(self) -> None:
+        from unittest import mock
+        from orgtree import ledger, supervisor
+        # post-commit effects are not what is measured here (and some take
+        # DOC_LOCK themselves, exactly as they did before the conversion)
+        for name in ('hard_freeze', 'send_message', 'storage_check'):
+            p = mock.patch.object(supervisor, name, return_value=None)
+            p.start()
+            self.addCleanup(p.stop)
+        p = mock.patch.object(api, 'hub_changed', return_value=None)
+        p.start()
+        self.addCleanup(p.stop)
+        global _n
+        _n += 1
+        org = store.create_org(f'pg3f-k{_n}')
+        self.slug = org.d['slug']
+        org.hire(ledger.USER, None, 'haiku', 20, 'top', add_dirs=[],
+                 tools=ALL_TOOLS, charter='fixture')
+        org.d['kiosk'] = {'enabled': True, 'credits': 0, 'spend_limit': 0.0,
+                          'storage_limit_mb': 0, 'token': 't', 'auto_raise': False,
+                          'max_scope': {**CEILING, 'tools': ALL_TOOLS}}
+        org.d['spend_frozen'] = True
+        store.save_org(org)
+        store.save_org(store.load_org(self.slug))
+
+    def _call(self):
+        return api.org_kiosk(self.slug, api.KioskCfg(max_scope=CEILING,
+                                                     spend_limit=100.0))
+
+    def _check(self) -> None:
+        d = _doc(self.slug)
+        self.assertFalse(d['nodes']['top']['scope']['tools']['bash'],
+                         'the ceiling sweep did not clamp the node')
+        self.assertTrue((d.get('notices') or {}).get('top'),
+                        'the swept agent was not told')
+        self.assertNotIn('spend_frozen', d)
+        self.assertEqual(d['kiosk']['spend_limit'], 100.0)
+
+    def test_never_waits_on_doc_lock(self) -> None:
+        with _Held(lambda: store.DOC_LOCK):
+            done, out, _t = _run(self._call, FREE_S)
+            self.assertTrue(done, 'org_kiosk waited on DOC_LOCK')
+        self.assertFalse(isinstance(out[0], BaseException), out)
+        self._check()
+
+    def test_waits_for_a_holder_of_any_node_row(self) -> None:
+        with _Held(lambda: orgtx.org_tx(self.slug, nodes=['top'])):
+            done, out, t = _run(self._call, BLOCKED_S)
+            self.assertFalse(done, 'org_kiosk did not lock the node rows')
+        t.join(FREE_S)
+        self.assertFalse(isinstance(out[0], BaseException), out)
+        self._check()
+
+    def test_a_node_added_after_the_listing_is_still_swept(self) -> None:
+        from unittest import mock
+        from orgtree import settingstx
+        real = settingstx._node_ids
+        calls: list = []
+
+        def stale(slug):
+            ids = real(slug)
+            calls.append(ids)
+            return ids - {'top'} if len(calls) == 1 else ids
+        with mock.patch.object(settingstx, '_node_ids', stale):
+            self._call()
+        self.assertEqual(len(calls), 2, 'the grown node set was not re-listed')
+        self._check()
+
+
 class Semantics(unittest.TestCase):
     def test_disk_none_pops_and_other_keys_survive(self) -> None:
         slug = _fresh_org(disk={'size_mb': 4096, 'pending_size_mb': 5000})
