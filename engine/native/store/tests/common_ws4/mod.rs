@@ -588,25 +588,47 @@ impl Command for Racer {
 }
 
 /// Run `f` while `h` holds its operation (after the planned point is
-/// reached), keep holding for `hold_ms`, then release. Returns `f`'s output
-/// and whether `f` finished BEFORE the release — i.e. did not wait on the
-/// held transaction. Nothing is cancelled: a waiting `f` completes after the
-/// release, so no connection is dropped mid-transaction.
-pub async fn while_held<F: std::future::Future>(h: &mut Held, hold_ms: u64, f: F) -> (F::Output, bool) {
+/// reached), and return `f`'s output and whether `f` did NOT wait on a lock
+/// while the hold was in place.
+///
+/// The verdict is read from the server, not the clock: while holding, the
+/// admin connection samples `pg_stat_activity` for any backend of this
+/// database in a `Lock` wait. The hold is released as soon as `f` finishes,
+/// a lock wait is observed, or `max_hold_ms` passes — so a slow machine
+/// cannot turn "not yet reached its lock" into "did not wait", and nothing
+/// is ever cancelled (a waiting `f` completes after the release).
+pub async fn while_held<F: std::future::Future>(h: &mut Held, max_hold_ms: u64, f: F) -> (F::Output, bool) {
     use std::sync::atomic::{AtomicBool, Ordering};
     h.arrive().await;
-    let released = AtomicBool::new(false);
+    let done = AtomicBool::new(false);
+    let waited = AtomicBool::new(false);
     let run = async {
         let o = f.await;
-        (o, !released.load(Ordering::SeqCst))
+        done.store(true, Ordering::SeqCst);
+        o
     };
-    let rel = async {
-        tokio::time::sleep(Duration::from_millis(hold_ms)).await;
-        released.store(true, Ordering::SeqCst);
+    let watch = async {
+        let c = admin().await;
+        let t0 = std::time::Instant::now();
+        loop {
+            if done.load(Ordering::SeqCst) || t0.elapsed() >= Duration::from_millis(max_hold_ms) {
+                break;
+            }
+            let n: i64 = c
+                .query_one("SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND pid <> pg_backend_pid()", &[])
+                .await
+                .map(|r| r.get(0))
+                .unwrap_or(0);
+            if n > 0 {
+                waited.store(true, Ordering::SeqCst);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
         h.go();
     };
-    let (out, ()) = tokio::join!(run, rel);
-    out
+    let (out, ()) = tokio::join!(run, watch);
+    (out, !waited.load(Ordering::SeqCst))
 }
 
 // ---------------------------------------------------------------- funding invariants (v6 I12)
@@ -667,4 +689,29 @@ pub async fn funding_violations() -> Vec<String> {
 
 pub async fn grant_of(x: Uuid) -> i64 {
     count(&format!("SELECT grant_centi FROM funding_edges WHERE child_id = '{x}'")).await
+}
+
+/// Poll every future concurrently until all complete (a small join_all
+/// without an extra crate).
+pub async fn join_all<F: std::future::Future>(fs: impl Iterator<Item = F>) -> Vec<F::Output> {
+    let mut v: Vec<std::pin::Pin<Box<F>>> = fs.map(Box::pin).collect();
+    let mut out: Vec<Option<F::Output>> = (0..v.len()).map(|_| None).collect();
+    std::future::poll_fn(|cx| {
+        let mut pending = false;
+        for (i, f) in v.iter_mut().enumerate() {
+            if out[i].is_none() {
+                match f.as_mut().poll(cx) {
+                    std::task::Poll::Ready(o) => out[i] = Some(o),
+                    std::task::Poll::Pending => pending = true,
+                }
+            }
+        }
+        if pending {
+            std::task::Poll::Pending
+        } else {
+            std::task::Poll::Ready(())
+        }
+    })
+    .await;
+    out.into_iter().map(|o| o.unwrap()).collect()
 }

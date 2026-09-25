@@ -421,40 +421,7 @@ impl Command for WorkCreate {
         Ok(true)
     }
     async fn execute<S: Session>(&self, tx: &mut Tx<'_, S>, b: &Binding) -> Result<Decided<i64>, CmdError> {
-        let org = b.op.org;
-        let now = tx.now().await?;
-        tx.exec(
-            "work.insert_head",
-            INSERT_HEAD_SQL,
-            &[
-                Val::Uuid(org),
-                Val::Uuid(self.item),
-                Val::text(self.name.clone()),
-                Val::text(self.title.clone()),
-                Val::text("code"),
-                Val::text(self.status.clone()),
-                Val::opt_uuid(self.owner),
-                Val::opt_uuid(by(b)),
-                Val::Ts(now),
-            ],
-        )
-        .await?;
-        tx.exec("work.insert_name", INSERT_NAME_SQL, &[Val::Uuid(org), Val::text(self.name.clone()), Val::Uuid(self.item)]).await?;
-        let mut parts = self.participants.clone();
-        parts.sort();
-        parts.dedup();
-        for p in &parts {
-            tx.exec("work.insert_participant", INSERT_PARTICIPANT_SQL, &[Val::Uuid(org), Val::Uuid(self.item), Val::Uuid(*p)]).await?;
-        }
-        let owner_name = owner_name(tx, org, self.owner).await?;
-        let body = json!({"rev": 1, "status": self.status, "owner": self.owner, "owner_name": owner_name, "participants": parts, "archived": false});
-        tx.exec(
-            "work.insert_version",
-            INSERT_VERSION_SQL,
-            &[Val::Uuid(org), Val::Uuid(self.item), Val::Int(1), Val::text("create"), Val::Json(body), Val::opt_uuid(by(b)), Val::Ts(now)],
-        )
-        .await?;
-        Ok(Decided::Applied(1))
+        create_in(tx, b.op.org, by(b), self).await
     }
 }
 
@@ -515,89 +482,7 @@ impl Command for WorkUpdate {
         Ok(true)
     }
     async fn execute<S: Session>(&self, tx: &mut Tx<'_, S>, b: &Binding) -> Result<Decided<Updated>, CmdError> {
-        let org = b.op.org;
-        let key = [Val::Uuid(org), Val::Uuid(self.item)];
-        // The head row first (C3: every writer of owner, participants, state
-        // or archive), then the attempt clock (C7).
-        let rows = tx.exec("work.lock_head", LOCK_HEAD_SQL, &key).await?;
-        let Some(r) = rows.first() else { return Ok(Decided::Refused(Refusal::new("no_such_item", "no such work item"))) };
-        let rev = r.first().and_then(Val::as_int).unwrap_or(0);
-        let cur_status = r.get(1).and_then(Val::as_text).unwrap_or("").to_string();
-        let cur_owner = r.get(2).and_then(Val::as_uuid);
-        let cur_archived = r.get(3).and_then(Val::as_ts);
-        if let Some(want) = self.expected_rev {
-            if want != rev {
-                return Ok(Decided::Refused(Refusal::new(
-                    "stale_rev",
-                    format!("the item changed: it is at revision {rev}, the update was composed against {want}"),
-                )));
-            }
-        }
-        let now = tx.now().await?;
-        let mut status = self.status.clone().unwrap_or(cur_status);
-        let owner = match self.owner {
-            Some(o) => o,
-            None => cur_owner,
-        };
-        let archived_at = match self.archive {
-            Some(Archive::Drop) => {
-                status = "dropped".into();
-                Some(now)
-            }
-            Some(_) => Some(now),
-            None if self.reopen => None,
-            None => cur_archived,
-        };
-        let new_rev = tx
-            .exec(
-                "work.update_head",
-                UPDATE_HEAD_SQL,
-                &[Val::Uuid(org), Val::Uuid(self.item), Val::text(status.clone()), Val::opt_uuid(owner), archived_at.map(Val::Ts).unwrap_or(Val::Null), Val::Ts(now)],
-            )
-            .await?
-            .first()
-            .and_then(|r| r.first())
-            .and_then(Val::as_int)
-            .ok_or_else(|| CmdError::Defect("head update returned no rev".into()))?;
-        for p in &self.remove_participants {
-            tx.exec("work.delete_participant", DELETE_PARTICIPANT_SQL, &[Val::Uuid(org), Val::Uuid(self.item), Val::Uuid(*p)]).await?;
-        }
-        for p in &self.add_participants {
-            tx.exec("work.insert_participant", INSERT_PARTICIPANT_SQL, &[Val::Uuid(org), Val::Uuid(self.item), Val::Uuid(*p)]).await?;
-        }
-        let parts: Vec<Uuid> = tx
-            .exec("work.read_participants", PARTICIPANTS_SQL, &key)
-            .await?
-            .0
-            .iter()
-            .filter_map(|r| r.first().and_then(Val::as_uuid))
-            .collect();
-        // C5 step 6 (r7 §4.2 table): the item archiving, a reader unlisted,
-        // or the holder changing narrows material access through the item;
-        // the restriction is recorded in THIS transaction. Closing alone
-        // (done) records nothing (D8).
-        let narrows = (archived_at.is_some() && cur_archived.is_none()) || !self.remove_participants.is_empty() || owner != cur_owner;
-        if narrows {
-            crate::restrict::record(tx, org, "work.narrowed").await?;
-        }
-        let owner_name = owner_name(tx, org, owner).await?;
-        let body = json!({
-            "rev": new_rev,
-            "status": status,
-            "owner": owner,
-            "owner_name": owner_name,
-            "participants": parts,
-            "archived": archived_at.is_some(),
-            "archive": self.archive.map(|a| format!("{a:?}").to_lowercase()),
-            "note": self.note,
-        });
-        tx.exec(
-            "work.insert_version",
-            INSERT_VERSION_SQL,
-            &[Val::Uuid(org), Val::Uuid(self.item), Val::Int(new_rev), Val::text("update"), Val::Json(body), Val::opt_uuid(by(b)), Val::Ts(now)],
-        )
-        .await?;
-        Ok(Decided::Applied(Updated { rev: new_rev, status, archived: archived_at.is_some() }))
+        update_in(tx, b.op.org, by(b), self).await
     }
 }
 
@@ -606,6 +491,132 @@ impl Command for WorkUpdate {
 async fn owner_name<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, owner: Option<Uuid>) -> Result<Option<String>, CmdError> {
     let Some(o) = owner else { return Ok(None) };
     Ok(tx.exec("work.owner_name", OWNER_NAME_SQL, &[Val::Uuid(org), Val::Uuid(o)]).await?.first().and_then(|r| r.first()).and_then(|v| v.as_text().map(str::to_string)))
+}
+
+/// The body of [`WorkCreate`], composable inside another command's
+/// transaction (WS3a: the staff door writes its item with the seat).
+pub async fn create_in<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, by_principal: Option<Uuid>, c: &WorkCreate) -> Result<Decided<i64>, CmdError> {
+    let now = tx.now().await?;
+    tx.exec(
+        "work.insert_head",
+        INSERT_HEAD_SQL,
+        &[
+            Val::Uuid(org),
+            Val::Uuid(c.item),
+            Val::text(c.name.clone()),
+            Val::text(c.title.clone()),
+            Val::text("code"),
+            Val::text(c.status.clone()),
+            Val::opt_uuid(c.owner),
+            Val::opt_uuid(by_principal),
+            Val::Ts(now),
+        ],
+    )
+    .await?;
+    tx.exec("work.insert_name", INSERT_NAME_SQL, &[Val::Uuid(org), Val::text(c.name.clone()), Val::Uuid(c.item)]).await?;
+    let mut parts = c.participants.clone();
+    parts.sort();
+    parts.dedup();
+    for p in &parts {
+        tx.exec("work.insert_participant", INSERT_PARTICIPANT_SQL, &[Val::Uuid(org), Val::Uuid(c.item), Val::Uuid(*p)]).await?;
+    }
+    let owner_name = owner_name(tx, org, c.owner).await?;
+    let body = json!({"rev": 1, "status": c.status, "owner": c.owner, "owner_name": owner_name, "participants": parts, "archived": false});
+    tx.exec(
+        "work.insert_version",
+        INSERT_VERSION_SQL,
+        &[Val::Uuid(org), Val::Uuid(c.item), Val::Int(1), Val::text("create"), Val::Json(body), Val::opt_uuid(by_principal), Val::Ts(now)],
+    )
+    .await?;
+    Ok(Decided::Applied(1))
+}
+
+/// The body of [`WorkUpdate`] (head row FOR NO KEY UPDATE, CAS, participants,
+/// restriction, version row), composable inside another command's
+/// transaction (WS3a: S3 §4.8's staff docket write in the seat's transaction).
+pub async fn update_in<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, by_principal: Option<Uuid>, u: &WorkUpdate) -> Result<Decided<Updated>, CmdError> {
+    let key = [Val::Uuid(org), Val::Uuid(u.item)];
+    // The head row first (C3: every writer of owner, participants, state
+    // or archive), then the attempt clock (C7).
+    let rows = tx.exec("work.lock_head", LOCK_HEAD_SQL, &key).await?;
+    let Some(r) = rows.first() else { return Ok(Decided::Refused(Refusal::new("no_such_item", "no such work item"))) };
+    let rev = r.first().and_then(Val::as_int).unwrap_or(0);
+    let cur_status = r.get(1).and_then(Val::as_text).unwrap_or("").to_string();
+    let cur_owner = r.get(2).and_then(Val::as_uuid);
+    let cur_archived = r.get(3).and_then(Val::as_ts);
+    if let Some(want) = u.expected_rev {
+        if want != rev {
+            return Ok(Decided::Refused(Refusal::new(
+                "stale_rev",
+                format!("the item changed: it is at revision {rev}, the update was composed against {want}"),
+            )));
+        }
+    }
+    let now = tx.now().await?;
+    let mut status = u.status.clone().unwrap_or(cur_status);
+    let owner = match u.owner {
+        Some(o) => o,
+        None => cur_owner,
+    };
+    let archived_at = match u.archive {
+        Some(Archive::Drop) => {
+            status = "dropped".into();
+            Some(now)
+        }
+        Some(_) => Some(now),
+        None if u.reopen => None,
+        None => cur_archived,
+    };
+    let new_rev = tx
+        .exec(
+            "work.update_head",
+            UPDATE_HEAD_SQL,
+            &[Val::Uuid(org), Val::Uuid(u.item), Val::text(status.clone()), Val::opt_uuid(owner), archived_at.map(Val::Ts).unwrap_or(Val::Null), Val::Ts(now)],
+        )
+        .await?
+        .first()
+        .and_then(|r| r.first())
+        .and_then(Val::as_int)
+        .ok_or_else(|| CmdError::Defect("head update returned no rev".into()))?;
+    for p in &u.remove_participants {
+        tx.exec("work.delete_participant", DELETE_PARTICIPANT_SQL, &[Val::Uuid(org), Val::Uuid(u.item), Val::Uuid(*p)]).await?;
+    }
+    for p in &u.add_participants {
+        tx.exec("work.insert_participant", INSERT_PARTICIPANT_SQL, &[Val::Uuid(org), Val::Uuid(u.item), Val::Uuid(*p)]).await?;
+    }
+    let parts: Vec<Uuid> = tx
+        .exec("work.read_participants", PARTICIPANTS_SQL, &key)
+        .await?
+        .0
+        .iter()
+        .filter_map(|r| r.first().and_then(Val::as_uuid))
+        .collect();
+    // C5 step 6 (r7 §4.2 table): the item archiving, a reader unlisted,
+    // or the holder changing narrows material access through the item;
+    // the restriction is recorded in THIS transaction. Closing alone
+    // (done) records nothing (D8).
+    let narrows = (archived_at.is_some() && cur_archived.is_none()) || !u.remove_participants.is_empty() || owner != cur_owner;
+    if narrows {
+        crate::restrict::record(tx, org, "work.narrowed").await?;
+    }
+    let owner_name = owner_name(tx, org, owner).await?;
+    let body = json!({
+        "rev": new_rev,
+        "status": status,
+        "owner": owner,
+        "owner_name": owner_name,
+        "participants": parts,
+        "archived": archived_at.is_some(),
+        "archive": u.archive.map(|a| format!("{a:?}").to_lowercase()),
+        "note": u.note,
+    });
+    tx.exec(
+        "work.insert_version",
+        INSERT_VERSION_SQL,
+        &[Val::Uuid(org), Val::Uuid(u.item), Val::Int(new_rev), Val::text("update"), Val::Json(body), Val::opt_uuid(by_principal), Val::Ts(now)],
+    )
+    .await?;
+    Ok(Decided::Applied(Updated { rev: new_rev, status, archived: archived_at.is_some() }))
 }
 
 /// DECLARED-CONTACTS for the work verbs.

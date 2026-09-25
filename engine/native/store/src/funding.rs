@@ -385,7 +385,7 @@ pub async fn open_frame<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, target: Uuid,
 
 /// Step 4: the operation's own mutable rows, primary-key order within this
 /// call: the funding edges, then the capacity rows, `FOR NO KEY UPDATE`.
-async fn lock_rows<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, ids: &BTreeSet<Uuid>) -> Result<(), CmdError> {
+pub async fn lock_rows<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, ids: &BTreeSet<Uuid>) -> Result<(), CmdError> {
     for id in ids {
         tx.exec("funding.lock_edge", LOCK_EDGE_SQL, &[Val::Uuid(org), Val::Uuid(*id)]).await?;
     }
@@ -398,7 +398,7 @@ async fn lock_rows<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, ids: &BTreeSet<Uui
 /// The facts the planner consults, read now (after whatever is locked;
 /// READ COMMITTED sees the newest committed rows): every chain node, and the
 /// children of every chain node whose `free` the planner may compute.
-async fn read_facts<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, target: Uuid, f: &Frame) -> Result<Loaded, CmdError> {
+pub async fn read_facts<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, target: Uuid, f: &Frame) -> Result<Loaded, CmdError> {
     let mut rows: BTreeMap<Uuid, NodeRow> = BTreeMap::new();
     for id in &f.chain {
         if let Some(n) = one_node(tx, org, *id).await? {
@@ -442,6 +442,20 @@ async fn read_facts<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, target: Uuid, f: 
         lifecycles: rows.values().map(|n| (n.id, n.lifecycle.clone())).collect(),
         prices: f.prices.clone(),
     })
+}
+
+/// For island writers (WS3's hire and staffing): the frame of `target` with
+/// the lock order of C4 steps 2-3, then `target` and `extra` locked in ONE
+/// round in canonical order (funding edges, then capacity rows), then the
+/// facts read under those locks. The caller decides (its own funding-core
+/// step) and may [`apply`] a [`Plan`] it builds. Never extend the set within
+/// the attempt (lead ruling 2): re-run with a larger `extra` instead.
+pub async fn load_locked<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, target: Uuid, extra: &BTreeSet<Uuid>) -> Result<Option<Loaded>, CmdError> {
+    let Some(f) = open_frame(tx, org, target, ReadMode { lock: true }).await? else { return Ok(None) };
+    let mut set: BTreeSet<Uuid> = extra.clone();
+    set.insert(target);
+    lock_rows(tx, org, &set).await?;
+    Ok(Some(read_facts(tx, org, target, &f).await?))
 }
 
 /// Read everything a funding step on `target` consults WITHOUT locks
