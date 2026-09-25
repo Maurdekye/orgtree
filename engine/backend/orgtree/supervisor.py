@@ -13292,61 +13292,78 @@ def _idle_docket_reminder_reserve(
     dies after this save leaves ordinary waking mail for reconciliation.
     `docket_reminder_at` is written in the same save and is both the
     cross-restart dedupe and the failed-wake cooldown.
-    """
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
-        if not _auto_wake_gates_clear(org, nid):
-            return None
-        # THE REMINDER's set, never the checkup's. Which question is asked is
-        # the user's machine-wide choice and it DEFAULTS OFF: off is the
-        # long-standing behaviour (nudge the actionable owned items, exclude
-        # blocked ones per item). On is PURELY ADDITIVE — the same actionable
-        # reminder, plus this agent's own blocked rows in the one case where
-        # the whole organization is blocked. Neither branch ever withholds an
-        # actionable reminder. Read here rather than in the ledger so the
-        # selection rules stay pure and the toggle has exactly one site.
-        items = (org.work_docket_reminder_items(nid)
-                 if appsettings.blocked_docket_reminders_enabled()
-                 else org.work_idle_reminder_items(nid))
-        if not items:
-            return None                 # no wake AND no stamp
-        n = org.node(nid)
-        anchor = _idle_docket_anchor(n)
-        if not anchor:
-            # absence is not evidence that 20 minutes passed
-            n["docket_reminder_at"] = _iso_ts(now)
-            store.save_org(org)
-            return None
-        if now - anchor <= IDLE_DOCKET_REMINDER_AFTER_S:
-            return None                 # MORE than 20 minutes, not exactly
-        mid = uuid_hex8()
-        stamp = _iso_ts(now)
-        n["docket_reminder_at"] = stamp
-        # typed (design family `reminder`): the listed items ride the event; the
-        # body is the frozen rendering — byte-identical to _idle_docket_reminder_body
-        shown = items[:IDLE_DOCKET_REMINDER_MAX_ITEMS]
-        ev = events.mint(
-            "reminder.idle_docket", {"kind": "system", "id": SYSTEM}, _node_ref(org, nid),
-            items=[{"slug": str(it.get("slug") or ""), "title": str(it.get("title") or ""),
-                    "status": str(it.get("status") or ""),
-                    "role": str(it.get("role") or "owner")} for it in shown],
-            more=len(items) - len(shown))
-        entry: MailEntry = {
-            "id": mid, "from": SYSTEM, "kind": "message",
-            "body": events.render_agent(ev), "at": stamp,
-            "model_only": True,
-            "relationship": (
-                "the orgtree engine reminding an idle agent of the unfinished "
-                "docket items whose next action is its own, after 20 minutes "
-                "without a wake"),
-        }
-        entry["ev"] = events.encode_row_ev(ev, entry)
-        # M0a — ONE DEPOSIT DOOR (ledger.Org.deposit_mail): pending copy,
-        # archive copy and the receive ordinal, in one place.
-        org.deposit_mail(nid, cast("dict[str, Any]", dict(entry)))
 
-        store.save_org(org)
-        return mid, items
+    PG-3w: ONE `org_tx`, not DOC_LOCK. The seat's node row and the mail it
+    deposits are written FOR UPDATE; the docket and the durable gates it
+    DECIDES on are held FOR SHARE, so a docket write that would change the
+    answer waits for this (or this waits for it) — the reservation and the
+    items it names can never disagree. The stamp, the mail and the event are
+    still one commit.
+    """
+    from . import worktx
+    rows = worktx.Rows(
+        sections={"mail"}, nodes={nid}, logs={"mail_log"},
+        share_sections={"work_items", "asks", "delivering", "spend_frozen",
+                        "storage_blocked"})
+    return worktx.tx(slug, lambda org: _idle_docket_reminder_reserve_body(
+        org, nid, now), rows=rows)
+
+
+def _idle_docket_reminder_reserve_body(
+        org: Org, nid: str,
+        now: float) -> tuple[str, list[dict[str, str]]] | None:
+    """The decision and the writes of `_idle_docket_reminder_reserve`, on the
+    locked document. The transaction commits whatever this changed."""
+    if not _auto_wake_gates_clear(org, nid):
+        return None
+    # THE REMINDER's set, never the checkup's. Which question is asked is
+    # the user's machine-wide choice and it DEFAULTS OFF: off is the
+    # long-standing behaviour (nudge the actionable owned items, exclude
+    # blocked ones per item). On is PURELY ADDITIVE — the same actionable
+    # reminder, plus this agent's own blocked rows in the one case where
+    # the whole organization is blocked. Neither branch ever withholds an
+    # actionable reminder. Read here rather than in the ledger so the
+    # selection rules stay pure and the toggle has exactly one site.
+    items = (org.work_docket_reminder_items(nid)
+             if appsettings.blocked_docket_reminders_enabled()
+             else org.work_idle_reminder_items(nid))
+    if not items:
+        return None                 # no wake AND no stamp
+    n = org.node(nid)
+    anchor = _idle_docket_anchor(n)
+    if not anchor:
+        # absence is not evidence that 20 minutes passed
+        n["docket_reminder_at"] = _iso_ts(now)
+        return None
+    if now - anchor <= IDLE_DOCKET_REMINDER_AFTER_S:
+        return None                 # MORE than 20 minutes, not exactly
+    mid = uuid_hex8()
+    stamp = _iso_ts(now)
+    n["docket_reminder_at"] = stamp
+    # typed (design family `reminder`): the listed items ride the event; the
+    # body is the frozen rendering — byte-identical to _idle_docket_reminder_body
+    shown = items[:IDLE_DOCKET_REMINDER_MAX_ITEMS]
+    ev = events.mint(
+        "reminder.idle_docket", {"kind": "system", "id": SYSTEM}, _node_ref(org, nid),
+        items=[{"slug": str(it.get("slug") or ""), "title": str(it.get("title") or ""),
+                "status": str(it.get("status") or ""),
+                "role": str(it.get("role") or "owner")} for it in shown],
+        more=len(items) - len(shown))
+    entry: MailEntry = {
+        "id": mid, "from": SYSTEM, "kind": "message",
+        "body": events.render_agent(ev), "at": stamp,
+        "model_only": True,
+        "relationship": (
+            "the orgtree engine reminding an idle agent of the unfinished "
+            "docket items whose next action is its own, after 20 minutes "
+            "without a wake"),
+    }
+    entry["ev"] = events.encode_row_ev(ev, entry)
+    # M0a — ONE DEPOSIT DOOR (ledger.Org.deposit_mail): pending copy,
+    # archive copy and the receive ordinal, in one place.
+    org.deposit_mail(nid, cast("dict[str, Any]", dict(entry)))
+
+    return mid, items
 
 
 def _idle_docket_reminder_pass(
@@ -13953,11 +13970,17 @@ def _abandoned_docket_recovery_pass(now: float | None = None) -> None:
         slug = str(row["slug"])
         moved: list[dict[str, Any]] = []
         try:
-            with store.DOC_LOCK:
-                org = store.load_org(slug)
-                moved = org.work_reassign_abandoned(now_ts=stamp)
-                if moved:
-                    store.save_org(org)
+            # PG-3w: the reassignment and its assignment mail in ONE
+            # `org_tx`. The new owners are discovered while it runs, so their
+            # node rows are added by `worktx`'s widening; an empty pass
+            # commits nothing. `run`, not `mutate`: this pass used to save
+            # only when it moved something, so its inline archive move was
+            # discarded on every idle pass — a sweep here would add a write
+            # per org per pass that the old code never made.
+            from . import worktx
+            moved = worktx.run(
+                slug, lambda org: org.work_reassign_abandoned(now_ts=stamp),
+                rows=worktx.Rows().notify())
         except LedgerError as exc:
             print(f"[orgtree] {slug}: abandoned docket recovery skipped: "
                   f"{type(exc).__name__}: {exc}")
