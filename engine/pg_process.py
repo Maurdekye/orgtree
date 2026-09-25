@@ -150,15 +150,23 @@ def chosen_backend(root: Path, env: Mapping[str, str]) -> str:
     ``.pg`` markers a cutover leaves in orgs/, so that engine would start
     with every org invisible; going back to SQLite is the PG-2 rollback."""
     explicit = env.get(STORE_ENV, "").strip().lower()
-    record = read_cutover(root)
-    if explicit and explicit != "postgres" and record is not None and record.get("backend") == "postgres":
-        raise BracketError(
-            f"{STORE_ENV}={explicit}, but {root / CUTOVER_FILE} records that this root was cut over to "
-            f"PostgreSQL; the {explicit} store cannot see its orgs. Unset {STORE_ENV}, or roll the cutover "
-            f"back first (move pre-postgres/orgs back into orgs/ and rename {CUTOVER_FILE}).")
-    if explicit:
+    if explicit == "postgres":
         return explicit
+    if explicit:
+        # a UNC/device root is never read here (check_root refuses it untouched)
+        record = None if _unc_or_device(root) else read_cutover(root)
+        if record is not None and record.get("backend") == "postgres":
+            raise BracketError(
+                f"{STORE_ENV}={explicit}, but {root / CUTOVER_FILE} records that this root was cut over to "
+                f"PostgreSQL; the {explicit} store cannot see its orgs. Unset {STORE_ENV}, or roll the cutover "
+                f"back first (move pre-postgres/orgs back into orgs/ and rename {CUTOVER_FILE}).")
+        return explicit
+    record = read_cutover(root)
     return str(record["backend"]) if record is not None else "sqlite"
+
+
+def _unc_or_device(root: Path) -> bool:
+    return str(root).replace("/", "\\").startswith("\\\\")
 
 
 def wanted(env: Mapping[str, str], root: Path | None = None) -> bool:
@@ -260,7 +268,7 @@ def check_root(root: Path, env: Mapping[str, str]) -> str:
     """UNC/device paths lexically first (never touched); then PROTOTYPE mode
     (the marker, and no overlap with any unconditional live location) or
     PRODUCT mode (see the module doc). Returns "prototype" or "product"."""
-    if str(root).replace("/", "\\").startswith("\\\\"):
+    if _unc_or_device(root):
         raise BracketError(f"refusing {root}: UNC and device paths are never served by the private database")
     if (root / MARKER_FILE).is_file():
         _refuse_overlap(root, live_locations(env))
