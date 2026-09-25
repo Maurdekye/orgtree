@@ -293,6 +293,25 @@ class TranscriptIncarnation(unittest.TestCase):
         self.assertTrue(ids.d['reply_incarnation'] and ids.node('a')['reply_incarnation'])
         self.assertEqual(store.load_org(slug).node('a')['transcript_incarnation'], first)
 
+    def test_a_caller_inside_an_open_org_tx_mints_on_its_transaction(self):
+        # PG-3d's quoted-reply path resolves the incarnation inside its own org_tx
+        from orgtree import transcript_records
+        slug = _fresh_org('Tx Incarnation Org')
+        seen = []
+        orgtx.commit_listeners.append(seen.append)
+        try:
+            def body():
+                with orgtx.org_tx(slug, nodes=['a'], sections=['reply_incarnation']) as tx:
+                    return transcript_records.incarnation(tx.org, 'a')
+            finished, value = _while_doc_lock_is_held(body)
+        finally:
+            orgtx.commit_listeners.remove(seen.append)
+        self.assertTrue(finished, 'the in-transaction mint waited on DOC_LOCK')
+        self.assertEqual(len(seen), 1, "ONE commit: the caller's own transaction")
+        after = store.load_org(slug)
+        self.assertEqual(after.node('a')['transcript_incarnation'], value)
+        self.assertTrue(after.d['reply_incarnation'] and after.node('a')['reply_incarnation'])
+
     def test_a_caller_inside_a_legacy_hold_keeps_the_legacy_mint(self):
         from orgtree import transcript_records
         slug = _fresh_org('Held Incarnation Org')

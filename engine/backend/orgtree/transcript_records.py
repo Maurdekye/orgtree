@@ -442,6 +442,11 @@ def incarnation(org, nid):
         return org.node(nid)['transcript_incarnation']
     from . import orgtx, reply_events, store
     identity = reply_events.incarnation(org, nid)
+    if orgtx.current_tx(org.d['slug']) is not None:
+        # PG-3r: called with the Org of a transaction already open on this
+        # org: mint on THAT Org (the caller names nodes=[nid]) rather than a
+        # second org_tx (NestedTx) or DOC_LOCK after org_tx (forbidden).
+        return org.node(nid).setdefault('transcript_incarnation', identity)
     persisted = Path(store.org_path(org.d['slug'])).exists()
     if not persisted or getattr(store.DOC_LOCK, '_is_owned', lambda: False)():
         # PG-3r: an unsaved org, or a caller still inside a legacy DOC_LOCK
