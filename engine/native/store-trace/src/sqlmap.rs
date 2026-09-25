@@ -184,10 +184,10 @@ pub fn derive(sql: &str, known: &BTreeSet<String>) -> Contacts {
             Some("into") if matches!(word(t.get(i.wrapping_sub(1))), Some("insert") | Some("merge")) => {
                 Some("write")
             }
-            Some("update") if !matches!(word(t.get(i.wrapping_sub(1))), Some("for") | Some("key") | Some("no") | Some("do")) => {
-                // `UPDATE rel` (not `FOR UPDATE`, `NO KEY UPDATE`, `DO UPDATE`)
-                Some("write")
-            }
+            // `UPDATE rel`. A row-lock `FOR [NO KEY] UPDATE` never reaches here: the
+            // FOR branch below consumes its tokens. `ON CONFLICT DO UPDATE` is
+            // followed by SET, a clause word, so it names no relation.
+            Some("update") => Some("write"),
             Some("from") if matches!(word(t.get(i.wrapping_sub(1))), Some("delete")) => Some("write"),
             Some("from") | Some("join") | Some("using") => Some("read"),
             _ => None,
@@ -313,6 +313,13 @@ mod tests {
         let c = derive("SELECT 1 FROM agents, items WHERE agents.id = items.owner FOR UPDATE OF items", &k);
         assert_eq!(modes(&c, "items"), ["for_update", "read"]);
         assert_eq!(modes(&c, "agents"), ["read"]);
+        // a locking SELECT writes nothing, and its clause words are not relations
+        assert!(c.unresolved.is_empty(), "{:?}", c.unresolved);
+        for sql in ["SELECT 1 FROM items FOR UPDATE", "SELECT 1 FROM items FOR NO KEY UPDATE OF items"] {
+            let c = derive(sql, &k);
+            assert!(!modes(&c, "items").contains(&"write"), "{sql}");
+            assert!(c.unresolved.is_empty(), "{sql}: {:?}", c.unresolved);
+        }
     }
 
     #[test]
