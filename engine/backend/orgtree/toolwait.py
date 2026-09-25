@@ -15,7 +15,7 @@ import uuid
 from contextlib import closing
 from pathlib import Path
 
-from . import census_contacts, ledger, maildrain, profiling, store
+from . import census_contacts, ledger, maildrain, orgtx, profiling, store
 from .mcptool import MANAGED_WAIT_TOOLS as TOOLS
 
 WAIT_S = 10.0
@@ -97,6 +97,17 @@ def _destination(org, row):
     return max(candidates, key=lambda p: int(p[1].get('generation', 0)))[0] if candidates else None
 
 
+def _publish_rows(nid):
+    """PG-3r: the org_tx names for posting one tool result to `nid`: its
+    receipt marker plus a SYSTEM mail deposit with its drain demand. The mail
+    names are PG-3d's `mailtx.send_rows(nid)`, written out until that module
+    lands; use send_rows here once it does."""
+    return {"nodes": [nid],
+            "sections": ["tool_result_receipts", "mail", "notices", "audiences", "lifecycle"],
+            "logs": ["events", "notice_log", "user_mail_log", "user_outbox", "org_inbox",
+                     ("mail_log", nid)]}
+
+
 def _publish(row):
     """Bounded publication retries; permanently unavailable results retain evidence."""
     from . import halt, supervisor as sup
@@ -106,13 +117,20 @@ def _publish(row):
         if row is None or row.get('retry_at', 0) > time.time():
             return
         try:
-            with store.DOC_LOCK:
-                org = store.load_org(row['org'])
-                nid = _destination(org, row)
-                if not nid:
-                    raise _DestinationGone('recipient seat no longer exists')
-                receipts = org.d.setdefault('tool_result_receipts', {})
-                if not row.get('published'):
+            # PG-3r: two short row transactions instead of one DOC_LOCK hold.
+            # The recipient is chosen from a lock-free read and re-checked
+            # under its row lock (a seat that moved meanwhile retries later).
+            # The org's receipt marker keeps the post exactly-once across the
+            # gap: a retry that finds it only finishes the cleanup.
+            nid = _destination(orgtx.org_read(row['org']), row)
+            if not nid:
+                raise _DestinationGone('recipient seat no longer exists')
+            if not row.get('published'):
+                with orgtx.org_tx(row['org'], **_publish_rows(nid)) as tx:
+                    org = tx.org
+                    if _destination(org, row) != nid:
+                        raise RuntimeError('recipient seat moved while publishing; retrying')
+                    receipts = org.d.setdefault('tool_result_receipts', {})
                     if row['id'] not in receipts:
                         body = (f"[ORGTREE TOOL RESULT {row['id']}]\n"
                                 f"Tool: {row['tool']}\nState: {row['state']}\n"
@@ -124,15 +142,14 @@ def _publish(row):
                         maildrain.request(org, nid)
                         if halt.blocked(row['org'], nid):
                             maildrain.suspend(org, nid)
-                        store.save_org(org)
-                    # Checkpoint before removing the org marker. Recovery can
-                    # now finish cleanup without recreating the message, even
-                    # if the marker was cleared and the final delete failed.
-                    row['published'] = True
-                    _save(row)
-                receipts.pop(row['id'], None)
-                store.save_org(org)
-                _delete(row['id'])
+                # Checkpoint before removing the org marker. Recovery can
+                # now finish cleanup without recreating the message, even
+                # if the marker was cleared and the final delete failed.
+                row['published'] = True
+                _save(row)
+            with orgtx.org_tx(row['org'], sections=['tool_result_receipts']) as tx:
+                tx.d.setdefault('tool_result_receipts', {}).pop(row['id'], None)
+            _delete(row['id'])
         except Exception as exc:
             gone = (isinstance(exc, _DestinationGone) or
                     isinstance(exc, ledger.LedgerError) and str(exc).startswith('no such org:'))
