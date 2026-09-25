@@ -25,6 +25,7 @@ pub mod exec;
 pub mod funding;
 pub mod hooks;
 pub mod island;
+pub mod lifecycle;
 pub mod lookup;
 pub mod mail;
 pub mod pg;
