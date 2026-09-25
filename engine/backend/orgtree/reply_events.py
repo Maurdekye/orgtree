@@ -136,6 +136,13 @@ def incarnation(org, nid):
     if org.d.get('reply_incarnation') and org.node(nid).get('reply_incarnation'):
         return org.d['reply_incarnation'] + ':' + org.node(nid)['reply_incarnation']
     from . import orgtx
+    if orgtx.current_tx(org.d['slug']) is not None:
+        # PG-3d: called with the Org of a transaction already open on this
+        # org (a quoted user reply): mint on THAT Org — the caller names
+        # nodes=[nid] and sections=['reply_incarnation'] — instead of a
+        # second org_tx (NestedTx) or DOC_LOCK after org_tx (forbidden).
+        return (org.d.setdefault('reply_incarnation', uuid.uuid4().hex) + ':'
+                + org.node(nid).setdefault('reply_incarnation', uuid.uuid4().hex))
     persisted = Path(store.org_path(org.d['slug'])).exists()
     if not persisted or getattr(store.DOC_LOCK, '_is_owned', lambda: False)():
         # PG-3r: an unsaved org, or a caller still inside a legacy DOC_LOCK
