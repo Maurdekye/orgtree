@@ -78,12 +78,12 @@ def worker(fn):
             return fn(slug, nid, *args, **kwargs)
         except Exception:
             try:
-                with store.DOC_LOCK:
-                    org = store.load_org(slug)
-                    demand = org.node(nid).get('mail_drain')
+                # PG-3d: the seat's own row, not DOC_LOCK
+                from . import orgtx
+                with orgtx.org_tx(slug, nodes=[nid]) as tx:
+                    demand = tx.org.node(nid).get('mail_drain')
                     if demand:
-                        defer(org, nid, demand)
-                        store.save_org(org)
+                        defer(tx.org, nid, demand)
             except Exception:
                 pass  # durable content/intent remains; the consumer retries
             raise
@@ -311,21 +311,31 @@ def discover() -> bool:
     for row in orgs:
         slug = row['slug']
         try:
-            with store.DOC_LOCK:
-                org = store.load_org(slug)
-                if not org.d.get('mail_drain_version'):
-                    # Upgrade existing queued mail too: requiring one new send
-                    # to mint the first intent would preserve the original bug.
-                    for nid, n in org.nodes.items():
-                        if (n['state'] == 'live' and not n.get('mail_drain')
-                                and not n.get('hard_fail_run') and org.waking_mail(nid)):
-                            request(org, nid)
-                            if n.get('halt') or org.d.get('killswitch'):
-                                suspend(org, nid)
-                    org.d['mail_drain_version'] = 1
-                    store.save_org(org)
-                seats = [nid for nid, n in org.nodes.items()
-                         if pending(org, nid) and n['state'] == 'live']
+            # PG-3d: a lock-free read, and the one-time upgrade as a row
+            # transaction on the org's node rows, not DOC_LOCK
+            from . import orgtx
+            org = orgtx.org_read(slug)
+            if not org.d.get('mail_drain_version'):
+                declared = list(org.nodes)
+                with orgtx.org_tx(slug, nodes=declared, sections=['mail_drain_version'],
+                                  share_sections=['mail', 'killswitch']) as tx:
+                    up = tx.org
+                    if not up.d.get('mail_drain_version'):
+                        # Upgrade existing queued mail too: requiring one new
+                        # send to mint the first intent would preserve the
+                        # original bug. (A seat hired since the read gets its
+                        # intent from its own first send.)
+                        for nid in declared:
+                            n = up.nodes.get(nid)
+                            if (n and n['state'] == 'live' and not n.get('mail_drain')
+                                    and not n.get('hard_fail_run') and up.waking_mail(nid)):
+                                request(up, nid)
+                                if n.get('halt') or up.d.get('killswitch'):
+                                    suspend(up, nid)
+                        up.d['mail_drain_version'] = 1
+                org = orgtx.org_read(slug)
+            seats = [nid for nid, n in org.nodes.items()
+                     if pending(org, nid) and n['state'] == 'live']
         except Exception:
             complete = False
             continue
