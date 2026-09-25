@@ -44,7 +44,7 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, Final, Protocol, cast
 
-from . import halt, inbox, maildrain
+from . import halt, inbox, maildrain, orgtx
 from . import (accounts, agentauth, antigravity_limits, appsettings,
                cachecontinuity, clipin, codex_limits, codex_route, deployment,
                envelope, events, events_table, failfix, handoff, imgblock,
@@ -19282,6 +19282,71 @@ def _run_one_turn(slug: str, nid: str,
                 pass
 
 
+#: PG-3e-A — the rows turn admission (the slot gate in
+#: `_run_one_turn_recorded`) names in its one `orgtx.org_tx`. Lock order is the
+#: one agreed with PG-3a/PG-3b/PG-3d (decisions 2, 5 and 7 on
+#: pg-3e-a-runtime-admission-and-turns-onto-org-tx): the agent's own node row
+#: first; the org gate sections FOR SHARE; the mailbox sections the drain
+#: writes; then the logs. (The fake orders locks itself — sections, nodes,
+#: logs, each sorted — which is safe because every converted path uses that
+#: same global order.)
+#:
+#: Read for the admission decision, never written here. FOR SHARE so a
+#: killswitch latch (FOR UPDATE) orders against admissions, while admissions
+#: do not serialise on each other.
+ADMISSION_GATE_SECTIONS: tuple[str, ...] = (
+    "killswitch", "spend_frozen", "storage_blocked")
+#: Written by the turn-start drain (`_take_delivery_mail`, the notices pop,
+#: `_journal_drain`) and by an auto cheap-compaction's notices. These are
+#: whole-section rows today; PG-0/PG-3d's per-owner split narrows them.
+ADMISSION_WRITE_SECTIONS: tuple[str, ...] = ("mail", "delivering", "notices")
+#: Append-only logs admission may add to (events and notice_log from a cheap
+#: compaction; mail_log from the drain).
+ADMISSION_LOGS: tuple[str, ...] = ("events", "notice_log", "mail_log")
+
+
+def _admission_rows(slug: str, nid: str) -> dict[str, Any]:
+    """org_tx keyword arguments for turn admission of `nid`.
+
+    Besides the agent's row it locks `nid@<generation>`, the row an auto
+    cheap-compaction inserts for the predecessor. The generation is read
+    lock-free from the cached snapshot; if it moved before the lock was
+    granted, `_admission_pred_locked` is False inside the transaction and the
+    compaction is skipped this turn (the same outcome as a raced lifecycle
+    change refusing the swap), so the transaction never writes a row it did
+    not lock."""
+    gen = 0
+    try:
+        n = store.cached_org(slug).nodes.get(nid)
+        gen = int((n or {}).get("generation") or 0)
+    except Exception:                                    # noqa: BLE001
+        pass
+    return {"nodes": [nid, f"{nid}@{gen}"],
+            "sections": list(ADMISSION_WRITE_SECTIONS),
+            "share_sections": list(ADMISSION_GATE_SECTIONS),
+            "logs": list(ADMISSION_LOGS)}
+
+
+def _admission_pred_locked(tx: orgtx.OrgTx, org: Org, nid: str) -> bool:
+    """True when the row a cheap-compaction of `nid` would insert is locked."""
+    gen = int(org.node(nid).get("generation") or 0)
+    return f"{nid}@{gen}" in tx.lock_nodes
+
+
+def _halt_check_locked(org: Org, nid: str) -> None:
+    """`halt.check`, decided on the org as LOCKED by the caller's org_tx.
+
+    `halt.check` reads the lock-free cached snapshot: a pre-gate. Admission
+    must decide on the row it holds FOR UPDATE (and the killswitch section it
+    holds FOR SHARE), which is what orders it against a halt's `halting`
+    commit (decision 2). Same messages and exception as `halt.check`."""
+    if org.node(nid).get("halt"):
+        raise halt.Cancelled("agent is halted — explicit unhalt is required")
+    if org.d.get("killswitch"):
+        raise halt.Cancelled("the org killswitch is latched — explicit release "
+                             "is required")
+
+
 def _run_one_turn_recorded(slug: str, nid: str,
                            text: str | dict[str, Any], *,
                            probe_token: str | None = None,
@@ -19293,29 +19358,32 @@ def _run_one_turn_recorded(slug: str, nid: str,
     _trec = trec
     st = state(slug, nid)
     turn_operation_id = operation_id or lifecycle.new_operation("turn")
-    # CUSTODY ADMISSION. DOC_LOCK so a reclaim mid-save is never settled from
-    # a half-written read. Like the limit gate's read below, an unreadable
-    # document does not stop the attempt reaching its slot: nothing durable is
-    # settled, and the registration records an unproven identity, which the
-    # classifier treats as protection and never as permission.
-    with store.DOC_LOCK:
-        try:
-            admission_org = store.load_org(slug)
-        except Exception:                                    # noqa: BLE001
-            admission_org = None
-        with _state_lock:
-            if admission_org is not None:
-                mailruntime.resolve_reclaims(admission_org, st, nid=nid)
-            admitted = text
-            text = _publishable(st, text)
-            mailruntime.drop_handoff(st, admitted)
-            if text is None:
-                return None
-            st["lifecycle_operation_id"] = turn_operation_id
-            initial_toks = text.get("toks", ()) if isinstance(text, dict) else ()
-            mailruntime.register(st, admission_org, nid,
-                attempt=turn_operation_id, toks=initial_toks)
-            mailruntime.adopt_handoffs(st, initial_toks)
+    # CUSTODY ADMISSION. A coherent read (PG-3e-A: `orgtx.org_read`, which
+    # replaced DOC_LOCK + load_org here) so a reclaim mid-save is never
+    # settled from a half-written read. It only READS the document and
+    # settles in-memory custody, so it takes no row lock: a reclaim the read
+    # cannot prove is `ambiguous` and stays pending for the next admission.
+    # Like the limit gate's read below, an unreadable document does not stop
+    # the attempt reaching its slot: nothing durable is settled, and the
+    # registration records an unproven identity, which the classifier treats
+    # as protection and never as permission.
+    try:
+        admission_org = orgtx.org_read(slug)
+    except Exception:                                    # noqa: BLE001
+        admission_org = None
+    with _state_lock:
+        if admission_org is not None:
+            mailruntime.resolve_reclaims(admission_org, st, nid=nid)
+        admitted = text
+        text = _publishable(st, text)
+        mailruntime.drop_handoff(st, admitted)
+        if text is None:
+            return None
+        st["lifecycle_operation_id"] = turn_operation_id
+        initial_toks = text.get("toks", ()) if isinstance(text, dict) else ()
+        mailruntime.register(st, admission_org, nid,
+            attempt=turn_operation_id, toks=initial_toks)
+        mailruntime.adopt_handoffs(st, initial_toks)
     # WHEN THIS ATTEMPT BEGAN, on this process's wall clock — the lower bound
     # the retry banner filters operation receipts by (Phase 2 of w71d69aac,
     # see `_receipts_into_replay`). Taken HERE, before the slot wait and before
@@ -19610,8 +19678,15 @@ def _run_one_turn_recorded(slug: str, nid: str,
                       f"a turn slot (MAX_CONCURRENT={MAX_CONCURRENT}, shared "
                       f"across every org on this instance) — this is the "
                       f"machine-wide cap being contended, not this node")
-            with store.DOC_LOCK:
-                org = store.load_org(slug)
+            # PG-3e-A: THE point of no return, as ONE row transaction (decision 2/5 on
+            # pg-3e-a-runtime-admission-and-turns-onto-org-tx). The agent's node row is
+            # locked FOR UPDATE first, the org gate sections FOR SHARE (so a killswitch
+            # latch orders against this admission without admissions serialising
+            # org-wide), then the mailbox sections the drain writes. Everything below
+            # commits once, at the end of this block: the two intermediate saves the
+            # DOC_LOCK version made are gone, and a raise rolls the whole admission back.
+            with orgtx.org_tx(slug, **_admission_rows(slug, nid)) as _adm_tx:
+                org = _adm_tx.org
                 _deployment_org_gate(org)
                 if org.node(nid)["state"] != "live":
                     raise RuntimeError(f"{nid} is not live")
@@ -19629,7 +19704,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     raise RuntimeError(
                         "halted: weekly Fable usage limit exhausted — waiting for the "
                         "limit to reset or the user to intervene")
-                halt.check(slug, nid)
+                _halt_check_locked(org, nid)
                 if org.node(nid).get("frozen"):
                     # `send_message` refuses to drive a frozen node, but the
                     # QUEUE is drained by the previous turn's own follow-up,
@@ -19692,6 +19767,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     else:
                         _cfg0 = _auto_cheap_cfg(org, nid)
                         if (_cfg0 is not None
+                                and _admission_pred_locked(_adm_tx, org, nid)
                                 and _auto_cheap_ready(
                                     org.node(nid), _cfg0, _forecast0,
                                     org.d.get("models"))):
@@ -19738,9 +19814,11 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                     f"cheap-compact (context "
                                     f"{100 * float(_occ0 or 0) / float(_cw0 or 1):.0f}"
                                     f"%, {_state0}: {_reason0})")
-                        # Persist the generation-owned decision before drain;
-                        # a backend restart cannot resurrect stale evidence.
-                        store.save_org(org)
+                        # The generation-owned decision commits in the same
+                        # admission org_tx as the drain below (it used to be
+                        # its own save before the drain): a restart sees both
+                        # or neither, so it still cannot resurrect stale
+                        # evidence.
                 mail = ([] if is_cmd or toks else
                         _take_delivery_mail(org, nid, carrier_mail_ids))
                 pending = (None if is_cmd or toks
@@ -19774,7 +19852,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                                             if owned is not None
                                                             or carrier_segs is not None
                                                             else view_segments)))
-                    store.save_org(org)
+                    # (no save here: the journal row commits with the
+                    # admission org_tx, atomically with the drain itself)
                 # CUSTODY. THIS attempt now holds every token it is carrying —
                 # the one just drained (already adopted inside `_journal_drain`)
                 # AND any it inherited from a steer carrier the boundary folded
