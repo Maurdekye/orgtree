@@ -407,3 +407,14 @@ mod retry_attempt {
         assert!(db.receipts().is_empty());
     }
 }
+
+#[test]
+fn xact_diff_keeps_only_this_transactions_counters() {
+    use orgtree_store::exec::xact_diff;
+    use orgtree_store::hooks::XactTable;
+    let t = |n: &str, ins: i64, upd: i64| XactTable { relname: n.into(), seq_scan: 0, idx_scan: ins + upd, n_tup_ins: ins, n_tup_upd: upd, n_tup_del: 0 };
+    let base = vec![t("outgoing_intents", 1, 0), t("runtime_state", 0, 1)];
+    let after = vec![t("outgoing_intents", 2, 0), t("runtime_state", 0, 1), t("authority_epoch", 0, 0)];
+    let d = xact_diff(&base, &after);
+    assert_eq!(d, vec![t("outgoing_intents", 1, 0)], "an earlier transaction's rows must not leak into this one");
+}
