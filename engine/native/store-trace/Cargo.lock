@@ -121,6 +121,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "errno"
+version = "0.3.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
+dependencies = [
+ "libc",
+ "windows-sys",
+]
+
+[[package]]
 name = "fallible-iterator"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -310,6 +320,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "orgtree-prototype-guard"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "orgtree-store"
 version = "0.1.0"
 dependencies = [
@@ -330,11 +348,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "orgtree-store-service"
+version = "0.1.0"
+dependencies = [
+ "orgtree-prototype-guard",
+ "orgtree-store",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "orgtree-store-trace"
 version = "0.1.0"
 dependencies = [
  "orgtree-store",
  "orgtree-store-schema",
+ "orgtree-store-service",
+ "serde_json",
  "tokio",
  "tokio-postgres",
 ]
@@ -546,6 +578,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "signal-hook-registry"
+version = "1.4.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b"
+dependencies = [
+ "errno",
+ "libc",
+]
+
+[[package]]
 name = "siphasher"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -622,6 +664,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys",
