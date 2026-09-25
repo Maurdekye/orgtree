@@ -93,7 +93,10 @@ class DrainTxTests(unittest.TestCase):
                          self.at_sentinel['journal'])
         drains = [c for c in self.commits
                   if c.slug == self.slug
-                  and {'mail', 'delivering'} <= set(c.changes.doc_upserts)]
+                  # PG-3d 24f4117 splits mail/delivering per owner: the
+                  # doc row key is 'mail\x1fworker', not 'mail'
+                  and {'mail', 'delivering'} <= {k.split('\x1f')[0] for k
+                                                 in c.changes.doc_upserts}]
         self.assertEqual(len(drains), 1, [c.changes for c in self.commits])
 
     def test_an_unlocked_mailbox_write_is_refused(self):
