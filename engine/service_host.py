@@ -36,6 +36,7 @@ import urllib.request
 
 try:
     from .startup_progress import parse_progress
+    from .p03_custodian import BracketError as P03BracketError, start_for_host as p03_start_for_host
 except ImportError:  # script entrypoint
     # The packaged runtime's python313._pth never puts the script's own
     # folder on sys.path (it lists resources\ instead), so a bare
@@ -45,6 +46,7 @@ except ImportError:  # script entrypoint
     if _PACKAGE_ROOT not in sys.path:
         sys.path.insert(0, _PACKAGE_ROOT)
     from engine.startup_progress import parse_progress
+    from engine.p03_custodian import BracketError as P03BracketError, start_for_host as p03_start_for_host
 
 READY_TIMEOUT = 120.0  # boot is contended; the desktop's 60s is too tight
 SHUTDOWN_WAIT = 10.0
@@ -420,10 +422,23 @@ def main() -> int:
                 "ORGTREE_V2_PARENT_PID": str(os.getpid())})
     for key in ("ORGTREE_PORT", "ORGTREE_BASE"):
         env.pop(key, None)
+    # P03 prototype roots only (engine/p03_custodian.py; inert elsewhere): the
+    # private database and the store service come up BEFORE the engine and go
+    # down AFTER its exit is confirmed. Either one not ready: no engine.
+    try:
+        p03 = p03_start_for_host(root, env)
+    except P03BracketError as exc:
+        print(f"service host: {exc}", file=sys.stderr, flush=True)
+        return 1
     launcher = Path(__file__).resolve().parent / "launch.py"
-    child = subprocess.Popen([sys.executable, str(launcher)], cwd=str(launcher.parent),
-                             env=env, stdout=subprocess.PIPE, stderr=sys.stderr,
-                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    try:
+        child = subprocess.Popen([sys.executable, str(launcher)], cwd=str(launcher.parent),
+                                 env=env, stdout=subprocess.PIPE, stderr=sys.stderr,
+                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except BaseException:
+        if p03 is not None:
+            p03.stop()
+        raise
 
     ready: dict[str, Any] = {}
     failure: list[str] = []
@@ -534,6 +549,9 @@ def main() -> int:
         # host clears it, the guardian sweeps the tree).
         if child.poll() is not None:
             remove_descriptor(root)
+            if p03 is not None:
+                stopped = p03.stop()
+                print(f"service host: P03 services stopped: {stopped}", file=sys.stderr, flush=True)
 
 
 if __name__ == "__main__":
