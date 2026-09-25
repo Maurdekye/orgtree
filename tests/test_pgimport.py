@@ -40,9 +40,13 @@ class FakeSink:
     transaction. ``fail_after`` raises after that many inserted rows (inside
     the transaction), and ``corrupt`` alters one value on the way in."""
 
-    def __init__(self, path: Path, *, fail_after: int | None = None, corrupt: bool = False, pause: Path | None = None) -> None:
+    def __init__(self, path: Path, *, fail_after: int | None = None, corrupt: bool = False, pause: Path | None = None,
+                 reorder: bool = False, orgs_dir: Path | None = None) -> None:
         self.path, self.fail_after, self.corrupt, self.pause = path, fail_after, corrupt, pause
+        self.reorder, self.orgs_dir = reorder, orgs_dir
         self.corrupted = 0  # proves the corruption control actually fired
+        self.reordered = 0  # the same for the byte-level control
+        self.finished: list[str] = []
         self.crashed_after: int | None = None
         conn = self._conn()
         for table, cols in pgimport.COLUMNS.items():
@@ -80,6 +84,12 @@ class FakeSink:
                     if self.corrupt and table == "nodes" and not self.corrupted:
                         row[-1] = json.dumps({"corrupted": True})
                         self.corrupted += 1
+                    if self.reorder and table == "nodes" and not self.reordered:
+                        # the same value with its keys reversed: equal as JSON,
+                        # different as bytes
+                        parsed = json.loads(row[-1])
+                        row[-1] = json.dumps(dict(reversed(list(parsed.items()))), separators=(",", ":"))
+                        self.reordered += 1
                     conn.execute(f"INSERT INTO pg_{table} (org, {', '.join(cols)}) VALUES (?{', ?' * len(cols)})",
                                  (slug, *row))
                     written += 1
@@ -90,6 +100,11 @@ class FakeSink:
             raise
         finally:
             conn.close()
+
+    def finish_org(self, slug):
+        self.finished.append(slug)
+        if self.orgs_dir is not None:
+            (self.orgs_dir / f"{slug}{pgimport.MARKER_EXT}").write_text(json.dumps({"org_id": 1, "slug": slug}))
 
     def read_org(self, slug):
         conn = self._conn()
@@ -260,6 +275,21 @@ class Recognition(Base):
         self.assertIn("d.db.migrating", refused)
         self.assertIn("notes.txt: unrecognised file", refused)
 
+    def test_postgres_markers_beside_a_source_are_expected_and_alone_refused(self) -> None:
+        write_db(self.orgs() / "a.db", sample_doc())
+        (self.orgs() / "a.pg").write_text("{}")
+        (self.orgs() / "b.json").write_text(json.dumps(sample_doc("B")))
+        (self.orgs() / "b.pg").write_text("{}")
+        (self.orgs() / "ghost.pg").write_text("{}")
+        layout = pgimport.classify_orgs_dir(self.root)
+        self.assertEqual(sorted(layout["orgs"]), ["a", "b"])
+        self.assertEqual(layout["markers"], ["orgs/a.pg", "orgs/b.pg"])
+        self.assertEqual(layout["refused"], ["orgs/ghost.pg: a PostgreSQL marker with no SQLite/JSON source beside it"])
+
+    def test_the_marker_extension_is_pg0s(self) -> None:
+        from orgtree import pgstore
+        self.assertEqual(pgimport.MARKER_EXT, pgstore.MARKER_EXT)
+
 
 class Manifests(Base):
     def test_key_order_inside_a_value_does_not_matter_but_everything_else_does(self) -> None:
@@ -380,6 +410,36 @@ class Importing(Base):
             pgimport.import_root(self.root, sink)
         self.assertEqual(sink.corrupted, 1, "the control must actually have altered a row")
 
+    def test_a_sink_that_reorders_keys_is_caught_byte_for_byte(self) -> None:
+        # PG-0 keeps `val` as text, so a faithful import is byte-identical;
+        # the manifest alone (canonical JSON) would not see this
+        self.populate()
+        sink = self.sink(reorder=True)
+        with self.assertRaisesRegex(ImportRefused, "acme: read-back is not byte-identical to the source in \\['nodes'\\]"):
+            pgimport.import_root(self.root, sink)
+        self.assertEqual(sink.reordered, 1, "the control must actually have reordered a value")
+
+    def test_every_org_is_finished_whether_imported_or_skipped(self) -> None:
+        self.populate()
+        first = self.sink()
+        pgimport.import_root(self.root, first)
+        self.assertEqual(sorted(first.finished), ["acme", "beta"])
+        again = self.sink()
+        pgimport.import_root(self.root, again)
+        self.assertEqual(sorted(again.finished), ["acme", "beta"], "a skipped org still gets its marker")
+
+    def test_a_running_engine_refuses_the_import(self) -> None:
+        fd = os.open(store.owner_file(str(self.root)), os.O_RDWR | os.O_CREAT, 0o644)
+        try:
+            self.assertTrue(store._try_lock(fd))
+            with self.assertRaisesRegex(ImportRefused, "stop the engine first"):
+                with pgimport.engine_stopped(self.root):
+                    self.fail("the body must not run while the root is owned")
+        finally:
+            os.close(fd)
+        with pgimport.engine_stopped(self.root):
+            pass  # free again once the holder is gone
+
     def test_a_changed_source_is_imported_again(self) -> None:
         self.populate()
         pgimport.import_root(self.root, self.sink())
@@ -426,9 +486,21 @@ class CommandLine(Base):
 
 
 class Cutover(Base):
+    def sink(self, **kw) -> FakeSink:
+        return FakeSink(self.sink_path, orgs_dir=self.orgs(), **kw)
+
+    def ready(self) -> tuple[dict, dict, dict]:
+        write_db(self.orgs() / "acme.db", sample_doc())
+        (self.orgs() / "beta.json").write_text(json.dumps(sample_doc("Beta")), encoding="utf-8")
+        (self.root / pgimport.PROTOTYPE_MARKER).write_text("{}")
+        before = tree_digest(self.orgs())
+        dry = pgimport.dry_run(self.root)
+        return before, dry, pgimport.import_root(self.root, self.sink())
+
     def test_cutover_needs_a_clean_complete_matching_import(self) -> None:
         write_db(self.orgs() / "acme.db", sample_doc())
         (self.orgs() / "beta.json").write_text(json.dumps(sample_doc("Beta")), encoding="utf-8")
+        (self.root / pgimport.PROTOTYPE_MARKER).write_text("{}")
         before = tree_digest(self.orgs())
         dry = pgimport.dry_run(self.root)
         partial = pgimport.import_root(self.root, self.sink(), only=["acme"])
@@ -444,10 +516,73 @@ class Cutover(Base):
         self.assertFalse((self.root / pgimport.CUTOVER_FILE).exists())
         record = pgimport.write_cutover(self.root, dry, full)
         on_disk = json.loads((self.root / pgimport.CUTOVER_FILE).read_text(encoding="utf-8"))
-        self.assertEqual(on_disk, record)
+        self.assertEqual(on_disk, {k: v for k, v in record.items() if k != "moved"})
+        self.assertEqual(on_disk["schema"], "orgtree.store-backend/v1")
         self.assertEqual(on_disk["backend"], "postgres")
         self.assertEqual(sorted(on_disk["orgs"]), ["acme", "beta"])
-        self.assertEqual(tree_digest(self.orgs()), before)
+        # the old files moved aside byte for byte; only PG-0's markers remain
+        self.assertEqual(tree_digest(self.root / pgimport.ROLLBACK_DIR), {k: v for k, v in before.items()})
+        self.assertEqual(sorted(p.name for p in self.orgs().iterdir()), ["acme.pg", "beta.pg"])
+        self.assertEqual(sorted(record["moved"]), sorted(before))
+        # what PG-0's postgres start-up checks for: no stray SQLite/JSON org
+        self.assertEqual(store.active_databases(str(self.root)), [])
+        self.assertEqual(store.pending_migrations(str(self.root)), [])
+
+    def test_a_cut_over_root_is_not_imported_again(self) -> None:
+        _, dry, full = self.ready()
+        pgimport.write_cutover(self.root, dry, full)
+        with self.assertRaisesRegex(ImportRefused, "already cut over"):
+            pgimport.dry_run(self.root)
+        with self.assertRaisesRegex(ImportRefused, "already cut over"):
+            pgimport.import_root(self.root, self.sink())
+
+    def test_an_interrupted_move_is_finished_and_never_overwrites(self) -> None:
+        before, dry, full = self.ready()
+        pgimport.write_cutover(self.root, dry, full)
+        # as if the moves had stopped after the record: one file back in orgs/
+        os.rename(self.root / pgimport.ROLLBACK_DIR / "beta.json", self.orgs() / "beta.json")
+        self.assertEqual(pgimport.complete_cutover(self.root), ["beta.json"])
+        self.assertEqual(tree_digest(self.root / pgimport.ROLLBACK_DIR), before)
+        self.assertEqual(pgimport.complete_cutover(self.root), [], "idempotent")
+        # a file whose rollback copy already exists is refused, not overwritten
+        (self.orgs() / "beta.json").write_text("different")
+        with self.assertRaisesRegex(ImportRefused, "refusing to overwrite a rollback copy"):
+            pgimport.complete_cutover(self.root)
+        self.assertEqual(tree_digest(self.root / pgimport.ROLLBACK_DIR), before)
+
+    def test_nothing_moves_without_the_record(self) -> None:
+        self.ready()
+        with self.assertRaisesRegex(ImportRefused, "no cutover record"):
+            pgimport.complete_cutover(self.root)
+        self.assertTrue((self.orgs() / "acme.db").exists())
+
+    def test_cutover_needs_markers_and_a_servable_root(self) -> None:
+        _, dry, full = self.ready()
+        (self.orgs() / "beta.pg").unlink()
+        with self.assertRaisesRegex(ImportRefused, "no PostgreSQL marker for \\['beta'\\]"):
+            pgimport.write_cutover(self.root, dry, full)
+        pgimport.import_root(self.root, self.sink())  # a rerun writes the marker again
+        (self.root / pgimport.PROTOTYPE_MARKER).unlink()
+        with self.assertRaisesRegex(ImportRefused, "neither a prototype marker nor the product binding"):
+            pgimport.write_cutover(self.root, dry, full)
+        self.assertFalse((self.root / pgimport.CUTOVER_FILE).exists())
+        (self.root / pgimport.PRODUCT_BINDING).write_text("{}")
+        pgimport.write_cutover(self.root, dry, full)
+        self.assertTrue((self.root / pgimport.CUTOVER_FILE).exists())
+
+    def test_the_cutover_record_is_what_the_engine_bracket_reads(self) -> None:
+        _, dry, full = self.ready()
+        pgimport.write_cutover(self.root, dry, full)
+        repo = Path(__file__).resolve().parents[1]
+        spec = importlib.util.spec_from_file_location("_pg_process_for_test", repo / "engine" / "pg_process.py")
+        if spec is None or not (repo / "engine" / "pg_process.py").exists():
+            self.skipTest("engine/pg_process.py (PG-1) is not on this branch")
+        pp = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pp)
+        self.assertEqual(pp.chosen_backend(self.root, {}), "postgres")
+        self.assertEqual(pp.CUTOVER_FILE, pgimport.CUTOVER_FILE)
+        self.assertEqual(pp.CUTOVER_SCHEMA, pgimport.CUTOVER_SCHEMA)
+        self.assertEqual(pp.PRODUCT_FILE, pgimport.PRODUCT_BINDING)
 
 
 if __name__ == "__main__":
