@@ -144,11 +144,19 @@ class QuickStaffDoor(unittest.TestCase):
         self.assertEqual(self.post(sel).status_code, 200)
         del self.runs[:], self.woken[:]
         r0 = self.rev()
-        r = self.post(sel)
+        saves, hub = [], []
+        real_save = store.save_org
+        # the legacy path returns a replay from INSIDE its lock, before the
+        # save and before the hub fan-out: the door must roll back, not commit
+        # an empty transaction
+        with patch.object(store, 'save_org',
+                          lambda *a, **k: saves.append(1) or real_save(*a, **k)), \
+                patch.object(api, 'hub_changed', lambda *a, **k: hub.append(1)):
+            r = self.post(sel)
         self.assertEqual(r.status_code, 200, r.text)
         self.assertTrue(r.json().get('replayed'))
         self.assertEqual(self.rev(), r0)
-        self.assertEqual(self.woken, [])
+        self.assertEqual((self.woken, saves, hub), ([], [], []))
 
     def test_refused_kickoff_is_undone_on_the_door(self):
         self.accept = False
