@@ -40,7 +40,6 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 from typing import Any, Mapping
@@ -255,7 +254,10 @@ class StoreService:
 class OwnedServices:
     def __init__(self, root: Path, env: Mapping[str, str], custodian: Path, store_exe: Path) -> None:
         self.root, self.env, self.custodian, self.store_exe = root, dict(env), custodian, store_exe
-        self.workdir = Path(tempfile.mkdtemp(prefix="orgtree-p03-host-"))
+        # Inside the prototype root: the store service's log stays with the
+        # root it served and is deleted with it (never a leaked temp folder).
+        self.workdir = root / "host-logs" / f"{time.strftime('%Y%m%dT%H%M%S')}-{os.getpid()}"
+        self.workdir.mkdir(parents=True, exist_ok=True)
         self.database: dict[str, Any] | None = None
         self.store: StoreService | None = None
 
