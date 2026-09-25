@@ -243,6 +243,8 @@ class ContactOracle(unittest.TestCase):
         self.assertEqual(verdict["verdict"], "FAILED")
         self.assertTrue(any("committed without its required agents" in f
                             for f in verdict["failures"]), verdict["failures"])
+        # a missing REQUIRED relation is a failure, never softened into a report
+        self.assertEqual(verdict["over_declared"], {EDIT: ["item_participants"]})
 
     def test_hidden_access_and_unregistered_factory_fail(self):
         _, hidden = edit_run(hidden_statements=1)
