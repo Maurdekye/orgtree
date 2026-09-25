@@ -2968,6 +2968,12 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
 #: instead of once per write. Guarded by DOC_LOCK — only writers touch it.
 _resident: dict[str, Org] = {}
 
+#: PG-0 (`orgtx.py`): per-thread hooks an `org_tx` commit installs around its
+#: one `save_org` — `guard(changes)` before COMMIT (raising rolls back) and
+#: `on_commit(changes)` inside the snapshot gate right after it. Unset
+#: everywhere else, so every other save is unchanged.
+_orgtx_local = threading.local()
+
 
 def _verify_scoped_save(d: dict[str, Any], lazy: LazyDoc) -> None:
     """Test-mode negative control for the read barrier: after a scoped save,
@@ -3007,6 +3013,11 @@ def _save_sqlite(org: Org) -> None:
         conn.execute("BEGIN IMMEDIATE")
         try:
             new_doc, new_nodes, new_logs, order = _write_doc(conn, d, lazy, changes)
+            # PG-0: an `orgtx` transaction checks what it wrote against the
+            # rows it locked; raising here rolls the whole save back.
+            _txg = getattr(_orgtx_local, "guard", None)
+            if _txg is not None:
+                _txg(changes)
             # {COMMIT, publish, seq bump} are one atom with respect to
             # snapshot rebuilds — see the invariant note on `_changed_lock`.
             # A commit outside the gate opens the exact window this closes: a
@@ -3024,6 +3035,9 @@ def _save_sqlite(org: Org) -> None:
                     # change record is not a trustworthy delta of it
                     _publish_changes_unknown(slug)
                 _bump_org_seq(slug)
+                _txc = getattr(_orgtx_local, "on_commit", None)
+                if _txc is not None:
+                    _txc(changes)
                 stateprobe.record("gate_commit", ms=(time.perf_counter() - _gw) * 1000.0)
                 stateprobe.record("gate_wait_commit", ms=(_gw - _gt0) * 1000.0)
         except BaseException:
