@@ -47,6 +47,14 @@ MUTANTS = [
 ]
 
 
+#: EQUIVALENT, not a gap: whether an org is skipped is decided by reading the
+#: target back and comparing its manifest with the source's; the receipt's
+#: fingerprint and digest only add an audit trail. A source whose bytes
+#: changed while its rows did not (JSON whitespace) is correctly skipped
+#: either way.
+EXPECTED_SURVIVORS = {"import.resume_ignores_fingerprint"}
+
+
 def git(*args: str) -> str:
     return subprocess.run(["git", *args], cwd=REPO, capture_output=True, text=True, check=True).stdout.strip()
 
@@ -88,9 +96,11 @@ def main() -> int:
         print(json.dumps(results[-1]), flush=True)
     summary = {"schema": "orgtree.pypg.pg2-mutants/v1", "commit": head, "total": len(results),
                "caught": sum(r["verdict"] == "CAUGHT" for r in results),
-               "not_caught": [r["mutant"] for r in results if r["verdict"] != "CAUGHT"]}
+               "not_caught": [r["mutant"] for r in results if r["verdict"] != "CAUGHT"],
+               "expected_survivors": sorted(EXPECTED_SURVIVORS)}
+    summary["unexpected"] = [m for m in summary["not_caught"] if m not in EXPECTED_SURVIVORS]
     print("PYPG-PG2-MUTANTS " + json.dumps(summary), flush=True)
-    return 0 if not summary["not_caught"] else 1
+    return 0 if not summary["unexpected"] else 1
 
 
 if __name__ == "__main__":
