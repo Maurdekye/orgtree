@@ -14,6 +14,7 @@ use crate::island::ISLAND_RETRY_UNIQUE;
 
 pub mod fund;
 pub mod hire;
+pub mod quick;
 pub mod scope;
 pub mod staff;
 
@@ -39,6 +40,12 @@ pub const CONTROLS: &[&str] = &[
     "Q-OP4.key_unbound",
     // the staff door: seat and item in separate transactions
     "Q-ST3.split_transactions",
+    // quick staff: the context read before the item lock; the undo without
+    // its compare-and-set; the undo through the progress update. (Q-QS2's
+    // late receipt is the executor's, WS2: `Q-QS2.late_receipt`.)
+    "Q-QS1.context_before_lock",
+    "Q-QS3.undo_without_cas",
+    "Q-QS4.undo_via_progress_update",
 ];
 
 /// Family-specific pause points (`<family>.<verb>.<point>`).
@@ -55,6 +62,10 @@ pub const POINTS: &[&str] = &[
     "staffing.staff.name_probe.before",
     "staffing.staff.name_probe.after",
     "staffing.staff.item_locked",
+    "quick_staff.select.context_read",
+    "staffing.select.context_read",
+    "staffing.select.name_probe.before",
+    "quick_staff.undo.after_cas_read",
 ];
 
 /// `"<family>.<verb>" → spec` for every WS3a verb (CONTRACT-M1 §5 r4).
@@ -125,5 +136,10 @@ pub fn declared() -> Value {
     m.insert("staffing.hire".into(), hire("staffing.hire"));
     m.insert("staffing.operator_hire".into(), hire("operator.hire"));
     m.insert("staffing.staff".into(), staff("staffing.staff-create"));
+    // quick staff's immediate modes run the staff transaction in the island
+    m.insert("staffing.select".into(), staff("quick-staff.select"));
+    if let Value::Object(q) = quick::declared() {
+        m.extend(q);
+    }
     Value::Object(m)
 }

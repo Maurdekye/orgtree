@@ -1033,3 +1033,281 @@ async fn q_st3_control_split_transactions_leaves_a_seat_without_its_item() {
     assert_eq!(count(&format!("SELECT count(*) FROM agent_names WHERE org_id = '{}' AND name = 'kilo'", org())).await, 1, "the control must leave a seat without its item");
     println!("CONTROL Q-ST3.split_transactions: failed as designed (seat kilo exists, its item write was refused)");
 }
+
+// ================================================================ quick staff: Q-QS1..Q-QS4
+
+use orgtree_store::staffing::quick::{QuickResult, QuickSelect, QuickUndo, Selection, Settings, Undone};
+use orgtree_store::{KeyNamespace, OpIdentity, Principal};
+
+fn qs_binding(request_id: &str, sel: &Selection) -> Binding {
+    Binding {
+        principal: Principal::User,
+        acting: None,
+        op: OpIdentity { org: org(), ns: KeyNamespace::QuickStaff { item: item_id() }, key: request_id.into(), fingerprint: QuickSelect::fingerprint(sel), fingerprint_codec: "quick-staff-1", caller_keyed: true },
+        db_incarnation: incarnation(),
+        op_tag: None,
+    }
+}
+
+fn request_sel() -> Selection {
+    Selection { mode: "request".into(), configured_mode: "request".into(), owner: Some("charlie".into()), ..Selection::default() }
+}
+
+fn under_sel() -> Selection {
+    Selection { mode: "under_assignee".into(), configured_mode: "under_assignee".into(), owner: Some("charlie".into()), tier: Some("opus".into()), ..Selection::default() }
+}
+
+fn settings(behavior: &str) -> Settings {
+    Settings { behavior: behavior.into(), request_accounts: false, default_top_grant: 50 }
+}
+
+fn qname(o: &Result<Outcome<QuickResult>, ExecError>) -> String {
+    match o {
+        Ok(Outcome::Refused(r)) => format!("refused:{}", r.message),
+        Ok(o) => o.name().to_string(),
+        Err(e) => format!("error {e:?}"),
+    }
+}
+
+async fn item_state() -> String {
+    text(&format!(
+        "SELECT w.status || '/' || coalesce(a.name, '-') || '/' || w.rev FROM work_items w LEFT JOIN agents a ON a.org_id = w.org_id AND a.principal_id = w.owner_id WHERE w.item_id = '{}'",
+        item_id()
+    ))
+    .await
+}
+
+async fn qs_commit(x: &Ex, rid: &str, sel: Selection, behavior: &str) -> Result<Outcome<QuickResult>, ExecError> {
+    let b = qs_binding(rid, &sel);
+    x.ex.run(&QuickSelect::new(item_id(), sel, settings(behavior)), &b).await
+}
+
+async fn qs_undo(x: &Ex, rid: &str, key: &str) -> Result<Outcome<Undone>, ExecError> {
+    x.ex.run(&QuickUndo { item: item_id(), request_id: rid.into() }, &user_binding(key)).await
+}
+
+#[tokio::test]
+#[ignore = "needs the WS3a dev cluster; run through p03-run.ps1"]
+async fn quick_staff_request_immediate_and_the_compensating_undo() {
+    reset().await;
+    item_fixture().await;
+    let x = executor(vec![]);
+    // request mode: the ticket opens and the owner gets a request
+    let o = qs_commit(&x, "q1", request_sel(), "request").await;
+    let Ok(Outcome::Applied(r)) = &o else { panic!("{}", qname(&o)) };
+    assert_eq!(r.message, "Staffing requested from charlie; ticket moved to Open.");
+    assert_eq!(item_state().await, "open/charlie/2");
+    assert_eq!(mails(c(), "request").await, 1);
+    // a retried commit with the same request id replays; a different selection conflicts
+    assert!(matches!(qs_commit(&x, "q1", request_sel(), "request").await, Ok(Outcome::Replayed(_))));
+    let mut other = request_sel();
+    other.tier = Some("opus".into());
+    assert!(matches!(qs_commit(&x, "q1", other, "request").await, Ok(Outcome::Conflict)));
+    // the undo (E6): restores the EMPTY-progress ticket directly (E-D12), marks the receipt compensated, retracts the mail
+    let u = qs_undo(&x, "q1", "u1").await;
+    assert!(matches!(u, Ok(Outcome::Applied(Undone { restored: true }))), "{u:?}");
+    assert_eq!(item_state().await, "backlogged/charlie/3");
+    assert_eq!(text(&format!("SELECT state FROM operation_receipts WHERE ns_kind = 'quick_staff' AND op_key = 'q1'")).await, "compensated");
+    assert_eq!(count("SELECT count(*) FROM outgoing_intents WHERE kind = 'mail.retract'").await, 1);
+    // immediate under the assignee: a seat under charlie holds the item
+    reset().await;
+    item_fixture().await;
+    let x = executor(vec![]);
+    let o = qs_commit(&x, "q2", under_sel(), "under_assignee").await;
+    let Ok(Outcome::Applied(r)) = &o else { panic!("{}", qname(&o)) };
+    assert_eq!(r.node.as_deref(), Some("the-item"));
+    assert_eq!(r.message, "Staffed the-item under charlie; ticket moved to Open.");
+    assert_eq!(item_state().await, "open/the-item/2");
+    assert_eq!(r.assignee_notified.as_deref(), Some("charlie"));
+    assert_conserved("quick immediate").await;
+    // stale selection
+    reset().await;
+    item_fixture().await;
+    let x = executor(vec![]);
+    assert_eq!(qname(&qs_commit(&x, "q3", request_sel(), "under_assignee").await), "refused:The staffing behavior or assignee changed. Reopen the ticket menu to see where staffing will happen.");
+}
+
+/// Q-QS1: a commit racing an item update that changes the owner, both orders.
+#[tokio::test]
+#[ignore = "needs the WS3a dev cluster; run through p03-run.ps1"]
+async fn q_qs1_commit_racing_an_owner_change_both_orders() {
+    // the update first (holding the head): the commit waits, then sees the new owner and refuses
+    reset().await;
+    item_fixture().await;
+    let x = executor(vec![]);
+    let mut held = x.script.hold(Some("qs1-w"), "work.update.stmt.work.lock_head.after");
+    let ex = std::sync::Arc::new(x);
+    let e1 = ex.clone();
+    let h1 = tokio::spawn(async move { e1.ex.run(&WorkUpdate { item: item_id(), owner: Some(Some(d())), ..WorkUpdate::default() }, &agent_binding(c(), "qs1-w")).await });
+    held.arrive().await;
+    let e2 = ex.clone();
+    let h2 = tokio::spawn(async move { qs_commit(&e2, "qs1-q", request_sel(), "request").await });
+    assert!(still_waiting(&h2, 400).await);
+    held.go();
+    assert!(matches!(h1.await.unwrap(), Ok(Outcome::Applied(_))));
+    let o = h2.await.unwrap();
+    order(&ex, "Q-QS1 update first", &["qs1-w"]);
+    assert_eq!(qname(&o), "refused:The staffing behavior or assignee changed. Reopen the ticket menu to see where staffing will happen.");
+    assert_eq!(item_state().await, "backlogged/delta/2");
+    // the commit first (held before commit): the update waits and applies to the requested item
+    reset().await;
+    item_fixture().await;
+    let x = executor(vec![]);
+    let mut held = x.script.hold(Some("qs1-q2"), "quick_staff.select.before_commit");
+    let ex = std::sync::Arc::new(x);
+    let e2 = ex.clone();
+    let h2 = tokio::spawn(async move { qs_commit(&e2, "qs1-q2", request_sel(), "request").await });
+    held.arrive().await;
+    let e1 = ex.clone();
+    let h1 = tokio::spawn(async move { e1.ex.run(&WorkUpdate { item: item_id(), owner: Some(Some(d())), ..WorkUpdate::default() }, &agent_binding(c(), "qs1-w2")).await });
+    assert!(still_waiting(&h1, 400).await);
+    held.go();
+    assert!(matches!(h2.await.unwrap(), Ok(Outcome::Applied(_))));
+    assert!(matches!(h1.await.unwrap(), Ok(Outcome::Applied(_))));
+    order(&ex, "Q-QS1 commit first", &["qs1-q2", "qs1-w2"]);
+    assert_eq!(item_state().await, "open/delta/3");
+}
+
+#[tokio::test]
+#[ignore = "needs the WS3a dev cluster; run through p03-run.ps1"]
+async fn q_qs1_control_context_before_lock_staffs_a_stale_owner() {
+    reset().await;
+    item_fixture().await;
+    let x = executor(vec!["Q-QS1.context_before_lock"]);
+    let mut held = x.script.hold(Some("qs1c"), "quick_staff.select.context_read");
+    let ex = std::sync::Arc::new(x);
+    let e2 = ex.clone();
+    let h2 = tokio::spawn(async move { qs_commit(&e2, "qs1c", request_sel(), "request").await });
+    held.arrive().await;
+    assert!(matches!(ex.ex.run(&WorkUpdate { item: item_id(), owner: Some(Some(d())), ..WorkUpdate::default() }, &agent_binding(c(), "qs1c-w")).await, Ok(Outcome::Applied(_))));
+    held.go();
+    let o = h2.await.unwrap();
+    control_ran(&ex, "Q-QS1.context_before_lock");
+    order(&ex, "Q-QS1 control", &["qs1c-w", "qs1c"]);
+    assert!(matches!(o, Ok(Outcome::Applied(_))), "{}", qname(&o));
+    assert_eq!(item_state().await, "open/charlie/3", "the control must staff against the stale owner (delta's assignment overwritten)");
+    println!("CONTROL Q-QS1.context_before_lock: failed as designed (request sent to charlie after the item moved to delta)");
+}
+
+/// Q-QS2: two commits with one request id, concurrently, in each mode.
+#[tokio::test]
+#[ignore = "needs the WS3a dev cluster; run through p03-run.ps1"]
+async fn q_qs2_one_effect_and_one_replay_in_every_mode() {
+    for (mode, sel, behavior) in [("request", request_sel(), "request"), ("under_assignee", under_sel(), "under_assignee"), ("top_level", Selection { mode: "top_level".into(), configured_mode: "top_level".into(), owner: Some("charlie".into()), tier: Some("opus".into()), ..Selection::default() }, "top_level")] {
+        reset().await;
+        item_fixture().await;
+        let x = executor(vec![]);
+        let fam = if mode == "request" { "quick_staff" } else { "staffing" };
+        let mut held = x.script.hold(Some("qs2"), &format!("{fam}.select.after_claim"));
+        let ex = std::sync::Arc::new(x);
+        let (e1, s1) = (ex.clone(), sel.clone());
+        let h1 = tokio::spawn(async move { qs_commit(&e1, "qs2", s1, behavior).await });
+        held.arrive().await;
+        let (e2, s2) = (ex.clone(), sel.clone());
+        let h2 = tokio::spawn(async move { qs_commit(&e2, "qs2", s2, behavior).await });
+        assert!(still_waiting(&h2, 400).await, "{mode}: the duplicate waits on the claim");
+        held.go();
+        let (o1, o2) = (h1.await.unwrap(), h2.await.unwrap());
+        assert!(matches!(o1, Ok(Outcome::Applied(_))), "{mode}: {}", qname(&o1));
+        assert!(matches!(o2, Ok(Outcome::Replayed(_))), "{mode}: {}", qname(&o2));
+        println!("Q-QS2 {mode}: applied + replayed");
+        assert_eq!(count(&format!("SELECT count(*) FROM agents WHERE org_id = '{}'", org())).await, if mode == "request" { 5 } else { 6 });
+    }
+}
+
+/// Q-QS2's control (request mode): the receipt written at the END (the
+/// executor's late-receipt path, WS2 `Q-QS2.late_receipt`): the second
+/// commit waits on the item head, finds it no longer backlogged, and is
+/// REFUSED instead of replaying.
+#[tokio::test]
+#[ignore = "needs the WS3a dev cluster; run through p03-run.ps1"]
+async fn q_qs2_control_late_receipt_refuses_instead_of_replaying() {
+    reset().await;
+    item_fixture().await;
+    let x = executor(vec!["Q-QS2.late_receipt"]);
+    let mut held = x.script.hold(Some("qs2c"), "quick_staff.select.stmt.quick_staff.item_head.after");
+    let ex = std::sync::Arc::new(x);
+    let e1 = ex.clone();
+    let h1 = tokio::spawn(async move { qs_commit(&e1, "qs2c", request_sel(), "request").await });
+    held.arrive().await;
+    let e2 = ex.clone();
+    let h2 = tokio::spawn(async move { qs_commit(&e2, "qs2c", request_sel(), "request").await });
+    assert!(still_waiting(&h2, 400).await);
+    held.go();
+    let (o1, o2) = (h1.await.unwrap(), h2.await.unwrap());
+    control_ran(&ex, "Q-QS2.late_receipt");
+    assert!(matches!(o1, Ok(Outcome::Applied(_))), "{}", qname(&o1));
+    assert_eq!(qname(&o2), "refused:Quick staff is available only for backlogged tickets. Reopen the menu.", "the control must refuse the retry of a successful call");
+    println!("CONTROL Q-QS2.late_receipt: failed as designed (the duplicate was refused instead of replaying)");
+}
+
+/// Q-QS3: an undo racing a later writer, both orders; and its control.
+#[tokio::test]
+#[ignore = "needs the WS3a dev cluster; run through p03-run.ps1"]
+async fn q_qs3_undo_never_overwrites_a_later_writer() {
+    // the later writer first: the undo's compare-and-set matches nothing
+    reset().await;
+    item_fixture().await;
+    let x = executor(vec![]);
+    assert!(matches!(qs_commit(&x, "qs3", request_sel(), "request").await, Ok(Outcome::Applied(_))));
+    assert!(matches!(x.ex.run(&WorkUpdate { item: item_id(), status: Some("in_progress".into()), ..WorkUpdate::default() }, &agent_binding(c(), "qs3-w")).await, Ok(Outcome::Applied(_))));
+    let u = qs_undo(&x, "qs3", "qs3-u").await;
+    assert!(matches!(u, Ok(Outcome::Applied(Undone { restored: false }))), "{u:?}");
+    assert_eq!(item_state().await, "in_progress/charlie/3");
+    // the undo first (held after its read): the writer waits, then applies to the restored item
+    reset().await;
+    item_fixture().await;
+    let x = executor(vec![]);
+    assert!(matches!(qs_commit(&x, "qs3", request_sel(), "request").await, Ok(Outcome::Applied(_))));
+    let mut held = x.script.hold(Some("qs3-u2"), "quick_staff.undo.after_cas_read");
+    let ex = std::sync::Arc::new(x);
+    let e1 = ex.clone();
+    let h1 = tokio::spawn(async move { qs_undo(&e1, "qs3", "qs3-u2").await });
+    held.arrive().await;
+    let e2 = ex.clone();
+    let h2 = tokio::spawn(async move { e2.ex.run(&WorkUpdate { item: item_id(), status: Some("in_progress".into()), ..WorkUpdate::default() }, &agent_binding(c(), "qs3-w2")).await });
+    assert!(still_waiting(&h2, 400).await);
+    held.go();
+    assert!(matches!(h1.await.unwrap(), Ok(Outcome::Applied(Undone { restored: true }))));
+    assert!(matches!(h2.await.unwrap(), Ok(Outcome::Applied(_))));
+    order(&ex, "Q-QS3 undo first", &["qs3-u2", "qs3-w2"]);
+    assert_eq!(item_state().await, "in_progress/charlie/4");
+}
+
+#[tokio::test]
+#[ignore = "needs the WS3a dev cluster; run through p03-run.ps1"]
+async fn q_qs3_control_undo_without_cas_overwrites_the_later_writer() {
+    reset().await;
+    item_fixture().await;
+    let x = executor(vec!["Q-QS3.undo_without_cas"]);
+    assert!(matches!(qs_commit(&x, "qs3c", request_sel(), "request").await, Ok(Outcome::Applied(_))));
+    assert!(matches!(x.ex.run(&WorkUpdate { item: item_id(), status: Some("in_progress".into()), ..WorkUpdate::default() }, &agent_binding(c(), "qs3c-w")).await, Ok(Outcome::Applied(_))));
+    let u = qs_undo(&x, "qs3c", "qs3c-u").await;
+    control_ran(&x, "Q-QS3.undo_without_cas");
+    assert!(matches!(u, Ok(Outcome::Applied(Undone { restored: true }))), "{u:?}");
+    assert_eq!(item_state().await, "backlogged/charlie/4", "the control must overwrite the later writer's in_progress");
+    println!("CONTROL Q-QS3.undo_without_cas: failed as designed (the later writer's status was overwritten)");
+}
+
+/// Q-QS4: the undo on a ticket whose progress lists were both empty.
+#[tokio::test]
+#[ignore = "needs the WS3a dev cluster; run through p03-run.ps1"]
+async fn q_qs4_undo_restores_an_empty_progress_ticket_and_its_control() {
+    reset().await;
+    item_fixture().await;
+    let x = executor(vec![]);
+    assert!(matches!(qs_commit(&x, "qs4", request_sel(), "request").await, Ok(Outcome::Applied(_))));
+    assert!(matches!(qs_undo(&x, "qs4", "qs4-u").await, Ok(Outcome::Applied(Undone { restored: true }))));
+    assert_eq!(item_state().await, "backlogged/charlie/3");
+    assert_eq!(count("SELECT count(*) FROM outgoing_intents WHERE kind = 'mail.retract'").await, 1, "the request is retracted");
+    // the control: through the user-facing progress update, the refusal escapes and nothing is undone
+    reset().await;
+    item_fixture().await;
+    let x = executor(vec!["Q-QS4.undo_via_progress_update"]);
+    assert!(matches!(qs_commit(&x, "qs4c", request_sel(), "request").await, Ok(Outcome::Applied(_))));
+    let u = qs_undo(&x, "qs4c", "qs4c-u").await;
+    control_ran(&x, "Q-QS4.undo_via_progress_update");
+    assert!(matches!(u, Err(ExecError::Defect(_))), "{u:?}");
+    assert_eq!(item_state().await, "open/charlie/2", "the control must leave the ticket un-undone");
+    println!("CONTROL Q-QS4.undo_via_progress_update: failed as designed (the refusal escaped, nothing undone)");
+}
