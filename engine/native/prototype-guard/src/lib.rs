@@ -31,6 +31,11 @@
 //! location). That is the host mode in which a backend serves the prototype.
 //! Every other location is protected unconditionally.
 
+pub mod acl;
+mod product;
+
+pub use product::{bind_product_root, validate_product_root, ProductBinding, PRODUCT_DENY, PRODUCT_FILE, PRODUCT_SCHEMA};
+
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt;
@@ -81,6 +86,9 @@ pub struct RootMarker {
 pub struct PrototypeRoot {
     path: PathBuf,
     marker: RootMarker,
+    /// A PRODUCT root (the engine's own data root after `bind-product`, see
+    /// [`validate_product_root`]), not a disposable prototype.
+    product: bool,
 }
 
 impl PrototypeRoot {
@@ -94,6 +102,11 @@ impl PrototypeRoot {
     pub fn marker(&self) -> &RootMarker {
         &self.marker
     }
+    /// True for the engine's own data root ([`validate_product_root`]):
+    /// nothing may delete or overwrite it (destroy, restore refuse).
+    pub fn is_product(&self) -> bool {
+        self.product
+    }
 }
 
 /// Where the protected locations come from. Tests pass their own map, so no
@@ -104,7 +117,7 @@ pub fn process_env() -> Env {
     std::env::vars().collect()
 }
 
-fn var(env: &Env, k: &str) -> Option<PathBuf> {
+pub(crate) fn var(env: &Env, k: &str) -> Option<PathBuf> {
     env.get(k).map(|v| v.trim()).filter(|v| !v.is_empty()).map(PathBuf::from)
 }
 
@@ -142,7 +155,7 @@ pub fn live_locations() -> &'static LiveLocations {
     })
 }
 
-fn resolve_location(env: &Env, loc: &LiveLocation) -> Option<PathBuf> {
+pub(crate) fn resolve_location(env: &Env, loc: &LiveLocation) -> Option<PathBuf> {
     let base = loc.base_env.iter().find_map(|k| var(env, k))?;
     Some(loc.parts.iter().fold(base, |p, part| p.join(part)))
 }
@@ -255,7 +268,7 @@ pub fn lexical(path: &Path) -> Result<String> {
 }
 
 /// True when `a` equals `b` or lies inside it (both in lexical form).
-fn within(a: &str, b: &str) -> bool {
+pub(crate) fn within(a: &str, b: &str) -> bool {
     if a == b {
         return true;
     }
@@ -311,7 +324,7 @@ pub fn check_location(path: &Path, env: &Env) -> Result<String> {
     Ok(real)
 }
 
-fn refuse_protected(candidate: &str, protected: &[(String, PathBuf)], canonicalize_protected: bool) -> Result<()> {
+pub(crate) fn refuse_protected(candidate: &str, protected: &[(String, PathBuf)], canonicalize_protected: bool) -> Result<()> {
     for (label, p) in protected {
         // A malformed protected location fails CLOSED, and says which one.
         let bad = |e: GuardError| GuardError::new("guard.bad_protected_location", format!("{label} = {}: {}", p.display(), e.message));
@@ -338,7 +351,7 @@ fn refuse_protected(candidate: &str, protected: &[(String, PathBuf)], canonicali
 }
 
 #[cfg(windows)]
-fn is_reparse_point(p: &Path) -> bool {
+pub(crate) fn is_reparse_point(p: &Path) -> bool {
     use std::os::windows::fs::MetadataExt;
     const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
     std::fs::symlink_metadata(p)
@@ -358,7 +371,7 @@ fn entry_is_reparse_point(e: &std::fs::DirEntry) -> bool {
 }
 
 #[cfg(not(windows))]
-fn is_reparse_point(p: &Path) -> bool {
+pub(crate) fn is_reparse_point(p: &Path) -> bool {
     std::fs::symlink_metadata(p).map(|m| m.file_type().is_symlink()).unwrap_or(false)
 }
 
@@ -446,5 +459,21 @@ pub fn validate_root(path: &Path, env: &Env) -> Result<PrototypeRoot> {
     if lexical(&canon)? != real {
         return Err(GuardError::new("root.moved_or_copied", format!("{} resolved inconsistently", path.display())));
     }
-    Ok(PrototypeRoot { path: canon, marker })
+    Ok(PrototypeRoot { path: canon, marker, product: false })
+}
+
+/// Only [`product::validate_product_root`] builds a product root.
+pub(crate) fn product_root(path: PathBuf, marker: RootMarker) -> PrototypeRoot {
+    PrototypeRoot { path, marker, product: true }
+}
+
+/// The resolved path in its real case, checked against the comparison form.
+pub(crate) fn real_case(path: &Path, real: &str) -> Result<PathBuf> {
+    let canon = std::fs::canonicalize(path).map_err(|e| GuardError::new("root.resolve", format!("{}: {e}", path.display())))?;
+    let canon = canon.to_string_lossy().to_string();
+    let canon = PathBuf::from(canon.strip_prefix("\\\\?\\").unwrap_or(&canon));
+    if lexical(&canon)? != real {
+        return Err(GuardError::new("root.moved_or_copied", format!("{} resolved inconsistently", path.display())));
+    }
+    Ok(canon)
 }
