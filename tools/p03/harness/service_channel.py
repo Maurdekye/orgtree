@@ -242,6 +242,14 @@ class ServiceChannel:
         r = self._ctl(self.waits_verb)
         return list(r.get("waits") or [])
 
+    def kill_backend(self, pid: int) -> bool:
+        """Harness-side kill (M1 §3), through the host's ``qual.kill`` verb."""
+        r = self._ctl("qual.kill", {"pid": pid})
+        if r.get("terminated") is not True:
+            self._events.put({"kind": "error", "detail": f"qual.kill {pid}: {r}"})
+            return False
+        return True
+
     def finish(self) -> dict[str, Any]:
         deadline = time.monotonic() + self.timeout
         for t in self._threads:

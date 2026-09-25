@@ -35,7 +35,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
 from p03.harness import controls as ctl  # noqa: E402
-from p03.harness import oracle, protocol, serverlog  # noqa: E402
+from p03.harness import faults, oracle, protocol, serverlog  # noqa: E402
 from p03.harness.fake_executor import FakeExecutor, Stmt  # noqa: E402
 from p03.harness.fake_service import FakeService  # noqa: E402
 from p03.harness.service_channel import ServiceChannel  # noqa: E402
@@ -390,6 +390,85 @@ def socket_schedule(timeout: float = 3.0) -> Schedule:
     return Schedule("Q-FAKE1", {"A": (KIND, {}), "B": (KIND, {})}, [SAFE],
                     pass_condition=lambda _r, _a, final: final["state"]["rows"].get("counter") == 2,
                     step_timeout=timeout, plan_timeout=timeout)
+
+
+class FaultKit(unittest.TestCase):
+    """The fault kit on the protocol's actions; kill_backend is harness-side."""
+
+    def one(self, order, **kw):
+        return Schedule("Q-FAKE1", {"A": (KIND, {})}, [order], pass_condition=lambda *_: True,
+                        step_timeout=kw.get("step", 3.0), plan_timeout=kw.get("plan", 3.0))
+
+    def test_a_killed_backend_is_retried_on_a_new_one_and_seen_as_57P01(self):
+        order = Order("kill-held", [("start", "A"), ("arrive", "A", WRITE), ("kill", "A"),
+                                    ("await_end", "A")],
+                      [("before", f"arrived:A:{WRITE}", "killed:A"), ("sqlstate", "A", "57P01"),
+                       ("outcome", "A", "applied")])
+        result = run_order(FakeExecutor(OPS), self.one(order), order)
+        self.assertEqual(result.verdict, PASSED, result.reasons)
+        begins = [r["backend_pid"] for r in result.records if r["kind"] == "tx_begin"]
+        self.assertEqual(len(begins), 2)
+        self.assertNotEqual(begins[0], begins[1], "the retry must run on a new backend")
+        killed = [e for e in result.achieved if e["event"] == "killed:A"]
+        self.assertEqual(killed[0]["backend_pid"], begins[0])
+
+    def test_a_kill_without_an_arrival_fails_the_run(self):
+        order = Order("kill-blind", [("start", "A"), ("kill", "A"), ("await_end", "A")], [])
+        result = run_order(FakeExecutor(OPS), self.one(order), order)
+        self.assertEqual(result.verdict, FAILED)
+        self.assertIn("cannot kill A: no arrival reported its backend pid", result.reasons)
+
+    def test_a_kill_the_service_did_not_perform_fails_the_run(self):
+        class Refusing(FakeExecutor):
+            def kill_backend(self, pid):
+                return False
+        order = Order("kill-refused", [("start", "A"), ("arrive", "A", WRITE), ("kill", "A"),
+                                       ("release", "A", WRITE), ("await_end", "A")], [])
+        result = run_order(Refusing(OPS), self.one(order), order)
+        self.assertEqual(result.verdict, FAILED)
+        self.assertTrue(any("was not terminated" in r for r in result.reasons), result.reasons)
+
+    def test_a_kill_over_the_wire(self):
+        order = Order("kill-wire", [("start", "A"), ("arrive", "A", WRITE), ("kill", "A"),
+                                    ("await_end", "A")],
+                      [("sqlstate", "A", "57P01"), ("outcome", "A", "applied")])
+        result = OverSockets.run_over(self, order, self.one(order))
+        self.assertEqual(result.verdict, PASSED, result.reasons)
+
+    def test_sqlstate_faults_build_the_protocol_hold(self):
+        f = faults.sqlstate("A", WRITE, "40P01")
+        self.assertEqual(f, {"op_tag": "A", "point": WRITE, "attempt": 1, "action": "fail_next",
+                             "sqlstate": "40P01"})
+        with self.assertRaises(ValueError):
+            faults.sqlstate("A", WRITE, "99999")
+        with self.assertRaises(ValueError):
+            faults.sleep("A", WRITE, 0)
+        self.assertIn("deadlock_detected", faults.expected("40P01"))
+
+    def test_an_every_attempt_fault_reaches_the_plan_without_an_attempt(self):
+        order = Order("always", [("start", "A"), ("await_end", "A")], [],
+                      faults=[faults.sqlstate("A", WRITE, "40001", attempt=None)])
+        fake = FakeExecutor(OPS)
+        result = run_order(fake, self.one(order), order)
+        self.assertEqual([k[2] for k in fake._holds], [None])
+        self.assertIn("A", [r.get("op_tag") for r in result.records if r["kind"] == "op_end"])
+        ends = [r["outcome"] for r in result.records if r["kind"] == "op_end"]
+        self.assertEqual(ends, ["error"], "every retry fails too, until the attempts run out")
+
+    def test_a_non_retryable_code_ends_the_operation(self):
+        order = Order("unique", [("start", "A"), ("await_end", "A")],
+                      [("sqlstate", "A", "23505"), ("outcome", "A", "applied")],
+                      faults=[faults.sqlstate("A", WRITE, "23505")])
+        result = run_order(FakeExecutor(OPS), self.one(order), order)
+        self.assertEqual(result.verdict, FAILED)
+        self.assertIn("A ended 'error', intended 'applied'", result.reasons)
+
+    def test_a_dropped_connection_is_retried_on_a_new_backend(self):
+        order = Order("drop", [("start", "A"), ("await_end", "A")],
+                      [("sqlstate", "A", "08006"), ("outcome", "A", "applied")],
+                      faults=[faults.drop_conn("A", WRITE)])
+        result = run_order(FakeExecutor(OPS), self.one(order), order)
+        self.assertEqual(result.verdict, PASSED, result.reasons)
 
 
 class UnsafeControls(unittest.TestCase):
