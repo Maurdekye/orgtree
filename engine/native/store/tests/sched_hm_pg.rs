@@ -15,7 +15,7 @@ use common_pg::*;
 use orgtree_store::mail::audience::Audience;
 use orgtree_store::mail::human::{self, HumanCommand, HumanSend, MarkRead};
 use orgtree_store::mail::inbox;
-use orgtree_store::mail::receive::{self, Delivery, Received};
+use orgtree_store::mail::receive::{self, Delivery};
 use orgtree_store::runtime::{self, admit::FakeProvider};
 use orgtree_store::sent::MailClass;
 use orgtree_store::{Outcome, Uuid};

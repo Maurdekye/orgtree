@@ -202,6 +202,7 @@ impl TraceSink for Events {
             EventKind::Statement { label, sqlstate: Some(s), .. } => format!("stmt_err:{label}:{s}"),
             EventKind::Statement { label, sqlstate: None, .. } => format!("stmt:{label}:{key}"),
             EventKind::Mark { name } => format!("mark:{name}"),
+            EventKind::CausalRefs { refs } => format!("causal:{}.{}:{key}:{}", e.family, e.verb, refs.join(",")),
             EventKind::Begin { .. } => format!("begin:{}.{}:{key}", e.family, e.verb),
             EventKind::Rollback => format!("rollback:{}.{}:{key}", e.family, e.verb),
             EventKind::Commit { .. } => format!("commit:{}.{}:{key}", e.family, e.verb),
