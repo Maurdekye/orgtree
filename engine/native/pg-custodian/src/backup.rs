@@ -275,6 +275,7 @@ pub fn content_differences(want: &BTreeMap<String, TableContent>, got: &BTreeMap
 
 /// Restore `from` into the running, EMPTY cluster of `root`.
 pub fn restore(root: &crate::guard::PrototypeRoot, bin: &PgBin, from: &Path) -> Result<RestoreReport> {
+    crate::guard::refuse_product(root, "restore")?;
     let manifest = read_manifest(from)?;
     let dump = from.join(&manifest.dump_file);
     let (sha, bytes) = file_sha256(&dump)?;
