@@ -287,6 +287,58 @@ pub fn load_instance(layout: &Layout, root: &PrototypeRoot) -> Result<InstanceRe
 }
 
 /// Line 1 of postmaster.pid (the postmaster PID) and line 4 (its port).
+/// Line 3 of postmaster.pid: the postmaster's start time (unix seconds).
+pub fn lock_started_unix(data: &Path) -> Option<u64> {
+    let text = fs::read_to_string(data.join("postmaster.pid")).ok()?;
+    text.lines().nth(2)?.trim().parse().ok()
+}
+
+/// FILETIME ticks (100 ns since 1601) to unix seconds.
+pub fn filetime_to_unix(ft: u64) -> u64 {
+    (ft / 10_000_000).saturating_sub(11_644_473_600)
+}
+
+/// A postmaster.pid is provably stale when its pid is not running at all, or
+/// when the process now holding that pid was created after the lock's
+/// postmaster started (pid reuse). Anything else might be a live server.
+pub fn lock_is_stale(pid_present: bool, holder_created_unix: Option<u64>, lock_started_unix: Option<u64>) -> bool {
+    if !pid_present {
+        return true;
+    }
+    match (holder_created_unix, lock_started_unix) {
+        (Some(created), Some(started)) => created > started + 1,
+        _ => false,
+    }
+}
+
+fn wait_for_new_postmaster(data: &Path, bin: &PgBin, port: u16, launched_unix: u64) -> Result<(u32, Option<u16>)> {
+    let deadline = Instant::now() + Duration::from_secs(START_TIMEOUT_SECS);
+    let ours = bin.exe("postgres");
+    let mut last = String::from("no postmaster.pid");
+    loop {
+        if let Some((pid, pid_port)) = read_pid_file(data) {
+            let status = pm_status(data);
+            let fresh = win::creation_time(pid).map(filetime_to_unix).map(|c| c + 1 >= launched_unix).unwrap_or(false);
+            let is_ours = ProcessHandle::open(pid)
+                .filter(|h| !h.wait_exit(0))
+                .and_then(|h| h.image_path())
+                .map(|p| win::same_file(&p, &ours))
+                .unwrap_or(false);
+            if pid_port == Some(port) && status.as_deref() == Some("ready") && fresh && is_ours {
+                return Ok((pid, pid_port));
+            }
+            last = format!("pid {pid} port {pid_port:?} status {status:?} fresh {fresh} ours {is_ours}");
+        }
+        if Instant::now() > deadline {
+            return Err(CustodianError::new(
+                "start.port_mismatch",
+                format!("pg_ctl reported started, but postmaster.pid never named our new postmaster on port {port}: {last}"),
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
 /// Line 8 of postmaster.pid: the postmaster's own status word.
 pub fn pm_status(data: &Path) -> Option<String> {
     let text = fs::read_to_string(data.join("postmaster.pid")).ok()?;
@@ -626,9 +678,23 @@ pub fn start(root: &PrototypeRoot, bin: &PgBin, port: Option<u16>) -> Result<Run
     let instance = match state(root, bin)? {
         ClusterState::Stopped { instance } => instance,
         ClusterState::StalePid { instance, pid } => {
-            // PostgreSQL itself removes a lock file whose PID is dead; we
-            // only record that we saw it.
-            eprintln!("pg-custodian: stale postmaster.pid (pid {pid}) will be checked by postgres");
+            // On Windows `pg_ctl start -w` cannot check the postmaster's pid
+            // (it launches a cmd.exe shim), so a stale lock file written
+            // within ~2 s of its own launch reads as "started" (WS1 drill
+            // finding at 43d2683). Remove a lock that is PROVABLY stale; refuse
+            // one that might belong to a live server we cannot see.
+            let started = lock_started_unix(&layout.data);
+            let snap = win::snapshot()?;
+            let present = snap.iter().any(|p| p.pid == pid);
+            let created = win::creation_time(pid).map(filetime_to_unix);
+            if !lock_is_stale(present, created, started) {
+                return Err(CustodianError::new(
+                    "start.lock_held",
+                    format!("postmaster.pid names pid {pid}, a live process this custodian cannot identify as stale"),
+                ));
+            }
+            let lock = layout.data.join("postmaster.pid");
+            fs::remove_file(&lock).map_err(|e| CustodianError::io("start.stale_lock", &lock, e))?;
             instance
         }
         ClusterState::Running { postmaster_pid, .. } => {
@@ -670,10 +736,13 @@ pub fn start(root: &PrototypeRoot, bin: &PgBin, port: Option<u16>) -> Result<Run
         .arg(START_TIMEOUT_SECS.to_string())
         .arg("-o")
         .arg(format!("-p {port}"));
+    let launched_unix = crate::now_unix();
     run_logged(cmd, &layout.log.join("pg_ctl.log"), "start.pg_ctl")?;
 
-    let (pid, pid_port) = read_pid_file(&layout.data)
-        .ok_or_else(|| CustodianError::new("start.no_pid_file", "pg_ctl reported success but postmaster.pid is absent"))?;
+    // pg_ctl's "started" is a claim; the lock file must name OUR new
+    // postmaster (our image, created after the launch, on the asked port,
+    // status ready) before anything is trusted.
+    let (pid, pid_port) = wait_for_new_postmaster(&layout.data, bin, port, launched_unix)?;
     let runtime = RuntimeRecord {
         schema: RUNTIME_SCHEMA.into(),
         root_id: instance.root_id.clone(),
