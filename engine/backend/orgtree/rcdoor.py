@@ -382,6 +382,32 @@ def declare_all() -> None:
 declare_all()
 
 
+# ------------------------------------------------------- docket reply
+
+def work_reply_rows(nid: str | None) -> pgdoor.TxSpec:
+    """The user's reply on a docket item (api.work_item_reply, lead decision
+    18.6): the `work_items` row (the attention flag cleared with the reply),
+    the user's send to `nid` — its node row, box, mail_log and the org-wide
+    mail/notices/audiences/lifecycle rows, the user's outbox — and the
+    deep-reach notice to nid's chain, which rides the same notices row.
+    `nid` None (the snapshot could not name the recipient) holds only the
+    item; the body's `hold()` widens to the real recipient."""
+    base = _spec(sections=("work_items",))
+    return union(base, _mail(nid)) if nid else base
+
+
+def reply_recipient_guess(org: Any, wid: str, to: str) -> str | None:
+    """The recipient as the unlocked snapshot sees it (the body re-derives
+    it under the locks). None when the snapshot refuses."""
+    from .ledger import LedgerError
+    try:
+        tgt = (org.work_reply_recipient(wid, to) if to
+               else org.work_reply_target(wid))
+        return str(tgt["node"])
+    except (LedgerError, KeyError, TypeError):
+        return None
+
+
 # ------------------------------------------------------ operator doors
 
 def run_op(slug: str, spec: pgdoor.TxSpec, fn: Any) -> Any:
