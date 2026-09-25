@@ -38,11 +38,14 @@ root commands:
   init        initdb a cluster under the root (quarantine, then commit by rename)
   start       start it on 127.0.0.1 [--port N] (default: a free port)
   identify    connect with SCRAM and check it is the instance this root owns
+  attach      strict reuse of a running instance: owner-only descriptor, pid +
+              creation time, SCRAM identity, readiness; never port/pid alone
   status      report the cluster state without connecting
   urls        identify, then print the three role URLs
   psql        run --sql <text> as the admin role [--db name] and print the rows
   stop        pg_ctl stop -m fast (or --immediate), then wait for the owned
-              process family to exit [--force: terminate surviving postgres.exe]
+              process family to exit [--timeout SECS, default 600]
+              [--force: terminate surviving postgres.exe]
   destroy     delete a STOPPED prototype root entirely
   qual-logging --qual-logging on|off   set the qualification-logging switch
               on a STOPPED cluster (jsonlog, log_statement=all, bind values
@@ -69,6 +72,7 @@ struct Args {
     writer_version: Option<u32>,
     immediate: bool,
     force: bool,
+    timeout: Option<u64>,
 }
 
 fn parse() -> Result<Args> {
@@ -105,6 +109,9 @@ fn parse() -> Result<Args> {
             }
             "--immediate" => a.immediate = true,
             "--force" => a.force = true,
+            "--timeout" => {
+                a.timeout = Some(val("--timeout")?.parse().map_err(|_| CustodianError::new("cli.usage", "--timeout takes seconds"))?)
+            }
             "-h" | "--help" => return Err(CustodianError::new("cli.usage", USAGE)),
             other => return Err(CustodianError::new("cli.usage", format!("unknown argument {other:?}\n{USAGE}"))),
         }
@@ -142,6 +149,10 @@ fn run_check_writer(a: &Args, r: &guard::PrototypeRoot, b: &PgBin) -> Result<Val
     Ok(json!({"writer_version": w, "schema_min_writer": migrate::check_writer(&applied, w)?}))
 }
 
+fn stop_timeout(a: &Args) -> std::time::Duration {
+    std::time::Duration::from_secs(a.timeout.unwrap_or(cluster::STOP_TIMEOUT_SECS))
+}
+
 enum Out {
     Json(Value),
     Text(String),
@@ -159,7 +170,7 @@ fn run_dev(a: &Args, env: &Env) -> Result<Out> {
         "up" => Ok(Out::Json(json!({"dev": dev::up(env, &home, &b, &agent, a.qual_logging)?}))),
         "down" => {
             let r = dev::root_for(env, &home, &agent)?;
-            Ok(Out::Json(json!({"agent": agent, "stop": cluster::stop(&r, &b, a.immediate, a.force)?})))
+            Ok(Out::Json(json!({"agent": agent, "stop": cluster::stop_with(&r, &b, a.immediate, a.force, stop_timeout(a))?})))
         }
         "status" => {
             let r = dev::root_for(env, &home, &agent)?;
@@ -180,6 +191,10 @@ fn run_dev(a: &Args, env: &Env) -> Result<Out> {
             let r = dev::root_for(env, &home, &agent)?;
             cluster::destroy(&r, &b)?;
             Ok(Out::Json(json!({"destroyed": r.path()})))
+        }
+        "attach" => {
+            let (rt, id) = cluster::attach(&dev::root_for(env, &home, &agent)?, &b)?;
+            Ok(Out::Json(json!({"attached": true, "identification": id, "runtime": rt})))
         }
         "migrate" => Ok(Out::Json(run_migrate(a, &dev::root_for(env, &home, &agent)?, &b)?)),
         "check-writer" => Ok(Out::Json(run_check_writer(a, &dev::root_for(env, &home, &agent)?, &b)?)),
@@ -215,6 +230,10 @@ fn run(a: Args) -> Result<Out> {
             "qual_logging_configured": cluster::qual_logging_configured(&r),
             "cluster": cluster::state(&r, &b)?,
         }),
+        "attach" => {
+            let (rt, id) = cluster::attach(&r, &b)?;
+            json!({"attached": true, "identification": id, "runtime": rt})
+        }
         "migrate" => run_migrate(&a, &r, &b)?,
         "check-writer" => run_check_writer(&a, &r, &b)?,
         "qual-logging" => {
@@ -230,7 +249,7 @@ fn run(a: Args) -> Result<Out> {
             let (rt, _) = identified(&r, &b)?;
             json!({"rows": cluster::psql(&b, &rt, a.db.as_deref().unwrap_or("postgres"), &sql)?})
         }
-        "stop" => json!({"stop": cluster::stop(&r, &b, a.immediate, a.force)?}),
+        "stop" => json!({"stop": cluster::stop_with(&r, &b, a.immediate, a.force, stop_timeout(&a))?}),
         "destroy" => {
             if let ClusterState::Running { .. } = cluster::state(&r, &b)? {
                 return Err(CustodianError::new("destroy.running", "stop first"));

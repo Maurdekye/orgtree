@@ -6,9 +6,9 @@
 //! <root>/orgtree-p03-prototype-root.json   marker (guard.rs)
 //! <root>/pg/cluster/                       the CURRENT cluster, committed by one rename
 //!     instance.json                        identity: root id, system_identifier, token, engine
-//!     runtime.json                         present only while the custodian believes it runs
+//!     pg-attach.json                       attach descriptor, owner-only, present only while it runs
 //!     data/                                PGDATA
-//!     secrets/pgpass.conf                  the admin password, for libpq only
+//!     secrets/                             owner-only from birth: pgpass.conf, credentials.json
 //!     log/postgres.log, log/pg_ctl.log, log/initdb.log
 //! <root>/pg/staging-<hex>/                 QUARANTINE: an initialization in progress or abandoned
 //! ```
@@ -44,6 +44,7 @@ pub const APP_DB: &str = "orgtree";
 pub const INSTANCE_SCHEMA: &str = "orgtree.p03.pg-instance/v1";
 pub const RUNTIME_SCHEMA: &str = "orgtree.p03.pg-runtime/v1";
 pub const LOOPBACK: &str = "127.0.0.1";
+pub const ATTACH_FILE: &str = "pg-attach.json";
 
 // ---------------------------------------------------------------- binaries
 
@@ -131,6 +132,10 @@ pub struct RuntimeRecord {
     pub pgpass_file: String,
     pub started_at_unix: u64,
     pub boot_id: String,
+    /// The postmaster's creation time (FILETIME ticks): with the pid, it
+    /// names exactly one process, so a reused pid cannot pass for ours.
+    #[serde(default)]
+    pub postmaster_created: Option<u64>,
 }
 
 impl RuntimeRecord {
@@ -157,7 +162,9 @@ pub struct Layout {
     pub secrets: PathBuf,
     pub log: PathBuf,
     pub instance: PathBuf,
+    /// Legacy name of the descriptor (custodians before the ACL change).
     pub runtime: PathBuf,
+    pub attach: PathBuf,
     pub pgpass: PathBuf,
 }
 
@@ -169,6 +176,7 @@ impl Layout {
             log: cluster.join("log"),
             instance: cluster.join("instance.json"),
             runtime: cluster.join("runtime.json"),
+            attach: cluster.join(ATTACH_FILE),
             pgpass: cluster.join("secrets").join("pgpass.conf"),
             cluster,
             pg,
@@ -242,7 +250,8 @@ pub enum ClusterState {
     Incomplete { reason: String },
     Stopped { instance: InstanceRecord },
     /// `postmaster.pid` names a live process whose image is our postgres.exe.
-    Running { instance: InstanceRecord, postmaster_pid: u32, runtime: Option<RuntimeRecord> },
+    /// `pm_status` is line 8 of postmaster.pid: starting, ready or STOPPING.
+    Running { instance: InstanceRecord, postmaster_pid: u32, pm_status: Option<String>, runtime: Option<RuntimeRecord> },
     /// `postmaster.pid` exists but its PID is dead or is not our postgres.exe.
     StalePid { instance: InstanceRecord, pid: u32 },
 }
@@ -278,6 +287,12 @@ pub fn load_instance(layout: &Layout, root: &PrototypeRoot) -> Result<InstanceRe
 }
 
 /// Line 1 of postmaster.pid (the postmaster PID) and line 4 (its port).
+/// Line 8 of postmaster.pid: the postmaster's own status word.
+pub fn pm_status(data: &Path) -> Option<String> {
+    let text = fs::read_to_string(data.join("postmaster.pid")).ok()?;
+    text.lines().nth(7).map(|l| l.trim().to_string()).filter(|l| !l.is_empty())
+}
+
 pub fn read_pid_file(data: &Path) -> Option<(u32, Option<u16>)> {
     let text = fs::read_to_string(data.join("postmaster.pid")).ok()?;
     let mut lines = text.lines();
@@ -305,10 +320,11 @@ pub fn state(root: &PrototypeRoot, bin: &PgBin) -> Result<ClusterState> {
                 .map(|p| win::same_file(&p, &bin.exe("postgres")))
                 .unwrap_or(false);
             if ours {
-                let runtime = fs::read_to_string(&layout.runtime)
+                let runtime = fs::read_to_string(&layout.attach)
+                    .or_else(|_| fs::read_to_string(&layout.runtime))
                     .ok()
                     .and_then(|t| serde_json::from_str::<RuntimeRecord>(&t).ok());
-                Ok(ClusterState::Running { instance, postmaster_pid: pid, runtime })
+                Ok(ClusterState::Running { instance, postmaster_pid: pid, pm_status: pm_status(&layout.data), runtime })
             } else {
                 Ok(ClusterState::StalePid { instance, pid })
             }
@@ -409,14 +425,18 @@ pub fn init(root: &PrototypeRoot, bin: &PgBin, opts: &InitOptions) -> Result<Ins
     fs::create_dir_all(&layout.pg).map_err(|e| CustodianError::io("init.mkdir", &layout.pg, e))?;
     let staging = layout.pg.join(format!("staging-{}", win::random_hex(8)?));
     let st = Layout::under(staging.clone(), layout.pg.clone());
-    for d in [&st.cluster, &st.secrets, &st.log] {
+    for d in [&st.cluster, &st.log] {
         fs::create_dir_all(d).map_err(|e| CustodianError::io("init.mkdir", d, e))?;
     }
+    // Owner-only FROM BIRTH (operator + SYSTEM + Administrators, inheritance
+    // off); everything created inside inherits it.
+    crate::acl::create_owner_only_dir(&st.secrets)?;
+    crate::acl::require_owner_only(&st.secrets)?;
 
     let password = win::random_hex(32)?;
     let token = win::random_hex(16)?;
     let pwfile = st.secrets.join("initdb.pw");
-    fs::write(&pwfile, format!("{password}\n")).map_err(|e| CustodianError::io("init.secret", &pwfile, e))?;
+    crate::acl::write_owner_only_file(&pwfile, format!("{password}\n").as_bytes())?;
 
     let mut cmd = child(&bin.exe("initdb"));
     cmd.arg("-D")
@@ -464,8 +484,9 @@ pub fn init(root: &PrototypeRoot, bin: &PgBin, opts: &InitOptions) -> Result<Ins
     single_user(bin, &st.data, &script, &st.log.join("bootstrap.log"))?;
 
     let pgpass: String = creds.iter().map(|(role, pw)| format!("{LOOPBACK}:*:*:{role}:{pw}\n")).collect();
-    fs::write(&st.pgpass, pgpass).map_err(|e| CustodianError::io("init.secret", &st.pgpass, e))?;
-    crate::write_json_atomic(&st.secrets.join("credentials.json"), &creds)?;
+    crate::acl::write_owner_only_file(&st.pgpass, pgpass.as_bytes())?;
+    let creds_json = serde_json::to_string_pretty(&creds).map_err(|e| CustodianError::new("json.encode", e.to_string()))?;
+    crate::acl::write_owner_only_file(&st.secrets.join("credentials.json"), creds_json.as_bytes())?;
 
     let record = InstanceRecord {
         schema: INSTANCE_SCHEMA.into(),
@@ -646,7 +667,7 @@ pub fn start(root: &PrototypeRoot, bin: &PgBin, port: Option<u16>) -> Result<Run
         .arg(layout.log.join("postgres.log"))
         .arg("-w")
         .arg("-t")
-        .arg("60")
+        .arg(START_TIMEOUT_SECS.to_string())
         .arg("-o")
         .arg(format!("-p {port}"));
     run_logged(cmd, &layout.log.join("pg_ctl.log"), "start.pg_ctl")?;
@@ -665,6 +686,7 @@ pub fn start(root: &PrototypeRoot, bin: &PgBin, port: Option<u16>) -> Result<Run
         pgpass_file: layout.pgpass.to_string_lossy().to_string(),
         started_at_unix: crate::now_unix(),
         boot_id: win::random_hex(16)?,
+        postmaster_created: win::creation_time(pid),
     };
     if pid_port != Some(port) {
         return Err(CustodianError::new(
@@ -679,7 +701,9 @@ pub fn start(root: &PrototypeRoot, bin: &PgBin, port: Option<u16>) -> Result<Run
             format!("server we started does not identify as ours: {:?}", ident.mismatches),
         ));
     }
-    crate::write_json_atomic(&layout.runtime, &runtime)?;
+    let text = serde_json::to_string_pretty(&runtime).map_err(|e| CustodianError::new("json.encode", e.to_string()))?;
+    crate::acl::replace_owner_only(&layout.attach, text.as_bytes())?;
+    let _ = fs::remove_file(&layout.runtime);
     Ok(runtime)
 }
 
@@ -941,14 +965,34 @@ pub fn role_failures(rows: &[Vec<String>]) -> Vec<String> {
 pub fn identify(root: &PrototypeRoot, bin: &PgBin) -> Result<(RuntimeRecord, Identification)> {
     let layout = Layout::of(root);
     match state(root, bin)? {
-        ClusterState::Running { instance, runtime: Some(runtime), postmaster_pid } => {
+        ClusterState::Running { instance, runtime: Some(runtime), postmaster_pid, .. } => {
             if runtime.postmaster_pid != postmaster_pid {
                 return Err(CustodianError::new(
                     "identify.stale_runtime",
                     format!("runtime.json names pid {} but postmaster.pid names {postmaster_pid}", runtime.postmaster_pid),
                 ));
             }
-            let id = identify_at(&layout, &instance, &runtime, bin)?;
+            // The pid in the descriptor names exactly one process only
+            // together with its creation time.
+            if let Some(want) = runtime.postmaster_created {
+                if win::creation_time(postmaster_pid) != Some(want) {
+                    return Err(CustodianError::new(
+                        "identify.postmaster_replaced",
+                        format!("pid {postmaster_pid} is not the postmaster the descriptor recorded (creation time differs)"),
+                    ));
+                }
+            }
+            let mut id = identify_at(&layout, &instance, &runtime, bin)?;
+            // Secrets and the descriptor must be owner-only (fails readiness,
+            // so a cluster made by an older custodian still identifies).
+            for (what, path) in [("secrets folder", &layout.secrets), ("attach descriptor", &layout.attach)] {
+                if let Err(e) = crate::acl::require_owner_only(path) {
+                    id.readiness_failures.push(format!("{what} is not owner-only: {}", e.message));
+                }
+            }
+            if runtime.postmaster_created.is_none() {
+                id.readiness_failures.push("attach descriptor lacks the postmaster creation time (made by an older custodian)".into());
+            }
             Ok((runtime, id))
         }
         ClusterState::Running { .. } => Err(CustodianError::new(
@@ -957,6 +1001,29 @@ pub fn identify(root: &PrototypeRoot, bin: &PgBin) -> Result<(RuntimeRecord, Ide
         )),
         other => Err(CustodianError::new("cluster.not_running", format!("{other:?}"))),
     }
+}
+
+/// Attach from a second window or a second host: the ONLY way to reuse a
+/// running instance. It trusts nothing it can merely observe (a port that
+/// answers, a pid that is alive): the descriptor must be owner-only, the pid
+/// with its creation time must be the postmaster of THIS root's data folder,
+/// and the server must prove over SCRAM that it has this instance's
+/// system_identifier, token and data directory. Readiness must hold too.
+/// WS1 unsafe control (a) is the variant that trusts port and pid alone.
+pub fn attach(root: &PrototypeRoot, bin: &PgBin) -> Result<(RuntimeRecord, Identification)> {
+    let layout = Layout::of(root);
+    if !layout.attach.is_file() {
+        return Err(CustodianError::new("attach.no_descriptor", format!("{} is missing: nothing to attach to", layout.attach.display())));
+    }
+    crate::acl::require_owner_only(&layout.attach)?;
+    let (rt, id) = identify(root, bin)?;
+    if !id.identity_ok() {
+        return Err(CustodianError::new("identity.mismatch", format!("{:?}", id.mismatches)));
+    }
+    if !id.ready() {
+        return Err(CustodianError::new("attach.not_ready", format!("{:?}", id.readiness_failures)));
+    }
+    Ok((rt, id))
 }
 
 // ---------------------------------------------------------------- stop
@@ -996,7 +1063,19 @@ fn family(postmaster: u32) -> Result<Vec<(win::ProcessInfo, Option<ProcessHandle
         .collect())
 }
 
+/// Default patience for a stop. A fast shutdown ends with a checkpoint that
+/// fsyncs every file touched since the last one; under disk contention that
+/// measured 173 s on WS2's dev cluster (2026-09-25), so a short limit reports
+/// a healthy shutdown as a failure.
+pub const STOP_TIMEOUT_SECS: u64 = 600;
+/// Patience for `pg_ctl start -w` (crash recovery can be slow too).
+pub const START_TIMEOUT_SECS: u64 = 300;
+
 pub fn stop(root: &PrototypeRoot, bin: &PgBin, immediate: bool, force: bool) -> Result<StopReport> {
+    stop_with(root, bin, immediate, force, Duration::from_secs(STOP_TIMEOUT_SECS))
+}
+
+pub fn stop_with(root: &PrototypeRoot, bin: &PgBin, immediate: bool, force: bool, timeout: Duration) -> Result<StopReport> {
     let layout = Layout::of(root);
     let t0 = Instant::now();
     let mode = if immediate { "immediate" } else { "fast" };
@@ -1004,6 +1083,7 @@ pub fn stop(root: &PrototypeRoot, bin: &PgBin, immediate: bool, force: bool) -> 
         ClusterState::Running { postmaster_pid, instance, .. } => (postmaster_pid, instance),
         ClusterState::Stopped { .. } | ClusterState::Absent { .. } => {
             let _ = fs::remove_file(&layout.runtime);
+            let _ = fs::remove_file(&layout.attach);
             return Ok(StopReport {
                 was_running: false,
                 postmaster_pid: None,
@@ -1036,10 +1116,12 @@ pub fn stop(root: &PrototypeRoot, bin: &PgBin, immediate: bool, force: bool) -> 
     }
 
     let mut cmd = child(&bin.exe("pg_ctl"));
-    cmd.arg("stop").arg("-D").arg(&layout.data).arg("-m").arg(mode).arg("-w").arg("-t").arg("60");
+    cmd.arg("stop").arg("-D").arg(&layout.data).arg("-m").arg(mode).arg("-w").arg("-t").arg(timeout.as_secs().max(1).to_string());
     let stop_result = run_logged(cmd, &layout.log.join("pg_ctl.log"), "stop.pg_ctl");
 
-    let deadline = Instant::now() + Duration::from_secs(20);
+    // pg_ctl may give up while the shutdown is still healthy; the family
+    // handles are the authority, waited on until the same deadline.
+    let deadline = t0 + timeout + Duration::from_secs(5);
     let mut members = Vec::new();
     for (p, h) in &fam {
         let left = deadline.saturating_duration_since(Instant::now()).as_millis() as u32;
@@ -1089,6 +1171,7 @@ pub fn stop(root: &PrototypeRoot, bin: &PgBin, immediate: bool, force: bool) -> 
         }
     }
     let _ = fs::remove_file(&layout.runtime);
+    let _ = fs::remove_file(&layout.attach);
     Ok(report)
 }
 
