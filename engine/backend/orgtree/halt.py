@@ -164,6 +164,18 @@ def _on_abort(fn: Callable[[], None]) -> None:
         ctx.abort.append(fn)
 
 
+def _no_org(slug: str) -> bool:
+    """No such org: the gates then run their body exactly as the lock-free
+    `blocked()` pre-gate used to let them (it answered None for a missing
+    org), instead of an org_tx raising "no such org" out of every delivery
+    of a deleted or never-created org."""
+    try:
+        store.cached_org(slug)
+        return False
+    except LedgerError:
+        return True
+
+
 def _gate_blocked(org, nid: str) -> str | None:
     """`blocked` asked of a transaction's own rows — the node row it holds
     FOR UPDATE and the killswitch it holds FOR SHARE. This, not the lock-free
@@ -476,6 +488,8 @@ def delivery(empty):
     def decorate(fn):
         @wraps(fn)
         def guarded(slug, nid, *args, **kwargs):
+            if _no_org(slug):
+                return fn(slug, nid, *args, **kwargs)
             with txn(slug, nodes=[nid], share_sections=[KILLSWITCH]) as tx:
                 if _gate_blocked(tx.org, nid):
                     return empty()
@@ -494,6 +508,8 @@ def admission(fn):
                             "sender", "ping_reason", "segments", "_inventory"),
                            args))
         options.update(kwargs)
+        if _no_org(slug):
+            return fn(slug, nid, text, *args, **kwargs)
         with txn(slug, nodes=[nid], share_sections=[KILLSWITCH]) as tx:
             org = tx.org
             n = org.nodes.get(nid)
