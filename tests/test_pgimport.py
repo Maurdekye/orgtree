@@ -21,9 +21,17 @@ import unittest
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
-from orgtree import pgimport, store
+import importlib.util
+
+from orgtree import store
+
+_SPEC = importlib.util.spec_from_file_location(
+    "pgimport", Path(__file__).resolve().parents[1] / "tools" / "pypg" / "pgimport.py")
+pgimport = importlib.util.module_from_spec(_SPEC)
+sys.modules["pgimport"] = pgimport
+_SPEC.loader.exec_module(pgimport)
 from orgtree.ledger import Org
-from orgtree.pgimport import ImportRefused
+ImportRefused = pgimport.ImportRefused
 
 
 class FakeSink:
@@ -321,7 +329,7 @@ class Importing(Base):
             sys.path[:0] = {[p for p in sys.path if p]!r}
             from pathlib import Path
             import test_pgimport as t
-            from orgtree import pgimport
+            pgimport = t.pgimport
             pgimport.import_root(Path({str(self.root)!r}), t.FakeSink(Path({str(self.sink_path)!r}), pause=Path({str(pause)!r})), only=["acme"])
         ''')
         proc = subprocess.Popen([sys.executable, "-c", child], cwd=str(Path(__file__).parent),
