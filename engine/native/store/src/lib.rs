@@ -11,6 +11,8 @@
 //!   (feature `qualification` only).
 //! * [`claims`]: the r7 C5 output-claim registry.
 //! * [`sent`]: the Sent interface stub WS5 fills in.
+//! * [`resolve`]: name, slug and address resolution, inside the command's
+//!   own transaction only (never a service verb).
 //!
 //! What is NOT here yet: the tokio-postgres session, receipt lookup against a
 //! real database, the store-service binary. Passing these tests proves the
@@ -25,6 +27,7 @@ pub mod pg;
 pub mod pool;
 pub mod read;
 pub mod receipts;
+pub mod resolve;
 pub mod restrict;
 pub mod retry;
 pub mod sent;
