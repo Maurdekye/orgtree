@@ -212,8 +212,23 @@ def watchdog_fire_rows(owner: str) -> pgdoor.TxSpec:
                  _spec(logs=("watchdog_history",)))
 
 
+def watchdog_action_rows(org: Any, actor: str, wid: str) -> pgdoor.TxSpec:
+    """pause/resume/remove by `actor`: the dog rows, plus the owner's chain
+    up to the actor FOR SHARE — the downward-authority check reads it."""
+    w = next((d for d in org.d.get("watchdogs") or [] if d.get("id") == wid),
+             None)
+    owner = str(w.get("owner") or "") if w else ""
+    if not owner or owner == actor:
+        return watchdog_rows()
+    return union(watchdog_rows(), _spec(share_nodes=chain(org, owner, actor)))
+
+
 def watchdog_spec(snapshot: Any, body: Any, a: dict[str, Any]
                   ) -> pgdoor.TxSpec:
+    act = str(a.get("action") or "")
+    if act in ("pause", "resume", "remove"):
+        return watchdog_action_rows(snapshot, body.node,
+                                    str(a.get("id") or ""))
     return watchdog_rows()
 
 
@@ -364,12 +379,107 @@ def _reservation_body(tx: Any) -> Any:
     return result
 
 
+def _watchdog_body(tx: Any) -> Any:
+    """The orgtree_watchdog branch of api.agent_call on the door (plan
+    decision 22). Its host checks (sandbox, the file containment, finding a
+    bash) only read, so they may re-run with the body; the smoke run spawns
+    a real child and waits seconds for it, so it runs in `after.then`, once,
+    after the commit — the same place the cycle ran it (after the save)."""
+    import os
+
+    from . import sandbox, supervisor
+    from .ledger import LedgerError
+    org, node, a = tx.org, tx.node, tx.args
+    act = str(a.get("action") or "")
+    if act == "list":
+        # the owner's dogs and its subtree's: read-only, unlocked rows
+        return {"watchdogs": [
+            supervisor.wd_list_row(w)
+            for w in org.d.get("watchdogs") or []
+            if w["owner"] == node or org.is_ancestor(node, str(w["owner"]))]}
+    if act != "create":
+        require(tx.spec, watchdog_action_rows(org, node,
+                                              str(a.get("id") or "")))
+        return org.watchdog_action(node, str(a.get("id") or ""), act,
+                                   str(a.get("reason") or ""))
+    require(tx.spec, watchdog_rows())
+    kind = str(a.get("kind") or "")
+    tgt = str(a.get("target") or "").strip()
+    if kind == "file":
+        # capability containment — see api.agent_call's copy of this branch
+        # for the reasoning; the rule itself is `wd_file_contained`
+        if sandbox.is_sandboxed(org):
+            raise LedgerError(
+                "sandboxed agents watch files with a STREAM "
+                "watchdog instead (e.g. target: tail -n0 -f "
+                "<path>) — it runs inside your container "
+                "with your own hands")
+        wroot = os.path.realpath(supervisor.scratch_dir(tx.call.org, node))
+        full = os.path.realpath(tgt if os.path.isabs(tgt)
+                                else os.path.join(wroot, tgt))
+        if not supervisor.wd_file_contained(org, node, full):
+            raise LedgerError(
+                f"cannot watch {tgt} — only files in your "
+                f"working folder, the workspace, or a "
+                f"folder you hold are watchable "
+                f"(orgtree_request_scope can ask for more)")
+        tgt = full
+    shell = str(a.get("shell") or "native").strip().lower()
+    if shell == "bash" and kind in ("command", "stream"):
+        # ☠ REFUSE, NEVER FALL BACK — see api.agent_call's copy
+        if sandbox.is_sandboxed(org):
+            raise LedgerError(
+                "shell='bash' is for host orgs — your dogs "
+                "already run in a POSIX shell (`sh -lc`) "
+                "inside your container, so the full idiom "
+                "works without it. Omit `shell`.")
+        if supervisor.wd_bash_exe() is None:
+            raise LedgerError(
+                "shell='bash' was asked for but no bash can "
+                "be found on this machine (looked on PATH, "
+                "in the Git for Windows install locations, "
+                "and in the registry; a WSL "
+                "System32\\bash.exe is deliberately NOT "
+                "used — it would run your command in a "
+                "different filesystem entirely). REFUSING "
+                "rather than quietly running your target in "
+                "cmd.exe, where a bash idiom matches nothing "
+                "and the dog looks healthy forever. Install "
+                "Git for Windows, or write a cmd target "
+                "(findstr, dir /b, %VAR%) and omit `shell`.")
+    result = org.watchdog_create(
+        node, a.get("name"), kind, tgt, a.get("pattern"),
+        a.get("interval_s") or 60, a.get("notice"), a.get("shell"),
+        a.get("once"))
+    smoke_org = org
+
+    def _smoke(res: Any, _k: str = kind, _t: str = tgt) -> None:
+        # FAIL LOUDLY AT CREATE TIME — api.agent_call's smoke epilogue, moved
+        # here unchanged: outside every lock, once, after the commit
+        if not isinstance(res, dict):
+            return
+        try:
+            smoke = supervisor.wd_smoke(smoke_org, node, _k, _t,
+                                        a.get("pattern"),
+                                        shell_pref=a.get("shell"))
+            res["smoke"] = smoke
+            if smoke.get("broken"):
+                res["status"] = (
+                    "⚠ ARMED BUT ITS TARGET DOES NOT WORK — see `smoke`. "
+                    "This dog will sit `armed, fired: 0` forever, which "
+                    "looks exactly like the condition never happening. Fix "
+                    "the target and re-create it. "
+                    + str(res.get("status") or ""))
+        except Exception as e:                                   # noqa: BLE001
+            res["smoke"] = {"error": f"smoke run failed: {e}"}
+    tx.after.then.append(_smoke)
+    return result
+
+
 def declare_all() -> None:
-    """Register PG-3c's agent tools on the door. `orgtree_watchdog` keeps the
-    DOC_LOCK cycle for now (its branch spawns a smoke run and checks the
-    host's bash; and the supervisor's `_wd_*` writers are sequenced with
-    PG-3e-A, plan decision 14) — its rows are declared here for when it
-    moves, but with no body it is not routed."""
+    """Register PG-3c's agent tools on the door. `orgtree_watchdog` is here
+    with the supervisor's `_wd_*` writers (`supervisor._wd_write`), which
+    take the same rows (plan decision 22)."""
     for name, spec, body in (
             ("orgtree_reallocate", reallocate_spec, _reallocate_body),
             ("orgtree_request_credits", request_spec, _request_body),
@@ -377,9 +487,7 @@ def declare_all() -> None:
             ("orgtree_reservation", reservation_spec, _reservation_body),
             ("orgtree_resource_reservation", reservation_spec,
              _reservation_body),
-            # rows only, no body: stays on the cycle, but its kiosk
-            # exemption must reach pgdoor's one list
-            ("orgtree_watchdog", watchdog_spec, None)):
+            ("orgtree_watchdog", watchdog_spec, _watchdog_body)):
         pgdoor.declare(name, spec, body=body,
                        kiosk_exempt=name in KIOSK_EXEMPT)
 
