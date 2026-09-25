@@ -73,7 +73,8 @@ fn run_one() -> (Vec<Record>, Arc<Collector>) {
     let c = Arc::new(Collector::new("exec-1", 1024, "run-1", known));
     let db = FakeDb::new();
     let cfg = ExecConfig { max_attempts: 3, backoff_base: Duration::ZERO, backoff_cap: Duration::ZERO };
-    let ex = Executor::new(FakeConnector { db }, 1, cfg, Hooks::with_trace(c.clone()));
+    let ex = Executor::new(FakeConnector { db: db.clone() }, 1, FakeConnector { db }, 1, cfg,
+                           Hooks::with_trace(c.clone()));
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     rt.block_on(async { ex.run(&Edit, &binding()).await.unwrap() });
     let mut records = c.drain();
@@ -86,9 +87,14 @@ fn one_operation_becomes_a_complete_trace() {
     let (records, _) = run_one();
     let kinds: Vec<&str> = records.iter().map(|r| r.kind.as_str()).collect();
     assert_eq!(kinds.first(), Some(&"op_begin"), "{kinds:?}");
-    for k in ["tx_begin", "stmt", "tx_end", "op_end"] {
+    for k in ["tx_begin", "stmt", "xact_stats", "tx_end", "op_end"] {
         assert!(kinds.contains(&k), "{k} missing: {kinds:?}");
     }
+    // the server-side relation rows arrive as a list, before the commit
+    let xs = records.iter().position(|r| r.kind == "xact_stats").unwrap();
+    let commit = records.iter().position(|r| r.kind == "tx_end").unwrap();
+    assert!(xs < commit);
+    assert!(matches!(field(&records[xs], "tables"), Some(Value::List(_))));
     assert_eq!(kinds.last(), Some(&"stream_end"));
     let seqs: Vec<u64> = records.iter().map(|r| r.seq).collect();
     assert_eq!(seqs, (1..=records.len() as u64).collect::<Vec<_>>(), "contiguous sequence");
@@ -168,7 +174,9 @@ fn stub_statements_keep_their_stub_flag() {
     let known: BTreeSet<String> = ["items", "operation_receipts"].iter().map(|s| s.to_string()).collect();
     let c = Arc::new(Collector::new("exec-2", 1024, "run-2", known));
     let cfg = ExecConfig { max_attempts: 3, backoff_base: Duration::ZERO, backoff_cap: Duration::ZERO };
-    let ex = Executor::new(FakeConnector { db: FakeDb::new() }, 1, cfg, Hooks::with_trace(c.clone()));
+    let db = FakeDb::new();
+    let ex = Executor::new(FakeConnector { db: db.clone() }, 1, FakeConnector { db }, 1, cfg,
+                           Hooks::with_trace(c.clone()));
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     rt.block_on(async { ex.run(&StubbedEdit, &binding()).await.unwrap() });
     let records = c.drain();
