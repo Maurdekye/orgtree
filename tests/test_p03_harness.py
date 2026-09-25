@@ -242,6 +242,12 @@ class ForcedInterleaving(unittest.TestCase):
         one = run(1)
         self.assertEqual(one.verdict, FAILED)
         self.assertEqual(one.reasons, ["A began 2 attempt(s) [1, 2], intended 1"])
+        # the executor's own transactions (infrastructure) are not attempts of A
+        records = [{"kind": "op_begin", "operation_id": "o", "op_tag": "A"},
+                   {"kind": "tx_begin", "operation_id": "o", "attempt": 1},
+                   {"kind": "tx_begin", "operation_id": "o", "attempt": 2,
+                    "infrastructure": True}]
+        self.assertEqual(compare([("attempts", "A", 1)], [], records), [])
 
     def test_an_unqualified_fault_hits_every_attempt(self):
         """``attempt: None`` is the protocol's every-attempt hold: the retries fail too."""
