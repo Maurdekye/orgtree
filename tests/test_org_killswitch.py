@@ -156,6 +156,9 @@ class OrgKillswitchTests(unittest.TestCase):
         self.assertTrue(out["released"])
         self.assertIn("boss", out["merged"])
         self.assertIsNone(self.org().d.get("killswitch"))
+        # the row is cleared, never deleted: a latch always locks a real row
+        # (plan decision 26)
+        self.assertIn("killswitch", self.org().d)
         self.assertEqual(len(self.events("killswitch_release")), 1)
         # the individual halt is exactly as it stood
         self.assertEqual(self.org().node(self.nid)["halt"]["phase"], "halted")
