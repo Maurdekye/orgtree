@@ -70,35 +70,85 @@ def _within(a: str, b: str) -> bool:
     return a == b or a.startswith(b.rstrip("\\") + "\\")
 
 
+#: THE live-location list, shared with the Rust guard (WS1's
+#: ``orgtree-prototype-guard``, which compiles the same file in): lead ruling
+#: 2026-09-25 09:02Z. Read only when the hook is asked to activate.
+LIVE_LOCATIONS_FILE = Path(__file__).resolve().parents[2] / "native" / "prototype-guard" / "live-locations.json"
+LIVE_LOCATIONS_SCHEMA = "orgtree.p03.live-locations/v1"
+_FORBIDDEN = set('<>:"|?*')
+REPARSE_POINT = 0x400
+SCAN_LIMIT = 200_000
+
+
+def _live_spec() -> list[dict[str, Any]]:
+    spec = json.loads(LIVE_LOCATIONS_FILE.read_text(encoding="utf-8"))
+    if spec.get("schema") != LIVE_LOCATIONS_SCHEMA or not isinstance(spec.get("locations"), list):
+        raise LiveRootRefused(f"P03 hook refused: {LIVE_LOCATIONS_FILE} is not {LIVE_LOCATIONS_SCHEMA}")
+    return spec["locations"]
+
+
 def live_locations(env: Mapping[str, str]) -> list[tuple[str, str]]:
-    """Every live Orgtree location derivable from ``env``."""
+    """Every UNCONDITIONAL live location derivable from ``env`` (the entries of
+    ``live-locations.json`` with ``unconditional: true``; ORGTREE_DATA, the
+    one conditional entry, is handled by :func:`active_root`'s equality and
+    marker rules). A missing or malformed list fails closed."""
+    try:
+        spec = _live_spec()
+    except (OSError, ValueError) as exc:
+        raise LiveRootRefused(f"P03 hook refused: cannot read the live-location list: {exc}") from exc
     out: list[tuple[str, str]] = []
-
-    def var(k: str) -> Optional[str]:
-        v = (env.get(k) or "").strip()
-        return v or None
-
-    if var("APPDATA"):
-        out.append(("%APPDATA%\\Orgtree v2", os.path.join(var("APPDATA"), "Orgtree v2")))
-    home = var("USERPROFILE") or var("HOME")
-    if home:
-        out.append(("%USERPROFILE%\\AppData\\Roaming\\Orgtree v2", os.path.join(home, "AppData", "Roaming", "Orgtree v2")))
-        out.append(("~/orgtree", os.path.join(home, "orgtree")))
-    if var("ProgramFiles"):
-        out.append(("%ProgramFiles%\\Orgtree", os.path.join(var("ProgramFiles"), "Orgtree")))
-    if var("LOCALAPPDATA"):
-        out.append(("%LOCALAPPDATA%\\Programs\\Orgtree", os.path.join(var("LOCALAPPDATA"), "Programs", "Orgtree")))
+    for loc in spec:
+        if not loc.get("unconditional"):
+            continue
+        base = next((env.get(k, "").strip() for k in loc["base_env"] if (env.get(k) or "").strip()), "")
+        if base:
+            out.append((str(loc["label"]), os.path.join(base, *loc["parts"])))
     return out
+
+
+def _refuse_bad_name(path: Any) -> None:
+    s = str(path).replace("/", "\\")
+    if s.startswith("\\\\?\\"):
+        s = s[4:]
+    for i, comp in enumerate(s.split("\\")):
+        bad = [c for c in comp if (c in _FORBIDDEN and not (i == 0 and c == ":" and comp.endswith(":"))) or ord(c) < 32]
+        if bad:
+            raise LiveRootRefused(f"P03 hook refused: path component {comp!r} contains characters Windows forbids")
+
+
+def refuse_reparse_points(root: Path) -> None:
+    """Refuse ANY junction or symlink at or under ``root`` (WS1 guard rule)."""
+    seen = 0
+    stack = [Path(root)]
+    while stack:
+        p = stack.pop()
+        try:
+            st = os.stat(p, follow_symlinks=False)
+        except OSError:
+            continue
+        if getattr(st, "st_file_attributes", 0) & REPARSE_POINT or os.path.islink(p):
+            raise LiveRootRefused(f"P03 hook refused: reparse point (junction or symlink) at {p}")
+        seen += 1
+        if seen > SCAN_LIMIT:
+            raise LiveRootRefused(f"P03 hook refused: more than {SCAN_LIMIT} entries under {root}")
+        if p.is_dir():
+            try:
+                stack.extend(Path(e.path) for e in os.scandir(p))
+            except OSError:
+                pass
 
 
 def refuse_live(path: Any, env: Mapping[str, str]) -> None:
     """Raise :class:`LiveRootRefused` if ``path`` is, is inside, or contains a
-    live location."""
-    candidate = _norm(path)
+    live location — typed and canonical forms, on both sides."""
+    _refuse_bad_name(path)
+    forms = {_norm(path), os.path.abspath(str(path)).replace("/", "\\").lower().rstrip("\\")}
     for label, live in live_locations(env):
-        live_n = _norm(live)
-        if _within(candidate, live_n) or _within(live_n, candidate):
-            raise LiveRootRefused(f"P03 hook refused: {candidate} overlaps the live location {label}")
+        live_forms = {_norm(live), os.path.abspath(live).replace("/", "\\").lower().rstrip("\\")}
+        for c in forms:
+            for l in live_forms:
+                if _within(c, l) or _within(l, c):
+                    raise LiveRootRefused(f"P03 hook refused: {c} overlaps the live location {label}")
 
 
 def _marker_ok(root: Path) -> bool:
@@ -133,6 +183,7 @@ def active_root(data_root: Any = None, env: Optional[Mapping[str, str]] = None) 
     root = Path(proto)
     if not _marker_ok(root):
         return None
+    refuse_reparse_points(root)
     return root
 
 
