@@ -164,6 +164,32 @@ class Move(unittest.TestCase):
         self.assertEqual(store.load_org(self.slug).node("x1")["parent"], "x")
         store._POOL.close_all(twin)
 
+    def test_a_deep_move_matches_the_legacy_method_on_every_hop(self):
+        # the acquire leg runs from the LCA (root) down through b to b1: b's
+        # grant swells on the way, so b must be held FOR UPDATE even though
+        # it is neither the moved node nor its new parent
+        for slug in (self.slug,):
+            with store.DOC_LOCK:
+                o = store.load_org(slug)
+                o.hire(ledger.USER, "b", "luna", 0, "b1")
+                store.save_org(o)
+        twin = "pg3a-mv-deep-" + str(time.time_ns())
+        self.build(twin)
+        with store.DOC_LOCK:
+            o = store.load_org(twin)
+            o.hire(ledger.USER, "b", "luna", 0, "b1")
+            store.save_org(o)
+        g_before = store.load_org(self.slug).node("b")["grant"]
+        with store.DOC_LOCK:
+            o = store.load_org(twin)
+            legacy = o.move(ledger.USER, "x", "b1")
+            store.save_org(o)
+        mine = lifecycle_tx.move(self.slug, ledger.USER, "x", "b1")
+        self.assertEqual(mine, legacy)
+        self.assertEqual(self.snapshot(self.slug), self.snapshot(twin))
+        self.assertGreater(store.load_org(self.slug).node("b")["grant"], g_before)
+        store._POOL.close_all(twin)
+
     def test_a_refused_move_writes_nothing(self):
         before = self.snapshot(self.slug)
         with self.assertRaises(ledger.LedgerError):
