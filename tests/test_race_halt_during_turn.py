@@ -297,9 +297,19 @@ class RaceHaltDuringTurn(unittest.TestCase):
             ran.append(event)
         self.assertIsNone(on_event(self.slug, self.nid, {"text": "event"}))
         probes += 1
+        # PG-3e-A: the REAL turn-admission gate (supervisor's slot gate, the
+        # point of no return). Opened on its own row set and decided on the
+        # rows it locked, it refuses before any mail is drained. The halt is
+        # waiting for the running body here, holding no row lock, so this
+        # transaction is granted rather than blocked.
+        with self.assertRaises(halt.Cancelled):
+            with halt.txn(self.slug,
+                          **sup._admission_rows(self.slug, self.nid)) as tx:
+                sup._admission_gates(self.slug, tx.org, self.nid)
+        probes += 1
         self.assertEqual(ran, [])
         self.assertEqual(self.bodies, 1)
-        self.assertEqual(probes, 3)
+        self.assertEqual(probes, 4)
         # still halting while the first body is inside
         self.assertEqual(self.durable_phase(), "halting")
         self.body_may_leave.set()
