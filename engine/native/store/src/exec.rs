@@ -530,6 +530,15 @@ impl<C: Connector> Executor<C> {
                         continue;
                     }
                 };
+                // Q-C5 unsafe control (WS7): one UNTRACED statement on a
+                // registered pooled executor connection, between traced
+                // operations; the log reconciler must flag this session.
+                {
+                    let s = Scope { hooks: &self.hooks, family: family.name, verb: cmd.verb(), op: Some(&binding.op), op_tag: binding.op_tag.as_deref(), attempt };
+                    if controls::fire(&s, "Q-C5.hidden_pooled_statement") {
+                        let _ = conn.exec("hidden", "SELECT 1", &[]).await;
+                    }
+                }
                 self.attempt(&mut *conn, cmd, &binding, attempt, prev_now).await
             };
             let scope = Scope { hooks: &self.hooks, family: family.name, verb: cmd.verb(), op: Some(&binding.op), op_tag: binding.op_tag.as_deref(), attempt };
@@ -693,7 +702,7 @@ impl<C: Connector> Executor<C> {
             let rows = db!(
                 tx.exec(
                     "trace.xact_stats",
-                    "SELECT relname::text, seq_scan, coalesce(idx_scan, 0), n_tup_ins, n_tup_upd, n_tup_del                      FROM pg_stat_xact_user_tables WHERE schemaname = current_schema()",
+                    "SELECT relname::text, seq_scan, coalesce(idx_scan, 0), n_tup_ins, n_tup_upd, n_tup_del FROM pg_stat_xact_user_tables WHERE schemaname = current_schema() AND seq_scan + coalesce(idx_scan, 0) + n_tup_ins + n_tup_upd + n_tup_del > 0",
                     &[],
                 )
                 .await,

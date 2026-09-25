@@ -93,6 +93,12 @@ impl Factory {
         s.emit(conn_opened(&self.cfg, self.purpose, backend_pid, backend_start), false);
     }
 
+    /// Trace a statement the factory itself ran on a new session.
+    pub(crate) fn traced_setup(&self, label: &str, sql: &str) {
+        let s = Scope { hooks: &self.hooks, family: "conn", verb: self.purpose, op: None, op_tag: None, attempt: 0 };
+        s.emit(EventKind::Statement { label, sql, micros: 0, rows: 1, sqlstate: None }, false);
+    }
+
     /// The registration path, callable without a database (credential test).
     #[doc(hidden)]
     pub fn register_for_test(&self, backend_pid: Option<i32>, backend_start: Option<i64>) {

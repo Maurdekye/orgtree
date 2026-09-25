@@ -23,6 +23,7 @@ pub const CONTROLS: &[&str] = &[
     "Q-C4.effects_before_commit",
     "Q-RL1.late_receipt_separate_fence",
     "Q-RL3.skip_inflight_check",
+    "Q-C5.hidden_pooled_statement",
 ];
 
 /// The handshake's DECLARED-CONTACTS table (CONTRACT-M1 §5 r4; WS7
