@@ -18,12 +18,23 @@ Expected, and checked:
   · the same-NAME variant: one seat, and the loser is refused by the cap
     rather than creating a duplicate or a suffixed second seat.
 
-Why it holds: hire declares its destination FOR UPDATE (staffdoor.hire_rows),
-so the second hire's children count waits for the first one's commit. A hire
-that only SHARE-locked the destination would let both count the same
-children and both commit (neither writes the parent row itself, so nothing
-would refuse it) — the mutation harness in the author's scratch shows this
-test failing on exactly that.
+Why it holds — THREE independent guards today, each sufficient alone
+(mutation run 2026-09-25, `rt3-mutants.py` in the author's scratch):
+  1. hire declares its destination FOR UPDATE (staffdoor.hire_rows);
+  2. the door locks the calling agent's own row, and every agent that may
+     hire under one parent is on that parent's single ancestor line, so two
+     agent hirers always meet on a caller row;
+  3. every hire rewrites the org-wide single-row sections `notices`,
+     `mail`, `audiences`, `lifecycle` FOR UPDATE (and the door's
+     UnlockedWrite widening re-adds them if a spec drops them), so ANY two
+     hires in one org serialise there (inferred from the code and the
+     survivors; the blocked row was not named by the probe).
+Removing 1, 2, or both leaves RT3 green (expected survivors). What RT3 is
+shown to catch: a cap check that lets the count reach cap+1, and the row
+locks switched off entirely (nothing orders the hires). When PG-3d splits
+`mail`/`notices` per owner, guard 3 goes away and "remove 1 and 2" must
+flip to caught; operator (user) hires have no caller row, so for them guard
+1 is the one that matters — extend RT3 to them when operator hire converts.
 
 Runs on the fake (SeamBackend). The PostgreSQL arm is racekit's
 `disposable_pg()` + ORGTREE_STORE=postgres, not armed here.
