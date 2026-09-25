@@ -412,9 +412,9 @@ def _set_status(slug: str, hub_id: str, connected: bool,
 def _participants() -> dict[str, dict[str, Any]]:
     """Snapshot which orgs talk to which hubs. Loads docs (cheap at this
     scale, and the storage watchdog already does the same each 20 s); mints
-    missing identities/backfills hub lists for pre-F-06 orgs under DOC_LOCK
+    missing identities/backfills hub lists for pre-F-06 orgs in org_tx
     (the chatq precedent: existing orgs join automatically)."""
-    from . import store
+    from . import orgtx, store
     out: dict[str, dict[str, Any]] = {}
     for o in store.list_orgs():
         slug = str(o["slug"])
@@ -428,15 +428,18 @@ def _participants() -> dict[str, dict[str, Any]]:
             continue
         if not org.d.get("net_identity") or "net_hubs" not in org.d:
             try:
-                with store.DOC_LOCK:
-                    org = store.load_org(slug)
+                # PG-3f: org_tx on the net rows (kiosk is the decision
+                # input); never DOC_LOCK. Same for every write below.
+                with orgtx.org_tx(slug, sections=["net_identity", "net_hubs",
+                                                  "net_autoconnect"],
+                                  share_sections=["kiosk"]) as tx:
+                    org = tx.org
                     mint_identity(org)
                     if "net_hubs" not in org.d:
                         org.d.setdefault("net_autoconnect", True)
                         org.d["net_hubs"] = hub_entries(
                             bool(org.d.get("net_autoconnect", True)), [],
                             _default_address())
-                    store.save_org(org)
             except Exception:                                    # noqa: BLE001
                 continue
         # BUNDLED-HUB ADDRESS SYNC (orgtree-mailhub integration, itemized):
@@ -453,12 +456,11 @@ def _participants() -> dict[str, dict[str, Any]]:
                 and str(h.get("address") or "").rstrip("/") != local_addr
                 for h in (org.d.get("net_hubs") or [])):
             try:
-                with store.DOC_LOCK:
-                    org = store.load_org(slug)
+                with orgtx.org_tx(slug, sections=["net_hubs"]) as tx:
+                    org = tx.org
                     for h in org.d.get("net_hubs") or []:
                         if str(h.get("id")) == LOCAL_HUB_ID:
                             h["address"] = local_addr
-                    store.save_org(org)
             except Exception:                                    # noqa: BLE001
                 continue
         ident = org.d.get("net_identity") or {}
@@ -486,12 +488,11 @@ def _participants() -> dict[str, dict[str, Any]]:
                  if k not in cur_addr or v.get("address") != cur_addr[k]]
         if stale:
             try:
-                with store.DOC_LOCK:
-                    org = store.load_org(slug)
+                with orgtx.org_tx(slug, sections=["net_state"]) as tx:
+                    org = tx.org
                     st2 = org.d.setdefault("net_state", {})
                     for k in stale:
                         st2.pop(k, None)
-                    store.save_org(org)
             except Exception:                                    # noqa: BLE001
                 pass
         # SELF-HEAL orphaned spool keys (redteam ②): anything queued under a
@@ -503,8 +504,8 @@ def _participants() -> dict[str, dict[str, Any]]:
         orphans = [k for k in spool if k not in hub_id_set and spool.get(k)]
         if orphans and hubs:
             try:
-                with store.DOC_LOCK:
-                    org = store.load_org(slug)
+                with orgtx.org_tx(slug, sections=["net_spool"]) as tx:
+                    org = tx.org
                     sp = cast("dict[str, list[Any]]",
                               org.d.setdefault("net_spool", {}))
                     tgt = str(hubs[0]["id"])
@@ -512,7 +513,6 @@ def _participants() -> dict[str, dict[str, Any]]:
                         moved: list[Any] = sp.pop(k) or []
                         if moved:
                             sp.setdefault(tgt, []).extend(moved)
-                    store.save_org(org)
             except Exception:                                    # noqa: BLE001
                 pass
         net_state = cast("dict[str, dict[str, Any]]",

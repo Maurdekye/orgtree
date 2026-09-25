@@ -207,6 +207,40 @@ class LocksItsRow(unittest.TestCase):
                 self.assertTrue(ok(_doc(slug)))
 
 
+class ParticipantsSelfHeal(unittest.TestCase):
+    """net._participants' four self-heal writes (backfill, local-address
+    sync, stale net_state drop, orphan spool re-key), all while another
+    thread holds DOC_LOCK."""
+
+    def test_all_four_heals_land_with_doc_lock_held(self) -> None:
+        local = 'http://127.0.0.1:7499'
+        fresh = _fresh_org()                                   # backfill
+        healed = _fresh_org(
+            net_identity={'secret': 's' * 32, 'fingerprint': 'f',
+                          'slug': 'x.y.ffffff', 'minted_at': 't'},
+            net_autoconnect=True,
+            net_hubs=[{'id': net.LOCAL_HUB_ID, 'address': 'http://old:1',
+                       'enabled': True}],
+            net_state={'gone': {'registered_at': 't', 'address': 'http://z'}},
+            net_spool={'gone': [{'id': 'm1'}]})
+        os.environ['ORGTREE_LOCAL_HUB_ADDRESS'] = local
+        try:
+            with _Held(lambda: store.DOC_LOCK):
+                done, out, _t = _run(net._participants, FREE_S)
+                self.assertTrue(done, '_participants waited on DOC_LOCK')
+        finally:
+            os.environ.pop('ORGTREE_LOCAL_HUB_ADDRESS', None)
+        self.assertFalse(out and isinstance(out[0], BaseException), out)
+        f = _doc(fresh)
+        self.assertTrue(f['net_identity'].get('secret'))
+        self.assertIsInstance(f.get('net_hubs'), list)
+        h = _doc(healed)
+        self.assertEqual(h['net_hubs'][0]['address'], local)
+        self.assertNotIn('gone', h.get('net_state') or {})
+        self.assertEqual(h['net_spool'], {net.LOCAL_HUB_ID: [{'id': 'm1'}]})
+        self.assertIn(healed, out[0])
+
+
 class Semantics(unittest.TestCase):
     def test_disk_none_pops_and_other_keys_survive(self) -> None:
         slug = _fresh_org(disk={'size_mb': 4096, 'pending_size_mb': 5000})
