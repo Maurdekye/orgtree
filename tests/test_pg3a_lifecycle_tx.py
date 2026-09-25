@@ -232,5 +232,94 @@ class Move(unittest.TestCase):
         self.assertFalse(upd & share)
 
 
+class Archive(unittest.TestCase):
+    """retire / dissolve / rescind: the legacy methods on `_archive_rows`."""
+
+    def build(self, slug):
+        org = store.create_org(slug)
+        org.hire(ledger.USER, None, "luna", 5, "root")
+        org.hire(ledger.USER, "root", "luna", 2, "a")
+        org.hire(ledger.USER, "a", "luna", 0, "a1")
+        org.hire(ledger.USER, "root", "luna", 0, "b")
+        org.hire(ledger.USER, None, "luna", 0, "t")          # top level
+        store.save_org(org)
+        with store.DOC_LOCK:
+            o = store.load_org(slug)
+            o.ask_user("t", "still there?")
+            o.request_credits("t", 50, "more room")
+            store.save_org(o)
+
+    def setUp(self):
+        self.slug = "pg3a-ar-" + str(time.time_ns())
+        self.build(self.slug)
+
+    def tearDown(self):
+        store._POOL.close_all(self.slug)
+
+    def view(self, slug):
+        o = store.load_org(slug)
+        return ({k: (v["parent"], v["grant"], v["state"], bool(v.get("rescinded_at")))
+                 for k, v in o.nodes.items()},
+                sorted((a["node"], a["status"]) for a in o.d.get("asks") or []),
+                sorted((r["node"], r["status"]) for r in o.d.get("credit_requests") or []),
+                [e["op"] for e in o.d["events"]][-6:])
+
+    def parity(self, op, actor, nid):
+        twin = f"pg3a-ar-twin-{op}-" + str(time.time_ns())
+        self.build(twin)
+        with store.DOC_LOCK:
+            o = store.load_org(twin)
+            legacy = getattr(o, op)(actor, nid)
+            store.save_org(o)
+        mine = getattr(lifecycle_tx, op)(self.slug, actor, nid)
+        self.assertEqual(mine, legacy, op)
+        self.assertEqual(self.view(self.slug), self.view(twin), op)
+        store._POOL.close_all(twin)
+        return mine
+
+    def test_retire_a_leaf(self):
+        self.parity("retire", ledger.USER, "b")
+        self.assertEqual(store.load_org(self.slug).node("b")["state"], "archived")
+
+    def test_retire_with_live_reports_becomes_dissolve(self):
+        r = self.parity("retire", ledger.USER, "a")
+        self.assertEqual(sorted(r["nodes"]), ["a", "a1"])
+
+    def test_dissolve(self):
+        self.parity("dissolve", "root", "a")
+
+    def test_rescind_claws_back_the_parents_grant(self):
+        g = store.load_org(self.slug).node("root")["grant"]
+        r = self.parity("rescind", ledger.USER, "b")
+        self.assertGreater(r["clawed"], 0)
+        self.assertLess(store.load_org(self.slug).node("root")["grant"], g)
+
+    def test_retire_moots_the_open_requests(self):
+        self.parity("retire", ledger.USER, "t")
+        o = store.load_org(self.slug)
+        self.assertEqual({a["status"] for a in o.d["asks"] if a["node"] == "t"}, {"moot"})
+        self.assertEqual({r["status"] for r in o.d["credit_requests"] if r["node"] == "t"},
+                         {"moot"})
+
+    def test_every_declared_section_the_retire_writes_is_needed(self):
+        spec = lifecycle_tx.SPECS["retire"]
+        refused = []
+        for drop in ("asks", "credit_requests", "notices"):
+            smaller = lifecycle_tx.Spec(
+                sections=tuple(x for x in spec.sections if x != drop), logs=spec.logs)
+            with patch.dict(lifecycle_tx.SPECS, {"retire": smaller}):
+                with self.assertRaises(orgtx.UnlockedWrite, msg=drop):
+                    lifecycle_tx.retire(self.slug, ledger.USER, "t")
+            refused.append(drop)
+            self.assertEqual(store.load_org(self.slug).node("t")["state"], "live", drop)
+        self.assertEqual(refused, ["asks", "credit_requests", "notices"])
+
+    def test_rescind_holds_the_parent_retire_does_not(self):
+        o = store.load_org(self.slug)
+        self.assertIn("root", lifecycle_tx._archive_rows(o, ledger.USER, "b", True)[0])
+        self.assertNotIn("root", lifecycle_tx._archive_rows(o, ledger.USER, "b")[0])
+        self.assertEqual(lifecycle_tx._archive_rows(o, ledger.USER, "a")[0], {"a", "a1"})
+
+
 if __name__ == "__main__":
     unittest.main()
