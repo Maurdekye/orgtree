@@ -23916,8 +23916,7 @@ def _bump_hard_fail(slug: str, nid: str) -> int:
     watchdog once and then fails to launch does not get two announcements for
     one broken episode."""
     try:
-        with store.DOC_LOCK:
-            o2 = store.load_org(slug)
+        with _node_write(slug, nid) as o2:  # PG-3e-A: the agent's row
             if nid not in o2.nodes:
                 return 0
             n = o2.node(nid)
@@ -23929,7 +23928,6 @@ def _bump_hard_fail(slug: str, nid: str) -> int:
                    for b in (o2.d.get('delivering') or {}).get(nid, [])
                    if b.get('tok') in attempted for m in b.get('mail') or [])
             maildrain.discard(o2, nid, ids)
-            store.save_org(o2)
             return run
     except Exception:                                            # noqa: BLE001
         return 0
@@ -24585,8 +24583,8 @@ def _charge_killed_turn(slug: str, nid: str, out_toks: int,
     with its token count. A node with no priced history records the tokens
     and an honest zero rather than an invented price."""
     try:
-        with store.DOC_LOCK:
-            o2 = store.load_org(slug)
+        with halt.txn(slug, **{"nodes": [nid], "sections": ["api_cost_usd"] if on_key else []}) as _cb_tx:  # PG-3e-A
+            o2 = _cb_tx.org
             if nid not in o2.nodes:
                 return
             n = o2.node(nid)
@@ -24617,7 +24615,6 @@ def _charge_killed_turn(slug: str, nid: str, out_toks: int,
             _stamp_ran_as(entry, slug, nid)
             ring.append(entry)
 
-            store.save_org(o2)
     except Exception:                                            # noqa: BLE001
         pass          # accounting must never turn a killed turn into a crash
 
@@ -24745,8 +24742,8 @@ def _charge_reported_spend(slug: str, nid: str, paid: float,
 
     Every other lane is byte-for-byte unchanged: `paid`, no stamps, no flag."""
     try:
-        with store.DOC_LOCK:
-            o2 = store.load_org(slug)
+        with halt.txn(slug, **{"nodes": [nid], "sections": ["api_cost_usd"] if on_key else []}) as _cb_tx:  # PG-3e-A
+            o2 = _cb_tx.org
             if nid not in o2.nodes:
                 return
             n = o2.node(nid)
@@ -24767,7 +24764,6 @@ def _charge_reported_spend(slug: str, nid: str, paid: float,
                 # it looks, and that is recorded without inventing a dollar.
                 if or_lane and _consumed_anything(usage, out_tokens):
                     n["cost_usd_unknown"] = True
-                    store.save_org(o2)
                 return
             if paid > 0:
                 n["cost_usd"] = round(
@@ -24788,7 +24784,6 @@ def _charge_reported_spend(slug: str, nid: str, paid: float,
             _stamp_ran_as(paid_entry, slug, nid)
             ring.append(paid_entry)
 
-            store.save_org(o2)
     except Exception:                                            # noqa: BLE001
         pass          # accounting must never turn a failed turn into a crash
 
@@ -24804,8 +24799,8 @@ def _log_turn_error(slug: str, nid: str, text: str) -> None:
     (D-50's rule one level up: superseded is not replaced until the
     replacement exists)."""
     try:
-        with store.DOC_LOCK:
-            o2 = store.load_org(slug)
+        with halt.txn(slug, **{"logs": [("turn_error_log", nid)]}) as _cb_tx:  # PG-3e-A
+            o2 = _cb_tx.org
             if nid not in o2.nodes:
                 return
             log = cast("dict[str, list[dict[str, Any]]]",
@@ -24828,7 +24823,6 @@ def _log_turn_error(slug: str, nid: str, text: str) -> None:
                 row["ran_as"] = ran
             rows.append(row)
 
-            store.save_org(o2)
     except Exception:                                            # noqa: BLE001
         pass
 
