@@ -277,6 +277,65 @@ class ApiResidualSites(unittest.TestCase):
         self.assertIn('"self_restart_forced"', events)
 
 
+class MailDepositSites(unittest.TestCase):
+    """toolwait._publish and the restart-notice pass deposit mail on org_tx."""
+
+    def _hired_org(self, name):
+        from orgtree import ledger
+        org = store.create_org(name)
+        org.hire(ledger.USER, None, 'haiku', 0, 'worker')
+        store.save_org(org)
+        return org.d['slug'], dict(org.node('worker'))
+
+    def test_tool_result_publishes_once_without_doc_lock(self):
+        import time
+        from orgtree import maildrain, supervisor, toolwait
+        slug, worker = self._hired_org('Toolwait Org')
+        row = dict(id='pg3r-1', org=slug, node='worker', seat=worker['seat_id'], tool='orgtree_staff',
+                   at=time.time(), state='completed', result={'node': 'x'}, yielded=True)
+        toolwait._save(row)
+        seen = []
+        orgtx.commit_listeners.append(seen.append)
+        try:
+            with patch.object(supervisor, 'send_message', return_value={'accepted': True}) as drive:
+                finished, _ = _while_doc_lock_is_held(lambda: toolwait._publish(dict(row)))
+        finally:
+            orgtx.commit_listeners.remove(seen.append)
+            maildrain._forget(slug, 'worker')
+        self.assertTrue(finished, 'publication waited on DOC_LOCK')
+        self.assertEqual(len(seen), 2, 'post + receipt marker, then the marker cleanup')
+        drive.assert_called_once()
+        after = store.load_org(slug)
+        box = after.d.get('mail', {}).get('worker', [])
+        self.assertEqual(len([m for m in box if 'ORGTREE TOOL RESULT pg3r-1' in m.get('body', '')]), 1)
+        self.assertFalse(after.d.get('tool_result_receipts'))
+        self.assertFalse(any(r['id'] == 'pg3r-1' for r in toolwait.records()))
+
+    def test_restart_notice_pass_deposits_in_one_transaction_per_org(self):
+        from orgtree import restart_wake
+        slug, _ = self._hired_org('Restart Notice Org')
+        restart_wake._reset_boot_build_info_for_tests({
+            'commit': 'a' * 40, 'commit_short': 'a' * 7, 'branch': None, 'dirty': False,
+            'backend_pid': 4242, 'started_at': '2026-09-25T18:00:00Z', 'provenance': 'packaged',
+            'version': '3.0.0-alpha.0'})
+        restart_wake._reset_startup_done_for_tests()
+        seen = []
+        orgtx.commit_listeners.append(seen.append)
+        try:
+            with patch('builtins.print'):
+                finished, out = _while_doc_lock_is_held(restart_wake.on_backend_startup)
+        finally:
+            orgtx.commit_listeners.remove(seen.append)
+            restart_wake._reset_boot_build_info_for_tests()
+            restart_wake._reset_startup_done_for_tests()
+        self.assertTrue(finished, 'the restart pass waited on DOC_LOCK')
+        self.assertIn({'org': slug, 'node': 'worker'}, out['notified'])
+        self.assertEqual(len([c for c in seen if getattr(c, 'slug', None) == slug]), 1,
+                         'one row transaction for this org')
+        box = store.load_org(slug).d.get('mail', {}).get('worker', [])
+        self.assertEqual(len([m for m in box if m.get('restart_notice')]), 1)
+
+
 class TranscriptIncarnation(unittest.TestCase):
     def test_mint_is_a_row_transaction_on_the_node_and_is_kept_once_minted(self):
         from orgtree import transcript_records
