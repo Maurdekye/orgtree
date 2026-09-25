@@ -10,7 +10,8 @@ use std::path::{Path, PathBuf};
 struct Tmp(PathBuf);
 impl Drop for Tmp {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
+        // the per-test parent folder (junctions are removed by each test first)
+        let _ = std::fs::remove_dir_all(self.0.parent().unwrap());
     }
 }
 
@@ -60,6 +61,11 @@ fn a_product_root_is_never_a_prototype_root() {
     bind(&t.0, &env).unwrap();
     // no prototype marker, and ORGTREE_DATA protects it from the prototype door
     assert!(validate_root(&t.0, &env).is_err());
+    // and its marker form never passes the prototype marker check
+    let r = validate_product_root(&t.0, &env).unwrap();
+    let real = orgtree_prototype_guard::canonical(&t.0).unwrap();
+    assert!(!r.marker().disposable);
+    assert!(orgtree_prototype_guard::check_marker(r.marker(), &real).is_err());
 }
 
 #[test]
