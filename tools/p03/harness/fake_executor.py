@@ -22,8 +22,10 @@ operation's write set, so a rolled-back attempt leaves nothing. Points follow
 the protocol's generic set (``protocol.GENERIC_POINTS``) plus
 ``stmt.<label>.before``/``.after``. Actions: ``hold``, ``fail_next`` (the next
 statement fails with that SQLSTATE; 40001/40P01 are retried as a new attempt,
-anything else ends the operation in ``error``), ``drop_conn`` (the outcome is
-``unknown``) and ``sleep``. A hold applies to its ``attempt`` or, without one, to
+anything else ends the operation in ``error``), ``drop_conn`` (the connection
+is gone before COMMIT: retried on a new backend, as WS2's executor does) and
+``sleep``; ``kill_backend`` (harness-side) wakes a held operation to 57P01, retried
+the same way. A hold applies to its ``attempt`` or, without one, to
 every attempt. A release is remembered until an arrival consumes it (sent early,
 the operation passes straight through), and a hold never released within its
 timeout emits an ``error`` event and CONTINUES: WS2's endpoint does the same. A
@@ -42,6 +44,9 @@ from .protocol import GENERIC_POINTS, PROTOCOL, frame_errors, generic_points
 from .trace import SCHEMA
 
 RETRYABLE = ("40001", "40P01")
+#: the connection is gone before COMMIT: the executor retries on a NEW backend
+#: (WS2 tests/pg.rs q_c4_dropped_connection_before_commit_retries_once)
+CONNECTION_LOST = ("08006", "57P01")
 MAX_ATTEMPTS = 3
 
 
@@ -127,6 +132,7 @@ class FakeExecutor:
         self._released: set[tuple[str, str, "int | None"]] = set()
         self._hcv = threading.Condition()
         self._finishing = False
+        self._killed: set[int] = set()
         self._armed: set[str] = set()
         self._run_id = ""
         self._locks: dict[str, int] = {}                 # lock key -> holder pid
@@ -194,6 +200,13 @@ class FakeExecutor:
             self._hcv.notify_all()
         self.stream.emit("release", point=point, op_tag=tag)
 
+    def kill_backend(self, pid: int) -> bool:
+        """``pg_terminate_backend``: a held operation on ``pid`` wakes to 57P01."""
+        with self._hcv:
+            self._killed.add(pid)
+            self._hcv.notify_all()
+        return True
+
     def sample_waits(self) -> list[dict[str, Any]]:
         with self._cv:
             return [{"waiter_pid": w, "holder_pid": h, "relation": key, "mode": "exclusive"}
@@ -247,6 +260,8 @@ class FakeExecutor:
             deadline = time.monotonic() + h["timeout_ms"] / 1000
             with self._hcv:
                 while not self._finishing:
+                    if pid in self._killed:
+                        raise _Abort("57P01")
                     mine = [k for k in ((tag, point, attempt), (tag, point, None))
                             if k in self._released]
                     if mine:
@@ -262,7 +277,7 @@ class FakeExecutor:
         elif action == "fail_next":
             pending["sqlstate"] = h["sqlstate"]
         elif action == "drop_conn":
-            raise _Abort("08006", outcome="unknown")
+            raise _Abort("08006")
         elif action == "sleep":
             time.sleep(h["ms"] / 1000)
 
@@ -358,10 +373,13 @@ class FakeExecutor:
                 self._release_all(pid)
                 emit("tx_end", operation_id=op_id, attempt=attempt, conn_id=f"c{pid}",
                      backend_pid=pid, outcome=abort.outcome, sqlstate=abort.sqlstate)
-                if abort.sqlstate in RETRYABLE and attempt < MAX_ATTEMPTS:
-                    emit("retry", operation_id=op_id, attempt=attempt + 1,
-                         retry_cause="serialization" if abort.sqlstate == "40001" else "deadlock",
+                if abort.sqlstate in RETRYABLE + CONNECTION_LOST and attempt < MAX_ATTEMPTS:
+                    cause = {"40001": "serialization", "40P01": "deadlock"}.get(
+                        abort.sqlstate, "connection_lost")
+                    emit("retry", operation_id=op_id, attempt=attempt + 1, retry_cause=cause,
                          sqlstate=abort.sqlstate)
+                    if abort.sqlstate in CONNECTION_LOST:
+                        pid = next(self._pids)     # a fresh connection, a new backend
                     attempt += 1
                     continue
                 outcome = abort.outcome if abort.outcome == "unknown" else "error"

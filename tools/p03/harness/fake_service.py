@@ -169,6 +169,8 @@ class FakeService:
                 self._ended = True
                 self.fake.finish()
             return {"records": self._new_records(), "stream": self.fake.stream.name}
+        if verb == "qual.kill":
+            return {"terminated": self.fake.kill_backend(int((req.get("args") or {})["pid"]))}
         if verb == "qual.waits":
             return {"waits": self.fake.sample_waits()}
         if verb == "qual.state":
