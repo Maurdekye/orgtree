@@ -47,6 +47,9 @@ SEND_SECTIONS: tuple[str, ...] = ("mail", "notices", "audiences", "lifecycle")
 SEND_LOGS: tuple[str, ...] = ("events", "notice_log", "user_mail_log", "user_outbox",
                               "org_inbox")
 
+#: A user read mark / mark-all-read: unread rows move to the read archive.
+READ_MARK_ROWS: dict[str, list[Any]] = {"sections": ["user_inbox"], "logs": ["user_mail_log"]}
+
 
 def _dedupe(xs: Iterable[Any]) -> list[Any]:
     out: list[Any] = []

@@ -8915,7 +8915,8 @@ class InboxRead(Body):
 def user_inbox_read(slug: str, body: InboxRead) -> dict[str, Any]:
     """Per-mail read: a viewed mail is marked read when the user clicks off it
     (user ruling) — it moves from unread into the read archive."""
-    with _entry_ledger_422(store.write_org(slug), 404) as org:
+    # PG-3d: locks the user inbox and its read archive only, not DOC_LOCK
+    with _entry_ledger_422(mailtx.org_of(slug, **mailtx.READ_MARK_ROWS), 404) as org:
         ids = set(body.ids)
         keep: list[UserMailEntry] = []
         read: list[UserMailEntry] = []
@@ -8931,8 +8932,6 @@ def user_inbox_read(slug: str, body: InboxRead) -> dict[str, Any]:
             # second outranks one sent later (user bug 2026-08-02). `at` is
             # ISO-8601 Z, so a string sort is a time sort.
             log.sort(key=lambda m: m.get("at") or "")
-
-            store.save_org(org)
     hub_changed(slug)
     return {"read": len(read)}
 
@@ -9015,13 +9014,9 @@ def mail_one(slug: str, box: str, mid: str, request: Request = cast(Request, Non
 @app.post("/api/orgs/{slug}/org_inbox/read")
 def org_inbox_read(slug: str) -> dict[str, Any]:
     """The user opened the org-inbox panel: clear its unread count."""
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
+    # PG-3d: the org-inbox read mark alone, not DOC_LOCK
+    with _entry_ledger_422(mailtx.org_of(slug, sections=["org_inbox_read"]), 404) as org:
         org.org_inbox_mark_read()
-        store.save_org(org)
     hub_changed(slug)
     return {"ok": True}
 
@@ -9169,16 +9164,12 @@ def org_inbox_send(slug: str, body: OrgInboxSend,
 def user_inbox_clear(slug: str) -> dict[str, Any]:
     """Mark-all-read: archives into the read log (mirror of a node's mail_log)
     rather than deleting."""
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
+    # PG-3d: the user inbox and its read archive only, not DOC_LOCK
+    with _entry_ledger_422(mailtx.org_of(slug, **mailtx.READ_MARK_ROWS), 404) as org:
         log = org.d.setdefault("user_mail_log", [])
         log.extend(org.d.get("user_inbox", []))
 
         org.d["user_inbox"] = []
-        store.save_org(org)
     hub_changed(slug)
     return {"ok": True}
 
