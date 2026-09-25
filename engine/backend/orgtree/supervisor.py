@@ -14964,14 +14964,12 @@ def spend_unrun_pardon(slug: str, nid: str, sid: str | None) -> bool:
         # DOC_LOCK across it would stall every other org's turn
         if transcript_path(sid, _transcript_root(org, nid)) is None:
             return False
-        with store.DOC_LOCK:
-            o2 = store.load_org(slug)
+        with _node_write(slug, nid) as o2:  # PG-3e-A: the agent's row
             n2 = o2.nodes.get(nid)
             if (n2 is None or n2.get("session_id") != sid
                     or "session_unrun" not in n2):
                 return False
             n2.pop("session_unrun", None)
-            store.save_org(o2)
         return True
     except (LedgerError, OSError):
         return False    # bookkeeping, never a reason to fail a turn
