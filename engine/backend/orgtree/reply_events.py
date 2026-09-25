@@ -136,8 +136,7 @@ def incarnation(org, nid):
     if org.d.get('reply_incarnation') and org.node(nid).get('reply_incarnation'):
         return org.d['reply_incarnation'] + ':' + org.node(nid)['reply_incarnation']
     from . import orgtx
-    from .mailtx import tx_open
-    if tx_open(org.d['slug']):
+    if orgtx.current_tx(org.d['slug']) is not None:
         # PG-3d: called with the Org of a transaction already open on this
         # org (a quoted user reply): mint on THAT Org — the caller names
         # nodes=[nid] and sections=['reply_incarnation'] — instead of a
