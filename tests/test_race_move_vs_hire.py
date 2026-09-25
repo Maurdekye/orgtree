@@ -193,6 +193,31 @@ class RaceMoveVsHire(unittest.TestCase):
         self.assertEqual(store.load_org(self.slug).node("x")["parent"], "q")
         self.assertEqual(pause.fired, 1)
 
+    def test_iii_an_archived_mover_writes_no_grant_yet_still_holds_the_cap_row(self):
+        # An archived node costs nothing to move (c == 0): the move writes no
+        # grant on the new parent, so UnlockedWrite cannot be what protects
+        # the cap — only the move's lock on the parent row does. (An archived
+        # node without a successor is still an org child: it counts.)
+        with store.DOC_LOCK:
+            o = store.load_org(self.slug)
+            o.nodes["x"]["state"] = "archived"
+            o.nodes["x"]["grant"] = 0
+            store.save_org(o)
+        pause = Pause("rt7-move", "before_commit")
+        orgtx.set_pause_hook(pause)
+        mt, mv = self.spawn("rt7-move", lifecycle_tx.move, self.slug, USER, "x", "p")
+        self.assertTrue(pause.held.wait(WAIT), "the move never reached its commit")
+        ht, hr = self.spawn("rt7-hire", hire, self.slug, "p", "y")
+        self.assertTrue(self.wait_until(lambda: waiting_on(self.slug, "p")),
+                        "the hire is not waiting on the parent row")
+        pause.release.set()
+        mt.join(WAIT)
+        ht.join(WAIT)
+        self.assertNotIn("error", mv, mv)
+        self.assertIsInstance(hr.get("error"), LedgerError, hr)
+        self.assertEqual(self.kids(), ["c1", "x"])
+        self.assertEqual(pause.fired, 1)
+
 
 class RaceMoveVsHireNoFence(RaceMoveVsHire):
     FENCE = False
