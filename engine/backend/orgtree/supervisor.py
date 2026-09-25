@@ -14022,6 +14022,12 @@ def _working_lifecycle_keeper_pass(
             cache_launch, now, checkup_mode_enabled=False)
 
 
+#: What a docket reassignment writes besides node rows: the item, the
+#: assignment mail and its notice (PG-3e-B; the work-item family's rows).
+_ABANDONED_SECTIONS = ("work_items", "mail", "notices", "asks")
+_ABANDONED_LOGS: tuple[orgtx.LogName, ...] = ("events", "notice_log")
+
+
 def _abandoned_docket_recovery_pass(now: float | None = None) -> None:
     """Reassign stale docket items whose OWNER is gone — deleted, retired, or
     an id re-minted by a later hire. An owner that merely advanced generation
@@ -14036,11 +14042,18 @@ def _abandoned_docket_recovery_pass(now: float | None = None) -> None:
         slug = str(row["slug"])
         moved: list[dict[str, Any]] = []
         try:
-            with store.DOC_LOCK:
-                org = store.load_org(slug)
-                moved = org.work_reassign_abandoned(now_ts=stamp)
-                if moved:
-                    store.save_org(org)
+            # PG-3e-B: a dry run on a lock-free snapshot first (never saved),
+            # so the common nothing-abandoned pass locks nothing; only an org
+            # with work to move takes the transaction, which then decides
+            # again under the locks. The reassignment deposits assignment
+            # mail into the new owners' mailboxes (their node rows) and can
+            # land on any top-level node, so it locks every node row.
+            if not orgtx.org_read(slug).work_reassign_abandoned(now_ts=stamp):
+                continue
+            with orgtx.org_tx(slug, nodes=orgtx.ALL,
+                              sections=_ABANDONED_SECTIONS,
+                              logs=_ABANDONED_LOGS) as tx:
+                moved = tx.org.work_reassign_abandoned(now_ts=stamp)
         except LedgerError as exc:
             print(f"[orgtree] {slug}: abandoned docket recovery skipped: "
                   f"{type(exc).__name__}: {exc}")
