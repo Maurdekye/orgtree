@@ -7,12 +7,16 @@
 //! plus the readiness settings), `stop` (native `pg_ctl stop`, then waits on
 //! handles to the whole owned process family), `destroy`.
 //!
-//! Not yet built (later WS1 milestones): the three-role credential set,
-//! publication allowlist and role-privilege readiness, descriptor-based
-//! attach from a second window or `service_host.py`, backup/restore,
-//! migration runner, host integration hooks, the G5 drills and the four
-//! WS1 unsafe controls.
+//! Built since: three SCRAM roles with asserted attributes, the migration
+//! runner (`migrate`), owner-only secrets and the `pg-attach.json` descriptor
+//! with `attach`, the qualification-logging switch, the dev-cluster CLI.
+//! The prototype-root guard lives in the shared `orgtree-prototype-guard`.
+//!
+//! Not yet built: backup/restore, host integration (`service_host.py`), the
+//! G5 drills and the four WS1 unsafe controls. The publication allowlist is
+//! WS6's catalog.
 
+pub mod acl;
 pub mod cluster;
 pub mod dev;
 pub mod error;
