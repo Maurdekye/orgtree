@@ -351,10 +351,48 @@ pub fn read_applied(bin: &PgBin, rt: &RuntimeRecord) -> Result<Vec<Applied>> {
 #[derive(Debug, Serialize)]
 pub struct MigrateReport {
     pub schema_dir: String,
+    /// Evidence of exactly which schema this run built against.
+    pub schema: SchemaEvidence,
     pub manifest_versions: Vec<u32>,
     pub already_applied: Vec<u32>,
     pub applied_now: Vec<u32>,
     pub store_incarnation_written: bool,
+}
+
+/// Which schema a run used: the resolved folder, the sha256 of every
+/// manifest file it read (ranges/<ws>.sha256, or SHA256SUMS; CR-stripped, the
+/// shared rule), and every migration checksum it verified.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct SchemaEvidence {
+    pub schema_dir_resolved: String,
+    pub manifests: BTreeMap<String, String>,
+    pub verified: Vec<(u32, String, String)>,
+}
+
+pub fn schema_evidence(dir: &Path, files: &[MigrationFile]) -> Result<SchemaEvidence> {
+    let canon = std::fs::canonicalize(dir).map_err(|e| CustodianError::io("migrate.read_dir", dir, e))?;
+    let canon = canon.to_string_lossy().to_string();
+    let schema_dir_resolved = canon.strip_prefix("\\\\?\\").unwrap_or(&canon).to_string();
+    let mut manifests = BTreeMap::new();
+    let ranges = dir.join("ranges");
+    let sources: Vec<(String, std::path::PathBuf)> = if ranges.is_dir() {
+        let mut v = Vec::new();
+        for e in std::fs::read_dir(&ranges).map_err(|e| CustodianError::io("migrate.read_dir", &ranges, e))? {
+            let n = e.map_err(|e| CustodianError::io("migrate.read_dir", &ranges, e))?.file_name().to_string_lossy().to_string();
+            if n.ends_with(".sha256") || n.ends_with(".range") {
+                v.push((format!("ranges/{n}"), ranges.join(&n)));
+            }
+        }
+        v
+    } else {
+        vec![(MANIFEST_FILE.to_string(), dir.join(MANIFEST_FILE))]
+    };
+    for (name, path) in sources {
+        let text = std::fs::read_to_string(&path).map_err(|e| CustodianError::io("migrate.read", &path, e))?;
+        manifests.insert(name, checksum(&text));
+    }
+    let verified = files.iter().map(|m| (m.version, m.file.clone(), m.sha256.clone())).collect();
+    Ok(SchemaEvidence { schema_dir_resolved, manifests, verified })
 }
 
 fn sql_literal(s: &str) -> String {
@@ -395,6 +433,7 @@ pub fn migrate(bin: &PgBin, rt: &RuntimeRecord, dir: &Path, writer_version: u32)
     }
     Ok(MigrateReport {
         schema_dir: dir.display().to_string(),
+        schema: schema_evidence(dir, &files)?,
         manifest_versions: files.iter().map(|m| m.version).collect(),
         already_applied: applied.iter().map(|a| a.version).collect(),
         applied_now: done,
