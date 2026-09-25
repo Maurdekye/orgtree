@@ -3129,7 +3129,10 @@ def _save_sqlite(org: Org) -> None:
     # what keeps the ~200 not-yet-converted legacy write cycles correct
     # beside residency during the incremental conversion.
     res = _resident.get(slug)
-    if res is not None and cast("dict[str, Any]", res.d) is not d:
+    # a save that wrote nothing (an org_tx whose body only read) cannot have
+    # made the resident's baselines any staler than they were: keep it
+    if res is not None and cast("dict[str, Any]", res.d) is not d \
+            and not changes.is_empty():
         _resident.pop(slug, None)
     # dumped_bytes was counted at each real _dumps in the differ, so under
     # the scoped save the carried baselines cost — and report — nothing
@@ -5132,14 +5135,25 @@ def _save_org(org: Org) -> None:
         _publish_changes_unknown(org.d["slug"])
         _bump_org_seq(org.d["slug"])
     REVISION += 1  # pyright: ignore[reportConstantRedefinition]  # uppercase mutable counter is the public API; renaming is forbidden this wave
-    # never let a fanout failure fail the write — the doc is already on disk
+    # PG-0: inside an org_tx the hooks are deferred; org_tx fires them after
+    # COMMIT with its row locks released (plan decision 14)
+    deferred = getattr(_orgtx_local, "defer_hooks", None)
+    if deferred is not None:
+        deferred.append(org.d["slug"])
+        return
+    fire_save_hooks(org.d["slug"])
+
+
+def fire_save_hooks(slug: str) -> None:
+    """`on_save` then every `save_hooks` entry, each failure swallowed: the
+    doc is already committed, and a fanout failure must not fail the write."""
     try:
-        on_save(org.d["slug"])
+        on_save(slug)
     except Exception:
         pass
     for h in list(save_hooks):
         try:
-            h(org.d["slug"])
+            h(slug)
         except Exception:
             pass
 

@@ -61,9 +61,14 @@ class MigrationDrift(RuntimeError):
 
 
 def url() -> str:
-    u = os.environ.get("ORGTREE_PG_URL", "").strip()
+    """The engine's connection string: `ORGTREE_PG_CONNINFO` (a libpq keyword
+    string set by PG-1's managed-process bracket, used exactly as given — its
+    passfile carries the secret), else `ORGTREE_PG_URL` (tests, dev)."""
+    u = (os.environ.get("ORGTREE_PG_CONNINFO", "").strip()
+         or os.environ.get("ORGTREE_PG_URL", "").strip())
     if not u:
-        raise RuntimeError("ORGTREE_STORE=postgres needs ORGTREE_PG_URL")
+        raise RuntimeError("ORGTREE_STORE=postgres needs ORGTREE_PG_CONNINFO "
+                           "(or ORGTREE_PG_URL)")
     return u
 
 
@@ -94,37 +99,52 @@ def migration_files(d: pathlib.Path = MIGRATIONS_DIR) -> list[pathlib.Path]:
     return files
 
 
-def migrate(conn: Any, d: pathlib.Path = MIGRATIONS_DIR) -> list[str]:
+def migrate(target: Any, d: pathlib.Path = MIGRATIONS_DIR) -> dict[str, Any]:
     """Apply every pending migration in order, each in its own transaction,
-    under an advisory lock. Returns the names applied now. Refuses on drift."""
-    conn.execute("CREATE TABLE IF NOT EXISTS public.schema_migrations ("
-                 "name text PRIMARY KEY, sha256 text NOT NULL, "
-                 "applied_at timestamptz NOT NULL DEFAULT now())")
-    conn.execute("SELECT pg_advisory_lock(%s)", (_MIGRATE_LOCK_KEY,))
+    under an advisory lock, and refuse on drift. `target` is an open psycopg
+    connection or a conninfo string (PG-1 calls it with the ADMIN role's
+    conninfo before the API is imported). Returns
+    {"folder": <abs pg_migrations path>, "applied": [names applied now],
+     "current": [every applied name]}.
+
+    Run as the engine's own (non-owner) role it is a CHECK: nothing pending
+    means it only reads; a pending file fails on privileges and refuses."""
+    own = isinstance(target, str)
+    conn = connect(target) if own else target
     try:
-        applied = {str(n): str(s) for n, s in conn.execute(
-            "SELECT name, sha256 FROM public.schema_migrations").fetchall()}
-        files = migration_files(d)
-        known = {p.name for p in files}
-        ahead = sorted(set(applied) - known)
-        if ahead:
-            raise MigrationDrift(f"database has migrations this build does not: {ahead}")
-        done: list[str] = []
-        for p in files:
-            data = p.read_bytes()
-            sha = _sha(data)
-            if p.name in applied:
-                if applied[p.name] != sha:
-                    raise MigrationDrift(f"{p.name} changed after it was applied")
-                continue
-            with conn.transaction():
-                conn.execute(data.decode("utf-8"))
-                conn.execute("INSERT INTO public.schema_migrations(name, sha256) "
-                             "VALUES (%s, %s)", (p.name, sha))
-            done.append(p.name)
-        return done
+        if conn.execute("SELECT to_regclass('public.schema_migrations')").fetchone()[0] is None:
+            conn.execute("CREATE TABLE public.schema_migrations ("
+                         "name text PRIMARY KEY, sha256 text NOT NULL, "
+                         "applied_at timestamptz NOT NULL DEFAULT now())")
+        conn.execute("SELECT pg_advisory_lock(%s)", (_MIGRATE_LOCK_KEY,))
+        try:
+            applied = {str(n): str(s) for n, s in conn.execute(
+                "SELECT name, sha256 FROM public.schema_migrations").fetchall()}
+            files = migration_files(d)
+            known = {p.name for p in files}
+            ahead = sorted(set(applied) - known)
+            if ahead:
+                raise MigrationDrift(f"database has migrations this build does not: {ahead}")
+            done: list[str] = []
+            for p in files:
+                data = p.read_bytes()
+                sha = _sha(data)
+                if p.name in applied:
+                    if applied[p.name] != sha:
+                        raise MigrationDrift(f"{p.name} changed after it was applied")
+                    continue
+                with conn.transaction():
+                    conn.execute(data.decode("utf-8"))
+                    conn.execute("INSERT INTO public.schema_migrations(name, sha256) "
+                                 "VALUES (%s, %s)", (p.name, sha))
+                done.append(p.name)
+            return {"folder": str(d.resolve()), "applied": done,
+                    "current": sorted(known)}
+        finally:
+            conn.execute("SELECT pg_advisory_unlock(%s)", (_MIGRATE_LOCK_KEY,))
     finally:
-        conn.execute("SELECT pg_advisory_unlock(%s)", (_MIGRATE_LOCK_KEY,))
+        if own:
+            conn.close()
 
 
 # ----------------------------------------------------------------- statements
