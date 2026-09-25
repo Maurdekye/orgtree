@@ -1447,6 +1447,8 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
               f"{type(e).__name__}: {e}")
     loop = asyncio.get_running_loop()
     _LOOP = loop  # type: ignore[constant-redefinition]  # captured-at-startup cell, not a constant
+    if store.STORE_BACKEND == "postgres":
+        _start_revision_feed()
     try:
         # hook processes get a sanitized env — the steering hook finds us here
         open(os.path.join(store.DATA_ROOT, ".port"), "w",
@@ -1831,8 +1833,12 @@ class Hub:
             box.ready.set()
 
     async def changed(self, slug: str) -> None:
-        await self._send(slug, {"type": "changed", "org": slug,
-                                "rev": _next_sync_rev(slug)})
+        payload: dict[str, Any] = {"type": "changed", "org": slug,
+                                   "rev": _next_sync_rev(slug)}
+        org_rev = _org_rev(slug)
+        if org_rev is not None:
+            payload["org_rev"] = org_rev     # PG-4: the commit counter, additive
+        await self._send(slug, payload)
 
     async def node_event(self, slug: str, node: str, event: str,
                          detail: dict[str, Any] | None = None) -> None:
@@ -1885,6 +1891,38 @@ def _next_sync_rev(slug: str) -> int:
 def _current_sync_rev(slug: str) -> int:
     with _sync_rev_lock:
         return _sync_revs.get(slug, 0)
+
+
+# ── PG-4: the commit revision feed (postgres only) ──────────────────────────
+# `org_rev` is PostgreSQL's per-org COMMIT counter, a different number from the
+# frame `rev` above (which counts frames, coalesced). The feed LISTENs on
+# org_rev; a revision this process did not commit, or a missed NOTIFY found by
+# its catch-up/poll reads, makes the shared snapshot reload fully and sends the
+# ordinary coalesced 'changed' frame — the renderer's existing refetch. See
+# pgfeed.py for how a missed NOTIFY is detected.
+_REV_FEED: Any = None
+
+
+def _start_revision_feed() -> None:
+    global _REV_FEED
+    from . import orgtx, pgfeed, pgstore
+    if _REV_FEED is not None:
+        return
+    orgtx.commit_listeners.append(lambda c: pgfeed.note_local(c.slug, c.revision))
+    feed = pgfeed.RevisionFeed(
+        lambda: pgfeed.psycopg_conn(pgstore.url()),
+        pgfeed.engine_callback(store.external_change, hub_changed))
+    feed.start()
+    _REV_FEED = feed
+
+
+def _org_rev(slug: str) -> int | None:
+    """The newest committed revision this process knows for `slug` (postgres
+    only; None elsewhere), read BEFORE a snapshot like `sync_rev`."""
+    if store.STORE_BACKEND != "postgres":
+        return None
+    from . import pgfeed
+    return pgfeed.known_revision(_REV_FEED, slug)
 
 
 _BCAST_COALESCE = 0.4      # seconds; see hub_changed
@@ -2844,6 +2882,7 @@ def _org_view(slug: str, request: Request,
     # Read BEFORE the snapshot: see the sync-revision note at the Hub —
     # stamping older-than-content is safe (idempotent re-apply), newer is not.
     sync_rev0 = _current_sync_rev(slug)
+    org_rev0 = _org_rev(slug)         # PG-4: same read-before-snapshot rule
     try:
         _stage = time.perf_counter()
         # THE SHARED REFRESHED SNAPSHOT, not a fresh parse (2026-09-19).
@@ -2872,6 +2911,8 @@ def _org_view(slug: str, request: Request,
     _stage = time.perf_counter()
     tree = org.tree()
     tree["sync_rev"] = sync_rev0
+    if org_rev0 is not None:
+        tree["org_rev"] = org_rev0
     if profile is not None: profile["tree_ms"] = (time.perf_counter() - _stage) * 1000.0
     # FR-27: the primed restart is a MACHINE fact, not an org one — it is
     # armed from one org and cuts every org on the box. So it is injected
@@ -11164,8 +11205,10 @@ def _op_ev_baseline(org: Org) -> int | None:
     free there. A SQLite document must NOT be made to materialise its
     unbounded events log merely to number a receipt — for that backend the
     count comes from `store.appended_since_load` afterwards, and only if the
-    dispatch materialised the section itself."""
-    if store.STORE_BACKEND != "sqlite":
+    dispatch materialised the section itself. PG-4: postgres is the same row
+    backend, and counting here would materialise its whole events log on
+    every operation."""
+    if not store.ROW_STORE:
         return len(cast("list[Any]", org.d.get("events") or []))
     return None
 
@@ -14628,7 +14671,7 @@ def node_inbox(slug: str, nid: str, request: Request = cast(Request, None)) -> d
     # before anything is derived from it.
     try:
         tails = (store.read_mail_tails(slug, nid, keep=50)
-                 if store.STORE_BACKEND == "sqlite" else None)
+                 if store.ROW_STORE else None)
         org = (store.load_org_snapshot(slug, ())
                if tails is not None
                else store.load_org_snapshot(slug, ("mail_log", "user_mail_log")))

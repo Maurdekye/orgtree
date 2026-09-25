@@ -179,6 +179,52 @@ class RevisionFeed:
             self._thread.join(timeout)
 
 
+# ------------------------------------------------------ this process's commits
+#
+# A commit made HERE already refreshed the shared snapshot (store publishes its
+# change set, org_tx through the same path) and scheduled the `changed`
+# broadcast. The feed must not answer it again with a full reload: that would
+# throw away the section-granular refresh on every write. So each process
+# records the revisions it committed, AFTER the commit succeeded (a rolled-back
+# bump frees its number for the next committer, possibly another process), and
+# the engine callback acts only on revisions it did not make, or on a gap.
+_local: dict[str, int] = {}
+_local_lock = threading.Lock()
+
+
+def note_local(slug: str, revision: int) -> None:
+    with _local_lock:
+        if revision > _local.get(slug, 0):
+            _local[slug] = revision
+
+
+def local_revision(slug: str) -> int:
+    with _local_lock:
+        return _local.get(slug, 0)
+
+
+def engine_callback(publish_unknown: Callable[[str], None],
+                    broadcast: Callable[[str], None]) -> Callable[[str, int, bool], None]:
+    """``on_change`` for the engine: a revision this process did not commit,
+    or any gap, drops trust in the shared snapshot's accumulated change set
+    (the next read does one full reload) and schedules the ordinary coalesced
+    ``changed`` broadcast, which the renderer answers with a refetch."""
+    def on_change(slug: str, revision: int, gap: bool) -> None:
+        if not gap and revision <= local_revision(slug):
+            return
+        publish_unknown(slug)
+        broadcast(slug)
+    return on_change
+
+
+def known_revision(feed: "RevisionFeed | None", slug: str) -> int:
+    """The newest revision this process knows is committed: a stamp for a
+    payload, read BEFORE its snapshot (so it is never newer than the content,
+    the same rule as the frame protocol's ``sync_rev``)."""
+    seen = feed.last_seen(slug) if feed is not None else None
+    return max(local_revision(slug), seen or 0)
+
+
 def psycopg_conn(conninfo: str) -> Conn:
     """A ``Conn`` over psycopg 3 (autocommit, its own session: LISTEN must not
     share a pooled connection)."""

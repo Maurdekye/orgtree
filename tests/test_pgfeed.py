@@ -220,5 +220,47 @@ class Rt9(unittest.TestCase):
         self.assertEqual(feed.last_seen("a"), 1)
 
 
+
+class EngineCallback(unittest.TestCase):
+    """A commit this process made is already published locally; the feed acts
+    only on revisions it did not make, and on gaps."""
+
+    def setUp(self) -> None:
+        pgfeed._local.clear()
+        self.addCleanup(pgfeed._local.clear)
+        self.unknown: list[str] = []
+        self.sent: list[str] = []
+        self.cb = pgfeed.engine_callback(self.unknown.append, self.sent.append)
+
+    def test_a_local_commit_is_not_answered_again(self) -> None:
+        pgfeed.note_local("a", 5)
+        self.cb("a", 5, False)
+        self.assertEqual((self.unknown, self.sent), ([], []))
+
+    def test_a_foreign_commit_reloads_and_broadcasts(self) -> None:
+        pgfeed.note_local("a", 5)
+        self.cb("a", 6, False)
+        self.assertEqual((self.unknown, self.sent), (["a"], ["a"]))
+
+    def test_a_gap_always_reloads_even_below_the_local_revision(self) -> None:
+        pgfeed.note_local("a", 9)
+        self.cb("a", 7, True)
+        self.assertEqual((self.unknown, self.sent), (["a"], ["a"]))
+
+    def test_local_revisions_only_move_forward_per_org(self) -> None:
+        pgfeed.note_local("a", 5)
+        pgfeed.note_local("a", 3)
+        pgfeed.note_local("b", 1)
+        self.assertEqual((pgfeed.local_revision("a"), pgfeed.local_revision("b"),
+                          pgfeed.local_revision("c")), (5, 1, 0))
+
+    def test_known_revision_is_the_newest_of_local_and_seen(self) -> None:
+        feed = pgfeed.RevisionFeed(lambda: None, lambda *a: None)
+        pgfeed.note_local("a", 4)
+        self.assertEqual(pgfeed.known_revision(feed, "a"), 4)
+        feed.observe("a", 6, source="notify")
+        self.assertEqual(pgfeed.known_revision(feed, "a"), 6)
+        self.assertEqual(pgfeed.known_revision(None, "a"), 4)
+
 if __name__ == "__main__":
     unittest.main()

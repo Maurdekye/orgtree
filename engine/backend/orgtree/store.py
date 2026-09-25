@@ -3340,6 +3340,14 @@ def _save_sqlite(org: Org) -> None:
                     # change record is not a trustworthy delta of it
                     _publish_changes_unknown(slug)
                 _bump_org_seq(slug)
+                if STORE_BACKEND == "postgres":
+                    # PG-4: this process made that revision (recorded only now
+                    # that COMMIT succeeded); an org_tx's pinned save is
+                    # recorded by the org_tx's own commit listener instead
+                    _pc = cast("pgstore.PgConn", conn)
+                    if not _pc.pinned and _pc.last_revision is not None:
+                        from . import pgfeed
+                        pgfeed.note_local(slug, _pc.last_revision)
                 _txc = getattr(_orgtx_local, "on_commit", None)
                 if _txc is not None:
                     _txc(changes)
@@ -4101,8 +4109,9 @@ def read_user_inbox(slug: str) -> dict[str, Any]:
     This is a read projection, never an Org that could be saved. It avoids
     loading the roster, unrelated pending notices and entire mail histories.
     JSON remains the rollback reader. Pending mail is intentionally complete.
+    PG-4: postgres runs the same statements through `PgConn`.
     """
-    if STORE_BACKEND != "sqlite":
+    if not ROW_STORE:
         d = load_org(slug).d
         return {"pending": d.get("user_inbox", []),
                 "delivered": d.get("user_mail_log", [])[-50:],
@@ -4155,8 +4164,13 @@ def read_user_inbox(slug: str) -> dict[str, Any]:
 
 def _bounded_read(slug: str, body: Callable[[sqlite3.Connection], Any]) -> Any:
     """One short read transaction against the org's database, or None when
-    this root is not on the SQLite backend (caller falls back to load_org)."""
-    if STORE_BACKEND != "sqlite":
+    this root is not on a row backend (caller falls back to load_org).
+
+    PG-4: postgres is a row backend too. Its `PgConn` runs these same
+    statements (`?` placeholders, `LIMIT -1`, `json_extract` from
+    pg_migrations/0001); without this, every bounded reader silently fell
+    back to materializing the whole document on postgres."""
+    if not ROW_STORE:
         return None
     slug = _safe_slug(slug)
     _ensure_migrated(slug)
@@ -4629,6 +4643,16 @@ def _publish_changes_unknown(slug: str) -> None:
     collection): the next reader rebuild must not trust the accumulation."""
     with _changed_lock:
         _changed_all.add(slug)
+
+
+def external_change(slug: str) -> None:
+    """PG-4: a commit this process did not make (another process, or one whose
+    NOTIFY was missed). Its change set is unknown, so the next snapshot read
+    must be a full reload: publish `unknown` and move the seq, inside the
+    snapshot gate like a local commit's publish."""
+    with _snap_gate(slug):
+        _publish_changes_unknown(slug)
+        _bump_org_seq(slug)
 
 
 def _invalidate_snapshot(slug: str) -> None:
