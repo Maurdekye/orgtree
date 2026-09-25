@@ -203,9 +203,9 @@ def _resolve(name: str, slug: str, body: Any, a: dict[str, Any]) -> TxSpec:
     return spec(_snapshot(slug), body, a)
 
 
-def _run(slug: str, spec: TxSpec, step: Callable[[Any], Any]
+def _run(slug: str, spec: TxSpec, step: Callable[[Any, TxSpec], Any]
          ) -> tuple[Any, Any]:
-    """Open org_tx on `spec` and run `step(org)`; re-run on a retryable
+    """Open org_tx on `spec` and run `step(org, spec)`; re-run on a retryable
     failure or a `Widen`. Returns (org, step's value) after the commit."""
     attempts = widens = 0
     while True:
@@ -216,7 +216,7 @@ def _run(slug: str, spec: TxSpec, step: Callable[[Any], Any]
                            share_nodes=list(spec.share_nodes),
                            share_sections=list(spec.share_sections),
                            logs=list(spec.logs)) as org:
-                out = step(org)
+                out = step(org, spec)
             return org, out
         except Widen as w:
             widens += 1
@@ -236,10 +236,12 @@ def _run(slug: str, spec: TxSpec, step: Callable[[Any], Any]
 
 @dataclass
 class AgentTx:
-    """What a family body receives: the locked document and the call."""
+    """What a family body receives: the locked document, the call, and the
+    rows actually held (so a body can `Widen` when it finds one missing)."""
     org: Any
     node: str
     args: dict[str, Any]
+    spec: TxSpec
 
 
 def _gate(org: Any, nid: str) -> None:
@@ -304,14 +306,14 @@ def agent_tx(body: Any, a: dict[str, Any],
     base = spec if spec is not None else _resolve(body.tool, body.org, body, a)
     st: dict[str, Any] = {}
 
-    def step(org: Any) -> Any:
+    def step(org: Any, held: TxSpec) -> Any:
         st.clear()
         _gate(org, body.node)
         rcpt = st["rcpt"] = admit(org, body, a)
         if rcpt is not None and "replay" in rcpt:
             # nothing changed; the clean exit commits an empty tx
             return rcpt["replay"]
-        result = fn(AgentTx(org=org, node=body.node, args=a))
+        result = fn(AgentTx(org=org, node=body.node, args=a, spec=held))
         if rcpt is not None:
             # LAST write before commit: effect and receipt are one tx
             file(org, body, a, rcpt, result)
@@ -331,6 +333,7 @@ class OpTx:
     op: str
     body: Any
     args: dict[str, Any]
+    spec: TxSpec
 
 
 def op_tx(slug: str, op: str, body: Any, a: dict[str, Any],
@@ -343,7 +346,8 @@ def op_tx(slug: str, op: str, body: Any, a: dict[str, Any],
     released). The target rows come from `LOCKS[op]`."""
     base = spec if spec is not None else _resolve(op, slug, body, a)
     org, result = _run(slug, _norm(base),
-                       lambda org: fn(OpTx(org=org, op=op, body=body, args=a)))
+                       lambda org, held: fn(OpTx(org=org, op=op, body=body,
+                                                 args=a, spec=held)))
     if on_commit is not None:
         on_commit(org)
     return result
