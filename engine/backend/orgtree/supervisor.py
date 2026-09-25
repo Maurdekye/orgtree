@@ -23481,8 +23481,17 @@ def _run_one_turn_recorded(slug: str, nid: str,
         _switch_wake: list[str] = []
         _account_wake: list[tuple[str, str]] = []
         try:
-            with store.DOC_LOCK:
-                o2 = store.load_org(slug)
+            # PG-3e-A: the turn-end pop is one halt transaction on the agent's
+            # row. A switch queued during the turn (`pending_switch` /
+            # `pending_account`) touches far more than that row (the credit
+            # chain, notices, asks, a new `nid@gen` — decision 6), so it is
+            # applied in a SECOND pass on the whole-document path
+            # (`_node_write(whole_org=True)`, legitimate during the
+            # transition) rather than inside the one-row transaction, where
+            # its writes would be refused and take the marker pop down with
+            # them.
+            _switch_queued = False
+            with _node_write(slug, nid) as o2:
                 # ⚠ THE POPPED MARKER IS KEPT, NOT DISCARDED. It used to be
                 # popped straight into the truth test and thrown away; the
                 # startup reconcile then had no way to tell a seat whose turn
@@ -23503,17 +23512,23 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 # crossing mints the successor's session and re-arms its
                 # pardon, while `ran_sid` names the session this turn
                 # actually ran — the bearer's now — so that spend is a no-op.
-                if _apply_pending_switch_locked(o2, slug, nid,
-                                                wake=_switch_wake,
-                                                account_wake=_account_wake):
-                    changed = True
-                if changed:
-                    store.save_org(o2)
+                _switch_queued = nid in o2.nodes and bool(
+                    o2.node(nid).get("pending_switch")
+                    or o2.node(nid).get("pending_account"))
                 # cheap pre-check on the doc already in hand: the (rare) node
                 # holding a never-run pardon pays for the transcript lookup,
                 # nobody else does
                 pardon_pending = (nid in o2.nodes
                                   and "session_unrun" in o2.node(nid))
+            if _switch_queued:
+                with _node_write(slug, nid, whole_org=True) as o2:
+                    _apply_pending_switch_locked(o2, slug, nid,
+                                                 wake=_switch_wake,
+                                                 account_wake=_account_wake)
+                    # the switch may mint a successor session and re-arm its
+                    # pardon: re-read it off the document the switch ran on
+                    pardon_pending = (nid in o2.nodes
+                                      and "session_unrun" in o2.node(nid))
         except Exception:                                    # noqa: BLE001
             pass
         if _switch_wake:
