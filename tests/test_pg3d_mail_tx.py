@@ -164,6 +164,35 @@ class MailTx(unittest.TestCase):
         self.assertEqual(d['user_inbox'], [])
         self.assertEqual({'u1', 'u2'} & {m['id'] for m in d['user_mail_log']}, {'u1', 'u2'})
 
+    def test_ask_answer_audience_revoke_and_retract_commit_without_doc_lock(self) -> None:
+        org = store.load_org(self.slug)
+        ask = org.ask_user('deep', 'Proceed?')
+        store.save_org(org)
+        aid = ask.get('id') or store.load_org(self.slug).d['asks'][-1]['id']
+        with patch.object(supervisor, 'send_message', return_value={'accepted': True}):
+            with DocLockHeld():
+                r = call_with_timeout(lambda: self.client.post(
+                    f'/api/orgs/{self.slug}/asks/{aid}/answer', headers=HEADERS,
+                    json={'text': 'yes, go'}))
+                self.assertEqual(r.status_code, 200, r.text)
+                sent = call_with_timeout(lambda: self._send('retract me'))
+                self.assertEqual(sent.status_code, 200, sent.text)
+        d = store.load_org(self.slug).d
+        self.assertNotEqual(next(a for a in d['asks'] if a['id'] == aid)['status'], 'open')
+        mid = next(m['id'] for m in d['mail']['deep'] if m.get('body') == 'retract me')
+        self.assertTrue(any(True for a in d['audiences'] if 'deep' in str(a)), 'a user audience exists')
+        with DocLockHeld():
+            r = call_with_timeout(lambda: self.client.delete(
+                f'/api/orgs/{self.slug}/nodes/deep/mail/{mid}', headers=HEADERS))
+            self.assertEqual(r.status_code, 200, r.text)
+            r = call_with_timeout(lambda: self.client.post(
+                f'/api/orgs/{self.slug}/audiences', headers=HEADERS,
+                json={'action': 'revoke', 'node': 'deep', 'target': 'user'}))
+            self.assertIn(r.status_code, (200, 422), r.text)
+        d = store.load_org(self.slug).d
+        self.assertFalse(any(m.get('id') == mid for m in d['mail']['deep']), 'retracted')
+        self.assertTrue(any(m.get('id') == mid and m.get('retracted') for m in d['mail_log']['deep']))
+
 
 if __name__ == '__main__':
     unittest.main()
