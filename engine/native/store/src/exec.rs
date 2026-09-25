@@ -176,6 +176,12 @@ pub enum CmdError {
     Db(DbError),
     /// A logic defect in the command: fail at once, never retry.
     Defect(String),
+    /// The command asks for its whole attempt to be rolled back and re-run
+    /// with the SAME operation identity and a fresh attempt clock, counted in
+    /// the same bounded attempts. `cause` is traced as the retry reason; no
+    /// SQLSTATE is invented (WS5: a grant-bearing send whose anchored route
+    /// disagrees with its unlocked prediction; lead ack 2026-09-25).
+    RetryAttempt { cause: &'static str },
 }
 
 impl From<DbError> for CmdError {
@@ -485,7 +491,7 @@ impl Default for ExecConfig {
 enum Step<T> {
     Done(Outcome<T>),
     Fatal(ExecError),
-    Retry { err: DbError, reason: &'static str, now: Option<i64>, claimed: bool },
+    Retry { err: Option<DbError>, reason: &'static str, now: Option<i64>, claimed: bool },
     CommitUnknown { now: Option<i64> },
     LockTimeout { claim_phase: bool },
 }
@@ -574,8 +580,12 @@ impl<C: Connector> Executor<C> {
                     return Ok(o);
                 }
                 Step::Retry { err, reason, now, claimed } => {
-                    scope.emit(EventKind::Retry { reason, sqlstate: err.sqlstate(), constraint: err.constraint() }, false);
-                    last_sqlstate = err.sqlstate().map(str::to_string);
+                    let (sqlstate, constraint) = match &err {
+                        Some(e) => (e.sqlstate(), e.constraint()),
+                        None => (None, None),
+                    };
+                    scope.emit(EventKind::Retry { reason, sqlstate, constraint }, false);
+                    last_sqlstate = sqlstate.map(str::to_string);
                     prev_now = now.or(prev_now);
                     if claimed {
                         // our claim went in, so an in-doubt earlier commit did not happen
@@ -815,6 +825,10 @@ impl<C: Connector> Executor<C> {
                 Step::Fatal(ExecError::Defect(m))
             }
             CmdError::Db(e) => self.classify(tx, family, e, claimed, claim_phase, true).await,
+            CmdError::RetryAttempt { cause } => {
+                self.rollback(tx).await;
+                Step::Retry { err: None, reason: cause, now: tx.now, claimed }
+            }
         }
     }
 
@@ -828,7 +842,7 @@ impl<C: Connector> Executor<C> {
         // Unsafe control: retry every unique violation, allowlisted or not.
         let any = e.sqlstate() == Some("23505") && controls::fire(&tx.scope(), "Q-C4.retry_any_23505");
         match retry::classify(&e, &allowed, any) {
-            Class::Retry(reason) => Step::Retry { err: e, reason, now: tx.now, claimed },
+            Class::Retry(reason) => Step::Retry { err: Some(e), reason, now: tx.now, claimed },
             Class::LockTimeout => Step::LockTimeout { claim_phase },
             Class::Fatal => Step::Fatal(ExecError::Sql(e)),
         }
