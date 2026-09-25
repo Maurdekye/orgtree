@@ -136,6 +136,13 @@ class WorkDoor(unittest.TestCase):
                                 'status': 'dropped',
                                 'dropped_reason': 'Cancelled by the test; nothing to resume.'})
         self.assertFalse(item(self.slug, self.wid)[1])
+        # a door call WITHOUT the preceding sweep must not archive it: the
+        # ledger's head-of-call sweep is deferred inside the door
+        a = {'action': 'create', 'title': 'Unswept call',
+             'objective': 'Problem: a. Solution: b.'}
+        door(self.slug, 'own', a, spec=workdoor.spec(None, None, a))
+        self.assertFalse(item(self.slug, self.wid)[1],
+                         'the door body archived another item (deferral lost)')
         door(self.slug, 'own', {'action': 'create', 'title': 'Another item',
                                 'objective': 'Problem: a. Solution: b.'})
         self.assertTrue(item(self.slug, self.wid)[1],
