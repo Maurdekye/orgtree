@@ -15301,7 +15301,8 @@ def assign_account(slug: str, nid: str, account_id: str, *,
                    org: Org | None = None, via: str = "manual",
                    allow_frozen: bool = False,
                    immediate: bool = False,
-                   notify_change: bool = True) -> dict[str, Any]:
+                   notify_change: bool = True,
+                   doc_held: bool = False) -> dict[str, Any]:
     """Reassign a node's account binding — the ONE writer both surfaces call
     (design D2d). Authority is checked by the CALLER (operator token, or
     org.is_ancestor for the agent tool); everything about the ACCOUNT is
@@ -15342,7 +15343,13 @@ def assign_account(slug: str, nid: str, account_id: str, *,
 
     `immediate` opens the busy door for a rebind that owes NO session boundary
     (account removal, 2026-09-21 — see `account_removal`). It changes nothing
-    else: the frozen policy, the validation and the disclosure are the same."""
+    else: the frozen policy, the validation and the disclosure are the same.
+
+    `doc_held` (with `org`): the caller already holds this document under a
+    row transaction (the pgdoor door), so this call must NOT take DOC_LOCK —
+    acquiring it under row locks is the deadlock plan decision 26 forbids
+    (a legacy cycle holding DOC_LOCK waits on the door's row). Everything
+    else is unchanged; the caller owns the save, as with any `org=`."""
     from . import warmpool
     st = state(slug, nid)
     # a caller mid-transaction (the agent-tool dispatch) passes its OWN org
@@ -15351,7 +15358,9 @@ def assign_account(slug: str, nid: str, account_id: str, *,
     # owns the save; DOC_LOCK is re-entrant so the with below is safe both
     # ways.
     _caller_owns_save = org is not None
-    with store.DOC_LOCK:
+    if doc_held and org is None:
+        raise RuntimeError("assign_account(doc_held=True) needs the caller's org")
+    with (contextlib.nullcontext() if doc_held else store.DOC_LOCK):
         if org is None:
             org = store.load_org(slug)
         if nid not in org.nodes:
