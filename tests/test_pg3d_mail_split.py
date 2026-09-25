@@ -157,6 +157,24 @@ class SplitStorage(unittest.TestCase):
             tx.d['mail']['new'] = []
         self.assertIn('mail' + SEP + 'new', _doc_rows(self.slug))
 
+    def test_owner_lock_may_create_the_empty_container_only(self) -> None:
+        org = store.load_org(self.slug)
+        del org.d['notices']
+        store.save_org(org)
+        self.assertNotIn('notices', _doc_rows(self.slug))
+        with orgtx.org_tx(self.slug, sections=[('notices', 'a')]) as tx:
+            tx.d.setdefault('notices', {})['a'] = [{'text': 'first'}]
+        rows = _doc_rows(self.slug)
+        self.assertEqual(rows['notices'], '{}')
+        self.assertIn('notices' + SEP + 'a', rows)
+        # CONTROL: a container that is not the empty one (a blob) is refused
+        before = _doc_rows(self.slug)
+        with self.assertRaises(orgtx.UnlockedWrite) as cm:
+            with orgtx.org_tx(self.slug, sections=[('notices', 'a')]) as tx:
+                tx.d['notices'] = ['not', 'a', 'dict']
+        self.assertIn(('section', 'notices'), cm.exception.rows)
+        self.assertEqual(_doc_rows(self.slug), before)
+
     def test_bad_names_refused(self) -> None:
         for bad in ([('events', 'a')], [('mail',)], ['mail' + SEP + 'a'], [('mail', '')]):
             with self.assertRaises(ValueError, msg=repr(bad)):

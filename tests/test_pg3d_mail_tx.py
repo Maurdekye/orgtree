@@ -132,16 +132,22 @@ class MailTx(unittest.TestCase):
 
         def under(*recipients: str):
             rows = real(*recipients)
-            rows['sections'] = [s for s in rows['sections'] if s != 'mail']
+            # the recipient's box: ('mail', nid) since the per-owner split
+            kept = [s for s in rows['sections']
+                    if s != 'mail' and not (isinstance(s, tuple) and s[0] == 'mail')]
+            under.removed += len(rows['sections']) - len(kept)
+            rows['sections'] = kept
             under.ran = True
             return rows
 
         under.ran = False
+        under.removed = 0
         with patch.object(supervisor, 'send_message', return_value={'accepted': True}), \
                 patch.object(mailtx, 'send_rows', under):
             with self.assertRaises(orgtx.UnlockedWrite):
                 self._send('must not land')
         self.assertTrue(under.ran, 'the under-declared control never ran')
+        self.assertGreater(under.removed, 0, 'the control removed no mail declaration')
         d = store.load_org(self.slug).d
         self.assertFalse((d.get('mail') or {}).get('deep'), 'CONTROL FAILED AS DESIGNED: nothing may land')
 
