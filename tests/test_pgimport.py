@@ -397,6 +397,30 @@ class Importing(Base):
         self.assertEqual(again["orgs"]["acme"]["action"], "imported")
 
 
+class CommandLine(Base):
+    def run_cli(self, *args: str) -> subprocess.CompletedProcess:
+        tool = Path(__file__).resolve().parents[1] / "tools" / "pypg" / "pgimport.py"
+        return subprocess.run([sys.executable, str(tool), *args], capture_output=True, text=True, timeout=120)
+
+    def test_dry_run_exit_codes_and_report(self) -> None:
+        write_db(self.orgs() / "acme.db", sample_doc())
+        before = tree_digest(self.orgs())
+        out = self.tmp / "report.json"
+        ok = self.run_cli("dry-run", "--root", str(self.root), "--out", str(out))
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+        report = json.loads(out.read_text(encoding="utf-8"))
+        self.assertTrue(report["importable"])
+        repo = Path(__file__).resolve().parents[1]
+        self.assertTrue(Path(report["provenance"]["store"]).is_relative_to(repo), report["provenance"])
+        (self.orgs() / "notes.txt").write_text("")
+        refused = self.run_cli("dry-run", "--root", str(self.root))
+        self.assertEqual(refused.returncode, 3, refused.stderr)
+        self.assertIn("notes.txt: unrecognised file", json.loads(refused.stdout)["refused"][0])
+        (self.orgs() / "notes.txt").unlink()
+        self.assertEqual(tree_digest(self.orgs()), before)
+        self.assertEqual(self.run_cli("dry-run", "--root", str(self.tmp / "nowhere")).returncode, 2)
+
+
 class Cutover(Base):
     def test_cutover_needs_a_clean_complete_matching_import(self) -> None:
         write_db(self.orgs() / "acme.db", sample_doc())
