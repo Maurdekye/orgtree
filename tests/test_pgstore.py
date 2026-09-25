@@ -173,6 +173,15 @@ class Seam(unittest.TestCase):
         self.assertEqual(slug2, slug)
         self.assertEqual(_node(slug, 'b')['name'], 'b')
 
+    def test_many_orgs_share_a_bounded_connection_pool(self) -> None:
+        slugs = [_fresh_org(f'pool-{i}') for i in range(30)]
+        for s in slugs:
+            store.load_org(s).d['events']            # a lazy read, too
+        with psycopg.connect(ADMIN, autocommit=True) as c:
+            n = c.execute('SELECT count(*) FROM pg_stat_activity WHERE datname = %s',
+                          (DBNAME,)).fetchone()[0]
+        self.assertLessEqual(n, pgstore._IDLE_CAP + 2, f'{n} server connections for 30 orgs')
+
     def test_revision_and_notify(self) -> None:
         slug = _fresh_org('seam-rev')
         listen = psycopg.connect(os.environ['ORGTREE_PG_URL'], autocommit=True)

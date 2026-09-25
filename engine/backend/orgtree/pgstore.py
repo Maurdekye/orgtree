@@ -300,12 +300,65 @@ class PgConn:
         raise NotImplementedError("schema comes from pg_migrations, not _DDL")
 
     def close(self) -> None:
-        self.raw.close()
+        """Return the server connection to the process-wide idle pool (when
+        it is clean), else close it. store's per-slug pool does not keep
+        postgres connections idle: that multiplied by the org count and ran a
+        40-connection server out of slots (`too many clients`)."""
+        _release(self.raw)
 
 
 # ----------------------------------------------------------------- orgs
 
 _create_lock = threading.Lock()
+
+#: idle server connections shared by every org (search_path is set on each
+#: checkout). Bounded: beyond it a released connection is closed.
+_IDLE_CAP = int(os.environ.get("ORGTREE_PG_POOL_IDLE", "8") or 8)
+_idle: list[tuple[str, Any]] = []
+_idle_lock = threading.Lock()
+
+
+def _checkout() -> Any:
+    target = url()
+    with _idle_lock:
+        while _idle:
+            u, raw = _idle.pop()
+            if u == target and not raw.closed:
+                return raw
+            _close_quietly(raw)
+    return connect(target)
+
+
+def _release(raw: Any) -> None:
+    pq = _psycopg().pq
+    clean = (not raw.closed
+             and raw.info.transaction_status == pq.TransactionStatus.IDLE)
+    if clean:
+        try:
+            raw.execute("RESET search_path")
+        except Exception:                                   # noqa: BLE001
+            clean = False
+    if clean:
+        with _idle_lock:
+            if len(_idle) < _IDLE_CAP:
+                _idle.append((url(), raw))
+                return
+    _close_quietly(raw)
+
+
+def _close_quietly(raw: Any) -> None:
+    try:
+        raw.close()
+    except Exception:                                       # noqa: BLE001
+        pass
+
+
+def close_idle() -> None:
+    """Close every pooled idle connection (tests; shutdown)."""
+    with _idle_lock:
+        conns, _idle[:] = list(_idle), []
+    for _, raw in conns:
+        _close_quietly(raw)
 
 
 def read_marker(path: str) -> int | None:
@@ -343,7 +396,7 @@ def open_conn(slug: str, marker: str, *, create: bool = False) -> PgConn:
     """A connection whose search_path is `slug`'s schema. A missing marker
     raises like a missing SQLite file unless `create` (only save_org and
     create_org pass it, exactly as for SQLite)."""
-    raw = connect()
+    raw = _checkout()
     try:
         org_id = read_marker(marker)
         if org_id is None:
@@ -357,7 +410,7 @@ def open_conn(slug: str, marker: str, *, create: bool = False) -> PgConn:
         raw.execute(f"SET search_path TO org_{int(org_id)}, public")
         return PgConn(raw, slug, org_id)
     except BaseException:
-        raw.close()
+        _release(raw)
         raise
 
 
