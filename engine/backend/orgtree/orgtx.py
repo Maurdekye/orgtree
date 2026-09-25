@@ -20,6 +20,11 @@ THE INTERFACE (stable; this is what the PG-3x family packages code against):
 
   * `nodes` / `sections` — node ids and top-level doc sections locked
     FOR UPDATE. Only these may be written.
+    PG-3d: a split section (store.SPLIT_SECTIONS: `mail`, `delivering`,
+    `notices`) may also be named per owner, `("mail", nid)`: that locks
+    only nid's row of it (plus the section's container row, SHARED, so a
+    whole-section lock still excludes it). A bare `"mail"` locks every
+    owner's row.
   * `share_nodes` / `share_sections` — locked FOR SHARE: read for a decision,
     never written. Conflicts with a FOR UPDATE of the same row, not with
     other sharers (the killswitch latch vs admissions case).
@@ -100,6 +105,8 @@ T = TypeVar("T")
 
 #: A log name: a list/dict log section, or (dict-log section, owner).
 LogName = str | tuple[str, str]
+#: PG-3d: a doc section, or (split section, owner) — see `sections` above
+SectionName = str | tuple[str, str]
 
 #: `after_commit` runs once the COMMIT has succeeded: raising there is how a
 #: test models a connection lost after the server committed (RT6).
@@ -347,7 +354,8 @@ def _disallowed(tx: OrgTx, changes: SaveChanges) -> tuple[tuple[str, str], ...]:
     """Rows the save wrote that the transaction did not lock for update."""
     bad: list[tuple[str, str]] = []
     for k in (*changes.doc_upserts, *changes.doc_deletes):
-        if k not in tx.lock_sections:
+        if k not in tx.lock_sections \
+                and store.split_section_of(k) not in tx.lock_sections:
             bad.append(("section", k))
     if not tx.all_nodes:
         for n in (*changes.node_updates, *changes.node_inserts, *changes.node_deletes):
@@ -698,6 +706,35 @@ def _names(x: Iterable[str] | None, what: str) -> frozenset[str]:
     return frozenset(x)
 
 
+def _section_names(x: Iterable[str | tuple[str, str]] | None, what: str
+                   ) -> tuple[frozenset[str], frozenset[str]]:
+    """(row names, split containers to share): a bare section name is its
+    row; a `(split section, owner)` pair is the owner's row
+    (`section\\x1fowner`), and its section's container row is returned to be
+    locked SHARED."""
+    if x is None:
+        return frozenset(), frozenset()
+    if isinstance(x, str):
+        raise TypeError(f"{what} must be a list of names, not a string")
+    rows: set[str] = set()
+    parents: set[str] = set()
+    for n in x:
+        if isinstance(n, str):
+            if store.SPLIT_SEP in n:
+                raise ValueError(f"{what}: {n!r}: name an owner row as "
+                                 "(section, owner)")
+            rows.add(n)
+            continue
+        if len(n) != 2 or n[0] not in store.SPLIT_SECTIONS \
+                or not isinstance(n[1], str) or not n[1] \
+                or store.SPLIT_SEP in n[1]:
+            raise ValueError(f"{what}: {n!r} must be (section, owner) with "
+                             f"section in {sorted(store.SPLIT_SECTIONS)!r}")
+        rows.add(n[0] + store.SPLIT_SEP + n[1])
+        parents.add(n[0])
+    return frozenset(rows), frozenset(parents)
+
+
 def _check_sections(names: frozenset[str], what: str) -> None:
     bad = sorted(n for n in names if n == "nodes" or n in store.LAZY_SECTIONS)
     if bad:
@@ -741,17 +778,18 @@ def current_tx(slug: str) -> OrgTx | None:
 
 
 def _new_tx(slug: str, nodes: Iterable[str] | Any = None,
-            sections: Iterable[str] | None = None,
+            sections: Iterable[SectionName] | None = None,
             logs: Iterable[LogName] | None = None,
             share_nodes: Iterable[str] | None = None,
-            share_sections: Iterable[str] | None = None,
+            share_sections: Iterable[SectionName] | None = None,
             op_key: str | None = None, fingerprint: str | None = None) -> OrgTx:
     """Validate one org's names and build its (not yet begun) OrgTx."""
     all_nodes = nodes is ALL
     lock_nodes = frozenset() if all_nodes else _names(nodes, "nodes")
-    lock_sections = _names(sections, "sections")
+    lock_sections, lock_parents = _section_names(sections, "sections")
     sh_nodes = _names(share_nodes, "share_nodes") - lock_nodes
-    sh_sections = _names(share_sections, "share_sections") - lock_sections
+    sh_rows, sh_parents = _section_names(share_sections, "share_sections")
+    sh_sections = (sh_rows | sh_parents | lock_parents) - lock_sections
     _check_sections(lock_sections | sh_sections, "sections")
     log_names = _check_logs(logs)
     if fingerprint is not None and op_key is None:
@@ -818,10 +856,10 @@ def _run(make: Callable[[], list[OrgTx]], lock_timeout: float | None,
 
 @contextlib.contextmanager
 def org_tx(slug: str, *, nodes: Iterable[str] | Any = None,
-           sections: Iterable[str] | None = None,
+           sections: Iterable[SectionName] | None = None,
            logs: Iterable[LogName] | None = None,
            share_nodes: Iterable[str] | None = None,
-           share_sections: Iterable[str] | None = None,
+           share_sections: Iterable[SectionName] | None = None,
            op_key: str | None = None, fingerprint: str | None = None,
            lock_timeout: float | None = None,
            retries: int = DEFAULT_RETRIES) -> Iterator[OrgTx]:
