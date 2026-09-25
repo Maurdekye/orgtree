@@ -471,3 +471,46 @@ mod reads {
         assert_eq!(db.count("inbox.count"), 1);
     }
 }
+
+/// WS5: an anchor can refuse (caller not live, halted, ...): nothing is
+/// written — no claim, no domain row — and the refusal is the answer.
+mod anchor_refusal {
+    use super::*;
+    use orgtree_store::{Binding, CmdError, Command, Decided, Family, Refusal, Session, Tx};
+
+    struct RefuseInAnchor;
+    impl Command for RefuseInAnchor {
+        type Output = i64;
+        fn family(&self) -> &'static Family {
+            &FAM
+        }
+        fn verb(&self) -> &'static str {
+            "refuse_in_anchor"
+        }
+        async fn anchor<S: Session>(&self, tx: &mut Tx<'_, S>, _b: &Binding) -> Result<(), CmdError> {
+            tx.exec("test.anchor", "SELECT 1", &[]).await?;
+            Err(CmdError::Refused(Refusal::new("caller_not_live", "the caller is archived")))
+        }
+        async fn may_disclose<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding, _o: &i64) -> Result<bool, CmdError> {
+            Ok(true)
+        }
+        async fn execute<S: Session>(&self, tx: &mut Tx<'_, S>, _b: &Binding) -> Result<Decided<i64>, CmdError> {
+            tx.exec("fake.insert:rows", "INSERT ...", &[]).await?;
+            Ok(Decided::Applied(1))
+        }
+    }
+
+    #[tokio::test]
+    async fn an_anchor_refusal_writes_nothing_and_is_the_answer() {
+        let db = FakeDb::new();
+        let (ex, trace) = exec(&db);
+        let o = ex.run(&RefuseInAnchor, &binding("k1", "fp1")).await.unwrap();
+        assert!(matches!(o, Outcome::Refused(ref r) if r.code == "caller_not_live"), "{o:?}");
+        assert_eq!(db.count("receipt.claim"), 0, "refused before the claim");
+        assert!(db.receipts().is_empty());
+        assert!(db.rows("rows").is_empty());
+        assert_eq!(db.count("commit"), 0);
+        assert!(!trace.events.lock().unwrap().iter().any(|e| e.starts_with("retry:")), "a refusal is never retried");
+        assert!(trace.has("outcome:refused"));
+    }
+}
