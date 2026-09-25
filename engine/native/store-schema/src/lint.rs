@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::INSTALLATION_TABLES;
+use crate::{HIGH_RATE_TABLES, INSTALLATION_TABLES, ORG_WIDE_TABLES, RECEIVER_HEAD_TABLES, SOURCE_SIDE_TABLES};
 
 #[derive(Clone, Debug, Default)]
 pub struct Schema {
@@ -276,6 +276,14 @@ pub fn lint(s: &Schema) -> Vec<Finding> {
                 let target = c.def[pos + "REFERENCES ".len()..].split(|ch: char| ch == ' ' || ch == '(').next().unwrap_or("").to_string();
                 if org_scoped(&target) && !d.replace(' ', "").starts_with("FOREIGNKEY(ORG_ID") {
                     out.push(f("R6-org-fk", &t.name, format!("foreign key {} to {} does not include org_id first", c.name, target)));
+                }
+                // R9: no FK from a high-rate table to an org-wide row (F2).
+                if HIGH_RATE_TABLES.contains(&t.name.as_str()) && ORG_WIDE_TABLES.contains(&target.as_str()) {
+                    out.push(f("R9-hot-fk", &t.name, format!("high-rate table references org-wide row {} via {}", target, c.name)));
+                }
+                // R10: no source-side FK to a receiver head row (F3).
+                if SOURCE_SIDE_TABLES.contains(&t.name.as_str()) && RECEIVER_HEAD_TABLES.contains(&target.as_str()) {
+                    out.push(f("R10-head-fk", &t.name, format!("source-side table references receiver head {} via {}", target, c.name)));
                 }
             }
         }

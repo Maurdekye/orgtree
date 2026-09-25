@@ -64,6 +64,41 @@ pub const MANIFEST: &str = include_str!("../migrations/SHA256SUMS");
 /// Tables that are not organization-scoped (no `org_id`).
 pub const INSTALLATION_TABLES: &[&str] = &["store_incarnation", "service_incarnations", "publication_catalog"];
 
+/// Org-wide rows: one per organization, so a foreign key to them from a
+/// high-rate table puts every insert's `FOR KEY SHARE` on one row (lead
+/// ruling F2).
+pub const ORG_WIDE_TABLES: &[&str] = &["organizations"];
+
+/// Tables written on common paths at high rate. They may not carry a foreign
+/// key to an [`ORG_WIDE_TABLES`] row (lint R9). Families adding a high-rate
+/// table add it here in the same commit.
+pub const HIGH_RATE_TABLES: &[&str] = &[
+    "operation_receipts", "runtime_inflight", "mail_sent", "outgoing_intents",
+    "transport_intents", "mailbox_messages", "work_item_versions",
+];
+
+/// Receiver HEAD rows (C2a P8), and the source-side tables that must never
+/// reference them (lint R10; v6 SCHEMA-CATALOG:29).
+pub const RECEIVER_HEAD_TABLES: &[&str] = &["mailboxes"];
+pub const SOURCE_SIDE_TABLES: &[&str] = &["mail_sent", "outgoing_intents", "transport_intents"];
+
+/// Server-side statements no labelled `Tx` statement covers: triggers and
+/// functions, with the relations they touch. WS7's statement/relation map
+/// includes these so Q-C5 does not flag them as hidden access (lead note N1,
+/// v6 PROFILING:19).
+pub const DECLARED_SERVER_SIDE: &[(&str, &str, &[&str])] = &[
+    (
+        "trigger operation_receipts_claimed_at_commit",
+        "at COMMIT of any transaction that inserted or updated operation_receipts: one indexed read of the same key",
+        &["operation_receipts"],
+    ),
+    (
+        "function resource_reservations_paths_ok",
+        "CHECK on insert/update of resource_reservations.paths: pure, reads no relation",
+        &[],
+    ),
+];
+
 /// Tables WS6 may publish (CONTRACT-M1 §7). `operation_receipts` is published
 /// with [`RECEIPT_PUBLISHED_COLUMNS`] only.
 pub const PUBLISHED: &[&str] = &[

@@ -46,8 +46,12 @@ CREATE TABLE mail_sent (
     op_receipt_id        uuid        NULL,
     sent_at              timestamptz NOT NULL,
     CONSTRAINT mail_sent_pk PRIMARY KEY (org_id, message_id),
-    CONSTRAINT mail_sent_org_fk FOREIGN KEY (org_id) REFERENCES organizations (org_id),
-    CONSTRAINT mail_sent_dest_mailbox_fk FOREIGN KEY (org_id, dest_mailbox_id) REFERENCES mailboxes (org_id, mailbox_id),
+    -- NO foreign key to organizations (high-rate, F2) and NO foreign key to
+    -- mailboxes: that FK check would take FOR KEY SHARE on the destination's
+    -- HEAD row inside the SENDER's transaction (v6 SCHEMA-CATALOG:29), and
+    -- the Sent row must outlive a deleted mailbox so the receiver can refuse
+    -- it under a closed-mailbox fence (Q-AM5, Q-E1 (b)). The destination is a
+    -- captured identity (principal + mailbox incarnation), not a reference.
     CONSTRAINT mail_sent_source_kind CHECK (source_kind IN ('agent', 'user', 'system')),
     CONSTRAINT mail_sent_dest_kind CHECK (dest_kind IN ('mailbox', 'external')),
     CONSTRAINT mail_sent_dest_shape CHECK (
@@ -108,7 +112,7 @@ CREATE TABLE outgoing_intents (
     created_at      timestamptz NOT NULL,
     settled_at      timestamptz NULL,
     CONSTRAINT outgoing_intents_pk PRIMARY KEY (org_id, intent_id),
-    CONSTRAINT outgoing_intents_org_fk FOREIGN KEY (org_id) REFERENCES organizations (org_id),
+    -- no FK to organizations: high-rate table (F2)
     CONSTRAINT outgoing_intents_kind CHECK (kind IN ('mail.deliver', 'mail.retract', 'wake', 'kickoff', 'notify', 'folder.move')),
     CONSTRAINT outgoing_intents_stage CHECK (stage IN ('pending', 'settled', 'refused', 'dormant')),
     CONSTRAINT outgoing_intents_unique_effect UNIQUE (org_id, kind, source_ref, dest_ref)
