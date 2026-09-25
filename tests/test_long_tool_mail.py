@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine/backend'))
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
-from orgtree import ledger, store, supervisor as sup, toolwait, maildrain, halt
+from orgtree import ledger, orgtx, store, supervisor as sup, toolwait, maildrain, halt
 
 assert Path(store.DATA_ROOT).resolve() == Path(_root.name).resolve()
 
@@ -314,7 +314,7 @@ class LongToolTests(unittest.TestCase):
         toolwait.sweep()
         self.assertFalse(toolwait.records())
         toolwait._save(self.result_row('temporarily-unreadable'))
-        with patch.object(store, 'load_org', side_effect=OSError('database temporarily locked')) as load:
+        with patch.object(orgtx, 'org_read', side_effect=OSError('database temporarily locked')) as load:
             toolwait.sweep()
             toolwait.sweep()
             self.assertEqual(load.call_count, 1)  # backoff, not a 1 Hz retry storm
@@ -325,7 +325,7 @@ class LongToolTests(unittest.TestCase):
 
     def test_persistent_publication_failure_has_a_finite_attempt_budget(self):
         toolwait._save(self.result_row('persistent-failure'))
-        with patch.object(store, 'load_org', side_effect=OSError('unreadable database')) as load:
+        with patch.object(orgtx, 'org_read', side_effect=OSError('unreadable database')) as load:
             for _ in range(toolwait.MAX_PUBLISH_FAILURES + 2):
                 self.retry_due()
         self.assertEqual(load.call_count, toolwait.MAX_PUBLISH_FAILURES)
@@ -337,7 +337,7 @@ class LongToolTests(unittest.TestCase):
     def test_old_temporary_failure_expires_even_before_attempt_budget(self):
         toolwait._save(self.result_row('expired-failure',
             first_publish_failure_at=time.time() - toolwait.MAX_PUBLISH_AGE_S - 1))
-        with patch.object(store, 'load_org', side_effect=OSError('still unavailable')):
+        with patch.object(orgtx, 'org_read', side_effect=OSError('still unavailable')):
             toolwait.sweep()
         self.assertFalse(toolwait.records())
         self.assertTrue(any(r['id'] == 'expired-failure' for r in toolwait.dead_letters()))
