@@ -72,7 +72,7 @@ fn run_one() -> (Vec<Record>, Arc<Collector>) {
         ["agents", "items", "operation_receipts"].iter().map(|s| s.to_string()).collect();
     let c = Arc::new(Collector::new("exec-1", 1024, "run-1", known));
     let db = FakeDb::new();
-    let cfg = ExecConfig { max_attempts: 3, backoff_base: Duration::ZERO, backoff_cap: Duration::ZERO };
+    let cfg = ExecConfig { max_attempts: 3, backoff_base: Duration::ZERO, backoff_cap: Duration::ZERO, lock_timeout_ms: None };
     let ex = Executor::new(FakeConnector { db: db.clone() }, 1, FakeConnector { db }, 1, cfg,
                            Hooks::with_trace(c.clone()));
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
@@ -179,7 +179,7 @@ impl Command for StubbedEdit {
 fn stub_statements_keep_their_stub_flag() {
     let known: BTreeSet<String> = ["items", "operation_receipts"].iter().map(|s| s.to_string()).collect();
     let c = Arc::new(Collector::new("exec-2", 1024, "run-2", known));
-    let cfg = ExecConfig { max_attempts: 3, backoff_base: Duration::ZERO, backoff_cap: Duration::ZERO };
+    let cfg = ExecConfig { max_attempts: 3, backoff_base: Duration::ZERO, backoff_cap: Duration::ZERO, lock_timeout_ms: None };
     let db = FakeDb::new();
     let ex = Executor::new(FakeConnector { db: db.clone() }, 1, FakeConnector { db }, 1, cfg,
                            Hooks::with_trace(c.clone()));
