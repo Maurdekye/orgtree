@@ -206,32 +206,54 @@ def _marker_ok(root: Path) -> bool:
     )
 
 
-def active_root(data_root: Any = None, env: Optional[Mapping[str, str]] = None) -> Optional[Path]:
-    """The prototype root when the hook must be active, else ``None``.
-    Raises :class:`LiveRootRefused` (see the module docstring)."""
-    env = os.environ if env is None else env
+def _activation(data_root: Any, env: Mapping[str, str]) -> tuple[Optional[Path], Optional[str]]:
+    """(the prototype root or None, why it stayed inert although the variable
+    is set). Raises :class:`LiveRootRefused`."""
     proto = (env.get(ENV_VAR) or "").strip()
     if not proto:
-        return None
+        return None, None
     data = str(data_root) if data_root is not None else (env.get("ORGTREE_DATA") or "").strip()
     # The live-root refusal comes FIRST, before any equality or marker check.
     refuse_live(proto, env)
     if data:
         refuse_live(data, env)
     if not data or _norm(proto) != _norm(data):
-        return None
+        return None, f"{ENV_VAR} is set but is not the backend's data root"
     root = Path(proto)
     if not _marker_ok(root):
-        return None
+        return None, f"{ENV_VAR} is set but {MARKER_FILE} is missing or does not match this folder"
     refuse_reparse_points(root)
-    return root
+    return root, None
 
 
-def install(app: Any, data_root: Any = None, env: Optional[Mapping[str, str]] = None) -> bool:
+def active_root(data_root: Any = None, env: Optional[Mapping[str, str]] = None) -> Optional[Path]:
+    """The prototype root when the hook must be active, else ``None``.
+    Raises :class:`LiveRootRefused` (see the module docstring)."""
+    return _activation(data_root, os.environ if env is None else env)[0]
+
+
+def install(app: Any, data_root: Any = None, env: Optional[Mapping[str, str]] = None,
+            record: Optional[Callable[..., bool]] = None) -> bool:
     """Install the router on ``app`` when the hook is active; otherwise do
-    nothing at all. Returns whether it installed."""
-    root = active_root(data_root, env)
+    nothing at all. Returns whether it installed.
+
+    Once the variable is set, a refusal (which still raises) and an inert
+    outcome are both recorded in the Windows Application event log (review
+    N2, :mod:`p03_refusal`), never in the data root. ``record`` replaces that
+    call in tests."""
+    env = os.environ if env is None else env
+    if record is None:
+        from .p03_refusal import record_refusal as record  # noqa: PLC0415
+    where = {"data_root": None if data_root is None else str(data_root),
+             "prototype_root": (env.get(ENV_VAR) or "").strip() or None}
+    try:
+        root, inert_reason = _activation(data_root, env)
+    except LiveRootRefused as exc:
+        record("p03_door", str(exc), **where)
+        raise
     if root is None:
+        if inert_reason:
+            record("p03_door", inert_reason, inert=True, **where)
         return False
     app.middleware("http")(_Router(root))
     return True
