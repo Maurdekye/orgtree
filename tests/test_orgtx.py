@@ -569,6 +569,23 @@ class PG0bFake(unittest.TestCase):
             tx.d['nodes']['a']['name'] = 'z'
         self.assertIsNone(store.load_org(self.slug).d['killswitch'])
 
+    def test_every_declared_singleton_row_is_present(self) -> None:
+        org = store.load_org(self.slug)
+        for k in store.ALWAYS_ROWS:
+            dict.pop(org.d, k, None)
+        store.save_org(org)
+        with orgtx.org_tx(self.slug, nodes=['a']) as tx:
+            tx.d['nodes']['a']['name'] = 'y'
+        d = store.load_org(self.slug).d
+        self.assertEqual({k: d[k] for k in store.ALWAYS_ROWS},
+                         {'killswitch': None, 'deleted_cost_usd': 0})
+        with self.assertRaises(orgtx.UnlockedWrite):     # a real value still needs the lock
+            with orgtx.org_tx(self.slug, nodes=['a']) as tx:
+                tx.d['deleted_cost_usd'] = 1.5
+        with orgtx.org_tx(self.slug, sections=['deleted_cost_usd']) as tx:
+            tx.d['deleted_cost_usd'] = 1.5
+        self.assertEqual(store.load_org(self.slug).d['deleted_cost_usd'], 1.5)
+
     def test_absent_section_share_lock_blocks_the_writer(self) -> None:
         entered, release = threading.Event(), threading.Event()
 

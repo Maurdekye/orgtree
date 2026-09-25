@@ -379,7 +379,7 @@ def _disallowed(tx: OrgTx, changes: SaveChanges) -> tuple[tuple[str, str], ...]:
     loaded = getattr(tx.org.d, "_snap_doc", None) if tx.org is not None else None
     created = {k for k in store.ALWAYS_ROWS
                if loaded is not None and k not in loaded
-               and dict.get(tx.d, k) is None}      # still the cleared value
+               and dict.get(tx.d, k) == json.loads(store.ALWAYS_ROWS[k])}   # still cleared
     for k in (*changes.doc_upserts, *changes.doc_deletes):
         if k in changes.containers_created and k in tx.share_sections:
             continue        # PG-3d: an empty split container, under an owner lock
