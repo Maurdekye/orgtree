@@ -1,0 +1,19 @@
+# WS3b (p03-ws3b-topology): island topology and lifecycle writers,
+# migrations 0100-0149 (lead + coordinator ruling 2026-09-25: WS3b 0100-0149,
+# WS3a 0150-0199; the WS3 brief's §5/§8 had them swapped).
+# Format (read by build.rs): `key = value`; list keys take space-separated
+# names and may repeat (values append). A range lists ONLY its own entries.
+# Checksums of this range's migrations: ranges/ws3b.sha256.
+
+name = WS3b
+first = 100
+last = 149
+
+# every table this range's migrations CREATE (checked against the DDL)
+tables = lineage_bearers seat_config
+
+# publication (CONTRACT-M1 §7): both are domain state the tree shows
+published = lineage_bearers seat_config
+
+# lint inputs (R9/R10): neither table is high-rate, org-wide, a receiver head
+# or source-side.
