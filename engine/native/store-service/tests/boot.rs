@@ -2,14 +2,14 @@
 
 use std::path::Path;
 
-use orgtree_store_service::boot::{self, Attach};
+use orgtree_store_service::boot::{self, Attach, ServerIdentity};
 
 const ATTACH: &str = r#"{"schema":"orgtree.p03.pg-runtime/v1","root_id":"0123456789abcdef0123456789abcdef","system_identifier":"7","instance_token":"tok-1","postmaster_pid":1,"host":"127.0.0.1","port":48380,"admin_role":"orgtree_admin","pgpass_file":"x","started_at_unix":1,"boot_id":"b"}"#;
 
 #[test]
 fn the_attach_descriptor_gives_host_port_root_and_token() {
     let a = boot::parse_attach(ATTACH).unwrap();
-    assert_eq!(a, Attach { root_id: "0123456789abcdef0123456789abcdef".into(), instance_token: "tok-1".into(), host: "127.0.0.1".into(), port: 48380 });
+    assert_eq!(a, Attach { root_id: "0123456789abcdef0123456789abcdef".into(), instance_token: "tok-1".into(), system_identifier: "7".into(), host: "127.0.0.1".into(), port: 48380 });
 }
 
 #[test]
@@ -29,11 +29,22 @@ fn only_the_runtime_password_is_taken_and_errors_never_echo_one() {
 }
 
 #[test]
-fn identity_requires_the_exact_instance_token() {
+fn identity_requires_token_root_and_system_identifier() {
     let a = boot::parse_attach(ATTACH).unwrap();
-    assert!(boot::check_identity("tok-1", &a).is_ok());
-    assert!(boot::check_identity("tok-2", &a).is_err(), "a foreign server on the port must be refused");
-    assert!(boot::check_identity("", &a).is_err(), "a server without the custodian's token must be refused");
+    let good = || ServerIdentity { instance_token: "tok-1".into(), root_id: "0123456789abcdef0123456789abcdef".into(), system_identifier: "7".into() };
+    assert!(boot::check_identity(&good(), &a).is_ok());
+    let mut s = good();
+    s.instance_token = "tok-2".into();
+    assert!(boot::check_identity(&s, &a).unwrap_err().contains("instance_token"), "a foreign server on the port must be refused");
+    let mut s = good();
+    s.root_id = "ffffffffffffffffffffffffffffffff".into();
+    assert!(boot::check_identity(&s, &a).unwrap_err().contains("root_id"));
+    let mut s = good();
+    s.system_identifier = "8".into();
+    assert!(boot::check_identity(&s, &a).unwrap_err().contains("system_identifier"));
+    let mut s = good();
+    s.instance_token.clear();
+    assert!(boot::check_identity(&s, &a).is_err(), "a server without the custodian's settings must be refused");
 }
 
 #[test]

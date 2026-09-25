@@ -98,8 +98,9 @@ async fn main() {
         let mut s = liveness_factory.connect().await.unwrap_or_else(|e| fail(format!("connect: {e:?}")));
         if let Some(a) = &attach {
             let rows = traced_exec(&mut s, &hooks, "exec.service.identity", boot::IDENTITY_SQL, &[]).await.unwrap_or_else(|e| fail(format!("{e:?}")));
-            let token = rows.first().and_then(|r| r.first()).and_then(Val::as_text).unwrap_or("").to_string();
-            boot::check_identity(&token, a).unwrap_or_else(|e| fail(e));
+            let col = |i: usize| rows.first().and_then(|r| r.get(i)).and_then(Val::as_text).unwrap_or("").to_string();
+            let server = boot::ServerIdentity { instance_token: col(0), root_id: col(1), system_identifier: col(2) };
+            boot::check_identity(&server, a).unwrap_or_else(|e| fail(e));
         }
         let rows = traced_exec(&mut s, &hooks, "exec.service.incarnation", INCARNATION_SQL, &[]).await.unwrap_or_else(|e| fail(format!("{e:?}")));
         rows.first().and_then(|r| r.first()).and_then(Val::as_uuid).unwrap_or_else(|| fail("store_incarnation is empty: run the custodian's migrations first"))
