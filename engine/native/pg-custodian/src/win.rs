@@ -152,6 +152,28 @@ mod imp {
         Some(((c.dwHighDateTime as u64) << 32) | c.dwLowDateTime as u64)
     }
 
+    #[repr(C)]
+    struct UnicodeString {
+        length: u16,
+        maximum_length: u16,
+        buffer: *const u16,
+    }
+    const PROCESS_COMMAND_LINE_INFORMATION: u32 = 60;
+    const STATUS_INFO_LENGTH_MISMATCH: i32 = 0xC000_0004_u32 as i32;
+
+    #[link(name = "ntdll")]
+    extern "system" {
+        fn NtQueryInformationProcess(h: HANDLE, class: u32, info: *mut core::ffi::c_void, len: u32, ret: *mut u32) -> i32;
+    }
+    #[link(name = "shell32")]
+    extern "system" {
+        fn CommandLineToArgvW(cmd: *const u16, argc: *mut i32) -> *mut *mut u16;
+    }
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn LocalFree(h: *mut core::ffi::c_void) -> *mut core::ffi::c_void;
+    }
+
     /// An open handle on a process: while we hold it the PID cannot be reused.
     pub struct ProcessHandle {
         pub pid: u32,
@@ -211,6 +233,57 @@ mod imp {
         pub fn terminate(&self) -> bool {
             unsafe { TerminateProcess(self.h, 1) != 0 }
         }
+
+        /// Creation time (FILETIME ticks) read through THIS handle, so it
+        /// describes exactly the process the handle pins.
+        pub fn creation_time(&self) -> Option<u64> {
+            let z = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+            let (mut c, mut x, mut k, mut u) = (z, z, z, z);
+            if unsafe { GetProcessTimes(self.h, &mut c, &mut x, &mut k, &mut u) } == 0 {
+                return None;
+            }
+            Some(((c.dwHighDateTime as u64) << 32) | c.dwLowDateTime as u64)
+        }
+
+        /// The process's command line, split the way Windows splits it
+        /// (CommandLineToArgvW). None when it cannot be read.
+        pub fn argv(&self) -> Option<Vec<String>> {
+            let mut buf: Vec<u64> = vec![0; 8192];
+            let mut ret = 0u32;
+            let query = |buf: &mut Vec<u64>, ret: &mut u32| unsafe {
+                NtQueryInformationProcess(self.h, PROCESS_COMMAND_LINE_INFORMATION, buf.as_mut_ptr().cast(), (buf.len() * 8) as u32, ret)
+            };
+            let mut st = query(&mut buf, &mut ret);
+            if st == STATUS_INFO_LENGTH_MISMATCH && ret as usize > buf.len() * 8 {
+                buf = vec![0; (ret as usize).div_ceil(8)];
+                st = query(&mut buf, &mut ret);
+            }
+            if st < 0 {
+                return None;
+            }
+            let us = unsafe { &*(buf.as_ptr() as *const UnicodeString) };
+            if us.buffer.is_null() || us.length == 0 {
+                return None;
+            }
+            let mut wide = unsafe { std::slice::from_raw_parts(us.buffer, us.length as usize / 2) }.to_vec();
+            wide.push(0);
+            let mut argc = 0i32;
+            let argv = unsafe { CommandLineToArgvW(wide.as_ptr(), &mut argc) };
+            if argv.is_null() {
+                return None;
+            }
+            let mut out = Vec::with_capacity(argc.max(0) as usize);
+            for i in 0..argc.max(0) as usize {
+                let p = unsafe { *argv.add(i) };
+                let mut n = 0;
+                while unsafe { *p.add(n) } != 0 {
+                    n += 1;
+                }
+                out.push(String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(p, n) }));
+            }
+            unsafe { LocalFree(argv.cast()) };
+            Some(out)
+        }
     }
 }
 
@@ -251,6 +324,12 @@ mod imp {
         }
         pub fn terminate(&self) -> bool {
             false
+        }
+        pub fn creation_time(&self) -> Option<u64> {
+            None
+        }
+        pub fn argv(&self) -> Option<Vec<String>> {
+            None
         }
     }
 }

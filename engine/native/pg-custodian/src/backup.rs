@@ -289,7 +289,8 @@ pub fn restore(root: &crate::guard::PrototypeRoot, bin: &PgBin, from: &Path) -> 
     if !existing.is_empty() {
         return Err(CustodianError::new("restore.target_not_empty", format!("the target database has {} tables", existing.len())));
     }
-    let log_path = from.join(format!("pg_restore-{}.log", crate::win::random_hex(3)?));
+    // Into the (validated) target root's log folder: `--from` is only read.
+    let log_path = cluster::Layout::of(root).log.join(format!("pg_restore-{}.log", crate::win::random_hex(3)?));
     let log = fs::File::create(&log_path).map_err(|e| CustodianError::io("restore.log", &log_path, e))?;
     let status = cluster::child(&bin.exe("pg_restore"))
         .args(["--exit-on-error", "--single-transaction", "--no-password", "-d"])

@@ -55,7 +55,23 @@ cargo run ... -- dev down --agent <you>                      # stop it when idle
   stop) to the whole owned process family: postmaster, its descendants and
   the `cmd.exe` shim. Holding a handle pins the PID, so reuse cannot fake an
   exit.
+- **Whose lock is it** (review B1): every postgres.exe that runs from the
+  same bin has the same image, including other agents' clusters and every
+  backend. So a `postmaster.pid` pid counts as this cluster's postmaster only
+  if the process is our postgres.exe, was not created after the lock's start
+  time (pid reuse), is not a child (`--fork...`) and was started with `-D`
+  this data folder (read from its command line). Provably not: `stale_pid`,
+  and `start` may clear the lock. Unprovable either way: `unidentified`, and
+  nothing signals it, starts over it or deletes it. `stop` re-proves the
+  identity through the handle it then waits on.
 - **Memory**: `init` and `start` refuse below 4 GB of free commit.
+
+## Known limits
+
+- A `start` that times out in the host bracket raises, but a postmaster may
+  already be up; the next launch finds it and attaches (review N5).
+- A mapped network drive (canonicalized to `\\?\UNC\...`) is refused by the
+  guard, but no automated test maps one (review N6).
 
 ## Tests
 

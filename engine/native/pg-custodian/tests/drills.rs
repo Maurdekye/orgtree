@@ -172,6 +172,63 @@ fn abrupt_database_exit_recovers_committed_work_and_is_never_trusted_stale() {
         "immediate_stop_family": s1.family.len(), "immediate_then_restart_rows": n2, "fast_stop_family": s2.family.len()}));
 }
 
+fn state_word(r: &PrototypeRoot, b: &PgBin) -> String {
+    serde_json::to_value(cluster::state(r, b).unwrap()).unwrap()["state"].as_str().unwrap().to_string()
+}
+
+fn alive(pid: u32) -> bool {
+    win::ProcessHandle::open(pid).map(|h| !h.wait_exit(0)).unwrap_or(false)
+}
+
+/// Review B1 (reproduced by the reviewer on a9993b4): root B's postmaster.pid
+/// names a LIVE postgres.exe of the same bin that belongs to cluster A. B's
+/// status must not read running, B's stop must signal nothing, and A must
+/// still be up and attachable afterwards.
+#[test]
+#[ignore = "real clusters; P03 run lock"]
+fn a_lock_naming_another_clusters_process_is_never_signalled() {
+    let (pa, a, b, rta, _ga) = new_cluster("b1-a");
+    let (pb, bb, _, _rtb, _gb) = new_cluster("b1-b");
+    cluster::stop(&bb, &b, false, false).unwrap();
+    let lb = Layout::of(&bb);
+    let now = orgtree_pg_custodian::now_unix();
+    let a_pm = rta.postmaster_pid;
+    let snap = win::snapshot().unwrap();
+    let a_child = win::family_pids(&snap, a_pm)
+        .into_iter()
+        .find(|p| *p != a_pm && snap.iter().any(|s| s.pid == *p && s.exe_name.eq_ignore_ascii_case("postgres.exe")))
+        .expect("cluster A has a postgres.exe child");
+    let lock = |pid: u32, started: u64| {
+        std::fs::write(lb.data.join("postmaster.pid"), format!("{pid}\n{}\n{started}\n{}\n\n127.0.0.1\n  1  2\nready\n", lb.data.display(), rta.port)).unwrap();
+    };
+    let mut seen = Vec::new();
+    for (case, pid, started) in [
+        ("reviewer repro: A's postmaster, lock an hour older than A", a_pm, now - 3600),
+        ("A's postmaster, lock claims a later start (only -D can tell)", a_pm, now + 60),
+        ("one of A's child processes", a_child, now + 60),
+    ] {
+        lock(pid, started);
+        let st = state_word(&bb, &b);
+        assert_ne!(st, "running", "{case}: B must not read as running on pid {pid}");
+        let e = cluster::stop(&bb, &b, false, true).unwrap_err();
+        assert!(e.code.starts_with("stop."), "{case}: {e}");
+        assert!(alive(a_pm) && alive(pid), "{case}: B's stop touched cluster A (pid {pid})");
+        assert_eq!(state_word(&a, &b), "running", "{case}");
+        cluster::attach(&a, &b).unwrap();
+        seen.push(json!({"case": case, "b_state": st, "b_stop": e.code}));
+    }
+    // B's start clears a lock proven foreign and brings up B, and A is untouched.
+    cluster::start(&bb, &b, None).unwrap();
+    cluster::stop(&bb, &b, false, false).unwrap();
+    assert!(alive(a_pm));
+    cluster::attach(&a, &b).unwrap();
+    cluster::stop(&a, &b, false, false).unwrap();
+    cluster::destroy(&a, &b).unwrap();
+    cluster::destroy(&bb, &b).unwrap();
+    let _ = (pa, pb);
+    report("foreign postmaster in a stale lock (review B1)", "passed", json!({"cases": seen, "a_survived": true, "b_started_after": true}));
+}
+
 #[test]
 #[ignore = "real cluster; P03 run lock"]
 fn interrupted_migration_resumes() {
