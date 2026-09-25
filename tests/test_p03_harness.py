@@ -399,10 +399,10 @@ class FaultKit(unittest.TestCase):
         return Schedule("Q-FAKE1", {"A": (KIND, {})}, [order], pass_condition=lambda *_: True,
                         step_timeout=kw.get("step", 3.0), plan_timeout=kw.get("plan", 3.0))
 
-    def test_a_killed_backend_is_retried_on_a_new_one_and_seen_as_57P01(self):
+    def test_a_killed_backend_is_retried_on_a_new_one_as_a_lost_connection(self):
         order = Order("kill-held", [("start", "A"), ("arrive", "A", WRITE), ("kill", "A"),
                                     ("release", "A", WRITE), ("await_end", "A")],
-                      [("before", f"arrived:A:{WRITE}", "killed:A"), ("sqlstate", "A", "57P01"),
+                      [("before", f"arrived:A:{WRITE}", "killed:A"),
                        ("outcome", "A", "applied")])
         result = run_order(FakeExecutor(OPS), self.one(order), order)
         self.assertEqual(result.verdict, PASSED, result.reasons)
@@ -411,6 +411,10 @@ class FaultKit(unittest.TestCase):
         self.assertNotEqual(begins[0], begins[1], "the retry must run on a new backend")
         killed = [e for e in result.achieved if e["event"] == "killed:A"]
         self.assertEqual(killed[0]["backend_pid"], begins[0])
+        # as measured live: a lost connection carries no SQLSTATE, only its cause
+        retry = [r for r in result.records if r["kind"] == "retry"]
+        self.assertEqual([(r["retry_cause"], r["sqlstate"]) for r in retry],
+                         [("connection_lost", "unknown")])
 
     def test_a_second_kill_terminates_the_retry_s_new_backend(self):
         order = Order("kill-twice", [("start", "A"), ("arrive", "A", WRITE), ("kill", "A"),
@@ -475,7 +479,7 @@ class FaultKit(unittest.TestCase):
     def test_a_kill_over_the_wire(self):
         order = Order("kill-wire", [("start", "A"), ("arrive", "A", WRITE), ("kill", "A"),
                                     ("release", "A", WRITE), ("await_end", "A")],
-                      [("sqlstate", "A", "57P01"), ("outcome", "A", "applied")])
+                      [("outcome", "A", "applied")])
         result = OverSockets.run_over(self, order, self.one(order))
         self.assertEqual(result.verdict, PASSED, result.reasons)
 
@@ -509,7 +513,7 @@ class FaultKit(unittest.TestCase):
 
     def test_a_dropped_connection_is_retried_on_a_new_backend(self):
         order = Order("drop", [("start", "A"), ("await_end", "A")],
-                      [("sqlstate", "A", "08006"), ("outcome", "A", "applied")],
+                      [("outcome", "A", "applied")],
                       faults=[faults.drop_conn("A", WRITE)])
         result = run_order(FakeExecutor(OPS), self.one(order), order)
         self.assertEqual(result.verdict, PASSED, result.reasons)

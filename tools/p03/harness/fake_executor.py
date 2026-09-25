@@ -46,7 +46,9 @@ from .trace import SCHEMA
 
 RETRYABLE = ("40001", "40P01")
 #: the connection is gone before COMMIT: the executor retries on a NEW backend
-#: (WS2 tests/pg.rs q_c4_dropped_connection_before_commit_retries_once)
+#: (WS2 tests/pg.rs q_c4_dropped_connection_before_commit_retries_once). The trace
+#: then carries NO SQLSTATE: measured live 2026-09-25 (fcb83e9), a terminated backend
+#: is recorded as tx_end rollback + retry connection_lost, sqlstate "unknown"
 CONNECTION_LOST = ("08006", "57P01")
 MAX_ATTEMPTS = 3
 
@@ -374,13 +376,14 @@ class FakeExecutor:
                 break
             except _Abort as abort:
                 self._release_all(pid)
+                seen = "unknown" if abort.sqlstate in CONNECTION_LOST else abort.sqlstate
                 emit("tx_end", operation_id=op_id, attempt=attempt, conn_id=f"c{pid}",
-                     backend_pid=pid, outcome=abort.outcome, sqlstate=abort.sqlstate)
+                     backend_pid=pid, outcome=abort.outcome, sqlstate=seen)
                 if abort.sqlstate in RETRYABLE + CONNECTION_LOST and attempt < MAX_ATTEMPTS:
                     cause = {"40001": "serialization", "40P01": "deadlock"}.get(
                         abort.sqlstate, "connection_lost")
                     emit("retry", operation_id=op_id, attempt=attempt + 1, retry_cause=cause,
-                         sqlstate=abort.sqlstate)
+                         sqlstate=seen)
                     if abort.sqlstate in CONNECTION_LOST:
                         pid = next(self._pids)     # a fresh connection, a new backend
                     attempt += 1
