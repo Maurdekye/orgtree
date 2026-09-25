@@ -6,7 +6,7 @@ and the renderer refetches on a frame-rev gap. That counter counts FRAMES in
 this process: ``hub_changed`` coalesces 0.4 s of saves into one ``changed``
 frame, and ``node_stream`` frames carry no commit at all. ``org_rev`` is a
 different number: PostgreSQL's per-org COMMIT counter, bumped inside every
-``org_tx`` (PG-0) and announced with ``NOTIFY org_rev, '<org>:<revision>'``.
+``org_tx`` (PG-0) and announced with ``NOTIFY org_rev, '<slug>:<revision>'``.
 It cannot replace the frame rev. This module turns commits into the existing
 ``changed`` broadcast and records the latest revision seen per org.
 
@@ -15,7 +15,7 @@ commit time; nothing is queued for a listener whose connection dropped. So a
 commit made while this process's listener was reconnecting is never announced.
 The feed therefore does not trust the notification stream alone:
 - after every (re)connect it reads every org's revision (catch-up);
-- every ``poll_s`` without a notification it reads them again (safety net);
+- every ``poll_s``, on a fixed schedule, it reads them again (safety net);
 - a notification whose revision is not ``last_seen + 1`` is also a gap.
 A gap is answered exactly like a commit: ``on_change(org, revision, gap=True)``,
 which the engine wires to cache invalidation plus ``hub_changed`` (one full
@@ -33,8 +33,10 @@ import time
 from typing import Callable, Iterable, Protocol
 
 CHANNEL = "org_rev"
-#: every org's current revision; PG-0 owns the table (design r1 §5 Q1)
-REVISIONS_SQL = "SELECT org_id, revision FROM org_rev"
+#: every org's current revision. PG-0 (pypg/pg-0-storage a8b0ad6) keeps it in
+#: ``orgs(org_id, slug UNIQUE, revision)`` and announces ``'<slug>:<revision>'``:
+#: routes, caches and the store all key by slug, so the feed does too
+REVISIONS_SQL = "SELECT slug, revision FROM orgs"
 
 
 class Conn(Protocol):
