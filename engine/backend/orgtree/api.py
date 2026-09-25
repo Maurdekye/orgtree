@@ -5069,7 +5069,7 @@ def _account_bindings() -> dict[str, list[dict[str, str]]]:
     seen = set()
     for f in names:
         slug = f[:-5] if f.endswith(".json") else (
-            f[:-3] if f.endswith(".db") else "")
+            f[:-len(store.DB_EXT)] if f.endswith(store.DB_EXT) else "")
         if not slug or slug in seen or f.endswith(".premigration"):
             continue
         seen.add(slug)

@@ -29,7 +29,7 @@ data.mkdir()
 home = Path(_temp.name) / 'home'
 home.mkdir()
 os.environ.update(ORGTREE_DATA=str(data), HOME=str(home), USERPROFILE=str(home),
-                  ORGTREE_STORE='sqlite')
+                  ORGTREE_STORE='sqlite', ORGTREE_ROW_CAS='1')
 os.environ.pop('ORGTREE_ORGTX_TEST_HOOKS', None)
 
 import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
@@ -153,6 +153,76 @@ class OrgTxBasics(unittest.TestCase):
                                 nodes=['a'], op_key='k1', fingerprint='f')
         self.assertEqual((out, calls), ({'n': 1}, []))
 
+    def test_legacy_save_cannot_overwrite_an_org_tx_commit(self) -> None:
+        legacy = store.load_org(self.slug)
+        with orgtx.org_tx(self.slug, nodes=['a']) as tx:
+            tx.d['nodes']['a']['name'] = 'from-tx'
+        legacy.d['nodes']['a']['name'] = 'from-legacy'
+        legacy.d['nodes']['b']['name'] = 'also-legacy'
+        with self.assertRaises(store.StaleWrite):
+            store.save_org(legacy)
+        self.assertEqual(_node(self.slug, 'a')['name'], 'from-tx')
+        self.assertEqual(_node(self.slug, 'b')['name'], 'b')
+
+    def test_load_heal_is_committed_before_the_locks(self) -> None:
+        # an org stored WITHOUT the ledger's `_migrations` marker: its next
+        # load heals it (setdefault), a write the tx did not name
+        org = store.load_org(self.slug)
+        self.assertIsNotNone(dict.pop(org.d, '_migrations', None))
+        store.save_org(org)                    # the differ deletes the row
+        orgtx.use_backend(orgtx.SeamBackend())          # nothing healed yet
+        with orgtx.org_tx(self.slug, nodes=['a']) as tx:
+            tx.d['nodes']['a']['name'] = 'healed-then-written'
+        self.assertEqual(_node(self.slug, 'a')['name'], 'healed-then-written')
+
+    def test_unlocked_write_names_rows_structured(self) -> None:
+        with self.assertRaises(orgtx.UnlockedWrite) as cm:
+            with orgtx.org_tx(self.slug, nodes=['a']) as tx:
+                tx.d['nodes']['b']['name'] = 'B'
+                tx.d['settings_x']['v'] = 9
+        self.assertEqual(set(cm.exception.rows), {('node', 'b'), ('section', 'settings_x')})
+
+    def test_current_tx_and_lock_plan_order(self) -> None:
+        self.assertIsNone(orgtx.current_tx(self.slug))
+        with orgtx.org_tx(self.slug, nodes=['b', 'a'], sections=['killswitch'],
+                          share_sections=['settings_x']) as tx:
+            self.assertIs(orgtx.current_tx(self.slug), tx)
+            plan = orgtx._lock_plan(tx)
+        self.assertIsNone(orgtx.current_tx(self.slug))
+        self.assertEqual([(k, n) for k, n, _ in plan],
+                         [('node', '*'), ('node', 'a'), ('node', 'b'),
+                          ('section', 'killswitch'), ('section', 'settings_x')])
+        self.assertEqual([x for _, _, x in plan], [False, True, True, True, False])
+
+    def test_save_hooks_fire_after_commit_outside_locks(self) -> None:
+        seen: list[str] = []
+        with orgtx.org_tx(self.slug, nodes=['a']):
+            pass                                # heal first (its save fires hooks)
+
+        def hook(slug: str) -> None:
+            if slug != self.slug or seen:
+                return
+            seen.append('fired')
+            out: list[str] = []
+
+            def other() -> None:
+                try:
+                    with orgtx.org_tx(slug, nodes=['a'], lock_timeout=0.3):
+                        out.append('got')
+                except orgtx.LockTimeout:
+                    out.append('blocked')
+            t = threading.Thread(target=other)
+            t.start()
+            t.join(5)
+            seen.extend(out)
+        store.save_hooks.append(hook)
+        try:
+            with orgtx.org_tx(self.slug, nodes=['a']) as tx:
+                tx.d['nodes']['a']['name'] = 'H'
+        finally:
+            store.save_hooks.remove(hook)
+        self.assertEqual(seen, ['fired', 'got'])
+
     def test_org_read_never_saves(self) -> None:
         org = orgtx.org_read(self.slug, sections=['events'])
         org.d['nodes']['a']['name'] = 'Z'
@@ -216,6 +286,37 @@ class OrgTxConcurrency(unittest.TestCase):
         finally:
             release.set()
             t.join()
+
+    def test_all_nodes_excludes_named_node_writers_and_creators(self) -> None:
+        entered, release = threading.Event(), threading.Event()
+        t = self._hold(entered, release, nodes=orgtx.ALL)
+        try:
+            self.assertEqual(self._try(0.2, nodes=['b']), 'blocked')
+            self.assertEqual(self._try(0.2, nodes=['brand-new']), 'blocked')
+            self.assertEqual(self._try(0.2, sections=['killswitch']), 'got')
+        finally:
+            release.set()
+            t.join()
+        with orgtx.org_tx(self.slug, nodes=orgtx.ALL) as tx:
+            for n in tx.d['nodes'].values():
+                n['swept'] = True
+        self.assertTrue(all(_node(self.slug, x).get('swept') for x in ('a', 'b', 'c')))
+
+    def test_waiting_probe(self) -> None:
+        locks = orgtx.RowLocks()
+        o1, o2 = object(), object()
+        k = ('s', 'node', 'a')
+        locks.acquire(o1, k, True, 1)
+        t = threading.Thread(target=lambda: locks.acquire(o2, k, True, 5))
+        t.start()
+        for _ in range(100):
+            if locks.waiting(o2):
+                break
+            time.sleep(0.01)
+        self.assertEqual(locks.waiting(o2), frozenset({o1}))
+        locks.release_all(o1)
+        t.join(5)
+        self.assertEqual(locks.waiting(o2), frozenset())
 
     def test_deadlock_detected_and_call_retries(self) -> None:
         locks = orgtx.RowLocks()
