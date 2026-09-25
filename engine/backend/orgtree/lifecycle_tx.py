@@ -29,7 +29,12 @@ class Spec:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
-_ARCHIVE_SECTIONS = ("asks", "credit_requests", "notices", "scope_requests")
+# `work_items` too: `store._save_org` runs `reconcile_attention` whenever
+# `asks` was touched, and mooting a question attached to a docket item
+# rewrites that item's attention fields — a cross-family write (PG-3c's
+# section) inside the archive's one transaction, PYPG-PLAN §3.3.
+_ARCHIVE_SECTIONS = ("asks", "credit_requests", "notices", "scope_requests",
+                     "work_items")
 
 SPECS: dict[str, Spec] = {
     # №31: the ledger said live, the session cannot resume. Writes the node's
