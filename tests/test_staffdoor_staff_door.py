@@ -55,7 +55,7 @@ class StaffDoor(unittest.TestCase):
                                         owner='peer')['created']
         store.save_org(org)
         pgdoor.use_org_tx(None)
-        self.sent, self.runs = [], []
+        self.sent, self.woken, self.runs = [], [], []
         real = api._staff_call
 
         def counted(*a, **k):
@@ -63,7 +63,7 @@ class StaffDoor(unittest.TestCase):
             return real(*a, **k)
 
         self.p = [patch.object(supervisor, 'send_message',
-                               lambda slug, t, *a, **k: self.sent.append(t) or {}),
+                               lambda slug, t, *a, **k: self._sent(t, k)),
                   patch.object(api, 'hub_changed', lambda *a, **k: None),
                   patch.object(api, 'provider_hire_gate', lambda *a, **k: None),
                   patch.object(api, 'new_hire_harness', lambda *a, **k: None),
@@ -72,6 +72,14 @@ class StaffDoor(unittest.TestCase):
                                side_effect=AssertionError('entered the DOC_LOCK cycle'))]
         for x in self.p:
             x.start()
+
+    def _sent(self, target, kw):
+        # the assignment NOTICE also reaches the new seat (wake=False), so
+        # only a waking send proves the post-commit drive happened
+        self.sent.append(target)
+        if kw.get('wake', True):
+            self.woken.append(target)
+        return {}
 
     def tearDown(self):
         for x in self.p:
@@ -96,7 +104,7 @@ class StaffDoor(unittest.TestCase):
         self.assertEqual(len(self.runs), 1)
         self.assertEqual(self.rev(), r0 + 1)
         self.assertEqual(owner(self.item(r['item'])), 'kid')
-        self.assertIn('kid', self.sent)
+        self.assertIn('kid', self.woken)              # driven, after the commit
 
     def test_update_hands_the_item_over_in_one_run(self):
         r = self.staff(name='kid2', slug=self.existing, done_so_far=['x'],
