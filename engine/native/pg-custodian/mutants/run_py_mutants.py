@@ -31,6 +31,7 @@ MUTANTS = [
     ("bracket.migration_failure_ignored", "    if not out.get(\"ok\"):\n        raise BracketError(f\"pg-custodian migrate refused", "    if False:\n        raise BracketError(f\"pg-custodian migrate refused"),
     ("bracket.migration_skipped", "            self.migration = migrate(self.custodian, self.root, self.env, self.workdir)\n", ""),
     ("bracket.wrong_ready_pid_accepted", 'or value.get("pid") != self.proc.pid:', ':'),
+    ("bracket.unc_root_touched", '    if str(root).replace("/", "\\\\").startswith("\\\\\\\\"):', '    if False:'),
 ]
 
 
