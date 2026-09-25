@@ -302,7 +302,7 @@ class OrgTxOnPostgres(unittest.TestCase):
 
     def _seed_mail(self) -> None:
         org = store.load_org(self.slug)
-        org.d['mail_log']['a'] = [{'id': 'm1', 'body': 'one'}, {'id': 'm2', 'body': 'two'}]
+        org.d.setdefault('mail_log', {})['a'] = [{'id': 'm1', 'body': 'one'}, {'id': 'm2', 'body': 'two'}]
         store.save_org(org)
 
     def _mail_ids(self) -> list:
