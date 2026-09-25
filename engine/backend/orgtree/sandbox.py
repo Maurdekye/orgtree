@@ -185,8 +185,16 @@ def migrate_to_disk(org: Org) -> None:
                            f"was flipped; old state is untouched: "
                            + (r.stderr or r.stdout)[-500:])
     new_ws = dsk.windows_sub(slug, "workspace")
-    with store.DOC_LOCK:
-        o2 = store.load_org(slug)
+    # PG-3r: the flip is one row transaction. It rewrites paths and freeze
+    # flags on EVERY node (nodes=ALL, so a node created meanwhile waits and
+    # is covered too), the disk/workspace/dirs sections, the retired
+    # storage_frozen flag, and the operator's inbox notice when the cap was
+    # floored (user_inbox for a decision, the read archive for a notice).
+    from . import orgtx
+    with orgtx.org_tx(slug, nodes=orgtx.ALL,
+                      sections=["disk", "storage_frozen", "dirs", "workspace", "user_inbox"],
+                      logs=["user_mail_log", "events"]) as tx:
+        o2 = tx.org
         o2.d["disk"] = {"size_mb": size_mb, "migrated_at": now()}
         # the legacy enforcement is RETIRED (user ruling 2026-08-01, D-063):
         # clear any pre-migration storage freeze the doc still carries —
@@ -218,7 +226,6 @@ def migrate_to_disk(org: Org) -> None:
             o2.to_user_inbox({
                 "id": uuid.uuid4().hex[:12], "from": SYSTEM, "kind": "notice",
                 "at": now(), "body": _events.render_agent(dev)}, dev)
-        store.save_org(o2)
     _disk_flag.pop(slug, None)
     print(f"[orgtree] org {slug!r} migrated to its disk "
           f"({size_mb} MB; legacy volumes kept for rollback)")
