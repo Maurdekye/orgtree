@@ -1,5 +1,7 @@
 """WS1 G5 host-level drills: the service_host bracket with the REAL
-pg-custodian and a stub store service (WS2's binary is not on this branch).
+pg-custodian and either WS2's real store service (built from WS2's branch and
+named by ORGTREE_P03_STORE_SERVICE) or, without it, a stub. Each drill reports
+which one it ran against.
 
 Not a ``test_*`` module on purpose: it starts real PostgreSQL clusters, so it
 runs only explicitly, under the P03 run lock, via the safe runner:
