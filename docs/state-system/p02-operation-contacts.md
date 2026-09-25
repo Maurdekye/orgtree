@@ -1008,6 +1008,12 @@ each row records its calls in `spies`:
 
 `hub_changed` is real and counted.
 
+"Each contract" means the 19 F1 contracts from P01 F1 (v3 aaad0df). The
+lifecycle family has a 20th contract since P01 F3 (v3 0f7c925):
+`lifecycle.operator-scope` (`POST /api/orgs/{slug}/nodes/{nid}/scope`, the
+operator retool). It has NO rows here. It belongs to the later F3 probe
+item.
+
 - **Each contract, cold and warm:**
   - on the agent door: `lifecycle.rename`, `.retool`, `.retire`,
     `.dissolve`, `.cheap-compact`, `.rehire`, `.move`, `.swap`,
@@ -1059,8 +1065,9 @@ each row records its calls in `spies`:
 
 Observed and recorded:
 - **`orgtree_list_orgs` loads every org's whole document** (see "Cross-org
-  reads found"). P01's `lifecycle.reads` fact says "every org's catalogue
-  row". The statements say whole document, of which the summary row is kept.
+  reads found"). P01's `lifecycle.reads` fact said "every org's catalogue
+  row". The statements show the whole document, of which only the summary
+  row is kept. P01 corrected the fact from this probe (v3 52a2d3c).
 - **rehire, retire, dissolve and cheap-compact are managed-wait tools**
   (`mcptool.MANAGED_WAIT_TOOLS`), as are hire and staff. EVERY call, a
   refusal or a no-op too, journals in the `tool_waits` sidecar.
@@ -1082,11 +1089,12 @@ Observed and recorded:
 
 ## Hand-off to P01 (F1, lifecycle): facet → clause → rows
 
-Clause from the Owner line at v3 c86a5e7.
+Clause from the Owner line at v3 15c22d8 (unchanged since c86a5e7). The
+parenthetical is the facet's first open question, not the Owner line.
 
 | Facet | Closing clause | Status | Rows |
 |---|---|---|---|
-| `lifecycle.instrumentation` | a loss-accounted P02 record per lifecycle row (actual contacts per outcome, cold and warm, refusals and keyed replays included, and the org-level locality of each) | partly | covered: every F1 contract cold and warm, per-row loss zero, with the variants, keyed calls (fresh, replay, malformed) and refusals above; org-level locality (only `list_orgs` reads other orgs, declared); agent-level locality within the declared set; `control:lifecycle-third-agent` flagged. NOT covered: the success paths of account-assign, lineage-recover and lineage-drop-phantom (refusal rows only); P03 native negative controls |
+| `lifecycle.instrumentation` | a loss-accounted P02 record per lifecycle row (open question: actual contacts per outcome, cold and warm, refusals and keyed replays included, and the org-level locality of each) | partly | covered: every F1 contract cold and warm, per-row loss zero, with the variants, keyed calls (fresh, replay, malformed) and refusals above; org-level locality (only `list_orgs` reads other orgs, declared); agent-level locality within the declared set; `control:lifecycle-third-agent` flagged. NOT covered: `lifecycle.operator-scope` (P01 F3, added at v3 0f7c925), which has NO rows and belongs to the later F3 probe item, so the facet cannot close on this record alone; the success paths of account-assign, lineage-recover and lineage-drop-phantom (refusal rows only); P03 native negative controls |
 
 Owned elsewhere, with no rows added:
 - `lifecycle.conflicts`: P03/P05;
@@ -1165,11 +1173,12 @@ Observed and recorded:
 
 ## Hand-off to P01 (F1b, operator variants): facet → clause → rows
 
-Clause from the Owner line at v3 c86a5e7.
+Clause from the Owner line at v3 15c22d8 (unchanged since c86a5e7). The
+parenthetical is the facet's first open question, not the Owner line.
 
 | Facet | Closing clause | Status | Rows |
 |---|---|---|---|
-| `operator-ops.variant-instrumentation` | a loss-accounted P02 record per variant row (actual contacts per outcome, cold and warm, refusals included, and the org-level locality of each) | partly | covered: all 13 operations and the preview, cold and warm, per-row loss zero, with the preview variants, the waiting-mail rehire, the no-op reseed and 16 refusals; org-level locality (every statement on this org's store); agent-level locality within the declared set, which for promote includes the old chain that the pinned `told` does not name; `control:op-variants-third-agent` flagged. NOT covered: P03 native negative controls; the kiosk visitor path |
+| `operator-ops.variant-instrumentation` | a loss-accounted P02 record per variant row (open question: actual contacts per outcome, cold and warm, refusals included, and the org-level locality of each) | partly | covered: all 13 operations and the preview, cold and warm, per-row loss zero, with the preview variants, the waiting-mail rehire, the no-op reseed and 16 refusals; org-level locality (every statement on this org's store); agent-level locality within the declared set, which for promote includes the old chain that the pinned `told` does not name; `control:op-variants-third-agent` flagged. NOT covered: P03 native negative controls; the kiosk visitor path |
 
 Owned elsewhere, with no rows added:
 - `operator-ops.variant-conflicts`: the native design, then P03;
