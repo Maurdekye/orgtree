@@ -344,7 +344,7 @@ def native_session_path(org: Any, nid: str, *, inventory: NativeInventory | None
         return None
     if node["session_id"] in native_conflicts(inventory=inventory):
         return None
-    root = Path(_store().DATA_ROOT).resolve()
+    root = Path(_store(writes_orgs=False).DATA_ROOT).resolve()
     storage_node = native.get("storage_node") or nid
     if not isinstance(storage_node, str) or not re.fullmatch(r"[A-Za-z0-9_@.-]{1,160}", storage_node) or storage_node in {".", ".."}:
         return None
@@ -556,7 +556,7 @@ No source profile or org database is consulted. Unexpected paths/duplicates
 refuse rather than selecting a plausible file belonging to somebody else.
 """
     from .desktop_import import ImportRefused, _plain, _store
-    root = Path(_store().DATA_ROOT).resolve() / "imports"
+    root = Path(_store(writes_orgs=False).DATA_ROOT).resolve() / "imports"
     _plain(root)
     found: dict[str, str] = {}
     conflicts: set[str] = set()
