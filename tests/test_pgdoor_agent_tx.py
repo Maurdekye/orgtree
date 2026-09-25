@@ -19,6 +19,7 @@ import sys
 import tempfile
 import threading
 import time
+from types import SimpleNamespace
 import unittest
 
 _root = tempfile.TemporaryDirectory(prefix='pgdoor-agent-tx-')
@@ -107,7 +108,7 @@ class FakeStore:
                 # load AFTER the locks, like SELECT ... FOR UPDATE
                 self.org = FakeOrg(copy.deepcopy(store.d),
                                    copy.deepcopy(store.nodes))
-                return self.org
+                return SimpleNamespace(org=self.org)   # a HANDLE, like orgtx
 
             def __exit__(self, et, e, tb):
                 try:
@@ -295,7 +296,8 @@ class AgentTxTest(unittest.TestCase):
         out = {}
 
         def halter():
-            with self.fs.org_tx(SLUG, nodes=[W]) as org:
+            with self.fs.org_tx(SLUG, nodes=[W]) as h:
+                org = h.org
                 entered.set()
                 go.wait(5)
                 org.node(W)['halt'] = True
@@ -355,7 +357,8 @@ class AgentTxTest(unittest.TestCase):
         latched = {}
 
         def latch():
-            with self.fs.org_tx(SLUG, sections=['killswitch']) as org:
+            with self.fs.org_tx(SLUG, sections=['killswitch']) as h:
+                org = h.org
                 latched['x_seen'] = org.node(W)['n'] + org.node(P)['n']
                 org.d['killswitch'] = {'at': 't'}
 
