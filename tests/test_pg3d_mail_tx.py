@@ -101,7 +101,7 @@ class MailTx(unittest.TestCase):
         org = store.create_org(self.slug)
         org.hire(ledger.USER, None, 'haiku', 0, 'boss')
         org.hire('boss', 'boss', 'haiku', 0, 'deep', add_dirs=[],
-                 tools={'bash': False, 'web': False, 'edit': False, 'subagents': False, 'mcp': False},
+                 tools={'bash': False, 'web': False, 'edit': False, 'subagents': False, 'mcp': []},
                  org_visibility='self', charter='a deep test agent')
         store.save_org(org)
         self.client = TestClient(app)
