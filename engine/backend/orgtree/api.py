@@ -83,6 +83,7 @@ from pydantic import BaseModel, model_validator
 
 from . import account_fallback as accountfallback
 from . import crashreports
+from . import mailtx  # PG-3d: mail on row transactions
 from . import events
 from . import registry
 from . import refs
@@ -5676,7 +5677,8 @@ def node_message(slug: str, nid: str, body: Message,
             # an agent's context
             missing.append(f"{extra} further attachment(s) — past the "
                            f"{ledger_mod.ATTACHMENT_MAX}-per-message limit")
-    with _entry_ledger_422(store.write_org(slug)) as org:
+    # PG-3d: a row transaction on the recipient's rows, not DOC_LOCK
+    with _entry_ledger_422(mailtx.org_of(slug, **mailtx.send_rows(nid))) as org:
         try:
             reply_meta: dict[str, Any] | None = None
             if body.reply_to is not None and target is None:
@@ -5715,7 +5717,6 @@ def node_message(slug: str, nid: str, body: Message,
             # 80 chars truncated most instructions mid-clause; the notice is a
             # gist, but it has to survive being read on its own
             org.user_deep_reach(nid, body.text.strip().splitlines()[0][:160])
-            store.save_org(org)
         except LedgerError as e:
             raise HTTPException(422, str(e))
     mail_notify(slug, USER, nid)
