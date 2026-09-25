@@ -262,6 +262,9 @@ class BoundedReadersOnPostgres(unittest.TestCase):
         slug = _fresh_org("pg4-readers")
         org = store.load_org(slug)
         org.d["nodes"]["b"] = {"id": "b", "name": "b", "parent": None, "children": []}
+        for sect in ("events", "notice_log", "user_mail_log"):
+            org.d.setdefault(sect, [])       # a lazy section absent until first write
+        org.d.setdefault("mail_log", {})
         for i in range(7):
             org.d["events"].append({"at": f"2026-09-25T10:00:0{i}Z", "op": "x",
                                     "actor": "a" if i % 2 else "b", "detail": {"i": i}})
