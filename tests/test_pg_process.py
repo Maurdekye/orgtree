@@ -426,6 +426,17 @@ class BracketTests(unittest.TestCase):
             bracket.start_for_engine(root, env, self.migrator)
         self.assertEqual(self.calls(), [])
 
+    def test_a_deny_label_missing_from_the_shared_list_fails_closed(self) -> None:
+        root, env = self.product_root()
+        spec = json.loads(bracket.LIVE_LOCATIONS.read_text(encoding="utf-8"))
+        spec["locations"] = [x for x in spec["locations"] if x["label"] != "ORGTREE_AGENT_LEGACY_DATA"]
+        shrunk = self.tmp / "live-locations.json"
+        shrunk.write_text(json.dumps(spec), encoding="utf-8")
+        with mock.patch.object(bracket, "LIVE_LOCATIONS", shrunk):
+            with self.assertRaisesRegex(BracketError, "has no 'ORGTREE_AGENT_LEGACY_DATA'"):
+                bracket.start_for_engine(root, env, self.migrator)
+        self.assertEqual(self.calls(), [])
+
     def test_the_deny_list_is_the_rust_guards(self) -> None:
         rust = (Path(bracket.__file__).resolve().parent / "native" / "prototype-guard" / "src" / "product.rs").read_text(encoding="utf-8")
         start = rust.index("pub const PRODUCT_DENY")
