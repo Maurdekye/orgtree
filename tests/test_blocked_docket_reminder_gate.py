@@ -31,7 +31,7 @@ os.environ["ORGTREE_DATA"] = _data.name
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
-from engine.backend.orgtree import appsettings, ledger, store, supervisor  # noqa: E402
+from engine.backend.orgtree import appsettings, ledger, store, supervisor, worktx  # noqa: E402
 assert str(store.DATA_ROOT).lower().startswith(_data.name.lower())
 
 
@@ -219,6 +219,8 @@ class BlockedDocketReminderSweepTests(unittest.TestCase):
              mock.patch.object(store, "cached_org", return_value=org), \
              mock.patch.object(store, "load_org", return_value=org), \
              mock.patch.object(store, "save_org"), \
+             mock.patch.object(worktx, "tx",   # PG-3w: one fresh load, as test_work_reminder_admission explains
+                               side_effect=lambda slug, fn, **kw: fn(store.load_org(slug))), \
              mock.patch.object(supervisor, "state", return_value={}), \
              mock.patch.object(supervisor, "mail_spark"), \
              mock.patch.object(supervisor, "_auto_wake_gates_clear", return_value=True), \

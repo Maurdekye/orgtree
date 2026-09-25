@@ -30,6 +30,15 @@ class WorkReminderAdmissionTests(unittest.TestCase):
             ("_auto_wake_gates_clear", {"return_value": True}),
         ):
             self.stack.enter_context(mock.patch('engine.backend.orgtree.supervisor.'+target, **kwargs))
+        # PG-3w: the reminder reservation is an `org_tx` now. These tests run
+        # on an in-memory Org with `store.load_org` patched, so stand the
+        # transaction in with exactly what it is to this reservation: ONE
+        # fresh load of the org, the body run on it. The load counts and the
+        # locked recheck asserted below keep their meaning; the row locking
+        # itself is proven by tests/test_worktx.py and tests/test_orgtx.py.
+        from engine.backend.orgtree import worktx
+        self.stack.enter_context(mock.patch.object(
+            worktx, 'tx', side_effect=lambda slug, fn, **kw: fn(store.load_org(slug))))
 
     def ticket(self, status="open"):
         self.org.work_create("worker", "Required task", "test", owner="worker")
