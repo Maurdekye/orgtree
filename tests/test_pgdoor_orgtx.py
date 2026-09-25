@@ -178,6 +178,27 @@ class DoorOnOrgTx(unittest.TestCase):
         with self.assertRaisesRegex(LedgerError, 'already open'):
             self.call(body, pgdoor.TxSpec())
 
+    def test_join_uses_an_org_tx_opened_outside_the_door(self):
+        """WS3b: a writer called inside a halt.txn (any org_tx this thread
+        opened) joins it; a row outside it is refused by org_tx itself."""
+        with self.assertRaises(LedgerError):
+            with pgdoor.join(self.slug):
+                pass                            # nothing open: nothing to join
+        with self.assertRaises(orgtx.UnlockedWrite):
+            with orgtx.org_tx(self.slug, nodes=['worker']) as h:
+                self.assertIs(pgdoor.current(self.slug), h)
+                with pgdoor.join(self.slug) as j:
+                    self.assertIs(j, h)
+                    j.org.node('worker')['charter'] = 'joined'
+                    j.org.node('boss')['charter'] = 'not held'
+        self.assertEqual(store.load_org(self.slug).node('worker')['charter'], 'c')
+        with orgtx.org_tx(self.slug, nodes=['worker']) as h:
+            with pgdoor.join(self.slug) as j:
+                j.org.node('worker')['charter'] = 'joined'
+        self.assertEqual(store.load_org(self.slug).node('worker')['charter'],
+                         'joined')
+        self.assertIsNone(pgdoor.current(self.slug))
+
 
 if __name__ == '__main__':
     unittest.main()
