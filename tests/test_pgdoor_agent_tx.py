@@ -189,7 +189,7 @@ class AgentTxTest(unittest.TestCase):
     def test_rows_caller_first_killswitch_shared_receipts_when_keyed(self):
         r = pgdoor.agent_spec(Body(op_key='k'), {}, pgdoor.TxSpec(
             nodes=(P, W, P), sections=('tiers',), share_nodes=(W, 'x')))
-        self.assertEqual(r.nodes, (W, P))
+        self.assertEqual(r.nodes, tuple(sorted((W, P))))   # ascending ids
         self.assertEqual(r.share_sections, ('killswitch',))
         self.assertEqual(r.share_nodes, ('x',))          # W is FOR UPDATE
         self.assertIn(opreceipts.SECTION, r.logs)       # appended, not locked
@@ -201,7 +201,7 @@ class AgentTxTest(unittest.TestCase):
         self.assertEqual((r1.sections, r1.share_sections), (('killswitch',), ()))
         # the call actually opened org_tx on that set
         self.call(Body(op_key='k'))
-        self.assertEqual(self.fs.specs[-1][0], (W, P))
+        self.assertEqual(self.fs.specs[-1][0], tuple(sorted((W, P))))
         self.assertEqual(self.fs.specs[-1][3], ('killswitch',))
 
     # --------------------------------------------------- the declarations
@@ -227,7 +227,7 @@ class AgentTxTest(unittest.TestCase):
         pgdoor.LOCKS['orgtree_hire'] = spec
         pgdoor.agent_tx(Body(), {'to': P}, self._body_fn, admit=_admit, file=_file)
         self.assertEqual(seen, {'parent_n': 0})
-        self.assertEqual(self.fs.specs[-1][0], (W, P))
+        self.assertEqual(self.fs.specs[-1][0], tuple(sorted((W, P))))
 
     def test_widen_reruns_with_the_extra_rows_and_discards_the_first_run(self):
         runs = []
@@ -243,7 +243,7 @@ class AgentTxTest(unittest.TestCase):
         self.assertEqual(self.call(fn=body), 'ok')
         self.assertEqual(len(runs), 2)
         self.assertEqual(self.n(), 1)                  # first run rolled back
-        self.assertEqual(self.fs.specs[-1][0], (W, P, 'extra'))
+        self.assertEqual(self.fs.specs[-1][0], tuple(sorted((W, P, 'extra'))))
         self.assertEqual(self.fs.commits, 1)
 
     def test_runaway_widening_is_refused_with_nothing_applied(self):
