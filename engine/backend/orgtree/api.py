@@ -42,7 +42,7 @@ from urllib.parse import urlsplit
 # typing wave: Any/Response types must be RUNTIME imports — FastAPI evaluates
 # endpoint annotation strings (PEP 563) at decoration time. Helper-only types
 # stay under TYPE_CHECKING so the runtime import graph is unchanged.
-from typing import TYPE_CHECKING, Any, Final, Literal, cast
+from typing import TYPE_CHECKING, Any, Final, Literal, TypeVar, cast
 
 # ⚠ BEFORE ANY orgtree MODULE IS IMPORTED, so nothing can print ahead of it.
 #
@@ -92,6 +92,8 @@ from . import census
 from . import profiling
 from . import workitems
 from . import workevidence
+from . import orgtx
+from . import worktx
 from . import opreceipts
 from . import pgdoor
 from . import reservations
@@ -6869,7 +6871,8 @@ WORK_IDENTITY_STALE = (
 
 
 def _work_identity_ready(org: Any, slug: str) -> dict[str, Any] | None:
-    """Convert IN THIS SAVE if needed. Caller must hold `store.DOC_LOCK` and
+    """Convert IN THIS SAVE if needed. Caller must hold `store.DOC_LOCK` (or be
+    inside the `org_tx` that will commit it — PG-3w) and
     must be about to `save_org`. Returns the migration report, or None when
     the document was already converted — which is what makes calling it at
     the head of every mutation cheap and idempotent."""
@@ -6887,24 +6890,55 @@ def _work_identity_guard(org: Any) -> None:
         raise HTTPException(409, WORK_IDENTITY_STALE)
 
 
+_T = TypeVar("_T")
+
+
+def _work_route_tx(slug: str, fn: Callable[[Org], _T],
+                   rows: worktx.Rows | None = None, *,
+                   sweep: bool = True) -> _T:
+    """PG-3w: one operator docket route as row transactions instead of
+    DOC_LOCK — the archive sweep in its own transaction (decision 13), then
+    `fn(org)` in one `org_tx` that commits whatever it changed (the item, and
+    the mail it sends: one atomic write, never split). An HTTPException or a
+    LedgerError raised by `fn` rolls everything back, exactly as leaving the
+    old `with DOC_LOCK` block unsaved did. A missing org is a 404 before any
+    transaction opens. The operator's routes had no halt gate or receipt
+    prologue under DOC_LOCK and have none here (pgdoor.op_tx's rule)."""
+    if not os.path.exists(store.org_path(slug)):
+        raise HTTPException(404, f"no such org: {slug!r}")
+    if sweep:
+        worktx.sweep(slug)
+    return worktx.run(slug, fn, rows=rows)
+
+
+def _work_route_open(org: Org, slug: str, wid: str) -> None:
+    """The shared head of every operator docket route, on the locked
+    document: the identity conversion (422) and the item lookup (404)."""
+    try:
+        _work_identity_ready(org, slug)
+    except LedgerError as e:
+        raise HTTPException(422, str(e))
+    try:
+        org._work_find(wid)
+    except LedgerError as e:
+        raise HTTPException(404, str(e))
+
+
 @app.post("/api/orgs/{slug}/migrate-work-identity")
 def work_identity_migrate(slug: str) -> dict[str, Any]:
     """The one-shot conversion. Idempotent: a second call reports
     `already: true` and writes nothing at all."""
-    with store.DOC_LOCK:
+    def body(org: Org) -> dict[str, Any] | None:
         try:
-            org = store.load_org(slug)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
-        try:
-            report = _work_identity_ready(org, slug)
+            return _work_identity_ready(org, slug)
         except LedgerError as e:
             # a refusal (e.g. two items already sharing a name) must leave the
-            # stored document exactly as it was — nothing has been saved yet
+            # stored document exactly as it was — the transaction rolls back
             raise HTTPException(422, str(e))
-        if report is None:
-            return {"already": True}
-        store.save_org(org)
+    report = _work_route_tx(slug, body, worktx.Rows(
+        sections={"work_items", "asks", "work_identity"}), sweep=False)
+    if report is None:
+        return {"already": True}
     return {"already": False, **report}
 
 
@@ -6977,19 +7011,15 @@ def work_item_reply(slug: str, wid: str, body: WorkReply,
     if not text:
         raise HTTPException(422, "empty reply")
     to = str(body.to or "").strip()
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
-        try:
-            _work_identity_ready(org, slug)
-        except LedgerError as e:
-            raise HTTPException(422, str(e))
-        try:
-            org._work_find(wid)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
+    public = _public_slug(request)
+
+    # PG-3w: one `org_tx` (the reply mail, the deep-reach note and the
+    # attention clear commit together, as they saved together under
+    # DOC_LOCK). The recipient is resolved inside it, so its node row is
+    # named by `worktx`'s widening when the prediction (none) misses it.
+    def tx_body(org: Org) -> tuple[str, str, dict[str, Any], dict[str, Any],
+                                   dict[str, Any], bool]:
+        _work_route_open(org, slug, wid)
         try:
             tgt = (org.work_reply_recipient(wid, to) if to
                    else org.work_reply_target(wid))
@@ -7048,7 +7078,7 @@ def work_item_reply(slug: str, wid: str, body: WorkReply,
                 org.work_item_ref(org._work_find(wid)[0]), body=text, role=role,
                 owner=(str(tgt.get("owner") or "") if role == "participant" else None)),
                 attachments=metas or None, missing=missing or None)
-            receipt = _send_receipt(org, slug, nid, r, public=_public_slug(request))
+            receipt = _send_receipt(org, slug, nid, r, public=public)
             org.user_deep_reach(nid, text.splitlines()[0][:160])
             # A successful user reply acknowledges manual attention without
             # taking the explicit-dismissal path (which blocks the item).
@@ -7059,9 +7089,12 @@ def work_item_reply(slug: str, wid: str, body: WorkReply,
             # question it answered; passing `text` here is what puts the ruling
             # and the thing it ruled on together on one row that `get` serves.
             org.work_clear_attention_on_user_reply(wid, text)
-            store.save_org(org)
+            return nid, role, tgt, r, receipt, can_notice
         except LedgerError as e:
             raise HTTPException(422, str(e))
+
+    nid, role, tgt, r, receipt, can_notice = _work_route_tx(
+        slug, tx_body, worktx.Rows().notify())
     mail_notify(slug, USER, nid)
     # allow-attachments-in-contextual-reply-composers: same D-171 rule as
     # node_message — `warnings` is CODE's own channel for an attachment
@@ -7112,19 +7145,9 @@ def work_item_dismiss(slug: str, wid: str, body: WorkDismiss) -> dict[str, Any]:
     """Dismiss a MANUAL attention flag: clears it, sets the work Blocked,
     records the dismissal; pending questions are untouched (they keep the
     item orange). 409 on a stale `set_rev` or an already-cleared flag."""
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
-        try:
-            _work_identity_ready(org, slug)
-        except LedgerError as e:
-            raise HTTPException(422, str(e))
-        try:
-            org._work_find(wid)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
+    # PG-3w: one `org_tx`; the dismissal and its status mail commit together
+    def tx_body(org: Org) -> tuple[dict[str, Any], Any]:
+        _work_route_open(org, slug, wid)
         try:
             r = org.work_dismiss_attention(wid, int(body.set_rev))
         except LedgerError as e:
@@ -7147,7 +7170,9 @@ def work_item_dismiss(slug: str, wid: str, body: WorkDismiss) -> dict[str, Any]:
                                    dismissed_by=USER))
             except LedgerError:
                 notify = None
-        store.save_org(org)
+        return r, notify
+
+    r, notify = _work_route_tx(slug, tx_body, worktx.Rows().notify())
     if notify:
         supervisor.send_message(
             slug, str(notify),
@@ -7161,25 +7186,13 @@ def work_item_dismiss(slug: str, wid: str, body: WorkDismiss) -> dict[str, Any]:
 def work_item_accept(slug: str, wid: str, body: WorkAccept) -> dict[str, Any]:
     """The user accepts an item as done (the same rule the tool enforces
     for a superior: never the owner)."""
-    with store.DOC_LOCK:
+    def tx_body(org: Org) -> dict[str, Any]:
+        _work_route_open(org, slug, wid)
         try:
-            org = store.load_org(slug)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
-        try:
-            _work_identity_ready(org, slug)
+            return org.work_accept(USER, wid, body.note)
         except LedgerError as e:
             raise HTTPException(422, str(e))
-        try:
-            org._work_find(wid)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
-        try:
-            r = org.work_accept(USER, wid, body.note)
-        except LedgerError as e:
-            raise HTTPException(422, str(e))
-        store.save_org(org)
-    return r
+    return _work_route_tx(slug, tx_body)
 
 
 @app.delete("/api/orgs/{slug}/work-items/{wid}")
@@ -7188,25 +7201,16 @@ def work_item_delete(slug: str, wid: str, note: str = "") -> dict[str, Any]:
     rule the tool enforces (`Org.work_delete`): the record leaves the docket
     and its archive, pointers other items hold to it are cleared, and the
     refusals (nested children, an open attached question) are the ledger's."""
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
-        try:
-            _work_identity_ready(org, slug)
-        except LedgerError as e:
-            raise HTTPException(422, str(e))
-        try:
-            org._work_find(wid)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
+    def tx_body(org: Org) -> tuple[str, dict[str, Any]]:
+        _work_route_open(org, slug, wid)
         try:
             item_slug = str(org._work_find(wid)[0]["slug"])
-            r = org.work_delete(USER, wid, note)
+            return item_slug, org.work_delete(USER, wid, note)
         except LedgerError as e:
             raise HTTPException(422, str(e))
-        store.save_org(org)
+    rows = worktx.rows_for("delete", {})
+    rows.logs.add("work_items_archive")      # delete erases the archive too
+    item_slug, r = _work_route_tx(slug, tx_body, rows)
     # the deleted record's stored attachment bytes go with it — the record
     # that named them no longer exists anywhere (delete erases the archive
     # too), so keeping the files would be an unlisted orphan pile
@@ -7255,39 +7259,46 @@ async def work_item_attach(slug: str, wid: str, request: Request,
     # event loop), reached the other way round. `run_in_threadpool` is already
     # this module's idiom for exactly this (see the usage/limits routes).
     def _store_attachment() -> dict[str, Any]:
-        with store.DOC_LOCK:
+        # PG-3w: the BYTES are written first, OUTSIDE any transaction — an
+        # `org_tx` body may re-run (widen / retry) and must not write a file
+        # twice. The name is claimed with an exclusive create (`xb`), which
+        # is atomic on the filesystem, so two uploads can never take the same
+        # name without the lock that used to serialise them. The record is
+        # then one `org_tx`; if it is refused the bytes are removed again.
+        if not os.path.exists(store.org_path(slug)):
+            raise HTTPException(404, f"no such org: {slug!r}")
+        try:
+            it, _ = orgtx.org_read(slug, sections=["work_items_archive"]
+                                   )._work_find(wid)
+        except LedgerError as e:
+            raise HTTPException(404, str(e))
+        adir = _work_attach_dir(slug, str(it["slug"]))
+        os.makedirs(adir, exist_ok=True)
+        final, i = stem + ext, 2
+        while True:
             try:
-                org = store.load_org(slug)
-            except LedgerError as e:
-                raise HTTPException(404, str(e))
-            try:
-                _work_identity_ready(org, slug)
-            except LedgerError as e:
-                raise HTTPException(422, str(e))
-            try:
-                it, _ = org._work_find(wid)
-            except LedgerError as e:
-                raise HTTPException(404, str(e))
-            adir = _work_attach_dir(slug, str(it["slug"]))
-            os.makedirs(adir, exist_ok=True)
-            final, i = stem + ext, 2
-            while os.path.exists(os.path.join(adir, final)):
-                final, i = f"{stem}-{i}{ext}", i + 1
-            try:
-                with open(os.path.join(adir, final), "wb") as f:
+                with open(os.path.join(adir, final), "xb") as f:
                     f.write(data)
+                break
+            except FileExistsError:
+                final, i = f"{stem}-{i}{ext}", i + 1
             except OSError as e:
                 raise HTTPException(422, f"could not store the attachment: {e}")
+
+        def tx_body(org: Org) -> dict[str, Any]:
+            _work_route_open(org, slug, wid)
             try:
-                rec = org.work_attach(USER, wid, final, len(data), final)
-                store.save_org(org)
+                return org.work_attach(USER, wid, final, len(data), final)
             except LedgerError as e:
-                # the record was refused, so the bytes must not linger unlisted
-                try:
-                    os.unlink(os.path.join(adir, final))
-                except OSError:
-                    pass
                 raise HTTPException(422, str(e))
+        try:
+            rec = _work_route_tx(slug, tx_body)
+        except BaseException:
+            try:
+                os.unlink(os.path.join(adir, final))
+            except OSError:
+                pass
+            raise
         return {"attachment": rec}
 
     from fastapi.concurrency import run_in_threadpool
@@ -7512,29 +7523,27 @@ def work_item_artifact_file(slug: str, wid: str, aid: str) -> FileResponse:
 def work_item_detach(slug: str, wid: str, aid: str) -> dict[str, Any]:
     """Remove one attachment permanently: the record via the ledger, then
     the stored bytes. There is no undelete."""
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
+    # PG-3w: the record in one `org_tx`; the bytes are unlinked only AFTER it
+    # commits (a body that may re-run must not touch the filesystem, and a
+    # refused removal must leave the file its record still names)
+    def tx_body(org: Org) -> tuple[str, dict[str, Any]]:
         try:
             _work_identity_ready(org, slug)
         except LedgerError as e:
             raise HTTPException(422, str(e))
         try:
             it, _ = org._work_find(wid)
-            removed = org.work_detach(USER, wid, aid)
+            return str(it["slug"]), org.work_detach(USER, wid, aid)
         except LedgerError as e:
             raise HTTPException(404, str(e))
-        store.save_org(org)
-        base = os.path.realpath(_work_attach_dir(slug, str(it["slug"])))
-        full = os.path.realpath(os.path.join(
-            base, str(removed.get("path") or "")))
-        if full.startswith(base + os.sep) and os.path.isfile(full):
-            try:
-                os.unlink(full)
-            except OSError:
-                pass
+    item_slug, removed = _work_route_tx(slug, tx_body)
+    base = os.path.realpath(_work_attach_dir(slug, item_slug))
+    full = os.path.realpath(os.path.join(base, str(removed.get("path") or "")))
+    if full.startswith(base + os.sep) and os.path.isfile(full):
+        try:
+            os.unlink(full)
+        except OSError:
+            pass
     return {"removed": aid}
 
 
