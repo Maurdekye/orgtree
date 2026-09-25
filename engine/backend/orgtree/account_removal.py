@@ -278,7 +278,7 @@ def plan_removal(account_id: str) -> dict[str, Any]:
         return plan
     for slug in org_slugs():
         try:
-            org = orgtx.org_read(slug, sections=("default_account", "sandbox"))
+            org = orgtx.org_read(slug)
         except Exception as e:                               # noqa: BLE001
             # A document we cannot read is a document whose bindings we cannot
             # know. The old guard skipped it, which reads as "binds nothing";
