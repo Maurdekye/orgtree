@@ -139,9 +139,15 @@ fn statements_carry_derived_relations_and_no_values() {
         assert_eq!(field(r, "infrastructure"), Some(&Value::Bool(true)), "{label}");
         assert_eq!(field(r, "relations"), Some(&Value::List(vec![])), "{label}");
     }
-    // statements carry the backend pid their transaction began on
+    // statements carry the backend pid their transaction began on, and so do the
+    // transaction's server views and its end (those take it from the Begin)
     let begin = records.iter().find(|r| r.kind == "tx_begin").unwrap();
+    assert!(matches!(field(begin, "backend_pid"), Some(Value::Int(_))), "{}", begin.to_json());
     assert_eq!(field(anchor, "backend_pid"), field(begin, "backend_pid"));
+    for kind in ["xact_stats", "xact_locks", "tx_end"] {
+        let r = records.iter().find(|r| r.kind == kind).unwrap();
+        assert_eq!(field(r, "backend_pid"), field(begin, "backend_pid"), "{kind}");
+    }
 }
 
 struct StubbedEdit;
