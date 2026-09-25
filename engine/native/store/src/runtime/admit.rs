@@ -190,8 +190,15 @@ pub const INSERT_CLAIM_SQL: &str = "INSERT INTO runtime_claims (org_id, claim_id
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)";
 pub const PROMOTE_CLAIM_SQL: &str = "UPDATE runtime_claims SET state = 'admitted', charter_vector = $3 WHERE org_id = $1 AND claim_id = $2 AND state = 'deferred'";
 pub const BUSY_SQL: &str = "UPDATE runtime_state SET busy = $3 WHERE org_id = $1 AND principal_id = $2";
+/// Admission consumes the seat's KICKOFF demands (a turn now runs). A
+/// message's WAKE demand is settled only when that message's input is
+/// confirmed ([`ConfirmInput`]), so an abandoned or unconfirmed input leaves
+/// its wake pending and nothing is lost (found by doors_pg, 2026-09-25).
 pub const CONSUME_INTENTS_SQL: &str = "WITH c AS (UPDATE outgoing_intents SET stage = 'settled', settled_at = $3 \
-    WHERE org_id = $1 AND dest_ref = $2 AND kind IN ('wake', 'kickoff') AND stage = 'pending' RETURNING 1) SELECT count(*) FROM c";
+    WHERE org_id = $1 AND dest_ref = $2 AND kind = 'kickoff' AND stage = 'pending' RETURNING 1) SELECT count(*) FROM c";
+pub const SETTLE_WAKES_SQL: &str = "UPDATE outgoing_intents SET stage = 'settled', settled_at = $3 \
+    WHERE org_id = $1 AND kind = 'wake' AND stage = 'pending' \
+    AND source_ref IN (SELECT original_message_id FROM mailbox_messages WHERE org_id = $1 AND batch_id = $2)";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "admission", rename_all = "snake_case")]
@@ -443,6 +450,7 @@ impl Command for ConfirmInput {
             return Ok(Decided::Refused(Refusal::new("evidence_mismatch", "the provider's input evidence does not match the claimed batch")));
         }
         let now = tx.now().await?;
+        tx.exec("input.settle_wakes", SETTLE_WAKES_SQL, &[Val::Uuid(org), Val::Uuid(self.batch_id), Val::Ts(now)]).await?;
         tx.exec("input.confirm_rows", CONFIRM_ROWS_SQL, &[Val::Uuid(org), Val::Uuid(self.batch_id), Val::Ts(now)]).await?;
         tx.exec("input.settle_batch", SETTLE_BATCH_SQL, &[Val::Uuid(org), Val::Uuid(self.batch_id), Val::text("confirmed"), Val::text(self.evidence.clone()), Val::Ts(now)]).await?;
         Ok(Decided::Applied(ids.len()))

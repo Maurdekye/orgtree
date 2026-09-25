@@ -190,7 +190,8 @@ async fn a_turn_consumes_its_kickoff_reads_mail_by_evidence_and_defers_during_a_
     let t = runtime::run_turn(&ex, org(), b(), &FakeProvider { tamper: false }).await.unwrap();
     let Turn::Ran { read, consumed_demands, recaptures, vector, .. } = t else { panic!("{t:?}") };
     assert_eq!(read, vec![m1, m2]);
-    assert_eq!(consumed_demands, 3, "the kickoff and both wakes");
+    assert_eq!(consumed_demands, 1, "admission consumes the kickoff");
+    assert_eq!(count("SELECT count(*) FROM outgoing_intents WHERE kind = 'wake' AND stage = 'settled'").await, 2, "each wake settles with its confirmed input");
     assert_eq!(recaptures, 0);
     assert_eq!(vector.chain.iter().map(|n| n.node).collect::<Vec<_>>(), vec![b(), a()]);
     assert_eq!(count("SELECT count(*) FROM mailbox_messages WHERE state = 'delivered'").await, 2);
