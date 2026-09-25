@@ -426,6 +426,31 @@ class BracketTests(unittest.TestCase):
             bracket.start_for_engine(root, env, self.migrator)
         self.assertEqual(self.calls(), [])
 
+    def test_an_unfinished_cutover_refuses_and_names_the_rerun(self) -> None:
+        for root, env in ((self.root, self.unset_store()), self.product_root()):
+            if root == self.root:
+                self.mark()
+                self.cutover(root)
+            (root / "orgs").mkdir(exist_ok=True)
+            (root / "orgs" / "acme.pg").write_text("{}")
+            (root / "orgs" / "beta.db").write_text("")
+            with self.assertRaisesRegex(BracketError, "did not finish: orgs/ still holds beta.db") as ctx:
+                bracket.start_for_engine(root, env, self.migrator)
+            self.assertIn(f'pgimport.py import --root "{root}" --custodian "{self.custodian}"', str(ctx.exception))
+            self.assertIn("delete store-backend.json", str(ctx.exception))
+            self.assertEqual(self.calls(), [], "nothing may start on a half-moved root")
+            # once the files are moved, it starts
+            (root / "orgs" / "beta.db").unlink()
+            owned = bracket.start_for_engine(root, env, self.migrator)
+            owned.stop()
+            self.log.unlink()
+        # without a cutover record the files are simply the SQLite store
+        other = self.tmp / "roots" / "plain"
+        (other / "orgs").mkdir(parents=True)
+        (other / "orgs" / "beta.db").write_text("")
+        self.mark(other)
+        bracket.start_for_engine(other, self.configured(), self.migrator).stop()
+
     def test_a_deny_label_missing_from_the_shared_list_fails_closed(self) -> None:
         root, env = self.product_root()
         spec = json.loads(bracket.LIVE_LOCATIONS.read_text(encoding="utf-8"))
