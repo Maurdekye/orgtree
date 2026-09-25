@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.operator-ops-boundary/v1",
-  "source_contract_sha256": "008c879b2a4adb01a7540312384c5ffe7faf11d646c6abc74e738aaba224e291",
+  "source_contract_sha256": "1fe50be5d51577d32fa115d451ab9525ee644f8ab46a586822c2b3ee77ca9973",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false

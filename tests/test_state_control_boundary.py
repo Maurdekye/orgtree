@@ -292,6 +292,10 @@ class ControlBoundary(unittest.TestCase):
         self.case(self.agent('orgtree_unhalt', {'node': 'mid'}, 'top'), 't_unhalt')
         self.assertEqual(self.hub.call_count, 0)
         self.refused(self.agent('orgtree_halt', {'node': 'top'}, 'mid'), 'mid has no authority over top')
+        # a batch is authorised for EVERY target in one lock pass before any process is cut: one target outside
+        # the caller's subtree refuses the whole batch and nothing is cut
+        self.refused(self.agent('orgtree_halt', {'nodes': ['leaf', 'top']}, 'mid'), 'mid has no authority over top')
+        self.cut.assert_not_called()
         self.fresh()
         r, _ = self.case(self.agent('orgtree_halt', {'nodes': ['mid', 'sib']}, 'top'), 't_halt_batch')
         self.assertEqual(sorted(r.json()['nodes']), ['mid', 'sib'])
