@@ -16,10 +16,12 @@ root, which may be live (WS2/WS1 agreement, 2026-09-25 12:37Z, decision 1 on
 * Best effort: a failed write returns ``False`` and never raises, so the
   refusal itself is raised unchanged.
 
-Read it back with ``Get-WinEvent -FilterHashtable @{LogName='Application';
-ProviderName='Orgtree P03'}``. The source is not registered with a message
-file, so Event Viewer prefixes the text with a "description cannot be found"
-note; the JSON follows it intact.
+Read it back with ``Get-EventLog -LogName Application -Source 'Orgtree P03'
+-Newest 5 | Format-List``. The source is not registered (that needs admin),
+so ``Get-WinEvent -FilterHashtable @{ProviderName=...}`` finds no provider
+and its ``Message`` is empty; ``Get-EventLog`` and Event Viewer show a
+"description cannot be found" note followed by the JSON, intact (measured
+2026-09-25).
 """
 
 from __future__ import annotations
