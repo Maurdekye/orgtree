@@ -325,14 +325,17 @@ def b():
         # 333 -> 342: p01-inventory-misses-the-desktop-relaunch-tool-c inventories mcptool's
         # _DESKTOP_RELAUNCH_CARDS (the orgtree_self_relaunch and orgtree_prime_relaunch cards) and the 7 names the
         # agent door dispatches without any card (tool_verb), every body.tool operand resolved
-        self.assertEqual(summary["registration_sites"], 342)
+        # 342 -> 335: the external-chat retirement (docket the-external-chat-mcp-server-cannot-reach-the-v2) removes
+        # the three /api/extern routes and externtool.py's four tool cards
+        self.assertEqual(summary["registration_sites"], 335)
         self.assertEqual(summary["registration_kinds"]["task"], 13)
         self.assertEqual((summary["registration_kinds"]["tool"], summary["registration_kinds"]["tool_verb"],
-                          summary["unresolved_tool_refs"]), (51, 7, 0))
+                          summary["unresolved_tool_refs"]), (47, 7, 0))
         # 225 -> 226: P02-A1 adds one `body.tool == "orgtree_operation_census"`
         # branch in api.agent_call, routing the agent read door.
         # 226 -> 227: the same item adds the `orgtree_account_mark` branch.
-        self.assertEqual(summary["dispatch_selector_sites"], 227)
+        # 227 -> 223: the external-chat retirement removes externtool.py's four tool branches
+        self.assertEqual(summary["dispatch_selector_sites"], 223)
         # 15 -> 18: engine/mailhub_runtime.py's hub store migration opens three connections
         self.assertEqual(summary["connection_sites"], 18)
         self.assertEqual([(r["source"]["path"], r["source"]["symbol"], r["target"])

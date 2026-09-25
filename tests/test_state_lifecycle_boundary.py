@@ -102,11 +102,12 @@ class BoundaryBinding(unittest.TestCase):
             [entry] = registry['contracts'][name]['entry_ids']
             with self.subTest(contract=name):
                 self.assertEqual((rows[entry]['disposition'], rows[entry]['contracts']), ('mapped', [name]))
-        # the external-chat server's orgtree_list_orgs card calls GET /api/orgs, a different handler: it belongs to
-        # the external chat family and P01 F4 contracts it there (exchange.orgs-list), not here
-        [extern] = [s for s in source['registrations'] if s['kind'] == 'tool'
-                    and s['source']['path'].endswith('externtool.py') and s.get('names') == ['orgtree_list_orgs']]
-        self.assertEqual((rows[extern['site_id']]['disposition'], rows[extern['site_id']]['contracts']),
+        # GET /api/orgs is a different handler: P01 F4 contracts it in the exchange family (exchange.orgs-list), not
+        # here. The external-chat server whose orgtree_list_orgs card called it is retired (docket
+        # the-external-chat-mcp-server-cannot-reach-the-v2), so no externtool registration remains.
+        self.assertEqual([s for s in source['registrations'] if s['source']['path'].endswith('externtool.py')], [])
+        [orgs_list] = registry['contracts']['exchange.orgs-list']['entry_ids']
+        self.assertEqual((rows[orgs_list]['disposition'], rows[orgs_list]['contracts']),
                          ('mapped', ['exchange.orgs-list']))
 
     def test_stale_incomplete_or_elevated_fixture_refuses(self):

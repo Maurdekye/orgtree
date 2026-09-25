@@ -60,7 +60,7 @@ def boundary(document=None):
     for tool, name in d['tools'].items():
         if registry['contracts'].get(name, {}).get('tools') != [tool]:
             raise ValueError('registry does not bind ' + name)
-    if set(d['results']) != {'agent', 'user', 'org', 'mcp', 'replay'}:
+    if set(d['results']) != {'agent', 'user', 'org', 'replay'}:
         raise ValueError('every recipient class is required')
     return d
 
@@ -79,7 +79,7 @@ class BoundaryBinding(unittest.TestCase):
             self.assertEqual(registry['facets']['agent-mail.' + name]['status'], 'specified', name)
 
     def test_stale_incomplete_or_elevated_fixture_refuses(self):
-        for edit in [lambda d: d['results'].pop('mcp'), lambda d: d['tools'].update(orgtree_message='mail.notice'),
+        for edit in [lambda d: d['results'].pop('org'), lambda d: d['tools'].update(orgtree_message='mail.notice'),
                      lambda d: d.update(covered=True), lambda d: d['qualification'].update(runtime_census=True),
                      lambda d: d.update(source_contract_sha256='0' * 64)]:
             with self.subTest(edit=edit):
@@ -267,11 +267,9 @@ class AgentMailBoundary(unittest.TestCase):
         # a bare name that is a local org resolves to @org:, now with the audience already held
         result, changed, grants, _, _ = self.send(M, self.other, 'top')
         self.assertEqual((result['delivered'], changed, grants), (f'@org:{self.other}', spec['sections']['org'], []))
-        result, changed, _, _, _ = self.send(M, '@mcp:peer1', 'top')
-        self.assertEqual(sorted(result), spec['results']['mcp'])
-        self.assertEqual((result['delivered'], result['filed'], changed), (False, '@mcp:peer1', spec['sections']['mcp']))
-        self.assertIn('has NEVER polled this machine', result['status'])
-        self.inter.assert_not_called()
+        # the @mcp: form is retired (docket the-external-chat-mcp-server-cannot-reach-the-v2): a new send refuses
+        # before anything is filed, like @ext:
+        self.refuses_cleanly(M, dict(to='@mcp:peer1', body='hello'), 'top', ledger.MCP_RETIRED)
 
     def test_net_send_stages_the_spool_in_the_same_save_and_kicks_the_daemon(self):
         with store.write_org(self.slug) as org:

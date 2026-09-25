@@ -523,11 +523,26 @@ A refused settings call writes nothing, even when earlier fields had already bee
 the outermost lock release discards a document that changed without a save. The sweep deletes the sandbox root,
 the org's host workspace and its scratch root.
 
-Recorded legacy defects:
+Recorded legacy defects (both docketed as org-admin-orgmd-put-reports-characters-as-bytes):
 - the org.md write reports the character count as `bytes`;
 - disk delete returns the raw OSError text, host path included, to admins and kiosk visitors alike.
 
 Entries contracted: 99 of 194.
+
+705 is nine fewer than that 714, because the user retired the external-chat MCP server (docket
+the-external-chat-mcp-server-cannot-reach-the-v2): outside chats use the mail hub only. externtool.py, its four tool
+cards and the three `/api/extern` routes are gone, so the inventory records 335 registrations, down from 342. The
+three `exchange.extern-*` contracts, their 7 entries and their 9 open dimension occurrences are retired with them, and
+`exchange.orgs-list` keeps only GET /api/orgs. A new `@mcp:` send is refused 422 (`ledger.MCP_RETIRED`), both in
+`post_mail` (right after the `@ext:` refusal) and in the org-inbox compose route (before the attachment checks).
+The agent-mail and exchange facts, and their fixtures, now say so. `exchange.instrumentation` narrows to the one
+path P02's rows still do not cover: the `@net:` send against a live mail hub. The facts are from P02's retirement
+commit, which records 12 exchange contracts and 27 refusals.
+
+The earlier paragraphs above describe the extern routes as they were when each family landed. Every registry span in
+the files the retirement edited was re-anchored by exact text. Spans whose text changed were re-derived, and the
+facts citing them were re-read. Entries contracted: 92 of 187 (the plan's 194 less the 7 retired entries, all of
+which F4 had contracted).
 
 Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the

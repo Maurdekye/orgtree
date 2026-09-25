@@ -82,8 +82,8 @@ class BoundaryBinding(unittest.TestCase):
         # both callers of _staff_call are contracted now, so its create branch maps back
         # to the one contract that takes it (quick staff always sends action update)
         rows = {r['id'][:8]: r for r in registry['dispatch']}
-        self.assertEqual(rows['f2c32b21']['contracts'], ['staffing.staff-create'])
-        self.assertIn('quick-staff.select', rows['41f82592']['contracts'])
+        self.assertEqual(rows['d0baf284']['contracts'], ['staffing.staff-create'])
+        self.assertIn('quick-staff.select', rows['5ecf015b']['contracts'])
 
     def test_stale_incomplete_or_elevated_fixture_refuses(self):
         for edit in [lambda d: d['contracts'].pop('quick-staff.select'), lambda d: d.update(covered=True),

@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.state-operation-contracts/v1",
-  "source_inventory_sha256": "8e10efcbbc4e2044fb9556bac87db71dde74bae66738e313b0aa376b5070d9b2",
+  "source_inventory_sha256": "2534745a85ccce4447e8eea964fa954c35e7968adc2faf4e5a13b95c8043a593",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false
@@ -5035,7 +5035,7 @@
         "Addressing (§7.2, Org.post_mail) for an in-org agent recipient: the sender may reach any descendant, its parent (one hop up), a sibling (same parent), or anyone whose audience it holds. Everything else is refused 422 '<sender> may not address <to> — …'. Pinned: a cousin and a grandparent are refused; a reply from a deep report succeeds once the sender holds the audience its superior's mail granted. A node may address itself: the sibling clause is trivially true for sender == target (recorded, D-165).",
         "§7.3: mail or a notice from an ancestor to a NON-child descendant that does not already hold the reverse audience grants the recipient an audience to reply to the sender directly (an 'audiences' row and the warning 'audience granted: <to> may now reply to <sender> directly'). Pinned for both tools; a second send grants nothing.",
         "The user: only a top-level agent, or a holder of a user audience, may message 'user'; others are refused 422. orgtree_send_notice refuses the user and every outside address.",
-        "Outside parties (@org:, @mcp:, @net:, orgtree_message only): only agents; never from a sealed kiosk (read from source, not exercised); the sender must hold the ORG-INBOX (EXTERN) audience or an exact held external handle. A top-level sender without it is auto-granted it by the send (with multi-holder off, every previous holder is revoked — read from source, not exercised); anyone else is refused 422. Addressing the org's own slug or own network identity is refused. The @ext: form is retired and refuses. Pinned for @org: (top auto-grant, deep refused, self refused), @mcp: and @ext:."
+        "Outside parties (@org: and @net:, orgtree_message only): only agents; never from a sealed kiosk (read from source, not exercised); the sender must hold the ORG-INBOX (EXTERN) audience or an exact held external handle. A top-level sender without it is auto-granted it by the send (with multi-holder off, every previous holder is revoked — read from source, not exercised); anyone else is refused 422. Addressing the org's own slug or own network identity is refused. The @ext: and @mcp: forms are retired and refuse 422, a new @mcp: send answering ledger.MCP_RETIRED before any audience or kiosk check (the external-chat server was retired by user ruling, docket the-external-chat-mcp-server-cannot-reach-the-v2; historical @mcp: rows stay readable). Pinned for @org: (top auto-grant, deep refused, self refused), @mcp: and @ext:."
       ],
       "source_refs": [
         {
@@ -5052,9 +5052,9 @@
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 2108,
-          "end": 2145,
-          "sha256": "dfb1ad2a53bfea26ee13072a6714a369f864048de2f9530507e75aa6b20c0772"
+          "start": 2116,
+          "end": 2148,
+          "sha256": "a3caacb127b162baf68c6f07563b55033e703cb2ccd1d6ceda696b75da39babf"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
@@ -5087,7 +5087,7 @@
       "dimension": "predicates",
       "status": "specified",
       "facts": [
-        "Arguments pass _norm_args (a container 'to' or 'body' refuses 422 '<field> must be text, not <type>'). The recipient is resolved ONCE before anything records: 'user' is the user unless an agent is named user; a bare name that is no node here resolves to the one matching local org (@org:) or polling peer (@mcp:), else a hub peer (@net:), and an ambiguous name refuses. An unmatched name refuses 422 'NOT DELIVERED — there is no agent named …' and queues nothing. Pinned for an unknown name and for a bare local-org name.",
+        "Arguments pass _norm_args (a container 'to' or 'body' refuses 422 '<field> must be text, not <type>'). The recipient is resolved ONCE before anything records: 'user' is the user unless an agent is named user; a bare name that is no node here resolves to the one matching local org (@org:), else a hub peer (@net:); an old @mcp: correspondent no longer captures a bare name, and an ambiguous name refuses. An unmatched name refuses 422 'NOT DELIVERED — there is no agent named …' and queues nothing. Pinned for an unknown name and for a bare local-org name.",
         "orgtree_message: kind defaults to 'message' and any other text is accepted verbatim, except 'notice', which refuses (only orgtree_send_notice mints it). urgent is only for the user and needs a nonblank urgent_reason; a reason without urgent refuses. Attachments go only to the user or @net: (at most 10; @net: files must lie inside the sender's scratch space and be at most 25 MB); for an agent they refuse. Pinned.",
         "Recorded legacy behaviour: an empty, whitespace-only or missing body is accepted, stored and delivered (and drives the recipient). A self-send is accepted and drives the sender itself.",
         "A recipient that is archived receives the mail deferred (stored, recipient_state archived, no drive) with a warning that nothing reads it until a rehire; an unrecoverable recipient refuses. @net: refuses without an enabled hub or when the name is not on a connected hub's roster."
@@ -5113,9 +5113,9 @@
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 2108,
-          "end": 2145,
-          "sha256": "dfb1ad2a53bfea26ee13072a6714a369f864048de2f9530507e75aa6b20c0772"
+          "start": 2116,
+          "end": 2148,
+          "sha256": "a3caacb127b162baf68c6f07563b55033e703cb2ccd1d6ceda696b75da39babf"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
@@ -5215,7 +5215,7 @@
       "status": "unresolved",
       "facts": [
         "Observed at the callback boundary with spies: an in-org message sparks mail_notify(org, sender, recipient) inside the write cycle and, after the save, pings the recipient once through supervisor.send_message (wake default, mail_ping, ping_reason 'agent_mail'); a notice sparks the same and then steers once with wake=False and ping_reason 'notice'; a deferred (archived) recipient is sparked but never pinged. Mail to the user sparks '@user' and pings nobody. Every accepted send ends with hub_changed.",
-        "Outside parties: @org: sparks 'org_inbox' and, after the save, calls supervisor.interorg_send(this org, destination org, body), which writes into the DESTINATION org's own inbox; @mcp: only files the org-inbox row (the peer pulls it) and answers delivered false with a status sentence; @net: stages the spool entry in the same save and then calls net.kick to wake the sender daemon.",
+        "Outside parties: @org: sparks 'org_inbox' and, after the save, calls supervisor.interorg_send(this org, destination org, body), which writes into the DESTINATION org's own inbox; a new @mcp: send is refused before anything is filed; @net: stages the spool entry in the same save and then calls net.kick to wake the sender daemon.",
         "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667), row mail.message:org: interorg_send runs unstubbed, and its write into the destination org's store is observed (foreign statements through store._save_sqlite, with a foreign connect cold). Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
@@ -5260,7 +5260,7 @@
       "status": "specified",
       "facts": [
         "Source read set: caller identity (cached snapshot) and the resident document (caller node, halt, killswitch, recipient node and parent chain, audiences, EXTERN holders, org_inbox peers). A bare name that is not a node here is resolved by external_candidates, which lists every local org and reads each one's document to skip sealed kiosks, and by the net roster cache.",
-        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667) for orgtree_message and orgtree_send_notice by recipient class, cold and warm, answering both questions above: agent (to the sender's superior), deep agent, archived, user, @org:, @mcp: and a bare unknown name for the message; peer, deep and archived for the notice; plus keyed fresh and replay, the halted refusal and the notice refusals. Cold, every class reads doc, log_d, log_l, meta and nodes of the sender's org. A keyed replay and every refusal write nothing; the halted refusal reads only meta and nodes.",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667) for orgtree_message and orgtree_send_notice by recipient class, cold and warm, answering both questions above: agent (to the sender's superior), deep agent, archived, user, @org: and a bare unknown name for the message (the @mcp: class, a filed send at v3 27c8667, is refused since the retirement: refusal:mail-message-mcp-retired in P02's retirement commit, 422 with nothing written); peer, deep and archived for the notice; plus keyed fresh and replay, the halted refusal and the notice refusals. Cold, every class reads doc, log_d, log_l, meta and nodes of the sender's org. A keyed replay and every refusal write nothing; the halted refusal reads only meta and nodes.",
         "Recorded cross-org contacts (legacy, not endorsed): a bare name that is not a node here is looked up in every other org before the 422 NOT DELIVERED, hundreds of statements on foreign stores, cold or warm; @org: mail writes into the DESTINATION org's store (interorg_send runs unstubbed), with a foreign connect when that store is cold. Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
@@ -5272,9 +5272,9 @@
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
-          "start": 2108,
-          "end": 2145,
-          "sha256": "dfb1ad2a53bfea26ee13072a6714a369f864048de2f9530507e75aa6b20c0772"
+          "start": 2116,
+          "end": 2148,
+          "sha256": "a3caacb127b162baf68c6f07563b55033e703cb2ccd1d6ceda696b75da39babf"
         },
         {
           "path": "engine/backend/orgtree/ledger.py",
@@ -5322,7 +5322,7 @@
       "dimension": "wire",
       "status": "unresolved",
       "facts": [
-        "Result shapes are fixtured in docs/state-system/agent-mail-boundary.json and compared by tests/test_state_agent_mail_boundary.py: agent recipient {delivered, id, deferred, recipient_state, operation_id, warnings, delivery, ref}; user {delivered 'user_inbox', id, operation_id, warnings, ref}; @org: {delivered, id, warnings, ref}; @mcp: {delivered false, filed, id, status, warnings} and no ref, because nothing was delivered. ref is '@mail:<org>/node/<to>/<id>', '@mail:<org>/user/<id>' or '@mail:<org>/org/<id>'.",
+        "Result shapes are fixtured in docs/state-system/agent-mail-boundary.json and compared by tests/test_state_agent_mail_boundary.py: agent recipient {delivered, id, deferred, recipient_state, operation_id, warnings, delivery, ref}; user {delivered 'user_inbox', id, operation_id, warnings, ref}; @org: {delivered, id, warnings, ref}; a new @mcp: send is refused 422 (ledger.MCP_RETIRED). ref is '@mail:<org>/node/<to>/<id>', '@mail:<org>/user/<id>' or '@mail:<org>/org/<id>'.",
         "Recorded legacy behaviour: empty bodies are accepted; any kind text but 'notice' is accepted; self-send is accepted and drives the sender."
       ],
       "source_refs": [
@@ -5367,7 +5367,7 @@
       "status": "specified",
       "facts": [
         "The door labels the request with the tool name and census.classify files its action/target shape before dispatch; stateprobe.refine names the tool. No P02 per-operation record exists for these tools yet.",
-        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667): a loss-accounted record for both tools by recipient class, cold and warm (per-row unattributed and late deltas zero, every statement bound). Agent-level locality: every in-org send changes only the named recipient's mail, mail_log and node row, plus, on a first deep send (the cold row), the audience grant between sender and recipient; user, @org: and @mcp: mail and every refusal change no agent's mail. The control control:mail-third-agent (a delivery that also posts to a sibling) is flagged as a third-agent contact, and no other mail row touches a third agent. Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 27c8667): a loss-accounted record for both tools by recipient class, cold and warm (per-row unattributed and late deltas zero, every statement bound). Agent-level locality: every in-org send changes only the named recipient's mail, mail_log and node row, plus, on a first deep send (the cold row), the audience grant between sender and recipient; user and @org: mail and every refusal, the retired @mcp: send included (refusal:mail-message-mcp-retired in P02's retirement commit), change no agent's mail. The control control:mail-third-agent (a delivery that also posts to a sibling) is flagged as a third-agent contact, and no other mail row touches a third agent. Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "source_refs": [
         {
@@ -10544,7 +10544,7 @@
       "status": "specified",
       "facts": [
         "Every route is an operator route behind the desktop TokenGate that both current launch paths install (engine/launch.py load_app): a request with no credential is refused 401 ('missing authentication; provide a desktop or live agent credential'), and an agent credential on a route 401 ('agent credential is invalid or expired; reconnect the agent session'); past the gate a route acts as the user. orgtree_send_file and orgtree_send_file_once are agent tools on the agent door, acting for the calling agent on files it can reach. PROFILES (decision 1 on p01-f2-contracts-for-the-run-control-entry-point): desktop_policy.install_routes strips none of these routes and none of them reads ORGTREE_DESKTOP_MANAGED, so the desktop-managed and non-desktop profiles behave alike. Pinned by tests/test_state_exchange_boundary.py against docs/state-system/exchange-boundary.json.",
-        "The external-chat MCP server (externtool.py) sends no credential (Content-Type only), so under that gate every one of its four verbs is refused 401 ('missing authentication …') on both current launch paths (reported to the coordinator by the P01 F4 item); with the desktop token added its client logic works. Pinned by tests/test_state_exchange_boundary.py against docs/state-system/exchange-boundary.json. The public kiosk gateway, which the desktop launcher does not start, is read from source: GET /api/orgs lists only the token's org there, the org_inbox upload and send routes refuse it 404 ('not found'), and node upload is reachable through it."
+        "The public kiosk gateway, which the desktop launcher does not start, is read from source: GET /api/orgs lists only the token's org there, the org_inbox upload and send routes refuse it 404 ('not found'), and node upload is reachable through it. The external-chat MCP server (externtool.py) and its three /api/extern routes were retired by user ruling (docket the-external-chat-mcp-server-cannot-reach-the-v2), and the gate's refusal of its credential-less client went with them."
       ],
       "open_questions": [],
       "source_refs": [
@@ -10568,21 +10568,15 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9235,
-          "end": 9312,
-          "sha256": "0cc5d4f7c7bbb66f138dd302eb3c8aff5d83f95ad512524fc893ce67cb4ae32f"
+          "start": 9088,
+          "end": 9163,
+          "sha256": "e2ae3ea93d5ec35059233244035b1d8872498e086ecc0a7488d54ad05ff39f67"
         },
         {
           "path": "engine/backend/orgtree/api.py",
           "start": 12832,
           "end": 12884,
           "sha256": "e57c6c9d1e32973359187e2306f9194e500b2b83a6b074b967bbcdf6d0d833a1"
-        },
-        {
-          "path": "engine/backend/orgtree/externtool.py",
-          "start": 174,
-          "end": 181,
-          "sha256": "4dfe655437cba2ff55682e9cc476c6ab2b9ba5ff8d4fda63d7b804a74c2328e1"
         }
       ]
     },
@@ -10590,7 +10584,7 @@
       "dimension": "reads",
       "status": "specified",
       "facts": [
-        "GET /api/orgs reads every org's document once (store.list_orgs_with_docs) and each org's working count; a kiosk org's admin row carries kiosk_cfg, share token included. The externtool orgtree_list_orgs verb drops every row flagged kiosk or kiosk_cfg on the client and adds your_peer_id. The extern messages and wait routes scan EVERY org on the machine under the document lock on each call and return the peer's replies from all of them; wait rescans only when store.REVISION moves, off the event loop, and returns at once whenever any org holds a fresh reply for the peer (recorded legacy defect, docket external-chat-messages-and-wait-read-every-org-u). The org inbox list reads a snapshot of org_inbox (the last 100 entries with total and unread); the mail item route reads its box's sections and searches the box whole, so found false is an answer. The extern scan first lists the orgs with store.list_orgs, which reads and parses EVERY org document, and only then applies the org filter, which skips just the second, per-org store.load_org: a filtered read still reads every org (P02's F4 probe counted about 840 statements on other orgs' stores for one filtered warm read; corrected by P01 F6 from an earlier wording that said the filter skips the other orgs' loads). The reply-events count reads the reply_events sidecar read-only. Pinned by tests/test_state_exchange_boundary.py against docs/state-system/exchange-boundary.json."
+        "GET /api/orgs reads every org's document once (store.list_orgs_with_docs) and each org's working count; a kiosk org's admin row carries kiosk_cfg, share token included. The org inbox list reads a snapshot of org_inbox (the last 100 entries with total and unread); the mail item route reads its box's sections and searches the box whole, so found false is an answer. The reply-events count reads the reply_events sidecar read-only. Pinned by tests/test_state_exchange_boundary.py against docs/state-system/exchange-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -10599,18 +10593,6 @@
           "start": 1752,
           "end": 1793,
           "sha256": "d5eae1511c6509fe2b5b7a6b6007ec2fd7bc2466028115e743af63361d99e19a"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 8990,
-          "end": 9037,
-          "sha256": "14f4f78d30e1b8ab6a3eb6e5e33d9d453e4f146ae5675e53dbc91b7910efb182"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 9052,
-          "end": 9082,
-          "sha256": "0b773e1b9da5a888b1a9d6ca0e144d1747435989ed3f8064efb49f03e690ecd4"
         },
         {
           "path": "engine/backend/orgtree/api.py",
@@ -10631,12 +10613,6 @@
           "sha256": "928ec9fd2f6bb8597385e59a0c2c0810a5ea21dadf625797fcad74d1c9b6b591"
         },
         {
-          "path": "engine/backend/orgtree/externtool.py",
-          "start": 215,
-          "end": 259,
-          "sha256": "72a38afc6e597e3a0123b147265c6b06d175545f16ee6d8efd484227dcbf2be9"
-        },
-        {
           "path": "engine/backend/orgtree/store.py",
           "start": 3579,
           "end": 3580,
@@ -10648,7 +10624,7 @@
       "dimension": "writes",
       "status": "specified",
       "facts": [
-        "extern send writes the peer's sighting into the machine-wide <DATA_ROOT>/extern-peers.json before it checks the body, the org or the attachments (only a bad peer id is refused first), so an empty, unknown-org, kiosk or bad-attachment send still records it, and messages and wait record it too (docket external-chat-messages-and-wait-read-every-org-u). A delivered extern send, and an @org: send in the destination org, writes org_inbox, mail, mail_log, notices, notice_log, events, nodes and audiences (post_external_mail bootstraps an audience holder) and copies attachments into every recipient's uploads/. org_inbox read writes org_inbox_read. org_inbox upload writes a staged file under <DATA_ROOT>/net_stage, named by a map held in process memory and pruned after 24 hours. org_inbox send writes this org's org_inbox (an out entry) and, for @org:, the OTHER org's documents, a write across two orgs; for @net: it appends to the mail-hub spool (source). inbox clear moves user_inbox into user_mail_log. node upload writes the file under the node's scratch uploads/, de-duplicating a name with -2. The reply-events DELETE deletes the node's rows from the reply_events sidecar and writes nodes (a new reply_incarnation). retract writes mail and tombstones the entry in mail_log. Pinned by tests/test_state_exchange_boundary.py against docs/state-system/exchange-boundary.json.",
+        "A delivered @org: send writes, in the destination org, org_inbox, mail, mail_log, notices, notice_log, events, nodes and audiences (post_external_mail bootstraps an audience holder) and copies attachments into every recipient's uploads/. org_inbox read writes org_inbox_read. org_inbox upload writes a staged file under <DATA_ROOT>/net_stage, named by a map held in process memory and pruned after 24 hours. org_inbox send writes this org's org_inbox (an out entry) and, for @org:, the OTHER org's documents, a write across two orgs; for @net: it appends to the mail-hub spool (source). inbox clear moves user_inbox into user_mail_log. node upload writes the file under the node's scratch uploads/, de-duplicating a name with -2. The reply-events DELETE deletes the node's rows from the reply_events sidecar and writes nodes (a new reply_incarnation). retract writes mail and tombstones the entry in mail_log. Pinned by tests/test_state_exchange_boundary.py against docs/state-system/exchange-boundary.json.",
         "orgtree_send_file writes outbox/ only, never an org section, and with a delivery_id also a row in the machine-wide <DATA_ROOT>/file-deliveries.db and the copy under outbox/delivery-<identity>/, replayed as the same result for the same file and caption; orgtree_send_file_once requires the delivery_id and is then the same call. Every refusal writes nothing to any org. Pinned by tests/test_state_exchange_boundary.py against docs/state-system/exchange-boundary.json."
       ],
       "open_questions": [],
@@ -10658,12 +10634,6 @@
           "start": 5306,
           "end": 5313,
           "sha256": "9cde47018210911b109f36ddf6ddaf63b1b394b244f35dc97c6476a38885c191"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 8958,
-          "end": 8987,
-          "sha256": "b4aee595ce5771cd37c46550605b58a389650aa1f3f8f5945656871625286146"
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
@@ -10685,9 +10655,9 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9235,
-          "end": 9312,
-          "sha256": "0cc5d4f7c7bbb66f138dd302eb3c8aff5d83f95ad512524fc893ce67cb4ae32f"
+          "start": 9088,
+          "end": 9163,
+          "sha256": "e2ae3ea93d5ec35059233244035b1d8872498e086ecc0a7488d54ad05ff39f67"
         },
         {
           "path": "engine/backend/orgtree/api.py",
@@ -10731,27 +10701,15 @@
       "dimension": "predicates",
       "status": "specified",
       "facts": [
-        "extern send: a peer id outside [A-Za-z0-9._-]{1,64} 422; an empty body 422; a missing or sealed kiosk org 404 with the same wording; an attachment that is not a file 422 and one over 25 MB 413. org_inbox send: the retired @ext: form 422; a recipient that is not @org:, @mcp: or @net: 422; an unknown staged id 422; attachments to @mcp: 422 (text-only transport); a @net: send with no enabled hub 422; and, from source, a kiosk org 422, a @net: send to this org itself 422 and an unknown hub peer 422. An @org: send to a sealed or missing org answers 200 with a warning ('not delivered: no organization named … is reachable'). org_inbox upload over 25 MB 413. node upload: empty 422, unknown node 404, the org over its storage limit 413, and a kiosk org's 256 MB per-node total 413 (source). mail item: an unknown box or node 404. retract: mail already drained 404. orgtree_send_file: a missing path 422, a missing file 422, a path outside the reachable folders 422, a malformed delivery_id 422, a delivery_id reused for another file or caption 422, the org over its storage limit 422; orgtree_send_file_once without a delivery_id 422. The externtool wait clamps timeout_s to 5-300 seconds and long-polls in slices of at most 25 (source). Pinned by tests/test_state_exchange_boundary.py against docs/state-system/exchange-boundary.json."
+        "org_inbox send: the retired @ext: form 422; a new @mcp: send 422 (ledger.MCP_RETIRED, before the attachment checks); a recipient that is not @org: or @net: 422; an unknown staged id 422; a @net: send with no enabled hub 422; and, from source, a kiosk org 422, a @net: send to this org itself 422 and an unknown hub peer 422. An @org: send to a sealed or missing org answers 200 with a warning ('not delivered: no organization named … is reachable'). org_inbox upload over 25 MB 413. node upload: empty 422, unknown node 404, the org over its storage limit 413, and a kiosk org's 256 MB per-node total 413 (source). mail item: an unknown box or node 404. retract: mail already drained 404. orgtree_send_file: a missing path 422, a missing file 422, a path outside the reachable folders 422, a malformed delivery_id 422, a delivery_id reused for another file or caption 422, the org over its storage limit 422; orgtree_send_file_once without a delivery_id 422. Pinned by tests/test_state_exchange_boundary.py against docs/state-system/exchange-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 8952,
-          "end": 8955,
-          "sha256": "5a11dfcfc52702cf21f37f9813d47eb4dc3ee635d52b95bd43ce74cf624967af"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 8958,
-          "end": 8987,
-          "sha256": "b4aee595ce5771cd37c46550605b58a389650aa1f3f8f5945656871625286146"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 9235,
-          "end": 9312,
-          "sha256": "0cc5d4f7c7bbb66f138dd302eb3c8aff5d83f95ad512524fc893ce67cb4ae32f"
+          "start": 9088,
+          "end": 9163,
+          "sha256": "e2ae3ea93d5ec35059233244035b1d8872498e086ecc0a7488d54ad05ff39f67"
         },
         {
           "path": "engine/backend/orgtree/api.py",
@@ -10788,12 +10746,6 @@
           "start": 11130,
           "end": 11136,
           "sha256": "26e2489a1deb19240a003809e3217115a5aa60435ee5f93937f8f92833cae9ca"
-        },
-        {
-          "path": "engine/backend/orgtree/externtool.py",
-          "start": 215,
-          "end": 259,
-          "sha256": "72a38afc6e597e3a0123b147265c6b06d175545f16ee6d8efd484227dcbf2be9"
         }
       ]
     },
@@ -10801,19 +10753,13 @@
       "dimension": "conflicts",
       "status": "unresolved",
       "facts": [
-        "The extern scans hold the document lock across every org on the machine; extern-peers.json, file-deliveries.db, the reply_events sidecar and net_stage are machine-wide stores written outside any org transaction; an @org: send writes two orgs in two separate saves (source)."
+        "file-deliveries.db, the reply_events sidecar and net_stage are machine-wide stores written outside any org transaction; an @org: send writes two orgs in two separate saves (source)."
       ],
       "open_questions": [
-        "Implement and qualify native transactions for the exchange operations: the cross-org @org: send, the machine-wide sighting, delivery and stage stores, and the every-org extern scan against concurrent writers.",
+        "Implement and qualify native transactions for the exchange operations: the cross-org @org: send and the machine-wide delivery and stage stores, against concurrent writers.",
         "Owner: P03 (native design and qualification), with P07 for channels and mail. Closes with: a native design qualified by two orgs exchanging @org: mail concurrently and a waiter scanning during their saves. Not coverable at P01 from available evidence: no native build exists, and P01 has not cited a native design section for these operations."
       ],
       "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 8990,
-          "end": 9037,
-          "sha256": "14f4f78d30e1b8ab6a3eb6e5e33d9d453e4f146ae5675e53dbc91b7910efb182"
-        },
         {
           "path": "engine/backend/orgtree/store.py",
           "start": 5306,
@@ -10828,9 +10774,9 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9235,
-          "end": 9312,
-          "sha256": "0cc5d4f7c7bbb66f138dd302eb3c8aff5d83f95ad512524fc893ce67cb4ae32f"
+          "start": 9088,
+          "end": 9163,
+          "sha256": "e2ae3ea93d5ec35059233244035b1d8872498e086ecc0a7488d54ad05ff39f67"
         }
       ]
     },
@@ -10847,9 +10793,9 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 8958,
-          "end": 8987,
-          "sha256": "b4aee595ce5771cd37c46550605b58a389650aa1f3f8f5945656871625286146"
+          "start": 9088,
+          "end": 9163,
+          "sha256": "e2ae3ea93d5ec35059233244035b1d8872498e086ecc0a7488d54ad05ff39f67"
         }
       ]
     },
@@ -10879,7 +10825,7 @@
       "dimension": "effects",
       "status": "specified",
       "facts": [
-        "A delivered extern or @org: send drives every recipient in the receiving org with the org-inbox framing (supervisor.send_message) and sparks its mailbox wire (mail_spark); org_inbox send, org_inbox read, inbox clear and retract end with one hub_changed, and org_inbox send also sparks mail_notify for the user; a @net: send kicks the hub spool (source). upload, node upload, the reply-events routes and the reads broadcast nothing, and orgtree_send_file drives nobody. Pinned by tests/test_state_exchange_boundary.py against docs/state-system/exchange-boundary.json for the spy calls."
+        "A delivered @org: send drives every recipient in the receiving org with the org-inbox framing (supervisor.send_message) and sparks its mailbox wire (mail_spark); org_inbox send, org_inbox read, inbox clear and retract end with one hub_changed, and org_inbox send also sparks mail_notify for the user; a @net: send kicks the hub spool (source). upload, node upload, the reply-events routes and the reads broadcast nothing, and orgtree_send_file drives nobody. Pinned by tests/test_state_exchange_boundary.py against docs/state-system/exchange-boundary.json for the spy calls."
       ],
       "open_questions": [],
       "source_refs": [
@@ -10891,9 +10837,9 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9235,
-          "end": 9312,
-          "sha256": "0cc5d4f7c7bbb66f138dd302eb3c8aff5d83f95ad512524fc893ce67cb4ae32f"
+          "start": 9088,
+          "end": 9163,
+          "sha256": "e2ae3ea93d5ec35059233244035b1d8872498e086ecc0a7488d54ad05ff39f67"
         },
         {
           "path": "engine/backend/orgtree/api.py",
@@ -10920,11 +10866,11 @@
       "status": "unresolved",
       "facts": [
         "The access middleware labels each route and the agent door labels the two tools (stateprobe.refine('tool:' + tool)); orgtree_send_file_once is one of api._PROFILE_EXTRA_TOOL_VERBS. P02's per-operation record covers the family, except the paths below.",
-        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 817c816 and the F4 review follow-up in the P02 F6 probe commit): a loss-accounted per-operation record for all 15 exchange contracts cold and warm, with the variants (the org filter, the wait timeout, the node and org mail boxes, the @org: send with and without an attachment and to a kiosk or a missing org, and the delivery, replay, keyed and once send_file calls) and 36 refusals. Every row carries one census record matching the harness, except seven 401 refusals answered before any census attempt: the route without a token, the route with an agent credential, the extern route without a token and the externtool client's four verbs (list_orgs, send, read and wait), whose client sends no credential. No row makes an unknown contact, every refusal writes no org's store and changes no agent's mail, and agent-level locality stays within each row's declared set; the family's locality control control:exchange-third-agent (an org_inbox read row that also writes a third agent) is flagged. Org-level locality: only the org list, the extern messages and wait scans (the org-filtered read included) and the @org: send touch another org's store. A delivered @org: send writes the other org, one to a kiosk org only reads it and one to a missing org touches none. The extern rows write <DATA_ROOT>/extern-peers.json (the sighting in exchange.writes), refusals included, except a bad peer id and a request without a credential (the extern route's and the externtool verbs'). The record's cold condition is cold for the actor org only: the other orgs a scan reads stay warm. NOT covered: the externtool verbs beyond their 401 (exchange.authority) and the @net: send against a live mail hub, which the probe does not have (it answers 'no mailserver is configured'). Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 817c816, the F4 review follow-up in the P02 F6 probe commit and P02's external-chat retirement commit): a loss-accounted per-operation record for all 12 exchange contracts cold and warm, with the variants (the node and org mail boxes, the @org: send with and without an attachment and to a kiosk or a missing org, and the delivery, replay, keyed and once send_file calls) and 27 refusals, the retired @mcp: send among them with and without a staged attachment. Every row carries one census record matching the harness, except two 401 refusals answered before any census attempt: the route without a token and the route with an agent credential. No row makes an unknown contact, every refusal writes no org's store and changes no agent's mail, and agent-level locality stays within each row's declared set; the family's locality control control:exchange-third-agent (an org_inbox read row that also writes a third agent) is flagged. Org-level locality: only the org list and the @org: send touch another org's store. A delivered @org: send writes the other org, one to a kiosk org only reads it and one to a missing org touches none. The record's cold condition is cold for the actor org only. NOT covered: the @net: send against a live mail hub, which the probe does not have (it answers 'no mailserver is configured'). Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "open_questions": [
-        "Observe the externtool verbs past the TokenGate with a client that carries a credential, and the @net: send against a live mail hub: actual contacts per outcome, cold and warm.",
-        "Owner: P02 (p02-contacts-opus55), the externtool rows once the client's missing credential is decided (until then no verb reaches a route) and the @net: rows with a disposable mail hub. Closes with: a loss-accounted P02 record for those rows (narrowed by P01's F4 instrumentation follow-up from the whole family). Not coverable at P01 from available evidence: the P02 record at v3 817c816 drives the externtool client only to its 401 and runs no mail hub."
+        "Observe the @net: send against a live mail hub: actual contacts per outcome, cold and warm.",
+        "Owner: P02 (p02-contacts-opus55), with a disposable mail hub. Closes with: a loss-accounted P02 record for the @net: rows (narrowed from the whole family by P01's F4 instrumentation follow-up and by the external-chat retirement). Not coverable at P01 from available evidence: the P02 record runs no mail hub."
       ],
       "source_refs": [
         {
@@ -11319,7 +11265,7 @@
       "status": "specified",
       "facts": [
         "create writes a new org document (the born sections are pinned) with the global defaults except prefer_reserve and net_hub_address, the latter only choosing the local hub's address; a non-kiosk org also mints its network identity and hub list (the local entry unless net_autoconnect is off, then the typed addresses). Under the standard profile a kiosk org is born with a kiosk section (token and sandbox secret minted), default_top_grant 0 and no identity, and a sandboxed org with a sandbox section and a warmed container (a spy); a kiosk whose ceiling cannot be normalized is unwound, its store renamed into <DATA_ROOT>/deleted/ and unregistered, and answers 422. delete renames the org's store into <DATA_ROOT>/deleted/<slug>-<timestamp>.db, unregisters it from its hubs, forgets its runtime state, reaps its remote servers and removes its container (spies); scratch folders stay. Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json.",
-        "settings writes only the sections a request names and saves once: the caps, compact_at (clamped to 50-95 percent), the fable policies, the hire defaults through the ledger (an event), default_effort, the auto-resume flags, headless (which forces auto_resume on), the org inbox mode, the cascades, the org folders (a removal revokes the folder from every node, writing nodes and events), the fable lock clear (writing the lock, the nodes' limit locks, events and notices) and, for a non-kiosk org, the hub list, re-keying orphaned spool entries to the first enabled hub; a kiosk org's hub fields are ignored and an empty request writes nothing. hire defaults writes the defaults through the ledger (an event). The org.md write replaces the workspace CLAUDE.md whole and writes no org section. disk resize writes the disk section: a grow sets size_mb after growing the image, a shrink stages pending_size_mb and a same-size or cancel request clears it; resize apply stops the container and applies the pending shrink (spies). disk delete unlinks the allowed paths on the disk, a directory all or nothing. The sweep removes the legacy volumes (docker volume rm) and deletes the sandbox root, the org's host workspace and its scratch root with rmtree, leaving the org's workspace path naming a deleted folder. Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json."
+        "settings writes only the sections a request names and saves once: the caps, compact_at (clamped to 50-95 percent), the fable policies, the hire defaults through the ledger (an event), default_effort, the auto-resume flags, headless (which forces auto_resume on), the org inbox mode, the cascades, the org folders (a removal revokes the folder from every node, writing nodes and events), the fable lock clear (writing the lock, the nodes' limit locks, events and notices) and, for a non-kiosk org, the hub list, re-keying orphaned spool entries to the first enabled hub; a kiosk org's hub fields are ignored and an empty request writes nothing. hire defaults writes the defaults through the ledger (an event). The org.md write replaces the workspace CLAUDE.md whole and writes no org section (its answer reports the character count as `bytes`: recorded legacy defect, docket org-admin-orgmd-put-reports-characters-as-bytes). disk resize writes the disk section: a grow sets size_mb after growing the image, a shrink stages pending_size_mb and a same-size or cancel request clears it; resize apply stops the container and applies the pending shrink (spies). disk delete unlinks the allowed paths on the disk, a directory all or nothing. The sweep removes the legacy volumes (docker volume rm) and deletes the sandbox root, the org's host workspace and its scratch root with rmtree, leaving the org's workspace path naming a deleted folder. Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -11395,7 +11341,7 @@
       "dimension": "predicates",
       "status": "specified",
       "facts": [
-        "create refuses an empty or letterless name 400 ('name is mandatory …'), an existing name 400 ('org … already exists') and a sandboxed disk under 4096 MB 422. delete, settings, the org.md write, the rotation and the disk and sweep routes answer an unknown org 404; hire defaults answers it 422 ('no such org: …'). settings refuses a malformed org_dirs entry 422, fable as the auto-autopsy model 422, an unknown tier 422, headless while either fable policy is 'halt' 422, headless on a kiosk 422 and a malformed net_hubs entry 422 (source: disabling multi-holder mode with several holders 422). A refused settings call writes nothing even after earlier fields were applied to the cached document (folder revokes and the fable lock clear included): the outermost lock release discards a document changed without a save (store._on_doc_lock_release). hire defaults refuses an unknown visibility 422. The org.md write refuses an org with no workspace 422. The disk and sweep routes answer 409 without a virtual disk; disk resize refuses no size 422 and a shrink under 4096 MB 422 (or, source, below usage with the MB to free); resize apply refuses no pending resize 422 and a shrink the apply keeps pending 422 with what to free; the sweeps refuse an unmounted disk 503. disk delete refuses per path, answering 200: a path outside the disk ('path escapes the org disk'), a system seed path and a protected transcript, and it reports an unlink error. Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json."
+        "create refuses an empty or letterless name 400 ('name is mandatory …'), an existing name 400 ('org … already exists') and a sandboxed disk under 4096 MB 422. delete, settings, the org.md write, the rotation and the disk and sweep routes answer an unknown org 404; hire defaults answers it 422 ('no such org: …'). settings refuses a malformed org_dirs entry 422, fable as the auto-autopsy model 422, an unknown tier 422, headless while either fable policy is 'halt' 422, headless on a kiosk 422 and a malformed net_hubs entry 422 (source: disabling multi-holder mode with several holders 422). A refused settings call writes nothing even after earlier fields were applied to the cached document (folder revokes and the fable lock clear included): the outermost lock release discards a document changed without a save (store._on_doc_lock_release). hire defaults refuses an unknown visibility 422. The org.md write refuses an org with no workspace 422. The disk and sweep routes answer 409 without a virtual disk; disk resize refuses no size 422 and a shrink under 4096 MB 422 (or, source, below usage with the MB to free); resize apply refuses no pending resize 422 and a shrink the apply keeps pending 422 with what to free; the sweeps refuse an unmounted disk 503. disk delete refuses per path, answering 200: a path outside the disk ('path escapes the org disk'), a system seed path and a protected transcript, and it reports an unlink error with the raw OSError text, host path included, to an admin and a kiosk visitor alike (recorded legacy defect, docket org-admin-orgmd-put-reports-characters-as-bytes). Pinned by tests/test_state_org_admin_boundary.py against docs/state-system/org-admin-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -19600,12 +19546,9 @@
     },
     "exchange.orgs-list": {
       "entry_ids": [
-        "93106cabc9783cb56675e260e05a2f7de7308fb607a84b869fae4006ddb3cd9a",
-        "5ffae5ae831e9cbe21f004a7cddfb622f217c7e9ed0065c09536f34a468770bc"
+        "93106cabc9783cb56675e260e05a2f7de7308fb607a84b869fae4006ddb3cd9a"
       ],
-      "tools": [
-        "orgtree_list_orgs"
-      ],
+      "tools": [],
       "action": null,
       "action_normalization": "identity",
       "when": {
@@ -19648,277 +19591,13 @@
           "sha256": "0aba54611f16e6b6b53faf5f3c7f3c9d00a1f82634379b85e688d10bc12f45d8"
         },
         {
-          "path": "engine/backend/orgtree/externtool.py",
-          "start": 101,
-          "end": 108,
-          "sha256": "1bb728f9544523a596c5ce018a6e6ac6fdd841767e64698ed07be9aa7d18a390"
-        },
-        {
           "path": "engine/backend/orgtree/api.py",
           "start": 1752,
           "end": 1793,
           "sha256": "d5eae1511c6509fe2b5b7a6b6007ec2fd7bc2466028115e743af63361d99e19a"
-        },
-        {
-          "path": "engine/backend/orgtree/externtool.py",
-          "start": 215,
-          "end": 259,
-          "sha256": "72a38afc6e597e3a0123b147265c6b06d175545f16ee6d8efd484227dcbf2be9"
         }
       ],
       "domain_mode": "read"
-    },
-    "exchange.extern-send": {
-      "entry_ids": [
-        "46c77bf435c85a0bb093411b6306c78471b042fe923133c71f0a0f64eaff35e6",
-        "e5f3ba53047fce748a85bafa17947fe38f4c1c5655fe6fc504e2211aef6215d7"
-      ],
-      "tools": [
-        "orgtree_send"
-      ],
-      "action": null,
-      "action_normalization": "identity",
-      "when": {
-        "always": true
-      },
-      "dimensions": {
-        "authority": [
-          "exchange.authority"
-        ],
-        "reads": [
-          "exchange.reads"
-        ],
-        "writes": [
-          "exchange.writes"
-        ],
-        "predicates": [
-          "exchange.predicates"
-        ],
-        "conflicts": [
-          "exchange.conflicts"
-        ],
-        "wire": [
-          "exchange.wire"
-        ],
-        "receipt": [
-          "exchange.receipt"
-        ],
-        "effects": [
-          "exchange.effects"
-        ],
-        "instrumentation": [
-          "exchange.instrumentation"
-        ]
-      },
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 8958,
-          "end": 8958,
-          "sha256": "5338bef5b75fbb8a2621d98222c75988fa4cdc6d3b84d14d2373de0bdb4f3698"
-        },
-        {
-          "path": "engine/backend/orgtree/externtool.py",
-          "start": 109,
-          "end": 131,
-          "sha256": "3d8164f07849b6c2c0a56cc760165b934cf542d27bf47dc8b5302c9e12b0cd14"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 8958,
-          "end": 8987,
-          "sha256": "b4aee595ce5771cd37c46550605b58a389650aa1f3f8f5945656871625286146"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 8952,
-          "end": 8955,
-          "sha256": "5a11dfcfc52702cf21f37f9813d47eb4dc3ee635d52b95bd43ce74cf624967af"
-        },
-        {
-          "path": "engine/backend/orgtree/store.py",
-          "start": 5306,
-          "end": 5313,
-          "sha256": "9cde47018210911b109f36ddf6ddaf63b1b394b244f35dc97c6476a38885c191"
-        },
-        {
-          "path": "engine/backend/orgtree/supervisor.py",
-          "start": 28238,
-          "end": 28313,
-          "sha256": "842bdab076c5d275d1785859fdeab8583f23831274f10960d07581431ab590fd"
-        },
-        {
-          "path": "engine/backend/orgtree/externtool.py",
-          "start": 215,
-          "end": 259,
-          "sha256": "72a38afc6e597e3a0123b147265c6b06d175545f16ee6d8efd484227dcbf2be9"
-        }
-      ],
-      "domain_mode": "write"
-    },
-    "exchange.extern-read": {
-      "entry_ids": [
-        "bd67a8f8c69950b7d38cfc0b02969272f6eecd6f8dc6eaa9794faeb09db28bc8",
-        "b55055872c656c5fa32fa9ccbeb144ccdf1ebd00f526b8778f7de80213ea3eb9"
-      ],
-      "tools": [
-        "orgtree_read"
-      ],
-      "action": null,
-      "action_normalization": "identity",
-      "when": {
-        "always": true
-      },
-      "dimensions": {
-        "authority": [
-          "exchange.authority"
-        ],
-        "reads": [
-          "exchange.reads"
-        ],
-        "writes": [
-          "exchange.writes"
-        ],
-        "predicates": [
-          "exchange.predicates"
-        ],
-        "conflicts": [
-          "exchange.conflicts"
-        ],
-        "wire": [
-          "exchange.wire"
-        ],
-        "receipt": [
-          "exchange.receipt"
-        ],
-        "effects": [
-          "exchange.effects"
-        ],
-        "instrumentation": [
-          "exchange.instrumentation"
-        ]
-      },
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 9040,
-          "end": 9040,
-          "sha256": "8b5a4b071c9e8db4e6b5d8814b3f1fc44a95c91549c58788457b726c07a09df6"
-        },
-        {
-          "path": "engine/backend/orgtree/externtool.py",
-          "start": 132,
-          "end": 147,
-          "sha256": "b76cec94d768f1ab8d832d16513aa5ecdc3d3ecaffaf3abb84c54a835b526bc8"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 9040,
-          "end": 9049,
-          "sha256": "028fbb862f8ce0a5ab88ad3a0bb70f45093ef14f4819907d12b42c9f038ff8b5"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 8990,
-          "end": 9037,
-          "sha256": "14f4f78d30e1b8ab6a3eb6e5e33d9d453e4f146ae5675e53dbc91b7910efb182"
-        },
-        {
-          "path": "engine/backend/orgtree/store.py",
-          "start": 5306,
-          "end": 5313,
-          "sha256": "9cde47018210911b109f36ddf6ddaf63b1b394b244f35dc97c6476a38885c191"
-        },
-        {
-          "path": "engine/backend/orgtree/externtool.py",
-          "start": 215,
-          "end": 259,
-          "sha256": "72a38afc6e597e3a0123b147265c6b06d175545f16ee6d8efd484227dcbf2be9"
-        }
-      ],
-      "domain_mode": "write"
-    },
-    "exchange.extern-wait": {
-      "entry_ids": [
-        "3c120330bf4b79d8a2a7efa1de230372c2c57dc75dd906f7f403cc70521106cd",
-        "c4681825456aa1f150ac0c752a1b6dbe99bab6f682f6d447fa3a573cf7570d6b"
-      ],
-      "tools": [
-        "orgtree_wait"
-      ],
-      "action": null,
-      "action_normalization": "identity",
-      "when": {
-        "always": true
-      },
-      "dimensions": {
-        "authority": [
-          "exchange.authority"
-        ],
-        "reads": [
-          "exchange.reads"
-        ],
-        "writes": [
-          "exchange.writes"
-        ],
-        "predicates": [
-          "exchange.predicates"
-        ],
-        "conflicts": [
-          "exchange.conflicts"
-        ],
-        "wire": [
-          "exchange.wire"
-        ],
-        "receipt": [
-          "exchange.receipt"
-        ],
-        "effects": [
-          "exchange.effects"
-        ],
-        "instrumentation": [
-          "exchange.instrumentation"
-        ]
-      },
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 9052,
-          "end": 9052,
-          "sha256": "1a1710517c6575ba7518cb58463b425cf5cfa8cdcf7f7af2ddd303a56f787fd9"
-        },
-        {
-          "path": "engine/backend/orgtree/externtool.py",
-          "start": 148,
-          "end": 170,
-          "sha256": "ff4c66b4070b3cdd96b67b3f884b05dc94d7f8ee0505db1276bc84a7499be246"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 9052,
-          "end": 9082,
-          "sha256": "0b773e1b9da5a888b1a9d6ca0e144d1747435989ed3f8064efb49f03e690ecd4"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 8990,
-          "end": 9037,
-          "sha256": "14f4f78d30e1b8ab6a3eb6e5e33d9d453e4f146ae5675e53dbc91b7910efb182"
-        },
-        {
-          "path": "engine/backend/orgtree/store.py",
-          "start": 5306,
-          "end": 5313,
-          "sha256": "9cde47018210911b109f36ddf6ddaf63b1b394b244f35dc97c6476a38885c191"
-        },
-        {
-          "path": "engine/backend/orgtree/externtool.py",
-          "start": 215,
-          "end": 259,
-          "sha256": "72a38afc6e597e3a0123b147265c6b06d175545f16ee6d8efd484227dcbf2be9"
-        }
-      ],
-      "domain_mode": "write"
     },
     "exchange.org-inbox-list": {
       "entry_ids": [
@@ -20139,9 +19818,9 @@
         },
         {
           "path": "engine/backend/orgtree/api.py",
-          "start": 9235,
-          "end": 9312,
-          "sha256": "0cc5d4f7c7bbb66f138dd302eb3c8aff5d83f95ad512524fc893ce67cb4ae32f"
+          "start": 9088,
+          "end": 9163,
+          "sha256": "e2ae3ea93d5ec35059233244035b1d8872498e086ecc0a7488d54ad05ff39f67"
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
@@ -23598,55 +23277,6 @@
       "domain_mode": "read"
     },
     {
-      "name": "orgtree_list_orgs:exchange.orgs-list",
-      "entry_id": "5ffae5ae831e9cbe21f004a7cddfb622f217c7e9ed0065c09536f34a468770bc",
-      "args": {},
-      "contract": "exchange.orgs-list",
-      "domain_mode": "read"
-    },
-    {
-      "name": "POST /api/extern/{peer}/send:exchange.extern-send",
-      "entry_id": "46c77bf435c85a0bb093411b6306c78471b042fe923133c71f0a0f64eaff35e6",
-      "args": {},
-      "contract": "exchange.extern-send",
-      "domain_mode": "write"
-    },
-    {
-      "name": "orgtree_send:exchange.extern-send",
-      "entry_id": "e5f3ba53047fce748a85bafa17947fe38f4c1c5655fe6fc504e2211aef6215d7",
-      "args": {},
-      "contract": "exchange.extern-send",
-      "domain_mode": "write"
-    },
-    {
-      "name": "GET /api/extern/{peer}/messages:exchange.extern-read",
-      "entry_id": "bd67a8f8c69950b7d38cfc0b02969272f6eecd6f8dc6eaa9794faeb09db28bc8",
-      "args": {},
-      "contract": "exchange.extern-read",
-      "domain_mode": "write"
-    },
-    {
-      "name": "orgtree_read:exchange.extern-read",
-      "entry_id": "b55055872c656c5fa32fa9ccbeb144ccdf1ebd00f526b8778f7de80213ea3eb9",
-      "args": {},
-      "contract": "exchange.extern-read",
-      "domain_mode": "write"
-    },
-    {
-      "name": "GET /api/extern/{peer}/wait:exchange.extern-wait",
-      "entry_id": "3c120330bf4b79d8a2a7efa1de230372c2c57dc75dd906f7f403cc70521106cd",
-      "args": {},
-      "contract": "exchange.extern-wait",
-      "domain_mode": "write"
-    },
-    {
-      "name": "orgtree_wait:exchange.extern-wait",
-      "entry_id": "c4681825456aa1f150ac0c752a1b6dbe99bab6f682f6d447fa3a573cf7570d6b",
-      "args": {},
-      "contract": "exchange.extern-wait",
-      "domain_mode": "write"
-    },
-    {
       "name": "GET /api/orgs/{slug}/org_inbox:exchange.org-inbox-list",
       "entry_id": "da19a2e41485a33b03a144911ccdfc3fd38f74e87c1c37c3d76ef33850b0c8d7",
       "args": {},
@@ -25249,54 +24879,6 @@
       ]
     },
     {
-      "id": "46c77bf435c85a0bb093411b6306c78471b042fe923133c71f0a0f64eaff35e6",
-      "disposition": "mapped",
-      "contracts": [
-        "exchange.extern-send"
-      ],
-      "reason": "POST /api/extern/{peer}/send: exchange.extern-send (P01 F4).",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 8958,
-          "end": 8958,
-          "sha256": "5338bef5b75fbb8a2621d98222c75988fa4cdc6d3b84d14d2373de0bdb4f3698"
-        }
-      ]
-    },
-    {
-      "id": "bd67a8f8c69950b7d38cfc0b02969272f6eecd6f8dc6eaa9794faeb09db28bc8",
-      "disposition": "mapped",
-      "contracts": [
-        "exchange.extern-read"
-      ],
-      "reason": "GET /api/extern/{peer}/messages: exchange.extern-read (P01 F4).",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 9040,
-          "end": 9040,
-          "sha256": "8b5a4b071c9e8db4e6b5d8814b3f1fc44a95c91549c58788457b726c07a09df6"
-        }
-      ]
-    },
-    {
-      "id": "3c120330bf4b79d8a2a7efa1de230372c2c57dc75dd906f7f403cc70521106cd",
-      "disposition": "mapped",
-      "contracts": [
-        "exchange.extern-wait"
-      ],
-      "reason": "GET /api/extern/{peer}/wait: exchange.extern-wait (P01 F4).",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 9052,
-          "end": 9052,
-          "sha256": "1a1710517c6575ba7518cb58463b425cf5cfa8cdcf7f7af2ddd303a56f787fd9"
-        }
-      ]
-    },
-    {
       "id": "da19a2e41485a33b03a144911ccdfc3fd38f74e87c1c37c3d76ef33850b0c8d7",
       "disposition": "mapped",
       "contracts": [
@@ -26041,70 +25623,6 @@
           "start": 226,
           "end": 226,
           "sha256": "1fd7c572b132d38abaa27da5471c15861c11fa178d477e54cd3fda89c7f4a587"
-        }
-      ]
-    },
-    {
-      "id": "5ffae5ae831e9cbe21f004a7cddfb622f217c7e9ed0065c09536f34a468770bc",
-      "disposition": "mapped",
-      "contracts": [
-        "exchange.orgs-list"
-      ],
-      "reason": "orgtree_list_orgs tool card (externtool): exchange.orgs-list (P01 F4).",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/externtool.py",
-          "start": 101,
-          "end": 108,
-          "sha256": "1bb728f9544523a596c5ce018a6e6ac6fdd841767e64698ed07be9aa7d18a390"
-        }
-      ]
-    },
-    {
-      "id": "e5f3ba53047fce748a85bafa17947fe38f4c1c5655fe6fc504e2211aef6215d7",
-      "disposition": "mapped",
-      "contracts": [
-        "exchange.extern-send"
-      ],
-      "reason": "orgtree_send tool card (externtool): exchange.extern-send (P01 F4).",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/externtool.py",
-          "start": 109,
-          "end": 131,
-          "sha256": "3d8164f07849b6c2c0a56cc760165b934cf542d27bf47dc8b5302c9e12b0cd14"
-        }
-      ]
-    },
-    {
-      "id": "b55055872c656c5fa32fa9ccbeb144ccdf1ebd00f526b8778f7de80213ea3eb9",
-      "disposition": "mapped",
-      "contracts": [
-        "exchange.extern-read"
-      ],
-      "reason": "orgtree_read tool card (externtool): exchange.extern-read (P01 F4).",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/externtool.py",
-          "start": 132,
-          "end": 147,
-          "sha256": "b76cec94d768f1ab8d832d16513aa5ecdc3d3ecaffaf3abb84c54a835b526bc8"
-        }
-      ]
-    },
-    {
-      "id": "c4681825456aa1f150ac0c752a1b6dbe99bab6f682f6d447fa3a573cf7570d6b",
-      "disposition": "mapped",
-      "contracts": [
-        "exchange.extern-wait"
-      ],
-      "reason": "orgtree_wait tool card (externtool): exchange.extern-wait (P01 F4).",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/externtool.py",
-          "start": 148,
-          "end": 170,
-          "sha256": "ff4c66b4070b3cdd96b67b3f884b05dc94d7f8ee0505db1276bc84a7499be246"
         }
       ]
     },
@@ -27827,7 +27345,7 @@
   ],
   "dispatch": [
     {
-      "id": "2d06c2c2caf3ee1cf8fb2d55bcc0df75fe7c3eebcefdf9806886001db3881863",
+      "id": "dbf51bdedae3a67aaa3fd5502fb8966f079a5d69f205e59604576fc920986721",
       "disposition": "mapped",
       "contracts": [
         "control.remote-control"
@@ -27843,7 +27361,7 @@
       ]
     },
     {
-      "id": "8e4609b6df0fc34f8cc7f0aca4faf30476d81869edbfe68dd9c58209c313e3b9",
+      "id": "fa7b92b8a33b35a3c2e36f9ff3e9097990521dbe616cc995c3b6857ad8c2d9b0",
       "disposition": "mapped",
       "contracts": [
         "control.remote-control"
@@ -27859,7 +27377,7 @@
       ]
     },
     {
-      "id": "8f05ba355ad3a004db835b3f1cfe797713884c89f4a8273c77cb1ff82c534a1a",
+      "id": "5c396f8ef978ae452f9c714234c3567bfbabffeb9d4895c103f74187318f0499",
       "disposition": "mapped",
       "contracts": [
         "mail.message",
@@ -27877,7 +27395,7 @@
       ]
     },
     {
-      "id": "536a8465f8308baacfeb51bdd4a494e41187848f0ae66d04aee76b6a71b9b119",
+      "id": "3520b818280ec374ecdbff6aea8d59f36bbb14917d90d3668b3b415d4935b5e8",
       "disposition": "mapped",
       "contracts": [
         "asks.present"
@@ -27893,238 +27411,238 @@
       ]
     },
     {
-      "id": "11a94f315be0750bcadc28f78da486b3bb42ea521719d24f828da1e9b1a2fda0",
+      "id": "7ebc95ea76c1def2a834ad252364272396e2384aa2999bcdeb21908a692c99ae",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's receipt and rangediff branch (api._work_expected_rev_route). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "8d08ecd764dbacd286f16b975b12cef76a80a0b51aeb839d13376dc469836448",
+      "id": "f88256cde02407909e4b47e80ce84e975cd5b94cb1d7ac59814dc1ee36c2b020",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's evidence branch (api._work_refuse_unused). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "69ed610420468507c67a16350af3ac99f786dbbb9417dbf2f6d5acb3df0f810e",
+      "id": "d57187e09e13ec875372ca7806005347a6c31ee9776b580023a31d8bbf20edf4",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's receipt and rangediff branch (api._work_read_call). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "b029163c599de51c0d9a3fea3642b6d969c07b1d1dfbbd41c9c5e7518f0d68fc",
+      "id": "6a13daf5370f019ee87417963383c34c28b9725ea9d25dc43aaeb60fea5ab62c",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's rangediff branch (api._work_read_call). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "fbd30bbd5c07590b86bddd736e3b81e06befeba59bfb79f268e35ec7f95ea245",
+      "id": "cac5270cfb78328e10011726da3188555de057a80363be22181207bbcd3f6bbe",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's receipts and artifact_read branch (api._work_read_call). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "22ba2713d7d736e71ddf10fe0fd1de5ba5a5ae5761d81b56aeca4f86d1d04c55",
+      "id": "457e17f3b0b7eba2a85e1ea2928817b35c6aaac018591d89eba7dc51721639b0",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's receipts branch (api._work_read_call). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "412cc02742c43429dcb32dd61eb6488c2aa55943616ae598d299a2328c1ccc54",
+      "id": "d7c3c91d6572aa03808510467ce99417dc1890332d17a2d727f968591d7a3f32",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's verify branch (api._work_read_call). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "6c3a64ed2aba73350eeb163faba20d8696859360eca7158bfed0c04a7eb2ff3b",
+      "id": "8a2e46d0bfb512df2d99c8462eb209210379e2199744ee6ca5c4034221a4e0a7",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's list branch (api._work_read_call). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "113b9bc78f4e52aa9b1e51277d53ab194c61b8d5765b667764f9d363ebb0013f",
+      "id": "f6b4ae24ed78fa32af927f63fd998df56e5cc6bcfbb91964dec792508fd5b236",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's create branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "ca53a6f5ab65db338b734c370686ce536f9e90765623a442b88476a8b098bb14",
+      "id": "e6d11215cb094cc469f7bc337c6e667fa77b4a002d2a3ec7d1d8c59e4b3be844",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's update branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "b392c583e10b557ee89db5b31370147304703a12fa7618c59d5c0d6cd9bfdfa3",
+      "id": "42b6bf1f999d26ef2f3490e1f5f9121b8010c2216fbc7596f66d36e8667b40a2",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's addendum branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "1511cfe3b1449b74afe72705c00ef359ae7e7251cbf81946b4230cd5fe8201ce",
+      "id": "e4fb35fae8f4daa44a741fa0bffc93d4fbb3668088b90ac8e7b9862cf280e277",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's assign branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "9527e6e5d17717a990e4d07d4d35d211e1cb8021fcc79c3e803a21725beb9cd5",
+      "id": "82b8b5d40c6c895661d6c5969c32939157464c904a69da1fccde5f071198ec53",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's handoff and handoff_request branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "98b95ff8fe410ba69245b90d37df546019c8f6c7c3805242a4cbf8e23085a227",
+      "id": "8b73682e1e972f96f82813e46484e81b5ada9a0fbdfc815dfcac93d65dcf26a3",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's review branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "b6ff1e0d2525b620b14ff8f3e29fbbf11239f5f4c632b9689af70c770675127c",
+      "id": "55306ffbc9821a54a6db4feea69882203944120113eb1c66848571e3db915afb",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's verdict, candidate_verdict, integration_verdict and review_verdict branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "be8291225f0e68b1b9bda137e168826a2381a9a2eacd06f91e00a722b0a97368",
+      "id": "e84819f88849f080583a6a61fd89e73209068a214d2d25a7e8a186e778282208",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's review_request and review_seat_request branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "0ef708f20ebd60ea1de5f2c6fe9d9079994ef7d558a3acf28602f9df8197faa9",
+      "id": "12d4b93d14863370608ae577547874326de410f388becd935b8535a12689d901",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's review_grant and review_grants branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "db8c02772124308896913d9213b6df52838c4580e7c9138232ce0ba90f199a55",
+      "id": "ae3a9b9faba2548c9cac78f23abdcbaf904f10abb449f43b9c9c1ca32ab20b36",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's review_revoke and review_seat_revoke branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "073ea6faf876c5e0bc767744d97826823bfce5299f1e05201cfec91ae824f025",
+      "id": "eb9f6ae5dcaf4a9d3ec9645c539d7b3c8c727efef7cc7733e269ac78260a9541",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's participants branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "3597754907b815c987962cba3eb26ebd68f3e47b2042870ef40f68e4f9e1e52a",
+      "id": "44d237332d645d640458df77aa6af4c6122afb51f3f71e269db3c72e973ded88",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's evidence branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "6ac647be37ebf954ff678237fc2d49f15078dc8c64501883cfb2df07a1627a0f",
+      "id": "aed6dcae2e156d657fc25e0042d11f840c14a509f6af9fd7c82b000eedbd5d07",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's decision branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "ee7c816b5e25c81a3d644feeee341e12e15418e387ac85e0090b31ff5b001c26",
+      "id": "d4f7701c8e6d900b4bf3df2cf4987b76763b01c7ebc49fe938d5c971017f5df6",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's artifact branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "5185ebc43b601e9e862f6703e152877381ff804828bcf482aa55e4f42d84232e",
+      "id": "cad8accd4a5da12ea7918dcfdb2fffb67ec3f0073b947805ac3194790141ace6",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's grant branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "f3d24589238d4fdd169d63969d290dc575029ee7ed269803a523af9da5ccf079",
+      "id": "35086e8b9b517d408d2c28e9ef4d7e0342bd9bfc58a487fe6ce40415b8859be4",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's revoke branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "6c575db1e046d9eaa0dc3b4c57cff5d7c3c2b6e78a4a5ac44fef0f55e929bf7c",
+      "id": "d34cc22ea2a324a8fb2bb09720690dceddf375e018a5a30cd2071f164c5956d5",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's finding branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "009181cb4662549db97eb442085d0dda57a64a88a3142aeb16eacc2e9136ff28",
+      "id": "55d0b8134700cb50b51efdf31d84ab4965f7a923fa19731b066aa7581548378b",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's dispose branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "668a9db8d9962cd5704f3b210fe9e6abac1a3e8c90734751133e577dc0339d71",
+      "id": "1f5efd686c354f509a090e36e159e62fbc3cae7aaa8d0fd282d4e0e7394b1ea7",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's claim branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "c72e82cc4521af3a1428d71f1dcb56a984ba2ec505c31ccc1dafa9ddbe4db395",
+      "id": "2d98fdeba46f3a08df19c1df5e8c195086f0df001725444a104e0e7195155cff",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's check branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "ca73b7fc11e937b866edf5fdff880257e4ff3b799bb0af8a484b2b94d9168dad",
+      "id": "269a19d91cfa92039ce55b2013c07c20021e1eb3a47af42b9e8698a6fdf4cb0e",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's accept branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "a3a8f4f958ae2adc8e4edf741d1d3dc333b9025fb071aecb757b43e36182a986",
+      "id": "759a7b210f13d662f91f90b59c66b244abfdf9fcf3abdb3ead8ea030d6b8f659",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's archive branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "7cb1ae2db492f3ada87213464b79ccef587e7f73bd604af495cff4a696cb33a5",
+      "id": "23f3d6524ed20f5213d6896d1235e771ebd3b214c327d1f8b76231ab1d029bfd",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's move branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "8aeef2f466503b42604c313afc286b8259c853e9121e25ceb5b1df8ef2186922",
+      "id": "540065c5415be244c5fe98231bd5584bf86b7d38b48697f0f0686bd80e62141f",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's supersede branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "386e8072aad9d4de367f06d7c9aabd2b0541108a7cee7cd61110f128dd72e21c",
+      "id": "0c99635db2d42990ba661da0ca8c3b4901715b576764e5a032f2544203570f54",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's delete branch (api._work_mutate_action). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "834b0ee4071f2e5fbd62a69f64b6c889317114c0e879d3026aa17baaf597c681",
+      "id": "5f8257d34bcf54abba2a6e0d58dc9603fabc09bc35ba3e0b332f2cab1fc31773",
       "disposition": "mapped",
       "contracts": [
         "audiences.operator-action"
@@ -28140,7 +27658,7 @@
       ]
     },
     {
-      "id": "ac81945bf3dda03b44f2d53a38f571d255cc2735659b9590dfea16f0934d05d5",
+      "id": "66d02f40a607b1a4b676c4f963a60a6f034194ba09d6544f310959607479ca85",
       "disposition": "mapped",
       "contracts": [
         "audiences.operator-action"
@@ -28156,7 +27674,7 @@
       ]
     },
     {
-      "id": "9053fd9eabec0198983c2e4ee259f0ab407c7477c96ca31b0a316f3f58d9dbfc",
+      "id": "40b30ae10a63d9082e56bc2b47b2a107eaaa43fef93638363f47d04c14a4b8a1",
       "disposition": "mapped",
       "contracts": [
         "audiences.operator-action"
@@ -28172,7 +27690,7 @@
       ]
     },
     {
-      "id": "273404a312f2c106f74f182bd840123a4db1c462e6991a3dcf4d1d425cd46b0d",
+      "id": "a12c9732c40f811962092adc555eb123a27bf15dcb0da5fce9e0fc13d6da912b",
       "disposition": "mapped",
       "contracts": [
         "relaunch.prime-relaunch-arm",
@@ -28191,7 +27709,7 @@
       ]
     },
     {
-      "id": "a129adb0711aa3c86eb0b63e4d4d692096f31bdd292b121329b41164de71967b",
+      "id": "205e64c6dd92afbc780ce082ad7ada75e97f0983d9fa4709b6d04d34151cccd7",
       "disposition": "mapped",
       "contracts": [
         "staffing.staff-create",
@@ -28209,7 +27727,7 @@
       ]
     },
     {
-      "id": "41f825929d1206f2eb579e0aad6037380a11ef5ac273e42cfde30211a42d8d88",
+      "id": "5ecf015ba4e9e82b9327b8e2502d09341dcf680a04fa2533a661436d0fbc8157",
       "disposition": "mapped",
       "contracts": [
         "staffing.staff-update",
@@ -28226,7 +27744,7 @@
       ]
     },
     {
-      "id": "f2c32b21411c4d5538cff9d28796fa7916b7fbc5754bb8ab6114228d6ff323eb",
+      "id": "d0baf2843c68a4830bdfe64d5fbc4217c9ef7272af037d369e7795707eb92329",
       "disposition": "mapped",
       "contracts": [
         "staffing.staff-create"
@@ -28242,7 +27760,7 @@
       ]
     },
     {
-      "id": "225cd500a3ad4324c5222fd51ef5d08525004ad94c6871a23a8351955430cf25",
+      "id": "4a4c196ed817cfde4dc2b7ecb230b98713bfe666fd2979d8d60875a05485fecf",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.cheap-compact",
@@ -28260,7 +27778,7 @@
       ]
     },
     {
-      "id": "6f92baec27e561d9e9498a8ad7bdf46f6eff521b5e58588bc240a3f99fc4fc91",
+      "id": "8c897e551f263e5f9e0dbfd0adbdc2abdb49edb2ee563275b85580f68973f17e",
       "disposition": "mapped",
       "contracts": [
         "material.transcript"
@@ -28276,7 +27794,7 @@
       ]
     },
     {
-      "id": "d868e5b607b8a09b86e070a661865fbc0986b7241767d21de6348a4e3736a8b9",
+      "id": "fd0f899e429368d0f6c13885cd693c3585afece0728c61219b29495cf725f8e3",
       "disposition": "mapped",
       "contracts": [
         "exchange.send-file"
@@ -28292,7 +27810,7 @@
       ]
     },
     {
-      "id": "2762466942ae61416c27816812fe1c2645f0bcd89c5e7488679230991f1aa3fd",
+      "id": "aa7c8c007e4dba41f2868aeb4a9ca9ff13a74bd0340de0efd2e4159e39835345",
       "disposition": "mapped",
       "contracts": [
         "exchange.send-file"
@@ -28308,7 +27826,7 @@
       ]
     },
     {
-      "id": "cd162cb13bb17e9f48d5a776dc2abefcd7909372271c19d543793523028c0929",
+      "id": "c473f835d0f068803a7fe1227f55448979e3e6231ac6705d70427c3eed6c19bb",
       "disposition": "mapped",
       "contracts": [
         "control.self-restart"
@@ -28324,7 +27842,7 @@
       ]
     },
     {
-      "id": "e108fcd300df9a85955f7bcc61cf57e710b19c92712517cb5ab0ea43f27c8efc",
+      "id": "f90460d73e92807b9548e309788cd9654934754df7e0d297300954f12cb6f7ff",
       "disposition": "mapped",
       "contracts": [
         "control.self-restart",
@@ -28341,14 +27859,14 @@
       ]
     },
     {
-      "id": "dd72cf1a60af5dcdb9407510b45fa58a2b3a0850b589f67ca3f6e892d3129bc3",
+      "id": "c7ca01e11dca1e6c4631f1f2ed249a24149026ce571b30bbd7d6da91a1e00188",
       "disposition": "pending",
       "contracts": [],
       "reason": "Shared diagnostic/preview body.tool branch: diagnostic.inspect, diagnostic.capabilities and preview.agent are contracted; orgtree_operation_census (added by P02-A1, 286396e) is uncontracted, so the shared branch stays pending (S3 decision 3). Owner: P02 (the operation census).",
       "source_refs": []
     },
     {
-      "id": "f35a30aa97084da5414a72081e9b20b95d8621e8d62cd86ffb7b2dbab631245f",
+      "id": "08adde13958d659fa72a6e1f6083332d98b5e96faaaf2dfa9b7a4965f326b150",
       "disposition": "mapped",
       "contracts": [
         "diagnostic.inspect"
@@ -28364,7 +27882,7 @@
       ]
     },
     {
-      "id": "2d9e87d0fb2470c3c818dbd82999b20c76a270de6e34b951fc3b3fd6a35e7195",
+      "id": "829225dc890f105efea22e4f5e75684917ac542cdf9aaa53f06809cfa4ed28ce",
       "disposition": "mapped",
       "contracts": [
         "diagnostic.capabilities"
@@ -28380,14 +27898,14 @@
       ]
     },
     {
-      "id": "9cc09ec35ab98b9fc19d85de44f8505d94dfc38e366632f2a8c17360bb8b900d",
+      "id": "bf7f08f7e911bf56a7c2d2d86a86f842884987d9bb718bd62145b1d5cb29fd2e",
       "disposition": "pending",
       "contracts": [],
       "reason": "P02-A1: the new `body.tool == 'orgtree_operation_census'` dispatch branch in agent_call, which routes the agent read door to _census_agent_payload. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text. Owner: P02 (the operation census).",
       "source_refs": []
     },
     {
-      "id": "c477bfda5f7697e4b93a2d52c3d9ed7287174c785c3ea0f9ecc834e0b21603dc",
+      "id": "9068642b8fbfac8a6ca409b548c3c0f1de4e204682e51a0539b7bf9d99195657",
       "disposition": "mapped",
       "contracts": [
         "catalogue.list-tiers",
@@ -28407,7 +27925,7 @@
       ]
     },
     {
-      "id": "d5c7084188e88cf0324c691f4aaf8d7afb1f7d3ff569301cb950d611965fb327",
+      "id": "75fcba48ee7dd562efafbbb2f056435ab8279a1c284a64fbcc255e05777d05d7",
       "disposition": "mapped",
       "contracts": [
         "catalogue.list-tiers"
@@ -28423,7 +27941,7 @@
       ]
     },
     {
-      "id": "0d98f01dcdbfd7decbc59b6dcebc7e43483fdf92f1b5e156e24217df5c265dc9",
+      "id": "f8b6efc71d8c6b8e2a482effe12d408ba6e80eea457d2e6db1cbc89cf5ca2dab",
       "disposition": "mapped",
       "contracts": [
         "chart.read"
@@ -28439,7 +27957,7 @@
       ]
     },
     {
-      "id": "3a4260fd740a9cf5586d98acce7ceb8dd7ebdf7a41f121aa5fc2451dae4f5e14",
+      "id": "e9a5dd0ef49bf4ddd09dd8846fd8758c61f702f2d3f3f3c4f81bc04c9dd457e0",
       "disposition": "mapped",
       "contracts": [
         "exchange.send-file"
@@ -28455,7 +27973,7 @@
       ]
     },
     {
-      "id": "d076e1efee9b63f8d7d7b5bc8c92d4a0980943b6d1f51aba2af787debf2c3c46",
+      "id": "3e7facffe79dc595dd59e165d44088435732acc1c7498e61410817f4337acaae",
       "disposition": "mapped",
       "contracts": [
         "material.transcript"
@@ -28471,14 +27989,14 @@
       ]
     },
     {
-      "id": "d9892c9e7ed8dca929e73d88080055806cca166ff2697b47501253894080178c",
+      "id": "945543f32a23f7c48f59ce9c98764dc42e1b8b089725dba4523cc2598be4e6af",
       "disposition": "pending",
       "contracts": [],
       "reason": "Exact orgtree_work selector in agent_call: pending with its card — the full orgtree_work card (36 actions) is the P05 work family and the action-coverage rule needs all 36 (S3 ruling 2); the prototype's item read is covered by work.item-list and work.item-get instead. Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "5a64d06c2be2a9c430a60111cbcf5bf99646c2a2c0493b40631997a3ead18a9a",
+      "id": "a892ecf2576ccd278fa0c041da6c2fe59f11bb7f6771a6ac0f17f4b5b541799d",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.rename"
@@ -28494,7 +28012,7 @@
       ]
     },
     {
-      "id": "f476037f0c3b7c786de2095b7caad4bf576a05e3a24a8b872b6a3a80f6a1ed4e",
+      "id": "2a2d31535f16e12bbd5c4c1c09c81c8ce506cbda24943897bb1bfc72d460f30d",
       "disposition": "mapped",
       "contracts": [
         "control.halt",
@@ -28511,7 +28029,7 @@
       ]
     },
     {
-      "id": "d41aa8fb12334cff2b7aee9db4718621606a94308cce29c4b71d775db1fe8aa4",
+      "id": "38c123bd6cc89fc47fa6040aa8e3b7423c1c9b20174ecbbc67e7cc8d9679196f",
       "disposition": "mapped",
       "contracts": [
         "control.halt"
@@ -28527,7 +28045,7 @@
       ]
     },
     {
-      "id": "7682f18af98472e7cf0c949b95e8908352e9352d6cd54205cf3027c93d099655",
+      "id": "23813123d73966a1286964541890d47b25bfccc29c4980512e12d2a177387a39",
       "disposition": "mapped",
       "contracts": [
         "control.continue-on"
@@ -28543,7 +28061,7 @@
       ]
     },
     {
-      "id": "d1b6558d0f42f587be004b7684930d1a8c8313173b2d36a7c3b8d7e84baa568d",
+      "id": "03e1c146b57ed422aa07438f5c4018a00eb930b41f907003a103b22e88e162ec",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.rehire"
@@ -28559,7 +28077,7 @@
       ]
     },
     {
-      "id": "9518992b70440acede921d8437b1407cf654dca5e903fbc8e2b2b5d3abd0ee65",
+      "id": "c5c9d3c97c6c34829705702173d50f297151f421f47b4e57230cdb8a9312eca6",
       "disposition": "mapped",
       "contracts": [
         "staffing.staff-create",
@@ -28576,7 +28094,7 @@
       ]
     },
     {
-      "id": "c37496b1268f1bd9f0e9fd1b410c9c1f62ae2d2d7d76fbfb8e14e5b3a17da8a5",
+      "id": "9f8ff08de07b190794ca762511c5995ecae93d9234f8245012e0be1deac815cf",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.dissolve",
@@ -28593,7 +28111,7 @@
       ]
     },
     {
-      "id": "3e10672008b8f43a28dab9a14c15399265d29b3692b05e6a7816259822f5a1ca",
+      "id": "a6ae8db280a00db2f8d39e7b1a21ae2dd58e43977f83cf5251a9f00bfa604a83",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.retire"
@@ -28609,7 +28127,7 @@
       ]
     },
     {
-      "id": "0bcf6e96525556c1e6dedca709719176058448f11d261828dc9237a2d4478562",
+      "id": "7c0fc13cc5ac1bb0490d9b6cac29d98c812b90dc626d64b3efbaeb4f2765e52f",
       "disposition": "mapped",
       "contracts": [
         "staffing.hire",
@@ -28627,7 +28145,7 @@
       ]
     },
     {
-      "id": "8f55f2dcaa52633fdfb94396fbb2d4e61f406a0a1fe39d7b66be5704943ed163",
+      "id": "ba011382c59a8a3d2826c3ff7e787d523cde4c416a550e2711efc14f1c8e2d2b",
       "disposition": "mapped",
       "contracts": [
         "mail.message"
@@ -28643,7 +28161,7 @@
       ]
     },
     {
-      "id": "ab51bfefdf24548b7d67e6c89d8824f8687422ba4cd97567734bcfd43974f2c6",
+      "id": "dd3b18aa184ff4b4389f695836c5fa3c273c85eaa5f4b338a45a4e233a5fa027",
       "disposition": "mapped",
       "contracts": [
         "mail.notice"
@@ -28659,7 +28177,7 @@
       ]
     },
     {
-      "id": "80beb4053e54331ba950f841378685d020c21a0ad8551db3059d5424585815de",
+      "id": "b16d0de8d72922645b578779078826c2002722ff04120c8143bde83769a56837",
       "disposition": "mapped",
       "contracts": [
         "credits.request"
@@ -28675,7 +28193,7 @@
       ]
     },
     {
-      "id": "9f616d574e3d3f1e9f13ea03a6107e55aa3494c2385c71dca143efeaaf9ffdff",
+      "id": "937735d36166af62de029fb8433de9884b3f2147a2013988ed44bbef7dedd3cc",
       "disposition": "mapped",
       "contracts": [
         "watchdogs.create",
@@ -28696,7 +28214,7 @@
       ]
     },
     {
-      "id": "bb534dede44782a03867dafcbadd8e26b87c65c9e2bca5da7be1df9309f0dc59",
+      "id": "48d21d3719bdd3148ec909184aebcbab754cf92ff73883008e385a61f09eaca2",
       "disposition": "mapped",
       "contracts": [
         "watchdogs.create"
@@ -28712,7 +28230,7 @@
       ]
     },
     {
-      "id": "d1823d55bdb20b4c2c98c18b588a05dbbebf1e9aa168ce92c4604d58c9f07c2a",
+      "id": "2a5007f3ded8a579357b0449f8de4ed44097875ade1fd39b24b0ca2ff5a907c9",
       "disposition": "mapped",
       "contracts": [
         "watchdogs.list"
@@ -28728,7 +28246,7 @@
       ]
     },
     {
-      "id": "2ab88ef1adc26e015ca02db3255992af2efa136a89cc534afe2a80414cb2abb8",
+      "id": "4af462e49da1e092f2fc163055a5e222c6a74565f18adc19d175d8a308aab9c4",
       "disposition": "mapped",
       "contracts": [
         "asks.request-scope"
@@ -28744,7 +28262,7 @@
       ]
     },
     {
-      "id": "69e034a6ebd862d6315b7d1ee387649dc904204fcee4b41dd7c2b0c1b46da0a3",
+      "id": "55d758f6a161392a17292e2253e059841a9519c0a081adff266952c24eac8e1e",
       "disposition": "mapped",
       "contracts": [
         "asks.ask"
@@ -28760,14 +28278,14 @@
       ]
     },
     {
-      "id": "830e3c0edc27e3dadf4def3ed9452b98622c43a38d450f1c386f09cb1a379dd2",
+      "id": "e5ea06eb90131c6af3046ad582a2ada4371d5624fd7baa841f375c52325cf4b0",
       "disposition": "pending",
       "contracts": [],
       "reason": "Exact orgtree_work branch in the agent write cycle: pending with its card — the full orgtree_work card (36 actions) is the P05 work family and the action-coverage rule needs all 36 (S3 ruling 2); the prototype's item read is covered by work.item-list and work.item-get instead. Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "69db021e536a784d2e8aa5ac52f4c5c2a5bd3975de76655324bcc4f488d1d70e",
+      "id": "210312f51f0c27066588b618e792cfa725c6e5f6635c34634006698072748b95",
       "disposition": "mapped",
       "contracts": [
         "reservation.list-read",
@@ -28793,7 +28311,7 @@
       ]
     },
     {
-      "id": "0abb82d2cd01ee1f9adb8992fe73ea8b8d90840e65039505c3ddb016219886c1",
+      "id": "408deb28c047e100dbdc5a2597d08b0a3ef3574bd5ec50055c059ba3e88d0d59",
       "disposition": "mapped",
       "contracts": [
         "asks.withdraw"
@@ -28809,7 +28327,7 @@
       ]
     },
     {
-      "id": "04c9ab3044870c36cba0f56a9eecb2df6b01c540492bdaa15c8bc5db34bb9333",
+      "id": "b0222c29f4c730df3ba70d559c845bacdf33976a09be4446af4ac9d8b54a910b",
       "disposition": "mapped",
       "contracts": [
         "relaunch.self-relaunch"
@@ -28825,7 +28343,7 @@
       ]
     },
     {
-      "id": "78bcf7d6e1d896289ac81dd76e82c9e19de38372978553721bc065e7bb1a929a",
+      "id": "c6577b904d1c768300c2d58f40533d8fd3d196f4109c2e65fed018d3625f5ad9",
       "disposition": "mapped",
       "contracts": [
         "control.self-restart",
@@ -28842,7 +28360,7 @@
       ]
     },
     {
-      "id": "7260ec6dfe6db59567f38a37ceb69e607e07e41eba9c4e3ebb8820939faa6a0c",
+      "id": "4a41f583965974934fe1841d24926e1da5b05a7dcbb88a3d7db92d0a9e235f2e",
       "disposition": "mapped",
       "contracts": [
         "relaunch.self-update"
@@ -28858,7 +28376,7 @@
       ]
     },
     {
-      "id": "610bbe31f73f5199355498d73747cdb4cd0026eaa76af7cfe79f4eb6418255f3",
+      "id": "c08593eddca29fc5b7ff793be042ae68599b9bb8a483fe3c2e7f4f5ad35df4e7",
       "disposition": "mapped",
       "contracts": [
         "relaunch.prime-relaunch-arm",
@@ -28876,7 +28394,7 @@
       ]
     },
     {
-      "id": "769e54da8999ddd0597f873c72fde6c7b93ba4113d1512ab38f9c36a7f4e23c8",
+      "id": "869b0b7b14fbe1ef71592f9e4b9b29cea2ece9964b08878e2ea0df0703290788",
       "disposition": "mapped",
       "contracts": [
         "relaunch.prime-relaunch-arm",
@@ -28894,7 +28412,7 @@
       ]
     },
     {
-      "id": "70240d31ff1df7a706888cdea98a26241b2bb370f20e1cfdef4567b4c9c8c032",
+      "id": "66302c38a00e3d52c61a489e609205e1bc637e7755b09f8a51f8355b30cd6258",
       "disposition": "mapped",
       "contracts": [
         "relaunch.prime-relaunch-status"
@@ -28910,7 +28428,7 @@
       ]
     },
     {
-      "id": "06b5828d8a1f9eff1d0c17e1644cf730514aec6a39de28d032b75adf1d8e0670",
+      "id": "fc1af9404a02ba0aabf708c42da22d38e4e2df0c17c04b5c9df2e9acaf1b9778",
       "disposition": "mapped",
       "contracts": [
         "relaunch.prime-relaunch-cancel"
@@ -28926,7 +28444,7 @@
       ]
     },
     {
-      "id": "6d6142e4adf54ad77e92975fb0678862ea22848d7cbb25700faa714cdde86aed",
+      "id": "73c8da7c3f0f1686b0524f481201c0ae48c1a3cb3fbb07a5ab22814e7b774e0f",
       "disposition": "mapped",
       "contracts": [
         "control.prime-restart-arm",
@@ -28944,7 +28462,7 @@
       ]
     },
     {
-      "id": "cf1a439ef09a0207053bcf28585b79204623d7a5a2f86592c368ade70078f620",
+      "id": "c20bd75d6828edd103b5b228b145a46635e9cf1fe19017f7aece3c06410a47e7",
       "disposition": "mapped",
       "contracts": [
         "control.prime-restart-arm",
@@ -28962,7 +28480,7 @@
       ]
     },
     {
-      "id": "953b464ebd720d2064d42812fa60fd4dcddc3bca8d5c8ab78969b5a1bf36ccb0",
+      "id": "01145cb909be7fe6ae0f881164d5e8d0ddd8f7777c386343f1311d3d99f4f9c3",
       "disposition": "mapped",
       "contracts": [
         "control.prime-restart-status"
@@ -28978,7 +28496,7 @@
       ]
     },
     {
-      "id": "3461fa5f934279525316658435adf9e8e8caf39ea7775ba7e7769c31557918bf",
+      "id": "81ef69436eca862f4210414115d096e7c5492b961000dd794e8951b8961f0bde",
       "disposition": "mapped",
       "contracts": [
         "control.prime-restart-cancel"
@@ -28994,7 +28512,7 @@
       ]
     },
     {
-      "id": "93a0645c57f856037785145b1024c1ac311b7c4156be99311dabe30ecff443c4",
+      "id": "1c53f1d8432e72c9589e7f9805711e322308ffcc6ab4692a017adce57ab944ea",
       "disposition": "mapped",
       "contracts": [
         "control.restart-wake-arm",
@@ -29012,7 +28530,7 @@
       ]
     },
     {
-      "id": "e02bfe81313994ccc2c75f09775e1eb321add219e7f39943934fdc840c3befd7",
+      "id": "797500ded1a1f4b0c75521faff3b83f4a0606174b00d822e81574c7663e982fe",
       "disposition": "mapped",
       "contracts": [
         "control.restart-wake-arm",
@@ -29030,7 +28548,7 @@
       ]
     },
     {
-      "id": "8bcd3a38bd8aedd21d3d2df2f915282d92f7d3ae5089a491f06b5569f5c8fdf7",
+      "id": "112b93fb300b836c5336354b24771ae1ec68b0d6cd1b3df1e179c2367de58599",
       "disposition": "mapped",
       "contracts": [
         "control.restart-wake-status"
@@ -29046,7 +28564,7 @@
       ]
     },
     {
-      "id": "dbb8f2ff31c81be492047e2f91fef0d515d1bc0ab9a7f03c5553c8a65a5ed906",
+      "id": "27fec285e94950d6db159ebed333aab8d1901724ffc7414d3d456eaeb71c98ad",
       "disposition": "mapped",
       "contracts": [
         "control.restart-wake-cancel"
@@ -29062,7 +28580,7 @@
       ]
     },
     {
-      "id": "6d9eacaf8d2f4500e9e71a8489ce935e11a9597c5f8b97fe45d3100d9a4c972c",
+      "id": "e17b102328d503170d4d5f8878b726a10494ea2dd1784b7f4b3356343ac949c1",
       "disposition": "mapped",
       "contracts": [
         "asks.present"
@@ -29078,7 +28596,7 @@
       ]
     },
     {
-      "id": "40ec444d8e18b87bbb5f804249df23e2a8587f5fdbba1bb11c161477da5d7b41",
+      "id": "02f15039eded595eeed4871a3c9a7903fc57999249db9d9e03bde7bfe1d7dc61",
       "disposition": "mapped",
       "contracts": [
         "asks.submit-report"
@@ -29094,7 +28612,7 @@
       ]
     },
     {
-      "id": "0f898376168522ddf7f796e562f01e02280dbe47037219a47ac2e01d88a62a7c",
+      "id": "43f6ef14005a8ff200cb4be29b5aac80eab46da198abde3095fae83ee709532a",
       "disposition": "mapped",
       "contracts": [
         "staffing.hire"
@@ -29110,14 +28628,14 @@
       ]
     },
     {
-      "id": "f4f632240b55eb9656d0b144438c0c279b8895a251a787c259bebb6a266a2e01",
+      "id": "8850b5ecd605e829f49e06b7fd7c1ca12475b24e0d90059c3508aa0872baf32d",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_account_assign (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
       "source_refs": []
     },
     {
-      "id": "b6594ff1d5dccebdbd80e33d8d45b1d5bdc8b7eb2f56f1621daeec060314344d",
+      "id": "343b130eaa909951b5ab83d04932b501aeec6f34a098e72a02626da1867a5b13",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.retool"
@@ -29133,7 +28651,7 @@
       ]
     },
     {
-      "id": "7f063efa365761bb48024f68f79c6c3428a86c5125e7a393cf34b774cdd40e4d",
+      "id": "87bf44fc03517a5bee252f09cc5e3c38e39eab7da4866e7a95e25155e0c40249",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.retire"
@@ -29149,7 +28667,7 @@
       ]
     },
     {
-      "id": "92c865a2f9734f758fc334eed64e7f771453ab1d4945d98cb30e710ec83b987b",
+      "id": "5d936a661deb29ab03d359ce54e4825d8674c3ab349a6dd70e6f114b91b5a8f2",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.cheap-compact"
@@ -29165,7 +28683,7 @@
       ]
     },
     {
-      "id": "c18d45ff655681388fdcce74612292e0e8dd2c5425cd2df16e1be6ea7e0c3d18",
+      "id": "07c289d201371e4731f2dcf60497b2a26d107adf884f77ae50d27fb13730ed26",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.rehire"
@@ -29181,7 +28699,7 @@
       ]
     },
     {
-      "id": "097c8ea95c8d62a8d05a385379ada1f008c02dc19d5a553198fabe910b6389ca",
+      "id": "d77b9948e4e86ef4f89d29e50ec264b61d76703c10dfdf249874da72bd86813c",
       "disposition": "mapped",
       "contracts": [
         "staffing.staff-create",
@@ -29198,7 +28716,7 @@
       ]
     },
     {
-      "id": "3d8d2c7e5a4cb07ac6bb1ead402fad6a8d3e703bb43355caf3493adec32d7d80",
+      "id": "ba8a18c0e69251955acc10d70f129b4b11ae231ce8100db30c4dbc5e6f782cfa",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.move"
@@ -29214,7 +28732,7 @@
       ]
     },
     {
-      "id": "fad8b1859385498a83fb7c275cbd94e6a1150d4a188e732335fb97c1f9b60f0e",
+      "id": "a67f778a3f880a3774aa642b73ce47fb44acbc610efddd0b2164ad94236628c0",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.swap"
@@ -29230,7 +28748,7 @@
       ]
     },
     {
-      "id": "cce18177d6274405c9210886d7d6e17f4550256898aac21b3e275a1b401a3449",
+      "id": "094c9bdad094e85fc6a600c3eded9af643dcf5934b0c97a6bf42332508ca2871",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.self-subjugate"
@@ -29246,7 +28764,7 @@
       ]
     },
     {
-      "id": "380cf712778106a6f2aa34a97da1ab3e8b6ec91445c711053b91361b8fd31eb4",
+      "id": "7aa3eb6ddb12754889652d56619bf72f61f8b0d5a24a5a6fe2f72473b8422928",
       "disposition": "mapped",
       "contracts": [
         "catalogue.list-orgs"
@@ -29262,7 +28780,7 @@
       ]
     },
     {
-      "id": "2578ad2cf6c173ed1bb834859c561150742eb2d8630eec9e54102895faac3d32",
+      "id": "aadd5e7266624db0e16d4dcdb27ec637da0290a14270fd9b01f95d6dd1caf74b",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.dissolve"
@@ -29278,7 +28796,7 @@
       ]
     },
     {
-      "id": "f799f0ddf2995a7449107cf928518e46788c5f65c1956a53bb11602dba8eede7",
+      "id": "046bc18c9cbc7284d68e1c96ad50a7a64ba3feb12b778a1f30e41d68d3dbb827",
       "disposition": "mapped",
       "contracts": [
         "credits.reallocate"
@@ -29294,7 +28812,7 @@
       ]
     },
     {
-      "id": "5e7aa359995706871993600d83408f923a15b360714fa37165e0ee4fee249ee5",
+      "id": "22bd704859a2bb50b0f636b9ccd2822d8c19c6e28a282ba5a46048479ad22315",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.switch-model"
@@ -29310,7 +28828,7 @@
       ]
     },
     {
-      "id": "52eeebdeebab683ab10461570816239eee463a0a5e48b98454bc4bfd5bf7a007",
+      "id": "d6c2a82ce5b411fd00861b62ebd6e100edba21ce07aef1773305aaae910c2570",
       "disposition": "mapped",
       "contracts": [
         "status.report"
@@ -29326,7 +28844,7 @@
       ]
     },
     {
-      "id": "ef44a5e34bc0196e92f3714034e7aa98a946f01a4a33fdd71861bd2efb53ae7d",
+      "id": "45a2b89e932f3b731c2aa05d6dabc0dbba7c698d9fe0ce938588cb4dc9762861",
       "disposition": "mapped",
       "contracts": [
         "audiences.deny",
@@ -29346,7 +28864,7 @@
       ]
     },
     {
-      "id": "8da59b4b566cf3fd710ac7f55e8e376ca7b3ffeebc8a7f1af50599ab9f5955b6",
+      "id": "99a95b2b576a31b536c0db8d5523c00a9cf8a091d7a3b849376147284598200b",
       "disposition": "mapped",
       "contracts": [
         "audiences.request"
@@ -29362,7 +28880,7 @@
       ]
     },
     {
-      "id": "3d05c8106a4c83fc1785e00e12e6949f21a72b33c2ad53d88a97c4ff991f6988",
+      "id": "172b49f4203c44edaaada2ec899213a4fab8efcb41d73c78775415a367b9a935",
       "disposition": "mapped",
       "contracts": [
         "audiences.forward"
@@ -29378,7 +28896,7 @@
       ]
     },
     {
-      "id": "e49ee2b733933abc6b40bd236a1a068e730fc5f6b5f44504bc0bda3e093d3fb8",
+      "id": "7db793016033267ac85ae355178714db82a5145fedee12c5e6139e6f40087c4e",
       "disposition": "mapped",
       "contracts": [
         "audiences.grant"
@@ -29394,7 +28912,7 @@
       ]
     },
     {
-      "id": "319734f90fd304402647ed10639aec430e391cabeb84f9598eaa32b2177316c3",
+      "id": "593273d314d73220e99636981b5e49c70f3befb68cb9ef46de7d43117b0773bd",
       "disposition": "mapped",
       "contracts": [
         "audiences.deny"
@@ -29410,7 +28928,7 @@
       ]
     },
     {
-      "id": "5566b814fb30076f31c9be21c609822168f2583d440c2fb6b19c2edc5ce42619",
+      "id": "b4274ad82e591d9b105b441571365ec0c72bb127ba6d7adb4f19531ffaeaacf6",
       "disposition": "mapped",
       "contracts": [
         "audiences.revoke"
@@ -29426,7 +28944,7 @@
       ]
     },
     {
-      "id": "36cf02780b96c7092990a89da241de9b3e433baf9b42000fc7734f7e3bb8a8a1",
+      "id": "575300f971468878368eeefd33a679d092a2b5f1c9ec056fe134c3ff8380d5e1",
       "disposition": "mapped",
       "contracts": [
         "control.interrupt"
@@ -29442,7 +28960,7 @@
       ]
     },
     {
-      "id": "6f22c3af56661dc8ea2b0a6ea3f645a3b07119b771efae3cad69c72c19615aa1",
+      "id": "ee45b9e4d42ebde8ce469fd6259c963dbe83fee27a1ddcbbad91fc8b604d3960",
       "disposition": "mapped",
       "contracts": [
         "control.unstick"
@@ -29458,7 +28976,7 @@
       ]
     },
     {
-      "id": "5023cdbfc8eaa13c41065cb2cd8e15cb1ed382b59891d0c5726440f8bfec14e6",
+      "id": "7541fe7c97297cbdd1bc5655fe019f8cf41a50490115a9d14f769a2804b0fc25",
       "disposition": "mapped",
       "contracts": [
         "lifecycle.cheap-compact",
@@ -29477,7 +28995,7 @@
       ]
     },
     {
-      "id": "a3b59ae683f581e5498d4ad7bdae004fd0aa18e50fbdc8d61d4262eb01863fae",
+      "id": "00fa78d7f18c8afcfc715dced070e1ba84a4c95090208b5e17f695f98fed43bd",
       "disposition": "mapped",
       "contracts": [
         "operator.preview"
@@ -29493,7 +29011,7 @@
       ]
     },
     {
-      "id": "a9a577ed105a04cb90a432934373ff1c374faebd70d6c4c38c0a16ddfdde5d11",
+      "id": "c592780864829ce1e2a0c58b0b1d96640ca715e9b8f65f7f067957386f50dfbe",
       "disposition": "mapped",
       "contracts": [
         "operator.rename"
@@ -29509,7 +29027,7 @@
       ]
     },
     {
-      "id": "6da13d1d9f5cc6631527a25c577c300cb4ccfd9ae2f7d99b6cbb2e1b5017131e",
+      "id": "5919a9df8fb9774e67184e96597887683619863cd4b7e6a79a89fe576244dfd5",
       "disposition": "mapped",
       "contracts": [
         "operator.dissolve",
@@ -29527,7 +29045,7 @@
       ]
     },
     {
-      "id": "e5019a836aa33163ffe1b50b3dfcb3f802098c208f8adfa90fdabc2cb965a268",
+      "id": "0e145f5ae59042c8baa63cad54768d0a7ed4db2bbb11fc89f55b591dff990a9f",
       "disposition": "mapped",
       "contracts": [
         "operator.dissolve",
@@ -29545,7 +29063,7 @@
       ]
     },
     {
-      "id": "7f54e43038e80f8401b044a8e294e3222be3bc9416072a0218851a1921db075d",
+      "id": "441785c3819cfac89ce5fd6a6c1ce9e7a89af37c34050d134a37d5eade5dbe6a",
       "disposition": "mapped",
       "contracts": [
         "operator.hire"
@@ -29561,7 +29079,7 @@
       ]
     },
     {
-      "id": "4fc178c11e8a669e97e92330464d73f73dc50a4e275706c6fd9ecfc76446ccf5",
+      "id": "2cbef0d03607191dbfec46baece2c0e589c14e1601a937ce54b20c22c6521bd6",
       "disposition": "mapped",
       "contracts": [
         "operator.cheap-compact",
@@ -29581,7 +29099,7 @@
       ]
     },
     {
-      "id": "5f1a8bab50cdb912618e380361f4d5876fe7e3201542c07abe7538380873eb0a",
+      "id": "dabf5918c5c3ebadd723ca72afefa3a12f330550535f3079c9826400621c8a28",
       "disposition": "mapped",
       "contracts": [
         "operator.hire"
@@ -29597,7 +29115,7 @@
       ]
     },
     {
-      "id": "3bd5ecdfa6b95a5da9dadcceb21809f108ad0368f0234cf325c1f088f88d428b",
+      "id": "afbbcac0fa74294ce21e4d75060ba4fe211783cea413e9174c87aa1e5aef1ea6",
       "disposition": "mapped",
       "contracts": [
         "operator.retire"
@@ -29613,7 +29131,7 @@
       ]
     },
     {
-      "id": "3f92a09a2251f2ea1bb7f2b288f0f747f65cd4629b66924658feeddabdf3f0a4",
+      "id": "af7fa0b6566571326ca0d05ce0e7d0d79334dad3b1fff84d1a8d7a45361f833e",
       "disposition": "mapped",
       "contracts": [
         "operator.rescind"
@@ -29629,7 +29147,7 @@
       ]
     },
     {
-      "id": "35b3fa2af5310cd6c8564dab07d3f7b2130875f8022e5d5f4cd407046897327d",
+      "id": "ed05ac1ffac5c3dedea85290ed0a995e22eaebbff5cebdd83c8160336704ee71",
       "disposition": "mapped",
       "contracts": [
         "operator.cheap-compact"
@@ -29645,7 +29163,7 @@
       ]
     },
     {
-      "id": "5cfd72a333956086e401dc039ac5c9838b3f0a964229301b06de780cc0ccf9be",
+      "id": "a2c46c414cd5fb69c71dc1bb8faac6331dd88e48a0680bfeaa60d43fa1b7331d",
       "disposition": "mapped",
       "contracts": [
         "operator.rehire"
@@ -29661,7 +29179,7 @@
       ]
     },
     {
-      "id": "8351f85e420ce097437802ac97aea088018bbc976b0758368f6f3845e938e4fb",
+      "id": "0ec6d6cfc33a9406a3ccad6e923fb25bd345400644004daedb83c1b0c9b99cc9",
       "disposition": "mapped",
       "contracts": [
         "operator.dissolve"
@@ -29677,7 +29195,7 @@
       ]
     },
     {
-      "id": "ff2db95246db4d3e33fe74883b7a5a9ee86e86416c9c7537a1183542a4c33cf8",
+      "id": "4cdbb884c86ceae1be025a4f643c385ef6b70b7ecf06a8cc9d0da98f29af1025",
       "disposition": "mapped",
       "contracts": [
         "operator.delete"
@@ -29693,7 +29211,7 @@
       ]
     },
     {
-      "id": "2ff7dc9311b4d03896f17c7589ec37facb16e4e8c739008b65eb535b50a70483",
+      "id": "ef88b7361daef0b99a733c748352b70c64288f4837ae4aa7f993f71edf74e544",
       "disposition": "mapped",
       "contracts": [
         "operator.reallocate"
@@ -29709,7 +29227,7 @@
       ]
     },
     {
-      "id": "682c530f50b1896dc75327c4b117b774d08ea2a9fe88109529222c29a3f163ad",
+      "id": "5cb9f770e35461af795e1322d809cebf1f4807d701c3062df892777042121f1a",
       "disposition": "mapped",
       "contracts": [
         "operator.switch-model"
@@ -29725,7 +29243,7 @@
       ]
     },
     {
-      "id": "e510048dad524e64160ad12bf0e20adece934f33fa0d139f0176f16ddb6c67e1",
+      "id": "3b912c9a5fd7425a08d838cef547a2201b7cf0b130cbee56e8df0027d3b35a90",
       "disposition": "mapped",
       "contracts": [
         "operator.promote"
@@ -29741,7 +29259,7 @@
       ]
     },
     {
-      "id": "4ffdbb90ab03288c0c9e66817bfa0f6efaf6c174c6516fae27c8f60ca136c5ed",
+      "id": "fd16dcb7d0d208c1ada190424afb31f673b96808c578a081e079d56a907d2ed7",
       "disposition": "mapped",
       "contracts": [
         "operator.demote"
@@ -29757,7 +29275,7 @@
       ]
     },
     {
-      "id": "08094805714f1f9aed6330add717ee8fd3eb35a3c2eba486c52b552950426418",
+      "id": "e4dc89acd3c136e9764fab2c7286c6f8f28ca780e292a1f761dde473e291b3d5",
       "disposition": "mapped",
       "contracts": [
         "operator.move"
@@ -29773,7 +29291,7 @@
       ]
     },
     {
-      "id": "9741730ce355d6cbb0ed0d7b31b792a44dd73f69cc426103826766e8364df7d7",
+      "id": "34c689725af585123911ab0d1d70532de38a076fa63d523e7507674fc77196fe",
       "disposition": "mapped",
       "contracts": [
         "operator.reseed"
@@ -29789,7 +29307,7 @@
       ]
     },
     {
-      "id": "b9b2d0e9dac4bf30bfee0b8d0a930cc88a14d5a98d37c42dc1ddafc5a5a54832",
+      "id": "a4860b2306afb090e31bdbc651267361b8f035c6efc8239ac0eef5a0afac8a95",
       "disposition": "mapped",
       "contracts": [
         "operator.revoke-dir"
@@ -29872,86 +29390,6 @@
       "source_refs": []
     },
     {
-      "id": "8d928ee3646b5e86683998d501d3decff687cd966bca57274307478777b69083",
-      "disposition": "excluded",
-      "contracts": [],
-      "reason": "Not an org-state operation in this process (coordinator ruling, decision 2 on the W8 item): a branch of externtool.py, the EXTERNAL-chat MCP server, a separate client process, that forwards orgtree_list_orgs to GET /api/orgs. That backend route IS inventoried (api.orgs_list, line 1752), and its witness carries the obligation; the branch has no other path into org state. P01 W8.",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/externtool.py",
-          "start": 219,
-          "end": 219,
-          "sha256": "3f7626b0d4a93cac13b4e4ae654e30561aeaecb322ef1a11d0bf6a35b834973f"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 1752,
-          "end": 1752,
-          "sha256": "0aba54611f16e6b6b53faf5f3c7f3c9d00a1f82634379b85e688d10bc12f45d8"
-        }
-      ]
-    },
-    {
-      "id": "76df94351aded9ca9a8afa2a1855fb85df8523f12986a2f4f1c6e67f13835d02",
-      "disposition": "excluded",
-      "contracts": [],
-      "reason": "Not an org-state operation in this process (coordinator ruling, decision 2 on the W8 item): a branch of externtool.py, the EXTERNAL-chat MCP server, a separate client process, that forwards orgtree_send to POST /api/extern/{peer}/send. That backend route IS inventoried (api.extern_send, line 8958), and its witness carries the obligation; the branch has no other path into org state. P01 W8.",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/externtool.py",
-          "start": 232,
-          "end": 232,
-          "sha256": "03a6a54d6ae1fe73d3ecc962457e4bba0fc5bd3230f70a8ca3a118b411f7c31f"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 8958,
-          "end": 8958,
-          "sha256": "5338bef5b75fbb8a2621d98222c75988fa4cdc6d3b84d14d2373de0bdb4f3698"
-        }
-      ]
-    },
-    {
-      "id": "2aa688b4229540177e53c2a8d0d6894ff165d86e23d8c7cb87186c6e09e1615e",
-      "disposition": "excluded",
-      "contracts": [],
-      "reason": "Not an org-state operation in this process (coordinator ruling, decision 2 on the W8 item): a branch of externtool.py, the EXTERNAL-chat MCP server, a separate client process, that forwards orgtree_read to GET /api/extern/{peer}/messages. That backend route IS inventoried (api.extern_messages, line 9040), and its witness carries the obligation; the branch has no other path into org state. P01 W8.",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/externtool.py",
-          "start": 238,
-          "end": 238,
-          "sha256": "5ac89a6a10c8522004ac937f850e07dbb197c8224437bd4311af7b4650b95b92"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 9040,
-          "end": 9040,
-          "sha256": "8b5a4b071c9e8db4e6b5d8814b3f1fc44a95c91549c58788457b726c07a09df6"
-        }
-      ]
-    },
-    {
-      "id": "f97536ea30a7552b36edcebda10fef7af941db188134847a191cb7e67e302adc",
-      "disposition": "excluded",
-      "contracts": [],
-      "reason": "Not an org-state operation in this process (coordinator ruling, decision 2 on the W8 item): a branch of externtool.py, the EXTERNAL-chat MCP server, a separate client process, that forwards orgtree_wait to GET /api/extern/{peer}/wait. That backend route IS inventoried (api.extern_wait, line 9052), and its witness carries the obligation; the branch has no other path into org state. P01 W8.",
-      "source_refs": [
-        {
-          "path": "engine/backend/orgtree/externtool.py",
-          "start": 244,
-          "end": 244,
-          "sha256": "d0698e9e65b88696cee699fa43bbe3093ccb558c6816e86691007f1f930252f8"
-        },
-        {
-          "path": "engine/backend/orgtree/api.py",
-          "start": 9052,
-          "end": 9052,
-          "sha256": "1a1710517c6575ba7518cb58463b425cf5cfa8cdcf7f7af2ddd303a56f787fd9"
-        }
-      ]
-    },
-    {
       "id": "58da65a18f085e5bb2a3d1fecfd1fd052d3e6951c39801e905cf1b07b8874004",
       "disposition": "pending",
       "contracts": [],
@@ -29980,7 +29418,7 @@
       "source_refs": []
     },
     {
-      "id": "cbf01e78136612fd811ec608d4e8b10fca1bc5171db62ebea9de28e9ffb48478",
+      "id": "95888e8006eaca5d93b4769b26b9e011c6d7285cf6851b8768fc3232e6186a8c",
       "disposition": "mapped",
       "contracts": [
         "watchdogs.pause",
@@ -29997,7 +29435,7 @@
       ]
     },
     {
-      "id": "ca0128cb1bc25e6732627cddeef5727d016c9fed404681c370a18db91facfa62",
+      "id": "e2f7a651a6422721e1665040f325216fe13ad01f8ec3e97186e2ca91be6c384a",
       "disposition": "mapped",
       "contracts": [
         "watchdogs.resume",
@@ -30014,7 +29452,7 @@
       ]
     },
     {
-      "id": "8905710915c3e872a6e74200a51d697175c6df40742f116b76d9d3d0daed03d1",
+      "id": "7c71a87d3aeb4189eaa201847dc57446c69f29e5f9be8ca2e3d227d7cf35c33e",
       "disposition": "mapped",
       "contracts": [
         "watchdogs.remove",
@@ -30031,7 +29469,7 @@
       ]
     },
     {
-      "id": "e5e83816d5815452e44d4fa4011cf895275ee44aff5f735cc403c99cdc9cd54a",
+      "id": "fe1167bd8f232d73fd12b2e095ba9c65747eb3bc5ae78a5d9af57a098c5ffd64",
       "disposition": "mapped",
       "contracts": [
         "watchdogs.supersede",
@@ -30048,7 +29486,7 @@
       ]
     },
     {
-      "id": "39960932ccb28e9feb562b181c34be5dc73afb5436efc7e440efa8f66a3c0043",
+      "id": "f6eb8c109fea73321130c748cd435e3f521abffb60963ff601b3d5904f301269",
       "disposition": "mapped",
       "contracts": [
         "watchdogs.remove",
@@ -30065,7 +29503,7 @@
       ]
     },
     {
-      "id": "a77dd5c397df8befedcd10496e59169352b13c59dd41a7a33f000feeffbd4603",
+      "id": "7b29377b0c9d8e9cd9eeccff4398228c2b5fbe3bf923e85a44a4c9ee3352e73d",
       "disposition": "mapped",
       "contracts": [
         "watchdogs.supersede",
@@ -30082,7 +29520,7 @@
       ]
     },
     {
-      "id": "b62b2f4544ee420c67682f4c15fa65b6d5fe249dc68782ad145f6305d5dfb99a",
+      "id": "3404e049410c25e55c7d15659e4213c0a67fd7ead886ba8a0157e574be9b5aee",
       "disposition": "mapped",
       "contracts": [
         "asks.batch-resolve",
@@ -30099,7 +29537,7 @@
       ]
     },
     {
-      "id": "c590e76e7e2d20205c8ddb783eaad204ce29bacca1fd2b1f987e0740ad819537",
+      "id": "5d3ba8e682bc82eea419384236716f15ccf45c76528636ab1ec9ce75b7ffe47b",
       "disposition": "mapped",
       "contracts": [
         "asks.batch-resolve",
@@ -30116,7 +29554,7 @@
       ]
     },
     {
-      "id": "2af0ce55aa8904c224dc811495bb194a2f7a51357cde6a6effe2afa54542f9a3",
+      "id": "be5a35d216dc03c9e419ebf258db5b6d91ca9a89aedcfc846220614669e0e7a1",
       "disposition": "mapped",
       "contracts": [
         "control.prime-restart-arm",
@@ -30133,21 +29571,21 @@
       ]
     },
     {
-      "id": "ccaf86bce59c069af64b351ad12a5bb52dc636a7e795b006c01360090478a455",
+      "id": "968017dbd390b27a3f8462f6c7b852713ed5dc377fc5bcbec83dda8e66899807",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's accept, reopen and supersede branch (Org._work_status_at in ledger.py, a docket status transition). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "842fb2bb9982ce9cc460a8b76f57bf5301d353750833536e1fe2f1a5555d5db7",
+      "id": "b79786d2055c97f8b0295d0cd71e4337b4d7925080c6cdf9a20f06bc61ccda5e",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's update branch (Org._work_status_at in ledger.py, a docket status transition). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "f9985ca93ea681b1e47358ab09ab9833e27238beba63ed103777f03107ab8bb1",
+      "id": "4396a95bf408726e385f5ba63af8fed17684ea21b24c9eea2204f33b1d6f2014",
       "disposition": "pending",
       "contracts": [],
       "reason": "Stays pending (P01 W5): the orgtree_work card's dismiss_attention branch (Org._work_status_at in ledger.py, a docket status transition). The docket family's full card (36 actions) is contracted as a whole, and the prototype's item read is covered by work.item-list and work.item-get instead (S3 ruling 2). Owner: P05 (the work family).",
@@ -31111,7 +30549,7 @@
       ]
     },
     {
-      "id": "1a92f1064a007be12ab7b57b2f974e92ba48a15b3749e66530d8be2976b1f550",
+      "id": "183a15a487d2c829265f66734161f9cb65530ecd0d451d54e640f820dd9176c9",
       "disposition": "pending",
       "contracts": [],
       "reason": "80b28bf (account capacity marks): the `body.tool == 'orgtree_account_mark'` dispatch branch in agent_call, which writes the machine account store and then the org log and receipt. No P01 contract describes it yet; recorded pending rather than mapped, because this stage authors no contract text. Owner: the runtime (P08).",

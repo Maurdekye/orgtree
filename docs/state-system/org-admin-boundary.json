@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.org-admin-boundary/v1",
-  "source_contract_sha256": "220997cc1e8a46ae618ed4fb2d287a70adc8825e726ee7fc9a7c97977089e90f",
+  "source_contract_sha256": "3e96f923f951be1687452b74b8c97f88ec554d55ece1af33ba64fea3dffbd048",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false
@@ -1710,8 +1710,8 @@
     }
   },
   "legacy_defects": [
-    "the org.md write reports the character count as `bytes`: ten 'é' answer bytes 10, where UTF-8 holds 20",
-    "disk delete reports an unlink failure with the raw OSError text, which carries the host's Windows path, to an admin and a kiosk visitor alike (the disk download route reduces host paths for visitors)"
+    "the org.md write reports the character count as `bytes`: ten 'é' answer bytes 10, where UTF-8 holds 20 (docket org-admin-orgmd-put-reports-characters-as-bytes)",
+    "disk delete reports an unlink failure with the raw OSError text, which carries the host's Windows path, to an admin and a kiosk visitor alike (the disk download route reduces host paths for visitors) (same docket)"
   ],
   "scope": "Legacy boundary of the org administration routes (P01 F7) on disposable SQLite. Hub, net, sandbox, container and docker calls are spies; the WSL command runner is a recorded fake and a mounted org disk a temp folder; the routes, the ledger, the store's create and delete, the defaults file, the workspace files and the host folders the sweep removes are real. Legacy conformance evidence only: not a runtime census, not PostgreSQL or Rust qualification."
 }

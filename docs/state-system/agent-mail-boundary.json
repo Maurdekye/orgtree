@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.agent-mail-boundary/v1",
-  "source_contract_sha256": "220997cc1e8a46ae618ed4fb2d287a70adc8825e726ee7fc9a7c97977089e90f",
+  "source_contract_sha256": "3e96f923f951be1687452b74b8c97f88ec554d55ece1af33ba64fea3dffbd048",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false
@@ -10,25 +10,90 @@
     "orgtree_send_notice": "mail.notice"
   },
   "results": {
-    "agent": ["deferred", "delivered", "delivery", "id", "operation_id", "recipient_state", "ref", "warnings"],
-    "user": ["delivered", "id", "operation_id", "ref", "warnings"],
-    "org": ["delivered", "id", "ref", "warnings"],
-    "mcp": ["delivered", "filed", "id", "status", "warnings"],
-    "replay": ["at", "op_id", "outcome", "receipt", "replayed", "status", "tool"]
+    "agent": [
+      "deferred",
+      "delivered",
+      "delivery",
+      "id",
+      "operation_id",
+      "recipient_state",
+      "ref",
+      "warnings"
+    ],
+    "user": [
+      "delivered",
+      "id",
+      "operation_id",
+      "ref",
+      "warnings"
+    ],
+    "org": [
+      "delivered",
+      "id",
+      "ref",
+      "warnings"
+    ],
+    "replay": [
+      "at",
+      "op_id",
+      "outcome",
+      "receipt",
+      "replayed",
+      "status",
+      "tool"
+    ]
   },
   "sections": {
-    "agent": ["events", "lifecycle", "mail", "mail_log", "nodes"],
-    "agent_with_grant": ["audiences", "events", "lifecycle", "mail", "mail_log", "nodes"],
-    "user": ["events", "lifecycle", "user_inbox"],
-    "org_first": ["audiences", "events", "org_inbox"],
-    "org": ["events", "org_inbox"],
-    "mcp": ["events", "org_inbox"],
-    "net_first": ["audiences", "events", "net_spool", "org_inbox"]
+    "agent": [
+      "events",
+      "lifecycle",
+      "mail",
+      "mail_log",
+      "nodes"
+    ],
+    "agent_with_grant": [
+      "audiences",
+      "events",
+      "lifecycle",
+      "mail",
+      "mail_log",
+      "nodes"
+    ],
+    "user": [
+      "events",
+      "lifecycle",
+      "user_inbox"
+    ],
+    "org_first": [
+      "audiences",
+      "events",
+      "org_inbox"
+    ],
+    "org": [
+      "events",
+      "org_inbox"
+    ],
+    "net_first": [
+      "audiences",
+      "events",
+      "net_spool",
+      "org_inbox"
+    ]
   },
-  "retained": ["deferred", "delivered", "id"],
+  "retained": [
+    "deferred",
+    "delivered",
+    "id"
+  ],
   "ping": {
-    "orgtree_message": {"wake": true, "ping_reason": "agent_mail"},
-    "orgtree_send_notice": {"wake": false, "ping_reason": "notice"}
+    "orgtree_message": {
+      "wake": true,
+      "ping_reason": "agent_mail"
+    },
+    "orgtree_send_notice": {
+      "wake": false,
+      "ping_reason": "notice"
+    }
   },
   "legacy_defects": [
     "an empty, whitespace-only or missing body is accepted and delivered",

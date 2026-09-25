@@ -405,7 +405,7 @@ class ContactFacets(unittest.TestCase):
         return [r for r in self.doc["rows"] if r["contract"] in prefixes]
 
     def test_agent_mail_reads_by_recipient_class(self):
-        classes = {"mail.message": ("", ":deep", ":archived", ":user", ":org", ":mcp", ":keyed-fresh", ":keyed-replay"),
+        classes = {"mail.message": ("", ":deep", ":archived", ":user", ":org", ":keyed-fresh", ":keyed-replay"),
                    "mail.notice": ("", ":deep", ":archived", ":keyed-fresh", ":keyed-replay")}
         for contract, suffixes in classes.items():
             for suffix in suffixes:
@@ -432,6 +432,11 @@ class ContactFacets(unittest.TestCase):
                 r = self.exact(contract, variant, "warm")
                 self.assertEqual((r["http_status"] in (409, 422), self.written(r)), (True, []))
         self.assertEqual(self.read(self.exact("mail.message", "refusal:mail-halted", "warm")), ["meta", "nodes"])
+        # the retired @mcp: form (docket the-external-chat-mcp-server-cannot-reach-the-v2): refused, nothing written
+        for condition in ("cold", "warm"):
+            with self.subTest(variant="refusal:mail-message-mcp-retired", condition=condition):
+                r = self.exact("mail.message", "refusal:mail-message-mcp-retired", condition)
+                self.assertEqual((r["http_status"], self.written(r), r["agents"]["logical"]), (422, [], {}))
 
     def test_mail_locality_and_its_controls(self):
         for contract, control in (("mail.message", "control:mail-third-agent"),
@@ -449,8 +454,7 @@ class ContactFacets(unittest.TestCase):
                         for who, role in agents["logical"].get(section, {}).items():
                             self.assertEqual(role, "target", (section, who))
                             self.assertIn(who, agents["targets"])
-                    if r["variant"].startswith("refusal:") or ":user" in r["variant"] or ":org" in r["variant"] \
-                            or ":mcp" in r["variant"]:
+                    if r["variant"].startswith("refusal:") or ":user" in r["variant"] or ":org" in r["variant"]:
                         self.assertEqual(agents["logical"].get("mail", {}), {})
         # a first deep send grants the audience between sender and recipient, cold only
         self.assertEqual(self.exact("mail.message", "mail.message:deep", "cold")["agents"]["logical"]["audiences"],
@@ -926,20 +930,18 @@ class ContactFacets(unittest.TestCase):
             self.assertEqual((kiosk["http_status"], self.written(kiosk)), (404, []))
 
     # the rows that touch another org's store, and the refusals answered before any census attempt
-    EXCHANGE_CROSS_ORG = {"exchange.orgs-list", "exchange.extern-read", "exchange.extern-read:org-filter",
-                          "exchange.extern-wait", "exchange.extern-wait:timeout", "exchange.org-inbox-send:org",
+    # (the extern scans left with the external-chat retirement; the main send row is now an @org: send)
+    EXCHANGE_CROSS_ORG = {"exchange.orgs-list", "exchange.org-inbox-send", "exchange.org-inbox-send:org",
                           "exchange.org-inbox-send:org-attachment", "exchange.org-inbox-send:org-kiosk"}
-    EXCHANGE_PRE_CENSUS = {"refusal:route-no-token", "refusal:route-agent-token", "refusal:extern-no-token",
-                           "refusal:externtool-no-credential", "refusal:externtool-send-no-credential",
-                           "refusal:externtool-read-no-credential", "refusal:externtool-wait-no-credential"}
+    EXCHANGE_PRE_CENSUS = {"refusal:route-no-token", "refusal:route-agent-token"}
     FOREIGN_WRITE_SITES = ("orgtree.store:_write_doc", "orgtree.store:_write_log_rows", "orgtree.store:_save_sqlite")
 
     def test_f4_exchange_contacts_and_org_locality(self):
         names, rows = self.family_rows("exchange.instrumentation")
-        self.assertEqual(len(names), 15)
+        self.assertEqual(len(names), 12)
         for name in names:
             self.assertEqual({r["condition"] for r in rows if r["contract"] == name}, {"cold", "warm"}, name)
-        self.assertEqual(sum(r["variant"].startswith("refusal:") for r in rows), 36)
+        self.assertEqual(sum(r["variant"].startswith("refusal:") for r in rows), 27)
         for r in rows:
             with self.subTest(variant=r["variant"], condition=r["condition"]):
                 self.assertEqual(r["unknown_contacts"], [])
@@ -958,20 +960,20 @@ class ContactFacets(unittest.TestCase):
         [control] = [r for r in rows if r["variant"] == "control:exchange-third-agent"]
         self.assertGreater(control["agents"]["third_agent_mail"], 0)
         # a delivered @org: send WRITES the other org; one to a kiosk org only reads it, one to a missing org neither
-        for variant, writes in (("exchange.org-inbox-send:org", True), ("exchange.org-inbox-send:org-attachment", True),
+        for variant, writes in (("exchange.org-inbox-send", True), ("exchange.org-inbox-send:org", True),
+                                ("exchange.org-inbox-send:org-attachment", True),
                                 ("exchange.org-inbox-send:org-kiosk", False)):
             sites = self.exact("exchange.org-inbox-send", variant, "warm")["harness"]["foreign_statement_sites"]
             self.assertEqual(any(s in sites for s in self.FOREIGN_WRITE_SITES), writes, variant)
         missing = self.exact("exchange.org-inbox-send", "exchange.org-inbox-send:org-missing", "warm")
         self.assertEqual(self.foreign(missing), 0)
-        # the extern rows record the peer's sighting, refusals included, but not a bad peer id or a missing token
-        # (the externtool verbs' client sends none)
-        unsighted = ("refusal:extern-send-bad-peer", "refusal:extern-no-token", "refusal:externtool-send-no-credential",
-                     "refusal:externtool-read-no-credential", "refusal:externtool-wait-no-credential")
+        # the retired @mcp: send is refused before the attachment checks, with or without a staged file
+        for variant in ("refusal:org-send-mcp-retired", "refusal:org-send-mcp-retired-attachment"):
+            r = self.exact("exchange.org-inbox-send", variant, "warm")
+            self.assertEqual((r["http_status"], self.written(r)), (422, []), variant)
+        # with the external-chat routes retired, no exchange row writes the extern-peers sighting file
         for r in rows:
-            if r["contract"].startswith("exchange.extern-"):
-                wrote = "data:other@orgtree.store:_peers_write" in r["audit"].get("file_write", {})
-                self.assertEqual(wrote, r["variant"] not in unsighted, (r["variant"], r["condition"]))
+            self.assertNotIn("data:other@orgtree.store:_peers_write", r["audit"].get("file_write", {}), r["variant"])
 
     QS_READS = ("quick-staff.options", "quick-staff.options-refresh", "quick-staff.preview",
                 "quick-staff.preview:under-assignee", "quick-staff.preview:top-level",

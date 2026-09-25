@@ -43,9 +43,9 @@ class ContractCoverage(unittest.TestCase):
         self.assertGreater(result["summary"]["storage"]["pending"], 0)
         # THE one registry-wide tripwire (review of S3 candidate 1): every candidate
         # that maps a witness or adds a contract moves these numbers here, and only here.
-        self.assertEqual(result["contracts"], 169)
+        self.assertEqual(result["contracts"], 166)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
-                          result["summary"]["storage"]["mapped"]), (133, 164, 2))
+                          result["summary"]["storage"]["mapped"]), (126, 164, 2))
         # 571 -> 590 (P01 F1): 19 entries and 19 dispatch witnesses mapped, 57 new open dimension occurrences
         # (conflicts, wire and instrumentation on each of the 19 lifecycle contracts), as the Q1 ruling expects
         # 590 -> 608 (P01 F1b): the operator door and 23 of its branches mapped, 42 new open dimension
@@ -67,7 +67,10 @@ class ContractCoverage(unittest.TestCase):
         # (conflicts, wire and instrumentation on each of 15 org-read contracts)
         # 692 -> 714 (P01 F7): 11 entries mapped, 33 new open dimension occurrences (conflicts, wire and
         # instrumentation on each of 11 org-admin contracts)
-        self.assertEqual(len(result["pending"]), 714)
+        # 714 -> 705 (the external-chat retirement, docket the-external-chat-mcp-server-cannot-reach-the-v2): the three
+        # exchange.extern-* contracts and their 7 entries left with the routes and the externtool cards, taking their
+        # 9 open dimension occurrences (conflicts, wire and instrumentation on each)
+        self.assertEqual(len(result["pending"]), 705)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -140,7 +143,7 @@ class ContractCoverage(unittest.TestCase):
     # W1-W8 (coordinator-approved plan 2026-09-24 21:57Z; the rules are decision 1 on the W1 item): map only when
     # every operation reaching a witness has a contract, exclude only what source reading shows is not an org-state
     # operation, otherwise stay pending with a reason that names the owner
-    W1_EXCLUDED = {("api.py", 122), ("api.py", 124), ("api.py", 14825), ("api.py", 14826), ("api.py", 14829),
+    W1_EXCLUDED = {("api.py", 122), ("api.py", 124), ("api.py", 14676), ("api.py", 14677), ("api.py", 14680),
                    ("api.py", 901), ("api.py", 928), ("api.py", 1566), ("disk.py", 226), ("sandbox.py", 891),
                    ("sandbox.py", 1031), ("sandbox.py", 1040), ("turnread.py", 44)}
     # the 4 stderr pumps feed the failure path, which can freeze a node (W1 review fix)
@@ -165,18 +168,14 @@ class ContractCoverage(unittest.TestCase):
                     self.assertIn("Owner: ", r["reason"])
 
     # the client-process branches call inventoried routes (coordinator ruling, decision 2 on the W8 item)
-    W8_EXCLUDED = {("mcptool.py", 2111), ("mcptool.py", 2113), ("mcptool.py", 2315),
-                   ("externtool.py", 219), ("externtool.py", 232), ("externtool.py", 238), ("externtool.py", 244)}
+    # (the four externtool.py client branches left with the external-chat server, retired by user ruling)
+    W8_EXCLUDED = {("mcptool.py", 2111), ("mcptool.py", 2113), ("mcptool.py", 2315)}
     # P01 F2 mapped the twelve warmpool process-control rows (the process route is contracted)
     W8_PENDING = ({("desktop_recovery.py", n) for n in (97, 99, 118, 120, 122, 124, 125)}
                   | {("gitworkspace.py", n) for n in (482, 1114, 1136, 1140)}
                   | {("toolwait.py", 88)})    # P01 F6 mapped supervisor.py 35326 and 35351, the transcript cards
     # the EXACT route each client-process exclusion calls (W8 review finding f1: 'a route' is not 'the route')
-    W8_CLIENT_ROUTES = {("externtool.py", 219): ("api.py", 1752, "/api/orgs"),
-                        ("externtool.py", 232): ("api.py", 8958, "/api/extern/{peer}/send"),
-                        ("externtool.py", 238): ("api.py", 9040, "/api/extern/{peer}/messages"),
-                        ("externtool.py", 244): ("api.py", 9052, "/api/extern/{peer}/wait"),
-                        ("mcptool.py", 2315): ("api.py", 11156, "/api/agent")}
+    W8_CLIENT_ROUTES = {("mcptool.py", 2315): ("api.py", 11007, "/api/agent")}
 
     def test_w8_machine_client_and_presentation_dispatch_is_triaged(self):
         # W1-W8 rules (decision 1 on the W1 item) with rule 2 as sharpened (decision 2 there); an HTTP-client
@@ -197,8 +196,7 @@ class ContractCoverage(unittest.TestCase):
             if at(i) in self.W8_EXCLUDED:
                 with self.subTest(site=at(i)):
                     self.assertTrue(r["reason"].startswith("Not ") and r["reason"].endswith(" P01 W8."), r["reason"])
-                    self.assertEqual(at(i)[0] == "externtool.py" or at(i) == ("mcptool.py", 2315),
-                                     at(i) in self.W8_CLIENT_ROUTES)
+                    self.assertEqual(at(i) == ("mcptool.py", 2315), at(i) in self.W8_CLIENT_ROUTES)
                     if at(i) in self.W8_CLIENT_ROUTES:
                         file, line, url = self.W8_CLIENT_ROUTES[at(i)]
                         self.assertEqual(routes.get((file, line)), [url])
@@ -218,7 +216,7 @@ class ContractCoverage(unittest.TestCase):
     W2_PENDING = ({("codexrun.py", n) for n in (742, 1346, 1742, 1746)} | {("providers.py", 1434)}
                   | {("gitworkspace.py", n) for n in (808, 809, 810, 820, 932, 933, 1230)}
                   | {("net.py", 1387), ("net.py", 1389), ("sandbox.py", 1195)}
-                  | {("supervisor.py", n) for n in (192, 6417, 6567, 17379, 17493, 17803, 17949, 18885, 18999, 20259,
+                  | {("supervisor.py", n) for n in (192, 6417, 6567, 17378, 17492, 17802, 17948, 18884, 18998, 20258,
                                                     31551)}
                   | {("warmpool.py", n) for n in (1446, 2249, 2809, 2948)})
     S2K_EXCLUDED = {("antigravity_provenance.py", 325), ("antigravity_provenance.py", 328), ("api.py", 1338),
@@ -268,11 +266,11 @@ class ContractCoverage(unittest.TestCase):
                 self.assertEqual(excluded, reviewed)
 
     W3_EXCLUDED = {("startup.py", 52)}
-    W3_PENDING = ({("api.py", 5620), ("api.py", 6011), ("assistant_messages.py", 193), ("desktop_import_jobs.py", 270),
+    W3_PENDING = ({("api.py", 5621), ("api.py", 6012), ("assistant_messages.py", 193), ("desktop_import_jobs.py", 270),
                    ("desktop_maintenance.py", 159), ("halt.py", 827), ("halt.py", 1006), ("maildrain.py", 359),
                    ("staffcache.py", 230), ("startup.py", 45), ("toolwait.py", 239), ("toolwait.py", 327),
                    ("transcript_ingest.py", 101)}
-                  | {("supervisor.py", n) for n in (13833, 14029, 14107, 14750, 20470, 27622, 27749, 27792, 28225,
+                  | {("supervisor.py", n) for n in (13832, 14028, 14106, 14749, 20469, 27621, 27748, 27791, 28224,
                                                     28901, 30075, 30223, 31372, 32392, 32975, 33138, 33267, 33290)})
 
     def test_w3_org_state_workers_are_triaged(self):
@@ -775,11 +773,11 @@ class ContractCoverage(unittest.TestCase):
         document = copy.deepcopy(self.document)
         # credit_request_action's approve branch is mapped (P01 F3 contracted the inbox batch submit);
         # were that entry still pending, the mapped helper witness would be early
-        row = next(r for r in document["dispatch"] if r["id"].startswith("c590e76e"))
+        row = next(r for r in document["dispatch"] if r["id"].startswith("5d3ba8e6"))
         self.assertEqual(row["disposition"], "mapped")
         batch = next(r for r in document["entries"] if r["id"].startswith("16833d38"))
         batch.update(disposition="pending", contracts=[], source_refs=[], reason="(control) not contracted")
-        both = {r["id"] for r in document["dispatch"] if r["id"].startswith(("c590e76e", "b62b2f45"))}
+        both = {r["id"] for r in document["dispatch"] if r["id"].startswith(("5d3ba8e6", "3404e049"))}
         self.assertEqual(len(both), 2)
         self.assertEqual(self.early_helper_witnesses(document), both)
 
