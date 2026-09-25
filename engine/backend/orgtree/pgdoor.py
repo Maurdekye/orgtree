@@ -53,11 +53,29 @@ RE-RUN SAFETY. `org_tx` may retry the whole transaction on a serialization
 failure or deadlock (40001 / 40P01). Everything inside `fn` must therefore be
 a pure function of the locked document: no process spawns, no provider reads,
 no mail sends outside the document — do those after `agent_tx` returns, the
-way `agent_call` already does its post-save work.
+way `agent_call` already does its post-save work. A WIDEN re-runs the whole
+body the same way, including the prologue's in-memory steps (the receipt
+custody check and the in-flight marker): both are idempotent, and anything a
+family adds there must be too.
+
+BEFORE THE TRANSACTION (plan decision 27, F1). `declare(..., before=fn)`:
+`fn(call, args) -> dict | None` runs ONCE, before org_tx opens, holding no
+row lock (and no DOC_LOCK under rows). It may read, resolve names and
+accounts, compute a row prediction; what it returns is merged into the
+body's `pre`. It may NOT write anything that must be atomic with the body,
+nor trust its reads — the body re-validates on the locked rows. It must be
+safe to run again (a caller may retry the whole call).
+
+AFTER THE COMMIT (plan decision 27, F2). The write is durable once org_tx
+commits, so a post-commit step (wake, notice, hub broadcast, a family's
+`after.then`) that raises must never turn it into an error: run each such
+step through `after_commit`, which logs the failure and appends
+`{"step", "error"}` to `result["warnings"]`.
 """
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 import re
 from contextvars import ContextVar
@@ -68,6 +86,7 @@ from . import opreceipts
 from .ledger import LedgerError
 
 KILLSWITCH = "killswitch"
+_log = logging.getLogger("orgtree.pgdoor")
 # How many times a retryable failure re-runs the whole transaction before the
 # error is raised to the caller. org_tx may retry on its own as well; this is
 # the outer bound for the context-manager form, which cannot re-enter itself.
@@ -224,6 +243,10 @@ SpecFn = Callable[[Any, Any, "dict[str, Any]"], TxSpec]
 LOCKS: "dict[str, TxSpec | SpecFn]" = {}
 BODIES: "dict[str, Callable[[AgentTx], Any]]" = {}
 KIOSK_EXEMPT: "set[str]" = set()
+# route only the calls a predicate accepts (one tool whose modes belong to
+# different families), and the pre-transaction step per name (F1)
+WHEN: "dict[str, Callable[[dict[str, Any]], bool]]" = {}
+BEFORE: "dict[str, Callable[[Any, dict[str, Any]], dict[str, Any] | None]]" = {}
 # a body may widen this many times before the door gives up (each widening is
 # a full rollback and re-run, so a runaway would be a livelock, not a bug)
 MAX_WIDEN = 3
@@ -240,9 +263,16 @@ class Widen(Exception):
 
 def declare(name: str, spec: "TxSpec | SpecFn",
             body: "Callable[[AgentTx], Any] | None" = None, *,
-            kiosk_exempt: bool = False) -> None:
+            kiosk_exempt: bool = False,
+            when: "Callable[[dict[str, Any]], bool] | None" = None,
+            before: "Callable[[Any, dict[str, Any]], dict[str, Any] | None] | None"
+            = None) -> None:
     """Register one tool (`orgtree_*`) or operator op: its rows, and for an
     agent tool the body `agent_call` runs on the door (`body(tx) -> result`).
+    `when(args)`: route only the calls it accepts (orgtree_staff's hire mode
+    is PG-3b's, its rehire mode PG-3a's); a call it refuses keeps the
+    DOC_LOCK cycle. `before(call, args)`: the pre-transaction step (module
+    docstring, BEFORE THE TRANSACTION).
     `kiosk_exempt` (lead decision 18.8): the tool is PROVEN unable to move
     top-level holdings, so the door skips the kiosk credit-cap check for it —
     the family carries the proof. Re-declaring a name with a DIFFERENT spec
@@ -257,6 +287,10 @@ def declare(name: str, spec: "TxSpec | SpecFn",
         BODIES[name] = body
     if kiosk_exempt:
         KIOSK_EXEMPT.add(name)
+    if when is not None:
+        WHEN[name] = when
+    if before is not None:
+        BEFORE[name] = before
 
 
 def declared(name: str) -> bool:
@@ -265,9 +299,44 @@ def declared(name: str) -> bool:
     return name in LOCKS
 
 
-def routed(name: str) -> bool:
-    """Should `agent_call` hand this tool to the door right now?"""
-    return name in LOCKS and name in BODIES and enabled()
+def routed(name: str, a: "dict[str, Any] | None" = None) -> bool:
+    """Should `agent_call` hand this call to the door right now? With `a`,
+    a `when` predicate declared for the tool must also accept the args."""
+    if not (name in LOCKS and name in BODIES and enabled()):
+        return False
+    w = WHEN.get(name)
+    return w is None or (a is not None and bool(w(a)))
+
+
+def _before(name: str, slug: str, call: Any, a: dict[str, Any],
+            pre: "dict[str, Any] | None") -> dict[str, Any]:
+    """F1: the declared pre-transaction step, run with NO transaction open
+    (nesting is the one thing it can check here), merged into `pre`."""
+    out = dict(pre or {})
+    fn = BEFORE.get(name)
+    if fn is None:
+        return out
+    if current(slug) is not None:
+        raise LedgerError(f"pgdoor: {name!r}'s before-step must run outside "
+                          f"the transaction")
+    got = fn(call, a)
+    if got:
+        out.update(got)
+    return out
+
+
+def after_commit(result: Any, step: str, fn: "Callable[..., Any]",
+                 *args: Any, **kw: Any) -> Any:
+    """F2: run ONE post-commit step. The write has committed, so a failure
+    here is logged and disclosed as `result["warnings"]` — never raised."""
+    try:
+        return fn(*args, **kw)
+    except Exception as e:                                   # noqa: BLE001
+        _log.exception("pgdoor: post-commit step %r failed", step)
+        if isinstance(result, dict):
+            result.setdefault("warnings", []).append(
+                {"step": step, "error": f"{type(e).__name__}: {e}"})
+        return None
 
 
 def _snapshot(slug: str) -> Any:
@@ -294,10 +363,23 @@ _CURRENT: "ContextVar[tuple[str, Any, TxSpec] | None]" = ContextVar(
     "pgdoor_current", default=None)
 
 
+def _outer(slug: str) -> Any:
+    """An org_tx this thread opened OUTSIDE the door (halt.txn and the like),
+    or None. Only the real org_tx is asked: a test seam has no such state."""
+    if _SEAM.org_tx is not None:
+        return None
+    from . import orgtx
+    return orgtx.current_tx(slug)
+
+
 def current(slug: str) -> Any:
-    """The open transaction handle for `slug` on this context, or None."""
+    """The open transaction handle for `slug` on this context, or None: the
+    door's own, else any org_tx this thread holds on `slug` (WS3b: a writer
+    called inside a halt.txn joins it)."""
     cur = _CURRENT.get()
-    return cur[1] if cur is not None and cur[0] == slug else None
+    if cur is not None and cur[0] == slug:
+        return cur[1]
+    return _outer(slug)
 
 
 @contextlib.contextmanager
@@ -308,8 +390,14 @@ def join(slug: str, **rows: "Iterable[LogName]") -> "Iterator[Any]":
     body there is nothing to join: open one with `run`."""
     cur = _CURRENT.get()
     if cur is None or cur[0] != slug:
-        raise LedgerError(f"pgdoor.join: no transaction is open for {slug!r} "
-                          f"— use pgdoor.run")
+        outer = _outer(slug)
+        if outer is None:
+            raise LedgerError(f"pgdoor.join: no transaction is open for "
+                              f"{slug!r} — use pgdoor.run")
+        # not the door's: its rows are not ours to widen, so org_tx itself
+        # refuses a write outside them (UnlockedWrite) and that is the error
+        yield outer
+        return
     need = cur[2].covers(TxSpec(**{k: tuple(v) for k, v in rows.items()}))
     if not need.empty():
         raise Widen(nodes=need.nodes, sections=need.sections,
@@ -440,7 +528,7 @@ def _logkey(x: "LogName") -> "tuple[str, ...]":
 def _norm(spec: TxSpec) -> TxSpec:
     """A row named both ways is held FOR UPDATE only; duplicates dropped;
     every list sorted. PG-0's org_tx takes all its locks up front in its own
-    fixed order (sections, then nodes, then logs, each sorted), and that is
+    fixed order (nodes, then sections, then logs, each sorted), and that is
     the org-wide rule; sorting here only makes the spec canonical, so a
     widened spec compares equal when nothing new was added."""
     ns = tuple(sorted(set(spec.nodes)))
@@ -499,6 +587,7 @@ def agent_tx(body: Any, a: dict[str, Any],
     `on_commit(org, receipt_ctx)` runs once, after the commit (with None when
     no receipt rode the call), never on a retry, a replay or a rollback —
     `opreceipts.witness` belongs there."""
+    pre = _before(body.tool, body.org, body, a, pre)
     base = spec if spec is not None else _resolve(body.tool, body.org, body, a)
     fn = fn if fn is not None else BODIES.get(body.tool)
     if fn is None:
@@ -529,7 +618,7 @@ def agent_tx(body: Any, a: dict[str, Any],
         aft.replayed = True
         return r.payload
     if on_commit is not None:
-        on_commit(h.org, st.get("rcpt"))
+        after_commit(result, "on_commit", on_commit, h.org, st.get("rcpt"))
     return result
 
 
@@ -558,11 +647,12 @@ def op_tx(slug: str, op: str, body: Any, a: dict[str, Any],
     operator is the user, `org_op` never had that prologue, and the user must
     be able to act on a halted agent or a latched org (that is how they are
     released). The target rows come from `LOCKS[op]`."""
+    pre = _before(op, slug, body, a, pre)
     base = spec if spec is not None else _resolve(op, slug, body, a)
     h, result = _run(slug, base,
                      lambda h, held: fn(OpTx(org=h.org, op=op, body=body,
                                              args=a, spec=held, tx=h,
-                                             slug=slug, pre=dict(pre or {}))))
+                                             slug=slug, pre=dict(pre))))
     if on_commit is not None:
-        on_commit(h.org)
+        after_commit(result, "on_commit", on_commit, h.org)
     return result
