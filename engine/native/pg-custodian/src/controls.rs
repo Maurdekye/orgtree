@@ -147,7 +147,12 @@ fn copy_tree(from: &Path, to: &Path, skip: &dyn Fn(&Path) -> bool) -> std::io::R
 /// copies the control/WAL/commit-log folders and `late_files` (relative to
 /// the data dir) again, as a slow copier would reach them later.
 pub fn backup_by_live_copy(root: &PrototypeRoot, out: &Path, late_files: &[PathBuf], between: impl FnOnce()) -> Result<u64> {
-    executed("WS1.d.backup_by_live_copy", json!({"root": root.path(), "out": out}));
+    executed(
+        "WS1.d.backup_by_live_copy",
+        json!({"root": root.path(), "out": out,
+               "copy_order": "STAGED worst case (disclosed, lead ruling 2026-09-25): whole data dir first; then the caller's writes + CHECKPOINT; then global, pg_wal, pg_xact, pg_multixact, pg_subtrans, pg_commit_ts and the late relation files, so a torn state occurs deterministically",
+               "late_files": late_files}),
+    );
     let data = Layout::of(root).data;
     let skip = |p: &Path| matches!(p.file_name().and_then(|n| n.to_str()), Some("postmaster.pid") | Some("postmaster.opts"));
     let mut n = copy_tree(&data, out, &skip).map_err(|e| CustodianError::new("control.d", e.to_string()))?;
