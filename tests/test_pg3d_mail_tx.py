@@ -138,7 +138,7 @@ class MailTx(unittest.TestCase):
                 self._send('must not land')
         self.assertTrue(under.ran, 'the under-declared control never ran')
         d = store.load_org(self.slug).d
-        self.assertFalse(d['mail'].get('deep'), 'CONTROL FAILED AS DESIGNED: nothing may land')
+        self.assertFalse((d.get('mail') or {}).get('deep'), 'CONTROL FAILED AS DESIGNED: nothing may land')
 
     def test_read_marks_commit_without_doc_lock(self) -> None:
         org = store.load_org(self.slug)
