@@ -11792,7 +11792,7 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
     # the RESIDENT write cycle (rearchitecture Phase B): same DOC_LOCK, same
     # save fanout, same discard-on-failure — without re-parsing 11 MB of
     # document per tool call.
-    if pgdoor.routed(body.tool):
+    if pgdoor.routed(body.tool, a):
         # PYPG: a family has converted this tool off DOC_LOCK (it declared
         # its rows and body with pgdoor.declare). It runs as ONE row
         # transaction with the shared prologue — never inside the cycle

@@ -224,6 +224,7 @@ SpecFn = Callable[[Any, Any, "dict[str, Any]"], TxSpec]
 LOCKS: "dict[str, TxSpec | SpecFn]" = {}
 BODIES: "dict[str, Callable[[AgentTx], Any]]" = {}
 KIOSK_EXEMPT: "set[str]" = set()
+WHEN: "dict[str, Callable[[dict[str, Any]], bool]]" = {}
 # a body may widen this many times before the door gives up (each widening is
 # a full rollback and re-run, so a runaway would be a livelock, not a bug)
 MAX_WIDEN = 3
@@ -240,9 +241,13 @@ class Widen(Exception):
 
 def declare(name: str, spec: "TxSpec | SpecFn",
             body: "Callable[[AgentTx], Any] | None" = None, *,
-            kiosk_exempt: bool = False) -> None:
+            kiosk_exempt: bool = False,
+            when: "Callable[[dict[str, Any]], bool] | None" = None) -> None:
     """Register one tool (`orgtree_*`) or operator op: its rows, and for an
     agent tool the body `agent_call` runs on the door (`body(tx) -> result`).
+    `when(args)`: route only the calls it accepts (one tool whose modes
+    belong to different families — orgtree_staff's hire mode is PG-3b's,
+    its rehire mode PG-3a's); a call it refuses keeps the DOC_LOCK cycle.
     `kiosk_exempt` (lead decision 18.8): the tool is PROVEN unable to move
     top-level holdings, so the door skips the kiosk credit-cap check for it —
     the family carries the proof. Re-declaring a name with a DIFFERENT spec
@@ -257,6 +262,8 @@ def declare(name: str, spec: "TxSpec | SpecFn",
         BODIES[name] = body
     if kiosk_exempt:
         KIOSK_EXEMPT.add(name)
+    if when is not None:
+        WHEN[name] = when
 
 
 def declared(name: str) -> bool:
@@ -265,9 +272,13 @@ def declared(name: str) -> bool:
     return name in LOCKS
 
 
-def routed(name: str) -> bool:
-    """Should `agent_call` hand this tool to the door right now?"""
-    return name in LOCKS and name in BODIES and enabled()
+def routed(name: str, a: "dict[str, Any] | None" = None) -> bool:
+    """Should `agent_call` hand this call to the door right now? With `a`,
+    a `when` predicate declared for the tool must also accept the args."""
+    if not (name in LOCKS and name in BODIES and enabled()):
+        return False
+    w = WHEN.get(name)
+    return w is None or (a is not None and bool(w(a)))
 
 
 def _snapshot(slug: str) -> Any:
