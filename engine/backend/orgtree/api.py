@@ -6989,91 +6989,135 @@ def work_item_reply(slug: str, wid: str, body: WorkReply,
     if not text:
         raise HTTPException(422, "empty reply")
     to = str(body.to or "").strip()
-    with store.DOC_LOCK:
+
+    def _reply(org: Org) -> dict[str, Any]:
+        """The reply itself, on whichever document the caller holds (the row
+        transaction below, or the legacy DOC_LOCK cycle for an org whose
+        work identity is not migrated yet). Raises LedgerError to refuse."""
+        tgt = (org.work_reply_recipient(wid, to) if to
+               else org.work_reply_target(wid))
+        nid = str(tgt["node"])
+        role = str(tgt.get("role") or "owner")
+        # the CANONICAL name, not the caller's spelling — this string is
+        # an instruction the recipient will act on, and it must resolve
+        name = str(tgt.get("item") or wid)
+        if role == "participant":
+            how = (f"(the user replied on this docket item ADDRESSED TO "
+                   f"YOU AS A PARTICIPANT — the item is owned by "
+                   f"{tgt.get('owner') or 'nobody (unassigned)'}, not by "
+                   f"you; treat this as item-linked mail, act on it, and "
+                   f"coordinate any update with the owner)")
+        else:
+            how = ("(the user replied on this docket item — treat it as "
+                   "item-linked mail and update the item if it changes "
+                   "the work)")
+        # allow-attachments-in-contextual-reply-composers: same staged-
+        # upload resolution as node_message (api.py's ordinary reply
+        # path) — `nid` is only known once the recipient resolves above,
+        # so this cannot run before the lock the way node_message's does
+        metas: list[dict[str, Any]] = []
+        missing: list[str] = []
+        if body.attachments:
+            base = os.path.realpath(supervisor.scratch_dir(slug, nid))
+            extra = len(body.attachments) - ledger_mod.ATTACHMENT_MAX
+            for rel in body.attachments[:ledger_mod.ATTACHMENT_MAX]:
+                full = os.path.realpath(
+                    os.path.join(base, _no_nul(str(rel)).lstrip("/\\")))
+                # ⚠ RESOLVE-OR-REPORT (D-171) — see node_message's own
+                # comment on this exact check for why guessing a name is
+                # refused rather than attempted
+                if full.startswith(base + os.sep) and os.path.isfile(full):
+                    metas.append({"name": os.path.basename(full),
+                                  "path": str(rel).replace("\\", "/"),
+                                  "bytes": os.path.getsize(full)})
+                else:
+                    missing.append(f"{rel} — no such file in your working "
+                                   f"folder (never uploaded, or the upload failed)")
+            if extra > 0:
+                missing.append(f"{extra} further attachment(s) — past the "
+                               f"{ledger_mod.ATTACHMENT_MAX}-per-message limit")
+        # notice-toggle parity (user 2026-09-17): the SAME rule
+        # node_message applies — a notice is possible for an in-org agent
+        # and for nobody else, and when it is not possible the send
+        # silently becomes ordinary mail rather than failing. A docket
+        # reply always resolves to a node, so the guard is belt-and-braces
+        # against a recipient spelled like the user or an outside address.
+        can_notice = bool(body.notice and nid != USER and not nid.startswith("@"))
+        kind = "notice" if can_notice else "message"
+        # typed (family linked_reply): reply.docket — the header/instruction
+        # prose is the renderer's; the body is the user's text
+        r = org.post_mail(USER, nid, "", kind=kind, ev=events.mint(
+            "reply.docket", actor_of(USER),
+            org.work_item_ref(org._work_find(wid)[0]), body=text, role=role,
+            owner=(str(tgt.get("owner") or "") if role == "participant" else None)),
+            attachments=metas or None, missing=missing or None)
+        receipt = _send_receipt(org, slug, nid, r, public=_public_slug(request))
+        org.user_deep_reach(nid, text.splitlines()[0][:160])
+        # A successful user reply acknowledges manual attention without
+        # taking the explicit-dismissal path (which blocks the item).
+        # Attached questions deliberately keep attention active.
+        #
+        # ⚠ THE REPLY TEXT GOES WITH IT (W-flag-question). The clearing row
+        # used to carry a bare `set_rev`, so answering a flag destroyed the
+        # question it answered; passing `text` here is what puts the ruling
+        # and the thing it ruled on together on one row that `get` serves.
+        org.work_clear_attention_on_user_reply(wid, text)
+        return {"tgt": tgt, "nid": nid, "role": role, "r": r,
+                "receipt": receipt, "can_notice": can_notice}
+
+    try:
+        pre = orgtx.org_read(slug)
+    except LedgerError as e:
+        raise HTTPException(404, str(e))
+    if pre.work_identity_state() != "slug":
+        # the one-shot work-identity migration rewrites the whole document:
+        # not a row transaction — it keeps the DOC_LOCK cycle, once
+        with store.DOC_LOCK:
+            try:
+                org = store.load_org(slug)
+            except LedgerError as e:
+                raise HTTPException(404, str(e))
+            try:
+                _work_identity_ready(org, slug)
+            except LedgerError as e:
+                raise HTTPException(422, str(e))
+            try:
+                org._work_find(wid)
+            except LedgerError as e:
+                raise HTTPException(404, str(e))
+            try:
+                out = _reply(org)
+                store.save_org(org)
+            except LedgerError as e:
+                raise HTTPException(422, str(e))
+    else:
+        # PG-3c (lead decision 18.6): ONE row transaction on the item, the
+        # recipient's mail rows and the deep-reach notices — not DOC_LOCK
+        class _Missing(Exception):
+            pass
+
+        def _in_tx(h: Any) -> dict[str, Any]:
+            org = h.org
+            try:
+                org._work_find(wid)
+            except LedgerError as e:
+                raise _Missing(str(e)) from e
+            res = _reply(org)
+            # the recipient is only known from the locked item: hold its
+            # rows (widen and re-run if the snapshot guessed another)
+            rcdoor.hold(slug, rcdoor.work_reply_rows(res["nid"]))
+            return res
+
         try:
-            org = store.load_org(slug)
-        except LedgerError as e:
+            out = rcdoor.run_op(slug, rcdoor.work_reply_rows(
+                rcdoor.reply_recipient_guess(pre, wid, to)), _in_tx)
+        except _Missing as e:
             raise HTTPException(404, str(e))
-        try:
-            _work_identity_ready(org, slug)
         except LedgerError as e:
             raise HTTPException(422, str(e))
-        try:
-            org._work_find(wid)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
-        try:
-            tgt = (org.work_reply_recipient(wid, to) if to
-                   else org.work_reply_target(wid))
-            nid = str(tgt["node"])
-            role = str(tgt.get("role") or "owner")
-            # the CANONICAL name, not the caller's spelling — this string is
-            # an instruction the recipient will act on, and it must resolve
-            name = str(tgt.get("item") or wid)
-            if role == "participant":
-                how = (f"(the user replied on this docket item ADDRESSED TO "
-                       f"YOU AS A PARTICIPANT — the item is owned by "
-                       f"{tgt.get('owner') or 'nobody (unassigned)'}, not by "
-                       f"you; treat this as item-linked mail, act on it, and "
-                       f"coordinate any update with the owner)")
-            else:
-                how = ("(the user replied on this docket item — treat it as "
-                       "item-linked mail and update the item if it changes "
-                       "the work)")
-            # allow-attachments-in-contextual-reply-composers: same staged-
-            # upload resolution as node_message (api.py's ordinary reply
-            # path) — `nid` is only known once the recipient resolves above,
-            # so this cannot run before the lock the way node_message's does
-            metas: list[dict[str, Any]] = []
-            missing: list[str] = []
-            if body.attachments:
-                base = os.path.realpath(supervisor.scratch_dir(slug, nid))
-                extra = len(body.attachments) - ledger_mod.ATTACHMENT_MAX
-                for rel in body.attachments[:ledger_mod.ATTACHMENT_MAX]:
-                    full = os.path.realpath(
-                        os.path.join(base, _no_nul(str(rel)).lstrip("/\\")))
-                    # ⚠ RESOLVE-OR-REPORT (D-171) — see node_message's own
-                    # comment on this exact check for why guessing a name is
-                    # refused rather than attempted
-                    if full.startswith(base + os.sep) and os.path.isfile(full):
-                        metas.append({"name": os.path.basename(full),
-                                      "path": str(rel).replace("\\", "/"),
-                                      "bytes": os.path.getsize(full)})
-                    else:
-                        missing.append(f"{rel} — no such file in your working "
-                                       f"folder (never uploaded, or the upload failed)")
-                if extra > 0:
-                    missing.append(f"{extra} further attachment(s) — past the "
-                                   f"{ledger_mod.ATTACHMENT_MAX}-per-message limit")
-            # notice-toggle parity (user 2026-09-17): the SAME rule
-            # node_message applies — a notice is possible for an in-org agent
-            # and for nobody else, and when it is not possible the send
-            # silently becomes ordinary mail rather than failing. A docket
-            # reply always resolves to a node, so the guard is belt-and-braces
-            # against a recipient spelled like the user or an outside address.
-            can_notice = bool(body.notice and nid != USER and not nid.startswith("@"))
-            kind = "notice" if can_notice else "message"
-            # typed (family linked_reply): reply.docket — the header/instruction
-            # prose is the renderer's; the body is the user's text
-            r = org.post_mail(USER, nid, "", kind=kind, ev=events.mint(
-                "reply.docket", actor_of(USER),
-                org.work_item_ref(org._work_find(wid)[0]), body=text, role=role,
-                owner=(str(tgt.get("owner") or "") if role == "participant" else None)),
-                attachments=metas or None, missing=missing or None)
-            receipt = _send_receipt(org, slug, nid, r, public=_public_slug(request))
-            org.user_deep_reach(nid, text.splitlines()[0][:160])
-            # A successful user reply acknowledges manual attention without
-            # taking the explicit-dismissal path (which blocks the item).
-            # Attached questions deliberately keep attention active.
-            #
-            # ⚠ THE REPLY TEXT GOES WITH IT (W-flag-question). The clearing row
-            # used to carry a bare `set_rev`, so answering a flag destroyed the
-            # question it answered; passing `text` here is what puts the ruling
-            # and the thing it ruled on together on one row that `get` serves.
-            org.work_clear_attention_on_user_reply(wid, text)
-            store.save_org(org)
-        except LedgerError as e:
-            raise HTTPException(422, str(e))
+    tgt, nid, role, r, receipt, can_notice = (
+        out["tgt"], out["nid"], out["role"], out["r"], out["receipt"],
+        out["can_notice"])
     mail_notify(slug, USER, nid)
     # allow-attachments-in-contextual-reply-composers: same D-171 rule as
     # node_message — `warnings` is CODE's own channel for an attachment
