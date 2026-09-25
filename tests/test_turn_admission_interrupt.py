@@ -10,12 +10,34 @@ os.environ["ORGTREE_DATA"] = _ROOT.name
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
-from orgtree import store, supervisor, warmpool  # noqa: E402
+from orgtree import ledger, store, supervisor, warmpool  # noqa: E402
+
+#: How long a positive control waits for the worker to reach the slot wait,
+#: and how long a join waits for it to settle. The polls exit as soon as the
+#: condition holds, so this costs nothing when the machine is fast. It was
+#: 1 s, which flaked under load (2026-09-25, v3 4389f17: 1-2 of 8 red on
+#: every sha tried, 8/8 at 10 s) — the worker's pre-slot path can take over
+#: a second when the machine is running other suites.
+WAIT_S = 10
 
 
 class TurnAdmissionInterruptTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # A real org with a real agent: a worker thread that outlives its
+        # test (see tearDown) then fails quietly on its own terms instead of
+        # dying on "no such org" in the middle of the next test.
+        org = store.create_org("turn-admission")
+        org.hire(ledger.USER, None, "haiku", 0, "worker")
+        store.save_org(org)
+
+    @classmethod
+    def tearDownClass(cls):
+        store._POOL.close_all("turn-admission")
+
     def setUp(self):
         self.old_slots = supervisor._turn_slots
+        self._threads = []
         self.state = supervisor.state("turn-admission", "worker")
         with supervisor._state_lock:
             self.state.clear()
@@ -24,8 +46,24 @@ class TurnAdmissionInterruptTests(unittest.TestCase):
         self.assertTrue(os.path.abspath(store.DATA_ROOT).startswith(
             os.path.abspath(_ROOT.name)))
 
+    def _start(self, thread):
+        """Start `thread` and remember it, so tearDown can settle it."""
+        self._threads.append(thread)
+        thread.start()
+        return thread
+
     def tearDown(self):
+        # Settle every worker this test started BEFORE the real semaphore is
+        # restored: a waiter still polling `_turn_slots` would otherwise take a
+        # REAL slot the moment it is swapped back, run a turn nobody asked
+        # for, and fail inside whatever test runs next.
+        for thread in self._threads:
+            if thread.is_alive():
+                supervisor.interrupt_turn("turn-admission", "worker")
+                thread.join(WAIT_S)
+        leaked = [t for t in self._threads if t.is_alive()]
         supervisor._turn_slots = self.old_slots
+        self.assertEqual(leaked, [], "a worker thread outlived its test")
 
     def test_cancel_before_slot_acquisition_settles_without_releasing_slot(self):
         supervisor._turn_slots = threading.Semaphore(0)
@@ -39,14 +77,13 @@ class TurnAdmissionInterruptTests(unittest.TestCase):
             except supervisor._AdmissionCancelled:
                 outcome.append("cancelled")
 
-        thread = threading.Thread(target=admit)
-        thread.start()
-        deadline = time.monotonic() + 1
+        thread = self._start(threading.Thread(target=admit))
+        deadline = time.monotonic() + WAIT_S
         while not self.state.get("waiting") and time.monotonic() < deadline:
             time.sleep(.01)
         self.assertTrue(self.state.get("waiting"), "positive control: admission really waits")
         result = supervisor.interrupt_turn("turn-admission", "worker")
-        thread.join(1)
+        thread.join(WAIT_S)
         self.assertEqual(result["reason"], "turn waiting for a turn slot")
         self.assertEqual(outcome, ["cancelled"])
         self.assertFalse(entered.is_set())
@@ -62,7 +99,7 @@ class TurnAdmissionInterruptTests(unittest.TestCase):
 
             def acquire(self, timeout=None):
                 self.called.set()
-                self.open.wait(1)
+                self.open.wait(WAIT_S)
                 return True
 
             def release(self):
@@ -79,12 +116,11 @@ class TurnAdmissionInterruptTests(unittest.TestCase):
             except supervisor._AdmissionCancelled:
                 outcome.append("cancelled")
 
-        thread = threading.Thread(target=admit)
-        thread.start()
-        self.assertTrue(gate.called.wait(1), "positive control: acquire was attempted")
+        thread = self._start(threading.Thread(target=admit))
+        self.assertTrue(gate.called.wait(WAIT_S), "positive control: acquire was attempted")
         self.assertEqual(supervisor.interrupt_turn("turn-admission", "worker")["interrupted"], True)
         gate.open.set()
-        thread.join(1)
+        thread.join(WAIT_S)
         self.assertEqual(outcome, ["cancelled"])
         self.assertEqual(gate.releases, 1)
         self.assertFalse(self.state.get("waiting"))
@@ -131,13 +167,13 @@ class TurnAdmissionInterruptTests(unittest.TestCase):
             thread = threading.Thread(target=supervisor.manual_compact,
                                       args=("compact-admission", nid))
             thread.start()
-            deadline = time.monotonic() + 1
+            deadline = time.monotonic() + WAIT_S
             while not state.get("waiting") and time.monotonic() < deadline:
                 time.sleep(.01)
             self.assertTrue(state.get("waiting"),
                             "positive control: compaction really waits")
             result = supervisor.interrupt_turn("compact-admission", nid)
-            thread.join(1)
+            thread.join(WAIT_S)
             self.assertFalse(thread.is_alive())
             self.assertTrue(result["interrupted"])
             self.assertFalse(state.get("busy"))
@@ -160,6 +196,8 @@ class TurnAdmissionInterruptTests(unittest.TestCase):
                 pass
             def dispose(self, disposition):
                 self.disposition = disposition
+            def error(self, exc):
+                pass
             def close(self):
                 pass
         recorder = Recorder()
@@ -172,16 +210,15 @@ class TurnAdmissionInterruptTests(unittest.TestCase):
             self.state["queue"] = []
         try:
             result = []
-            thread = threading.Thread(target=lambda: result.append(
-                supervisor._run_one_turn("turn-admission", "worker", "hello")))
-            thread.start()
-            deadline = time.monotonic() + 1
+            thread = self._start(threading.Thread(target=lambda: result.append(
+                supervisor._run_one_turn("turn-admission", "worker", "hello"))))
+            deadline = time.monotonic() + WAIT_S
             while not self.state.get("admission_waiting") and time.monotonic() < deadline:
                 time.sleep(.01)
             self.assertTrue(self.state.get("admission_waiting"),
                             "positive control: wrapper really waits for admission")
             self.assertTrue(supervisor.interrupt_turn("turn-admission", "worker")["interrupted"])
-            thread.join(1)
+            thread.join(WAIT_S)
             self.assertFalse(thread.is_alive())
             follow = result[0]
             self.assertIsNone(follow)
@@ -201,6 +238,8 @@ class TurnAdmissionInterruptTests(unittest.TestCase):
                 pass
             def dispose(self, disposition):
                 pass
+            def error(self, exc):
+                pass
             def close(self):
                 pass
         first = {"text": "first", "toks": ["t1"]}
@@ -212,16 +251,15 @@ class TurnAdmissionInterruptTests(unittest.TestCase):
             self.state["queue"] = [first, second]
         try:
             result = []
-            thread = threading.Thread(target=lambda: result.append(
-                supervisor._run_one_turn("turn-admission", "worker", "hello")))
-            thread.start()
-            deadline = time.monotonic() + 1
+            thread = self._start(threading.Thread(target=lambda: result.append(
+                supervisor._run_one_turn("turn-admission", "worker", "hello"))))
+            deadline = time.monotonic() + WAIT_S
             while not self.state.get("admission_waiting") and time.monotonic() < deadline:
                 time.sleep(.01)
             self.assertTrue(self.state.get("admission_waiting"),
                             "positive control: wrapper really waits for admission")
             self.assertTrue(supervisor.interrupt_turn("turn-admission", "worker")["interrupted"])
-            thread.join(1)
+            thread.join(WAIT_S)
             self.assertFalse(thread.is_alive())
             follow = result[0]
             self.assertEqual(follow, first)
