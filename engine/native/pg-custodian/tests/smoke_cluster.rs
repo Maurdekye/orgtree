@@ -457,6 +457,106 @@ fn migrations_apply_resume_and_refuse() {
     );
 }
 
+/// Start a writer that commits `n` transactions, each inserting one ledger
+/// row and bumping the counter: the invariant count(ledger) = counter.total
+/// holds in every committed state.
+fn spawn_writer(b: &PgBin, rt: &cluster::RuntimeRecord, n: usize) -> std::thread::JoinHandle<()> {
+    let mut script = String::with_capacity(n * 90);
+    for _ in 0..n {
+        script.push_str("BEGIN; INSERT INTO ledger(amount) VALUES (1); UPDATE counter SET total = total + 1; COMMIT;\n");
+    }
+    let (b, rt) = (b.clone(), rt.clone());
+    std::thread::spawn(move || {
+        cluster::psql_stdin(&b, &rt, cluster::APP_DB, &script, false).unwrap();
+    })
+}
+
+fn one(b: &PgBin, rt: &cluster::RuntimeRecord, sql: &str) -> String {
+    cluster::psql(b, rt, cluster::APP_DB, sql).unwrap()[0][0].clone()
+}
+
+#[test]
+#[ignore = "starts real PostgreSQL clusters; run under the P03 machine-test-run gate with ORGTREE_P03_SCHEMA_DIR"]
+fn backup_under_concurrent_writes_restores_consistently_under_a_new_incarnation() {
+    use orgtree_pg_custodian::backup;
+    let env = process_env();
+    let b = bin();
+    let work = fresh_root("backup-work");
+    std::fs::create_dir_all(&work).unwrap();
+
+    // Source cluster A: WS2's real schema plus a ledger/counter pair.
+    let a_path = fresh_root("backup-src");
+    let a = guard::init_root(&a_path, &env).unwrap();
+    let _ca = StopOnPanic::new(a.path(), &b);
+    cluster::init(&a, &b, &InitOptions::default()).unwrap();
+    let rt_a = cluster::start(&a, &b, None).unwrap();
+    orgtree_pg_custodian::migrate::migrate(&b, &rt_a, &schema_dir(), 1).unwrap();
+    cluster::psql(&b, &rt_a, cluster::APP_DB, "create table ledger(id bigserial primary key, amount int not null); create table counter(id int primary key, total bigint not null); insert into counter values (1, 0)").unwrap();
+    let old_inc = one(&b, &rt_a, "select incarnation::text from store_incarnation");
+    let dbid = one(&b, &rt_a, "select database_id::text from store_incarnation");
+
+    // Back up WHILE a writer commits.
+    let writer = spawn_writer(&b, &rt_a, 20_000);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while one(&b, &rt_a, "select count(*) from ledger").parse::<u64>().unwrap() < 200 {
+        assert!(std::time::Instant::now() < deadline, "writer never got going");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let before: u64 = one(&b, &rt_a, "select count(*) from ledger").parse().unwrap();
+    let out = work.join("backup-1");
+    let manifest = backup::backup(&a, &b, &out, &env).unwrap();
+    let after: u64 = one(&b, &rt_a, "select count(*) from ledger").parse().unwrap();
+    writer.join().unwrap();
+    let in_backup = manifest.tables["public.ledger"].rows;
+    assert!(before < after, "no write happened during the backup window ({before}..{after}): the concurrency claim would be unproven");
+    assert!(before <= in_backup && in_backup <= after, "backup rows {in_backup} not within [{before}, {after}]");
+    assert_eq!(manifest.store_incarnation.as_ref().map(|i| i.1.clone()), Some(old_inc.clone()));
+    cluster::stop(&a, &b, false, false).unwrap();
+
+    // Restore into a fresh cluster B (one cluster runs at a time).
+    let b_path = fresh_root("backup-dst");
+    let bb = guard::init_root(&b_path, &env).unwrap();
+    let _cb = StopOnPanic::new(bb.path(), &b);
+    cluster::init(&bb, &b, &InitOptions::default()).unwrap();
+    let rt_b = cluster::start(&bb, &b, None).unwrap();
+    // A tampered dump is refused before anything is restored.
+    let tampered = work.join("backup-tampered");
+    std::fs::create_dir_all(&tampered).unwrap();
+    for f in [backup::DUMP_FILE, backup::MANIFEST_FILE] {
+        std::fs::copy(out.join(f), tampered.join(f)).unwrap();
+    }
+    let mut bytes = std::fs::read(tampered.join(backup::DUMP_FILE)).unwrap();
+    let mid = bytes.len() / 2;
+    bytes[mid] ^= 0xff;
+    std::fs::write(tampered.join(backup::DUMP_FILE), bytes).unwrap();
+    assert_eq!(backup::restore(&bb, &b, &tampered).unwrap_err().code, "restore.dump_mismatch");
+    let report = backup::restore(&bb, &b, &out).unwrap();
+    assert_eq!(report.tables_verified, manifest.tables.len());
+    // Consistent: the invariant holds, and the restored database is exactly the snapshot.
+    let n: u64 = one(&b, &rt_b, "select count(*) from ledger").parse().unwrap();
+    let total: u64 = one(&b, &rt_b, "select total from counter").parse().unwrap();
+    assert_eq!((n, total), (in_backup, in_backup), "restored ledger/counter disagree");
+    // A new incarnation of the same database.
+    assert_eq!(report.database_id.as_deref(), Some(dbid.as_str()));
+    assert_ne!(report.new_incarnation.as_deref(), Some(old_inc.as_str()));
+    assert_eq!(one(&b, &rt_b, "select incarnation::text from store_incarnation"), report.new_incarnation.clone().unwrap());
+    // A second restore into the now non-empty database is refused.
+    assert_eq!(backup::restore(&bb, &b, &out).unwrap_err().code, "restore.target_not_empty");
+    // The applied-migrations bookkeeping came across: the runner sees nothing to do.
+    let r = orgtree_pg_custodian::migrate::migrate(&b, &rt_b, &schema_dir(), 1).unwrap();
+    assert!(r.applied_now.is_empty() && !r.store_incarnation_written, "{r:?}");
+    cluster::stop(&bb, &b, false, false).unwrap();
+    cluster::destroy(&bb, &b).unwrap();
+    cluster::destroy(&a, &b).unwrap();
+    std::fs::remove_dir_all(&work).unwrap();
+    println!(
+        "P03-WS1-BACKUP-RESULT ok: backup during writes (ledger {before}..{after}, snapshot has {in_backup}); tampered dump refused; restore verified {} tables / {} rows; invariant holds; incarnation {old_inc} -> {}; database_id kept; non-empty target refused",
+        report.tables_verified,
+        report.rows_verified,
+        report.new_incarnation.unwrap()
+    );
+}
+
 #[test]
 #[ignore = "runs initdb; run under the P03 machine-test-run gate"]
 fn init_killed_before_commit_leaves_only_quarantine() {
