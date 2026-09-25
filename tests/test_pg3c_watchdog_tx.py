@@ -48,7 +48,7 @@ app, *_ = load_app()
 from fastapi.testclient import TestClient  # noqa: E402
 from orgtree import agentauth, api, ledger, orgtx, pgdoor, store, supervisor  # noqa: E402
 
-TOOLS = {'bash': False, 'web': False, 'edit': False, 'subagents': False, 'mcp': []}
+TOOLS = {'bash': True, 'web': False, 'edit': False, 'subagents': False, 'mcp': []}
 
 
 def tearDownModule() -> None:
@@ -104,6 +104,13 @@ class HeldDocLock:
 
     def __exit__(self, *exc):
         self.stop()
+
+
+def stack_of(t) -> str:
+    import sys
+    import traceback
+    f = sys._current_frames().get(t.ident)
+    return ''.join(traceback.format_stack(f)[-12:]) if f else '(thread gone)'
 
 
 def run_bg(fn):
@@ -258,7 +265,8 @@ class WatchdogDoor(unittest.TestCase):
                                                     'kind': 'command', 'target': 'echo hello',
                                                     'pattern': 'hello'}))
             t.join(30)
-            self.assertFalse(t.is_alive(), 'the tool waited for DOC_LOCK')
+            self.assertFalse(t.is_alive(), 'the tool waited for DOC_LOCK:
+' + stack_of(t))
             box.update(out)
         self.assertNotIn('error', box)
         r = box['value']
