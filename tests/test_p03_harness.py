@@ -266,6 +266,18 @@ class ContactOracle(unittest.TestCase):
         self.assertIn("no conn_activity records: hidden access cannot be ruled out",
                       verdict["failures"])
 
+    def test_with_a_server_log_hidden_access_is_judged_by_the_log(self):
+        """On a real cluster the statement log is the ground truth (decision 3)."""
+        result, _ = edit_run()
+        records = [r for r in result.records if r["kind"] != "conn_activity"]
+        verdict = oracle.q_c5(EDIT_DECLARED, records, ["fake-pool"], server_log=[])
+        self.assertEqual(verdict["hidden_access_source"], "server statement log")
+        self.assertNotIn("no conn_activity records: hidden access cannot be ruled out",
+                         verdict["failures"])
+        # the fake's statements were never logged by any server: they cannot reconcile
+        self.assertEqual(verdict["verdict"], "FAILED")
+        self.assertTrue(any("cannot attribute" in f for f in verdict["failures"]), verdict["failures"])
+
     def test_zero_contact_refusal_with_statements_fails(self):
         result, _ = edit_run()
         records = [dict(r, contacts=0) if r["kind"] == "op_end" else r for r in result.records]
