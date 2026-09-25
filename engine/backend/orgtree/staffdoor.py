@@ -116,3 +116,27 @@ def check_created(held: pgdoor.TxSpec, nid: str) -> None:
     if nid and nid not in held.nodes:
         raise LedgerError(f"staffdoor: hire created {nid!r}, a row this "
                           f"transaction does not hold")
+
+
+def hire_body(tx: pgdoor.AgentTx) -> Any:
+    """`orgtree_hire` on the door: exactly `api._hire_seat` (the same hire,
+    scope fields, audiences and kickoff the DOC_LOCK cycle runs), on the
+    locked rows. The rows are re-derived from the LOCKED document first, so
+    a name taken or a tree moved since the snapshot widens before anything
+    is written. The kickoff's wake rides `after.drive`, after the commit.
+
+    Also the entry for a hire INSIDE another family's transaction (RT7's
+    move racing a hire): call it with that transaction's AgentTx; a row it
+    lacks widens that transaction."""
+    from . import api     # api imports this module; resolve at call time
+    a = tx.args
+    require_rows(tx.spec, tx.org, tx.node, a)
+    drive: list[str] = []
+    result = api._hire_seat(tx.org, tx.call.org, tx.node, a, drive,
+                            tx.pre.get("harness"))
+    check_created(tx.spec, str(result.get("node") or ""))
+    tx.after.drive.extend(drive)
+    return result
+
+
+pgdoor.declare("orgtree_hire", hire_spec, body=hire_body)

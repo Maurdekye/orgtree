@@ -103,6 +103,7 @@ from . import workdoor
 from . import rcdoor  # PG-3c: credits/reservations/status on row transactions
 # PG-3a's door declarations: importing registers them with pgdoor
 from . import lifecycle_door
+from . import staffdoor  # noqa: F401  PG-3b: registers its door tools
 from . import reservations
 from . import ledger as ledger_mod
 from . import (accounts, antigravity_limits, appsettings, bridgeauth,

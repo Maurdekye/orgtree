@@ -1,0 +1,115 @@
+"""`orgtree_hire` on the door, end to end: the real `api.agent_call`, PG-0's
+real SeamBackend org_tx, ORGTREE_PGDOOR=1, a throwaway SQLite root.
+
+  · the hire never enters the DOC_LOCK cycle, commits exactly once, and the
+    kickoff wakes the new agent after the commit;
+  · the declaration is COMPLETE for the real hire: the body runs once — a
+    missing row would have been refused by PG-0 at commit (UnlockedWrite)
+    and shown up as a second, widened run;
+  · a hire into the chain (grants inflate up the path) is also one run;
+  · a refused hire (unknown target) is a 422 and commits nothing.
+The provider gate and harness choice are machine reads outside the
+transaction; they are stubbed.
+"""
+import os
+from pathlib import Path
+import sys
+import tempfile
+from types import SimpleNamespace
+import unittest
+from unittest.mock import patch
+
+_root = tempfile.TemporaryDirectory(prefix='staffdoor-hire-door-')
+os.environ['ORGTREE_DATA'] = _root.name
+os.environ['ORGTREE_STORE'] = 'sqlite'
+os.environ['ORGTREE_PGDOOR'] = '1'
+os.environ.pop('ORGTREE_DESKTOP_MANAGED', None)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine/backend'))
+import import_provenance  # noqa: F401,E402
+from fastapi import HTTPException  # noqa: E402
+from orgtree import api, ledger, orgtx, pgdoor, staffdoor, store, supervisor  # noqa: E402
+
+REQUEST = SimpleNamespace(state=SimpleNamespace())
+U = ledger.USER
+T = {'bash': False, 'web': False, 'edit': False, 'subagents': False, 'mcp': []}
+ARGS = {'tier': 'luna', 'tools': T, 'add_dirs': [], 'org_visibility': 'full',
+        'charter': 'c', 'kickoff': 'go', 'permission_mode': 'plan'}
+_N = [0]
+
+
+class HireDoor(unittest.TestCase):
+    def setUp(self):
+        _N[0] += 1
+        self.slug = f'hd{_N[0]}'
+        org = store.create_org(self.slug)
+        org.hire(U, None, 'luna', 20, 'root')
+        org.hire('root', 'root', 'luna', 5, 'mid', add_dirs=[], tools=T,
+                 org_visibility='full', charter='c')
+        org.hire('mid', 'mid', 'luna', 0, 'peer', add_dirs=[], tools=T,
+                 org_visibility='full', charter='c')
+        store.save_org(org)
+        pgdoor.use_org_tx(None)
+        self.sent, self.runs = [], []
+        real = api._hire_seat
+
+        def counted(*a, **k):
+            self.runs.append(1)
+            return real(*a, **k)
+
+        self.p = [patch.object(supervisor, 'send_message',
+                               lambda slug, t, *a, **k: self.sent.append(t) or {}),
+                  patch.object(api, 'hub_changed', lambda *a, **k: None),
+                  patch.object(api, 'provider_hire_gate', lambda *a, **k: None),
+                  patch.object(api, 'new_hire_harness', lambda *a, **k: None),
+                  patch.object(api, '_hire_seat', counted),
+                  patch.object(store, 'write_org',
+                               side_effect=AssertionError('entered the DOC_LOCK cycle'))]
+        for x in self.p:
+            x.start()
+
+    def tearDown(self):
+        for x in self.p:
+            x.stop()
+        store._POOL.close_all(self.slug)
+
+    def hire(self, actor, **a):
+        return api.agent_call(api.AgentCall(org=self.slug, node=actor,
+                                            tool='orgtree_hire',
+                                            args=dict(ARGS, **a)), REQUEST)
+
+    def rev(self):
+        return orgtx.backend().revision(self.slug)
+
+    def test_the_hire_is_declared_and_routed(self):
+        self.assertTrue(pgdoor.routed('orgtree_hire'))
+        self.assertIs(pgdoor.BODIES['orgtree_hire'], staffdoor.hire_body)
+
+    def test_plain_hire_with_kickoff_one_run_one_commit(self):
+        r0 = self.rev()
+        r = self.hire('mid', name='kid', grant=1)
+        self.assertEqual(r['node'], 'kid')
+        self.assertEqual(len(self.runs), 1)           # no widened re-run
+        self.assertEqual(self.rev(), r0 + 1)
+        org = store.load_org(self.slug)
+        self.assertEqual(org.node('kid')['parent'], 'mid')
+        self.assertIn('kid', self.sent)               # kickoff drive, after
+
+    def test_hire_into_the_chain_one_run(self):
+        before = store.load_org(self.slug).node('mid')['grant']
+        r = self.hire('root', name='kid2', grant=6, target='peer')
+        self.assertEqual(r['node'], 'kid2')
+        self.assertEqual(len(self.runs), 1)
+        self.assertGreater(store.load_org(self.slug).node('mid')['grant'], before)
+
+    def test_refused_hire_is_422_and_commits_nothing(self):
+        r0 = self.rev()
+        with self.assertRaises(HTTPException) as cm:
+            self.hire('mid', name='x', target='nobody')
+        self.assertEqual(cm.exception.status_code, 422)
+        self.assertEqual(self.rev(), r0)
+        self.assertNotIn('x', store.load_org(self.slug).nodes)
+        self.assertEqual(self.sent, [])
+
+
+if __name__ == '__main__':
+    unittest.main()
