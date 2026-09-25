@@ -3109,7 +3109,6 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
                     changes.doc_upserts.append(k)
             dict.__setitem__(d, k, json.loads(default))
             new_doc[k] = default
-            items.append((k, json.loads(default)))   # into the recorded key order
     for k in known_doc - set(new_doc) - LAZY_SECTIONS - set(ROWED):
         if _ROW_CAS and snap_doc is not None and k in snap_doc:
             _cas(conn, "DELETE FROM doc WHERE key=? AND val=?",
@@ -4827,6 +4826,11 @@ def _assemble_snapshot(slug: str, prev: Org) -> tuple[Org, int] | None:
                     d2._snap_nodes[nid] = prev_d._snap_nodes[nid]
                     carried.add(nid)
             present2: set[str] = set(fresh_present)
+            # an always-present row inserted by a save is not in the recorded
+            # key_order (writing it there would cost every first save a meta
+            # write); take it from the change set or the previous snapshot
+            order = [*order, *(k for k in ALWAYS_ROWS if k not in order
+                               and (k in keys or k in prev_d._snap_doc))]
             for k in order:
                 if k == "nodes":
                     dict.__setitem__(d2, "nodes", nodes2)
