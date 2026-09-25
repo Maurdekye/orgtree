@@ -94,10 +94,12 @@ class DrainTxTests(unittest.TestCase):
         drains = [c for c in self.commits
                   if c.slug == self.slug
                   # PG-3d 24f4117 splits mail/delivering per owner: the
-                  # doc row key is 'mail\x1fworker', not 'mail'
+                  # doc row key is 'mail\x1fworker', not 'mail', and the
+                  # emptied box is a row DELETE rather than an upsert
                   and {'mail', 'delivering'} <= {k.split('\x1f')[0] for k
-                                                 in c.changes.doc_upserts}]
-        self.assertEqual(len(drains), 1, [c.changes for c in self.commits])
+                                                 in [*c.changes.doc_upserts,
+                                                     *c.changes.doc_deletes]}]
+        self.assertEqual(len(drains), 1, [(c.changes.doc_upserts, c.changes.doc_deletes) for c in self.commits])
 
     def test_an_unlocked_mailbox_write_is_refused(self):
         real = sup._admission_rows
