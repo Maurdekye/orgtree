@@ -15,6 +15,7 @@ use crate::island::ISLAND_RETRY_UNIQUE;
 pub mod fund;
 pub mod hire;
 pub mod scope;
+pub mod staff;
 
 /// The island family of every WS3a verb.
 pub static STAFFING: Family = Family { name: "staffing", isolation: Isolation::Serializable, retry_unique: ISLAND_RETRY_UNIQUE };
@@ -36,6 +37,8 @@ pub const CONTROLS: &[&str] = &[
     // the operator door: a whole-document lock; the key accepted, unbound
     "Q-OP1.document_lock",
     "Q-OP4.key_unbound",
+    // the staff door: seat and item in separate transactions
+    "Q-ST3.split_transactions",
 ];
 
 /// Family-specific pause points (`<family>.<verb>.<point>`).
@@ -48,6 +51,10 @@ pub const POINTS: &[&str] = &[
     "staffing.operator_hire.after_funding_locks",
     "staffing.operator_hire.name_probe.before",
     "staffing.operator_hire.name_probe.after",
+    "staffing.staff.after_funding_locks",
+    "staffing.staff.name_probe.before",
+    "staffing.staff.name_probe.after",
+    "staffing.staff.item_locked",
 ];
 
 /// `"<family>.<verb>" → spec` for every WS3a verb (CONTRACT-M1 §5 r4).
@@ -89,8 +96,34 @@ pub fn declared() -> Value {
             "engine/native/store/src/staffing/hire.rs hire_in + staffing/fund.rs (S3 §4.8 hire row, §4.9; r7 C2a P2/P3/P6)",
         )
     };
+    // the staff door: the hire's relations (or WS3b's rehire's), plus the
+    // item head (RN7: FOR NO KEY UPDATE and updated), its name, participants
+    // and version rows, and the restriction a holder change records.
+    let staff = |p01: &str| {
+        let mut v = hire(p01);
+        let rels = v.get_mut("relations").and_then(Value::as_object_mut).expect("relations");
+        for (k, modes, req) in [
+            ("work_items", &["read", "for_no_key_update", "write"][..], true),
+            ("active_work_names", RW, false),
+            ("work_participants", RW, false),
+            ("work_item_versions", W, true),
+            ("lineage_bearers", R, false),
+        ] {
+            rels.insert(k.into(), rel(modes, req));
+        }
+        // rehire mode may not write a new seat: those relations become optional
+        for k in ["agent_names", "agents", "runtime_state", "status_rows", "seat_config", "scope_rows", "topology_edges", "funding_edges", "issuer_capacity", "price_catalog"] {
+            if let Some(r) = rels.get_mut(k) {
+                r["required"] = Value::Bool(false);
+            }
+        }
+        rels.insert("mail_sent".into(), rel(RW, true));
+        rels.insert("outgoing_intents".into(), rel(W, true));
+        v
+    };
     let mut m = serde_json::Map::new();
     m.insert("staffing.hire".into(), hire("staffing.hire"));
     m.insert("staffing.operator_hire".into(), hire("operator.hire"));
+    m.insert("staffing.staff".into(), staff("staffing.staff-create"));
     Value::Object(m)
 }

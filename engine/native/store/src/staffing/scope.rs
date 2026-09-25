@@ -92,6 +92,9 @@ pub struct Request<'a> {
     pub raise_ceiling: bool,
 }
 
+/// Folders, tools, visibility and warnings, before the funding step.
+pub type Clamped = (Vec<DirGrant>, Value, String, Vec<String>);
+
 /// Legacy order: dirs (strict for an explicit list), tools (strict for an
 /// agent's explicit grant), visibility (strict for an agent's explicit
 /// grant), then — after the funding step, which cannot be refused by this —
@@ -99,9 +102,6 @@ pub struct Request<'a> {
 /// (org default capped at the parent, then the ceiling). The two halves are
 /// split so the caller can run the funding step between them exactly where
 /// legacy does (every refusal before `_chain_acquire`).
-/// Folders, tools, visibility and warnings, before the funding step.
-pub type Clamped = (Vec<DirGrant>, Value, String, Vec<String>);
-
 pub fn clamp_before_funding(req: &Request<'_>, parent: Option<&ParentScope>) -> Result<Result<Clamped, Refusal>, CmdError> {
     let r = Rules::LEGACY;
     let who = PyStr::from("parent");

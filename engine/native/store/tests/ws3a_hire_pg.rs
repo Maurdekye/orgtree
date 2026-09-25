@@ -867,3 +867,169 @@ async fn q_c8_control_lock_not_update_spends_the_last_credit_twice() {
     println!("Q-C8 control violations: {v:?}");
     assert!(!v.is_empty(), "the control must FAIL conservation; hire outcome {}", oname(&o));
 }
+
+// ================================================================ the staff door and Q-ST3
+
+use orgtree_store::staffing::staff::{staff_split, ItemSpec, Staff, StaffSpec, Staffed};
+use orgtree_store::work::{Archive, WorkUpdate};
+
+fn item_id() -> Uuid {
+    Uuid::from_u128(0x0000_0000_0000_4000_8000_0000_003a_1001)
+}
+
+/// One backlogged item `wi`, owned by charlie, at revision 1.
+async fn item_fixture() {
+    let o = org();
+    admin_exec(&format!(
+        "INSERT INTO work_items (org_id, item_id, name, title, kind, status, owner_id, creator_id, rev, created_at, updated_at)
+           VALUES ('{o}', '{i}', 'wi', 'The item', 'code', 'backlogged', '{c}', '{b}', 1, now(), now());
+         INSERT INTO active_work_names (org_id, name, item_id) VALUES ('{o}', 'wi', '{i}');",
+        i = item_id(),
+        c = c(),
+        b = b()
+    ))
+    .await;
+}
+
+fn staff_update(name: &str) -> StaffSpec {
+    StaffSpec { seat: agent_spec(name, None, 0), item: ItemSpec { slug: Some("wi".into()), ..ItemSpec::default() }, ..StaffSpec::default() }
+}
+
+fn sname(o: &Result<Outcome<Staffed>, ExecError>) -> String {
+    match o {
+        Ok(Outcome::Refused(r)) => format!("refused:{}", r.message),
+        Ok(o) => o.name().to_string(),
+        Err(e) => format!("error {e:?}"),
+    }
+}
+
+async fn item_owner() -> String {
+    text(&format!(
+        "SELECT coalesce(a.name, '-') || '/' || w.status || '/' || w.rev FROM work_items w LEFT JOIN agents a ON a.org_id = w.org_id AND a.principal_id = w.owner_id WHERE w.item_id = '{}'",
+        item_id()
+    ))
+    .await
+}
+
+#[tokio::test]
+#[ignore = "needs the WS3a dev cluster; run through p03-run.ps1"]
+async fn staff_creates_and_updates_with_the_seat_as_owner() {
+    reset().await;
+    item_fixture().await;
+    let x = executor(vec![]);
+    // update: the backlogged item moves from charlie to the new seat and starts
+    let o = x.ex.run(&Staff::new(staff_update("kilo")), &agent_binding(b(), "sf1")).await;
+    let Ok(Outcome::Applied(s)) = &o else { panic!("{}", sname(&o)) };
+    assert_eq!((s.node.as_str(), s.item.as_str(), s.updated.as_deref(), s.started), ("kilo", "wi", Some("wi"), true));
+    assert_eq!(item_owner().await, "kilo/open/2");
+    let k = principal_of("kilo").await;
+    assert_eq!(mails(k, "request").await, 1, "one assignment mail");
+    assert_eq!(mails(c(), "work.reassigned").await, 1, "the previous owner is told");
+    // create
+    let spec = StaffSpec { seat: agent_spec("lima", None, 0), item: ItemSpec { title: Some("A New Thing".into()), ..ItemSpec::default() }, ..StaffSpec::default() };
+    let o = x.ex.run(&Staff::new(spec), &agent_binding(b(), "sf2")).await;
+    let Ok(Outcome::Applied(s)) = &o else { panic!("{}", sname(&o)) };
+    assert_eq!(s.created.as_deref(), Some("a-new-thing"));
+    // rehire mode on a LIVE agent: the no-op (E-D10 KEEP) and the item is still assigned
+    let spec = StaffSpec { node: Some("charlie".into()), item: ItemSpec { slug: Some("wi".into()), ..ItemSpec::default() }, ..StaffSpec::default() };
+    let o = x.ex.run(&Staff::new(spec), &agent_binding(b(), "sf3")).await;
+    let Ok(Outcome::Applied(s)) = &o else { panic!("{}", sname(&o)) };
+    assert!(s.already_live);
+    assert_eq!(item_owner().await, "charlie/open/3");
+    // refusals roll back the seat too
+    let n = agents().await;
+    let spec = StaffSpec { seat: agent_spec("mike", None, 0), item: ItemSpec { slug: Some("nope".into()), ..ItemSpec::default() }, ..StaffSpec::default() };
+    let o = x.ex.run(&Staff::new(spec), &agent_binding(b(), "sf4")).await;
+    assert_eq!(sname(&o), "refused:no such work item: nope");
+    let spec = StaffSpec { seat: agent_spec("mike", None, 0), item: ItemSpec { action: Some("update".into()), ..ItemSpec::default() }, ..StaffSpec::default() };
+    assert_eq!(sname(&x.ex.run(&Staff::new(spec), &agent_binding(b(), "sf5")).await), "refused:action 'update' needs `slug`: the item to update and hand to this agent");
+    assert_eq!(agents().await, n, "no seat without its item");
+    assert_conserved("staff").await;
+}
+
+/// Q-ST3: `orgtree_staff` racing an update of the same item, both orders.
+#[tokio::test]
+#[ignore = "needs the WS3a dev cluster; run through p03-run.ps1"]
+async fn q_st3_staff_racing_an_item_update_both_orders() {
+    // docket write first: it holds the head; staffing waits, then retries (40001) and applies after it
+    reset().await;
+    item_fixture().await;
+    let x = executor(vec![]);
+    let mut held = x.script.hold(Some("st3-w"), "work.update.stmt.work.lock_head.after");
+    let ex = std::sync::Arc::new(x);
+    let e1 = ex.clone();
+    let h1 = tokio::spawn(async move { e1.ex.run(&WorkUpdate { item: item_id(), status: Some("in_progress".into()), ..WorkUpdate::default() }, &agent_binding(c(), "st3-w")).await });
+    held.arrive().await;
+    let e2 = ex.clone();
+    let h2 = tokio::spawn(async move { e2.ex.run(&Staff::new(staff_update("kilo")), &agent_binding(b(), "st3-s")).await });
+    assert!(still_waiting(&h2, 400).await, "staffing waits on the item head");
+    held.go();
+    assert!(matches!(h1.await.unwrap(), Ok(Outcome::Applied(_))));
+    let o = h2.await.unwrap();
+    let x = &*ex;
+    order(x, "Q-ST3 update first", &["st3-w", "st3-s"]);
+    assert!(matches!(o, Ok(Outcome::Applied(_))), "{}", sname(&o));
+    assert_eq!(item_owner().await, "kilo/in_progress/3", "both applied, serially");
+    // staffing first: it holds before commit; the docket write waits and continues from staffing's row
+    reset().await;
+    item_fixture().await;
+    let x = executor(vec![]);
+    let mut held = x.script.hold(Some("st3-s2"), "staffing.staff.before_commit");
+    let ex = std::sync::Arc::new(x);
+    let e2 = ex.clone();
+    let h2 = tokio::spawn(async move { e2.ex.run(&Staff::new(staff_update("kilo")), &agent_binding(b(), "st3-s2")).await });
+    held.arrive().await;
+    let e1 = ex.clone();
+    let h1 = tokio::spawn(async move { e1.ex.run(&WorkUpdate { item: item_id(), status: Some("in_progress".into()), ..WorkUpdate::default() }, &agent_binding(c(), "st3-w2")).await });
+    assert!(still_waiting(&h1, 400).await, "the docket write waits on the head");
+    held.go();
+    assert!(matches!(h2.await.unwrap(), Ok(Outcome::Applied(_))));
+    assert!(matches!(h1.await.unwrap(), Ok(Outcome::Applied(_))));
+    let x = &*ex;
+    order(x, "Q-ST3 staffing first", &["st3-s2", "st3-w2"]);
+    assert_eq!(item_owner().await, "kilo/in_progress/3");
+    // never an item owned by a seat that does not exist
+    assert_eq!(count(&format!("SELECT count(*) FROM work_items w WHERE w.item_id = '{}' AND NOT EXISTS (SELECT 1 FROM agents a WHERE a.principal_id = w.owner_id)", item_id())).await, 0);
+}
+
+/// The atomic staff call against an item dropped between its reads and its
+/// lock: the whole call refuses, no seat. The split control: a seat without
+/// its item.
+#[tokio::test]
+#[ignore = "needs the WS3a dev cluster; run through p03-run.ps1"]
+async fn q_st3_control_split_transactions_leaves_a_seat_without_its_item() {
+    // pass shape first: atomic
+    reset().await;
+    item_fixture().await;
+    let x = executor(vec![]);
+    let mut held = x.script.hold(Some("st3a"), "staffing.staff.name_probe.before");
+    let ex = std::sync::Arc::new(x);
+    let e1 = ex.clone();
+    let h1 = tokio::spawn(async move { e1.ex.run(&Staff::new(staff_update("kilo")), &agent_binding(b(), "st3a")).await });
+    held.arrive().await;
+    let d = ex.ex.run(&WorkUpdate { item: item_id(), archive: Some(Archive::Drop), ..WorkUpdate::default() }, &agent_binding(c(), "st3a-drop")).await;
+    assert!(matches!(d, Ok(Outcome::Applied(_))), "{d:?}");
+    held.go();
+    let o = h1.await.unwrap();
+    assert!(sname(&o).starts_with("refused:work item wi is archived"), "{}", sname(&o));
+    assert_eq!(count(&format!("SELECT count(*) FROM agent_names WHERE org_id = '{}' AND name = 'kilo'", org())).await, 0, "atomic: no seat");
+    // the control: seat and item in two transactions, the drop between them
+    reset().await;
+    item_fixture().await;
+    let x = executor(vec!["Q-ST3.split_transactions"]);
+    let mut held = x.script.hold(None, "staffing.staff_item.begin");
+    let ex = std::sync::Arc::new(x);
+    let e1 = ex.clone();
+    let h1 = tokio::spawn(async move { staff_split(&e1.ex, &staff_update("kilo"), &agent_binding(b(), "st3c")).await });
+    held.arrive().await;
+    let d = ex.ex.run(&WorkUpdate { item: item_id(), archive: Some(Archive::Drop), ..WorkUpdate::default() }, &agent_binding(c(), "st3c-drop")).await;
+    assert!(matches!(d, Ok(Outcome::Applied(_))), "{d:?}");
+    held.go();
+    let (seat, item) = h1.await.unwrap().unwrap();
+    let x = &*ex;
+    control_ran(x, "Q-ST3.split_transactions");
+    assert!(matches!(seat, Outcome::Applied(_)), "{seat:?}");
+    assert!(matches!(item, Some(Outcome::Refused(_))), "{item:?}");
+    assert_eq!(count(&format!("SELECT count(*) FROM agent_names WHERE org_id = '{}' AND name = 'kilo'", org())).await, 1, "the control must leave a seat without its item");
+    println!("CONTROL Q-ST3.split_transactions: failed as designed (seat kilo exists, its item write was refused)");
+}
