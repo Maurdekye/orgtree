@@ -227,7 +227,9 @@ class EngineCallback(unittest.TestCase):
 
     def setUp(self) -> None:
         pgfeed._local.clear()
+        pgfeed._local_set.clear()
         self.addCleanup(pgfeed._local.clear)
+        self.addCleanup(pgfeed._local_set.clear)
         self.unknown: list[str] = []
         self.sent: list[str] = []
         self.cb = pgfeed.engine_callback(self.unknown.append, self.sent.append)
@@ -261,6 +263,44 @@ class EngineCallback(unittest.TestCase):
         feed.observe("a", 6, source="notify")
         self.assertEqual(pgfeed.known_revision(feed, "a"), 6)
         self.assertEqual(pgfeed.known_revision(None, "a"), 4)
+
+    def test_a_foreign_commit_drained_after_our_newer_one_still_reloads(self) -> None:
+        """Review f1: another process commits 5; this process commits 6 and
+        notes it BEFORE the listener drains 5's NOTIFY. 5 is last+1 (no gap) and
+        below our newest local revision, yet it is foreign: it must reload."""
+        acted: list[int] = []
+        cb = pgfeed.engine_callback(self.unknown.append, self.sent.append)
+
+        def on_change(o: str, r: int, g: bool) -> None:
+            before = len(self.unknown)
+            cb(o, r, g)
+            if len(self.unknown) > before:
+                acted.append(r)
+        feed = pgfeed.RevisionFeed(lambda: None, on_change)
+        feed.observe("a", 4, source="catchup")        # baseline
+        pgfeed.note_local("a", 6)                     # ours, committed after the foreign 5
+        feed.observe("a", 5, source="notify")         # foreign, drained late
+        feed.observe("a", 6, source="notify")         # ours
+        self.assertEqual(feed.stats.gaps, 0)          # neither was a gap: the set decided
+        self.assertEqual(acted, [5])
+        self.assertEqual((self.unknown, self.sent), (["a"], ["a"]))
+
+    def test_passed_local_revisions_are_pruned(self) -> None:
+        for r in (3, 5, 8):
+            pgfeed.note_local("a", r)
+        self.cb("a", 5, False)                        # ours: no action; 3 and 5 pass
+        self.assertEqual(self.unknown, [])
+        self.assertEqual(pgfeed._local_set["a"], {8})
+        self.cb("a", 9, True)                         # a gap past 8 prunes it too
+        self.assertEqual(pgfeed._local_set["a"], set())
+        self.assertEqual(pgfeed.local_revision("a"), 8)   # the stamp's newest is kept
+
+    def test_the_local_set_is_bounded(self) -> None:
+        for r in range(1, pgfeed._LOCAL_CAP + 11):
+            pgfeed.note_local("a", r)
+        revs = pgfeed._local_set["a"]
+        self.assertEqual(len(revs), pgfeed._LOCAL_CAP)
+        self.assertEqual(min(revs), 11)               # the oldest were dropped
 
 if __name__ == "__main__":
     unittest.main()

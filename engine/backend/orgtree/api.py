@@ -1916,6 +1916,15 @@ def _start_revision_feed() -> None:
     _REV_FEED = feed
 
 
+@app.on_event("shutdown")
+async def _stop_revision_feed() -> None:
+    # signal only, no join: the listener may sit in a notification wait for up
+    # to poll_s, and shutdown must not block the loop for it. The thread leaves
+    # at its next wake and closes its own session (RevisionFeed.run's finally).
+    if _REV_FEED is not None:
+        _REV_FEED.stop(timeout=0.0)
+
+
 def _org_rev(slug: str) -> int | None:
     """The newest committed revision this process knows for `slug` (postgres
     only; None elsewhere), read BEFORE a snapshot like `sync_rev`."""

@@ -188,7 +188,17 @@ class RevisionFeed:
 # records the revisions it committed, AFTER the commit succeeded (a rolled-back
 # bump frees its number for the next committer, possibly another process), and
 # the engine callback acts only on revisions it did not make, or on a gap.
-_local: dict[str, int] = {}
+#
+# It keeps the exact SET of revisions made here, not only the newest: another
+# process can commit N, and this process commit N+1 and note it, before the
+# listener has drained N's NOTIFY. A "<= newest local" test would then take the
+# foreign N for ours and leave the sections it changed stale in the shared
+# snapshot (PG-4 review f1). The feed only moves forward, so each callback
+# prunes every entry at or below the revision it was called for; the cap bounds
+# a set whose revisions the feed never reaches (for example, a stopped feed).
+_LOCAL_CAP = 1024
+_local: dict[str, int] = {}                 # the newest revision made here
+_local_set: dict[str, set[int]] = {}        # every revision made here, not yet passed
 _local_lock = threading.Lock()
 
 
@@ -196,11 +206,27 @@ def note_local(slug: str, revision: int) -> None:
     with _local_lock:
         if revision > _local.get(slug, 0):
             _local[slug] = revision
+        revs = _local_set.setdefault(slug, set())
+        revs.add(revision)
+        if len(revs) > _LOCAL_CAP:
+            revs.discard(min(revs))
 
 
 def local_revision(slug: str) -> int:
     with _local_lock:
         return _local.get(slug, 0)
+
+
+def _take_local(slug: str, revision: int) -> bool:
+    """Was ``revision`` made by this process? Prunes every recorded revision at
+    or below it: the feed never calls back for those again."""
+    with _local_lock:
+        revs = _local_set.get(slug)
+        if not revs:
+            return False
+        mine = revision in revs
+        revs.difference_update([r for r in revs if r <= revision])
+        return mine
 
 
 def engine_callback(publish_unknown: Callable[[str], None],
@@ -210,7 +236,8 @@ def engine_callback(publish_unknown: Callable[[str], None],
     (the next read does one full reload) and schedules the ordinary coalesced
     ``changed`` broadcast, which the renderer answers with a refetch."""
     def on_change(slug: str, revision: int, gap: bool) -> None:
-        if not gap and revision <= local_revision(slug):
+        mine = _take_local(slug, revision)
+        if mine and not gap:
             return
         publish_unknown(slug)
         broadcast(slug)
