@@ -19994,9 +19994,13 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 # that block popping a second carrier off the queue
                 return _drop_ping(slug, nid)
             # persist the in-flight turn: if orgtree dies mid-turn, reconcile()
-            # auto-resumes this node with the interrupted text (user ruling)
-            with store.DOC_LOCK:
-                o2 = store.load_org(slug)
+            # auto-resumes this node with the interrupted text (user ruling).
+            # PG-3e-A: one halt transaction on the agent's row; `delivering`
+            # (org-wide today) is locked only when this turn carries journal
+            # tokens, the one case `record_input` writes it.
+            with halt.txn(slug, nodes=[nid],
+                          sections=["delivering"] if toks else []) as _inf_tx:
+                o2 = _inf_tx.org
                 if nid in o2.nodes:
                     # The F-04 wake-void is RETIRED (user ruling 2026-08-06):
                     # a turn starting on other mail leaves an open ask
@@ -20035,32 +20039,34 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     ls = o2.node(nid).pop("last_status", None)
                     if ls:
                         o2.node(nid)["prev_status"] = ls
-                    store.save_org(o2)
-                    # D-181: the live org state rides the turn, not the system
-                    # prompt. Built here, under the same lock, off the doc this
-                    # turn actually starts from.
-                    #
-                    # ⚠ THREE THINGS ABOUT THIS PLACEMENT ARE DELIBERATE.
-                    # (1) AFTER the `prelude` block above, and deliberately NOT
-                    #     part of it. `prelude` being empty is the D-175
-                    #     phantom-drop predicate; a state block in there is
-                    #     never empty, so the drop would stop firing and every
-                    #     retracted-mail wake would become a turn about nothing.
-                    # (2) AFTER the inflight snapshot, so the replayed text is
-                    #     the real instruction. A replay re-enters this function
-                    #     and gets a FRESH block; a stored one would be stale by
-                    #     definition, and `text[-8000:]` would have started
-                    #     eating the instruction from the front to keep it.
-                    # (3) BEFORE the provider seam below, so the codex lane gets
-                    #     the same block through the same door.
-                    if not is_cmd:
-                        state_block = _envelope_state_block(
-                            o2, nid, time.time(), env_pending, out=state_facts)
-                        # Keep only the already-loaded doc across the lock
-                        # boundary. Provider cache/registry locks must never
-                        # sit underneath DOC_LOCK, and this block is advisory:
-                        # a telemetry stall or error cannot gate the turn.
-                        usage_org = o2
+            if nid in o2.nodes:
+                # D-181: the live org state rides the turn, not the system
+                # prompt. Built off the doc this turn actually starts from:
+                # the one the in-flight transaction just committed (PG-3e-A: built
+                # after that commit rather than inside it, so the row lock is
+                # not held across a whole-document read).
+                #
+                # ⚠ THREE THINGS ABOUT THIS PLACEMENT ARE DELIBERATE.
+                # (1) AFTER the `prelude` block above, and deliberately NOT
+                #     part of it. `prelude` being empty is the D-175
+                #     phantom-drop predicate; a state block in there is
+                #     never empty, so the drop would stop firing and every
+                #     retracted-mail wake would become a turn about nothing.
+                # (2) AFTER the inflight snapshot, so the replayed text is
+                #     the real instruction. A replay re-enters this function
+                #     and gets a FRESH block; a stored one would be stale by
+                #     definition, and `text[-8000:]` would have started
+                #     eating the instruction from the front to keep it.
+                # (3) BEFORE the provider seam below, so the codex lane gets
+                #     the same block through the same door.
+                if not is_cmd:
+                    state_block = _envelope_state_block(
+                        o2, nid, time.time(), env_pending, out=state_facts)
+                    # Keep only the already-loaded doc. Provider
+                    # cache/registry locks must never sit underneath a
+                    # row lock or DOC_LOCK, and this block is advisory:
+                    # a telemetry stall or error cannot gate the turn.
+                    usage_org = o2
             if cache_forecast_event is not None and not is_cmd:
                 # The pre-flight verdict streamed above is superseded the
                 # instant the turn starts: the projection now compares against
