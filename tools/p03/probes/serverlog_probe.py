@@ -69,8 +69,7 @@ def psql(exe: str, url: str, app: str, script: str) -> list[str]:
 SESSION_A = f"""
 SELECT 'simple-protocol' AS probe;
 SELECT 'extended-unnamed', $1::bigint \\bind {SECRET} \\g
-\\parse p03_named
-SELECT 'extended-named', $1::bigint AS v
+\SELECT 'extended-named', $1::bigint AS v \parse p03_named
 \\bind_named p03_named {SECRET} \\g
 \\bind_named p03_named {SECRET} \\g
 BEGIN;
