@@ -189,9 +189,50 @@ MUTANTS = [
      "        (Some(created), Some(started)) => created > started + 1,",
      "        (Some(_created), Some(_started)) => false,",
      ["--test", "pidfile"], False),
+    # --- review B1: who holds a lock's pid ---
+    ("holder.other_data_folder_is_ours", "src/cluster.rs",
+     "        Some(false) => Holder::Foreign(format!(\"a postmaster for another data folder (-D {d})\")),",
+     "        Some(false) => Holder::Ours,",
+     ["--test", "holder"], False),
+    ("holder.children_are_postmasters", "src/cluster.rs",
+     "    if argv.iter().skip(1).any(|a| a.starts_with(\"--fork\")) {",
+     "    if argv.iter().skip(1).any(|a| false && a.starts_with(\"--fork\")) {",
+     ["--test", "holder"], False),
+    ("holder.reuse_ignored", "src/cluster.rs",
+     "    if lock_is_stale(true, f.created_unix, lock_started_unix) {",
+     "    if false && lock_is_stale(true, f.created_unix, lock_started_unix) {",
+     ["--test", "holder"], False),
+    ("holder.image_alone_is_ours", "src/cluster.rs",
+     "    let Some(argv) = &f.argv else {\n        return Holder::Unidentified(\"the process command line cannot be read\".into());\n    };",
+     "    if f.image_is_ours == Some(true) {\n        return Holder::Ours;\n    }\n    let Some(argv) = &f.argv else {\n        return Holder::Unidentified(\"the process command line cannot be read\".into());\n    };",
+     ["--test", "holder"], False),
+    ("holder.unprovable_is_ours", "src/cluster.rs",
+     "        None => Holder::Unidentified(format!(\"cannot compare -D {d} with this data folder\")),",
+     "        None => Holder::Ours,",
+     ["--test", "holder"], False),
+    ("wait.data_folder_unchecked", "src/cluster.rs",
+     "&& fresh && is_ours && our_dir {",
+     "&& fresh && is_ours {",
+     ["--test", "holder"], False),
+    ("holder.argv_unread", "src/win.rs",
+     "            unsafe { LocalFree(argv.cast()) };\n            Some(out)",
+     "            unsafe { LocalFree(argv.cast()) };\n            let _ = out;\n            None",
+     ["--test", "holder"], False),
     # --- database mutants (run under the P03 run lock) ---
+    # B1 end to end: the state path must use the identity rule.
+    ("state.foreign_holder_running", "src/cluster.rs",
+     "            Holder::Foreign(reason) => Ok(ClusterState::StalePid { instance, pid, reason }),",
+     "            Holder::Foreign(_) => Ok(ClusterState::Running { instance, postmaster_pid: pid, pm_status: None, runtime: None }),",
+     ["--test", "drills", "--", "--ignored", "--test-threads=1", "a_lock_naming_another"], True),
+    # Expected SURVIVOR: stop re-proves the identity through its own handle
+    # only to close the gap between state() and pg_ctl (a pid reused in
+    # between). state() refuses first, so no deterministic test reaches it.
+    ("stop.no_identity_recheck", "src/cluster.rs",
+     "    if verdict != Holder::Ours {",
+     "    if false && verdict != Holder::Ours {",
+     ["--test", "drills", "--", "--ignored", "--test-threads=1", "a_lock_naming_another"], True),
     ("start.trusts_pg_ctl_started", "src/cluster.rs",
-     "            if pid_port == Some(port) && status.as_deref() == Some(\"ready\") && fresh && is_ours {",
+     "            if pid_port == Some(port) && status.as_deref() == Some(\"ready\") && fresh && is_ours && our_dir {",
      "            if true {",
      ["--test", "pidfile"], False),
     ("attach.descriptor_acl_unchecked", "src/cluster.rs",
@@ -255,7 +296,7 @@ MUTANTS = [
 
 # Survivors that are understood and documented next to their mutant above.
 # The run passes only if every OTHER mutant is caught.
-EXPECTED_SURVIVORS = {"stop.skip_family_wait"}
+EXPECTED_SURVIVORS = {"stop.skip_family_wait", "stop.no_identity_recheck"}
 
 
 def git(*args: str) -> str:
