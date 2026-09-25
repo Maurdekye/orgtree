@@ -1507,16 +1507,16 @@ def _recover_startup() -> None:
     legacy = os.environ.get("ORGTREE_KIOSK")
     if legacy:
         try:
-            with store.DOC_LOCK:
-                org = store.load_org(legacy)
-                if not org.d.get("kiosk"):
-                    org.d["kiosk"] = {
+            # PG-3f: the kiosk section alone, never DOC_LOCK
+            from . import orgtx
+            with orgtx.org_tx(legacy, sections=["kiosk"]) as tx:
+                if not tx.d.get("kiosk"):
+                    tx.d["kiosk"] = {
                         "enabled": True, "token": secrets.token_hex(16),
                         "credits": int(os.environ.get("ORGTREE_KIOSK_CREDITS", "0") or 0),
                         "spend_limit": float(os.environ.get("ORGTREE_KIOSK_SPEND_LIMIT", "0") or 0),
                         "storage_limit_mb": 0,
                     }
-                    store.save_org(org)
             print(f"[orgtree] ORGTREE_KIOSK is retired — {legacy!r} is now a kiosk "
                   f"org (secret URL on the admin dashboard); set "
                   f"ORGTREE_PUBLIC_PORT to expose it")
