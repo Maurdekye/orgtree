@@ -191,6 +191,16 @@ fn fingerprint_ignores_whitespace_and_case_only() {
     assert_ne!(fingerprint("SELECT 1 FROM items"), fingerprint("SELECT 2 FROM items"));
 }
 
+/// The same vectors are asserted by tests/test_p03_harness.py against
+/// tools/p03/harness/serverlog.py::fingerprint: the server-log reconciler
+/// matches logged SQL to traced statements through this value.
+#[test]
+fn fingerprint_parity_vectors() {
+    assert_eq!(fingerprint("SELECT  1\n\tFROM items"), "fnv1a64:6158a631b7695032");
+    assert_eq!(fingerprint("  INSERT INTO items (id) VALUES ($1) "), "fnv1a64:0a695736fd43bdf2");
+    assert_eq!(fingerprint("SELECT \u{e9}t\u{e9} FROM Items"), "fnv1a64:4b522fed6fb592eb");
+}
+
 /// `KINDS` from tools/p03/harness/trace.py: the single definition of each record
 /// kind's required fields (parsed, not copied, so the two sides cannot drift).
 fn python_kinds() -> std::collections::HashMap<String, Vec<String>> {

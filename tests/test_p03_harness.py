@@ -34,7 +34,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
 from p03.harness import controls as ctl  # noqa: E402
-from p03.harness import oracle, protocol  # noqa: E402
+from p03.harness import oracle, protocol, serverlog  # noqa: E402
 from p03.harness.fake_executor import FakeExecutor, Stmt  # noqa: E402
 from p03.harness.schedule import (FAILED, PASSED, REFUSED, Order, Schedule,  # noqa: E402
                                   compare, run_order)
@@ -317,6 +317,98 @@ class ContactOracle(unittest.TestCase):
 
 def json_copy(value):
     return json.loads(json.dumps(value))
+
+
+START_S = 0x66F3C2A1
+
+
+def session(pid: int, start_s: int = START_S) -> str:
+    return f"{start_s:x}.{pid:x}"
+
+
+def log_line(pid: int, message: str, start_s: int = START_S) -> str:
+    return json.dumps({"timestamp": "2026-09-25 08:40:00.000 UTC", "pid": pid,
+                       "session_id": session(pid, start_s), "error_severity": "LOG",
+                       "message": message, "backend_type": "client backend"})
+
+
+def traced_session(pid: int, sqls: list, factory: str = "executor", start_s: int = START_S):
+    recs = [{"stream": "exec", "seq": 1, "mono_ns": 1, "kind": "conn_opened", "factory": factory,
+             "backend_pid": pid, "backend_start": start_s * 1_000_000 + 123_456}]
+    for i, sql in enumerate(sqls, 2):
+        recs.append({"stream": "exec", "seq": i, "mono_ns": i, "kind": "stmt", "backend_pid": pid,
+                     "stmt_label": f"s{i}", "fingerprint": serverlog.fingerprint(sql)})
+    return recs
+
+
+class ServerLog(unittest.TestCase):
+    """Q-C5 hidden access from the server's statement log (lead ruling, decision 3)."""
+    A = "SELECT 1 FROM agents WHERE id = $1 FOR SHARE"
+    B = "INSERT INTO items (id) VALUES ($1)"
+
+    def clean_log(self):
+        return [log_line(501, "statement: BEGIN"), log_line(501, f"execute <unnamed>: {self.A}"),
+                log_line(501, f"execute s3/p1: {self.B}"), log_line(501, "statement: COMMIT")]
+
+    def test_fingerprint_parity_with_store_trace(self):
+        """engine/native/store-trace tests/sink.rs asserts the same three vectors."""
+        self.assertEqual(serverlog.fingerprint("SELECT  1\n\tFROM items"), "fnv1a64:6158a631b7695032")
+        self.assertEqual(serverlog.fingerprint("  INSERT INTO items (id) VALUES ($1) "),
+                         "fnv1a64:0a695736fd43bdf2")
+        self.assertEqual(serverlog.fingerprint("SELECT été FROM Items"),
+                         "fnv1a64:4b522fed6fb592eb")
+
+    def test_a_clean_session_reconciles(self):
+        verdict = serverlog.reconcile(traced_session(501, [self.A, self.B]), self.clean_log(),
+                                      ["executor"])
+        self.assertEqual(verdict["verdict"], "PASSED", verdict["failures"])
+        self.assertIn("trigger", verdict["limit"])
+
+    def test_hidden_statement_on_a_registered_pooled_session_is_flagged(self):
+        """Q-C5's own control: a statement on a registered connection, between two traced ops."""
+        log = self.clean_log()[:2] + [log_line(501, "statement: SELECT * FROM mailbox_heads")] \
+            + self.clean_log()[2:]
+        verdict = serverlog.reconcile(traced_session(501, [self.A, self.B]), log, ["executor"])
+        self.assertEqual(verdict["verdict"], "FAILED")
+        self.assertTrue(any(f.startswith(f"session ({START_S}, 501): hidden access")
+                            for f in verdict["failures"]), verdict["failures"])
+
+    def test_untraced_second_session_is_flagged(self):
+        log = self.clean_log() + [log_line(777, "statement: SELECT 1")]
+        verdict = serverlog.reconcile(traced_session(501, [self.A, self.B]), log, ["executor"])
+        self.assertTrue(any("(unregistered connection)" in f and "777" in f
+                            for f in verdict["failures"]), verdict["failures"])
+
+    def test_a_session_running_only_transaction_control_must_be_registered(self):
+        log = self.clean_log() + [log_line(778, "statement: BEGIN"), log_line(778, "statement: COMMIT")]
+        verdict = serverlog.reconcile(traced_session(501, [self.A, self.B]), log, ["executor"])
+        self.assertTrue(any("778" in f for f in verdict["failures"]), verdict["failures"])
+
+    def test_a_traced_statement_the_server_never_ran_is_flagged(self):
+        verdict = serverlog.reconcile(traced_session(501, [self.A, "SELECT 2", self.B]),
+                                      self.clean_log(), ["executor"])
+        self.assertTrue(any("never logged" in f for f in verdict["failures"]), verdict["failures"])
+
+    def test_no_log_or_an_unregistered_factory_fails(self):
+        self.assertEqual(serverlog.reconcile(traced_session(501, []), None, ["executor"])["verdict"],
+                         "FAILED")
+        verdict = serverlog.reconcile(traced_session(501, [self.A, self.B], factory="side-door"),
+                                      self.clean_log(), ["executor"])
+        self.assertTrue(any("unregistered factory 'side-door'" in f for f in verdict["failures"]))
+
+    def test_a_reused_pid_is_refused_not_guessed(self):
+        recs = traced_session(501, [self.A]) + [
+            dict(r, stream="exec2") for r in traced_session(501, [self.B], start_s=START_S + 60)]
+        log = [log_line(501, f"statement: {self.A}"),
+               log_line(501, f"statement: {self.B}", start_s=START_S + 60)]
+        verdict = serverlog.reconcile(recs, log, ["executor"])
+        # the pid maps to two sessions: attribution is refused, never guessed
+        self.assertEqual(verdict["verdict"], "FAILED")
+        self.assertTrue(any("several sessions for that pid" in f for f in verdict["failures"]))
+
+    def test_session_ids_parse(self):
+        self.assertEqual(serverlog.session_key("66f3c2a1.1f5"), (0x66F3C2A1, 0x1F5))
+        self.assertIsNone(serverlog.session_key("nonsense"))
 
 
 class Protocol(unittest.TestCase):
