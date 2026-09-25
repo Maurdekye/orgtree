@@ -304,6 +304,38 @@ class ContactOracle(unittest.TestCase):
         self.assertEqual(oracle.q_c5(EDIT_DECLARED, records + [infra], ["fake-pool"])["verdict"],
                          "PASSED")
 
+    def test_lock_family_cross_check(self):
+        """Decision 4: the server confirms the row-lock FAMILY; the exact mode stays unknown."""
+        result, verdict = edit_run()
+        self.assertEqual(verdict["verdict"], "PASSED", verdict["failures"])
+        self.assertIn(["agents"], verdict["unknown_modes"].values())
+        # the executor claims FOR SHARE on agents, the server shows no row lock there
+        stripped = [dict(r, locks=[lk for lk in r["locks"] if lk["relname"] != "agents"])
+                    if r["kind"] == "xact_locks" else r for r in result.records]
+        failures = oracle.q_c5(EDIT_DECLARED, stripped, ["fake-pool"])["failures"]
+        self.assertTrue(any("row-locks agents but the server shows no" in f for f in failures), failures)
+        self.assertTrue(any("required row lock on agents (omitted anchor)" in f for f in failures))
+
+    def test_undeclared_server_side_lock_fails_until_declared(self):
+        """e.g. an FK check's FOR KEY SHARE on a parent: server-side, named by no statement."""
+        _, verdict = edit_run(server_extra_locks={"parents": "RowShareLock"})
+        self.assertTrue(any("row lock on parents that is declared nowhere" in f
+                            for f in verdict["failures"]), verdict["failures"])
+        declared = json_copy(EDIT_DECLARED)
+        declared[EDIT]["relations"]["parents"] = {"modes": ["for_key_share"], "required": False}
+        _, verdict = edit_run(declared=declared, server_extra_locks={"parents": "RowShareLock"})
+        self.assertEqual(verdict["verdict"], "PASSED", verdict["failures"])
+
+    def test_deleted_anchor_is_also_caught_server_side(self):
+        _, verdict = edit_run(skip_stmts={"anchor"})
+        self.assertTrue(any("required row lock on agents (omitted anchor)" in f
+                            for f in verdict["failures"]), verdict["failures"])
+
+    def test_missing_server_lock_view_never_passes_the_lock_part(self):
+        _, verdict = edit_run(server_locks=False)
+        self.assertEqual(verdict["verdict"], "FAILED")
+        self.assertTrue(any("row-lock family unverified" in f for f in verdict["failures"]))
+
     def test_invalid_declared_table_is_refused(self):
         bad = {EDIT: {"relations": {"items": {"modes": ["write"]}}, "p01_contract": None,
                       "source": "x"}}
