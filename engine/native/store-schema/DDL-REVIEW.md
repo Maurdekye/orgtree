@@ -16,7 +16,7 @@
 | USER pool is an explicit unlimited mode, not a balance row | met | `funding_edges.issuer_id IS NULL` = user root; no user balance row; kiosk cap is `kiosk_pool` (E8), kiosk orgs only |
 | Sender never updates or locks the destination mailbox head | met | `mail_sent` has no FK to `mailboxes` (lead F3); lint R10 forbids source-side FKs to receiver heads |
 | No FK from a high-rate table to an org-wide row | met | lead F2; lint R9 over `HIGH_RATE_TABLES` |
-| Narrow version rows never share busy/status fields | met | `authority_epoch` (lifecycle, generation, halt, versions) is separate from `runtime_state` (busy, status, notes) |
+| Narrow version rows never share busy/status fields | met | `authority_epoch` (lifecycle, generation, halt, versions) is separate from `runtime_state` (busy, bg_open); status is WS4's own narrow row |
 | Table growth classified; bounded bodies | partial | JSON/body columns carry byte CHECKs; the per-table class (current / temporary / retained / fixed corpus) is stated in comments only for receipts, versions and legacy names. **Gap:** a machine-readable class per table is not recorded — WS8's churn-then-settle report needs it. |
 
 ## Per catalog row
