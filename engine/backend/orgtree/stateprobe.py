@@ -200,7 +200,10 @@ class SaveChanges:
 
     def changed_keys(self) -> set[str]:
         """Top-level sections a reader cache must refresh."""
-        out = set(self.doc_upserts) | set(self.doc_deletes) | self.log_sections
+        # an owner row of a split section (`mail\x1f<nid>`, store.SPLIT_SEP)
+        # refreshes its section
+        out = {k.partition("\x1f")[0]
+               for k in (*self.doc_upserts, *self.doc_deletes)} | self.log_sections
         if self.node_updates or self.node_inserts or self.node_deletes:
             out.add("nodes")
         return out
