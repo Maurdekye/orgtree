@@ -139,6 +139,7 @@ def incarnation(org, nid):
     already open on this org (a reply send), it mints on THAT Org — the
     caller must name `nodes=[nid]` and `sections=['reply_incarnation']` —
     instead of opening a second one (which would raise NestedTx)."""
+    from . import orgtx
     from .mailtx import tx_open
     if org.d.get('reply_incarnation') and org.node(nid).get('reply_incarnation'):
         return org.d['reply_incarnation'] + ':' + org.node(nid)['reply_incarnation']
