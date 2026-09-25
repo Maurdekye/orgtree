@@ -318,6 +318,16 @@ def _migrate_org(entry: dict[str, Any], actor: str) -> dict[str, Any]:
             wakes.append(("auth_thaw", nid))
         moved.append({"org": slug, "node": nid, "state": "live",
                       "in_flight_turn": bool(target["busy"])})
+    # A session-boundary rebind archives the old session as a knowledge
+    # bearer (`nid@<gen>`, a row the transaction locked), and the bearer
+    # inherits the binding being removed. The plan predates it, so it is
+    # moved here like any other archived binding — before PG-3f it kept
+    # naming the removed row.
+    for nid, node in (org.d.get("nodes") or {}).items():
+        if (isinstance(node, dict) and node.get("state") != "live"
+                and str(node.get("account") or "") == entry.get("account")
+                and nid not in entry["archived"]):
+            entry["archived"].append(str(nid))
     for nid in entry["archived"]:
         # No session, no freeze, no wake — an archived node cannot run. Only
         # the binding itself, so a rehire comes back on the primary account.
@@ -414,9 +424,10 @@ def _migrate_in_one_tx(plan: dict[str, Any], actor: str
     if not specs:
         return results, wakes, []
     txs: dict[str, orgtx.OrgTx] = {}
-    body_done = False
+    body_started = body_done = False
     try:
         with orgtx.org_tx_multi(specs) as txs:
+            body_started = True
             for slug in sorted(specs):
                 fresh: dict[str, Any] = {"orgs": [], "blockers": []}
                 _plan_org(slug, txs[slug].org, aid, plan["row"], fresh)
@@ -436,9 +447,15 @@ def _migrate_in_one_tx(plan: dict[str, Any], actor: str
     except (RemovalRefused, _PlanMoved):
         raise
     except Exception as e:                                   # noqa: BLE001
+        if not body_started:
+            # opening the transaction failed (a lock timeout, a load): no
+            # row was touched
+            raise RemovalRefused(
+                f"account {aid} was not removed: the organizations could not "
+                f"be locked ({e}). Nothing was changed.") from e
         if not body_done:
             raise
-        saved = sorted(sl for sl, t in txs.items() if t.committed is not None)
+        saved =sorted(sl for sl, t in txs.items() if t.committed is not None)
         failed = ", ".join(repr(sl) for sl in sorted(set(specs) - set(saved)))
         if saved:
             raise RemovalIncomplete(

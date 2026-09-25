@@ -195,6 +195,9 @@ class AccountRemovalTests(unittest.TestCase):
         self.assertEqual(len(bearers), 1, org.d["nodes"].keys())
         self.assertEqual(org.d["nodes"][bearers[0]].get("bearer_state"),
                          "knowledge")
+        # the bearer the rebind created inherits no binding to the removed row
+        self.assertNotEqual(org.d["nodes"][bearers[0]].get("account"),
+                            row["id"])
 
     # --------------------------------------------------- the in-flight turn
     def test_in_flight_claude_turn_rebinds_now_and_is_not_interrupted(self):
@@ -313,9 +316,16 @@ class AccountRemovalTests(unittest.TestCase):
     def test_a_forced_save_failure_keeps_the_account_registered(self):
         row = self._row()
         self._org("rm-save", {"a": self._node(account=row["id"])})
+        # open one transaction first, so the fake's one-time load-heal save
+        # is behind us and the failure below is the COMMIT's
+        from engine.backend.orgtree import orgtx
+        with orgtx.org_tx("rm-save", nodes=["a"]):
+            pass
         real = self.store.save_org
+        calls: list[int] = []
 
         def boom(org):
+            calls.append(1)
             raise OSError("disk went away")
 
         self.store.save_org = boom
@@ -324,6 +334,8 @@ class AccountRemovalTests(unittest.TestCase):
                 self._remove(row["id"])
         finally:
             self.store.save_org = real
+        self.assertTrue(calls, "the commit's save never ran")
+        self.assertIn("could not be saved", str(ctx.exception))
         self.assertIn("Nothing was changed", str(ctx.exception))
         self.assertEqual(self.registry.get_account(row["id"])["id"], row["id"])
         self.assertEqual(
