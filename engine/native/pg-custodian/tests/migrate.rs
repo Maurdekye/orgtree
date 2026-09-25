@@ -115,6 +115,57 @@ fn the_real_ws2_schema_dir_verifies() {
     println!("verified {} migrations: {:?}", f.len(), f.iter().map(|m| (m.version, m.min_writer)).collect::<Vec<_>>());
 }
 
+/// WS2's range layout: <root>/migrations/*.sql + <root>/ranges/<ws>.{range,sha256}.
+fn range_layout(ranges: &[(&str, u32, u32, &[(&str, &str)])]) -> Dir {
+    let p = std::env::temp_dir().join(format!("orgtree-p03-ranges-{}", orgtree_pg_custodian::win::random_hex(6).unwrap()));
+    std::fs::create_dir_all(p.join("migrations")).unwrap();
+    std::fs::create_dir_all(p.join("ranges")).unwrap();
+    for (ws, first, last, files) in ranges {
+        std::fs::write(p.join("ranges").join(format!("{ws}.range")), format!("# test\nname = {ws}\nfirst = {first}\nlast = {last}\ntables = x y\n")).unwrap();
+        let mut m = String::new();
+        for (name, body) in files.iter() {
+            std::fs::write(p.join("migrations").join(name), body).unwrap();
+            m.push_str(&format!("{}  {name}\n", migrate::checksum(body)));
+        }
+        std::fs::write(p.join("ranges").join(format!("{ws}.sha256")), m).unwrap();
+    }
+    Dir(p)
+}
+
+#[test]
+fn the_range_layout_reads_the_union_of_ranges() {
+    let d = range_layout(&[("ws2", 1, 99, &[("0001_a.sql", A), ("0002_b.sql", B)]), ("ws5", 300, 399, &[("0300_m.sql", "SELECT 1;\n")])]);
+    let f = migrate::read_schema_dir(&d.0).unwrap();
+    assert_eq!(f.iter().map(|m| m.version).collect::<Vec<_>>(), vec![1, 2, 300]);
+}
+
+#[test]
+fn range_layout_refusals() {
+    // A migration listed outside its own range's span.
+    let d = range_layout(&[("ws2", 1, 99, &[("0001_a.sql", A), ("0100_b.sql", B)])]);
+    assert_eq!(code(migrate::read_schema_dir(&d.0)), "migrate.out_of_range");
+    // Overlapping ranges.
+    let d = range_layout(&[("ws2", 1, 99, &[("0001_a.sql", A)]), ("wsx", 50, 150, &[])]);
+    assert_eq!(code(migrate::read_schema_dir(&d.0)), "migrate.bad_range");
+    // One file listed by two ranges (spans overlap is refused first, so use
+    // a manifest line pointing into the other range's file).
+    let d = range_layout(&[("ws2", 1, 99, &[("0001_a.sql", A)]), ("ws3", 100, 199, &[("0100_b.sql", B)])]);
+    let extra = format!("{}  0001_a.sql\n", migrate::checksum(A));
+    let ws3 = d.0.join("ranges").join("ws3.sha256");
+    let mut t = std::fs::read_to_string(&ws3).unwrap();
+    t.push_str(&extra);
+    std::fs::write(&ws3, t).unwrap();
+    assert_eq!(code(migrate::read_schema_dir(&d.0)), "migrate.out_of_range");
+    // A .sql file no range lists.
+    let d = range_layout(&[("ws2", 1, 99, &[("0001_a.sql", A)])]);
+    std::fs::write(d.0.join("migrations").join("0002_b.sql"), B).unwrap();
+    assert_eq!(code(migrate::read_schema_dir(&d.0)), "migrate.unlisted_file");
+    // A malformed range file.
+    let d = range_layout(&[("ws2", 1, 99, &[("0001_a.sql", A)])]);
+    std::fs::write(d.0.join("ranges").join("ws2.range"), "first = 5\nlast = 2\n").unwrap();
+    assert_eq!(code(migrate::read_schema_dir(&d.0)), "migrate.bad_range");
+}
+
 fn files(spec: &[(u32, u32)]) -> Vec<MigrationFile> {
     spec.iter()
         .map(|&(v, mw)| MigrationFile { version: v, file: format!("{v:04}_m.sql"), sha256: format!("{v:064}"), min_writer: mw, sql: String::new() })
