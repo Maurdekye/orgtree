@@ -44,7 +44,8 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, Final, Protocol, cast
 
-from . import halt, inbox, maildrain, orgtx
+from . import halt, inbox, maildrain
+from . import orgtx
 from . import (accounts, agentauth, antigravity_limits, appsettings,
                cachecontinuity, clipin, codex_limits, codex_route, deployment,
                envelope, events, events_table, failfix, handoff, imgblock,
