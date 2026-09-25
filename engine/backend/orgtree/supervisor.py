@@ -23008,8 +23008,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                 if _looks_like_connection_failure(err_blob)
                                 else "the CLI died mid-response")
                     run = 0
-                    with store.DOC_LOCK:
-                        o2 = store.load_org(slug)
+                    # PG-3e-A: the agent's row only (the connection freeze).
+                    with _node_write(slug, nid) as o2:
                         if nid in o2.nodes:
                             n2 = o2.node(nid)
                             run = int(n2.get("net_fail_run") or 0) + 1
@@ -23113,7 +23113,6 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                                                  payload),
                                         turn_view[-8000:])
                                     halt.link_freeze_replay(slug, nid, fz)
-                            store.save_org(o2)
                     if 0 < run <= NET_RETRY_MAX:
                         notify(slug, nid, "frozen")
                         # a RETRY is scheduled, so the node is NOT abandoned.
