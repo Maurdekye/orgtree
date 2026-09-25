@@ -209,17 +209,17 @@ impl<C: Connector> Executor<C> {
     /// E-D13: record an admitted keyed call in its own short transaction,
     /// BEFORE the command transaction starts.
     pub async fn admit_inflight(&self, op: &OpIdentity, service: Uuid) -> Result<(), ExecError> {
-        self.short_write(op, receipts::INFLIGHT_INSERT_LABEL, receipts::INFLIGHT_INSERT_SQL, service).await
+        self.short_write(op, "admit", receipts::INFLIGHT_INSERT_LABEL, receipts::INFLIGHT_INSERT_SQL, service).await
     }
 
     /// Remove it when the call ends, whatever the outcome.
     pub async fn release_inflight(&self, op: &OpIdentity, service: Uuid) -> Result<(), ExecError> {
-        self.short_write(op, receipts::INFLIGHT_DELETE_LABEL, receipts::INFLIGHT_DELETE_SQL, service).await
+        self.short_write(op, "release", receipts::INFLIGHT_DELETE_LABEL, receipts::INFLIGHT_DELETE_SQL, service).await
     }
 
-    async fn short_write(&self, op: &OpIdentity, label: &'static str, sql: &'static str, service: Uuid) -> Result<(), ExecError> {
+    async fn short_write(&self, op: &OpIdentity, verb: &'static str, label: &'static str, sql: &'static str, service: Uuid) -> Result<(), ExecError> {
         let mut conn = self.reserved().get().await.map_err(ExecError::Sql)?;
-        let mut tx = Tx::new_internal(&mut *conn, self.hooks(), "inflight", label, op, None, 1, None);
+        let mut tx = Tx::new_internal(&mut *conn, self.hooks(), "inflight", verb, op, None, 1, None);
         tx.begin(Isolation::ReadCommitted).await.map_err(ExecError::Sql)?;
         let mut p: Vec<Val> = receipts::key_params(op).into();
         p.push(Val::Uuid(service));

@@ -25,6 +25,44 @@ pub const CONTROLS: &[&str] = &[
     "Q-RL3.skip_inflight_check",
 ];
 
+/// The handshake's DECLARED-CONTACTS table (CONTRACT-M1 §5 r4; WS7
+/// `oracle.py` shape). `required` marks the design's mandatory contacts.
+pub fn declared() -> Value {
+    json!({
+        "receipt.lookup": {
+            "relations": {
+                "authority_epoch": {"modes": ["read", "for_share"], "required": true},
+                "operation_receipts": {"modes": ["read", "write"], "required": true},
+                "store_incarnation": {"modes": ["read"], "required": true},
+                "runtime_inflight": {"modes": ["read"], "required": true},
+                "service_incarnations": {"modes": ["read"], "required": true}
+            },
+            "p01_contract": null,
+            "source": "S3 §4.12 and E-D13; CONTRACT-M1 §4 (caller anchor, in-flight check, fence on the original key)"
+        },
+        "inflight.admit": {
+            "relations": {"runtime_inflight": {"modes": ["write"], "required": true}},
+            "p01_contract": null,
+            "source": "S3 E-D13: infrastructure step outside the command transaction"
+        },
+        "inflight.release": {
+            "relations": {"runtime_inflight": {"modes": ["write"], "required": true}},
+            "p01_contract": null,
+            "source": "S3 E-D13: infrastructure step outside the command transaction"
+        }
+    })
+}
+
+/// Every pause point this build's verbs expose (static list for the handshake).
+pub fn points() -> Vec<String> {
+    let mut out: Vec<String> = ["receipt.lookup.after_inflight_check", "receipt.lookup.before_fence"].iter().map(|s| s.to_string()).collect();
+    for label in ["lookup.anchor", "receipt.read", "lookup.incarnation", "inflight.live", "exec.now", "receipt.fence"] {
+        out.push(format!("receipt.lookup.stmt.{label}.before"));
+        out.push(format!("receipt.lookup.stmt.{label}.after"));
+    }
+    out
+}
+
 pub struct StoreHandler<C: Connector> {
     pub exec: Executor<C>,
     pub build_sha: String,
@@ -89,7 +127,7 @@ impl<C: Connector + 'static> Handler for StoreHandler<C> {
             qualification: orgtree_store::hooks::QUALIFICATION,
             build_sha: self.build_sha.clone(),
             verbs: VERBS.iter().map(|s| s.to_string()).collect(),
-            points: if orgtree_store::hooks::QUALIFICATION { GENERIC_POINTS.iter().map(|s| s.to_string()).collect() } else { vec![] },
+            points: if orgtree_store::hooks::QUALIFICATION { points() } else { vec![] },
             controls: if orgtree_store::hooks::QUALIFICATION { CONTROLS.iter().map(|s| s.to_string()).collect() } else { vec![] },
         }
     }
