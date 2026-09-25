@@ -703,28 +703,7 @@ pub fn identify_at(layout: &Layout, instance: &InstanceRecord, runtime: &Runtime
              coalesce(rolpassword like 'SCRAM-SHA-256$%', false) from pg_authid where rolname in ('{ADMIN_ROLE}','{RUNTIME_ROLE}','{REPL_ROLE}') order by 1"
         ),
     )?;
-    let expect = |name: &str| -> [&str; 7] {
-        match name {
-            // super, repl, createdb, createrole, login, bypassrls, scram
-            ADMIN_ROLE => ["t", "t", "t", "t", "t", "t", "t"],
-            RUNTIME_ROLE => ["f", "f", "f", "f", "t", "f", "t"],
-            _ => ["f", "t", "f", "f", "t", "f", "t"],
-        }
-    };
-    for role in ROLES {
-        match roles.iter().find(|r| r.first().map(String::as_str) == Some(role)) {
-            None => id.readiness_failures.push(format!("role {role} is missing")),
-            Some(r) => {
-                let got: Vec<&str> = r[1..].iter().map(String::as_str).collect();
-                if got != expect(role) {
-                    id.readiness_failures.push(format!(
-                        "role {role} attributes (super,repl,createdb,createrole,login,bypassrls,scram) = {got:?}, expected {:?}",
-                        expect(role)
-                    ));
-                }
-            }
-        }
-    }
+    id.readiness_failures.extend(role_failures(&roles));
     let db = psql(bin, runtime, "postgres", &format!("select count(*) from pg_database where datname = '{APP_DB}'"))?;
     if db != vec![vec!["1".to_string()]] {
         id.readiness_failures.push(format!("database {APP_DB} is missing"));
@@ -770,6 +749,34 @@ pub fn readiness_failures(s: &BTreeMap<String, String>) -> Vec<String> {
     need(positive("max_wal_senders"), format!("max_wal_senders={}", get("max_wal_senders")));
     need(positive("max_replication_slots"), format!("max_replication_slots={}", get("max_replication_slots")));
     need(get("password_encryption") == "scram-sha-256", format!("password_encryption={}", get("password_encryption")));
+    out
+}
+
+/// Role privileges (v6 BUNDLED:78): each role has EXACTLY its attributes.
+/// Rows: `rolname, rolsuper, rolreplication, rolcreatedb, rolcreaterole,
+/// rolcanlogin, rolbypassrls, password-is-SCRAM`, as psql prints booleans.
+pub fn role_failures(rows: &[Vec<String>]) -> Vec<String> {
+    const COLS: &str = "(super,repl,createdb,createrole,login,bypassrls,scram)";
+    let expect = |name: &str| -> [&str; 7] {
+        match name {
+            ADMIN_ROLE => ["t", "t", "t", "t", "t", "t", "t"],
+            // The store's runtime role: login, and nothing else at all.
+            RUNTIME_ROLE => ["f", "f", "f", "f", "t", "f", "t"],
+            _ => ["f", "t", "f", "f", "t", "f", "t"],
+        }
+    };
+    let mut out = Vec::new();
+    for role in ROLES {
+        match rows.iter().find(|r| r.first().map(String::as_str) == Some(role)) {
+            None => out.push(format!("role {role} is missing")),
+            Some(r) => {
+                let got: Vec<&str> = r.iter().skip(1).map(String::as_str).collect();
+                if got != expect(role) {
+                    out.push(format!("role {role} attributes {COLS} = {got:?}, expected {:?}", expect(role)));
+                }
+            }
+        }
+    }
     out
 }
 
@@ -822,25 +829,7 @@ pub struct StopReport {
 /// descendants, e.g. conhost). Handles are opened NOW, before the stop.
 fn family(postmaster: u32) -> Result<Vec<(win::ProcessInfo, Option<ProcessHandle>)>> {
     let snap = win::snapshot()?;
-    let mut set = vec![postmaster];
-    if let Some(pm) = snap.iter().find(|p| p.pid == postmaster) {
-        if let Some(parent) = snap.iter().find(|p| p.pid == pm.parent_pid) {
-            if parent.exe_name.eq_ignore_ascii_case("cmd.exe") {
-                set.push(parent.pid);
-            }
-        }
-    }
-    loop {
-        let before = set.len();
-        for p in &snap {
-            if p.pid != 0 && !set.contains(&p.pid) && set.contains(&p.parent_pid) {
-                set.push(p.pid);
-            }
-        }
-        if set.len() == before {
-            break;
-        }
-    }
+    let set = win::family_pids(&snap, postmaster);
     Ok(snap
         .into_iter()
         .filter(|p| set.contains(&p.pid))
