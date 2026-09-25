@@ -78,10 +78,57 @@ def _psycopg() -> Any:
     return psycopg
 
 
+class LiveClusterRefused(RuntimeError):
+    """An agent-context process aimed at the live data root's own cluster."""
+
+
+_LOOPBACK = ("", "localhost", "127.0.0.1", "::1")
+
+
+def refuse_live_cluster(conninfo: str) -> None:
+    """PG-1 review B1 / plan decision 35: in an agent context (devguard's
+    variables are set) refuse a connection aimed at the LIVE data root's own
+    PostgreSQL. Two ways to recognise it: its passfile lies under a live root,
+    or it names the port that root's ``pg/cluster/runtime.json`` records, on a
+    loopback host. An accident guard like devguard, not a sandbox."""
+    from . import devguard    # noqa: PLC0415
+    roots = [v for v in (os.environ.get(devguard.LIVE, "").strip(),
+                         os.environ.get(devguard.LEGACY, "").strip()) if v]
+    if not roots:
+        return
+    from psycopg.conninfo import conninfo_to_dict   # noqa: PLC0415
+    params = conninfo_to_dict(conninfo)
+    passfile = str(params.get("passfile") or os.environ.get("PGPASSFILE") or "")
+    hosts = str(params.get("host") or os.environ.get("PGHOST") or "").split(",")
+    port = str(params.get("port") or os.environ.get("PGPORT") or "5432").split(",")[0]
+    for root in roots:
+        live = devguard._canonical(root)
+        if passfile:
+            own = devguard._canonical(passfile)
+            try:
+                inside = os.path.commonpath((own, live)) == live
+            except ValueError:            # different Windows volumes
+                inside = False
+            if inside:
+                raise LiveClusterRefused(
+                    f"refusing to connect: the passfile {passfile} belongs to the live data root {root}")
+        try:
+            recorded = json.loads((pathlib.Path(root) / "pg" / "cluster" / "runtime.json")
+                                  .read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if (isinstance(recorded, dict) and str(recorded.get("port")) == port
+                and any(h.strip().lower() in _LOOPBACK for h in hosts)):
+            raise LiveClusterRefused(
+                f"refusing to connect: port {port} is the live data root's own PostgreSQL ({root})")
+
+
 def connect(conninfo: str | None = None) -> Any:
     """A raw psycopg connection in autocommit mode (transactions are
-    explicit, as store.py's are)."""
-    return _psycopg().connect(conninfo or url(), autocommit=True)
+    explicit, as store.py's are). Never, from an agent, the live cluster."""
+    target = conninfo or url()
+    refuse_live_cluster(target)
+    return _psycopg().connect(target, autocommit=True)
 
 
 # ----------------------------------------------------------------- migrations
