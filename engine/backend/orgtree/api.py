@@ -11228,9 +11228,10 @@ def _agent_door(body: AgentCall, a: dict[str, Any],
         if selection is not None:
             target, account, via = selection
             try:
+                # doc_held: never DOC_LOCK under the row locks (decision 26)
                 disclosure = supervisor.assign_account(
                     body.org, target, account, actor=body.node, org=tx.org,
-                    via=via, notify_change=False)
+                    via=via, notify_change=False, doc_held=True)
             except (RuntimeError, ValueError) as e:
                 raise LedgerError(str(e)) from e
             result["account"] = disclosure["account"]
