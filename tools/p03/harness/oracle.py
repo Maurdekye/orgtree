@@ -53,6 +53,27 @@ Verdicts:
 - REPORT only: a ``required: false`` relation never observed in the run.
 A lock mode the trace marks ``unknown`` is not a pass: it is reported under
 ``unknown_modes`` and the run cannot claim that mode was checked.
+
+ATOMICITY (``atomicity``, PROFILING test 2; shape agreed with WS5 2026-09-25): an op
+kind may declare ``"shape"`` (``native_tx`` by default, ``workflow_step``,
+``external_effect``, ``read_snapshot``), and the table may carry one reserved
+top-level key, ``"workflows"``, naming multi-step workflows::
+
+    "workflows": {"mail.a_to_b": {"shape": "workflow" | "native_tx",
+                                  "steps": ["mail.source.message", ...],
+                                  "source": "..."}}
+
+A workflow INSTANCE is the set of step operations linked by a shared id in their
+``causal_refs`` records (WS2 ``EventKind::CausalRefs``: opaque ids, never content).
+FAIL: an instance of a workflow declared ``native_tx`` that committed more than one
+transaction (labelling the A-to-B workflow as one atomic transaction must fail);
+a step operation that carries no ``causal_refs`` (it cannot be placed in an
+instance, so nothing about it can be claimed); a ``workflow`` instance missing a
+declared step, or whose step N+1 began before step N committed; an operation of a
+``read_snapshot`` kind that wrote; an attempt that committed more than once.
+REPORT: step order across different trace streams (``unknown_order``: sequence
+numbers are only comparable within one stream) and declared workflows never
+observed (``not_observed``).
 """
 from __future__ import annotations
 
@@ -63,16 +84,43 @@ LOCK_MODES = ("for_key_share", "for_share", "for_no_key_update", "for_update")
 MODES = ("read", "write") + LOCK_MODES
 UNKNOWN = "unknown"
 #: relation locks at least as strong as the RowShareLock every FOR clause takes
+#: the reserved top-level key of a declared table that names workflows, not an op kind
+WORKFLOWS = "workflows"
+WORKFLOW_SHAPES = ("workflow", "native_tx")
+OP_SHAPES = ("native_tx", "workflow_step", "external_effect", "read_snapshot")
 ROW_LOCK_FAMILY = {"RowShareLock", "RowExclusiveLock", "ShareUpdateExclusiveLock", "ShareLock",
                    "ShareRowExclusiveLock", "ExclusiveLock", "AccessExclusiveLock"}
+
+
+def op_kinds(declared: dict[str, Any]) -> dict[str, Any]:
+    """The declared table's operation kinds (everything but the ``workflows`` key)."""
+    return {k: v for k, v in declared.items() if k != WORKFLOWS}
 
 
 def declared_errors(declared: dict[str, Any]) -> list[str]:
     """Shape errors in a declared table (the handshake's ``declared``)."""
     errors = []
-    if not isinstance(declared, dict) or not declared:
+    if not isinstance(declared, dict) or not op_kinds(declared):
         return ["declared: must be a non-empty object"]
-    for kind, spec in declared.items():
+    workflows = declared.get(WORKFLOWS, {})
+    if not isinstance(workflows, dict):
+        errors.append(f"declared {WORKFLOWS}: must be an object")
+        workflows = {}
+    for name, w in workflows.items():
+        steps = w.get("steps") if isinstance(w, dict) else None
+        if not isinstance(w, dict) or w.get("shape") not in WORKFLOW_SHAPES:
+            errors.append(f"declared workflow {name}: shape must be one of {WORKFLOW_SHAPES}")
+        elif not isinstance(steps, list) or not steps or len(set(map(str, steps))) != len(steps):
+            errors.append(f"declared workflow {name}: steps must be a non-empty list of "
+                          "distinct op kinds")
+        elif set(steps) - set(op_kinds(declared)):
+            errors.append(f"declared workflow {name}: steps are not declared op kinds: "
+                          f"{sorted(set(steps) - set(op_kinds(declared)))}")
+        elif not str(w.get("source") or "").strip():
+            errors.append(f"declared workflow {name}: needs a source")
+    for kind, spec in op_kinds(declared).items():
+        if isinstance(spec, dict) and spec.get("shape", "native_tx") not in OP_SHAPES:
+            errors.append(f"declared {kind}: shape must be one of {OP_SHAPES}")
         rels = spec.get("relations") if isinstance(spec, dict) else None
         if not isinstance(rels, dict) or not rels:
             errors.append(f"declared {kind}: relations must be a non-empty object")
@@ -256,7 +304,7 @@ def q_c5(declared: dict[str, dict[str, Any]], records: list[dict[str, Any]],
             failures.append(f"{where}: reports zero contacts but has {s['stmts']} statements "
                             f"and {s['txs']} transactions")
     over_declared = {}
-    for kind, spec in declared.items():
+    for kind, spec in op_kinds(declared).items():
         if kind in seen:
             never = sorted(rel for rel, r in spec["relations"].items() if not r["required"]
                            and rel not in seen[kind])
@@ -292,3 +340,99 @@ def q_c5(declared: dict[str, dict[str, Any]], records: list[dict[str, Any]],
     return {"verdict": "PASSED" if not failures else "FAILED", "failures": failures,
             "over_declared": over_declared, "unknown_modes": unknown_modes,
             "operations": len(ops)}
+
+
+def atomicity(declared: dict[str, Any], records: list[dict[str, Any]]) -> dict[str, Any]:
+    """The atomicity verdict over one run's trace (see the module docstring)."""
+    failures = [f"invalid declared table: {e}" for e in declared_errors(declared)]
+    if failures:
+        return {"verdict": "FAILED", "failures": failures, "instances": [],
+                "unknown_order": [], "not_observed": []}
+    ops: dict[str, dict[str, Any]] = {}
+
+    def op(r: dict[str, Any]) -> dict[str, Any]:
+        return ops.setdefault(r.get("operation_id"), {
+            "kind": None, "refs": set(), "commits": [], "begins": [], "writes": False})
+
+    for r in records:
+        kind = r.get("kind")
+        if kind == "op_begin":
+            op(r)["kind"] = r.get("op_kind")
+        elif kind == "causal_refs":
+            op(r)["refs"] |= {str(x) for x in r.get("refs") or ()}
+        elif kind == "tx_begin":
+            op(r)["begins"].append((r.get("stream"), r.get("seq"), r.get("attempt")))
+        elif kind == "tx_end" and r.get("outcome") == "commit":
+            op(r)["commits"].append((r.get("stream"), r.get("seq"), r.get("attempt")))
+        elif kind == "stmt" and r.get("mode") == "write" and not r.get("infrastructure"):
+            op(r)["writes"] = True
+        elif kind == "xact_stats" and any("write" in _xact_modes(t)
+                                          for t in r.get("tables") or ()):
+            op(r)["writes"] = True
+    kinds = op_kinds(declared)
+    for op_id, o in sorted(ops.items(), key=lambda x: str(x[0])):
+        spec = kinds.get(o["kind"]) or {}
+        attempts = [c[2] for c in o["commits"]]
+        if len(attempts) != len(set(attempts)):
+            failures.append(f"{o['kind']} {op_id}: an attempt committed more than once")
+        if spec.get("shape") == "read_snapshot" and o["writes"]:
+            failures.append(f"{o['kind']} {op_id}: declared read_snapshot but wrote")
+    instances: list[dict[str, Any]] = []
+    unknown_order: list[str] = []
+    not_observed: list[str] = []
+    for name, w in sorted(declared.get(WORKFLOWS, {}).items()):
+        steps = list(w["steps"])
+        members = [op_id for op_id, o in ops.items() if o["kind"] in steps]
+        if not members:
+            not_observed.append(name)
+            continue
+        parent = {m: m for m in members}
+
+        def find(x: str) -> str:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        by_ref: dict[str, str] = {}
+        for m in members:
+            if not ops[m]["refs"]:
+                failures.append(f"workflow {name}: {ops[m]['kind']} {m} carries no causal_refs: "
+                                "it cannot be placed in an instance")
+            for ref in ops[m]["refs"]:
+                if ref in by_ref:
+                    parent[find(m)] = find(by_ref[ref])
+                else:
+                    by_ref[ref] = m
+        groups: dict[str, list[str]] = defaultdict(list)
+        for m in members:
+            if ops[m]["refs"]:
+                groups[find(m)].append(m)
+        for group in sorted(groups.values(), key=lambda g: sorted(map(str, g))):
+            commits = sum(len(ops[m]["commits"]) for m in group)
+            present = {ops[m]["kind"] for m in group}
+            refs = sorted(set().union(*(ops[m]["refs"] for m in group)))
+            where = f"workflow {name} [{', '.join(refs)}]"
+            instances.append({"workflow": name, "shape": w["shape"], "refs": refs,
+                              "operations": sorted(map(str, group)), "commits": commits})
+            if w["shape"] == "native_tx" and commits > 1:
+                failures.append(f"{where}: declared ONE atomic transaction, observed {commits} "
+                                f"committed transactions across {len(group)} operations "
+                                f"({', '.join(sorted(present))})")
+            if w["shape"] != "workflow":
+                continue
+            missing = [k for k in steps if k not in present]
+            if missing:
+                failures.append(f"{where}: incomplete instance, missing steps {missing}")
+            for a, b in zip(steps, steps[1:]):
+                done = [c for m in group if ops[m]["kind"] == a for c in ops[m]["commits"]]
+                began = [t for m in group if ops[m]["kind"] == b for t in ops[m]["begins"]]
+                if not done or not began:
+                    continue
+                if {c[0] for c in done} | {t[0] for t in began} != {done[0][0]}:
+                    unknown_order.append(f"{where}: {a} -> {b} spans streams")
+                    continue
+                if min(t[1] for t in began) < max(c[1] for c in done):
+                    failures.append(f"{where}: {b} began before {a} committed")
+    return {"verdict": "PASSED" if not failures else "FAILED", "failures": failures,
+            "instances": instances, "unknown_order": unknown_order, "not_observed": not_observed}
