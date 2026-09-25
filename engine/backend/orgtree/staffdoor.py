@@ -72,15 +72,14 @@ def hire_rows(org: Any, actor: str, a: dict[str, Any]) -> pgdoor.TxSpec:
     from an org document (the unlocked snapshot, or the locked one when a
     body re-checks)."""
     dest = str(a.get("target") or a.get("parent") or actor)
-    htype = str(a.get("hire_type") or "subordinate")
     top_level = actor == USER and dest == USER
+    # hire_type='superior' needs nothing extra: it hires under `dest` and
+    # then re-parents `dest`, whose old parent `insert_parent` writes — and
+    # placement admits a superior only under a STRICT descendant of the actor
+    # (never a top-level agent), so that parent is always on this chain.
+    # (A separate "add dest's parent" clause was mutation-tested and could
+    # never change the result, so it is not here.)
     nodes: list[str] = [] if top_level else list(chain(org, dest, actor))
-    if htype != "subordinate" and dest in org.nodes:
-        # sibling / superior: the new seat lands beside or above `dest`, so
-        # its parent (the payer) is written too
-        p = org.nodes[dest].get("parent")
-        if p is not None and p not in nodes:
-            nodes.append(p)
     name = str(a.get("name") or "")
     if name:
         nodes.append(new_node_id(org, name))
