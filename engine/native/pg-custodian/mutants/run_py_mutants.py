@@ -28,6 +28,8 @@ MUTANTS = [
     ("bracket.no_cleanup_on_store_failure", "        except BaseException:\n            self.stop()\n            raise", "        except BaseException:\n            raise"),
     ("bracket.attach_result_ignored", "    if not attach.get(\"ok\"):\n        raise BracketError(f\"pg-custodian attach refused", "    if False:\n        raise BracketError(f\"pg-custodian attach refused"),
     ("bracket.token_passed_on", '    child_env = {k: v for k, v in env.items() if k != "ORGTREE_V2_TOKEN"}', "    child_env = dict(env)"),
+    ("bracket.migration_failure_ignored", "    if not out.get(\"ok\"):\n        raise BracketError(f\"pg-custodian migrate refused", "    if False:\n        raise BracketError(f\"pg-custodian migrate refused"),
+    ("bracket.migration_skipped", "            self.migration = migrate(self.custodian, self.root, self.env, self.workdir)\n", ""),
     ("bracket.wrong_ready_pid_accepted", 'or value.get("pid") != self.proc.pid:', ':'),
 ]
 
