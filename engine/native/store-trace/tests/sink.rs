@@ -185,6 +185,39 @@ fn stub_statements_keep_their_stub_flag() {
     assert_eq!(field(stubbed[0], "stmt_label"), Some(&Value::str("fake.insert:items")));
 }
 
+/// Events fed directly (the fake session has no lock rows and no setup
+/// statements): a statement that carries its own pid with no Begin behind it
+/// (the factory's exec.setup.identify), and a lock view with rows.
+#[test]
+fn event_pids_and_lock_rows_are_recorded_directly() {
+    use orgtree_store::hooks::{EventKind, TraceEvent, TraceSink, XactLock};
+    let c = Collector::new("direct", 64, "run-d", BTreeSet::new());
+    let ev = |kind| TraceEvent { kind, family: "conn", verb: "executor", op: None, op_tag: None, attempt: 0, stub: false };
+    c.event(&ev(EventKind::Statement {
+        label: "exec.setup.identify",
+        sql: "SELECT pg_backend_pid()",
+        micros: 1,
+        rows: 1,
+        sqlstate: None,
+        backend_pid: Some(4242),
+    }));
+    let locks = [
+        XactLock { relname: "agents".into(), mode: "RowShareLock".into() },
+        XactLock { relname: "items".into(), mode: "RowExclusiveLock".into() },
+    ];
+    c.event(&ev(EventKind::XactLocks { locks: &locks }));
+    let recs = c.drain();
+    assert_eq!(field(&recs[0], "backend_pid"), Some(&Value::Int(4242)), "{}", recs[0].to_json());
+    assert_eq!(field(&recs[0], "infrastructure"), Some(&Value::Bool(true)));
+    assert_eq!(
+        field(&recs[1], "locks"),
+        Some(&Value::List(vec![
+            Value::Obj(vec![("relname".into(), Value::str("agents")), ("mode".into(), Value::str("RowShareLock"))]),
+            Value::Obj(vec![("relname".into(), Value::str("items")), ("mode".into(), Value::str("RowExclusiveLock"))]),
+        ]))
+    );
+}
+
 #[test]
 fn fingerprint_ignores_whitespace_and_case_only() {
     assert_eq!(fingerprint("SELECT  1\n\tFROM items"), fingerprint("select 1 from items"));
