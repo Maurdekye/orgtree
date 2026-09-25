@@ -16,6 +16,8 @@ const USAGE: &str = "usage:
                    [--qual-logging on|off]   (up only; applies at start, off by default)
   pg-custodian dev status --all
   pg-custodian <command> --root <dir> [options]
+  pg-custodian <status|init|start|attach|identify|urls|stop> --root <dir> --product
+  pg-custodian bind-product --root <dir>
 
 dev commands (one cluster per agent under <repo>/artifacts/p03-db/<agent>):
   up        mark + init if new, start on the agent's port if stopped, identify,
@@ -52,6 +54,11 @@ root commands:
               manifest (row count and digest per table) from the SAME snapshot
   restore     --from <backup folder>: into this root's running, EMPTY cluster,
               one transaction, content verified, then a NEW store incarnation
+  bind-product  bind the engine's OWN data root (= ORGTREE_DATA, never an
+              agent's environment, never the installed app) for --product;
+              an operator step before the PostgreSQL import (PYPG PG-2)
+  --product   run a lifecycle command on that bound root instead of a
+              prototype root; destroy, restore and every other command refuse
   qual-logging --qual-logging on|off   set the qualification-logging switch
               on a STOPPED cluster (jsonlog, log_statement=all, bind values
               never logged, files under <root>/qual-logs)
@@ -80,6 +87,7 @@ struct Args {
     timeout: Option<u64>,
     out: Option<PathBuf>,
     from: Option<PathBuf>,
+    product: bool,
 }
 
 fn parse() -> Result<Args> {
@@ -116,6 +124,7 @@ fn parse() -> Result<Args> {
             }
             "--immediate" => a.immediate = true,
             "--force" => a.force = true,
+            "--product" => a.product = true,
             "--out" => a.out = Some(PathBuf::from(val("--out")?)),
             "--from" => a.from = Some(PathBuf::from(val("--from")?)),
             "--timeout" => {
@@ -127,6 +136,9 @@ fn parse() -> Result<Args> {
     }
     Ok(a)
 }
+
+/// The only commands `--product` runs: the engine bracket's lifecycle.
+const PRODUCT_COMMANDS: [&str; 7] = ["status", "init", "start", "attach", "identify", "urls", "stop"];
 
 fn bin(a: &Args, env: &Env) -> Result<PgBin> {
     let dir = match a.pg_bin.clone().or_else(|| env.get("ORGTREE_P03_PG_BIN").map(PathBuf::from)) {
@@ -221,7 +233,18 @@ fn run(a: Args) -> Result<Out> {
         let r = guard::init_root(&root_path, &env)?;
         return Ok(Out::Json(json!({"root": r.path(), "root_id": r.root_id()})));
     }
-    let r = guard::validate_root(&root_path, &env)?;
+    if a.command == "bind-product" {
+        let r = guard::bind_product_root(&root_path, &env)?;
+        return Ok(Out::Json(json!({"root": r.path(), "root_id": r.root_id(), "product": true})));
+    }
+    let r = if a.product {
+        if !PRODUCT_COMMANDS.contains(&a.command.as_str()) {
+            return Err(CustodianError::new("product.refused", format!("{:?} is not run with --product", a.command)));
+        }
+        guard::validate_product_root(&root_path, &env)?
+    } else {
+        guard::validate_root(&root_path, &env)?
+    };
     let b = bin(&a, &env)?;
     let v = match a.command.as_str() {
         "init" => json!({"root": r.path(), "instance": cluster::init(&r, &b, &InitOptions::default())?}),

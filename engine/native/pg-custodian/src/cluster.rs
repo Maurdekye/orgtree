@@ -1369,6 +1369,7 @@ pub fn stop_with(root: &PrototypeRoot, bin: &PgBin, immediate: bool, force: bool
 /// validated root can reach here, so this cannot delete anything the guard
 /// did not accept.
 pub fn destroy(root: &PrototypeRoot, bin: &PgBin) -> Result<()> {
+    crate::guard::refuse_product(root, "destroy")?;
     match state(root, bin)? {
         ClusterState::Running { postmaster_pid, .. } => {
             return Err(CustodianError::new("destroy.running", format!("postmaster {postmaster_pid} still runs; stop first")))
