@@ -45,7 +45,7 @@ from pathlib import Path
 from typing import Any, Final, Protocol, cast
 
 from . import halt, inbox, maildrain, mailtx
-from . import orgtx
+from . import lifecycle_tx, orgtx
 from . import (accounts, agentauth, antigravity_limits, appsettings,
                cachecontinuity, clipin, codex_limits, codex_route, deployment,
                envelope, events, events_table, failfix, handoff, imgblock,
@@ -19364,7 +19364,13 @@ def _admission_rows(slug: str, nid: str, *, compact: bool = False
     mailbox sections."""
     share = list(ADMISSION_GATE_SECTIONS)
     if not compact:
-        return {"nodes": [nid], "sections": list(ADMISSION_WRITE_SECTIONS),
+        # PG-3d's row set for a drain-and-journal of `nid` (mailtx.reclaim_rows:
+        # the node, delivering, mail_transitions, mail, notices), widened by
+        # any section this module names on top of it.
+        rows = mailtx.reclaim_rows(nid)
+        sections = list(dict.fromkeys(
+            [*rows.get("sections", ()), *ADMISSION_WRITE_SECTIONS]))
+        return {"nodes": [nid], "sections": sections,
                 "share_sections": share, "logs": list(ADMISSION_LOGS)}
     gen = 0
     try:
@@ -19390,9 +19396,10 @@ def _halt_check_locked(org: Org, nid: str) -> None:
     must decide on the row it holds FOR UPDATE (and the killswitch section it
     holds FOR SHARE), which is what orders it against a halt's `halting`
     commit (decision 2). Same messages and exception as `halt.check`."""
-    if org.node(nid).get("halt"):
+    cause = halt._gate_blocked(org, nid)  # pyright: ignore[reportPrivateUsage]
+    if cause == "halt":
         raise halt.Cancelled("agent is halted — explicit unhalt is required")
-    if org.d.get("killswitch"):
+    if cause:
         raise halt.Cancelled("the org killswitch is latched — explicit release "
                              "is required")
 
@@ -19781,7 +19788,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
             # own, exactly as the DOC_LOCK version saved it before the drain, so a
             # failed drain never undoes it; the second drains the mailbox.
             if not is_cmd:
-                with orgtx.org_tx(slug, **_admission_rows(slug, nid, compact=True)) as _cmp_tx:
+                with halt.txn(slug, **_admission_rows(slug, nid, compact=True)) as _cmp_tx:
                     org = _cmp_tx.org
                     _admission_gates(slug, org, nid)
                     # NOT locked fable nodes under a fable_lock (e.g. rehired anyway) are
@@ -19878,7 +19885,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         # its own save before the drain): a restart sees both
                         # or neither, so it still cannot resurrect stale
                         # evidence.
-            with orgtx.org_tx(slug, **_admission_rows(slug, nid)) as _adm_tx:
+            with halt.txn(slug, **_admission_rows(slug, nid)) as _adm_tx:
                 org = _adm_tx.org
                 _admission_gates(slug, org, nid)
                 mail = ([] if is_cmd or toks else
@@ -21984,10 +21991,10 @@ def _run_one_turn_recorded(slug: str, nid: str,
                              typed=_or_typed, started=saw_agent_out[0],
                              boundary=saw_result[0], or_lane=_or_lane)
                 if "No conversation found" in err_blob or "no conversation" in err_blob.lower():
-                    with store.DOC_LOCK:
-                        o2 = store.load_org(slug)
-                        o2.mark_unrecoverable(nid, err_blob[:200])
-                        store.save_org(o2)
+                    # PG-3a's one-row transaction (lifecycle_tx), outside any
+                    # halt gate as its contract requires; False (node gone)
+                    # is the old KeyError path made quiet.
+                    lifecycle_tx.mark_unrecoverable(slug, nid, err_blob[:200])
                     turnlog.emit(_trec, "owner", branch="unrecoverable",
                                  handled=False)
                     if _trec is not None:
