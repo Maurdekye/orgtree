@@ -230,7 +230,7 @@ def declare_all() -> None:
 # ------------------------------------------------------ operator doors
 
 def _log_key(x: Any) -> str:
-    return x if isinstance(x, str) else " ".join(x)
+    return x if isinstance(x, str) else "/".join(x)
 
 
 def _norm(spec: pgdoor.TxSpec) -> pgdoor.TxSpec:
