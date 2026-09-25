@@ -42,6 +42,10 @@ import racekit  # noqa: E402
 if hasattr(orgtx, 'TRANSITION_FENCE'):
     orgtx.TRANSITION_FENCE = False
 
+#: racekit's per-step wait: generous, because a loaded machine (PG-3x runs
+#: in parallel) makes a lock-free fleet plan take seconds
+STEP_S = 15.0
+
 _n = 0
 
 
@@ -93,12 +97,15 @@ class RemovalRace(unittest.TestCase):
         self.aid = _account()
         self.a = _org({'root': _node(), 'old': _node(self.aid, 'archived')})
         self.b = _org({'root': _node()})
+        # warm the removal's cold imports (supervisor, account usage) with a
+        # lock-free plan, so the race's step timeouts measure the race only
+        account_removal.plan_removal(self.aid)
 
     def _remove(self):
         return account_removal.remove_account_rebinding_agents(self.aid, actor='USER')
 
     def test_a_binder_that_starts_during_the_removal_is_refused(self) -> None:
-        with racekit.Race(pair='converted') as race:
+        with racekit.Race(wait=STEP_S, pair='converted') as race:
             r = race.actor('R', self._remove)
             b = race.actor('B', _bind, race, self.b, 'root', self.aid, may_raise=True)
             gr = race.hold(r, 'after_lock')          # R: migrating, account marked
@@ -119,7 +126,7 @@ class RemovalRace(unittest.TestCase):
         self.assertNotIn(self.aid, registry._removing)   # pyright: ignore[reportPrivateUsage]
 
     def test_a_binder_that_validated_first_is_waited_for_not_stranded(self) -> None:
-        with racekit.Race(pair='converted') as race:
+        with racekit.Race(wait=STEP_S, pair='converted') as race:
             b = race.actor('B', _bind, race, self.b, 'root', self.aid)
             r = race.actor('R', self._remove, may_raise=True)
             gb = race.hold(b, 'validated')           # B holds its seat, validated
