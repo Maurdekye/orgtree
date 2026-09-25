@@ -12,9 +12,11 @@ p01-f8-contracts-for-the-git-workspace-routes-21):
   GIT_ASKPASS, and a global config with no credential helper and an empty hooks directory, so the user's system and
   global config, credential manager and hooks never run. The hook sees only Python's own launches, not git's child
   processes: the isolated configuration is what covers those;
-- GIT_CEILING_DIRECTORIES is the temp root itself, so git run in a folder that is not a repository (register's refusal,
-  discover over plain folders) stops searching upward at the root instead of finding an enclosing repository outside
-  it. A control shows this git honours a ceiling given in the same path form.
+- GIT_CEILING_DIRECTORIES is the temp root's PARENT, so git run in a folder that is not a repository (register's
+  refusal, discover over plain folders, or the root itself) stops searching upward at the root instead of finding an
+  enclosing repository outside it. The parent, not the root: git never applies a ceiling to its own starting folder,
+  so a ceiling AT the root would not stop a search that starts at the root. Controls show both behaviours with this
+  git, with ceilings given in the same path form.
 The standard profile is gitapi.router served on its own app, as orgtree.api mounts it. The desktop profile is the real
 load_app app, whose desktop_policy.install_routes is meant to strip every /git/ route but keeps the router (recorded
 legacy defect, docket the-desktop-app-still-serves-the-git-workspace-r). Each case's observation is normalized (one
@@ -56,10 +58,19 @@ def _isolated(env) -> bool:
 
 
 def _ceiling(env) -> bool:
-    # git searches upward from a non-repository cwd; every ceiling must be the root or inside it, so the search never
-    # leaves the root (an empty entry only changes symlink handling in git and is skipped here)
+    # git searches upward from a non-repository cwd and stops before entering a ceiling, but never treats its own
+    # starting folder as one. The root's parent must be a ceiling (so a search from anywhere in the root, the root
+    # included, stops at the root); any further entry must be inside the root, where it only stops a search sooner
+    # (an empty entry only changes symlink handling in git and is skipped here)
     dirs = [d for d in env.get("GIT_CEILING_DIRECTORIES", "").split(os.pathsep) if d]
-    return bool(dirs) and all(_inside(d) for d in dirs)
+    return any(_is_parent(d) for d in dirs) and all(_is_parent(d) or _inside(d) for d in dirs)
+
+
+def _is_parent(path) -> bool:
+    try:
+        return Path(str(path)).resolve() == _temp.parent
+    except (OSError, ValueError):
+        return False
 
 
 def _guard(event, args):
@@ -103,7 +114,7 @@ GITCONFIG.write_text("[user]\n\tname = P01 Probe\n\temail = p01-probe@example.in
 os.environ.update(ORGTREE_DATA=str(_data), HOME=str(_home), USERPROFILE=str(_home),
                   ORGTREE_V2_TOKEN="operator", ORGTREE_STORE_BACKEND="sqlite",
                   GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(GITCONFIG), GIT_ASKPASS="", GIT_TERMINAL_PROMPT="0",
-                  GIT_CEILING_DIRECTORIES=str(_temp))
+                  GIT_CEILING_DIRECTORIES=str(_temp.parent))
 for _k in ("ORGTREE_V1_ROOT", "ORGTREE_V1_DATA_ROOT", "ORGTREE_V2_PORT", "GIT_DIR", "GIT_WORK_TREE", "GIT_CONFIG",
            "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
            "GIT_NAMESPACE", "SSH_ASKPASS"):
@@ -599,32 +610,48 @@ class ConfinedGit(unittest.TestCase):
         got = self.refused(lambda: subprocess.run(["git", "--version"], cwd=str(_temp), env=env))
         self.assertEqual([e for e, _ in got], ["subprocess.Popen"])
 
-    def test_a_git_launch_without_a_ceiling_at_the_root_is_refused(self):
+    def test_a_git_launch_without_the_ceiling_above_the_root_is_refused(self):
         missing = {k: v for k, v in os.environ.items() if k != "GIT_CEILING_DIRECTORIES"}
-        above = dict(os.environ, GIT_CEILING_DIRECTORIES=str(_temp.parent))
-        for name, env in (("missing", missing), ("above the root", above)):
+        at_root = dict(os.environ, GIT_CEILING_DIRECTORIES=str(_temp))
+        too_high = dict(os.environ, GIT_CEILING_DIRECTORIES=str(_temp.parent.parent))
+        stray = dict(os.environ, GIT_CEILING_DIRECTORIES=os.pathsep.join([str(_temp.parent), str(ROOT)]))
+        for name, env in (("missing", missing), ("at the root only", at_root), ("above the root's parent", too_high),
+                          ("an extra entry outside the root", stray)):
             with self.subTest(ceiling=name):
                 got = self.refused(lambda: subprocess.run(["git", "--version"], cwd=str(_temp), env=env))
                 self.assertEqual([e for e, _ in got], ["subprocess.Popen"])
 
     def test_the_ceiling_stops_the_upward_search_for_a_repository(self):
-        # an enclosing repository and a plain folder below it, both inside the root: without a ceiling between them
-        # git finds the enclosing one (so this control can see an escape); with the ceiling at the enclosing folder,
-        # given in the same path form as the module's own ceiling, it finds none
+        # an enclosing repository with a plain start folder below it, all inside the root, standing in for an
+        # enclosing repository around the root. A ceiling AT the start folder does not stop git (it never applies a
+        # ceiling to where it starts), so it finds the enclosing repository: this control can see an escape. A ceiling
+        # at the start folder's PARENT, as the module's is at the root's parent, stops it: no repository. Then the
+        # same from a folder two levels down. Ceilings are given in the same path form as the module's.
         outer = _temp / "ceiling-control"
-        plain = outer / "plain" / "deeper"
-        plain.mkdir(parents=True)
+        start = outer / "start"
+        deeper = start / "plain" / "deeper"
+        deeper.mkdir(parents=True)
         sh(outer, "init", "-q")
-        self.assertEqual(Path(sh(plain, "rev-parse", "--show-toplevel")).resolve(), outer.resolve())
-        env = dict(os.environ, GIT_CEILING_DIRECTORIES=str(outer))
-        r = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=str(plain), env=env, capture_output=True,
-                           text=True)
-        self.assertEqual(r.returncode, 128, r.stdout)
-        self.assertIn("not a git repository", r.stderr)
-        # and the module's own ceiling is the root: a plain folder directly inside it finds no repository at all
-        r = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=str(_home), env=os.environ.copy(),
+
+        def toplevel(cwd, *ceilings):
+            env = dict(os.environ, GIT_CEILING_DIRECTORIES=os.pathsep.join([*map(str, ceilings), str(_temp.parent)]))
+            return subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=str(cwd), env=env, capture_output=True,
+                                  text=True)
+
+        for cwd in (start, deeper):
+            with self.subTest(cwd=cwd.name):
+                r = toplevel(cwd)
+                self.assertEqual((r.returncode, Path(r.stdout.strip()).resolve()), (0, outer.resolve()), r.stderr)
+                r = toplevel(cwd, cwd)
+                self.assertEqual((r.returncode, Path(r.stdout.strip()).resolve()), (0, outer.resolve()), r.stderr)
+                r = toplevel(cwd, cwd.parent)
+                self.assertEqual(r.returncode, 128, r.stdout)
+                self.assertIn("not a git repository", r.stderr)
+        # the module's own ceiling is the root's parent, and from the root itself git finds no repository
+        self.assertEqual(os.environ["GIT_CEILING_DIRECTORIES"], str(_temp.parent))
+        r = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=str(_temp), env=os.environ.copy(),
                            capture_output=True, text=True)
-        self.assertEqual((r.returncode, os.environ["GIT_CEILING_DIRECTORIES"]), (128, str(_temp)), r.stdout)
+        self.assertEqual(r.returncode, 128, r.stdout)
 
     def test_a_git_url_remote_is_refused(self):
         got = self.refused(lambda: subprocess.run(["git", "ls-remote", "https://example.invalid/r.git"],

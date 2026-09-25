@@ -571,9 +571,10 @@ coordinator's ruling (decision 1 on the F8 item):
   no URL scheme in any argument, and it refuses and records anything else;
 - every git launch runs with no system config, a global config inside the root that has no credential helper and an
   empty hooks directory, and HOME inside the root;
-- every git launch has GIT_CEILING_DIRECTORIES at the root, so git run in a folder that is not a repository stops its
-  upward search at the root instead of finding an enclosing repository outside it; the hook refuses a launch without
-  it, and a control shows this git honours the ceiling.
+- every git launch has GIT_CEILING_DIRECTORIES at the root's parent, so git run in a folder that is not a repository,
+  the root itself included, stops its upward search at the root instead of finding an enclosing repository outside it
+  (git never applies a ceiling to the folder it starts in, so a ceiling at the root would not cover a search starting
+  there); the hook refuses a launch without that ceiling, and a control shows this git honours it.
 The hook sees only Python's own launches, not git's child processes; the isolated configuration is what keeps the
 user's config, credential manager and hooks out of those. The module's teardown fails if anything was refused or if
 the cases ran without the hook seeing a single git launch. Each route's git subcommands are pinned. Only one pin
