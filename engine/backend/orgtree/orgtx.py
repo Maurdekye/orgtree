@@ -33,8 +33,9 @@ THE INTERFACE (stable; this is what the PG-3x family packages code against):
     name it (share or update).
   * A write to any row not locked FOR UPDATE (or to a log not named) raises
     `UnlockedWrite` at commit and NOTHING is written.
-  * Locks are taken in one fixed order (sections, then nodes, then logs;
-    each sorted), all before the body runs.
+  * Locks are taken in one fixed order, all before the body runs: a
+    'node:*' pseudo-row (shared; exclusive for nodes=ALL), then NODES,
+    then SECTIONS, then (dict-log, owner) rows, each sorted (`_lock_plan`).
   * An exception in the body rolls everything back.
   * `op_key` (+ `fingerprint`): the receipt is written in the same commit.
     A later `org_tx` with the same key finds it: `tx.replayed` is True,
@@ -107,6 +108,9 @@ PAUSE_POINTS: tuple[str, ...] = ("before_lock", "after_lock", "before_commit",
 
 DEFAULT_LOCK_TIMEOUT_S = float(os.environ.get("ORGTREE_ORGTX_LOCK_TIMEOUT_S", "10") or 10)
 DEFAULT_RETRIES = 5
+#: PostgreSQL ends a transaction whose body sits idle (between statements)
+#: longer than this while holding its row locks (review N5)
+IDLE_IN_TX_TIMEOUT_S = float(os.environ.get("ORGTREE_ORGTX_IDLE_TIMEOUT_S", "120") or 120)
 
 
 # ----------------------------------------------------------------- errors
@@ -314,7 +318,8 @@ class Backend(Protocol):
 
 
 #: the pseudo-row every node lock takes first: shared for named nodes,
-#: exclusive for nodes=ALL, so an ALL sweep excludes node creations too
+#: exclusive for nodes=ALL, so an ALL sweep excludes node creations by other
+#: org_tx calls (a legacy seam save can still insert a node; review N8)
 _ALL_NODES_KEY = "*"
 
 
@@ -334,7 +339,7 @@ def _lock_plan(tx: OrgTx, node_ids: Iterable[str] = ()) -> list[tuple[str, str, 
         plan.append(("section", name, name in tx.lock_sections))
     for lg in sorted((x for x in tx.logs if not isinstance(x, str)),
                      key=lambda x: "\0".join(x)):
-        plan.append(("log", "\0".join(lg), True))
+        plan.append(("log", json.dumps([lg[0], lg[1]]), True))
     return plan
 
 
@@ -534,8 +539,12 @@ class PgBackend:
                    "section": "SELECT 1 FROM doc WHERE key = %s",
                    "log": "SELECT 1 FROM log_d WHERE sect = %s AND owner = %s"}
             try:
-                raw.execute(f"SET lock_timeout = '{max(1, int(lock_timeout * 1000))}ms'")
                 raw.execute("BEGIN")
+                # LOCAL: dies with this transaction, so a pooled connection
+                # never carries it into a later legacy save (review B3)
+                raw.execute(f"SET LOCAL lock_timeout = '{max(1, int(lock_timeout * 1000))}ms'")
+                raw.execute(f"SET LOCAL idle_in_transaction_session_timeout = "
+                            f"'{int(IDLE_IN_TX_TIMEOUT_S * 1000)}ms'")
                 for tx in order:
                     conn = conns[tx.slug]
                     conn.use()
@@ -555,7 +564,7 @@ class PgBackend:
                                     (conn.org_id, f"{kind}:{name}"))
                         if name == _ALL_NODES_KEY:
                             continue                   # a pseudo-row: no table row
-                        args = tuple(name.split("\0")) if kind == "log" else (name,)
+                        args = tuple(json.loads(name)) if kind == "log" else (name,)
                         raw.execute(sel[kind] + (" FOR UPDATE" if exclusive else " FOR SHARE"),
                                     args)
             except Exception as e:
@@ -565,6 +574,13 @@ class PgBackend:
             for tx in order:
                 if tx.op_key is None:
                     continue
+                # a second call with the same key waits here for the first,
+                # then finds its receipt and replays (review N1)
+                try:
+                    raw.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))",
+                                (conns[tx.slug].org_id, "receipt:" + tx.op_key))
+                except Exception as e:
+                    raise _pg_error(e) from e
                 row = raw.execute("SELECT fingerprint, result FROM public.receipts "
                                   "WHERE org_id = %s AND op_key = %s",
                                   (conns[tx.slug].org_id, tx.op_key)).fetchone()
@@ -603,6 +619,10 @@ class PgBackend:
                                         "fingerprint, result) VALUES (%s, %s, %s, %s)",
                                         (conn.org_id, tx.op_key, tx.fingerprint,
                                          json.dumps(tx.result)))
+                            if changes.is_empty():
+                                # the receipt IS the write: bump + NOTIFY, as
+                                # the fake does (review N4)
+                                pgstore.on_save_commit(conn, True)
                         # only the LAST save's COMMIT reaches the server
                         conn.commit_armed = last
 
