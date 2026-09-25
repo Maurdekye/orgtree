@@ -99,20 +99,29 @@ def _destination(org, row):
 
 def _publish(row):
     """Bounded publication retries; permanently unavailable results retain evidence."""
-    from . import halt, supervisor as sup
+    from . import halt, mailtx, supervisor as sup
     with _publish_lock:
         # Use the current durable row, including any publication checkpoint.
         row = next((r for r in records() if r['id'] == row['id']), None)
         if row is None or row.get('retry_at', 0) > time.time():
             return
         try:
-            with store.DOC_LOCK:
-                org = store.load_org(row['org'])
-                nid = _destination(org, row)
-                if not nid:
-                    raise _DestinationGone('recipient seat no longer exists')
-                receipts = org.d.setdefault('tool_result_receipts', {})
-                if not row.get('published'):
+            # PG-3e-A: two row transactions around the same journal
+            # checkpoint the DOC_LOCK version had between its two saves. The
+            # recipient seat is planned from the cached snapshot and re-found
+            # under the lock; if it moved, the attempt fails into the ordinary
+            # bounded retry below rather than writing an unlocked row.
+            nid = _destination(store.cached_org(row['org']), row)
+            if not nid:
+                raise _DestinationGone('recipient seat no longer exists')
+            if not row.get('published'):
+                with halt.txn(row['org'], **mailtx.merge(
+                        mailtx.send_rows(nid), sections=['tool_result_receipts'],
+                        share_sections=[halt.KILLSWITCH])) as _tw_tx:
+                    org = _tw_tx.org
+                    if _destination(org, row) != nid:
+                        raise RuntimeError('recipient seat moved; retrying')
+                    receipts = org.d.setdefault('tool_result_receipts', {})
                     if row['id'] not in receipts:
                         body = (f"[ORGTREE TOOL RESULT {row['id']}]\n"
                                 f"Tool: {row['tool']}\nState: {row['state']}\n"
@@ -122,17 +131,20 @@ def _publish(row):
                         msg = org.post_mail(ledger.SYSTEM, nid, body)
                         receipts[row['id']] = msg['id']
                         maildrain.request(org, nid)
-                        if halt.blocked(row['org'], nid):
+                        # decided on the rows this transaction holds
+                        if halt._gate_blocked(org, nid):  # pyright: ignore[reportPrivateUsage]
                             maildrain.suspend(org, nid)
-                        store.save_org(org)
-                    # Checkpoint before removing the org marker. Recovery can
-                    # now finish cleanup without recreating the message, even
-                    # if the marker was cleared and the final delete failed.
-                    row['published'] = True
-                    _save(row)
-                receipts.pop(row['id'], None)
-                store.save_org(org)
-                _delete(row['id'])
+                # Checkpoint before removing the org marker. Recovery can
+                # now finish cleanup without recreating the message, even
+                # if the marker was cleared and the final delete failed.
+                row['published'] = True
+                _save(row)
+            with halt.txn(row['org'], sections=['tool_result_receipts']) as _tw_tx:
+                org = _tw_tx.org
+                if not _destination(org, row):
+                    raise _DestinationGone('recipient seat no longer exists')
+                org.d.setdefault('tool_result_receipts', {}).pop(row['id'], None)
+            _delete(row['id'])
         except Exception as exc:
             gone = (isinstance(exc, _DestinationGone) or
                     isinstance(exc, ledger.LedgerError) and str(exc).startswith('no such org:'))
