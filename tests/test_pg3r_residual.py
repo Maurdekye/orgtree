@@ -143,6 +143,45 @@ class PendingShrink(unittest.TestCase):
         self.assertEqual(store.load_org(slug).d['disk'], {'size_mb': 2048})
 
 
+class DiskMigrationFlip(unittest.TestCase):
+    def test_flip_is_one_whole_org_row_transaction_without_doc_lock(self):
+        from types import SimpleNamespace
+        from orgtree import disk, sandbox
+        slug = _fresh_org('Migrate Org')
+        ws = Path(_temp.name) / 'old-ws'
+        ws.mkdir(exist_ok=True)
+        org = store.load_org(slug)
+        org.d['workspace'] = str(ws)
+        org.d['dirs'] = [{'path': str(ws), 'mode': 'rw'}]
+        org.d['kiosk'] = {'storage_limit_mb': 256}          # floored to 4096: the inbox notice path
+        org.d['storage_frozen'] = True
+        org.node('a')['frozen'] = {'storage': True, 'storage_error': 'full'}
+        org.node('a').setdefault('scope', {})['add_dirs'] = [{'path': str(ws), 'mode': 'rw'}]
+        store.save_org(org)
+        ok = SimpleNamespace(returncode=0, stdout='MIGRATED', stderr='')
+        seen = []
+        orgtx.commit_listeners.append(seen.append)
+        try:
+            with patch.object(disk, 'create'), patch.object(sandbox, '_docker', return_value=ok), \
+                    patch.object(sandbox, 'ensure_image', return_value='img'), \
+                    patch.object(disk, 'windows_sub', return_value='Z:\\\\new-ws'):
+                finished, _ = _while_doc_lock_is_held(lambda: sandbox.migrate_to_disk(store.load_org(slug)))
+        finally:
+            orgtx.commit_listeners.remove(seen.append)
+        self.assertTrue(finished, 'the disk flip waited on DOC_LOCK')
+        self.assertEqual(len(seen), 1)
+        after = store.load_org(slug)
+        self.assertEqual(after.d['disk']['size_mb'], 4096)
+        self.assertEqual(after.d['workspace'], 'Z:\\\\new-ws')
+        self.assertEqual(after.d['dirs'][0]['path'], 'Z:\\\\new-ws')
+        self.assertNotIn('storage_frozen', after.d)
+        self.assertNotIn('frozen', after.node('a'))
+        self.assertEqual(after.node('a')['scope']['add_dirs'][0]['path'], 'Z:\\\\new-ws')
+        mailed = list(after.d.get('user_inbox') or []) + list(after.d.get('user_mail_log') or [])
+        self.assertTrue(any('256' in str(m.get('body', '')) for m in mailed),
+                        'the floored-cap notice reached the operator inbox in the same commit')
+
+
 class TranscriptIncarnation(unittest.TestCase):
     def test_mint_is_a_row_transaction_on_the_node_and_is_kept_once_minted(self):
         from orgtree import transcript_records
