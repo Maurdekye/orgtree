@@ -29,6 +29,8 @@ class Spec:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
+_ARCHIVE_SECTIONS = ("asks", "credit_requests", "notices", "scope_requests")
+
 SPECS: dict[str, Spec] = {
     # №31: the ledger said live, the session cannot resume. Writes the node's
     # state, a typed notice into its parent's box (`notices` + `notice_log`)
@@ -51,6 +53,19 @@ SPECS: dict[str, Spec] = {
                  share_sections=("max_children", "max_depth", "max_top_grant"),
                  logs=("events", "notice_log"),
                  notes="nodes/share_nodes = _move_rows(org, actor, nid, new_parent)"),
+    # retire / dissolve / rescind. Node rows from `_archive_rows`: the node and
+    # everything that goes with it (`_taken_with`: subtree + lineage stacks to
+    # a fixpoint) FOR UPDATE, because retire auto-dissolves when the node has
+    # live reports, and the children it decides on are exactly the rows a
+    # hire under it would lock; rescind adds the PARENT (its grant is clawed
+    # back, and `free(parent)` decides how much). Written sections: the
+    # request queues `_moot_asks` resolves, and the notices.
+    "retire": Spec(sections=_ARCHIVE_SECTIONS, logs=("events", "notice_log"),
+                   notes="nodes/share_nodes = _archive_rows(org, actor, nid)"),
+    "dissolve": Spec(sections=_ARCHIVE_SECTIONS, logs=("events", "notice_log"),
+                     notes="nodes/share_nodes = _archive_rows(org, actor, nid)"),
+    "rescind": Spec(sections=_ARCHIVE_SECTIONS, logs=("events", "notice_log"),
+                    notes="nodes/share_nodes = _archive_rows(org, actor, nid, parent=True)"),
 }
 
 
@@ -162,3 +177,38 @@ def mark_unrecoverable(slug: str, nid: str, reason: str) -> bool:
             return False
         tx.org.mark_unrecoverable(nid, reason)
         return True
+
+
+def _archive_rows(org, actor: str, nid: str, parent: bool = False
+                  ) -> tuple[set[str], set[str]]:
+    """(FOR UPDATE, FOR SHARE) node rows of retire / dissolve / rescind."""
+    n = org.nodes.get(nid)
+    if n is None:
+        return {nid}, set()
+    upd = {nid, *org._taken_with(nid)}
+    if parent and n["parent"] is not None and n["parent"] in org.nodes:
+        upd.add(n["parent"])
+    share = set()
+    if actor in org.nodes:
+        share.add(actor)
+    for k in list(upd):
+        share |= _anc(org, k)
+    return upd, share - upd
+
+
+def _archive_op(op: str, parent: bool = False):
+    def body(org, held_nodes, held_share, actor: str, nid: str) -> dict[str, Any]:
+        _need(org, lambda o: _archive_rows(o, actor, nid, parent),
+              held_nodes, held_share)
+        return getattr(org, op)(actor, nid)
+
+    def run(slug: str, actor: str, nid: str) -> dict[str, Any]:
+        return _run(op, slug, lambda o: _archive_rows(o, actor, nid, parent),
+                    lambda org, hn, hs: body(org, hn, hs, actor, nid))
+    body.__name__, run.__name__ = f"{op}_body", op
+    return body, run
+
+
+retire_body, retire = _archive_op("retire")
+dissolve_body, dissolve = _archive_op("dissolve")
+rescind_body, rescind = _archive_op("rescind", parent=True)
