@@ -3,12 +3,27 @@ name = "orgtree-store-trace"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "P03 WS7 contact-trace collector: orgtree.p03-trace/v1 records, bounded per-stream buffers with sequence numbers and loss counters, and the SQL-text relation/lock-mode deriver"
+description = "P03 WS7 contact-trace collector: orgtree.p03-trace/v1 records, bounded per-stream buffers with sequence numbers and loss counters, the SQL-text relation/lock-mode deriver, and the TraceSink collector over orgtree-store"
 license = "MIT"
 
 [lib]
 path = "src/lib.rs"
 
-# No third-party dependencies: the records are written as JSON by hand
-# (src/json.rs), so this crate adds nothing to engine/native/store/DEPENDENCIES.md.
+[features]
+default = []
+# The collector over WS2's orgtree_store::hooks::TraceSink (CONTRACT-M1 section 5).
+# Off by default so the stream and deriver stay dependency-free.
+sink = ["dep:orgtree-store"]
+
+# The core adds no third-party dependency (records are written by src/json.rs).
+# `sink` adds only the path dependency on orgtree-store, whose own pinned
+# dependencies are listed in engine/native/store/DEPENDENCIES.md.
 [dependencies]
+orgtree-store = { path = "../store", optional = true }
+
+[dev-dependencies]
+# qualification: the executor then runs its own trace.xact_stats and
+# trace.pre_commit_lsn statements, which the collector must mark as infrastructure
+orgtree-store = { path = "../store", features = ["fake", "qualification"] }
+# the same pinned version as orgtree-store (engine/native/store/DEPENDENCIES.md)
+tokio = { version = "=1.52.3", default-features = false, features = ["rt"] }

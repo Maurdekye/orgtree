@@ -252,6 +252,9 @@ def run_order(channel: Channel, schedule: Schedule, order: Order) -> RunResult:
         reasons += compare(order.intended, recorder.events, records)
     if not health["complete"]:
         reasons.append("incomplete-contact run: " + "; ".join(health["problems"][:3]))
+    if any(r.get("stub") is True for r in records):
+        reasons.append("the trace contains stub events: no schedule may pass against a stub "
+                       "(M1 §2 row 6)")
     held = None
     if not reasons:
         held = bool(schedule.pass_condition(records, recorder.events, final))

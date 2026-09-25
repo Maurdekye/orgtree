@@ -62,12 +62,15 @@ class _Stream:
         self._seq = itertools.count(1)
         self.records: list[dict[str, Any]] = []
         self._lock = threading.Lock()
+        self.stub = False
 
     def emit(self, kind: str, **fields: Any) -> dict[str, Any]:
         with self._lock:
             seq = next(self._seq)
             if kind == "stream_end":
                 fields["last_seq"] = seq
+            elif self.stub and "operation_id" in fields:
+                fields["stub"] = True
             rec = {"schema": SCHEMA, "stream": self.name, "seq": seq,
                    "mono_ns": time.monotonic_ns(), "kind": kind, **fields}
             self.records.append(rec)
@@ -87,7 +90,7 @@ class FakeExecutor:
                  declared: "dict[str, Any] | None" = None,
                  server_extra: "dict[str, dict[str, int]] | None" = None,
                  hidden_statements: int = 0, skip_stmts: "set[str] | None" = None,
-                 factory: str = "fake-pool") -> None:
+                 factory: str = "fake-pool", stub: bool = False) -> None:
         """Fault options for the Q-C5 oracle's meta-controls:
         ``server_extra``: relation -> pg_stat_xact_user_tables counters the SERVER
         reports for every transaction but no statement names (a trigger);
@@ -108,6 +111,7 @@ class FakeExecutor:
         self.factory = factory
         self.rows: dict[str, Any] = {}
         self.stream = _Stream("fake-executor")
+        self.stream.stub = stub      # every operation record says stub: true (WS2's Sent stub)
         self._events: "queue.Queue[dict[str, Any]]" = queue.Queue()
         self._holds: dict[tuple[str, str], dict[str, Any]] = {}
         self._gates: dict[tuple[str, str], threading.Event] = {}
@@ -309,7 +313,7 @@ class FakeExecutor:
         while attempt <= MAX_ATTEMPTS:
             try:
                 self._attempt(tag, kind, args, op_id, pid, attempt)
-                outcome = "commit"
+                outcome = "applied"
                 break
             except _Abort as abort:
                 self._release_all(pid)

@@ -23,26 +23,36 @@ UNKNOWN = "unknown"
 
 #: every record kind and the fields it must carry (beyond the common four)
 KINDS: dict[str, tuple[str, ...]] = {
+    # the executor's records (engine/native/store-trace src/sink.rs maps WS2's events here)
+    "conn_opened": ("factory", "backend_pid", "backend_start"),
     "op_begin": ("run_id", "operation_id", "attempt", "op_kind", "op_tag"),
-    "tx_begin": ("operation_id", "attempt", "conn_id", "backend_pid", "isolation", "factory"),
-    "stmt": ("operation_id", "attempt", "conn_id", "backend_pid", "stmt_label", "fingerprint",
+    "tx_begin": ("operation_id", "attempt", "backend_pid", "isolation"),
+    "stmt": ("operation_id", "attempt", "backend_pid", "stmt_label", "fingerprint",
              "mode", "relations", "sqlstate"),
     "xact_stats": ("operation_id", "attempt", "backend_pid", "tables"),
     "wait": ("operation_id", "attempt", "backend_pid", "wait_on"),
     "retry": ("operation_id", "attempt", "retry_cause", "sqlstate"),
-    "tx_end": ("operation_id", "attempt", "conn_id", "backend_pid", "outcome", "sqlstate"),
+    "tx_end": ("operation_id", "attempt", "backend_pid", "outcome", "sqlstate"),
     "op_end": ("operation_id", "attempt", "outcome", "contacts"),
     "effect": ("operation_id", "shape"),
     "control_executed": ("control_id", "operation_id", "op_tag"),
+    "pause": ("point",),
+    "lookup": ("answer",),
+    # the harness's own records
     "arrived": ("point", "op_tag", "operation_id", "attempt", "backend_pid"),
     "release": ("point", "op_tag"),
     "conn_activity": ("backend_pid", "factory", "transactions"),
+    # stream health
     "drop": ("count",),
     "flush": ("upto_seq",),
     "stream_end": ("last_seq", "clean"),
 }
 COMMON = ("stream", "seq", "mono_ns", "kind")
-OUTCOMES = {"commit", "rollback", "unknown", "refused", "error"}
+#: a transaction's end (tx_end)
+TX_OUTCOMES = {"commit", "rollback", "unknown"}
+#: an operation's end (op_end): the executor's Outcome names (WS2 exec.rs Outcome::name)
+OP_OUTCOMES = {"applied", "replayed", "compensated", "conflict", "fenced", "refused",
+               "retry_exhausted", "unknown", "not_disclosed", "error"}
 MODES = {"read", "write", "ddl", UNKNOWN}
 SHAPES = {"native_tx", "workflow_step", "external_effect", "read_snapshot"}
 
@@ -56,8 +66,10 @@ def record_errors(record: dict[str, Any]) -> list[str]:
     errors += [f"{kind}: missing {f}" for f in KINDS[kind] if f not in record]
     if kind == "stmt" and record.get("mode") not in MODES:
         errors.append(f"stmt: bad mode {record.get('mode')!r}")
-    if kind in ("tx_end", "op_end") and record.get("outcome") not in OUTCOMES:
-        errors.append(f"{kind}: bad outcome {record.get('outcome')!r}")
+    if kind == "tx_end" and record.get("outcome") not in TX_OUTCOMES:
+        errors.append(f"tx_end: bad outcome {record.get('outcome')!r}")
+    if kind == "op_end" and record.get("outcome") not in OP_OUTCOMES:
+        errors.append(f"op_end: bad outcome {record.get('outcome')!r}")
     if kind == "effect" and record.get("shape") not in SHAPES:
         errors.append(f"effect: bad shape {record.get('shape')!r}")
     if kind == "stmt" and record.get("relations") != UNKNOWN and not isinstance(

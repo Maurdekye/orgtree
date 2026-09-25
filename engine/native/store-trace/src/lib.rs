@@ -9,9 +9,12 @@
 //!   to derive"). The server-side `trace.xact_stats` rows are its cross-check.
 //! - [`json`]: a minimal JSON writer, so this crate has no dependencies.
 //!
-//! The `TraceSink` implementation over WS2's `TraceEvent` is added when
-//! `orgtree-store` exists; it maps each event onto a record of `trace.py::KINDS`.
+//! - [`sink`] (feature `sink`): the collector implementing WS2's
+//!   `orgtree_store::hooks::TraceSink`, mapping every event onto a record of
+//!   `trace.py::KINDS`.
 
 pub mod json;
+#[cfg(feature = "sink")]
+pub mod sink;
 pub mod sqlmap;
 pub mod stream;
