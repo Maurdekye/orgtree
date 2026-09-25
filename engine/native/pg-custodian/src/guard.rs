@@ -95,10 +95,9 @@ pub fn lexical(path: &Path) -> Result<String> {
     if raw.starts_with("\\\\.\\") || raw.to_ascii_lowercase().starts_with("\\\\?\\unc\\") {
         return Err(CustodianError::new("root.device_or_unc", format!("device or UNC path refused: {raw}")));
     }
+    // Any other UNC form (`\\server\share`) parses to a non-disk prefix and
+    // is refused in the match below.
     let stripped = raw.strip_prefix("\\\\?\\").unwrap_or(&raw).to_string();
-    if stripped.starts_with("\\\\") {
-        return Err(CustodianError::new("root.device_or_unc", format!("UNC path refused: {raw}")));
-    }
     let p = PathBuf::from(&stripped);
     let mut parts: Vec<String> = Vec::new();
     let mut prefix: Option<String> = None;
