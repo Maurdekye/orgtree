@@ -60,6 +60,7 @@ impl<C: Connector> Executor<C> {
                 }
                 Err(CmdError::Db(e)) => return Err(ExecError::Sql(e)),
                 Err(CmdError::Defect(m)) => return Err(ExecError::Defect(m)),
+                Err(CmdError::Refused(r)) => return Err(ExecError::Defect(format!("a read refused ({}); reads answer, they do not refuse through the executor", r.code))),
                 Err(CmdError::RetryAttempt { cause }) => return Err(ExecError::Defect(format!("a read asked for a retry ({cause}); reads have no attempts to retry"))),
             }
         }
