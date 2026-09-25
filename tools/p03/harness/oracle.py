@@ -132,9 +132,11 @@ def observed_contacts(records: Iterable[dict[str, Any]]) -> dict[tuple[str, int]
             if r.get("outcome") == "commit":
                 slot(r)["committed"] = True
         elif k == "stmt":
-            s = slot(r)
             if r.get("infrastructure"):
-                continue        # the executor's own trace.*/exec.* statements (system views)
+                # the executor's own trace.*/exec.* statements (system views, connection
+                # setup, service registration): no operation slot, never compared
+                continue
+            s = slot(r)
             s["stmts"] += 1
             for name in r.get("unresolved") or []:
                 s["unresolved"].add(name)

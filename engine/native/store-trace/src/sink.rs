@@ -14,6 +14,7 @@
 //! | `ControlExecuted`| `control_executed` | |
 //! | `Pause`          | `pause`      | |
 //! | `Lookup`         | `lookup`     | |
+//! | `XactLocks`      | `xact_locks` | the backend's own relation locks (row-lock family check) |
 //! | `XactStats`      | `xact_stats` | the server's per-transaction relation activity (qualification builds) |
 //!
 //! Statements labelled `trace.*` or `exec.*` are the executor's own
@@ -145,10 +146,13 @@ impl TraceSink for Collector {
                     ("isolation".into(), s(isolation)),
                 ]);
             }
-            EventKind::Statement { label, sql, micros, rows, sqlstate } => {
+            EventKind::Statement { label, sql, micros, rows, sqlstate, backend_pid } => {
                 let infra = is_infrastructure(label);
+                // the event's own pid first (every statement carries it since WS2 c67c89d),
+                // the attempt's Begin pid as the fallback
+                let pid = backend_pid.map(|p| Value::Int(p as i64)).unwrap_or_else(|| self.pid(&op, e.attempt));
                 let mut fields = vec![
-                    ("backend_pid".into(), self.pid(&op, e.attempt)),
+                    ("backend_pid".into(), pid),
                     ("stmt_label".into(), s(label)),
                     ("fingerprint".into(), s(&fingerprint(sql))),
                     ("sqlstate".into(), s(sqlstate.unwrap_or("00000"))),
@@ -219,6 +223,18 @@ impl TraceSink for Collector {
             }
             EventKind::Lookup { answer } => {
                 self.push(e, "lookup", vec![("answer".into(), s(answer))]);
+            }
+            EventKind::XactLocks { locks } => {
+                // the backend's own relation locks before COMMIT: the server-side row-lock
+                // FAMILY cross-check (lead ruling, decision 4)
+                let rows = locks
+                    .iter()
+                    .map(|l| Value::Obj(vec![("relname".into(), s(&l.relname)), ("mode".into(), s(&l.mode))]))
+                    .collect();
+                self.push(e, "xact_locks", vec![
+                    ("backend_pid".into(), self.pid(&op, e.attempt)),
+                    ("locks".into(), Value::List(rows)),
+                ]);
             }
             EventKind::XactStats { tables } => {
                 // the SERVER's per-transaction relation activity (pg_stat_xact_user_tables),
