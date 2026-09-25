@@ -32,6 +32,7 @@ from functools import wraps
 import threading
 import time
 import uuid
+from collections.abc import Mapping
 from typing import Any, Callable, Iterable, Iterator
 
 from . import orgtx, store
@@ -502,20 +503,45 @@ def _capture_tx(slug: str, nid: str, *states) -> None:
             _capture(tx.org, nid, st)
 
 
-def delivery(empty):
+_ROW_KINDS = ("nodes", "sections", "share_nodes", "share_sections", "logs")
+
+
+def _gate_rows(nid: str, rows, args, kwargs) -> dict[str, set]:
+    """The gate's own rows (nid FOR UPDATE, the killswitch FOR SHARE) united
+    with what the wrapped body declares. `rows` is called with the wrapped
+    call's own arguments BEFORE any lock is taken, and returns a mapping (or
+    an object with attributes) over `_ROW_KINDS`; None adds nothing."""
+    out = {k: set() for k in _ROW_KINDS}
+    out["nodes"].add(nid)
+    out["share_sections"].add(KILLSWITCH)
+    extra = rows(*args, **kwargs) if rows is not None else None
+    if extra is not None:
+        for k in _ROW_KINDS:
+            got = (extra.get(k) if isinstance(extra, Mapping)
+                   else getattr(extra, k, None))
+            if isinstance(got, str):
+                raise TypeError(f"halt gate rows: {k} must be an iterable "
+                                f"of names, not the string {got!r}")
+            out[k].update(got or ())
+    return out
+
+
+def delivery(empty, *, rows=None):
     """Serialize a short mailbox/receipt transaction with halt admission.
 
     The body runs INSIDE one halt transaction holding nid's row FOR UPDATE
     and the killswitch FOR SHARE, so it is strictly ordered against a halt's
     `halting` commit. A converted body takes that transaction from
     `current_tx()`; an unconverted one still runs under the fence's DOC_LOCK
-    exactly as before."""
+    exactly as before. `rows(slug, nid, *args, **kwargs)` optionally declares
+    the body's own rows; the gate locks their union in its one transaction."""
     def decorate(fn):
         @wraps(fn)
         def guarded(slug, nid, *args, **kwargs):
             if _no_org(slug):
                 return fn(slug, nid, *args, **kwargs)
-            with txn(slug, nodes=[nid], share_sections=[KILLSWITCH]) as tx:
+            want = _gate_rows(nid, rows, (slug, nid) + args, kwargs)
+            with txn(slug, **want) as tx:
                 if _gate_blocked(tx.org, nid):
                     return empty()
                 return fn(slug, nid, *args, **kwargs)
@@ -523,10 +549,15 @@ def delivery(empty):
     return decorate
 
 
-def admission(fn):
+def admission(fn=None, *, rows=None):
     """The send door is atomic with halt, including steer envelope drains:
     the blocked decision, the retained carrier and the body are one halt
-    transaction on nid's row (killswitch FOR SHARE)."""
+    transaction on nid's row (killswitch FOR SHARE). Used bare, or as
+    `@admission(rows=...)` where `rows(slug, nid, text, *args, **kwargs)`
+    declares the body's own rows, locked with the gate's in one transaction."""
+    if fn is None:
+        return lambda f: admission(f, rows=rows)
+
     @wraps(fn)
     def guarded(slug, nid, text, *args, **kwargs):
         options = dict(zip(("command", "wake", "mail_ping", "idle_only", "view",
@@ -535,7 +566,8 @@ def admission(fn):
         options.update(kwargs)
         if _no_org(slug):
             return fn(slug, nid, text, *args, **kwargs)
-        with txn(slug, nodes=[nid], share_sections=[KILLSWITCH]) as tx:
+        want = _gate_rows(nid, rows, (slug, nid, text) + args, kwargs)
+        with txn(slug, **want) as tx:
             org = tx.org
             n = org.nodes.get(nid)
             cause = _gate_blocked(org, nid) if n else None
