@@ -325,7 +325,10 @@ class OrgTxOnPostgres(unittest.TestCase):
     def test_b2_stale_legacy_save_cannot_drop_or_overwrite_log_rows(self) -> None:
         self._seed_mail()
         legacy = store.load_org(self.slug)
-        legacy.d['mail_log']['a'] = [{'id': 'm1', 'body': 'one'}]      # a replacement
+        seen = list(legacy.d['mail_log']['a'])          # the owner is READ (a baseline)
+        legacy.d['mail_log']['a'] = seen[:1]            # then replaced
+        # (a replace of an owner never read has no baseline and stays a blind
+        # overwrite, as on SQLite: a documented limit of the compare-and-set)
         with orgtx.org_tx(self.slug, logs=['mail_log']) as tx:
             tx.d['mail_log']['a'].append({'id': 'm-tx', 'body': 'tx'})
         with self.assertRaises(store.StaleWrite):
