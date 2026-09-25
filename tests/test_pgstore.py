@@ -675,6 +675,15 @@ class PG0bPostgres(unittest.TestCase):
             r = c.execute(f'SELECT val FROM org_{oid}.doc WHERE key=%s', (key,)).fetchone()
         return None if r is None else r[0]
 
+    def test_load_heal_recurs_on_postgres(self) -> None:
+        for _ in range(2):
+            org = store.load_org(self.slug)
+            self.assertIsNotNone(dict.pop(org.d, '_migrations', None))
+            store.save_org(org)
+            with orgtx.org_tx(self.slug, nodes=['a']) as tx:
+                tx.d['nodes']['a']['name'] = 'healed'
+            self.assertIn('_migrations', store.load_org(self.slug).d)
+
     def test_incremental_delete_is_compare_and_set(self) -> None:
         org = store.load_org(self.slug)
         org.d.setdefault('mail_log', {})['a'] = [{'id': 'm1'}, {'id': 'm2'}]
