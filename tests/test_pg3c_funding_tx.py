@@ -55,12 +55,6 @@ def tearDownModule() -> None:
     root.cleanup()
 
 
-@contextlib.contextmanager
-def _seam(slug, **rows):
-    with orgtx.org_tx(slug, **rows) as tx:
-        yield tx.org
-
-
 def _no_admit(org, body, a):
     return None
 
@@ -114,8 +108,7 @@ class LastCredit(unittest.TestCase):
 
     def setUp(self) -> None:
         orgtx.use_backend(orgtx.SeamBackend())
-        pgdoor.use_org_tx(_seam, lambda e: isinstance(e, orgtx.Retryable),
-                          snapshot=lambda s: orgtx.org_read(s))
+        pgdoor.use_org_tx(None)   # PG-0's orgtx.org_tx, pgdoor's own retry/widen rules
         LastCredit.n += 1
         self.slug = f'pg3cfund{LastCredit.n}'
         org = store.create_org(self.slug)
@@ -264,8 +257,7 @@ class StaleSnapshot(unittest.TestCase):
 
     def setUp(self) -> None:
         orgtx.use_backend(orgtx.SeamBackend())
-        pgdoor.use_org_tx(_seam, lambda e: isinstance(e, orgtx.Retryable),
-                          snapshot=lambda s: orgtx.org_read(s))
+        pgdoor.use_org_tx(None)   # PG-0's orgtx.org_tx, pgdoor's own retry/widen rules
         self.slug = 'pg3cstale'
         org = store.create_org(self.slug)
         org.hire(ledger.USER, None, 'haiku', 12, 'boss')

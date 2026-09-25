@@ -6395,7 +6395,7 @@ def credit_request_decide(slug: str, body: CreditDecision) -> dict[str, Any]:
 
     def _decide(tx: Any) -> dict[str, Any]:
         org = tx.org
-        rcdoor.require(tx.spec, rcdoor.decide_rows(org, body.id))
+        rcdoor.hold(slug, rcdoor.decide_rows(org, body.id))
         req = org.credit_request_action(body.id, body.action,
                                         granted=body.granted)
         _kiosk_cap_check(org)
