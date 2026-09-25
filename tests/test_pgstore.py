@@ -582,6 +582,32 @@ class TransitionFence(unittest.TestCase):
         self.assertFalse(legacy == 1 and tx == 1, 'both writes survived: no race was exercised')
         self.assertTrue(stale or legacy is None or tx is None)
 
+    def test_a2_org_tx_holds_the_fence_until_commit(self) -> None:
+        orgtx.TRANSITION_FENCE = True
+        inside, release = threading.Event(), threading.Event()
+        got_lock = threading.Event()
+
+        def converted() -> None:
+            with orgtx.org_tx(self.slug, nodes=['a']) as tx:
+                inside.set()
+                release.wait(10)
+                tx.d['nodes']['a']['tx2'] = 1
+
+        def legacy() -> None:
+            with store.DOC_LOCK:
+                got_lock.set()
+        ct = threading.Thread(target=converted)
+        ct.start()
+        self.assertTrue(inside.wait(10))
+        lt = threading.Thread(target=legacy)
+        lt.start()
+        self.assertFalse(got_lock.wait(0.5), 'a DOC_LOCK cycle ran inside an open org_tx')
+        release.set()
+        ct.join(10)
+        lt.join(10)
+        self.assertTrue(got_lock.is_set())
+        self.assertEqual(_node(self.slug, 'a').get('tx2'), 1)
+
     def test_b_doc_lock_holder_reenters(self) -> None:
         orgtx.TRANSITION_FENCE = True
         done: list = []
