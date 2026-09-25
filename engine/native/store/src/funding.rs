@@ -75,10 +75,13 @@ pub const CONTROLS: &[&str] = &[
     "Q-FD3.liveness_once",
     "Q-FD4.skip_one_hop_update",
     "Q-FD5.no_kiosk_pool_row",
+    "Q-OP2.no_capacity_lock",
 ];
 
 /// Family-specific pause points.
 pub const POINTS: &[&str] = &[
+    // after the step's lock set is locked and its facts read (under
+    // Q-OP2.no_capacity_lock: after the facts are read, BEFORE the locks)
     "funding.reallocate.after_locks",
     "funding.decide.after_liveness",
     "funding.decide.after_cas",
@@ -595,25 +598,28 @@ async fn notify<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, to: Uuid, kind: &str,
     }
 }
 
-/// The real funding step's lock set, decided by the plan it protects.
+/// The real funding step's lock set, decided by the plan it protects (lead
+/// ruling 2, 2026-09-25; v6 TRANSACTIONS-AND-RUNTIME:42).
 ///
-/// It starts with the rows the step certainly relies on — the target and its
-/// payer (for a user actor, whose `_chain_acquire` takes from the payer's own
-/// free first), or the whole chain from the target up to an acting agent
-/// (every one of them may contribute) — locks them (step 4), reads the facts
-/// and decides. If the plan changes a grant or a payer's obligations outside
-/// the locked set, the set is extended to cover them and the step reads and
-/// decides again; a refusal is trusted only once the whole path it read is
-/// locked. So two reallocations that change disjoint payers never wait on
-/// each other, even under one top-level ancestor (Q-OP2), while every row a
-/// plan writes, and every `free` it spends, was read under its lock.
-/// Extending after earlier locks can deadlock with another writer; C1
-/// retries a detected deadlock (C4).
+/// An attempt locks ONE set, all at once, in canonical order (funding edges
+/// then capacity rows, each in primary-key order), and never extends it
+/// midway. The first attempt's set is the rows the step certainly relies on:
+/// the target and its payer for a user actor (legacy `_chain_acquire` takes
+/// the payer's own free first), or the chain from the target up to an acting
+/// agent (every one of them may contribute). If the plan then changes a grant
+/// or a payer's obligations outside the set — or refuses while part of the
+/// path it read is unlocked — the step records the larger set in `hint` and
+/// asks for a retry (`CmdError::RetryAttempt { cause:
+/// "funding.lockset_extended" }`); the retry locks the larger set from the
+/// start. A refusal is trusted only once everything it read was locked. Two
+/// reallocations that change disjoint payers never wait on each other, even
+/// under one top-level ancestor (Q-OP2), and every row a plan writes, and
+/// every `free` it spends, was read under its lock.
 ///
-/// `delta_of` computes the step's delta from the facts read under the
-/// locks (the credit decision's `give − grant`); `skip_zero` makes a zero
-/// delta a no-op (legacy `credit_request_action` calls `reallocate` only for
-/// a nonzero delta). `stale_state` overrides the target's lifecycle in the
+/// `delta_of` computes the step's delta from the facts read under the locks
+/// (the credit decision's `give − grant`); `skip_zero` makes a zero delta a
+/// no-op (legacy `credit_request_action` calls `reallocate` only for a
+/// nonzero delta). `stale_state` overrides the target's lifecycle in the
 /// planner's input (Q-FD3's controls: liveness read once, never re-read).
 #[allow(clippy::too_many_arguments)]
 pub async fn plan_locked<S: Session>(
@@ -623,12 +629,12 @@ pub async fn plan_locked<S: Session>(
     target: Uuid,
     stale_state: Option<&str>,
     skip_zero: bool,
+    hint: &Mutex<BTreeSet<Uuid>>,
     delta_of: &(dyn Fn(&Loaded) -> Result<PyNum, CmdError> + Send + Sync),
 ) -> Result<Result<(Loaded, Option<Plan>), Refusal>, CmdError> {
     let Some(f) = open_frame(tx, org, target, ReadMode { lock: true }).await? else {
         return Ok(Err(Refusal::new("funding.nosuchnode", format!("no such node {target}"))));
     };
-    // the path the planner can read `free` on: up to the acting agent, or the top
     // An agent that is not on the target's chain has no authority over it:
     // the planner refuses from the (share-locked) topology alone, so nothing
     // is locked for it.
@@ -639,54 +645,65 @@ pub async fn plan_locked<S: Session>(
         },
         Actor::User => f.chain.iter().copied().collect(),
     };
-    let mut want: BTreeSet<Uuid> = match actor {
+    let mut locked: BTreeSet<Uuid> = match actor {
         Actor::Agent(_) => path.clone(),
         Actor::User => f.chain.iter().take(2).copied().collect(),
     };
-    let mut locked: BTreeSet<Uuid> = BTreeSet::new();
-    for round in 0..(f.chain.len() + 2) {
-        let new: BTreeSet<Uuid> = want.difference(&locked).copied().collect();
-        lock_rows(tx, org, &new).await?;
-        locked.extend(new);
-        let mut l = read_facts(tx, org, target, &f).await?;
-        if let Some(s) = stale_state {
-            let name = l.name(target).map(str::to_string);
-            for n in &mut l.snap.nodes {
-                if Some(&n.id) == name.as_ref() {
-                    n.state = s.to_string();
-                }
-            }
-        }
-        if round == 0 {
-            tx.pause("after_locks").await?;
-        }
-        let delta = delta_of(&l)?;
-        if skip_zero && delta.eq_py(PyNum::Int(0)) {
-            return Ok(Ok((l, None)));
-        }
-        match decide_reallocate(&l, actor, delta)? {
-            Err(r) => {
-                if path.is_subset(&locked) {
-                    return Ok(Err(r));
-                }
-                want = locked.union(&path).copied().collect();
-            }
-            Ok(plan) => {
-                let mut need: BTreeSet<Uuid> = BTreeSet::from([target]);
-                for (id, _, _) in &plan.changes {
-                    need.insert(*id);
-                    if let Some(p) = l.parents.get(id).copied().flatten() {
-                        need.insert(p);
-                    }
-                }
-                if need.is_subset(&locked) {
-                    return Ok(Ok((l, Some(plan))));
-                }
-                want = locked.union(&need).copied().collect();
+    // rows a previous attempt of this operation found it needed (only rows on
+    // this attempt's chain: a re-parented node is re-derived)
+    locked.extend(hint.lock().unwrap().iter().filter(|id| f.chain.contains(id)).copied());
+    // Q-OP2's unsafe control: the payer's obligations are read BEFORE the
+    // capacity-row lock is taken (so a racing reallocation's commit is not
+    // seen), then the rows are locked and the stale plan applied.
+    let read_first = controls::fire(&tx.scope(), "Q-OP2.no_capacity_lock");
+    let mut l = if read_first {
+        let l = read_facts(tx, org, target, &f).await?;
+        tx.pause("after_locks").await?;
+        lock_rows(tx, org, &locked).await?;
+        l
+    } else {
+        lock_rows(tx, org, &locked).await?;
+        let l = read_facts(tx, org, target, &f).await?;
+        tx.pause("after_locks").await?;
+        l
+    };
+    if let Some(s) = stale_state {
+        let name = l.name(target).map(str::to_string);
+        for n in &mut l.snap.nodes {
+            if Some(&n.id) == name.as_ref() {
+                n.state = s.to_string();
             }
         }
     }
-    Err(CmdError::Defect("funding lock set did not converge".into()))
+    let delta = delta_of(&l)?;
+    if skip_zero && delta.eq_py(PyNum::Int(0)) {
+        return Ok(Ok((l, None)));
+    }
+    let extend = |more: &BTreeSet<Uuid>| -> CmdError {
+        hint.lock().unwrap().extend(locked.union(more).copied());
+        CmdError::RetryAttempt { cause: "funding.lockset_extended" }
+    };
+    match decide_reallocate(&l, actor, delta)? {
+        Err(r) => {
+            if path.is_subset(&locked) || read_first {
+                return Ok(Err(r));
+            }
+            Err(extend(&path))
+        }
+        Ok(plan) => {
+            let mut need: BTreeSet<Uuid> = BTreeSet::from([target]);
+            for (id, _, _) in &plan.changes {
+                need.insert(*id);
+                if let Some(p) = l.parents.get(id).copied().flatten() {
+                    need.insert(p);
+                }
+            }
+            if need.is_subset(&locked) || read_first {
+                return Ok(Ok((l, Some(plan))));
+            }
+            Err(extend(&need))
+        }
+    }
 }
 
 /// The whole real `reallocate` step inside a command transaction: lock,
@@ -698,8 +715,9 @@ pub async fn reallocate_in<S: Session>(
     target: Uuid,
     delta: PyNum,
     stale_state: Option<&str>,
+    hint: &Mutex<BTreeSet<Uuid>>,
 ) -> Result<Result<(PyNum, Vec<String>), Refusal>, CmdError> {
-    let (l, plan) = match plan_locked(tx, org, actor, target, stale_state, false, &move |_| Ok(delta)).await? {
+    let (l, plan) = match plan_locked(tx, org, actor, target, stale_state, false, hint, &move |_| Ok(delta)).await? {
         Ok((l, Some(p))) => (l, p),
         Ok((_, None)) => return Err(CmdError::Defect("reallocate planned nothing".into())),
         Err(r) => return Ok(Err(r)),
@@ -724,6 +742,14 @@ pub struct Reallocated {
 pub struct Reallocate {
     pub node: Uuid,
     pub delta: PyNum,
+    /// The lock set a previous attempt found it needed (lead ruling 2).
+    hint: Mutex<BTreeSet<Uuid>>,
+}
+
+impl Reallocate {
+    pub fn new(node: Uuid, delta: PyNum) -> Reallocate {
+        Reallocate { node, delta, hint: Mutex::new(BTreeSet::new()) }
+    }
 }
 
 fn actor_of(b: &Binding) -> Actor {
@@ -767,7 +793,7 @@ impl Command for Reallocate {
         Ok(true)
     }
     async fn execute<S: Session>(&self, tx: &mut Tx<'_, S>, b: &Binding) -> Result<Decided<Reallocated>, CmdError> {
-        match reallocate_in(tx, b.op.org, actor_of(b), self.node, self.delta, None).await? {
+        match reallocate_in(tx, b.op.org, actor_of(b), self.node, self.delta, None, &self.hint).await? {
             Ok((grant, warnings)) => Ok(Decided::Applied(Reallocated { grant: py_json(grant), warnings })),
             Err(r) => Ok(Decided::Refused(r)),
         }
@@ -1035,6 +1061,14 @@ pub struct CreditDecide {
     pub action: String,
     pub granted: Option<Value>,
     pub expected_rev: Option<i64>,
+    /// The lock set a previous attempt found it needed (lead ruling 2).
+    hint: Mutex<BTreeSet<Uuid>>,
+}
+
+impl CreditDecide {
+    pub fn new(request: impl Into<String>, action: impl Into<String>, granted: Option<Value>, expected_rev: Option<i64>) -> CreditDecide {
+        CreditDecide { request: request.into(), action: action.into(), granted, expected_rev, hint: Mutex::new(BTreeSet::new()) }
+    }
 }
 
 fn no_pending(rid: &str) -> Refusal {
@@ -1167,7 +1201,7 @@ impl Command for CreditDecide {
             Ok(centi_to_py(give - base))
         };
         let mut warnings = Vec::new();
-        match plan_locked(tx, org, Actor::User, agent, stale, true, &delta_of).await? {
+        match plan_locked(tx, org, Actor::User, agent, stale, true, &self.hint, &delta_of).await? {
             Err(r) => return Ok(Decided::Refused(r)),
             Ok((_, None)) => {}
             Ok((l, Some(plan))) => {

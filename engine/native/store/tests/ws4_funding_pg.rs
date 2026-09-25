@@ -20,11 +20,11 @@ use orgtree_store::{ExecError, Outcome, Uuid};
 use serde_json::{json, Value};
 
 fn realloc(node: Uuid, delta: i128) -> Reallocate {
-    Reallocate { node, delta: PyNum::Int(delta) }
+    Reallocate::new(node, PyNum::Int(delta))
 }
 
 fn decide(id: &str, action: &str, granted: Option<i64>) -> CreditDecide {
-    CreditDecide { request: id.into(), action: action.into(), granted: granted.map(|g| json!(g)), expected_rev: None }
+    CreditDecide::new(id, action, granted.map(|g| json!(g)), None)
 }
 
 fn name(o: &Result<Outcome<Value>, ExecError>) -> String {
@@ -81,6 +81,9 @@ async fn reallocate_applies_legacy_rules_and_keeps_capacity_rows_true() {
     assert_eq!(r.grant, json!(28));
     assert!(r.warnings.iter().any(|w| w.contains("bubbled up to alpha")), "{:?}", r.warnings);
     assert_eq!(grant_of(b()).await, 3100, "bravo inflated by the 11 that bubbled");
+    // the first attempt locked {charlie, bravo}; the plan needed alpha, so the
+    // attempt was re-run with the larger set locked from the start (ruling 2)
+    assert!(x.ev.any("retry:funding.reallocate:r5:funding.lockset_extended"), "{}", x.ev.dump());
     assert_conserved("after deep +20").await;
     // a keyed retry replays, nothing applied twice
     let o = x.ex.run(&realloc(c(), 3), &agent_binding(b(), "r1")).await.unwrap();
@@ -375,7 +378,7 @@ async fn q_fd2_decision_racing_amendment_both_orders() {
     let x = executor(vec![]);
     file(&x, e(), 60, "f1").await;
     file(&x, e(), 80, "f2").await;
-    let stale = CreditDecide { request: "cr1".into(), action: "approve".into(), granted: None, expected_rev: Some(1) };
+    let stale = CreditDecide::new("cr1", "approve", None, Some(1));
     let o = x.ex.run(&stale, &user_binding("d0")).await.unwrap();
     assert!(matches!(o, Outcome::Refused(ref r) if r.code == "stale_card"), "{o:?}");
     assert_eq!(grant_of(e()).await, 5000);
@@ -742,4 +745,24 @@ async fn q_op2_with_q_c8_control_armed_still_conserves_between_two_outside_write
     // obligations still within grants; only the aggregate is stale (the control's own damage)
     assert!(v.iter().all(|s| s.contains("capacity aggregate")), "{v:?}");
     assert!(!v.is_empty(), "the control left the aggregate true: it did not run as written");
+}
+
+/// Q-OP2's control (lead ruling 1): both reallocations read the payer's
+/// obligations BEFORE taking its capacity-row lock, so the second one plans
+/// from a state that no longer holds and alpha's last credits are spent twice.
+#[tokio::test]
+#[ignore = "needs the WS4 dev cluster; run through p03-run.ps1"]
+async fn q_op2_control_no_capacity_lock_spends_the_last_credit_twice() {
+    op2_fixture().await;
+    let x = executor(vec!["Q-OP2.no_capacity_lock"]);
+    let (op, ag) = (realloc(b(), 4), realloc(d(), 4));
+    let (ob, abind) = (user_binding("op"), agent_binding(a(), "ag"));
+    // the operator's plan is read and held before its locks; the agent's runs through
+    let mut h = x.script.hold(Some("op"), "funding.reallocate.after_locks");
+    let (o1, (o2, _)) = tokio::join!(x.ex.run(&op, &ob), while_held(&mut h, 1500, x.ex.run(&ag, &abind)));
+    assert!(x.ev.has("control_executed:Q-OP2.no_capacity_lock"), "control did not record that it executed");
+    assert!(matches!(o1.unwrap(), Outcome::Applied(_)));
+    assert!(matches!(o2.unwrap(), Outcome::Applied(_)), "control executed but the agent's reallocation refused");
+    let v = funding_violations().await;
+    assert!(v.iter().any(|s| s.starts_with("alpha: obligations")), "control executed but alpha's last credit was not spent twice: {v:?}");
 }

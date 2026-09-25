@@ -9,7 +9,10 @@ first = 200
 last = 299
 
 # every table this range's migrations CREATE (checked against the DDL)
-tables = status_rows
+tables = status_rows transcript_entries transcript_identities
 
 # publication (CONTRACT-M1 §7)
-published = status_rows
+published = status_rows transcript_entries transcript_identities
+
+# lint inputs (R9): transcript entries are appended per turn
+high_rate = transcript_entries

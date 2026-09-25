@@ -247,6 +247,7 @@ impl TraceSink for Events {
             EventKind::ControlExecuted { id } => format!("control_executed:{id}"),
             EventKind::Retry { reason, sqlstate, constraint } => format!("retry:{}.{}:{key}:{reason}:{}:{}", e.family, e.verb, sqlstate.unwrap_or("-"), constraint.unwrap_or("-")),
             EventKind::Statement { label, sqlstate: Some(s), .. } => format!("stmt_err:{label}:{s}"),
+            EventKind::Statement { label, sqlstate: None, .. } => format!("stmt:{label}:{key}"),
             EventKind::Commit { .. } => format!("commit:{}.{}:{key}", e.family, e.verb),
             EventKind::Outcome { outcome } => format!("outcome:{}.{}:{key}:{outcome}", e.family, e.verb),
             _ => return,
@@ -279,6 +280,12 @@ pub struct Ex {
 }
 
 pub fn executor(controls: Vec<&'static str>) -> Ex {
+    executor_pool(controls, 8)
+}
+
+/// An executor whose command pool has `pool` connections (schedules with
+/// more concurrent holders than the default pool).
+pub fn executor_pool(controls: Vec<&'static str>, pool: usize) -> Ex {
     let cfg = PgConfig::from_url(&url("P03_PG_RUNTIME_URL")).unwrap();
     let ev = Arc::new(Events::default());
     let script = Arc::new(Script::default());
@@ -287,7 +294,7 @@ pub fn executor(controls: Vec<&'static str>) -> Ex {
     h.controls = Some(Arc::new(Arm(controls)));
     let ex = Executor::new(
         Factory::new(cfg.clone(), "executor", h.clone()),
-        8,
+        pool,
         Factory::new(cfg, "lookup", h.clone()),
         2,
         ExecConfig { max_attempts: 8, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5), lock_timeout_ms: Some(10_000), statement_timeout_ms: None, idle_in_transaction_timeout_ms: None },
@@ -346,6 +353,8 @@ pub enum Racer {
     Retire { node: Uuid },
     /// A halt of `node` (READ COMMITTED; updates the authority-epoch row).
     Halt { node: Uuid },
+    /// A rehire of archived `node` (SERIALIZABLE; lifecycle back to live).
+    Rehire { node: Uuid },
     /// `mark_unrecoverable` of `node` (SERIALIZABLE; moots nothing).
     MarkUnrecoverable { node: Uuid },
     /// A hire of a new seat under `parent` (None = top level), SERIALIZABLE,
@@ -369,6 +378,7 @@ impl Command for Racer {
             Racer::Move { .. } => "move",
             Racer::Retire { .. } => "retire",
             Racer::Halt { .. } => "halt",
+            Racer::Rehire { .. } => "rehire",
             Racer::MarkUnrecoverable { .. } => "mark_unrecoverable",
             Racer::Hire { .. } => "hire",
         }
@@ -414,6 +424,10 @@ impl Command for Racer {
                         .await?;
                     }
                 }
+            }
+            Racer::Rehire { node } => {
+                tx.exec("sg.rehire.lock_epoch", "SELECT 1 FROM authority_epoch WHERE org_id = $1 AND principal_id = $2 FOR NO KEY UPDATE", &[Val::Uuid(org), Val::Uuid(*node)]).await?;
+                tx.exec("sg.rehire.epoch", "UPDATE authority_epoch SET lifecycle = 'live', generation = generation + 1, version = version + 1 WHERE org_id = $1 AND principal_id = $2", &[Val::Uuid(org), Val::Uuid(*node)]).await?;
             }
             Racer::MarkUnrecoverable { node } => {
                 tx.exec("sg.mark.lock_epoch", "SELECT 1 FROM authority_epoch WHERE org_id = $1 AND principal_id = $2 FOR NO KEY UPDATE", &[Val::Uuid(org), Val::Uuid(*node)]).await?;

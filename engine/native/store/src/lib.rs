@@ -29,6 +29,7 @@ pub mod pg;
 pub mod pool;
 pub mod read;
 pub mod receipts;
+pub mod reservation;
 pub mod restrict;
 pub mod retry;
 pub mod runtime;
