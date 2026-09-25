@@ -3037,6 +3037,9 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
                     conn.execute(_UPSERT_DOC, (rk, s))
                 if changes is not None:
                     changes.doc_upserts.append(rk)
+                    if rk == k and k in SPLIT_SECTIONS and s == "{}" \
+                            and (snap_doc is None or k not in snap_doc):
+                        changes.containers_created.append(k)
     known_doc = set(snap_doc) if snap_doc is not None else db_doc_keys
     for k in known_doc - set(new_doc) - LAZY_SECTIONS - set(ROWED):
         if _ROW_CAS and snap_doc is not None and k in snap_doc:
