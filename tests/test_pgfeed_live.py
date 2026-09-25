@@ -173,6 +173,9 @@ class Rt9Live(unittest.TestCase):
         store.save_org(org)
         self.assertTrue(_wait(lambda: (slug, before + 1, False) in calls), calls)
         self.assertGreaterEqual(r.feed.stats.notifications, 1)
+        # the seam recorded it as THIS process's commit, so the engine
+        # callback will not answer it with a second, full reload
+        self.assertEqual(pgfeed.local_revision(slug), before + 1)
 
     def _missed_while_down(self, slug: str, r: _Rig, calls: list) -> tuple[int, int]:
         n = _rev(slug)
@@ -246,6 +249,56 @@ class Rt9Live(unittest.TestCase):
         self.assertTrue(_wait(lambda: (slug, rev, True) in calls), calls)
         self.assertGreaterEqual(r.feed.stats.polls, 1)
         self.assertEqual(r.feed.stats.reconnects, 0)
+
+
+@unittest.skipUnless(ADMIN, "ORGTREE_TEST_PG_ADMIN_URL not set: NOT RUN")
+class BoundedReadersOnPostgres(unittest.TestCase):
+    """PG-4: the store's bounded readers answer from the rows on postgres (not
+    None, which would send every caller to a whole-document load) and agree
+    with the whole-document answer."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        slug = _fresh_org("pg4-readers")
+        org = store.load_org(slug)
+        org.d["nodes"]["b"] = {"id": "b", "name": "b", "parent": None, "children": []}
+        for i in range(7):
+            org.d["events"].append({"at": f"2026-09-25T10:00:0{i}Z", "op": "x",
+                                    "actor": "a" if i % 2 else "b", "detail": {"i": i}})
+        org.d["notice_log"].append({"at": "2026-09-25T10:00:09Z", "node": "a", "body": "n"})
+        org.d["mail_log"].setdefault("a", []).extend(
+            {"at": f"2026-09-25T11:00:0{i}Z", "from": "b", "body": f"m{i}"} for i in range(4))
+        org.d["user_mail_log"].extend(
+            {"at": f"2026-09-25T12:00:0{i}Z", "from": "a", "body": f"u{i}"} for i in range(3))
+        store.save_org(org)
+        cls.slug = slug
+        cls.full = store.load_org(slug).d
+
+    def test_events_page(self) -> None:
+        ev = list(self.full["events"])
+        self.assertEqual(store.read_events_page(self.slug, last=3), (len(ev), ev[-3:]))
+        self.assertEqual(store.read_events_page(self.slug, since=2), (len(ev), ev[2:]))
+
+    def test_node_rows(self) -> None:
+        self.assertEqual(store.read_node(self.slug, "a"), self.full["nodes"]["a"])
+        self.assertIs(store.node_row_exists(self.slug, "a"), True)
+        self.assertIs(store.node_row_exists(self.slug, "zz"), False)
+
+    def test_history_rows(self) -> None:
+        got = store.read_node_history_rows(self.slug, "a", 50)
+        self.assertIsNotNone(got)
+        events, notices = got
+        self.assertEqual([e["detail"]["i"] for e in events], [1, 3, 5])
+        self.assertEqual(notices, list(self.full["notice_log"]))
+
+    def test_mail_tails_and_user_inbox(self) -> None:
+        got = store.read_mail_tails(self.slug, "a", keep=50)
+        self.assertIsNotNone(got)
+        _box, _delivering, delivered, sent = got
+        self.assertEqual(delivered, list(self.full["mail_log"]["a"]))
+        self.assertEqual([m["body"] for m in sent], ["u0", "u1", "u2"])
+        inbox = store.read_user_inbox(self.slug)
+        self.assertEqual(inbox["delivered"], list(self.full["user_mail_log"])[-50:])
 
 
 if __name__ == "__main__":
