@@ -239,9 +239,14 @@ impl ControlPlan for Arm {
 /// A compact trace: control executions, retries, statement errors, commits
 /// and outcomes, each with its operation key, in emission order.
 #[derive(Default)]
-pub struct Events(pub Mutex<Vec<String>>);
+pub struct Events(pub Mutex<Vec<String>>, pub Mutex<HashMap<String, usize>>);
 impl TraceSink for Events {
     fn event(&self, e: &TraceEvent<'_>) {
+        if let EventKind::Statement { label, rows, sqlstate: None, .. } = &e.kind {
+            let mut m = self.1.lock().unwrap();
+            *m.entry(label.to_string()).or_default() += rows;
+            *m.entry("*".to_string()).or_default() += rows;
+        }
         let key = e.op.map(|o| o.key.clone()).unwrap_or_default();
         let s = match &e.kind {
             EventKind::ControlExecuted { id } => format!("control_executed:{id}"),
@@ -267,6 +272,14 @@ impl Events {
     }
     pub fn pos(&self, s: &str) -> Option<usize> {
         self.0.lock().unwrap().iter().position(|e| e == s)
+    }
+    /// Rows returned so far by statements with this label.
+    pub fn rows_of(&self, label: &str) -> usize {
+        self.1.lock().unwrap().get(label).copied().unwrap_or(0)
+    }
+    /// Rows returned so far by every statement.
+    pub fn rows_total(&self) -> usize {
+        self.rows_of("*")
     }
     pub fn dump(&self) -> String {
         self.0.lock().unwrap().join("\n")
@@ -355,6 +368,9 @@ pub enum Racer {
     Halt { node: Uuid },
     /// A rehire of archived `node` (SERIALIZABLE; lifecycle back to live).
     Rehire { node: Uuid },
+    /// A visibility narrowing of `node` (READ COMMITTED retool; records its
+    /// restriction, r7 C5 step 6).
+    Narrow { node: Uuid, visibility: &'static str },
     /// `mark_unrecoverable` of `node` (SERIALIZABLE; moots nothing).
     MarkUnrecoverable { node: Uuid },
     /// A hire of a new seat under `parent` (None = top level), SERIALIZABLE,
@@ -369,7 +385,7 @@ impl Command for Racer {
     type Output = ();
     fn family(&self) -> &'static Family {
         match self {
-            Racer::Halt { .. } => &OUTSIDE,
+            Racer::Halt { .. } | Racer::Narrow { .. } => &OUTSIDE,
             _ => &ISLAND,
         }
     }
@@ -379,6 +395,7 @@ impl Command for Racer {
             Racer::Retire { .. } => "retire",
             Racer::Halt { .. } => "halt",
             Racer::Rehire { .. } => "rehire",
+            Racer::Narrow { .. } => "narrow",
             Racer::MarkUnrecoverable { .. } => "mark_unrecoverable",
             Racer::Hire { .. } => "hire",
         }
@@ -395,6 +412,7 @@ impl Command for Racer {
         match self {
             Racer::Move { node, new_parent } => {
                 tx.exec("sg.move.edge", "UPDATE topology_edges SET parent_id = $3, version = version + 1 WHERE org_id = $1 AND principal_id = $2", &[Val::Uuid(org), Val::Uuid(*node), Val::opt_uuid(*new_parent)]).await?;
+                orgtree_store::restrict::record(tx, org, "move").await?;
             }
             Racer::Retire { node } => {
                 let r = tx.exec("sg.retire.lock_epoch", "SELECT lifecycle FROM authority_epoch WHERE org_id = $1 AND principal_id = $2 FOR NO KEY UPDATE", &[Val::Uuid(org), Val::Uuid(*node)]).await?;
@@ -402,6 +420,7 @@ impl Command for Racer {
                     return Ok(Decided::Refused(Refusal::new("not_live", "already archived")));
                 }
                 tx.exec("sg.retire.archive", "UPDATE authority_epoch SET lifecycle = 'archived', version = version + 1 WHERE org_id = $1 AND principal_id = $2", &[Val::Uuid(org), Val::Uuid(*node)]).await?;
+                orgtree_store::restrict::record(tx, org, "retire").await?;
                 tx.exec("sg.retire.moot", "UPDATE request_batches SET state = 'moot' WHERE org_id = $1 AND asker_id = $2 AND state = 'pending'", &[Val::Uuid(org), Val::Uuid(*node)]).await?;
                 // P2: archiving frees seat and grant from the payer's obligations.
                 let f = tx
@@ -428,6 +447,12 @@ impl Command for Racer {
             Racer::Rehire { node } => {
                 tx.exec("sg.rehire.lock_epoch", "SELECT 1 FROM authority_epoch WHERE org_id = $1 AND principal_id = $2 FOR NO KEY UPDATE", &[Val::Uuid(org), Val::Uuid(*node)]).await?;
                 tx.exec("sg.rehire.epoch", "UPDATE authority_epoch SET lifecycle = 'live', generation = generation + 1, version = version + 1 WHERE org_id = $1 AND principal_id = $2", &[Val::Uuid(org), Val::Uuid(*node)]).await?;
+                orgtree_store::restrict::record(tx, org, "rehire").await?;
+            }
+            Racer::Narrow { node, visibility } => {
+                tx.exec("sg.narrow.lock", "SELECT 1 FROM scope_rows WHERE org_id = $1 AND principal_id = $2 FOR NO KEY UPDATE", &[Val::Uuid(org), Val::Uuid(*node)]).await?;
+                tx.exec("sg.narrow.scope", "UPDATE scope_rows SET visibility = $3, version = version + 1 WHERE org_id = $1 AND principal_id = $2", &[Val::Uuid(org), Val::Uuid(*node), Val::text(*visibility)]).await?;
+                orgtree_store::restrict::record(tx, org, "narrow").await?;
             }
             Racer::MarkUnrecoverable { node } => {
                 tx.exec("sg.mark.lock_epoch", "SELECT 1 FROM authority_epoch WHERE org_id = $1 AND principal_id = $2 FOR NO KEY UPDATE", &[Val::Uuid(org), Val::Uuid(*node)]).await?;

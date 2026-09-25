@@ -36,6 +36,7 @@ pub mod runtime;
 pub mod sent;
 pub mod session;
 pub mod status;
+pub mod strict;
 pub mod value;
 pub mod work;
 

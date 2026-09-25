@@ -94,6 +94,7 @@ pub const UPDATE_HEAD_SQL: &str = "UPDATE work_items SET rev = rev + 1, status =
 pub const DELETE_PARTICIPANT_SQL: &str = "DELETE FROM work_participants WHERE org_id = $1 AND item_id = $2 AND principal_id = $3";
 pub const INSERT_PARTICIPANT_SQL: &str = "INSERT INTO work_participants (org_id, item_id, principal_id) VALUES ($1, $2, $3) \
     ON CONFLICT ON CONSTRAINT work_participants_pk DO NOTHING";
+pub const OWNER_NAME_SQL: &str = "SELECT name FROM agents WHERE org_id = $1 AND principal_id = $2";
 pub const INSERT_VERSION_SQL: &str = "INSERT INTO work_item_versions (org_id, item_id, seq, kind, body, by_principal, at) \
     VALUES ($1, $2, $3, $4, $5, $6, $7)";
 
@@ -445,7 +446,8 @@ impl Command for WorkCreate {
         for p in &parts {
             tx.exec("work.insert_participant", INSERT_PARTICIPANT_SQL, &[Val::Uuid(org), Val::Uuid(self.item), Val::Uuid(*p)]).await?;
         }
-        let body = json!({"rev": 1, "status": self.status, "owner": self.owner, "participants": parts, "archived": false});
+        let owner_name = owner_name(tx, org, self.owner).await?;
+        let body = json!({"rev": 1, "status": self.status, "owner": self.owner, "owner_name": owner_name, "participants": parts, "archived": false});
         tx.exec(
             "work.insert_version",
             INSERT_VERSION_SQL,
@@ -570,10 +572,20 @@ impl Command for WorkUpdate {
             .iter()
             .filter_map(|r| r.first().and_then(Val::as_uuid))
             .collect();
+        // C5 step 6 (r7 §4.2 table): the item archiving, a reader unlisted,
+        // or the holder changing narrows material access through the item;
+        // the restriction is recorded in THIS transaction. Closing alone
+        // (done) records nothing (D8).
+        let narrows = (archived_at.is_some() && cur_archived.is_none()) || !self.remove_participants.is_empty() || owner != cur_owner;
+        if narrows {
+            crate::restrict::record(tx, org, "work.narrowed").await?;
+        }
+        let owner_name = owner_name(tx, org, owner).await?;
         let body = json!({
             "rev": new_rev,
             "status": status,
             "owner": owner,
+            "owner_name": owner_name,
             "participants": parts,
             "archived": archived_at.is_some(),
             "archive": self.archive.map(|a| format!("{a:?}").to_lowercase()),
@@ -587,6 +599,13 @@ impl Command for WorkUpdate {
         .await?;
         Ok(Decided::Applied(Updated { rev: new_rev, status, archived: archived_at.is_some() }))
     }
+}
+
+/// The owner's CURRENT name, recorded with each version (read only by
+/// Q-M2's unsafe control: roster matching by name; D6 matches by identity).
+async fn owner_name<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, owner: Option<Uuid>) -> Result<Option<String>, CmdError> {
+    let Some(o) = owner else { return Ok(None) };
+    Ok(tx.exec("work.owner_name", OWNER_NAME_SQL, &[Val::Uuid(org), Val::Uuid(o)]).await?.first().and_then(|r| r.first()).and_then(|v| v.as_text().map(str::to_string)))
 }
 
 /// DECLARED-CONTACTS for the work verbs.
@@ -613,6 +632,10 @@ pub fn declared() -> Value {
                 "work_items": {"modes": ["read", "for_no_key_update", "write"], "required": true},
                 "work_participants": {"modes": ["read", "write"], "required": false},
                 "work_item_versions": {"modes": ["write"], "required": true},
+                "agents": {"modes": ["read"], "required": false},
+                "restrictions": {"modes": ["write"], "required": false},
+                "restriction_obligations": {"modes": ["write"], "required": false},
+                "read_service_registrations": {"modes": ["read"], "required": false},
                 "operation_receipts": {"modes": ["read", "write"], "required": true}
             },
             "p01_contract": null,
