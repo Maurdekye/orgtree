@@ -5,7 +5,11 @@ What these prove, on PG-0's SeamBackend fake over a throwaway SQLite root:
     two credential sections, never waits on DOC_LOCK, bumps the org revision
     by one, and still verifies that the previous credential is refused;
   * gitworkspace.org_facts and history_page read without DOC_LOCK (a reader
-    completes while another thread holds DOC_LOCK).
+    completes while another thread holds DOC_LOCK);
+  * an applied pending shrink commits only the `disk` section, lock-free;
+  * the reply and transcript incarnation mints are row transactions (reply
+    ids, then the transcript id), keep a value once minted, and a caller
+    inside a legacy DOC_LOCK hold keeps the legacy mint.
 
 Run:  python tools/run-python-verification.py tests/test_pg3r_residual.py
 """
@@ -112,6 +116,60 @@ class LockFreeReads(unittest.TestCase):
         finished, page = _while_doc_lock_is_held(lambda: history.history_page(slug, section))
         self.assertTrue(finished, 'history_page waited on DOC_LOCK')
         self.assertIn('items', page)
+
+
+class PendingShrink(unittest.TestCase):
+    def test_applied_shrink_commits_only_the_disk_section_without_doc_lock(self):
+        from orgtree import disk, sandbox
+        slug = _fresh_org('Shrink Org')
+        org = store.load_org(slug)
+        org.d['disk'] = {'size_mb': 4096, 'pending_size_mb': 2048}
+        store.save_org(org)
+        seen = []
+        orgtx.commit_listeners.append(seen.append)
+        try:
+            with patch.object(disk, 'mount'), patch.object(disk, 'usage', return_value=(10 * 1048576, 0)), \
+                    patch.object(disk, 'shrink_image') as shrink:
+                finished, note = _while_doc_lock_is_held(
+                    lambda: sandbox.try_apply_pending_resize(store.load_org(slug)))
+        finally:
+            orgtx.commit_listeners.remove(seen.append)
+        self.assertTrue(finished, 'the pending shrink waited on DOC_LOCK')
+        self.assertIsNone(note)
+        shrink.assert_called_once_with(slug, 2048)
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(store.load_org(slug).d['disk'], {'size_mb': 2048})
+
+
+class TranscriptIncarnation(unittest.TestCase):
+    def test_mint_is_a_row_transaction_on_the_node_and_is_kept_once_minted(self):
+        from orgtree import transcript_records
+        slug = _fresh_org('Incarnation Org')
+        seen = []
+        orgtx.commit_listeners.append(seen.append)
+        try:
+            finished, first = _while_doc_lock_is_held(
+                lambda: transcript_records.incarnation(store.load_org(slug), 'a'))
+            # two row transactions: the reply ids (reply_events.incarnation), then the transcript id
+            self.assertEqual(len(seen), 2)
+            again = transcript_records.incarnation(orgtx.org_read(slug), 'a')
+        finally:
+            orgtx.commit_listeners.remove(seen.append)
+        self.assertTrue(finished, 'the mint waited on DOC_LOCK')
+        self.assertTrue(first)
+        self.assertEqual(again, first)
+        self.assertEqual(len(seen), 2, 'the second call found the minted values and committed nothing')
+        ids = store.load_org(slug)
+        self.assertTrue(ids.d['reply_incarnation'] and ids.node('a')['reply_incarnation'])
+        self.assertEqual(store.load_org(slug).node('a')['transcript_incarnation'], first)
+
+    def test_a_caller_inside_a_legacy_hold_keeps_the_legacy_mint(self):
+        from orgtree import transcript_records
+        slug = _fresh_org('Held Incarnation Org')
+        with patch.object(orgtx, 'org_tx', side_effect=AssertionError('no org_tx inside a DOC_LOCK hold')):
+            with store.DOC_LOCK:
+                value = transcript_records.incarnation(store.load_org(slug), 'a')
+        self.assertEqual(store.load_org(slug).node('a')['transcript_incarnation'], value)
 
 
 if __name__ == '__main__':

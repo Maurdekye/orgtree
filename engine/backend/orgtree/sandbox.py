@@ -1038,13 +1038,14 @@ def try_apply_pending_resize(org: Org) -> str | None:
                 f"{du[0] // 1048576} MB — free about {need} MB first")
     dsk.shrink_image(slug, pend)
     dsk.mount(slug)
-    with store.DOC_LOCK:
-        o2 = store.load_org(slug)
-        d2 = dict(o2.d.get("disk") or {})
+    # PG-3r: one row transaction on the `disk` section, the only row this
+    # write reads and changes.
+    from . import orgtx
+    with orgtx.org_tx(slug, sections=["disk"]) as tx:
+        d2 = dict(tx.d.get("disk") or {})
         d2["size_mb"] = pend
         d2.pop("pending_size_mb", None)
-        o2.d["disk"] = d2
-        store.save_org(o2)
+        tx.d["disk"] = d2
     print(f"[orgtree] org {slug!r}: pending shrink applied — disk is now "
           f"{pend} MB")
     return None
