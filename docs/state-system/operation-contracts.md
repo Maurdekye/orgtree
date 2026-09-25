@@ -119,15 +119,15 @@ runtime probes remain unresolved. Material reads add two cards and two selectors
 diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
-Current totals are 143 contracts, 107 mapped registrations, 162 mapped
-dispatch witnesses and 2 mapped storage sites. **664 obligations remain**: 217 registrations, 58 dispatch
-witnesses, 12 storage candidates and 377 unresolved dimension occurrences.
+Current totals are 158 contracts, 122 mapped registrations, 164 mapped
+dispatch witnesses and 2 mapped storage sites. **692 obligations remain**: 202 registrations, 56 dispatch
+witnesses, 12 storage candidates and 422 unresolved dimension occurrences.
 From P01 F1 on, progress is reported as three numbers (coordinator ruling Q1, decision 1 on
-p01-f1-contracts-for-the-org-lifecycle-and-catal): **entries contracted 73/194** (of the concrete http,
+p01-f1-contracts-for-the-org-lifecycle-and-catal): **entries contracted 88/194** (of the concrete http,
 websocket and tool entries that were on the generic reason; F1b contracts none of them, since the
 operator door had its own reason; F3 contracts thirteen; F2 twenty-two; the relaunch-cards item none of
-them, since its three contracted entries are new witnesses outside the 194; F4 nineteen), **377 open dimension
-occurrences** and **664 total pending**. Total pending RISES while the 194 are contracted, to about 790-1000 when all
+them, since its three contracted entries are new witnesses outside the 194; F4 nineteen; F6 fifteen), **422 open dimension
+occurrences** and **692 total pending**. Total pending RISES while the 194 are contracted, to about 790-1000 when all
 twelve families have landed, and that rise is expected: each new contract closes its entry but opens
 its own conflicts, wire and instrumentation dimensions until P03, the native conversion and P02 answer
 them.
@@ -466,6 +466,34 @@ Recorded legacy defects:
   the peer's sighting before it validates anything else (docket external-chat-messages-and-wait-read-every-org-u);
 - the externtool server sends no credential, so every one of its verbs is refused 401 by the TokenGate of both
   current launch paths (reported to the coordinator).
+
+692 is twenty-eight more than that 664 (P01 F6, p01-f6-contracts-for-the-org-and-agent-reads-15). F6 contracts the
+15 org and agent read routes on a new `org-read.*` facet family:
+- node chat, file, scratch, tool image and history;
+- the history sources and entries (history.py);
+- events, org.md, the network identity and the bridge-credential status;
+- the diagnostics aggregates (diagnostics.py);
+- the three org-disk routes.
+
+They are pinned by `tests/test_state_org_read_boundary.py` against `docs/state-system/org-read-boundary.json`
+(57 cases, a node's transcript being a fixture file).
+
+Three of these GETs write:
+- the chat route and the history chat section mint the node's reply and transcript-record incarnations on their
+  first read;
+- the network identity route backfills the identity on its first read;
+- a chat read refused 422 for a bad cursor still writes, because the mint runs first (recorded legacy defect).
+The scratch, tool-image and orgmd reads leave the file open (recorded legacy defect).
+
+The disk routes answer 409 under the desktop-managed profile, which creates no sandboxed org. The
+bridge-credential status answers 409 unless the deployment profile is frozen. With the chat route and the history
+chat section contracted, every reader of the transcript's `orgtree_present` and `orgtree_send_file` card branches
+has a contract, so both map (rule 1).
+
+F6 also corrects an F4 fact (P02's F4 probe, confirmed in source). An org filter on the extern messages and wait
+routes does NOT avoid reading every org: `store.list_orgs` reads and parses every org document before the filter
+applies, and the filter skips only the second, per-org load. The corrected fact is pinned in
+`tests/test_state_exchange_boundary.py`.
 
 Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the

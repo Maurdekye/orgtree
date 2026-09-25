@@ -535,9 +535,22 @@ class ExchangeBoundary(unittest.TestCase):
                 client.get(f'/api/extern/{peer}/messages', params={'org': CUR['slug']}, headers=OP)
                 filtered = list(scanned)
                 client.get(f'/api/extern/{peer}/messages', headers=OP)
-            # an org filter skips the other docs' loads; without it every org on the machine is loaded
+            # the org filter skips only the second, per-org load_org: store.list_orgs has already read and parsed
+            # every org document before the filter applies (P02 F4 finding, corrected in P01 F6)
             self.assertEqual(set(filtered), {CUR['slug']})
             self.assertGreaterEqual(len(set(scanned)) - len(set(filtered)), 2)
+            # ... but the listing before the filter has already read and parsed every org document (P02 F4 finding)
+            listed = []
+            real_scan = store._scan_orgs
+
+            def counting_scan(*a, **k):
+                for row in real_scan(*a, **k):
+                    listed.append(row[0])
+                    yield row
+            with patch.object(store, '_scan_orgs', counting_scan):
+                client.get(f'/api/extern/{peer}/messages', params={'org': CUR['slug']}, headers=OP)
+            self.assertEqual(len(listed), len(store.list_orgs()))
+            self.assertGreater(len(listed), 2)
 
     def test_the_gate_and_the_external_chat_client(self):
         self.check('route_no_token', 'route_agent_token', 'extern_no_token')

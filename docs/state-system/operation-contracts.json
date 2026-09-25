@@ -10590,7 +10590,7 @@
       "dimension": "reads",
       "status": "specified",
       "facts": [
-        "GET /api/orgs reads every org's document once (store.list_orgs_with_docs) and each org's working count; a kiosk org's admin row carries kiosk_cfg, share token included. The externtool orgtree_list_orgs verb drops every row flagged kiosk or kiosk_cfg on the client and adds your_peer_id. The extern messages and wait routes scan EVERY org on the machine under the document lock on each call (store.list_orgs, then store.load_org per org; kiosks skipped; an org filter skips the other orgs' loads) and return the peer's replies from all of them; wait rescans only when store.REVISION moves, off the event loop, and returns at once whenever any org holds a fresh reply for the peer (recorded legacy defect, docket external-chat-messages-and-wait-read-every-org-u). The org inbox list reads a snapshot of org_inbox (the last 100 entries with total and unread); the mail item route reads its box's sections and searches the box whole, so found false is an answer. The reply-events count reads the reply_events sidecar read-only. Pinned by tests/test_state_exchange_boundary.py against docs/state-system/exchange-boundary.json."
+        "GET /api/orgs reads every org's document once (store.list_orgs_with_docs) and each org's working count; a kiosk org's admin row carries kiosk_cfg, share token included. The externtool orgtree_list_orgs verb drops every row flagged kiosk or kiosk_cfg on the client and adds your_peer_id. The extern messages and wait routes scan EVERY org on the machine under the document lock on each call and return the peer's replies from all of them; wait rescans only when store.REVISION moves, off the event loop, and returns at once whenever any org holds a fresh reply for the peer (recorded legacy defect, docket external-chat-messages-and-wait-read-every-org-u). The org inbox list reads a snapshot of org_inbox (the last 100 entries with total and unread); the mail item route reads its box's sections and searches the box whole, so found false is an answer. The extern scan first lists the orgs with store.list_orgs, which reads and parses EVERY org document, and only then applies the org filter, which skips just the second, per-org store.load_org: a filtered read still reads every org (P02's F4 probe counted about 840 statements on other orgs' stores for one filtered warm read; corrected by P01 F6 from an earlier wording that said the filter skips the other orgs' loads). The reply-events count reads the reply_events sidecar read-only. Pinned by tests/test_state_exchange_boundary.py against docs/state-system/exchange-boundary.json."
       ],
       "open_questions": [],
       "source_refs": [
@@ -10635,6 +10635,12 @@
           "start": 215,
           "end": 259,
           "sha256": "72a38afc6e597e3a0123b147265c6b06d175545f16ee6d8efd484227dcbf2be9"
+        },
+        {
+          "path": "engine/backend/orgtree/store.py",
+          "start": 3579,
+          "end": 3580,
+          "sha256": "53b461adea2090775b3a8acb055f523ee84565d06b87fae2ff547e8fb645c534"
         }
       ]
     },
@@ -10925,6 +10931,304 @@
           "start": 11279,
           "end": 11285,
           "sha256": "26e2489a1deb19240a003809e3217115a5aa60435ee5f93937f8f92833cae9ca"
+        }
+      ]
+    },
+    "org-read.authority": {
+      "dimension": "authority",
+      "status": "specified",
+      "facts": [
+        "Every route is an operator route behind the desktop TokenGate of both current launch paths (an agent credential on a route is refused 401 'agent credential is invalid or expired; reconnect the agent session') and reads as the user. PROFILES (decision 1 on p01-f2-contracts-for-the-run-control-entry-point): desktop_policy.install_routes strips none of these routes, but desktop_policy.validate refuses a sandboxed org under the desktop-managed profile, so no desktop org carries a virtual disk and the three disk routes answer 409 there ('this org has no virtual disk …'); a sandboxed org elsewhere reads its disk (source). The bridge-credential status depends on the DEPLOYMENT profile: under the standard profile it answers 409 ('rotatable bridge credentials are active only in the frozen deployment profile'); under the frozen profile it attests the org's sandbox credential, a non-sandboxed org answering 503 ('… is not sandboxed and gets no bridge credential'). Pinned by tests/test_state_org_read_boundary.py against docs/state-system/org-read-boundary.json.",
+        "The public kiosk gateway, which the desktop launcher does not start, is read from source: the net and bridge-credential routes refuse it (404 and 403) and the aggregates route refuses kiosk and bridge callers 403 ('diagnostics are available only to the host operator'); the other reads serve it, scrubbing host paths from events and node history and reducing the org.md path to its basename."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/launch.py",
+          "start": 156,
+          "end": 195,
+          "sha256": "7fcd8231057ad57fa6da4a66acc584dccc25d9e5dd93afd51c6827163446f580"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_policy.py",
+          "start": 19,
+          "end": 23,
+          "sha256": "93fb92b8dfe87c447a573b846bd1dbac03c815a0276d61df06bbefb92600ee6a"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_policy.py",
+          "start": 9,
+          "end": 16,
+          "sha256": "f1ae0dc9c5d2ca855496c5540206c77f82865a78ed29e92a6876859b76f12543"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1796,
+          "end": 1815,
+          "sha256": "b54aab2d7e252bb58a276765d3d95b39979774b42435d2e8b61bead47c2f8fa6"
+        },
+        {
+          "path": "engine/backend/orgtree/diagnostics.py",
+          "start": 103,
+          "end": 107,
+          "sha256": "f690ddeda75bf82efa07939c68faea1232af0d2a5a90aea16d0873f8de781e92"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2053,
+          "end": 2097,
+          "sha256": "5d6734718529dca35f48afd35bb91218c6b4555badc48fd88f9c644bc83b8704"
+        }
+      ]
+    },
+    "org-read.reads": {
+      "dimension": "reads",
+      "status": "specified",
+      "facts": [
+        "chat reads the node's transcript through supervisor.read_chat, or through chat_window.read_page when a `before` cursor is given, with the chat-window, transcript-records and reply-events sidecars. file and scratch read the node's scratch folder under a containment check (scratch lists up to 300 entries and returns up to 60000 characters of a file); tool-image scans the node's transcript for the tool_use_id's tool_result image and returns its bytes. node history reads the events and notices naming the node through the bounded row reader; history sources lists the sections and nodes, and history entries pages one section (chat builds it from the transcript). events pages the org's events (total, events, offset). orgmd reads the workspace CLAUDE.md, up to 60000 characters, with its true length, read_truncated and prompt_max. net reads the org's network identity, hubs and autoconnect. aggregates counts rows and bytes per collection, metadata only. The disk routes read the org's virtual disk through the WSL mount (usage, files by size, one directory level, a file). The scratch, tool-image and orgmd reads open the file without closing it (recorded legacy defect: the boundary test run shows a ResourceWarning for each). Pinned by tests/test_state_org_read_boundary.py against docs/state-system/org-read-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13880,
+          "end": 14048,
+          "sha256": "8c50a69e11fa4a9edb0fb3f55e5468a6a57e49cce59ac8082073f0be18213633"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 3147,
+          "end": 3153,
+          "sha256": "c1bd17f73a387c8bcdce9f740dd3a7dc7f310424c56df447d34d97c327b9e7e7"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9486,
+          "end": 9515,
+          "sha256": "a4100cb83d274108944a1e6112900b66a2d965d3757f5d67e8cbe161184a56fb"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14088,
+          "end": 14129,
+          "sha256": "aea3861f6e50967570690f53a688779be9432899a72f8cc83bcc07f33f2f5d03"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9425,
+          "end": 9483,
+          "sha256": "0fb73cfc0ec08021cad8022ae5ec96ce4d8889b851a0a4b9f83d8a07b3cf2c8a"
+        },
+        {
+          "path": "engine/backend/orgtree/history.py",
+          "start": 79,
+          "end": 160,
+          "sha256": "8553a1bde594f5e673cd4d7594382e8678aec784f7538bd597e1275023cf94bd"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14190,
+          "end": 14212,
+          "sha256": "e3791b8fb85cd78089ba31de46cf1f20bf6c3c075bc584012ce16048268b5a5e"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9527,
+          "end": 9554,
+          "sha256": "7b94e75d857a024389399fdb0640a76820b11b256e6a18ccc970421514426066"
+        },
+        {
+          "path": "engine/backend/orgtree/diagnostics.py",
+          "start": 110,
+          "end": 128,
+          "sha256": "d5e885b95f7f8b646528434a606c77feeed37e2429bbe0fc413f79dfeddf49db"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13490,
+          "end": 13520,
+          "sha256": "f454ab801b47f8cc1570bdadbeb5d7b0830d26133de9ae0b580fd3f5639222ce"
+        }
+      ]
+    },
+    "org-read.writes": {
+      "dimension": "writes",
+      "status": "specified",
+      "facts": [
+        "chat's FIRST read of a node mints its reply and transcript-record incarnations: it writes nodes and reply_incarnation and creates the chat-window-index, reply-events and transcript-records sidecars; a later read writes nothing. The mint runs before the cursor check, so a chat read refused 422 for a bad cursor still writes (recorded legacy defect). history entries' chat section writes the same on its first read. net's FIRST read of an org with no network identity writes net_identity, net_hubs and net_autoconnect (a lazy backfill) and later reads write nothing; a kiosk org answers identity None and writes nothing; a hub carrying retired pairing fields is scrubbed once (source). Every other route writes nothing. Pinned by tests/test_state_org_read_boundary.py against docs/state-system/org-read-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13880,
+          "end": 14048,
+          "sha256": "8c50a69e11fa4a9edb0fb3f55e5468a6a57e49cce59ac8082073f0be18213633"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 3396,
+          "end": 3398,
+          "sha256": "0ee2198150d26e7cd4cb7e0d43b011f59d962fda62d94620c9c5dbe7ca68bb82"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2053,
+          "end": 2097,
+          "sha256": "5d6734718529dca35f48afd35bb91218c6b4555badc48fd88f9c644bc83b8704"
+        }
+      ]
+    },
+    "org-read.predicates": {
+      "dimension": "predicates",
+      "status": "specified",
+      "facts": [
+        "An unknown org or node answers 404 on every route. file, scratch and the disk file and dir routes refuse a path outside their root 422 ('path escapes the scratch space' and 'path escapes the org disk') and a missing path 404. chat refuses a malformed `before` cursor 422 ('Invalid transcript cursor'). tool-image answers 404 with no transcript ('no transcript') or no image on that tool result. history entries refuses an unknown section 404 ('Unknown history collection'), a per-node section without a node 404 and a malformed cursor 422 ('Invalid history cursor'). aggregates refuses an unknown collection 422. The disk routes answer 409 without a virtual disk and 503 when the disk is not mounted ('… disk is not mounted'). Pinned by tests/test_state_org_read_boundary.py against docs/state-system/org-read-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13880,
+          "end": 14048,
+          "sha256": "8c50a69e11fa4a9edb0fb3f55e5468a6a57e49cce59ac8082073f0be18213633"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9486,
+          "end": 9515,
+          "sha256": "a4100cb83d274108944a1e6112900b66a2d965d3757f5d67e8cbe161184a56fb"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13381,
+          "end": 13397,
+          "sha256": "22ae844373a75a9edcd9e90065d26be565b74220ec42de925fc4ccec2b780ebf"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14088,
+          "end": 14129,
+          "sha256": "aea3861f6e50967570690f53a688779be9432899a72f8cc83bcc07f33f2f5d03"
+        },
+        {
+          "path": "engine/backend/orgtree/history.py",
+          "start": 79,
+          "end": 160,
+          "sha256": "8553a1bde594f5e673cd4d7594382e8678aec784f7538bd597e1275023cf94bd"
+        },
+        {
+          "path": "engine/backend/orgtree/diagnostics.py",
+          "start": 110,
+          "end": 128,
+          "sha256": "d5e885b95f7f8b646528434a606c77feeed37e2429bbe0fc413f79dfeddf49db"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13425,
+          "end": 13433,
+          "sha256": "3c59418ad6877284248d5abce0175753cfc3cae22c906e2abf6ff74fe52e80cd"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13436,
+          "end": 13451,
+          "sha256": "5a28b726e910e90025fd3670d8a03f30ddfc8d919709e6a29ec216f8632f5531"
+        }
+      ]
+    },
+    "org-read.conflicts": {
+      "dimension": "conflicts",
+      "status": "unresolved",
+      "facts": [
+        "chat's and history's first-read mint and net's backfill write the org from a GET; the chat and transcript-records sidecars are machine-wide stores written outside the org transaction (source)."
+      ],
+      "open_questions": [
+        "Implement and qualify native transactions for the org reads that write: the chat and history first-read mint and the network identity backfill, against a concurrent writer.",
+        "Owner: P03 (native design and qualification), with the desktop chat. Closes with: a native design qualified by a first chat read racing a turn's own save. Not coverable at P01 from available evidence: no native build exists, and P01 has not cited a native design section for these operations."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13880,
+          "end": 14048,
+          "sha256": "8c50a69e11fa4a9edb0fb3f55e5468a6a57e49cce59ac8082073f0be18213633"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2053,
+          "end": 2097,
+          "sha256": "5d6734718529dca35f48afd35bb91218c6b4555badc48fd88f9c644bc83b8704"
+        }
+      ]
+    },
+    "org-read.wire": {
+      "dimension": "wire",
+      "status": "unresolved",
+      "facts": [
+        "The shapes are fixtured in docs/state-system/org-read-boundary.json per case."
+      ],
+      "open_questions": [
+        "Carry the fixtured org-read shapes to the native/Rust door and decide each recorded legacy defect.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured shapes passing against the native and Rust builds. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13880,
+          "end": 14048,
+          "sha256": "8c50a69e11fa4a9edb0fb3f55e5468a6a57e49cce59ac8082073f0be18213633"
+        }
+      ]
+    },
+    "org-read.receipt": {
+      "dimension": "receipt",
+      "status": "specified",
+      "facts": [
+        "The routes take no operation key and file no receipt. Pinned by tests/test_state_org_read_boundary.py against docs/state-system/org-read-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14190,
+          "end": 14212,
+          "sha256": "e3791b8fb85cd78089ba31de46cf1f20bf6c3c075bc584012ce16048268b5a5e"
+        }
+      ]
+    },
+    "org-read.effects": {
+      "dimension": "effects",
+      "status": "specified",
+      "facts": [
+        "No route drives, notifies or broadcasts: every spy stays silent. Pinned by tests/test_state_org_read_boundary.py against docs/state-system/org-read-boundary.json for the spy calls."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13880,
+          "end": 14048,
+          "sha256": "8c50a69e11fa4a9edb0fb3f55e5468a6a57e49cce59ac8082073f0be18213633"
+        }
+      ]
+    },
+    "org-read.instrumentation": {
+      "dimension": "instrumentation",
+      "status": "unresolved",
+      "facts": [
+        "The access middleware labels each route. No P02 per-operation record covers this family yet."
+      ],
+      "open_questions": [
+        "Observe every org read with the P02 per-operation probe: actual contacts per outcome, cold and warm, refusals included (the chat reads touch three sidecars).",
+        "Owner: P02 (p02-contacts-opus55; coordinator ruling Q6 on p01-f1-contracts-for-the-org-lifecycle-and-catal: probed after this family lands). Closes with: a loss-accounted P02 record per row. Not coverable at P01 from available evidence: P01 does not run the P02 probe, and no P02 record covers this family yet."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14190,
+          "end": 14212,
+          "sha256": "e3791b8fb85cd78089ba31de46cf1f20bf6c3c075bc584012ce16048268b5a5e"
         }
       ]
     }
@@ -19930,6 +20234,903 @@
         }
       ],
       "domain_mode": "write"
+    },
+    "org-read.chat": {
+      "entry_ids": [
+        "9348ad49269057fa35ecb00c4606ab2ad791e54b87cc63639ecc6ac6c22b7eda"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "org-read.authority"
+        ],
+        "reads": [
+          "org-read.reads"
+        ],
+        "writes": [
+          "org-read.writes"
+        ],
+        "predicates": [
+          "org-read.predicates"
+        ],
+        "conflicts": [
+          "org-read.conflicts"
+        ],
+        "wire": [
+          "org-read.wire"
+        ],
+        "receipt": [
+          "org-read.receipt"
+        ],
+        "effects": [
+          "org-read.effects"
+        ],
+        "instrumentation": [
+          "org-read.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13874,
+          "end": 13874,
+          "sha256": "ee65d91027c3f276c8c924eb8d010cb43d3f313ce1eea08a3bdb925953c65c0a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13874,
+          "end": 13877,
+          "sha256": "f3df99a8869befc7c05f1987cffd3b7fb3f262c164ad2111219c54c5d15ac62b"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13880,
+          "end": 14048,
+          "sha256": "8c50a69e11fa4a9edb0fb3f55e5468a6a57e49cce59ac8082073f0be18213633"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 3147,
+          "end": 3153,
+          "sha256": "c1bd17f73a387c8bcdce9f740dd3a7dc7f310424c56df447d34d97c327b9e7e7"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 3396,
+          "end": 3398,
+          "sha256": "0ee2198150d26e7cd4cb7e0d43b011f59d962fda62d94620c9c5dbe7ca68bb82"
+        }
+      ],
+      "domain_mode": "conditional_write"
+    },
+    "org-read.file": {
+      "entry_ids": [
+        "24ba938786f0b1fa99d7ccfac08dabe13e5cc0ccd96fbc73875a1a931cd19b82"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "org-read.authority"
+        ],
+        "reads": [
+          "org-read.reads"
+        ],
+        "writes": [
+          "org-read.writes"
+        ],
+        "predicates": [
+          "org-read.predicates"
+        ],
+        "conflicts": [
+          "org-read.conflicts"
+        ],
+        "wire": [
+          "org-read.wire"
+        ],
+        "receipt": [
+          "org-read.receipt"
+        ],
+        "effects": [
+          "org-read.effects"
+        ],
+        "instrumentation": [
+          "org-read.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13381,
+          "end": 13381,
+          "sha256": "30a411e12d7d5c4ac0c7b933df9dc74a926ca1aeea2b0e52ccd2306f4ad2aa9a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13381,
+          "end": 13397,
+          "sha256": "22ae844373a75a9edcd9e90065d26be565b74220ec42de925fc4ccec2b780ebf"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "org-read.scratch": {
+      "entry_ids": [
+        "35f96df13bff368c2bb3f922aa142f46577751afaecaa8e7531881b5046758d2"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "org-read.authority"
+        ],
+        "reads": [
+          "org-read.reads"
+        ],
+        "writes": [
+          "org-read.writes"
+        ],
+        "predicates": [
+          "org-read.predicates"
+        ],
+        "conflicts": [
+          "org-read.conflicts"
+        ],
+        "wire": [
+          "org-read.wire"
+        ],
+        "receipt": [
+          "org-read.receipt"
+        ],
+        "effects": [
+          "org-read.effects"
+        ],
+        "instrumentation": [
+          "org-read.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9486,
+          "end": 9486,
+          "sha256": "0ef1c9ab71e33fb665fbcfce7ac8378d7756ca88843503c8a4b3c8853ea80d93"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9486,
+          "end": 9515,
+          "sha256": "a4100cb83d274108944a1e6112900b66a2d965d3757f5d67e8cbe161184a56fb"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "org-read.tool-image": {
+      "entry_ids": [
+        "5a8e6049fd1d403dd8ae8eb42e7f935f02459bc5b8c1066c08dc08c19a95d6c1"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "org-read.authority"
+        ],
+        "reads": [
+          "org-read.reads"
+        ],
+        "writes": [
+          "org-read.writes"
+        ],
+        "predicates": [
+          "org-read.predicates"
+        ],
+        "conflicts": [
+          "org-read.conflicts"
+        ],
+        "wire": [
+          "org-read.wire"
+        ],
+        "receipt": [
+          "org-read.receipt"
+        ],
+        "effects": [
+          "org-read.effects"
+        ],
+        "instrumentation": [
+          "org-read.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14088,
+          "end": 14088,
+          "sha256": "c202b07d286012e7fd7e6d5dacc51b00fb1c1c90f7162f49e5be43d09cef60ae"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14088,
+          "end": 14129,
+          "sha256": "aea3861f6e50967570690f53a688779be9432899a72f8cc83bcc07f33f2f5d03"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "org-read.node-history": {
+      "entry_ids": [
+        "205ca8ce1c6ffc0049febaa8c367414fa8ac0d6ed993b75f13c9bb77b75045ca"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "org-read.authority"
+        ],
+        "reads": [
+          "org-read.reads"
+        ],
+        "writes": [
+          "org-read.writes"
+        ],
+        "predicates": [
+          "org-read.predicates"
+        ],
+        "conflicts": [
+          "org-read.conflicts"
+        ],
+        "wire": [
+          "org-read.wire"
+        ],
+        "receipt": [
+          "org-read.receipt"
+        ],
+        "effects": [
+          "org-read.effects"
+        ],
+        "instrumentation": [
+          "org-read.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9425,
+          "end": 9425,
+          "sha256": "e09c9078d63d4f58e167d0e782e2b44bdb59cab1ac95a4eb976a5290875cf71e"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9425,
+          "end": 9483,
+          "sha256": "0fb73cfc0ec08021cad8022ae5ec96ce4d8889b851a0a4b9f83d8a07b3cf2c8a"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "org-read.history-sources": {
+      "entry_ids": [
+        "c62d883843c8a8c20d3a3ef1ca8ba80bc98749e25fbf71a816aa3b1ea987bed2"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "org-read.authority"
+        ],
+        "reads": [
+          "org-read.reads"
+        ],
+        "writes": [
+          "org-read.writes"
+        ],
+        "predicates": [
+          "org-read.predicates"
+        ],
+        "conflicts": [
+          "org-read.conflicts"
+        ],
+        "wire": [
+          "org-read.wire"
+        ],
+        "receipt": [
+          "org-read.receipt"
+        ],
+        "effects": [
+          "org-read.effects"
+        ],
+        "instrumentation": [
+          "org-read.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/history.py",
+          "start": 163,
+          "end": 163,
+          "sha256": "887c0edce04c851de85d42ba7ce4b47429c7865d69b099dcc10a2acc5b4fc666"
+        },
+        {
+          "path": "engine/backend/orgtree/history.py",
+          "start": 163,
+          "end": 172,
+          "sha256": "b9e2eb4777c44a74bbe4afd0cb0c38a87329fa9d9a809d0dbea43ef17c1b7d12"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "org-read.history-entries": {
+      "entry_ids": [
+        "b4c8d4e8f78f14d19aed84b3668c6e68ac16d34c05482aaca7da9e0ba82c44e9"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "org-read.authority"
+        ],
+        "reads": [
+          "org-read.reads"
+        ],
+        "writes": [
+          "org-read.writes"
+        ],
+        "predicates": [
+          "org-read.predicates"
+        ],
+        "conflicts": [
+          "org-read.conflicts"
+        ],
+        "wire": [
+          "org-read.wire"
+        ],
+        "receipt": [
+          "org-read.receipt"
+        ],
+        "effects": [
+          "org-read.effects"
+        ],
+        "instrumentation": [
+          "org-read.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/history.py",
+          "start": 175,
+          "end": 175,
+          "sha256": "2a66ed873d943fb571d0f82a9e09d2798c1509946bf13d5d31eb58f5ba9b5318"
+        },
+        {
+          "path": "engine/backend/orgtree/history.py",
+          "start": 175,
+          "end": 177,
+          "sha256": "40076d63d7b36231f83709622bf63434a870151873ef7d57f30b37b6da05211a"
+        },
+        {
+          "path": "engine/backend/orgtree/history.py",
+          "start": 79,
+          "end": 160,
+          "sha256": "8553a1bde594f5e673cd4d7594382e8678aec784f7538bd597e1275023cf94bd"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 3147,
+          "end": 3153,
+          "sha256": "c1bd17f73a387c8bcdce9f740dd3a7dc7f310424c56df447d34d97c327b9e7e7"
+        }
+      ],
+      "domain_mode": "conditional_write"
+    },
+    "org-read.events": {
+      "entry_ids": [
+        "bbe594a2e1136b8f818e908e7ab6486e613adaba49434a4c9c662156db6864eb"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "org-read.authority"
+        ],
+        "reads": [
+          "org-read.reads"
+        ],
+        "writes": [
+          "org-read.writes"
+        ],
+        "predicates": [
+          "org-read.predicates"
+        ],
+        "conflicts": [
+          "org-read.conflicts"
+        ],
+        "wire": [
+          "org-read.wire"
+        ],
+        "receipt": [
+          "org-read.receipt"
+        ],
+        "effects": [
+          "org-read.effects"
+        ],
+        "instrumentation": [
+          "org-read.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14190,
+          "end": 14190,
+          "sha256": "4b4ec9b885d151364b8ab1dab9df2b084d107bf5cadc64d2210f63b84f95cf50"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14190,
+          "end": 14212,
+          "sha256": "e3791b8fb85cd78089ba31de46cf1f20bf6c3c075bc584012ce16048268b5a5e"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "org-read.orgmd": {
+      "entry_ids": [
+        "eb6f7c1b9cf3c0cfb29026a0a8a86969a4a231b193c9b1bee69cbaf7dbd74135"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "org-read.authority"
+        ],
+        "reads": [
+          "org-read.reads"
+        ],
+        "writes": [
+          "org-read.writes"
+        ],
+        "predicates": [
+          "org-read.predicates"
+        ],
+        "conflicts": [
+          "org-read.conflicts"
+        ],
+        "wire": [
+          "org-read.wire"
+        ],
+        "receipt": [
+          "org-read.receipt"
+        ],
+        "effects": [
+          "org-read.effects"
+        ],
+        "instrumentation": [
+          "org-read.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9527,
+          "end": 9527,
+          "sha256": "59b3af51bf28741994ad50525d3f7d664e8fcc058e070e33e51de37e847cd98f"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9527,
+          "end": 9554,
+          "sha256": "7b94e75d857a024389399fdb0640a76820b11b256e6a18ccc970421514426066"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "org-read.net": {
+      "entry_ids": [
+        "03d5d6642669a43d6703edb681823c7537ca210d08165357b53b6f7fb5126907"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "org-read.authority"
+        ],
+        "reads": [
+          "org-read.reads"
+        ],
+        "writes": [
+          "org-read.writes"
+        ],
+        "predicates": [
+          "org-read.predicates"
+        ],
+        "conflicts": [
+          "org-read.conflicts"
+        ],
+        "wire": [
+          "org-read.wire"
+        ],
+        "receipt": [
+          "org-read.receipt"
+        ],
+        "effects": [
+          "org-read.effects"
+        ],
+        "instrumentation": [
+          "org-read.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2053,
+          "end": 2053,
+          "sha256": "8f5c28aceed85518a4c5ce9335c4e377333b23b196f0cdd862a74d45d6950cec"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2053,
+          "end": 2097,
+          "sha256": "5d6734718529dca35f48afd35bb91218c6b4555badc48fd88f9c644bc83b8704"
+        }
+      ],
+      "domain_mode": "conditional_write"
+    },
+    "org-read.bridge-credential": {
+      "entry_ids": [
+        "882ab383a88f2817a5ff784fa457965aa4f4db4d2e37cca1564be54958224f28"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "org-read.authority"
+        ],
+        "reads": [
+          "org-read.reads"
+        ],
+        "writes": [
+          "org-read.writes"
+        ],
+        "predicates": [
+          "org-read.predicates"
+        ],
+        "conflicts": [
+          "org-read.conflicts"
+        ],
+        "wire": [
+          "org-read.wire"
+        ],
+        "receipt": [
+          "org-read.receipt"
+        ],
+        "effects": [
+          "org-read.effects"
+        ],
+        "instrumentation": [
+          "org-read.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1818,
+          "end": 1818,
+          "sha256": "f1e4c406c564a012bf5b002ff4e31bab5168a2d1d79e02fa5a01ea7c30c2ba3f"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1818,
+          "end": 1821,
+          "sha256": "a3bfcdf1621e068580b8c5d55ca6855bb4e42376f1937699d07f73fa08e9810d"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1796,
+          "end": 1815,
+          "sha256": "b54aab2d7e252bb58a276765d3d95b39979774b42435d2e8b61bead47c2f8fa6"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "org-read.aggregates": {
+      "entry_ids": [
+        "8ef7d8729bcec04845e962e58acc6002be21a665e232644d0da664d6bdc109c3"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "org-read.authority"
+        ],
+        "reads": [
+          "org-read.reads"
+        ],
+        "writes": [
+          "org-read.writes"
+        ],
+        "predicates": [
+          "org-read.predicates"
+        ],
+        "conflicts": [
+          "org-read.conflicts"
+        ],
+        "wire": [
+          "org-read.wire"
+        ],
+        "receipt": [
+          "org-read.receipt"
+        ],
+        "effects": [
+          "org-read.effects"
+        ],
+        "instrumentation": [
+          "org-read.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/diagnostics.py",
+          "start": 110,
+          "end": 111,
+          "sha256": "0da3b626b2d869eeecf9b038a18a67d76b5316b44df1e9adc2961ff03e7e1202"
+        },
+        {
+          "path": "engine/backend/orgtree/diagnostics.py",
+          "start": 110,
+          "end": 128,
+          "sha256": "d5e885b95f7f8b646528434a606c77feeed37e2429bbe0fc413f79dfeddf49db"
+        },
+        {
+          "path": "engine/backend/orgtree/diagnostics.py",
+          "start": 103,
+          "end": 107,
+          "sha256": "f690ddeda75bf82efa07939c68faea1232af0d2a5a90aea16d0873f8de781e92"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "org-read.disk-list": {
+      "entry_ids": [
+        "f6e69b914d253e9c6e25f925c74f5ee2d64ae12292668df22f396afdadb1977a"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "org-read.authority"
+        ],
+        "reads": [
+          "org-read.reads"
+        ],
+        "writes": [
+          "org-read.writes"
+        ],
+        "predicates": [
+          "org-read.predicates"
+        ],
+        "conflicts": [
+          "org-read.conflicts"
+        ],
+        "wire": [
+          "org-read.wire"
+        ],
+        "receipt": [
+          "org-read.receipt"
+        ],
+        "effects": [
+          "org-read.effects"
+        ],
+        "instrumentation": [
+          "org-read.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13490,
+          "end": 13490,
+          "sha256": "f3ec903661c792fb1108f16e782e919d21d165411548056b6311a088409f5841"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13490,
+          "end": 13520,
+          "sha256": "f454ab801b47f8cc1570bdadbeb5d7b0830d26133de9ae0b580fd3f5639222ce"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13425,
+          "end": 13433,
+          "sha256": "3c59418ad6877284248d5abce0175753cfc3cae22c906e2abf6ff74fe52e80cd"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "org-read.disk-dir": {
+      "entry_ids": [
+        "5e2b74680b80d7803b6c0b652a5ca1e86b4b0fc1a2cecc458653221bbf68c2ff"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "org-read.authority"
+        ],
+        "reads": [
+          "org-read.reads"
+        ],
+        "writes": [
+          "org-read.writes"
+        ],
+        "predicates": [
+          "org-read.predicates"
+        ],
+        "conflicts": [
+          "org-read.conflicts"
+        ],
+        "wire": [
+          "org-read.wire"
+        ],
+        "receipt": [
+          "org-read.receipt"
+        ],
+        "effects": [
+          "org-read.effects"
+        ],
+        "instrumentation": [
+          "org-read.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13545,
+          "end": 13545,
+          "sha256": "6dad8c04d4b68b2880a87ef216dc842c2a09e3ba158d48f40f03f49e917e60c8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13545,
+          "end": 13578,
+          "sha256": "7e9263c262c0b070635041d2c1802acb7623d7e1ac4130fe741343025365b3ee"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13425,
+          "end": 13433,
+          "sha256": "3c59418ad6877284248d5abce0175753cfc3cae22c906e2abf6ff74fe52e80cd"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13436,
+          "end": 13451,
+          "sha256": "5a28b726e910e90025fd3670d8a03f30ddfc8d919709e6a29ec216f8632f5531"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "org-read.disk-file": {
+      "entry_ids": [
+        "80bec218982ea1ceca95a680cefc56d5a605c3fef7d5089e8b47a1757813618d"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "org-read.authority"
+        ],
+        "reads": [
+          "org-read.reads"
+        ],
+        "writes": [
+          "org-read.writes"
+        ],
+        "predicates": [
+          "org-read.predicates"
+        ],
+        "conflicts": [
+          "org-read.conflicts"
+        ],
+        "wire": [
+          "org-read.wire"
+        ],
+        "receipt": [
+          "org-read.receipt"
+        ],
+        "effects": [
+          "org-read.effects"
+        ],
+        "instrumentation": [
+          "org-read.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13581,
+          "end": 13581,
+          "sha256": "a01a57ee7151a0ef05b2a4a5336a65bc3966496e4253cd6c3f1be6e46c68be66"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13581,
+          "end": 13616,
+          "sha256": "36787bbfe79251e4261c86c7b8a32825af67c93f2b3c967e4d7a001a492e8242"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13425,
+          "end": 13433,
+          "sha256": "3c59418ad6877284248d5abce0175753cfc3cae22c906e2abf6ff74fe52e80cd"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13436,
+          "end": 13451,
+          "sha256": "5a28b726e910e90025fd3670d8a03f30ddfc8d919709e6a29ec216f8632f5531"
+        }
+      ],
+      "domain_mode": "read"
     }
   },
   "wire_cases": [
@@ -21443,6 +22644,111 @@
       "args": {},
       "contract": "exchange.send-file",
       "domain_mode": "write"
+    },
+    {
+      "name": "GET /api/orgs/{slug}/nodes/{nid}/chat:org-read.chat",
+      "entry_id": "9348ad49269057fa35ecb00c4606ab2ad791e54b87cc63639ecc6ac6c22b7eda",
+      "args": {},
+      "contract": "org-read.chat",
+      "domain_mode": "conditional_write"
+    },
+    {
+      "name": "GET /api/orgs/{slug}/nodes/{nid}/file:org-read.file",
+      "entry_id": "24ba938786f0b1fa99d7ccfac08dabe13e5cc0ccd96fbc73875a1a931cd19b82",
+      "args": {},
+      "contract": "org-read.file",
+      "domain_mode": "read"
+    },
+    {
+      "name": "GET /api/orgs/{slug}/nodes/{nid}/scratch:org-read.scratch",
+      "entry_id": "35f96df13bff368c2bb3f922aa142f46577751afaecaa8e7531881b5046758d2",
+      "args": {},
+      "contract": "org-read.scratch",
+      "domain_mode": "read"
+    },
+    {
+      "name": "GET /api/orgs/{slug}/nodes/{nid}/toolimg/{tool_use_id}:org-read.tool-image",
+      "entry_id": "5a8e6049fd1d403dd8ae8eb42e7f935f02459bc5b8c1066c08dc08c19a95d6c1",
+      "args": {},
+      "contract": "org-read.tool-image",
+      "domain_mode": "read"
+    },
+    {
+      "name": "GET /api/orgs/{slug}/nodes/{nid}/history:org-read.node-history",
+      "entry_id": "205ca8ce1c6ffc0049febaa8c367414fa8ac0d6ed993b75f13c9bb77b75045ca",
+      "args": {},
+      "contract": "org-read.node-history",
+      "domain_mode": "read"
+    },
+    {
+      "name": "GET /api/orgs/{slug}/history:org-read.history-sources",
+      "entry_id": "c62d883843c8a8c20d3a3ef1ca8ba80bc98749e25fbf71a816aa3b1ea987bed2",
+      "args": {},
+      "contract": "org-read.history-sources",
+      "domain_mode": "read"
+    },
+    {
+      "name": "GET /api/orgs/{slug}/history/{section}:org-read.history-entries",
+      "entry_id": "b4c8d4e8f78f14d19aed84b3668c6e68ac16d34c05482aaca7da9e0ba82c44e9",
+      "args": {},
+      "contract": "org-read.history-entries",
+      "domain_mode": "conditional_write"
+    },
+    {
+      "name": "GET /api/orgs/{slug}/events:org-read.events",
+      "entry_id": "bbe594a2e1136b8f818e908e7ab6486e613adaba49434a4c9c662156db6864eb",
+      "args": {},
+      "contract": "org-read.events",
+      "domain_mode": "read"
+    },
+    {
+      "name": "GET /api/orgs/{slug}/orgmd:org-read.orgmd",
+      "entry_id": "eb6f7c1b9cf3c0cfb29026a0a8a86969a4a231b193c9b1bee69cbaf7dbd74135",
+      "args": {},
+      "contract": "org-read.orgmd",
+      "domain_mode": "read"
+    },
+    {
+      "name": "GET /api/orgs/{slug}/net:org-read.net",
+      "entry_id": "03d5d6642669a43d6703edb681823c7537ca210d08165357b53b6f7fb5126907",
+      "args": {},
+      "contract": "org-read.net",
+      "domain_mode": "conditional_write"
+    },
+    {
+      "name": "GET /api/orgs/{slug}/bridge-credential:org-read.bridge-credential",
+      "entry_id": "882ab383a88f2817a5ff784fa457965aa4f4db4d2e37cca1564be54958224f28",
+      "args": {},
+      "contract": "org-read.bridge-credential",
+      "domain_mode": "read"
+    },
+    {
+      "name": "GET /api/orgs/{slug}/diagnostics/aggregates:org-read.aggregates",
+      "entry_id": "8ef7d8729bcec04845e962e58acc6002be21a665e232644d0da664d6bdc109c3",
+      "args": {},
+      "contract": "org-read.aggregates",
+      "domain_mode": "read"
+    },
+    {
+      "name": "GET /api/orgs/{slug}/disk:org-read.disk-list",
+      "entry_id": "f6e69b914d253e9c6e25f925c74f5ee2d64ae12292668df22f396afdadb1977a",
+      "args": {},
+      "contract": "org-read.disk-list",
+      "domain_mode": "read"
+    },
+    {
+      "name": "GET /api/orgs/{slug}/disk/dir:org-read.disk-dir",
+      "entry_id": "5e2b74680b80d7803b6c0b652a5ca1e86b4b0fc1a2cecc458653221bbf68c2ff",
+      "args": {},
+      "contract": "org-read.disk-dir",
+      "domain_mode": "read"
+    },
+    {
+      "name": "GET /api/orgs/{slug}/disk/file:org-read.disk-file",
+      "entry_id": "80bec218982ea1ceca95a680cefc56d5a605c3fef7d5089e8b47a1757813618d",
+      "args": {},
+      "contract": "org-read.disk-file",
+      "domain_mode": "read"
     }
   ],
   "limits": [
@@ -21665,10 +22971,19 @@
     },
     {
       "id": "882ab383a88f2817a5ff784fa457965aa4f4db4d2e37cca1564be54958224f28",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org-read.bridge-credential"
+      ],
+      "reason": "GET /api/orgs/{slug}/bridge-credential: org-read.bridge-credential (P01 F6).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 1818,
+          "end": 1818,
+          "sha256": "f1e4c406c564a012bf5b002ff4e31bab5168a2d1d79e02fa5a01ea7c30c2ba3f"
+        }
+      ]
     },
     {
       "id": "3b17ebec10381c460845ba1c3b6df79ef06052595ef1af3ff6f9a3a4a3a233e9",
@@ -21700,10 +23015,19 @@
     },
     {
       "id": "03d5d6642669a43d6703edb681823c7537ca210d08165357b53b6f7fb5126907",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org-read.net"
+      ],
+      "reason": "GET /api/orgs/{slug}/net: org-read.net (P01 F6).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 2053,
+          "end": 2053,
+          "sha256": "8f5c28aceed85518a4c5ce9335c4e377333b23b196f0cdd862a74d45d6950cec"
+        }
+      ]
     },
     {
       "id": "69a948197cb9753965005a28972824441f53c0e69d93ee4db23991b6fcae09b0",
@@ -22877,24 +24201,51 @@
     },
     {
       "id": "205ca8ce1c6ffc0049febaa8c367414fa8ac0d6ed993b75f13c9bb77b75045ca",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org-read.node-history"
+      ],
+      "reason": "GET /api/orgs/{slug}/nodes/{nid}/history: org-read.node-history (P01 F6).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9425,
+          "end": 9425,
+          "sha256": "e09c9078d63d4f58e167d0e782e2b44bdb59cab1ac95a4eb976a5290875cf71e"
+        }
+      ]
     },
     {
       "id": "35f96df13bff368c2bb3f922aa142f46577751afaecaa8e7531881b5046758d2",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org-read.scratch"
+      ],
+      "reason": "GET /api/orgs/{slug}/nodes/{nid}/scratch: org-read.scratch (P01 F6).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9486,
+          "end": 9486,
+          "sha256": "0ef1c9ab71e33fb665fbcfce7ac8378d7756ca88843503c8a4b3c8853ea80d93"
+        }
+      ]
     },
     {
       "id": "eb6f7c1b9cf3c0cfb29026a0a8a86969a4a231b193c9b1bee69cbaf7dbd74135",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org-read.orgmd"
+      ],
+      "reason": "GET /api/orgs/{slug}/orgmd: org-read.orgmd (P01 F6).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9527,
+          "end": 9527,
+          "sha256": "59b3af51bf28741994ad50525d3f7d664e8fcc058e070e33e51de37e847cd98f"
+        }
+      ]
     },
     {
       "id": "930cb8d0181b2a0c50d78ff395d9332dfdbc4bcacf1aee4b4130e2c8e7116c23",
@@ -22967,31 +24318,67 @@
     },
     {
       "id": "24ba938786f0b1fa99d7ccfac08dabe13e5cc0ccd96fbc73875a1a931cd19b82",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org-read.file"
+      ],
+      "reason": "GET /api/orgs/{slug}/nodes/{nid}/file: org-read.file (P01 F6).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13381,
+          "end": 13381,
+          "sha256": "30a411e12d7d5c4ac0c7b933df9dc74a926ca1aeea2b0e52ccd2306f4ad2aa9a"
+        }
+      ]
     },
     {
       "id": "f6e69b914d253e9c6e25f925c74f5ee2d64ae12292668df22f396afdadb1977a",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org-read.disk-list"
+      ],
+      "reason": "GET /api/orgs/{slug}/disk: org-read.disk-list (P01 F6).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13490,
+          "end": 13490,
+          "sha256": "f3ec903661c792fb1108f16e782e919d21d165411548056b6311a088409f5841"
+        }
+      ]
     },
     {
       "id": "5e2b74680b80d7803b6c0b652a5ca1e86b4b0fc1a2cecc458653221bbf68c2ff",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org-read.disk-dir"
+      ],
+      "reason": "GET /api/orgs/{slug}/disk/dir: org-read.disk-dir (P01 F6).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13545,
+          "end": 13545,
+          "sha256": "6dad8c04d4b68b2880a87ef216dc842c2a09e3ba158d48f40f03f49e917e60c8"
+        }
+      ]
     },
     {
       "id": "80bec218982ea1ceca95a680cefc56d5a605c3fef7d5089e8b47a1757813618d",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org-read.disk-file"
+      ],
+      "reason": "GET /api/orgs/{slug}/disk/file: org-read.disk-file (P01 F6).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13581,
+          "end": 13581,
+          "sha256": "a01a57ee7151a0ef05b2a4a5336a65bc3966496e4253cd6c3f1be6e46c68be66"
+        }
+      ]
     },
     {
       "id": "f096e38213dd48cbd126eac9d83660e55130c57141ffba9e9d8be9aea322562f",
@@ -23030,10 +24417,19 @@
     },
     {
       "id": "9348ad49269057fa35ecb00c4606ab2ad791e54b87cc63639ecc6ac6c22b7eda",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org-read.chat"
+      ],
+      "reason": "GET /api/orgs/{slug}/nodes/{nid}/chat: org-read.chat (P01 F6).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 13874,
+          "end": 13874,
+          "sha256": "ee65d91027c3f276c8c924eb8d010cb43d3f313ce1eea08a3bdb925953c65c0a"
+        }
+      ]
     },
     {
       "id": "0c0f06e89c1c325090620d7392dd0fa7c8f2a5a11c47da76dbe1f1cd9e321b4b",
@@ -23085,10 +24481,19 @@
     },
     {
       "id": "5a8e6049fd1d403dd8ae8eb42e7f935f02459bc5b8c1066c08dc08c19a95d6c1",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org-read.tool-image"
+      ],
+      "reason": "GET /api/orgs/{slug}/nodes/{nid}/toolimg/{tool_use_id}: org-read.tool-image (P01 F6).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14088,
+          "end": 14088,
+          "sha256": "c202b07d286012e7fd7e6d5dacc51b00fb1c1c90f7162f49e5be43d09cef60ae"
+        }
+      ]
     },
     {
       "id": "c2c5a5761683001f9db1d733c7bdc986b766ab85ce24fe09bddb532b4183f58f",
@@ -23108,10 +24513,19 @@
     },
     {
       "id": "bbe594a2e1136b8f818e908e7ab6486e613adaba49434a4c9c662156db6864eb",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org-read.events"
+      ],
+      "reason": "GET /api/orgs/{slug}/events: org-read.events (P01 F6).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14190,
+          "end": 14190,
+          "sha256": "4b4ec9b885d151364b8ab1dab9df2b084d107bf5cadc64d2210f63b84f95cf50"
+        }
+      ]
     },
     {
       "id": "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5",
@@ -23334,10 +24748,19 @@
     },
     {
       "id": "8ef7d8729bcec04845e962e58acc6002be21a665e232644d0da664d6bdc109c3",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org-read.aggregates"
+      ],
+      "reason": "GET /api/orgs/{slug}/diagnostics/aggregates: org-read.aggregates (P01 F6).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/diagnostics.py",
+          "start": 110,
+          "end": 111,
+          "sha256": "0da3b626b2d869eeecf9b038a18a67d76b5316b44df1e9adc2961ff03e7e1202"
+        }
+      ]
     },
     {
       "id": "bda724246554fd0a9d521c59c6d30ae6be9407eadc8bd7ebc62ba2283cec3c76",
@@ -23636,17 +25059,35 @@
     },
     {
       "id": "c62d883843c8a8c20d3a3ef1ca8ba80bc98749e25fbf71a816aa3b1ea987bed2",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org-read.history-sources"
+      ],
+      "reason": "GET /api/orgs/{slug}/history: org-read.history-sources (P01 F6).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/history.py",
+          "start": 163,
+          "end": 163,
+          "sha256": "887c0edce04c851de85d42ba7ce4b47429c7865d69b099dcc10a2acc5b4fc666"
+        }
+      ]
     },
     {
       "id": "b4c8d4e8f78f14d19aed84b3668c6e68ac16d34c05482aaca7da9e0ba82c44e9",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "org-read.history-entries"
+      ],
+      "reason": "GET /api/orgs/{slug}/history/{section}: org-read.history-entries (P01 F6).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/history.py",
+          "start": 175,
+          "end": 175,
+          "sha256": "2a66ed873d943fb571d0f82a9e09d2798c1509946bf13d5d31eb58f5ba9b5318"
+        }
+      ]
     },
     {
       "id": "7be7e687c71508e0e5d6f0032125b793e5b41109523daca49caf3022ad1a9f82",
@@ -28150,17 +29591,35 @@
     },
     {
       "id": "fea6ac4d65d7c5329b38755e6346a742974347424fe262bef4fe8e7f3288e9ee",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W8): a transcript rendering branch in supervisor._read_chat_source (the orgtree_present card), shared by the contracted transcript read (material.transcript) and the uncontracted desktop chat route (api.node_chat); a shared branch maps only once every operation reaching it has a contract. Owner: the desktop chat read (api.node_chat).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "asks.present"
+      ],
+      "reason": "The transcript's orgtree_present card-rendering branch in supervisor._read_chat_source; every reader reaching it is now contracted: material.transcript, org-read.chat, org-read.history-entries and mail.human-send's reply resolution (P01 F6, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 35326,
+          "end": 35327,
+          "sha256": "d57f9832ca1d8446890663663bc9ddb119b940474ee04ca06c3657c6cd8afaf6"
+        }
+      ]
     },
     {
       "id": "e12774a4490048f01b6534c92a3b48ca6b12cfb86c970b740662119c47e525f7",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W8): a transcript rendering branch in supervisor._read_chat_source (the orgtree_send_file card), shared by the contracted transcript read (material.transcript) and the uncontracted desktop chat route (api.node_chat); a shared branch maps only once every operation reaching it has a contract. Owner: the desktop chat read (api.node_chat).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "exchange.send-file"
+      ],
+      "reason": "The transcript's orgtree_send_file card-rendering branch in supervisor._read_chat_source; every reader reaching it is now contracted: material.transcript, org-read.chat, org-read.history-entries and mail.human-send's reply resolution (P01 F6, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 35351,
+          "end": 35352,
+          "sha256": "500dd2931fbc356ce7f15014b3c6054a0b4769740bc95a168f784d8778b3b2df"
+        }
+      ]
     },
     {
       "id": "ca3dd0e3913d0c51908f875f0bb5961948ae65d6491bf114feb5c261114a8ef0",

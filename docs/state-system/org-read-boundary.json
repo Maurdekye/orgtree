@@ -1,0 +1,733 @@
+{
+  "schema": "orgtree.org-read-boundary/v1",
+  "source_contract_sha256": "351b12da27e25f417f9a96c942d3ab8bc2a4c0084c74b7c7c0000dcbcfbf1247",
+  "qualification": {
+    "runtime_census": false,
+    "conversion_authorized": false
+  },
+  "contracts": {
+    "org-read.chat": "9348ad492690",
+    "org-read.file": "24ba938786f0",
+    "org-read.scratch": "35f96df13bff",
+    "org-read.tool-image": "5a8e6049fd1d",
+    "org-read.node-history": "205ca8ce1c6f",
+    "org-read.history-sources": "c62d883843c8",
+    "org-read.history-entries": "b4c8d4e8f78f",
+    "org-read.events": "bbe594a2e113",
+    "org-read.orgmd": "eb6f7c1b9cf3",
+    "org-read.net": "03d5d6642669",
+    "org-read.bridge-credential": "882ab383a88f",
+    "org-read.aggregates": "8ef7d8729bce",
+    "org-read.disk-list": "f6e69b914d25",
+    "org-read.disk-dir": "5e2b74680b80",
+    "org-read.disk-file": "80bec218982e"
+  },
+  "cases": {
+    "chat_no_transcript": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "assistant_identity",
+        "assistant_scope",
+        "before",
+        "busy",
+        "codex_turn_id",
+        "conversation_id",
+        "draft_epoch",
+        "has_older",
+        "init",
+        "last_error",
+        "live",
+        "mail_pending",
+        "mail_stranded",
+        "mcp_readiness_reason",
+        "mcp_readiness_state",
+        "mcp_readiness_waiting",
+        "messages",
+        "occupancy",
+        "occupancy_estimated",
+        "order_epoch",
+        "pending_mail",
+        "prompts_withheld",
+        "queued",
+        "responding",
+        "transient",
+        "turn_activity",
+        "window_read",
+        "windowed"
+      ],
+      "detail": null,
+      "sections": [
+        "nodes",
+        "reply_incarnation"
+      ],
+      "spies": {}
+    },
+    "chat_cold": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "assistant_identity",
+        "assistant_scope",
+        "before",
+        "busy",
+        "codex_turn_id",
+        "conversation_id",
+        "draft_epoch",
+        "has_older",
+        "init",
+        "last_error",
+        "live",
+        "mail_pending",
+        "mail_stranded",
+        "mcp_readiness_reason",
+        "mcp_readiness_state",
+        "mcp_readiness_waiting",
+        "messages",
+        "occupancy",
+        "occupancy_estimated",
+        "order_epoch",
+        "pending_mail",
+        "prompts_withheld",
+        "queued",
+        "responding",
+        "transient",
+        "turn_activity",
+        "window_read",
+        "windowed"
+      ],
+      "detail": null,
+      "sections": [
+        "nodes",
+        "reply_incarnation"
+      ],
+      "spies": {}
+    },
+    "chat_warm": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "assistant_identity",
+        "assistant_scope",
+        "before",
+        "busy",
+        "codex_turn_id",
+        "conversation_id",
+        "draft_epoch",
+        "has_older",
+        "init",
+        "last_error",
+        "live",
+        "mail_pending",
+        "mail_stranded",
+        "mcp_readiness_reason",
+        "mcp_readiness_state",
+        "mcp_readiness_waiting",
+        "messages",
+        "occupancy",
+        "occupancy_estimated",
+        "order_epoch",
+        "pending_mail",
+        "prompts_withheld",
+        "queued",
+        "responding",
+        "transient",
+        "turn_activity",
+        "window_read",
+        "windowed"
+      ],
+      "detail": null,
+      "sections": [],
+      "spies": {}
+    },
+    "chat_bad_cursor": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "Invalid transcript cursor",
+      "sections": [
+        "nodes",
+        "reply_incarnation"
+      ],
+      "spies": {}
+    },
+    "chat_ghost": {
+      "status": 404,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such node: 'ghost'",
+      "sections": [],
+      "spies": {}
+    },
+    "file": {
+      "status": 200,
+      "ctype": "text/plain",
+      "keys": null,
+      "detail": null,
+      "sections": [],
+      "spies": {}
+    },
+    "file_missing": {
+      "status": 404,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such file: 'nope.txt'",
+      "sections": [],
+      "spies": {}
+    },
+    "file_escape": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "path escapes the scratch space",
+      "sections": [],
+      "spies": {}
+    },
+    "file_ghost": {
+      "status": 404,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such node: 'ghost'",
+      "sections": [],
+      "spies": {}
+    },
+    "scratch_dir": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "dir",
+        "entries"
+      ],
+      "detail": null,
+      "sections": [],
+      "spies": {}
+    },
+    "scratch_file": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "content",
+        "file"
+      ],
+      "detail": null,
+      "sections": [],
+      "spies": {}
+    },
+    "scratch_missing": {
+      "status": 404,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such path: 'nope'",
+      "sections": [],
+      "spies": {}
+    },
+    "scratch_escape": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "path escapes the scratch space",
+      "sections": [],
+      "spies": {}
+    },
+    "scratch_ghost": {
+      "status": 404,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such node: 'ghost'",
+      "sections": [],
+      "spies": {}
+    },
+    "toolimg": {
+      "status": 200,
+      "ctype": "image/png",
+      "keys": null,
+      "detail": null,
+      "sections": [],
+      "spies": {}
+    },
+    "toolimg_no_image": {
+      "status": 404,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "no image on that tool result",
+      "sections": [],
+      "spies": {}
+    },
+    "toolimg_no_transcript": {
+      "status": 404,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "no transcript",
+      "sections": [],
+      "spies": {}
+    },
+    "toolimg_ghost": {
+      "status": 404,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such node: 'ghost'",
+      "sections": [],
+      "spies": {}
+    },
+    "node_history": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "items"
+      ],
+      "detail": null,
+      "sections": [],
+      "spies": {}
+    },
+    "node_history_ghost": {
+      "status": 404,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such node: 'ghost'",
+      "sections": [],
+      "spies": {}
+    },
+    "node_history_no_org": {
+      "status": 404,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such org: 'nope-org'",
+      "sections": [],
+      "spies": {}
+    },
+    "history_sources": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "collections",
+        "nodes"
+      ],
+      "detail": null,
+      "sections": [],
+      "spies": {}
+    },
+    "history_sources_no_org": {
+      "status": 404,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such org: 'nope-org'",
+      "sections": [],
+      "spies": {}
+    },
+    "history_events": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "items",
+        "next_cursor",
+        "total"
+      ],
+      "detail": null,
+      "sections": [],
+      "spies": {}
+    },
+    "history_chat": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "items",
+        "next_cursor",
+        "total"
+      ],
+      "detail": null,
+      "sections": [
+        "nodes",
+        "reply_incarnation"
+      ],
+      "spies": {}
+    },
+    "history_chat_warm": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "items",
+        "next_cursor",
+        "total"
+      ],
+      "detail": null,
+      "sections": [],
+      "spies": {}
+    },
+    "history_node_missing": {
+      "status": 404,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such node: ''",
+      "sections": [],
+      "spies": {}
+    },
+    "history_unknown": {
+      "status": 404,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "Unknown history collection",
+      "sections": [],
+      "spies": {}
+    },
+    "history_bad_cursor": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "Invalid history cursor",
+      "sections": [],
+      "spies": {}
+    },
+    "events": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "events",
+        "offset",
+        "total"
+      ],
+      "detail": null,
+      "sections": [],
+      "spies": {}
+    },
+    "events_last": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "events",
+        "offset",
+        "total"
+      ],
+      "detail": null,
+      "sections": [],
+      "spies": {}
+    },
+    "events_no_org": {
+      "status": 404,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such org: 'nope-org'",
+      "sections": [],
+      "spies": {}
+    },
+    "orgmd_none": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "chars",
+        "content",
+        "edit_max",
+        "path",
+        "prompt_max",
+        "read_truncated"
+      ],
+      "detail": null,
+      "sections": [],
+      "spies": {}
+    },
+    "orgmd": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "chars",
+        "content",
+        "edit_max",
+        "path",
+        "prompt_max",
+        "read_truncated"
+      ],
+      "detail": null,
+      "sections": [],
+      "spies": {}
+    },
+    "orgmd_long": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "chars",
+        "content",
+        "edit_max",
+        "path",
+        "prompt_max",
+        "read_truncated"
+      ],
+      "detail": null,
+      "sections": [],
+      "spies": {}
+    },
+    "orgmd_no_org": {
+      "status": 404,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such org: 'nope-org'",
+      "sections": [],
+      "spies": {}
+    },
+    "net_first": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "autoconnect",
+        "hubs",
+        "identity"
+      ],
+      "detail": null,
+      "sections": [
+        "net_autoconnect",
+        "net_hubs",
+        "net_identity"
+      ],
+      "spies": {}
+    },
+    "net_second": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "autoconnect",
+        "hubs",
+        "identity"
+      ],
+      "detail": null,
+      "sections": [],
+      "spies": {}
+    },
+    "net_kiosk": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "autoconnect",
+        "hubs",
+        "identity"
+      ],
+      "detail": null,
+      "sections": [],
+      "spies": {}
+    },
+    "net_no_org": {
+      "status": 404,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such org: 'nope-org'",
+      "sections": [],
+      "spies": {}
+    },
+    "bridge_standard": {
+      "status": 409,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "rotatable bridge credentials are active only in the frozen deployment profile",
+      "sections": [],
+      "spies": {}
+    },
+    "bridge_frozen": {
+      "status": 503,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "org '{slug}' is not sandboxed and gets no bridge credential",
+      "sections": [],
+      "spies": {}
+    },
+    "bridge_frozen_no_org": {
+      "status": 404,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such org: 'nope-org'",
+      "sections": [],
+      "spies": {}
+    },
+    "aggregates": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "collections",
+        "org",
+        "totals"
+      ],
+      "detail": null,
+      "sections": [],
+      "spies": {}
+    },
+    "aggregates_one": {
+      "status": 200,
+      "ctype": "application/json",
+      "keys": [
+        "collections",
+        "org",
+        "totals"
+      ],
+      "detail": null,
+      "sections": [],
+      "spies": {}
+    },
+    "aggregates_bad": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "unsupported diagnostic collection(s): ['bogus']",
+      "sections": [],
+      "spies": {}
+    },
+    "aggregates_no_org": {
+      "status": 404,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such org: 'nope-org'",
+      "sections": [],
+      "spies": {}
+    },
+    "disk_none": {
+      "status": 409,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "this org has no virtual disk (not sandboxed, or not yet migrated)",
+      "sections": [],
+      "spies": {}
+    },
+    "disk_dir_none": {
+      "status": 409,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "this org has no virtual disk (not sandboxed, or not yet migrated)",
+      "sections": [],
+      "spies": {}
+    },
+    "disk_file_none": {
+      "status": 409,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "this org has no virtual disk (not sandboxed, or not yet migrated)",
+      "sections": [],
+      "spies": {}
+    },
+    "disk_fake": {
+      "status": 503,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "org '{slug}' disk is not mounted",
+      "sections": [],
+      "spies": {}
+    },
+    "disk_dir_fake": {
+      "status": 503,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "org '{slug}' disk is not mounted",
+      "sections": [],
+      "spies": {}
+    },
+    "disk_dir_escape": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "path escapes the org disk",
+      "sections": [],
+      "spies": {}
+    },
+    "disk_file_escape": {
+      "status": 422,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "path escapes the org disk",
+      "sections": [],
+      "spies": {}
+    },
+    "disk_file_missing": {
+      "status": 404,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such file: 'home/none.txt'",
+      "sections": [],
+      "spies": {}
+    },
+    "disk_no_org": {
+      "status": 404,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "no such org: 'nope-org'",
+      "sections": [],
+      "spies": {}
+    },
+    "agent_token": {
+      "status": 401,
+      "ctype": "application/json",
+      "keys": [
+        "detail"
+      ],
+      "detail": "agent credential is invalid or expired; reconnect the agent session",
+      "sections": [],
+      "spies": {}
+    }
+  },
+  "legacy_defects": [
+    "a chat read refused 422 for a bad `before` cursor still writes the node's reply incarnation: the mint runs before the cursor check",
+    "the scratch, tool-image and orgmd reads open the file without closing it (a ResourceWarning in the boundary test run), leaving a handle open until collection"
+  ],
+  "scope": "Legacy boundary of the org and agent read routes (P01 F6) on disposable SQLite, the transcript a fixture file. Drives, notices and broadcasts are spies; the routes, the ledger, the chat projection and its sidecars, the scratch folders and the history and event readers are real. Legacy conformance evidence only: not a runtime census, not PostgreSQL or Rust qualification."
+}

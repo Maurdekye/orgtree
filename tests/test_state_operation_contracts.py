@@ -43,9 +43,9 @@ class ContractCoverage(unittest.TestCase):
         self.assertGreater(result["summary"]["storage"]["pending"], 0)
         # THE one registry-wide tripwire (review of S3 candidate 1): every candidate
         # that maps a witness or adds a contract moves these numbers here, and only here.
-        self.assertEqual(result["contracts"], 143)
+        self.assertEqual(result["contracts"], 158)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
-                          result["summary"]["storage"]["mapped"]), (107, 162, 2))
+                          result["summary"]["storage"]["mapped"]), (122, 164, 2))
         # 571 -> 590 (P01 F1): 19 entries and 19 dispatch witnesses mapped, 57 new open dimension occurrences
         # (conflicts, wire and instrumentation on each of the 19 lifecycle contracts), as the Q1 ruling expects
         # 590 -> 608 (P01 F1b): the operator door and 23 of its branches mapped, 42 new open dimension
@@ -63,7 +63,9 @@ class ContractCoverage(unittest.TestCase):
         # from P02's rows (7 contracts each); watchdogs and control instrumentation only narrowed
         # 645 -> 664 (P01 F4): 20 entries, 4 dispatch witnesses and 2 storage sites mapped, 45 new open dimension
         # occurrences (conflicts, wire and instrumentation on each of 15 exchange contracts)
-        self.assertEqual(len(result["pending"]), 664)
+        # 664 -> 692 (P01 F6): 15 entries and 2 dispatch witnesses mapped, 45 new open dimension occurrences
+        # (conflicts, wire and instrumentation on each of 15 org-read contracts)
+        self.assertEqual(len(result["pending"]), 692)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -166,7 +168,7 @@ class ContractCoverage(unittest.TestCase):
     # P01 F2 mapped the twelve warmpool process-control rows (the process route is contracted)
     W8_PENDING = ({("desktop_recovery.py", n) for n in (97, 99, 118, 120, 122, 124, 125)}
                   | {("gitworkspace.py", n) for n in (482, 1114, 1136, 1140)}
-                  | {("supervisor.py", 35326), ("supervisor.py", 35351), ("toolwait.py", 88)})
+                  | {("toolwait.py", 88)})    # P01 F6 mapped supervisor.py 35326 and 35351, the transcript cards
     # the EXACT route each client-process exclusion calls (W8 review finding f1: 'a route' is not 'the route')
     W8_CLIENT_ROUTES = {("externtool.py", 219): ("api.py", 1752, "/api/orgs"),
                         ("externtool.py", 232): ("api.py", 8958, "/api/extern/{peer}/send"),
@@ -184,7 +186,7 @@ class ContractCoverage(unittest.TestCase):
             return (selectors[i]["path"].rsplit("/", 1)[1], selectors[i]["line"])
         self.assertEqual({at(i) for i, r in rows.items() if r["disposition"] == "excluded"}
                          & (self.W8_EXCLUDED | self.W8_PENDING), self.W8_EXCLUDED)
-        self.assertEqual(len(self.W8_PENDING), 14)
+        self.assertEqual(len(self.W8_PENDING), 12)
         # the ruling's condition: a client-process exclusion must cite the inventoried route it calls, and no other
         routes = {(r["source"]["path"].rsplit("/", 1)[1], r["source"]["line"]): r["selectors"]
                   for r in self.source["registrations"] if r["kind"] == "http"}
@@ -384,7 +386,8 @@ class ContractCoverage(unittest.TestCase):
     # 175 -> 162: P01 F3 contracted 13 of them
     # 162 -> 140: P01 F2 contracted 22 of them
     # 140 -> 121: P01 F4 contracted 19 of them (its 20th entry, orgtree_send_file_once, had its own reason)
-    GENERIC_PENDING_ENTRIES = 121
+    # 121 -> 106: P01 F6 contracted 15 of them
+    GENERIC_PENDING_ENTRIES = 106
 
     def test_every_pending_witness_names_its_owner_or_is_a_generic_entry_point(self):
         kinds = {s["site_id"]: s["kind"] for s in self.source["registrations"]}
@@ -468,10 +471,11 @@ class ContractCoverage(unittest.TestCase):
                 self.assertEqual(r["disposition"], "mapped")
                 found[s["source"]["symbol"]] = found.get(s["source"]["symbol"], 0) + 1
         self.assertEqual(found, self.F3_MAPPED)
-        # the transcript's orgtree_present card stays pending on the desktop chat route
+        # the transcript's orgtree_present card waited on the desktop chat route; P01 F6 contracts that route (and
+        # the history chat section), so every reader is contracted and the card maps to asks.present
         [card] = [rows[contracts.witness_id("dispatch", s)] for s in self.source["dispatch_selectors"]
                   if s["source"]["symbol"] == "_read_chat_source" and s["values"] == ["orgtree_present"]]
-        self.assertEqual(card["disposition"], "pending")
+        self.assertEqual((card["disposition"], card["contracts"]), ("mapped", ["asks.present"]))
 
     # P01 F2: the run-control tool and action branches, the remote-control route's branches and the warmpool
     # process control (its status helper also serves the contracted tree and node-detail views)
