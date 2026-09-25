@@ -80,6 +80,26 @@ def merge(*parts: dict[str, list[Any]], **extra: Iterable[Any]) -> dict[str, lis
     return out
 
 
+def ask_rows(node: str | None) -> dict[str, list[Any]]:
+    """Answering or dismissing an ask: the asks row (a save touching asks
+    also rewrites work_items — the docket reconcile) plus the answer mail to
+    the asking node."""
+    return merge(send_rows(node) if node else {}, sections=["asks", "work_items"])
+
+
+def audience_rows(node: str) -> dict[str, list[Any]]:
+    """A user audience grant / deny / revoke: the audience tables, and the
+    decision mail and notices it writes (to the node, a replaced outside
+    holder, or the user)."""
+    return merge(send_rows(node, USER), sections=["audience_requests"])
+
+
+def retract_rows(nid: str) -> dict[str, list[Any]]:
+    """Retracting one undrained mail: the pending boxes and that node's
+    archive (the tombstone)."""
+    return {"sections": ["mail"], "logs": [("mail_log", nid)]}
+
+
 @contextlib.contextmanager
 def org_of(slug: str, **rows: Any) -> Iterator[Org]:
     """`org_tx` yielding the Org itself: the drop-in for a
