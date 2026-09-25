@@ -12,6 +12,9 @@ import uuid
 from typing import Any, Mapping
 
 MAX_RECORDS = 512
+#: PG-3d: an over-cap write prunes to here, so eviction runs once per
+#: MAX_RECORDS - PRUNE_TO writes instead of on every write at the cap
+PRUNE_TO = 448
 # A delay report is a durable de-duplication decision for a delivery that can
 # remain unread longer than the ordinary traffic ring.  It must outlive
 # unrelated observations, but the ring must still have a hard bound.
@@ -62,10 +65,15 @@ def record(doc: dict[str, Any], *, operation_id: str, kind: str,
     # cannot re-alarm merely because 512 unrelated writes occurred.  If the
     # ledger is made entirely of sticky decisions, the same hard cap still
     # applies and the oldest decision is removed.
-    while len(rows) > MAX_RECORDS:
-        index = next((i for i, item in enumerate(rows)
-                      if item.get("state") not in _STICKY_STATES), 0)
-        rows.pop(index)
+    # PG-3d: in a BATCH, down to PRUNE_TO, not one row per write. The ledger
+    # is a row log (store.LIST_LOGS): an append is a free INSERT, but every
+    # eviction deletes an existing row, and at the cap one-per-write would
+    # make every two concurrent writers collide on the same front row.
+    if len(rows) > MAX_RECORDS:
+        while len(rows) > PRUNE_TO:
+            index = next((i for i, item in enumerate(rows)
+                          if item.get("state") not in _STICKY_STATES), 0)
+            rows.pop(index)
     return row
 
 

@@ -107,6 +107,10 @@ T = TypeVar("T")
 LogName = str | tuple[str, str]
 #: PG-3d: a doc section, or (split section, owner) — see `sections` above
 SectionName = str | tuple[str, str]
+#: PG-3d: former doc sections that are now list logs (plan decision 29:
+#: `lifecycle`). Still accepted in `sections=` / `share_sections=` so a
+#: declaration written before the move keeps working; name them in `logs=`.
+MOVED_TO_LOGS: frozenset[str] = frozenset({"lifecycle"})
 
 #: `after_commit` runs once the COMMIT has succeeded: raising there is how a
 #: test models a connection lost after the server committed (RT6).
@@ -791,6 +795,13 @@ def _new_tx(slug: str, nodes: Iterable[str] | Any = None,
     lock_sections, lock_parents = _section_names(sections, "sections")
     sh_nodes = _names(share_nodes, "share_nodes") - lock_nodes
     sh_rows, sh_parents = _section_names(share_sections, "share_sections")
+    # PG-3d: a doc section that has become a log keeps working when named
+    # the old way — written ones move to logs=, shared ones need no lock
+    moved = lock_sections & MOVED_TO_LOGS
+    if moved and not isinstance(logs, str):     # a str is _check_logs' refusal
+        lock_sections -= moved
+        logs = [*(logs or ()), *sorted(moved)]
+    sh_rows -= MOVED_TO_LOGS
     sh_sections = (sh_rows | sh_parents | lock_parents) - lock_sections
     _check_sections(lock_sections | sh_sections, "sections")
     log_names = _check_logs(logs)

@@ -43,13 +43,13 @@ from .ledger import USER, Org
 
 #: Sections a send may write besides each recipient's own pending box
 #: (`("mail", nid)`, see `send_rows`): notices to a superior chain or a
-#: replaced holder, audience grants (reply / first contact / deep reach) and
-#: the per-operation lifecycle.
-SEND_SECTIONS: tuple[str, ...] = ("notices", "audiences", "lifecycle")
+#: replaced holder and audience grants (reply / first contact / deep reach).
+SEND_SECTIONS: tuple[str, ...] = ("notices", "audiences")
 
-#: Global list logs a send may append to.
+#: Global list logs a send may append to — including the per-operation
+#: `lifecycle` ledger, a log since plan decision 29 (an append takes no lock).
 SEND_LOGS: tuple[str, ...] = ("events", "notice_log", "user_mail_log", "user_outbox",
-                              "org_inbox")
+                              "org_inbox", "lifecycle")
 
 #: A user read mark / mark-all-read: unread rows move to the read archive.
 READ_MARK_ROWS: dict[str, list[Any]] = {"sections": ["user_inbox"], "logs": ["user_mail_log"]}
