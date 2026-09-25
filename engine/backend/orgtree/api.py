@@ -9052,7 +9052,7 @@ def _prune_stage(max_age_s: float = 86400.0) -> None:
 
 
 class OrgInboxSend(Body):
-    to: str                                  # @ext:/@org:/@mcp:/@net: address
+    to: str                                  # @org:/@net: (@ext:, @mcp: retired)
     body: str
     attachments: list[str] = []              # stage ids from /org_inbox/upload
 
@@ -11705,7 +11705,7 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                         "send that never wakes the recipient) — use that "
                         "tool instead")
                 # F-06 D: outbound attachments — @net: recipients only in v1
-                # (ruled; @mcp: is a text-only transport, @org: local
+                # (ruled; @org: local
                 # mail has its own path). Validated BEFORE post_mail so a
                 # refused send records nothing.
                 if str(a.get("to", "")).startswith("@net:") \
