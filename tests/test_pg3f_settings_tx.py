@@ -241,6 +241,46 @@ class ParticipantsSelfHeal(unittest.TestCase):
         self.assertIn(healed, out[0])
 
 
+class RegisterPending(unittest.TestCase):
+    def test_registration_lands_with_doc_lock_held(self) -> None:
+        from unittest import mock
+        slug = _fresh_org(net_hubs=[{'id': 'h1', 'address': 'http://x'}],
+                          net_state={})
+
+        class _Resp:
+            status_code = 200
+
+            def json(self):
+                return {'name': 'Hub X', 'roster': []}
+
+        class _Client:
+            posts: list = []
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def post(self, url, **kw):
+                _Client.posts.append(url)
+                return _Resp()
+
+        parts = {slug: {'net_slug': 'x.y.z', 'secret': 's', 'name': slug,
+                        'hubs': [{'id': 'h1', 'address': 'http://x'}],
+                        'registered': {}}}
+        net._backoff.pop('http://x', None)
+        with mock.patch.object(net, '_client', _Client):
+            with _Held(lambda: store.DOC_LOCK):
+                done, out, _t = _run(lambda: net._register_pending(parts), FREE_S)
+                self.assertTrue(done, '_register_pending waited on DOC_LOCK')
+        self.assertEqual(_Client.posts, ['http://x/api/register'])  # it really ran
+        cell = _doc(slug)['net_state']['h1']
+        self.assertTrue(cell.get('registered_at'))
+        self.assertEqual(cell.get('address'), 'http://x')
+        self.assertEqual(_doc(slug)['net_hubs'][0].get('name'), 'Hub X')
+
+
 class DesktopRecovery(unittest.TestCase):
     def _org(self) -> str:
         slug = _fresh_org(desktop_import={

@@ -690,7 +690,7 @@ def _clear_registration(slug: str, hub_id: str) -> None:
 
 
 def _register_pending(parts: dict[str, dict[str, Any]]) -> None:
-    from . import store
+    from . import orgtx
     for slug, p in parts.items():
         for h in p["hubs"]:
             hid = str(h["id"])
@@ -723,16 +723,15 @@ def _register_pending(parts: dict[str, dict[str, Any]]) -> None:
                     _rosters[addr] = list(
                         cast("list[dict[str, Any]]",
                              data.get("roster") or []))
-                with store.DOC_LOCK:
-                    org = store.load_org(slug)
-                    st = org.d.setdefault("net_state", {})
+                # PG-3f: the one net_state row, never DOC_LOCK
+                with orgtx.org_tx(slug, sections=["net_state"]) as tx:
+                    st = tx.d.setdefault("net_state", {})
                     cell = st.setdefault(hid, {})
                     cell["registered_at"] = now()
                     # the state is a fact about THIS address (redteam second
                     # wave): a re-pointed or re-added entry must not inherit
                     # another machine's registration or dedupe ring
                     cell["address"] = addr
-                    store.save_org(org)
                 _set_status(slug, hid, True)
                 _ok(addr)
             except Exception as e:                               # noqa: BLE001
