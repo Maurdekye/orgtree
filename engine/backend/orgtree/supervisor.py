@@ -23059,13 +23059,10 @@ def _run_one_turn_recorded(slug: str, nid: str,
             # ruled out.
             st["account_switches"] = 0
             if org.node(nid).get("bearer_state") == "preserving":
-                with store.DOC_LOCK:
-                    o2 = store.load_org(slug)
-                    log = o2.node(nid).setdefault("oracle_exchanges", [])
+                with orgtx.org_tx(slug, nodes=[nid]) as tx:
+                    log = tx.org.node(nid).setdefault("oracle_exchanges", [])
                     log.append({"q": text[-1500:], "a": str(res.get("result", ""))[:4000],
                                 "at": now_iso()})
-
-                    store.save_org(o2)
             # ⚠ the success path needs `turn_paid` just as much as the failure
             # path does, and this is where the loop's third round found the
             # money bug STILL live. `res` is whatever result arrived last, and
