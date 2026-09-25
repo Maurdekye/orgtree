@@ -372,7 +372,23 @@ def remove_account_rebinding_agents(account_id: str, *,
     Raises `registry.UnknownAccount` for a row that is not registered,
     `RemovalRefused` when the plan finds anything that makes the operation
     unsafe (nothing is changed), and `RemovalIncomplete` when a save fails
-    after an earlier org was persisted (the account is RETAINED)."""
+    after an earlier org was persisted (the account is RETAINED).
+
+    NO NEW BINDING DURING THE REMOVAL (lead decision 32). The account is
+    marked `registry.set_removing` for the whole call, so `validate_binding`
+    refuses it: a hire or rebind that STARTS after this point cannot bind it.
+    One that validated just BEFORE the mark and still holds its seat is waited
+    for by the final re-read (`_drained_plan`), which sees its binding and
+    keeps the account instead of stranding it."""
+    aid0 = str(registry.get_account(account_id)["id"])   # raises UnknownAccount
+    registry.set_removing(aid0, True)
+    try:
+        return _remove_marked(account_id, actor)
+    finally:
+        registry.set_removing(aid0, False)
+
+
+def _remove_marked(account_id: str, actor: str) -> dict[str, Any]:
     from . import apikey_accounts
     for _ in range(_ATTEMPTS):
         plan = plan_removal(account_id)
@@ -384,9 +400,9 @@ def remove_account_rebinding_agents(account_id: str, *,
         except _PlanMoved:
             continue
         # A binding made in an org the transaction did not lock (a hire or a
-        # rebind that validated this account before we committed) would be
+        # rebind that validated this account before it was marked) would be
         # stranded by removing the row, so the fleet is read once more first.
-        again = plan_removal(account_id)
+        again = _drained_plan(account_id)
         if again["orgs"] or again["blockers"]:
             where = ", ".join(sorted({str(e["slug"]) for e in again["orgs"]}))
             raise RemovalIncomplete(
@@ -404,6 +420,29 @@ def remove_account_rebinding_agents(account_id: str, *,
     raise RemovalRefused(
         f"account {account_id} was not removed: its bindings kept changing "
         f"while the removal ran. Nothing was changed; try again.")
+
+
+def _drained_plan(account_id: str) -> dict[str, Any]:
+    """The final re-read before the row goes, taken UNDER every node row of
+    every org (`nodes=ALL`, nothing written). A binder that validated the
+    account before it was marked still holds its seat until it commits, so
+    this waits for it and then sees its binding. It also keeps a node from
+    being created meanwhile. It is brief, and the removal is rare."""
+    plan = plan_removal(account_id)          # lock-free: unreadable orgs
+    if plan["orgs"] or plan["blockers"]:
+        return plan
+    slugs = org_slugs()
+    if not slugs:
+        return plan
+    aid = str(plan["account"])
+    try:
+        with orgtx.org_tx_multi({s: {"nodes": orgtx.ALL} for s in slugs}) as txs:
+            for slug in sorted(txs):
+                _plan_org(slug, txs[slug].org, aid, plan["row"], plan)
+    except Exception as e:                                   # noqa: BLE001
+        plan["blockers"].append(
+            f"the organizations could not be locked for the final check: {e}")
+    return plan
 
 
 def _migrate_in_one_tx(plan: dict[str, Any], actor: str
