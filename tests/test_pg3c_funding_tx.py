@@ -82,6 +82,7 @@ class Rendezvous:
         self.inside = 0
         self.arrived = 0
         self.met = False
+        self.parked_seen = False
 
     def __call__(self, point, tx) -> None:
         if point != 'before_commit':
@@ -93,7 +94,18 @@ class Rendezvous:
                 self.met = True
                 self.c.notify_all()
             else:
-                self.c.wait_for(lambda: self.met, self.hold)
+                # while this one sits here holding its rows, look for the
+                # other transaction WAITING in the row-lock table: that is
+                # the proof the lock, not luck, kept them apart
+                end = threading.Event()
+                for _ in range(int(self.hold / 0.02)):
+                    if self.c.wait_for(lambda: self.met, 0.02):
+                        break
+                    locks = orgtx.backend().locks
+                    with locks._cv:
+                        if locks._waits:
+                            self.parked_seen = True
+                del end
             self.inside -= 1
 
 
@@ -181,6 +193,8 @@ class LastCredit(unittest.TestCase):
     def test_rt1_one_spend_wins_and_free_never_goes_negative(self) -> None:
         out, rv = self._race(rcdoor.reallocate_rows)
         self.assertFalse(rv.met, 'the second spend read before the first committed: the payer was not locked')
+        self.assertTrue(rv.parked_seen, 'the second spend was never seen WAITING on a row lock while the '
+                                        'first held its rows: the race was not forced')
         wins = [k for k, v in out.items() if not isinstance(v, BaseException)]
         losses = [k for k, v in out.items() if isinstance(v, LedgerError)]
         self.assertEqual(len(wins), 1, out)
