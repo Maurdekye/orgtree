@@ -147,8 +147,11 @@ async fn an_oversized_frame_is_refused() {
     write_frame(&mut s, &json!({"hello": token})).await.unwrap();
     read_frame(&mut s).await.unwrap().unwrap();
     s.write_all(&(MAX_FRAME + 1).to_be_bytes()).await.unwrap();
-    // the server drops the connection instead of allocating the frame
-    let r = read_frame(&mut s).await;
+    // The server must drop the connection AT ONCE instead of waiting for (and
+    // allocating) the frame. Bounded, so a server that waits fails here
+    // rather than hanging the suite (mutation S3 hung before this timeout).
+    let r = tokio::time::timeout(std::time::Duration::from_secs(5), read_frame(&mut s)).await;
+    let r = r.expect("server kept the connection open waiting for an oversized frame");
     assert!(matches!(r, Ok(None) | Err(_)), "{r:?}");
 }
 
