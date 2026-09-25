@@ -138,6 +138,51 @@ fn statements_carry_derived_relations_and_no_values() {
     assert_eq!(field(anchor, "backend_pid"), field(begin, "backend_pid"));
 }
 
+struct StubbedEdit;
+
+impl Command for StubbedEdit {
+    type Output = i64;
+    fn family(&self) -> &'static Family {
+        &FAM
+    }
+    fn verb(&self) -> &'static str {
+        "stubbed"
+    }
+    async fn anchor<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding) -> Result<(), CmdError> {
+        Ok(())
+    }
+    async fn may_disclose<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding, _o: &i64) -> Result<bool, CmdError> {
+        Ok(true)
+    }
+    async fn execute<S: Session>(&self, tx: &mut Tx<'_, S>, _b: &Binding) -> Result<Decided<i64>, CmdError> {
+        // as WS2's Sent stub does around its statements
+        tx.set_stub(true);
+        tx.exec("fake.insert:items", "INSERT INTO items (id) VALUES ($1)", &[Val::Int(1)]).await?;
+        tx.set_stub(false);
+        Ok(Decided::Applied(1))
+    }
+}
+
+#[test]
+fn stub_statements_keep_their_stub_flag() {
+    let known: BTreeSet<String> = ["items", "operation_receipts"].iter().map(|s| s.to_string()).collect();
+    let c = Arc::new(Collector::new("exec-2", 1024, "run-2", known));
+    let cfg = ExecConfig { max_attempts: 3, backoff_base: Duration::ZERO, backoff_cap: Duration::ZERO };
+    let ex = Executor::new(FakeConnector { db: FakeDb::new() }, 1, cfg, Hooks::with_trace(c.clone()));
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    rt.block_on(async { ex.run(&StubbedEdit, &binding()).await.unwrap() });
+    let records = c.drain();
+    let stubbed: Vec<&Record> = records.iter().filter(|r| field(r, "stub") == Some(&Value::Bool(true))).collect();
+    assert_eq!(stubbed.len(), 1, "exactly the stub's statement");
+    assert_eq!(field(stubbed[0], "stmt_label"), Some(&Value::str("fake.insert:items")));
+}
+
+#[test]
+fn fingerprint_ignores_whitespace_and_case_only() {
+    assert_eq!(fingerprint("SELECT  1\n\tFROM items"), fingerprint("select 1 from items"));
+    assert_ne!(fingerprint("SELECT 1 FROM items"), fingerprint("SELECT 2 FROM items"));
+}
+
 /// `KINDS` from tools/p03/harness/trace.py: the single definition of each record
 /// kind's required fields (parsed, not copied, so the two sides cannot drift).
 fn python_kinds() -> std::collections::HashMap<String, Vec<String>> {
