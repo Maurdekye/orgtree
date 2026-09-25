@@ -13,7 +13,7 @@
     "exact_effect_contracts": "pending per-entry review"
   },
   "summary": {
-    "modules": 129,
+    "modules": 131,
     "registration_sites": 339,
     "registration_kinds": {
       "callback": 5,
@@ -384,6 +384,10 @@
       "normalized_source_sha256": "08cde3537d0edbb4150bbef6ee67a1969ba08f701b46cfb9175895ceaba11a5e"
     },
     {
+      "path": "engine/backend/orgtree/p03_refusal.py",
+      "normalized_source_sha256": "695361c248e7bf95633ac126063d20257759f10c2eeb67a7f44f10db017982a1"
+    },
+    {
       "path": "engine/backend/orgtree/profiling.py",
       "normalized_source_sha256": "f1a4a843d1789279b8c8bb658571f42debe2e6dc1a91662ae3ff603833f4cc8e"
     },
@@ -521,11 +525,15 @@
     },
     {
       "path": "engine/launch.py",
-      "normalized_source_sha256": "0a21eef212567eda41b81845f1f1682f6c76c412fb79b3f7e701c9b5dbab43ea"
+      "normalized_source_sha256": "f9400d48a94998502521d989fa1c7df76fa382edcf93bec4e5aaa4798b9ce2de"
     },
     {
       "path": "engine/mailhub_runtime.py",
       "normalized_source_sha256": "0e1109bff14e1dcf7353e63e3692fd8e109725c99ac0b7710493681b040fde05"
+    },
+    {
+      "path": "engine/pg_process.py",
+      "normalized_source_sha256": "6bd35424d72d898178916ec8e13bf031f9411ed3d11b95c2d61a0fa1a4ae30ef"
     },
     {
       "path": "engine/process_lifetime.py",

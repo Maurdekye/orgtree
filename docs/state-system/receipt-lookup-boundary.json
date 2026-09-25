@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.receipt-lookup-boundary/v1",
-  "source_contract_sha256": "188de8cb827b7d658868f8fee27f4e220e6bb6f20f07e369f515e1ec8517ce0c",
+  "source_contract_sha256": "974f47492b8bc965b924fd5585a474940e7111eac0045b9c151b4e02a23b409b",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false
