@@ -28000,8 +28000,8 @@ def _storage_check_disk(slug: str, org: Org) -> str | None:
     used, total = du
     frac = used / total if total else 0.0
     nudge: list[str] = []
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
+    with halt.txn(slug, **{"sections": ["storage_blocked", "storage_warned", "storage_full", "notices"], "logs": ["notice_log", "events"]}) as _cb_tx:  # PG-3e-A
+        org = _cb_tx.org
         blocked = bool(org.d.get("storage_blocked"))
         warned = bool(org.d.get("storage_warned"))
         full = bool(org.d.get("storage_full"))
@@ -28031,8 +28031,11 @@ def _storage_check_disk(slug: str, org: Org) -> str | None:
             result = "warned"
         elif warned and frac < 0.75:
             org.d.pop("storage_warned", None)   # re-arm below 75%
-        if result:
-            store.save_org(org)
+        # PG-3e-A DEVIATION: the DOC_LOCK version saved only `if result:`,
+        # so the two result-less pops above (re-arm below 75%, storage_full
+        # cleared below 99%) were silently dropped and a disk org could never
+        # re-warn. The transaction commits them, as the comments intend and
+        # as `storage_check`'s own re-arm always did.
     if not result:
         return None
     for nid in nudge:
@@ -28067,8 +28070,8 @@ def storage_check(slug: str) -> str | None:
         return None
     used = workspace_usage_bytes(org)
     nudge: list[str] = []      # live nodes to steer mid-turn after the lock
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
+    with halt.txn(slug, **{"sections": ["storage_blocked", "storage_warned", "storage_full", "notices"], "logs": ["notice_log", "events"]}) as _cb_tx:  # PG-3e-A
+        org = _cb_tx.org
         k = kiosk_cfg(org)
         lim_mb = int((k or {}).get("storage_limit_mb") or 0)
         limit = lim_mb * 1048576
@@ -28085,7 +28088,6 @@ def storage_check(slug: str) -> str | None:
             _org_write_acl(org, True)
             org._notify_ev(live, _storage_ev(org, "over", "storage", used / 1048576,
                                              float(lim_mb)))
-            store.save_org(org)
             nudge = live
             result = "blocked"
         elif blocked and not over:
@@ -28094,7 +28096,6 @@ def storage_check(slug: str) -> str | None:
             _org_write_acl(org, False)
             org._notify_ev(live, _storage_ev(org, "cleared", "storage", used / 1048576,
                                              float(lim_mb) if lim_mb else None))
-            store.save_org(org)
             result = "cleared"
         elif (lim_mb and not blocked and not warned
                 and used > limit * 0.9):
@@ -28103,12 +28104,10 @@ def storage_check(slug: str) -> str | None:
             org.d["storage_warned"] = True
             org._notify_ev(live, _storage_ev(org, "heads_up", "storage", used / 1048576,
                                              float(lim_mb)))
-            store.save_org(org)
             nudge = live
             result = "warned"
         elif warned and (not lim_mb or used <= limit * 0.85):
             org.d.pop("storage_warned", None)   # re-arm below 85%
-            store.save_org(org)
             return None
         else:
             return None
