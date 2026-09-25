@@ -43,6 +43,12 @@ pub const INSERT_RESTRICTION_SQL: &str = "INSERT INTO restrictions \
 pub const INSERT_OBLIGATIONS_SQL: &str = "INSERT INTO restriction_obligations (org_id, restriction_id, service_incarnation) \
     SELECT org_id, $2, service_incarnation FROM read_service_registrations WHERE org_id = $1 \
     RETURNING service_incarnation";
+/// Acks of one restriction serialize on its row, so the LAST ack sees every
+/// other ack committed and marks it Effective (review finding 3: two
+/// concurrent READ COMMITTED acks each saw the other still pending, and the
+/// restriction stayed un-Effective for good).
+pub const ACK_LOCK_SQL: &str = "SELECT effective_at FROM restrictions \
+    WHERE org_id = $1 AND restriction_id = $2 FOR NO KEY UPDATE";
 pub const ACK_SQL: &str = "UPDATE restriction_obligations SET acked_at = clock_timestamp() \
     WHERE org_id = $1 AND restriction_id = $2 AND service_incarnation = $3 AND acked_at IS NULL";
 pub const EFFECTIVE_SQL: &str = "UPDATE restrictions SET effective_at = clock_timestamp() \
@@ -115,8 +121,13 @@ impl<C: Connector> Executor<C> {
         let mut tx = Tx::new_internal(&mut *conn, self.hooks(), "restrict", "ack", &op, None, 1, None);
         let r: Result<bool, DbError> = async {
             tx.begin(Isolation::ReadCommitted).await?;
+            // Q-C6 unsafe control: acks without the restriction-row lock.
+            if !controls::fire(&tx.scope(), "Q-C6.ack_without_lock") {
+                tx.exec("restrict.ack_lock", ACK_LOCK_SQL, &[Val::Uuid(org), Val::Uuid(restriction)]).await?;
+            }
             tx.exec("restrict.ack", ACK_SQL, &[Val::Uuid(org), Val::Uuid(restriction), Val::Uuid(service)]).await?;
             let eff = tx.exec("restrict.effective", EFFECTIVE_SQL, &[Val::Uuid(org), Val::Uuid(restriction)]).await?;
+            tx.pause("before_commit").await?;
             tx.commit_quiet().await?;
             Ok(!eff.is_empty())
         }

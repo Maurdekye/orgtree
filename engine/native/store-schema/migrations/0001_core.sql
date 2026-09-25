@@ -255,15 +255,19 @@ CREATE TABLE service_incarnations (
 );
 
 -- E-D13: an admitted keyed call, inserted in its own short transaction
--- before the command transaction and deleted when the call ends.
+-- before the command transaction and deleted when the call ends. ONE ROW PER
+-- CALL (call_id): a concurrent same-key duplicate is admitted too, then waits
+-- on the original's claim and replays (E7), as legacy's in-flight set lets
+-- both proceed (review finding 2).
 CREATE TABLE runtime_inflight (
     org_id               uuid        NOT NULL,
     ns_kind              text        COLLATE "C" NOT NULL,
     ns_id                uuid        NOT NULL,
     op_key               text        COLLATE "C" NOT NULL,
     service_incarnation  uuid        NOT NULL,
+    call_id              uuid        NOT NULL,
     admitted_at          timestamptz NOT NULL,
-    CONSTRAINT runtime_inflight_pk PRIMARY KEY (org_id, ns_kind, ns_id, op_key, service_incarnation),
+    CONSTRAINT runtime_inflight_pk PRIMARY KEY (org_id, ns_kind, ns_id, op_key, service_incarnation, call_id),
     -- no FK to organizations: high-rate table (F2)
     CONSTRAINT runtime_inflight_service_fk FOREIGN KEY (service_incarnation)
         REFERENCES service_incarnations (incarnation_id)

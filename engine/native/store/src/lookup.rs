@@ -209,21 +209,25 @@ impl<C: Connector> Executor<C> {
 
     /// E-D13: record an admitted keyed call in its own short transaction,
     /// BEFORE the command transaction starts.
-    pub async fn admit_inflight(&self, op: &OpIdentity, service: Uuid) -> Result<(), ExecError> {
-        self.short_write(op, "admit", receipts::INFLIGHT_INSERT_LABEL, receipts::INFLIGHT_INSERT_SQL, service).await
+    /// Returns this call's id; pass it to [`Self::release_inflight`].
+    pub async fn admit_inflight(&self, op: &OpIdentity, service: Uuid) -> Result<Uuid, ExecError> {
+        let call = Uuid::new_v4();
+        self.short_write(op, "admit", receipts::INFLIGHT_INSERT_LABEL, receipts::INFLIGHT_INSERT_SQL, service, call).await?;
+        Ok(call)
     }
 
     /// Remove it when the call ends, whatever the outcome.
-    pub async fn release_inflight(&self, op: &OpIdentity, service: Uuid) -> Result<(), ExecError> {
-        self.short_write(op, "release", receipts::INFLIGHT_DELETE_LABEL, receipts::INFLIGHT_DELETE_SQL, service).await
+    pub async fn release_inflight(&self, op: &OpIdentity, service: Uuid, call: Uuid) -> Result<(), ExecError> {
+        self.short_write(op, "release", receipts::INFLIGHT_DELETE_LABEL, receipts::INFLIGHT_DELETE_SQL, service, call).await
     }
 
-    async fn short_write(&self, op: &OpIdentity, verb: &'static str, label: &'static str, sql: &'static str, service: Uuid) -> Result<(), ExecError> {
+    async fn short_write(&self, op: &OpIdentity, verb: &'static str, label: &'static str, sql: &'static str, service: Uuid, call: Uuid) -> Result<(), ExecError> {
         let mut conn = self.reserved().get().await.map_err(ExecError::Sql)?;
         let mut tx = Tx::new_internal(&mut *conn, self.hooks(), "inflight", verb, op, None, 1, None);
         tx.begin(Isolation::ReadCommitted).await.map_err(ExecError::Sql)?;
         let mut p: Vec<Val> = receipts::key_params(op).into();
         p.push(Val::Uuid(service));
+        p.push(Val::Uuid(call));
         if let Err(e) = tx.exec(label, sql, &p).await {
             tx.rollback_quiet().await;
             return Err(ExecError::Sql(e));
@@ -233,15 +237,12 @@ impl<C: Connector> Executor<C> {
 
     /// `run` wrapped in the in-flight row for a caller-keyed call.
     pub async fn run_keyed<Cmd: crate::Command>(&self, cmd: &Cmd, b: &crate::Binding, service: Uuid) -> Result<crate::Outcome<Cmd::Output>, ExecError> {
-        let keyed = b.op.caller_keyed;
-        if keyed {
-            self.admit_inflight(&b.op, service).await?;
-        }
+        let call = if b.op.caller_keyed { Some(self.admit_inflight(&b.op, service).await?) } else { None };
         let r = self.run(cmd, b).await;
-        if keyed {
+        if let Some(call) = call {
             // a failure here leaves a row owned by a live process until it
             // stops; after that the liveness join ignores it (P08 sweeps)
-            let _ = self.release_inflight(&b.op, service).await;
+            let _ = self.release_inflight(&b.op, service, call).await;
         }
         r
     }
