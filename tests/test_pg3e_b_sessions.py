@@ -521,6 +521,39 @@ class AfterTurnSessionSites(unittest.TestCase):
         self.assertNotIn("worker@0", store.load_org(self.slug).nodes)
 
 
+class WarmPoolOrdersOnTheNodeRow(unittest.TestCase):
+    """warmpool's pre-warm decides on the node row FOR SHARE (PG-3e-B): a
+    writer holding that row FOR UPDATE (a halt, a retire) orders it."""
+
+    def setUp(self) -> None:
+        orgtx.use_backend(orgtx.SeamBackend())
+        self.slug = _org(_slug("wp"))
+        from engine.backend.orgtree import warmpool
+        self.wp = warmpool
+
+    def _prewarm(self, spawned):
+        with patch.object(self.wp, "_spawn_for",
+                          side_effect=lambda *a, **k: spawned.append(1)),                 patch.object(self.wp, "_busy", return_value=False):
+            self.wp._prewarm_node(store.load_org(self.slug), "worker", "test")
+
+    def test_a_row_writer_orders_the_prewarm_decision(self) -> None:
+        spawned: list = []
+        with _Holder(lambda: orgtx.org_tx(self.slug, nodes=["worker"])):
+            done, _ = _finishes(lambda: self._prewarm(spawned), timeout=0.5)
+            self.assertFalse(done, "pre-warm read the node row through a FOR UPDATE")
+        for _ in range(50):
+            if spawned:
+                break
+            threading.Event().wait(0.1)
+        self.assertEqual(spawned, [1], "pre-warm never ran after the writer released")
+
+    def test_a_halted_node_is_not_prewarmed(self) -> None:
+        _set(self.slug, "worker", halt={"phase": "halted"})
+        spawned: list = []
+        self._prewarm(spawned)
+        self.assertEqual(spawned, [])
+
+
 class LocksOnlyItsOwnNode(unittest.TestCase):
     def setUp(self) -> None:
         orgtx.use_backend(orgtx.SeamBackend())
