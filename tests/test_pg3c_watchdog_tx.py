@@ -265,8 +265,7 @@ class WatchdogDoor(unittest.TestCase):
                                                     'kind': 'command', 'target': 'echo hello',
                                                     'pattern': 'hello'}))
             t.join(30)
-            self.assertFalse(t.is_alive(), 'the tool waited for DOC_LOCK:
-' + stack_of(t))
+            self.assertFalse(t.is_alive(), 'the tool waited for DOC_LOCK:\n' + stack_of(t))
             box.update(out)
         self.assertNotIn('error', box)
         r = box['value']
