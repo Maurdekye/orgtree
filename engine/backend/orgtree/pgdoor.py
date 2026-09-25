@@ -79,11 +79,11 @@ KILLSWITCHED = ("the org killswitch is latched — tools cannot execute until "
 # publishes `pgstore.org_tx`, tests install a fake with `use_org_tx`. The
 # expected shape (PG-0's item): a context manager
 #
-#     org_tx(slug, *, nodes=[...], sections=[...], share_sections=[...],
-#            logs=[...]) -> Org
+#     org_tx(slug, *, nodes=[...], sections=[...], share_nodes=[...],
+#            share_sections=[...], logs=[...]) -> Org
 #
 # that BEGINs, locks the named node/section rows (FOR UPDATE, or FOR SHARE for
-# `share_sections`), yields the org with those rows loaded, and on a clean
+# `share_nodes`/`share_sections`), yields the org with those rows loaded, and on a clean
 # exit writes the changed rows, bumps the revision, NOTIFYs and COMMITs. An
 # exception rolls everything back. `is_retryable(exc)` says whether a failure
 # is worth re-running.
@@ -92,17 +92,20 @@ KILLSWITCHED = ("the org killswitch is latched — tools cannot execute until "
 class _Seam:
     org_tx: Callable[..., Any] | None = None
     is_retryable: Callable[[BaseException], bool] = lambda _e: False
+    # the unlocked read a callable spec is computed from (tests: a fake)
+    snapshot: Callable[[str], Any] | None = None
 
 
 _SEAM = _Seam()
 
 
 def use_org_tx(org_tx: Callable[..., Any] | None,
-               is_retryable: Callable[[BaseException], bool] | None = None
-               ) -> None:
+               is_retryable: Callable[[BaseException], bool] | None = None,
+               snapshot: Callable[[str], Any] | None = None) -> None:
     """Install the storage primitive (tests: a fake; production: pgstore's)."""
     _SEAM.org_tx = org_tx
     _SEAM.is_retryable = is_retryable or (lambda _e: False)
+    _SEAM.snapshot = snapshot
 
 
 def _org_tx() -> Callable[..., Any]:
@@ -115,6 +118,118 @@ def _org_tx() -> Callable[..., Any]:
                           "(pgstore) is not installed in this build") from e
     use_org_tx(pgstore.org_tx, getattr(pgstore, "is_retryable", None))
     return pgstore.org_tx
+
+
+# ------------------------------------------------------ the declarations
+#
+# THE ONE TABLE (plan decision 12, WS3b's format). A tool or operator op is
+# converted off DOC_LOCK exactly when it has an entry here; a tool with no
+# entry keeps the old DOC_LOCK cycle. Each family registers its own entries
+# from its own module with `declare`, so this file never has to know them.
+#
+# A spec is either a static `TxSpec` or a callable
+# `(snapshot, body, args) -> TxSpec` for ops whose rows depend on the tree
+# (a move's subtree, a hire's chain). The snapshot is an UNLOCKED read, so
+# the rows it yields can be stale by the time the locks are held: a body that
+# finds it needs a row it did not declare raises `Widen(...)`, and the door
+# rolls back, adds those rows and runs the whole transaction again. That is
+# what keeps specs honest without every tool over-declaring.
+
+@dataclass(frozen=True)
+class TxSpec:
+    """Rows one transaction locks. `nodes`/`sections` FOR UPDATE,
+    `share_*` FOR SHARE; `logs` are append-only sections it writes."""
+    nodes: tuple[str, ...] = ()
+    sections: tuple[str, ...] = ()
+    share_nodes: tuple[str, ...] = ()
+    share_sections: tuple[str, ...] = ()
+    logs: tuple[str, ...] = ()
+
+    def widened(self, w: "Widen") -> "TxSpec":
+        o = w.spec
+        return TxSpec(tuple(dict.fromkeys(self.nodes + o.nodes)),
+                      tuple(dict.fromkeys(self.sections + o.sections)),
+                      tuple(dict.fromkeys(self.share_nodes + o.share_nodes)),
+                      tuple(dict.fromkeys(self.share_sections
+                                          + o.share_sections)),
+                      tuple(dict.fromkeys(self.logs + o.logs)))
+
+
+SpecFn = Callable[[Any, Any, "dict[str, Any]"], TxSpec]
+LOCKS: "dict[str, TxSpec | SpecFn]" = {}
+# a body may widen this many times before the door gives up (each widening is
+# a full rollback and re-run, so a runaway would be a livelock, not a bug)
+MAX_WIDEN = 3
+
+
+class Widen(Exception):
+    """Raised by a body that needs rows its spec did not declare. The door
+    rolls back, merges them in and re-runs; nothing the body did survives."""
+
+    def __init__(self, **rows: Iterable[str]) -> None:
+        super().__init__(f"widen: {rows}")
+        self.spec = TxSpec(**{k: tuple(v) for k, v in rows.items()})
+
+
+def declare(name: str, spec: "TxSpec | SpecFn") -> None:
+    """Register one tool (`orgtree_*`) or operator op. Re-declaring the same
+    name with a DIFFERENT spec is refused: two families claiming one tool is
+    a merge bug, and last-wins would hide it."""
+    old = LOCKS.get(name)
+    if old is not None and old != spec:
+        raise ValueError(f"pgdoor: {name!r} is already declared")
+    LOCKS[name] = spec
+
+
+def declared(name: str) -> bool:
+    """Does this tool/op run on the door (True) or keep DOC_LOCK (False)?"""
+    return name in LOCKS
+
+
+def _snapshot(slug: str) -> Any:
+    if _SEAM.snapshot is not None:
+        return _SEAM.snapshot(slug)
+    from . import store
+    return store.cached_org(slug)
+
+
+def _resolve(name: str, slug: str, body: Any, a: dict[str, Any]) -> TxSpec:
+    spec = LOCKS.get(name)
+    if spec is None:
+        raise LedgerError(f"pgdoor: {name!r} has no lock declaration — it "
+                          f"still runs under DOC_LOCK")
+    if isinstance(spec, TxSpec):
+        return spec
+    return spec(_snapshot(slug), body, a)
+
+
+def _run(slug: str, spec: TxSpec, step: Callable[[Any], Any]
+         ) -> tuple[Any, Any]:
+    """Open org_tx on `spec` and run `step(org)`; re-run on a retryable
+    failure or a `Widen`. Returns (org, step's value) after the commit."""
+    attempts = widens = 0
+    while True:
+        attempts += 1
+        try:
+            with _org_tx()(slug, nodes=list(spec.nodes),
+                           sections=list(spec.sections),
+                           share_nodes=list(spec.share_nodes),
+                           share_sections=list(spec.share_sections),
+                           logs=list(spec.logs)) as org:
+                out = step(org)
+            return org, out
+        except Widen as w:
+            widens += 1
+            if widens > MAX_WIDEN:
+                raise LedgerError(f"pgdoor: the lock set kept growing after "
+                                  f"{MAX_WIDEN} widenings — nothing was "
+                                  f"applied; retry the call") from w
+            spec = _norm(spec.widened(w))
+            attempts -= 1          # a widening is not a failed attempt
+        except BaseException as e:
+            if attempts < MAX_ATTEMPTS and _SEAM.is_retryable(e):
+                continue
+            raise
 
 
 # ------------------------------------------------------------ the prologue
@@ -141,17 +256,31 @@ def _receipted(body: Any, a: dict[str, Any]) -> bool:
         body.tool, a)
 
 
-def rows(body: Any, a: dict[str, Any], *, nodes: Iterable[str] = (),
-         sections: Iterable[str] = ()) -> dict[str, list[str]]:
-    """The rows `agent_tx` locks, in lock order. Public so a family (and a
+def _norm(spec: TxSpec) -> TxSpec:
+    """A row named both ways is held FOR UPDATE only; duplicates dropped."""
+    ns = tuple(dict.fromkeys(spec.nodes))
+    ss = tuple(dict.fromkeys(spec.sections))
+    return TxSpec(ns, ss,
+                  tuple(n for n in dict.fromkeys(spec.share_nodes)
+                        if n not in ns),
+                  tuple(s for s in dict.fromkeys(spec.share_sections)
+                        if s not in ss),
+                  tuple(dict.fromkeys(spec.logs)))
+
+
+def agent_spec(body: Any, a: dict[str, Any], spec: TxSpec) -> TxSpec:
+    """The rows `agent_tx` locks for this call, in lock order: the caller's
+    node row FIRST and FOR UPDATE whatever the tool declared, the killswitch
+    FOR SHARE (unless the tool itself holds it FOR UPDATE), and the receipt
+    rows FOR UPDATE when a key rides the call. Public so a family (and a
     reviewer) can see exactly what a call will hold."""
-    ns = [body.node] + [n for n in dict.fromkeys(nodes) if n != body.node]
-    secs = [s for s in dict.fromkeys(sections) if s != KILLSWITCH]
+    ns = (body.node,) + tuple(n for n in spec.nodes if n != body.node)
+    secs = tuple(spec.sections)
     if _receipted(body, a):
-        for s in (opreceipts.SECTION, opreceipts.META):
-            if s not in secs:
-                secs.append(s)
-    return {"nodes": ns, "sections": secs, "share_sections": [KILLSWITCH]}
+        secs += tuple(s for s in (opreceipts.SECTION, opreceipts.META)
+                      if s not in secs)
+    return _norm(TxSpec(ns, secs, spec.share_nodes,
+                        spec.share_sections + (KILLSWITCH,), spec.logs))
 
 
 def agent_tx(body: Any, a: dict[str, Any],
@@ -159,41 +288,62 @@ def agent_tx(body: Any, a: dict[str, Any],
              admit: Callable[[Any, Any, dict[str, Any]], dict[str, Any] | None],
              file: Callable[[Any, Any, dict[str, Any], dict[str, Any], Any],
                             None],
-             nodes: Iterable[str] = (), sections: Iterable[str] = (),
-             logs: Iterable[str] = (),
+             spec: TxSpec | None = None,
              on_commit: Callable[[Any, dict[str, Any] | None], None]
              | None = None) -> Any:
     """Run one agent tool as ONE row transaction with the shared prologue.
 
-    `fn(tx)` is the family body; its return value is the tool result. A
-    LedgerError from the gate or the body rolls the whole transaction back
-    and propagates (the caller maps it to 422 exactly as `agent_call`'s cycle
-    does). A replayed key returns the receipt's replay payload and runs
-    nothing. `on_commit(org, receipt_ctx)` runs once, after the commit (with
-    None when no receipt rode the call), never on a retry or a rollback —
+    The rows come from `LOCKS[body.tool]` (or an explicit `spec`). `fn(tx)`
+    is the family body; its return value is the tool result. A LedgerError
+    from the gate or the body rolls the whole transaction back and propagates
+    (the caller maps it to 422 exactly as `agent_call`'s cycle does). A
+    replayed key returns the receipt's replay payload and runs nothing.
+    `on_commit(org, receipt_ctx)` runs once, after the commit (with None when
+    no receipt rode the call), never on a retry, a replay or a rollback —
     `opreceipts.witness` belongs there."""
-    r = rows(body, a, nodes=nodes, sections=sections)
-    logs = list(logs)
-    attempt = 0
-    while True:
-        attempt += 1
-        try:
-            with _org_tx()(body.org, nodes=r["nodes"], sections=r["sections"],
-                           share_sections=r["share_sections"],
-                           logs=logs) as org:
-                _gate(org, body.node)
-                rcpt = admit(org, body, a)
-                if rcpt is not None and "replay" in rcpt:
-                    # nothing changed; the clean exit commits an empty tx
-                    return rcpt["replay"]
-                result = fn(AgentTx(org=org, node=body.node, args=a))
-                if rcpt is not None:
-                    # LAST write before commit: effect and receipt are one tx
-                    file(org, body, a, rcpt, result)
-        except BaseException as e:
-            if attempt < MAX_ATTEMPTS and _SEAM.is_retryable(e):
-                continue
-            raise
-        if on_commit is not None:
-            on_commit(org, rcpt)
+    base = spec if spec is not None else _resolve(body.tool, body.org, body, a)
+    st: dict[str, Any] = {}
+
+    def step(org: Any) -> Any:
+        st.clear()
+        _gate(org, body.node)
+        rcpt = st["rcpt"] = admit(org, body, a)
+        if rcpt is not None and "replay" in rcpt:
+            # nothing changed; the clean exit commits an empty tx
+            return rcpt["replay"]
+        result = fn(AgentTx(org=org, node=body.node, args=a))
+        if rcpt is not None:
+            # LAST write before commit: effect and receipt are one tx
+            file(org, body, a, rcpt, result)
         return result
+
+    org, result = _run(body.org, agent_spec(body, a, base), step)
+    rcpt = st.get("rcpt")
+    if on_commit is not None and not (rcpt and "replay" in rcpt):
+        on_commit(org, rcpt)
+    return result
+
+
+@dataclass
+class OpTx:
+    """What an operator-op body receives."""
+    org: Any
+    op: str
+    body: Any
+    args: dict[str, Any]
+
+
+def op_tx(slug: str, op: str, body: Any, a: dict[str, Any],
+          fn: Callable[[OpTx], Any], *, spec: TxSpec | None = None,
+          on_commit: Callable[[Any], None] | None = None) -> Any:
+    """Run one OPERATOR op (the user's door, POST /api/orgs/{slug}/ops) as one
+    row transaction. No caller node row, no halt gate and no receipts: the
+    operator is the user, `org_op` never had that prologue, and the user must
+    be able to act on a halted agent or a latched org (that is how they are
+    released). The target rows come from `LOCKS[op]`."""
+    base = spec if spec is not None else _resolve(op, slug, body, a)
+    org, result = _run(slug, _norm(base),
+                       lambda org: fn(OpTx(org=org, op=op, body=body, args=a)))
+    if on_commit is not None:
+        on_commit(org)
+    return result
