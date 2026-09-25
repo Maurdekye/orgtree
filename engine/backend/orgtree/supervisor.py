@@ -19388,6 +19388,16 @@ def _admission_rows(slug: str, nid: str, *, compact: bool = False
 
 
 @contextlib.contextmanager
+def _whole_org(slug: str) -> Iterator[Org]:
+    """PG-3e-A: the legacy whole-document write (DOC_LOCK, load, one save at
+    the end) for a branch whose writes cannot be bounded to named rows."""
+    with store.DOC_LOCK:
+        org = store.load_org(slug)
+        yield org
+        store.save_org(org)
+
+
+@contextlib.contextmanager
 def _node_write(slug: str, nid: str, *, whole_org: bool = False
                 ) -> Iterator[Org]:
     """PG-3e-A: a turn-path write to the agent's own row, yielding the Org.
@@ -19449,6 +19459,29 @@ def _check_plan(org: Org, nid: str, plan: dict[str, Any]) -> None:
 
 def _plan_rows(plan: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in plan.items() if not k.startswith("_")}
+
+
+def _resume_rows(slug: str, pick: set[str] | None) -> dict[str, Any]:
+    """PG-3e-A: the rows a `resume_frozen` sweep may write, planned from the
+    cached snapshot: each candidate node (the `only` set, or every node that
+    is frozen now) and the `nid@<generation>` row a cheap-first compaction
+    of it would insert; the notices box and the events/notice_log logs that
+    compaction writes. The gate sections are read FOR SHARE. The sweep skips
+    any node it did not lock (one that froze after the plan waits for the
+    next resume)."""
+    nodes: list[str] = []
+    try:
+        cached = store.cached_org(slug)
+        for nid, n in cached.nodes.items():
+            if (pick is not None and nid not in pick) or (
+                    pick is None and not n.get("frozen")):
+                continue
+            nodes += [nid, f"{nid}@{int(n.get('generation') or 0)}"]
+    except Exception:                                    # noqa: BLE001
+        nodes = list(pick or ())
+    return {"nodes": nodes, "sections": ["notices"],
+            "share_sections": list(ADMISSION_GATE_SECTIONS),
+            "logs": ["events", "notice_log"]}
 
 
 def _admission_pred_locked(tx: orgtx.OrgTx, org: Org, nid: str) -> bool:
@@ -28351,8 +28384,16 @@ def resume_frozen(slug: str, only: Iterable[str] | None = None,
     pick = None if only is None else set(only)
     resumed: list[tuple[str, list[str], list[str], bool, str, str, str,
                         int, str, dict[str, str]]] = []
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
+    # PG-3e-A: one halt transaction over the planned candidate rows
+    # (`_resume_rows`); an account-fallback sweep calls PG-3e-B's
+    # `account_fallback.apply`, whose writes reach far beyond those rows, so
+    # it keeps the whole-document path.
+    _resume_plan = _resume_rows(slug, pick)
+    _resume_locked = frozenset(_resume_plan["nodes"])
+    _resume_cm = (_whole_org(slug) if account_fallbacks is not None
+                  else halt.txn(slug, **_resume_plan))
+    with _resume_cm as _resume_tx:
+        org = _resume_tx if isinstance(_resume_tx, Org) else _resume_tx.org
         inventory = NativeInventory()
         if org.d.get("killswitch"):
             # ▶ and the auto-resume timer both come through here. While the
@@ -28368,6 +28409,8 @@ def resume_frozen(slug: str, only: Iterable[str] | None = None,
         for nid, n in list(org.nodes.items()):
             if pick is not None and nid not in pick:
                 continue
+            if account_fallbacks is None and nid not in _resume_locked:
+                continue  # froze after the plan: the next resume takes it
             if _native_context_hold(org, nid, inventory=inventory):
                 continue  # Preserve frozen replay; this button cannot clear native context holds.
             # review C6: the old unconditional pop discarded replay texts for
@@ -28436,8 +28479,6 @@ def resume_frozen(slug: str, only: Iterable[str] | None = None,
                             _frozen_at, _frozen_sid,
                             str(org.node(nid).get("model") or ""),
                             _ridx, _rpayload, dict(fz.get("halt_sources") or {})))
-        if resumed:
-            store.save_org(org)
     for (nid, texts, views, limit_resume, frozen_at, frozen_sid, tier,
          retry_idx, retry_payload, halt_sources) in resumed:
         if not texts:
@@ -28462,12 +28503,13 @@ def resume_frozen(slug: str, only: Iterable[str] | None = None,
                     frozen_at.replace("Z", "+00:00")).timestamp()
             except (TypeError, ValueError):
                 pass
-        with store.DOC_LOCK:
-            current = store.load_org(slug)
+        # PG-3e-A: the halt check and retain on the agent's row
+        # (`restore_frozen_sources` only rewrites the in-memory carriers).
+        with halt.txn(slug, nodes=[nid]) as _rf_tx:
+            current = _rf_tx.org
             halt.restore_frozen_sources(current, nid, carriers, halt_sources)
             if current.node(nid).get("halt"):
                 halt.retain(current, nid, carriers)
-                store.save_org(current)
                 continue
             with _state_lock:
                 probe_token = str(st.get("limit_probe_token") or "") or None
