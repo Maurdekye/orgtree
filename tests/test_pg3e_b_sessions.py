@@ -194,6 +194,28 @@ class NeverWaitsOnDocLock(unittest.TestCase):
                          [supervisor.UNFROZEN_BY_SWITCH_TEXT, "finish it"])
 
 
+    def test_log_escalation_to_org(self) -> None:
+        self._assert_free_of_doc_lock(
+            lambda: supervisor._log_escalation_to_org(
+                {"by_org": self.slug, "by_node": "worker"},
+                {"cut": ["other"], "not_settled": []}, ["worker"], "deploy"))
+        evs = [e for e in store.load_org(self.slug).d["events"]
+               if e.get("op") == "self_restart_forced"]
+        self.assertEqual(len(evs), 1, "the forced-restart event did not land")
+
+    def test_announce_missing_rebind_candidates(self) -> None:
+        _set(self.slug, "worker", account="missing:claude")
+        with patch.object(store, "list_orgs", return_value=[{"slug": self.slug}]),                 patch.object(supervisor, "send_message") as send:
+            n = self._assert_free_of_doc_lock(
+                lambda: supervisor.announce_missing_rebind_candidates(
+                    "claude", "acct-2"))
+        self.assertEqual(n, 1)
+        send.assert_not_called()          # top-level: the user is told
+        notes = [m for m in store.load_org(self.slug).d.get("user_mail_log") or []
+                 if "acct-2" in str(m.get("body"))]
+        self.assertEqual(len(notes), 1, "the user notice did not land")
+
+
 class LocksOnlyItsOwnNode(unittest.TestCase):
     def setUp(self) -> None:
         orgtx.use_backend(orgtx.SeamBackend())

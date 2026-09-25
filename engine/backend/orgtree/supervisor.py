@@ -15715,8 +15715,13 @@ def announce_missing_rebind_candidates(provider: str,
         by_sup: dict[str, list[str]] = {}
         user_nodes: list[str] = []
         try:
-            with store.DOC_LOCK:
-                org = store.load_org(slug)
+            # The node walk is an UNLOCKED read (PG-3e-B): it only chooses
+            # whom to tell, the tx writes nothing but the notice, and a node
+            # bound a moment later is told of an account it no longer needs —
+            # harmless, and what the DOC_LOCK version did for a bind landing
+            # just after its save.
+            with orgtx.org_tx(slug, logs=["user_mail_log"]) as tx:
+                org = tx.org
                 for _mn, _n in org.nodes.items():
                     if _n.get("state") != "live" \
                             or str(_n.get("account") or "") != sentinel:
@@ -15737,7 +15742,6 @@ def announce_missing_rebind_candidates(provider: str,
                                  f"currently parked with no account for "
                                  f"that provider. Assign it to them to let "
                                  f"them run.")})
-                    store.save_org(org)
         except Exception:                                    # noqa: BLE001
             continue
         total += len(user_nodes) + sum(len(v) for v in by_sup.values())
@@ -30228,14 +30232,13 @@ def _log_escalation_to_org(rec: dict[str, Any], quiesced: dict[str, Any],
     (both are expected: surviving its author is the feature), and neither may
     stop a deploy that has already stopped the machine."""
     try:
-        with store.DOC_LOCK:
-            org = store.load_org(str(rec.get("by_org") or ""))
-            org.log_forced_restart(
+        # an append to `events` and nothing else: no row lock at all
+        with orgtx.org_tx(str(rec.get("by_org") or ""), logs=["events"]) as tx:
+            tx.org.log_forced_restart(
                 str(rec.get("by_node") or ""),
                 cast("list[str]", quiesced.get("cut") or []),
                 cast("list[str]", quiesced.get("not_settled") or []),
                 why=why, woken=woken)
-            store.save_org(org)
     except Exception as e:                                    # noqa: BLE001
         print(f"[orgtree] could not record the prime escalation in "
               f"{rec.get('by_org')!r}'s event log: {e!r}", flush=True)
