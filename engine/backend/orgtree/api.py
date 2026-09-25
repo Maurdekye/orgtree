@@ -11465,14 +11465,21 @@ def _agent_door(body: AgentCall, a: dict[str, Any],
         # a replayed key: nothing ran and nothing committed, so NOTHING of
         # the post-commit tail runs either (the cycle returns it the same way)
         return result
+    # COMMITTED from here on (plan decision 27, F2): a step that raises is
+    # logged and disclosed in result["warnings"], never raised
+    ac = pgdoor.after_commit
     if "account" in notify:
-        supervisor.notify(body.org, notify["account"], "account")
+        ac(result, "account_notify", supervisor.notify, body.org,
+           notify["account"], "account")
     if "unpark" in notify:
-        supervisor.drive_account_unpark(body.org, notify["unpark"])
+        ac(result, "account_unpark", supervisor.drive_account_unpark,
+           body.org, notify["unpark"])
     if "thaw" in notify:
-        supervisor.drive_auth_thaw(body.org, notify["thaw"])
+        ac(result, "auth_thaw", supervisor.drive_auth_thaw, body.org,
+           notify["thaw"])
     for then in after.then:
-        then(result)
+        ac(result, "then:" + str(getattr(then, "__name__", "then")), then,
+           result)
     return _agent_door_tail(body, result, after.drive)
 
 
@@ -11483,35 +11490,43 @@ def _agent_door_tail(body: AgentCall, result: Any,
     reference and the hub fan-out. Tool-specific tail work (a send's
     delivery note, a watchdog smoke run, …) is the family's, in
     `after.then`. The legacy tail below stays for the cycle's tools until the
-    last family converts; this copy is kept to the steps every tool shares."""
+    last family converts; this copy is kept to the steps every tool shares.
+
+    Everything here runs AFTER the commit, so each step goes through
+    `pgdoor.after_commit` (plan decision 27, F2): one that raises is logged
+    and disclosed in `result["warnings"]`, and the steps after it still run."""
+    ac = pgdoor.after_commit
     if body.tool in ("orgtree_retire", "orgtree_dissolve", "orgtree_rename",
                      "orgtree_cheap_compact"):
-        supervisor.remote_reap(body.org)
+        ac(result, "remote_reap", supervisor.remote_reap, body.org)
     for target in dict.fromkeys(drive):
-        supervisor.send_message(
-            body.org, target,
-            "(orgtree) You have new mail above — handle it as appropriate, "
-            "and use orgtree_status when your own task state changes.",
-            mail_ping=True, sender=body.node, ping_reason=None)
+        ac(result, "drive:" + target, supervisor.send_message,
+           body.org, target,
+           "(orgtree) You have new mail above — handle it as appropriate, "
+           "and use orgtree_status when your own task state changes.",
+           mail_ping=True, sender=body.node, ping_reason=None)
     if isinstance(result, dict) and result.get("noticed"):
         deferred = set(result.get("noticed_deferred") or [])
         for n in dict.fromkeys(str(x) for x in result["noticed"] if x):
-            mail_notify(body.org, body.node, n)
+            ac(result, "notice_ping:" + n, mail_notify, body.org, body.node, n)
             if n in deferred:
                 continue
-            r = supervisor.send_message(
-                body.org, n,
-                "(orgtree) A notice arrived in your mail above — you were "
-                "added as a participant on a docket item. Informational, no "
-                "reply expected. Note it and continue your current task.",
-                wake=False, mail_ping=True, sender=body.node,
-                ping_reason="participation")
-            result.setdefault("notice_delivery", {})[n] = \
-                supervisor.delivery_note(body.org, n, r, kind="notice")
+            r = ac(result, "notice:" + n, supervisor.send_message,
+                   body.org, n,
+                   "(orgtree) A notice arrived in your mail above — you were "
+                   "added as a participant on a docket item. Informational, "
+                   "no reply expected. Note it and continue your current "
+                   "task.",
+                   wake=False, mail_ping=True, sender=body.node,
+                   ping_reason="participation")
+            if r is not None:
+                result.setdefault("notice_delivery", {})[n] = ac(
+                    result, "notice_delivery:" + n, supervisor.delivery_note,
+                    body.org, n, r, kind="notice")
     if isinstance(result, dict):
         result.pop("bridge", None)
-        _attach_ref(body.org, body.tool, result)
-    hub_changed(body.org)
+        ac(result, "attach_ref", _attach_ref, body.org, body.tool, result)
+    ac(result, "hub_changed", hub_changed, body.org)
     return result
 
 
@@ -12072,7 +12087,7 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
     # the RESIDENT write cycle (rearchitecture Phase B): same DOC_LOCK, same
     # save fanout, same discard-on-failure — without re-parsing 11 MB of
     # document per tool call.
-    if pgdoor.routed(body.tool):
+    if pgdoor.routed(body.tool, a):
         # PYPG: a family has converted this tool off DOC_LOCK (it declared
         # its rows and body with pgdoor.declare). It runs as ONE row
         # transaction with the shared prologue — never inside the cycle
