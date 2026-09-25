@@ -30734,8 +30734,8 @@ def _steer_fold_log(slug: str, nid: str, n: int, where: str,
     unknown held for a late reply, a late acknowledgement, a redelivery
     decision). Both are absent on the claude hook's plain fold."""
     try:
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
+        with halt.txn(slug, **{"logs": [("steered_log", nid)]}) as _cb_tx:  # PG-3e-A
+            org = _cb_tx.org
             if nid not in org.nodes:
                 return
             log = org.d.setdefault("steered_log", {}).setdefault(nid, [])
@@ -30746,7 +30746,6 @@ def _steer_fold_log(slug: str, nid: str, n: int, where: str,
                             f"window ({where}: {why}) — "
                             f"delivered at the next turn")})
             # Keep receipts and delivered text until manual removal.
-            store.save_org(org)
     except Exception:                                        # noqa: BLE001
         pass
 
@@ -31779,8 +31778,8 @@ def _steer_late_sweep(now: float | None = None) -> list[tuple[str, str, str, flo
     for slug, frm, nid, waited in due:
         boundary = steer_wait(slug, nid)
         try:
-            with store.DOC_LOCK:
-                org = store.load_org(slug)
+            with halt.txn(slug, **mailtx.send_rows(frm)) as _cb_tx:  # PG-3e-A
+                org = _cb_tx.org
                 if frm not in org.nodes or nid not in org.nodes:
                     continue
                 key = (slug, frm, nid)
@@ -31805,7 +31804,6 @@ def _steer_late_sweep(now: float | None = None) -> list[tuple[str, str, str, flo
                     boundary_for=(_dur(boundary)
                                   if isinstance(boundary, (int, float)) else None),
                     observed=True)
-                store.save_org(org)
         except Exception:                                        # noqa: BLE001
             continue
         # …and try to put it in front of the sender NOW if it is itself
