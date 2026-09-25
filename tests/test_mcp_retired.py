@@ -65,5 +65,58 @@ class BareNameNeverResolvesToOldMcp(unittest.TestCase):
         self.assertEqual(str(cm.exception), ledger.MCP_RETIRED)
 
 
+class ResponseHandlesAreRetired(unittest.TestCase):
+    """Stage 2: no NEW @mcp: response handle can be granted, and a handle a
+    node stored before the retirement is kept but has no effect."""
+
+    def _org(self) -> ledger.Org:
+        org = ledger.Org.create("mcp-handles-" + uuid.uuid4().hex[:8])
+        org.hire(ledger.USER, None, "haiku", 0, "top")
+        return org
+
+    def test_hire_with_a_handle_is_refused_and_hires_nobody(self):
+        org = self._org()
+        with self.assertRaises(ledger.LedgerError) as cm:
+            org.hire(ledger.USER, "top", "haiku", 0, "panel",
+                     external_handles=["@mcp:wizard"])
+        self.assertIn(ledger.HANDLES_RETIRED, str(cm.exception))
+        self.assertNotIn("panel", org.nodes)
+
+    def test_retool_with_a_handle_is_refused_but_an_empty_list_clears(self):
+        org = self._org()
+        org.nodes["top"]["external_handles"] = ["@mcp:wizard"]   # pre-retirement doc
+        with self.assertRaises(ledger.LedgerError) as cm:
+            org.set_scope(ledger.USER, "top", external_handles=["@mcp:other"])
+        self.assertIn(ledger.HANDLES_RETIRED, str(cm.exception))
+        self.assertEqual(org.nodes["top"]["external_handles"], ["@mcp:wizard"])
+        org.set_scope(ledger.USER, "top", external_handles=[])
+        self.assertNotIn("external_handles", org.nodes["top"])
+
+    def test_a_stored_handle_survives_load_and_grants_nothing(self):
+        import json
+        org = self._org()
+        org.hire(ledger.USER, "top", "haiku", 0, "child")
+        org.nodes["child"]["external_handles"] = ["@mcp:wizard"]
+        loaded = ledger.Org(json.loads(json.dumps(org.d)))
+        self.assertEqual(loaded.nodes["child"]["external_handles"], ["@mcp:wizard"],
+                         "a stored handle must not be cleared on load")
+        # its own address is refused like any @mcp: send ...
+        with self.assertRaises(ledger.LedgerError) as cm:
+            loaded.post_mail("child", "@mcp:wizard", "progress")
+        self.assertEqual(str(cm.exception), ledger.MCP_RETIRED)
+        # ... and the handle no longer lets a non-holder speak for the org
+        with self.assertRaises(ledger.LedgerError) as cm:
+            loaded.post_mail("child", "@org:elsewhere", "hello")
+        self.assertIn("ORG-INBOX audience holders", str(cm.exception))
+
+    def test_the_identity_prompt_no_longer_advertises_a_stored_handle(self):
+        from orgtree import supervisor
+        org = self._org()
+        org.nodes["top"]["external_handles"] = ["@mcp:wizard"]
+        prompt = supervisor.identity_prompt(org, "top")
+        self.assertNotIn("@mcp:wizard", prompt)
+        self.assertNotIn("EXTERNAL RESPONSE HANDLE", prompt)
+
+
 if __name__ == "__main__":
     unittest.main()
