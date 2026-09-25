@@ -266,7 +266,7 @@ def q_c5(declared: dict[str, dict[str, Any]], records: list[dict[str, Any]],
     for (op_id, attempt), s in sorted(ops.items()):
         kind = s["op_kind"]
         where = f"{kind or '?'} {op_id}#{attempt}"
-        if kind not in declared:
+        if kind not in op_kinds(declared):   # "workflows" is never an op kind
             failures.append(f"{where}: operation kind has no declared contacts")
             continue
         spec = declared[kind]["relations"]

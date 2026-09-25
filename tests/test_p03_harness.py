@@ -696,6 +696,14 @@ class Atomicity(unittest.TestCase):
             "committed transactions across 3 operations (mail.receive.deliver_agent, "
             "mail.source.message, runtime.confirm_input)"])
 
+    def test_two_committed_steps_already_break_one_atomic_transaction(self):
+        t = _Trace()
+        t.op("src-m1", SRC, ["m1"])
+        t.op("rcv-m1", RCV, ["m1"])
+        v = oracle.atomicity(_decl(shape="native_tx"), t.records)
+        self.assertTrue(any("observed 2 committed transactions across 2 operations" in f
+                            for f in v["failures"]), v["failures"])
+
     def test_a_single_committed_transaction_is_consistent_with_native_tx(self):
         t = _Trace()
         t.op("src-m1", SRC, ["m1"])
@@ -797,6 +805,10 @@ class Atomicity(unittest.TestCase):
 
     def test_q_c5_ignores_the_workflows_key(self):
         d = _decl()
+        t = _Trace()
+        t.add("op_begin", "o-w", op_kind="workflows", op_tag=None, run_id="r")
+        v = oracle.q_c5(d, t.records, ["executor"])
+        self.assertIn("workflows o-w#1: operation kind has no declared contacts", v["failures"])
         v = oracle.q_c5(d, [], ["executor"])
         self.assertNotIn("workflows", v["over_declared"])
         self.assertFalse([f for f in v["failures"] if "workflows" in f], v["failures"])
