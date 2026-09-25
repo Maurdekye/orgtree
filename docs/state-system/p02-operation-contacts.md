@@ -1421,7 +1421,7 @@ distinctive ids. The main org has `ex-top` and `ex-top2` at the top level,
   - a duplicate node upload;
   - send_file with a delivery id, its replay, `send_file_once`, and a keyed
     call.
-- **Refusals** (warm; no primary write, nothing logical): 33 of them.
+- **Refusals** (warm; no primary write, nothing logical): 36 of them.
   - extern send: an empty body, a bad peer id, no org, a sealed kiosk, a
     missing attachment;
   - an unknown org on the inbox, read and clear routes;
@@ -1435,13 +1435,18 @@ distinctive ids. The main org has `ex-top` and `ex-top2` at the top level,
     route with no credential;
   - seven send_file refusals (missing, no path, escape, bad delivery id,
     `_once` without an id, a delivery conflict, storage blocked);
-  - **the external-chat MCP server's own client** (`externtool.run_tool`),
-    its `http()` served by this app with exactly the headers it sends: 401 at
-    the gate, before any attempt is recorded (docket
+  - **the external-chat MCP server's own client** (`externtool.run_tool`)
+    for each of its four verbs (list_orgs, send, read, wait), its `http()`
+    served by this app with exactly the headers it sends: 401 at the gate,
+    before any attempt is recorded (docket
     `the-external-chat-mcp-server-cannot-reach-the-v2`, recorded, not fixed).
 - **Org-level locality, as found:**
   - the org list and both extern scans run statements on every other org's
-    store, the org-filtered read included (see "Cross-org reads found");
+    store, the org-filtered read included (see "Cross-org reads found").
+    "Cold" here, as everywhere in this probe, means the ACTOR org's store
+    is closed and its snapshot dropped before the row: the other orgs these
+    rows read stay warm from earlier rows, so their counts are not a
+    cold-machine figure;
   - an `@org:` send writes the other org's store; to a sealed kiosk it only
     reads it;
   - no other row leaves its org.
@@ -1475,10 +1480,81 @@ first open question, not the Owner line.
 
 | Facet | Closing clause | Status | Rows |
 |---|---|---|---|
-| `exchange.instrumentation` | a loss-accounted P02 record per row (open question: actual contacts per outcome, cold and warm, refusals included, and the org-level locality of each; the extern scans and the @org: send cross orgs) | partly | covered: all 15 contracts cold and warm, the variants above and 33 refusals, per-row loss zero; org-level locality measured (the org list and the extern scans read every org, the filtered read included; an @org: send writes the other org); agent-level locality within the declared recipients; `control:exchange-third-agent` flagged. NOT covered: the tokenless externtool path beyond its 401 (the gate refuses every verb); a live mail hub (`@net:` answers "no mailserver is configured"); P03 native negative controls |
+| `exchange.instrumentation` | a loss-accounted P02 record per row (open question: actual contacts per outcome, cold and warm, refusals included, and the org-level locality of each; the extern scans and the @org: send cross orgs) | partly | covered: all 15 contracts cold and warm, the variants above and 36 refusals, per-row loss zero; org-level locality measured (the org list and the extern scans read every org, the filtered read included; an @org: send writes the other org); agent-level locality within the declared recipients; `control:exchange-third-agent` flagged. NOT covered: the externtool verbs beyond their 401 (P02 rows show the gate refusing all four); cold-machine counts for the other orgs the scans read (cold is the actor org only); a live mail hub (`@net:` answers "no mailserver is configured"); P03 native negative controls |
 
 Owned elsewhere, with no rows added: `exchange.conflicts` and
 `exchange.wire`.
+
+## P01 F6: the org and agent reads (`org-read.*`)
+
+The fixture follows `tests/test_state_org_read_boundary.py` with distinctive
+`or-*` ids:
+- `or-top` is top-level; `or-mid` sits under it with scratch files;
+- ONE NODE PER FIRST READ: a chat read mints the node's reply and
+  transcript-record incarnations on its first read only, so every first-read
+  row reads a node nobody has read before;
+- each chat node has a fixture transcript of its own (`or-noimg`'s has no
+  image), and `or-leaf` has none;
+- `or-third` is never named;
+- the main org has a workspace with a `CLAUDE.md`.
+
+Separate orgs: two for the `/net` identity backfill (it writes on an org's
+first reveal), a kiosk, a bare org without a workspace, and one with an
+unmounted disk.
+
+As in the P01 fixture, a node's transcript resolves through
+`supervisor.transcript_path` and `transcript_path_for_node` to its fixture
+file. `notify` and the storage check are counting spies (`spies`), and
+`hub_changed` is real and counted. Every row also records
+`resource_warnings`: the "unclosed file" ResourceWarnings raised while it ran,
+after a garbage collection.
+
+- **Each read, cold and warm** (15 contracts):
+  - `org-read.chat`, `.file`, `.scratch`, `.tool-image`, `.node-history`,
+    `.history-sources`, `.history-entries`, `.events`, `.orgmd`, `.net` and
+    `.aggregates`;
+  - the bridge credential and the three disk reads answer their standard
+    refusal, cold and warm (409). Their success paths need a sandboxed org
+    with a mounted disk, which a synthetic root does not have.
+- **Reads that write** (docket `org-reads-that-write-chat-gets-mint-on-first-rea`,
+  measured, not fixed):
+  - a first read writes, cold and warm: `org-read.chat` (the node's row, and
+    the three chat sidecars), `org-read.history-entries:chat-first`, and
+    `org-read.net` (the org's identity, hubs and autoconnect);
+  - the repeat rows (`:repeat`, `:chat-repeat`) write nothing;
+  - a chat read refused 422 for a bad cursor still writes the node's row,
+    because the mint runs before the cursor check.
+- **Variants** (warm): chat of a node with no transcript, a kiosk's `/net`,
+  a scratch file, the last N events, one aggregate collection, and the orgmd
+  of an org with no workspace and of a 70000-character one.
+- **Refusals** (warm; no primary write, nothing logical, except the chat
+  cursor above): unknown nodes and orgs, path escapes, a missing file or
+  path, a tool result with no image, a node with no transcript, an unknown
+  history collection, a bad history cursor, an unsupported aggregate, the
+  unmounted disk (503), the frozen-profile bridge credential (503 for an org
+  that is not sandboxed, 404 for a missing one), and an agent credential
+  (401, before any attempt is recorded).
+- **Open file handles:** the scratch-file, tool-image and orgmd reads each
+  raise an "unclosed file" ResourceWarning. The file stays open until
+  garbage collection. The tests pin those rows at one or more and the events,
+  chat and aggregate rows at zero.
+- **Locality:** every statement runs on the org's own store (no F6 read
+  leaves its org). The only agent row a read writes is the node it mints, and
+  `or-third` is never touched. The control `control:org-read-third-agent`
+  (an events read whose bounded reader also posts mail to `or-third`) is
+  flagged.
+
+## Hand-off to P01 (F6, org reads): facet → clause → rows
+
+Clause from the Owner line at v3 246fda0. The parenthetical is the facet's
+first open question, not the Owner line.
+
+| Facet | Closing clause | Status | Rows |
+|---|---|---|---|
+| `org-read.instrumentation` | a loss-accounted P02 record per row (open question: actual contacts per outcome, cold and warm, refusals included; the chat reads touch three sidecars) | partly | covered: all 15 reads cold and warm, per-row loss zero; the writing reads as write rows on the first call and the repeat; the chat sidecars; the open file handles counted; org-level locality (all statements org-local) and agent-level locality (only the minted node written); `control:org-read-third-agent` flagged. NOT covered: the success paths of the bridge credential and the three disk reads (they need a sandboxed org with a mounted disk; the rows are their standard answers); P03 native negative controls |
+
+Owned elsewhere, with no rows added: `org-read.conflicts` and
+`org-read.wire`.
 
 ## Limits
 

@@ -47,9 +47,11 @@ usage: python -I -B tools/p02_operation_contacts.py --out <dir> [--work <dir>]
 from __future__ import annotations
 
 import argparse
+import base64
 import collections
 import contextlib
 import copy
+import gc
 import hashlib
 import importlib.util
 import io
@@ -64,6 +66,7 @@ import threading
 import time
 import urllib.error
 import uuid
+import warnings
 from pathlib import Path
 from typing import Any, Callable
 
@@ -3017,6 +3020,316 @@ class Probe:
                refusal="negative control (not a product path)",
                patches=[(api, "_op_lookup_call", lookup_and_mail_third)])
 
+    # -- P01 F6: the org and agent reads (org-read.*) ---------------------------------
+    OR_TRANSCRIPT_NODES = ("or-chat-cold", "or-chat-warm", "or-hist-cold", "or-hist-warm",
+                           "or-cursor", "or-img")
+    OR_PNG = b"\x89PNG fixture bytes"
+
+    def build_orgreads(self) -> None:
+        """tests/test_state_org_read_boundary.py's shape (distinctive `or-*` ids):
+        or-top top-level; or-mid under it with scratch files; one node per
+        FIRST read (a chat read mints the node's reply and transcript-record
+        incarnations on the first read only, so each first-read row reads a
+        node never read before), each with a fixture transcript of its own
+        (or-noimg's has no image); or-leaf has none; or-third is never named.
+        The main org has a workspace with a CLAUDE.md. Separate orgs: two
+        for the /net identity backfill (it writes on an org's first reveal),
+        a kiosk, a bare org (no workspace) and one with an unmounted disk."""
+        store, ledger = self.m["store"], self.m["ledger"]
+        user = ledger.USER
+        org = store.create_org("p02-contacts-orgread")
+        self.orslug = s = str(org.d["slug"])
+        org.hire(user, None, "haiku", 30, "or-top", add_dirs=[], tools={}, charter="fixture")
+        for nid in ("or-mid", "or-leaf", "or-noimg", "or-third") + self.OR_TRANSCRIPT_NODES:
+            org.hire("or-top", "or-top", "haiku", 0, nid, **self.SCOPE)
+        self.or_transcripts: dict[str, str] = {}
+        tdir = self.root / "or-transcripts"
+        tdir.mkdir()
+        for i, nid in enumerate(self.OR_TRANSCRIPT_NODES + ("or-noimg",)):
+            sid = f"00000000-0000-4000-8000-{i:012d}"
+            org.node(nid)["session_id"] = sid
+            path = tdir / f"{nid}.jsonl"
+            image = nid != "or-noimg"
+            png = base64.b64encode(self.OR_PNG).decode()
+            rows = [{"type": "user", "uuid": "u-1", "timestamp": "2026-09-10T12:00:00Z",
+                     "message": {"role": "user", "content": "hello"}},
+                    {"type": "assistant", "uuid": "a-1", "timestamp": "2026-09-10T12:00:01Z",
+                     "message": {"id": "m-1", "role": "assistant", "content": [
+                         {"type": "tool_use", "id": "toolu_1", "name": "Read", "input": {}}]}},
+                    {"type": "user", "uuid": "u-2", "timestamp": "2026-09-10T12:00:02Z",
+                     "message": {"role": "user", "content": [
+                         {"type": "tool_result", "tool_use_id": "toolu_1", "content": (
+                             [{"type": "image", "source": {"type": "base64",
+                                                           "media_type": "image/png",
+                                                           "data": png}}]
+                             if image else "text only")}]}},
+                    {"type": "assistant", "uuid": "a-2", "timestamp": "2026-09-10T12:00:03Z",
+                     "message": {"id": "m-2", "role": "assistant", "content": "done"}}]
+            path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+            self.or_transcripts[sid] = str(path)
+        ws = self.root / "or-workspace"
+        ws.mkdir()
+        (ws / "CLAUDE.md").write_text("x" * 10, encoding="utf-8")
+        org.d["workspace"] = str(ws)
+        org.d["mail"], org.d["audiences"] = {}, []
+        store.save_org(org)
+        self.tokens[(s, "or-mid")] = self.m["agentauth"].child_env(s, "or-mid")["ORGTREE_AGENT_TOKEN"]
+        scratch = Path(self.m["supervisor"].scratch_dir(s, "or-mid"))
+        (scratch / "sub").mkdir(parents=True, exist_ok=True)
+        (scratch / "notes.txt").write_text("notes", encoding="utf-8")
+        (scratch / "sub" / "deep.txt").write_text("deep", encoding="utf-8")
+        self.or_other: dict[str, str] = {}
+        for role in ("net-cold", "net-warm", "kiosk", "bare", "disk"):
+            org = store.create_org(f"p02-contacts-orgread-{role}")
+            self.or_other[role] = str(org.d["slug"])
+            org.hire(user, None, "haiku", 2, f"or{role[0]}{role[-1]}-top", add_dirs=[], tools={},
+                     charter="fixture")
+            if role == "kiosk":
+                org.d["kiosk"] = {"enabled": True, "credits": 0, "spend_limit": 0.0,
+                                  "storage_limit_mb": 0, "token": "kiosk-token-orgread",
+                                  "auto_raise": False,
+                                  "max_scope": {"tools": self.NO_TOOLS, "add_dirs": [],
+                                                "org_visibility": "team",
+                                                "permission_mode": "acceptEdits"}}
+            if role == "disk":
+                org.d["disk"] = {"size_mb": 1024}
+            org.d["mail"], org.d["audiences"] = {}, []
+            store.save_org(org)
+
+    def org_reads(self) -> None:
+        """Every F6 read, cold and warm. As in the P01 fixture, a node's
+        transcript is a fixture file (supervisor.transcript_path and
+        transcript_path_for_node resolve the node's session id to it), and
+        notify, the storage check and turn delivery are spies; hub_changed is
+        real and counted. Reads that WRITE (the chat mint, the history chat
+        section, the /net identity backfill) have a first-read row and a
+        repeat row. Each row also records `resource_warnings`: the
+        ResourceWarnings raised while it ran, after a garbage collection, so a
+        file the handler opened and never closed is counted against the row."""
+        s, api, supervisor = self.orslug, self.m["api"], self.m["supervisor"]
+        spies: collections.Counter = collections.Counter()
+        paths = self.or_transcripts
+
+        def spy(name: str, answer: Any = None) -> Callable[..., Any]:
+            def call(*_a: Any, **_k: Any) -> Any:
+                spies[name] += 1
+                return answer
+            return call
+        hub = api.hub_changed
+
+        def hub_counted(*a: Any, **k: Any) -> Any:
+            spies["hub_changed"] += 1
+            return hub(*a, **k)
+
+        def by_session(session_id: str, root: "str | None" = None) -> "str | None":
+            return paths.get(str(session_id))
+
+        def by_node(org: Any, nid: str) -> "str | None":
+            return paths.get(str((org.nodes.get(nid) or {}).get("session_id") or ""))
+        family = [(api, "hub_changed", hub_counted),
+                  (supervisor, "notify", spy("notify")),
+                  (supervisor, "maybe_storage_check", spy("maybe_storage_check")),
+                  (supervisor, "transcript_path", by_session),
+                  (supervisor, "transcript_path_for_node", by_node)]
+        saved = [(obj, name, getattr(obj, name)) for obj, name, _ in family]
+        for obj, name, value in family:
+            setattr(obj, name, value)
+        try:
+            self._org_read_rows(s, api, spies)
+        finally:
+            for obj, name, value in reversed(saved):
+                setattr(obj, name, value)
+
+    def _org_read_rows(self, s: str, api: Any, spies: collections.Counter) -> None:
+        from orgtree import deployment
+        user, op, both = self.m["ledger"].USER, self.OPERATOR, ("cold", "warm")
+        o = self.or_other
+        frozen = [(api.deployment, "current_policy", lambda *_a, **_k: deployment.FROZEN)]
+
+        def route(contract: str, variant: str, condition: str, path: str,
+                  params: Any = None, slug: str = s, headers: Any = op,
+                  args: "dict[str, Any] | None" = None, **kw: Any) -> dict[str, Any]:
+            def call() -> tuple[int, Any]:
+                resp = self.client.get(path, params=params, headers=headers)
+                try:
+                    return resp.status_code, resp.json()
+                except ValueError:
+                    return resp.status_code, {"ctype": resp.headers.get("content-type", "")
+                                              .split(";")[0], "bytes": len(resp.content)}
+            n0 = dict(spies)
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always", ResourceWarning)
+                row = self.run(contract, variant, condition, slug, user, f"GET {contract}",
+                               args or {}, call=call, **kw)
+                gc.collect()
+            row["resource_warnings"] = sum(1 for w in caught
+                                           if issubclass(w.category, ResourceWarning)
+                                           and str(w.message).startswith("unclosed file"))
+            row["spies"] = {k: v - n0.get(k, 0) for k, v in sorted(spies.items())
+                            if v - n0.get(k, 0)}
+            return row
+
+        base = f"/api/orgs/{s}"
+        for cond in both:
+            chat = f"or-chat-{cond}"
+            route("org-read.chat", "org-read.chat", cond, f"{base}/nodes/{chat}/chat",
+                  args={"node": chat})
+            route("org-read.file", "org-read.file", cond, f"{base}/nodes/or-mid/file",
+                  params={"path": "notes.txt"}, args={"node": "or-mid"})
+            route("org-read.scratch", "org-read.scratch", cond, f"{base}/nodes/or-mid/scratch",
+                  args={"node": "or-mid"})
+            route("org-read.tool-image", "org-read.tool-image", cond,
+                  f"{base}/nodes/or-img/toolimg/toolu_1", args={"node": "or-img"})
+            route("org-read.node-history", "org-read.node-history", cond,
+                  f"{base}/nodes/or-mid/history", args={"node": "or-mid"})
+            route("org-read.history-sources", "org-read.history-sources", cond, f"{base}/history")
+            route("org-read.history-entries", "org-read.history-entries", cond,
+                  f"{base}/history/events")
+            hist = f"or-hist-{cond}"
+            route("org-read.history-entries", "org-read.history-entries:chat-first", cond,
+                  f"{base}/history/chat", params={"node": hist}, args={"node": hist})
+            route("org-read.events", "org-read.events", cond, f"{base}/events")
+            route("org-read.orgmd", "org-read.orgmd", cond, f"{base}/orgmd")
+            net = o[f"net-{cond}"]
+            if cond == "warm":
+                self.m["store"].load_org(net)
+            route("org-read.net", "org-read.net", cond, f"/api/orgs/{net}/net", slug=net)
+            route("org-read.aggregates", "org-read.aggregates", cond,
+                  f"{base}/diagnostics/aggregates")
+            # no sandboxed org and no virtual disk here: these answer their
+            # refusal in the standard profile (their success paths need a
+            # sandbox, which a synthetic root does not have)
+            route("org-read.bridge-credential", "refusal:bridge-standard-profile", cond,
+                  f"{base}/bridge-credential",
+                  refusal="409 rotatable credentials are active only in the frozen profile")
+            route("org-read.bridge-credential", "refusal:bridge-frozen-not-sandboxed", cond,
+                  f"{base}/bridge-credential", patches=frozen,
+                  refusal="503 frozen profile: the org is not sandboxed")
+            route("org-read.disk-list", "refusal:disk-list-no-disk", cond, f"{base}/disk",
+                  refusal="409 no virtual disk")
+            route("org-read.disk-dir", "refusal:disk-dir-no-disk", cond, f"{base}/disk/dir",
+                  refusal="409 no virtual disk")
+            route("org-read.disk-file", "refusal:disk-file-no-disk", cond, f"{base}/disk/file",
+                  params={"path": "home/x"}, refusal="409 no virtual disk")
+
+        # the second read of a node / an org: nothing left to mint
+        route("org-read.chat", "org-read.chat:repeat", "warm", f"{base}/nodes/or-chat-warm/chat",
+              args={"node": "or-chat-warm"})
+        route("org-read.chat", "org-read.chat:no-transcript", "warm",
+              f"{base}/nodes/or-leaf/chat", args={"node": "or-leaf"})
+        route("org-read.history-entries", "org-read.history-entries:chat-repeat", "warm",
+              f"{base}/history/chat", params={"node": "or-hist-warm"},
+              args={"node": "or-hist-warm"})
+        route("org-read.net", "org-read.net:repeat", "warm", f"/api/orgs/{o['net-warm']}/net",
+              slug=o["net-warm"])
+        route("org-read.net", "org-read.net:kiosk", "warm", f"/api/orgs/{o['kiosk']}/net",
+              slug=o["kiosk"])
+        route("org-read.scratch", "org-read.scratch:file", "warm", f"{base}/nodes/or-mid/scratch",
+              params={"path": "sub/deep.txt"}, args={"node": "or-mid"})
+        route("org-read.events", "org-read.events:last", "warm", f"{base}/events",
+              params={"last": 2})
+        route("org-read.aggregates", "org-read.aggregates:one", "warm",
+              f"{base}/diagnostics/aggregates", params={"collections": "events"})
+        route("org-read.orgmd", "org-read.orgmd:none", "warm", f"/api/orgs/{o['bare']}/orgmd",
+              slug=o["bare"])
+        (self.root / "or-workspace" / "CLAUDE.md").write_text("x" * 70000, encoding="utf-8")
+        route("org-read.orgmd", "org-read.orgmd:long", "warm", f"{base}/orgmd")
+        # an org whose disk is configured but not mounted: the read shells out
+        # to WSL (disk._run: `wsl -l -q`, `wsl -d <distro> -e sh -c ...`) to find
+        # the mount, so a GET starts a process; the guard refuses it (500 here)
+        disk = o["disk"]
+        wsl = dict(expected_unknown=("guard:process/subprocess.Popen",),
+                   refusal="the read starts wsl.exe (disk._run): refused by the guard, 500 here")
+        route("org-read.disk-list", "refusal:disk-list-unmounted", "warm", f"/api/orgs/{disk}/disk",
+              slug=disk, **wsl)
+        route("org-read.disk-dir", "refusal:disk-dir-unmounted", "warm",
+              f"/api/orgs/{disk}/disk/dir", slug=disk, **wsl)
+        # recorded legacy: the chat mint runs before the cursor check, so a
+        # read refused 422 still writes (a node never read before)
+        route("org-read.chat", "refusal:chat-bad-cursor", "warm", f"{base}/nodes/or-cursor/chat",
+              params={"before": "garbage"}, args={"node": "or-cursor"},
+              refusal="422 invalid cursor (legacy: after the mint, which writes)")
+        for contract, variant, path, params, slug, refusal in (
+                ("org-read.chat", "refusal:chat-ghost", f"{base}/nodes/ghost/chat", None, s,
+                 "404 no such node"),
+                ("org-read.file", "refusal:file-missing", f"{base}/nodes/or-mid/file",
+                 {"path": "nope.txt"}, s, "404 no such file"),
+                ("org-read.file", "refusal:file-escape", f"{base}/nodes/or-mid/file",
+                 {"path": "../../x"}, s, "422 escapes the scratch space"),
+                ("org-read.file", "refusal:file-ghost", f"{base}/nodes/ghost/file", {"path": "x"}, s,
+                 "404 no such node"),
+                ("org-read.scratch", "refusal:scratch-missing", f"{base}/nodes/or-mid/scratch",
+                 {"path": "nope"}, s, "404 no such path"),
+                ("org-read.scratch", "refusal:scratch-escape", f"{base}/nodes/or-mid/scratch",
+                 {"path": "../.."}, s, "422 escapes the scratch space"),
+                ("org-read.scratch", "refusal:scratch-ghost", f"{base}/nodes/ghost/scratch", None, s,
+                 "404 no such node"),
+                ("org-read.tool-image", "refusal:toolimg-no-image",
+                 f"{base}/nodes/or-noimg/toolimg/toolu_1", None, s, "404 no image"),
+                ("org-read.tool-image", "refusal:toolimg-no-transcript",
+                 f"{base}/nodes/or-leaf/toolimg/toolu_1", None, s, "404 no transcript"),
+                ("org-read.tool-image", "refusal:toolimg-ghost", f"{base}/nodes/ghost/toolimg/toolu_1",
+                 None, s, "404 no such node"),
+                ("org-read.node-history", "refusal:node-history-ghost", f"{base}/nodes/ghost/history",
+                 None, s, "404 no such node"),
+                ("org-read.node-history", "refusal:node-history-no-org",
+                 "/api/orgs/nope-org/nodes/or-mid/history", None, s, "404 no such org"),
+                ("org-read.history-sources", "refusal:history-sources-no-org",
+                 "/api/orgs/nope-org/history", None, s, "404 no such org"),
+                ("org-read.history-entries", "refusal:history-node-missing",
+                 f"{base}/history/node-mail", None, s, "404 no node named"),
+                ("org-read.history-entries", "refusal:history-unknown", f"{base}/history/bogus", None,
+                 s, "404 unknown collection"),
+                ("org-read.history-entries", "refusal:history-bad-cursor", f"{base}/history/events",
+                 {"cursor": "garbage"}, s, "422 invalid cursor"),
+                ("org-read.events", "refusal:events-no-org", "/api/orgs/nope-org/events", None, s,
+                 "404 no such org"),
+                ("org-read.orgmd", "refusal:orgmd-no-org", "/api/orgs/nope-org/orgmd", None, s,
+                 "404 no such org"),
+                ("org-read.net", "refusal:net-no-org", "/api/orgs/nope-org/net", None, s,
+                 "404 no such org"),
+                ("org-read.aggregates", "refusal:aggregates-bad", f"{base}/diagnostics/aggregates",
+                 {"collections": "bogus"}, s, "422 unsupported collection"),
+                ("org-read.aggregates", "refusal:aggregates-no-org",
+                 "/api/orgs/nope-org/diagnostics/aggregates", None, s, "404 no such org"),
+                ("org-read.disk-list", "refusal:disk-no-org", "/api/orgs/nope-org/disk", None, s,
+                 "404 no such org"),
+                ("org-read.disk-dir", "refusal:disk-dir-escape", f"/api/orgs/{disk}/disk/dir",
+                 {"path": "../x"}, disk, "422 escapes the org disk"),
+                ("org-read.disk-file", "refusal:disk-file-escape", f"/api/orgs/{disk}/disk/file",
+                 {"path": "../x"}, disk, "422 escapes the org disk"),
+                ("org-read.disk-file", "refusal:disk-file-missing", f"/api/orgs/{disk}/disk/file",
+                 {"path": "home/none.txt"}, disk, "the read starts wsl.exe (disk._run): refused by "
+                 "the guard, 500 here")):
+            route(contract, variant, "warm", path, params=params, slug=slug, refusal=refusal,
+                  expected_unknown=(("guard:process/subprocess.Popen",)
+                                    if variant == "refusal:disk-file-missing" else ()))
+        route("org-read.bridge-credential", "refusal:bridge-frozen-no-org", "warm",
+              "/api/orgs/nope-org/bridge-credential", patches=frozen, refusal="404 no such org")
+        route("org-read.events", "refusal:org-read-agent-token", "warm", f"{base}/events",
+              headers={"X-Orgtree-Agent-Token": self.tokens[(s, "or-mid")]},
+              refusal="401 an agent credential is refused here")
+
+        # agent-level locality control: an events read whose bounded reader
+        # (store.read_events_page) ALSO posts mail to a third agent
+        def mail_third() -> None:
+            with self.m["store"].write_org(s) as org:
+                org.post_mail("or-top", "or-third", "p02 control: mail to a third agent")
+                self.m["store"].save_org(org)
+        store = self.m["store"]
+        route("org-read.events", "control:org-read-third-agent", "warm", f"{base}/events",
+              refusal="negative control (not a product path)",
+              patches=[(store, "read_events_page", self._wrap_then(store.read_events_page,
+                                                                    mail_third))])
+
+    @staticmethod
+    def _wrap_then(fn: Callable[..., Any], after: Callable[..., Any]) -> Callable[..., Any]:
+        def wrapped(*a: Any, **k: Any) -> Any:
+            out = fn(*a, **k)
+            after()
+            return out
+        return wrapped
+
     # -- P01 F4: the exchange routes and tools (mail, inbox, files, external chat) --
     def build_exchange(self) -> None:
         """tests/test_state_exchange_boundary.py's shape (distinctive `ex-*` ids):
@@ -3296,7 +3609,7 @@ class Probe:
                  "422 unknown stage id"),
                 ("exchange.org-inbox-send", "refusal:org-send-net-no-hub", "POST",
                  f"{base}/org_inbox/send", {"json_body": {"to": "@net:elsewhere", "body": "x"}},
-                 "the mail hub is not running"),
+                 "422 no mailserver is configured (no enabled hub)"),
                 ("exchange.inbox-clear", "refusal:inbox-clear-no-org", "POST",
                  "/api/orgs/nope-org/inbox/clear", {}, "404 no org"),
                 ("exchange.node-upload", "refusal:node-upload-empty", "POST",
@@ -3356,13 +3669,25 @@ class Probe:
                                              io.BytesIO(r.content))
             return r.json()
 
-        def extern_call() -> tuple[int, Any]:
-            text, err = externtool.run_tool("orgtree_list_orgs", {})
-            return int(seen.get("status") or 0), {"error": bool(err), "detail": str(text)[:200]}
-        run("exchange.orgs-list", "refusal:externtool-no-credential", "warm", user,
-            "externtool orgtree_list_orgs", {}, call=extern_call,
-            patches=[(externtool, "http", extern_http)],
-            refusal="401 the MCP server's client sends no credential")
+        def extern_call(tool: str, args: dict[str, Any]) -> Callable[[], tuple[int, Any]]:
+            def call() -> tuple[int, Any]:
+                seen.clear()
+                text, err = externtool.run_tool(tool, args)
+                return int(seen.get("status") or 0), {"error": bool(err), "detail": str(text)[:200]}
+            return call
+        # the MCP server's four cards: list_orgs (GET /api/orgs), send, read and
+        # wait (the extern routes); each is one row
+        for contract, variant, tool, args in (
+                ("exchange.orgs-list", "refusal:externtool-no-credential", "orgtree_list_orgs", {}),
+                ("exchange.extern-send", "refusal:externtool-send-no-credential", "orgtree_send",
+                 {"org": s, "body": "hello"}),
+                ("exchange.extern-read", "refusal:externtool-read-no-credential", "orgtree_read",
+                 {"org": s}),
+                ("exchange.extern-wait", "refusal:externtool-wait-no-credential", "orgtree_wait",
+                 {"org": s, "timeout_s": 1})):
+            run(contract, variant, "warm", user, f"externtool {tool}", {},
+                call=extern_call(tool, args), patches=[(externtool, "http", extern_http)],
+                refusal="401 the MCP server's client sends no credential")
 
         # agent-level locality control: an org-inbox read whose closing tree
         # broadcast (api.hub_changed) ALSO posts mail to a third agent
@@ -4672,6 +4997,7 @@ class Probe:
             self.build_requests()
             self.build_control()
             self.build_exchange()
+            self.build_orgreads()
         self.build_human()
         for slug in ((self.dslug, self.hslug) if json_backend else
                      (self.rslug, self.mslug, self.dslug, self.pslug, self.sslug,
@@ -4679,7 +5005,8 @@ class Probe:
                       self.stfslug, self.opslug, self.qsslug, self.wrslug, self.rlslug,
                       self.lcslug, *self.lc_all.values(), self.vxslug,
                       self.rqslug, self.ctslug, *self.ks.values(),
-                      *self.kx.values(), *self.ex.values())):
+                      *self.kx.values(), *self.ex.values(), self.orslug,
+                      *self.or_other.values())):
             _NODES[slug] = {str(n) for n in self.m["store"].load_org(slug).nodes}
         self.operator("post", "/api/diagnostics/operation-census/reset")
         self.operator("post", "/api/diagnostics/operation-census", json={"enabled": True})
@@ -4711,6 +5038,7 @@ class Probe:
             self.requests()
             self.control()
             self.exchange()
+            self.org_reads()
         w1 = self.census_state()
         self.load_table_catalogue()
         self.map_tables()
