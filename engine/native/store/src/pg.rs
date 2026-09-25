@@ -105,12 +105,6 @@ pub struct PgSession {
 }
 
 impl PgSession {
-    /// `backend_start` in microseconds since the epoch; with the pid it
-    /// identifies this backend even if the pid is later reused.
-    pub fn backend_start(&self) -> Option<i64> {
-        self.start
-    }
-
     fn check(&mut self, e: DbError) -> DbError {
         if matches!(e, DbError::ConnectionLost { .. }) || self.client.is_closed() {
             self.broken = true;
@@ -158,6 +152,10 @@ impl Session for PgSession {
 
     fn backend_pid(&self) -> Option<i32> {
         self.pid
+    }
+
+    fn backend_start(&self) -> Option<i64> {
+        self.start
     }
 
     fn is_broken(&self) -> bool {

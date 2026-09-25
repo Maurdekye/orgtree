@@ -128,7 +128,7 @@ impl Collect {
 }
 
 pub fn exec_with(db: &Arc<FakeDb>, hooks: Hooks) -> Executor<FakeConnector> {
-    Executor::new(FakeConnector { db: db.clone() }, 2, fast(), hooks)
+    Executor::new(FakeConnector { db: db.clone() }, 2, FakeConnector { db: db.clone() }, 1, fast(), hooks)
 }
 
 pub fn exec(db: &Arc<FakeDb>) -> (Executor<FakeConnector>, Arc<Collect>) {

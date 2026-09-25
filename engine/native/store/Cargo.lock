@@ -314,6 +314,7 @@ name = "orgtree-store"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "orgtree-op-receipt-codec",
  "orgtree-store",
  "orgtree-store-schema",
  "serde",

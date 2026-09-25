@@ -25,6 +25,8 @@ serde_json = "=1.0.150"
 uuid = { version = "1", default-features = false, features = ["v4", "std", "serde"] }
 tokio-postgres = { version = "0.7", default-features = false, features = ["runtime", "with-uuid-1", "with-serde_json-1"] }
 bytes = "1"
+# key grammar and horizon/skew constants for receipt lookup (read-only)
+orgtree-op-receipt-codec = { path = "../op-receipt-codec" }
 
 [dev-dependencies]
 orgtree-store-schema = { path = "../store-schema" }

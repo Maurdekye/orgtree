@@ -20,6 +20,7 @@ pub mod claims;
 pub mod conn;
 pub mod exec;
 pub mod hooks;
+pub mod lookup;
 pub mod pg;
 pub mod pool;
 pub mod receipts;
