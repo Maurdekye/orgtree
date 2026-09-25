@@ -17,6 +17,7 @@ pub mod cluster;
 pub mod dev;
 pub mod error;
 pub mod guard;
+pub mod migrate;
 pub mod win;
 
 pub use error::{CustodianError, Result};

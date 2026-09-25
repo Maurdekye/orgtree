@@ -18,6 +18,9 @@ path = "src/main.rs"
 [dependencies]
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.150"
+# In-repo, dependency-free sha256: the SAME implementation WS2's
+# store-schema uses for its migration checksums, so both hash identically.
+orgtree-op-receipt-codec = { path = "../op-receipt-codec" }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "=0.61.2", features = [
