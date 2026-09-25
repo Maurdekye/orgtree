@@ -427,6 +427,14 @@ class AccountRemovalTests(unittest.TestCase):
     # These use archived seats, queued intents and the org default only: a
     # LIVE seat goes through supervisor.assign_account, whose own DOC_LOCK is
     # PG-3e-B's to remove (it is lock-free with a caller-owned org there).
+    # They run with PG-0's transition fence OFF (decision 19: while it is on,
+    # every org_tx takes DOC_LOCK first); the fence-on control is below.
+    def _fence(self, on):
+        from engine.backend.orgtree import orgtx
+        was = orgtx.TRANSITION_FENCE
+        orgtx.TRANSITION_FENCE = on
+        self.addCleanup(setattr, orgtx, "TRANSITION_FENCE", was)
+
     def _settled_org(self, slug, nodes, **doc):
         self._org(slug, nodes, **doc)
         # the fixture writes raw node rows; one load+save reaches the fixed
@@ -467,7 +475,26 @@ class AccountRemovalTests(unittest.TestCase):
             "q": self._node(pending_account={"account": aid, "from": "primary"}),
         }, default_account=aid)
 
+    def test_with_the_fence_on_the_removal_does_wait_on_the_document_lock(self):
+        # the negative control for the test below: the same holder blocks the
+        # removal while the fence is on, so "finished" there means something
+        self._fence(True)
+        row = self._row()
+        self._offline_bindings("rm-fence", row["id"])
+        release, holder = self._hold(lambda: self.store.DOC_LOCK)
+        try:
+            done, _, t = self._in_thread(lambda: self._remove(row["id"]), 0.5)
+            self.assertFalse(done, "the fenced removal did not wait")
+        finally:
+            release.set()
+            holder.join(10)
+        t.join(10)
+        self.assertFalse(t.is_alive(), "removal never finished")
+        with self.assertRaises(self.registry.UnknownAccount):
+            self.registry.get_account(row["id"])
+
     def test_removal_never_waits_on_the_document_lock(self):
+        self._fence(False)
         row = self._row()
         self._offline_bindings("rm-nolock", row["id"])
         release, holder = self._hold(lambda: self.store.DOC_LOCK)
@@ -488,6 +515,7 @@ class AccountRemovalTests(unittest.TestCase):
             self.registry.get_account(row["id"])
 
     def test_removal_waits_for_a_bound_seat_held_by_another_tx(self):
+        self._fence(False)
         from engine.backend.orgtree import orgtx
         row = self._row()
         self._offline_bindings("rm-rowlock", row["id"])
@@ -510,6 +538,7 @@ class AccountRemovalTests(unittest.TestCase):
         self.assertNotIn("account", self.store.load_org("rm-rowlock").node("old"))
 
     def test_an_unrelated_seat_does_not_stop_the_removal(self):
+        self._fence(False)
         from engine.backend.orgtree import orgtx
         row = self._row()
         self._offline_bindings("rm-unrel", row["id"])
@@ -524,6 +553,7 @@ class AccountRemovalTests(unittest.TestCase):
         self.assertNotIsInstance(out[0], BaseException, out)
 
     def test_a_binding_made_during_the_removal_keeps_the_account(self):
+        self._fence(False)
         # the phantom: an org the transaction did not lock gains a binding
         # after the plan was made. Removing the row then would strand it.
         row = self._row()
@@ -554,6 +584,7 @@ class AccountRemovalTests(unittest.TestCase):
             self.registry.get_account(row["id"])
 
     def test_a_binding_that_moves_under_the_plan_is_replanned(self):
+        self._fence(False)
         # between the lock-free plan and the transaction, a seat the plan did
         # not name becomes bound: the transaction must not commit a migration
         # that misses it — it rolls back, plans again and moves both

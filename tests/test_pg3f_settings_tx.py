@@ -37,6 +37,12 @@ import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside thi
 
 from orgtree import api, net, orgtx, store  # noqa: E402
 
+# PYPG decision 19: every org_tx takes DOC_LOCK first while the transition
+# fence is on (the default until the last family converts). What this file
+# proves is the row-lock behaviour AFTER the fence comes down, so it runs with
+# the fence off; FenceControl below shows the fence-on case does wait.
+orgtx.TRANSITION_FENCE = False
+
 #: how long a writer may take when nothing it needs is held
 FREE_S = 5.0
 #: how long we watch a writer that SHOULD be blocked before calling it blocked
@@ -179,6 +185,25 @@ class NeverWaitsOnDocLock(unittest.TestCase):
                 self.assertTrue(ok(_doc(slug)), f'{name}: {_doc(slug)!r}')
                 ran += 1
         self.assertEqual(ran, len(Writers.all()))    # the loop really ran
+
+
+class FenceControl(unittest.TestCase):
+    def test_with_the_fence_on_a_writer_does_wait_on_doc_lock(self) -> None:
+        # the negative control for NeverWaitsOnDocLock: same writer, same
+        # holder, fence on -> it must be blocked, or that test proves nothing
+        name, secs, w, _lock, ok = Writers.all()[0]
+        slug = _fresh_org(**secs)
+        orgtx.TRANSITION_FENCE = True
+        try:
+            with _Held(lambda: store.DOC_LOCK):
+                done, out, t = _run(lambda: w(slug), BLOCKED_S)
+                self.assertFalse(done, f'{name} did not wait on the fence')
+            t.join(FREE_S)
+        finally:
+            orgtx.TRANSITION_FENCE = False
+        self.assertFalse(t.is_alive(), f'{name} never finished')
+        self.assertFalse(out and isinstance(out[0], BaseException), out)
+        self.assertTrue(ok(_doc(slug)), f'{name}: {_doc(slug)!r}')
 
 
 class LocksItsRow(unittest.TestCase):
