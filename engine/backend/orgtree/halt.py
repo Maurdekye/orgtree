@@ -32,6 +32,7 @@ from functools import wraps
 import threading
 import time
 import uuid
+from collections.abc import Mapping
 from typing import Any, Callable, Iterable, Iterator
 
 from . import orgtx, store
@@ -65,6 +66,12 @@ class Cancelled(RuntimeError):
 # Set `_FENCE = False` once DOC_LOCK is gone.
 _FENCE = True
 KILLSWITCH = "killswitch"
+# The killswitch row ALWAYS EXISTS (plan decision 26: PG-0 creates/backfills
+# it), so a latch serializes on an exclusive lock of a real row rather than a
+# FOR SHARE of a missing one, which protects nothing. Release therefore
+# CLEARS it to this falsy value instead of deleting it; every reader tests
+# the latch by truthiness.
+KILLSWITCH_CLEAR: Any = None
 _EVENTS = "events"
 
 
@@ -126,6 +133,31 @@ def txn(slug: str, *, nodes: Iterable[str] = (), sections: Iterable[str] = (),
                 + ", ".join(missing))
         yield outer.tx
         return
+    foreign = orgtx.current_tx(slug)
+    if foreign is not None:
+        # a transaction some other code opened on this thread (the agent
+        # door, an operator op): join it the same way. Its commit is not
+        # ours to see, so `_after` work runs when THIS block ends and
+        # `_on_abort` work when it raises — the closest this caller can get.
+        missing = _covers(foreign, *want)
+        if missing:
+            raise orgtx.OrgTxError(
+                "halt: the enclosing transaction does not lock "
+                + ", ".join(missing))
+        jctx = _Ctx(foreign)
+        token = _current.set(jctx)
+        try:
+            yield foreign
+        except BaseException:
+            for fn in jctx.abort:
+                with contextlib.suppress(Exception):
+                    fn()
+            raise
+        finally:
+            _current.reset(token)
+        for fn in jctx.after:
+            fn()
+        return
     ctx: _Ctx | None = None
     try:
         with _fence(), orgtx.org_tx(slug, nodes=want[0], sections=want[1],
@@ -162,6 +194,18 @@ def _on_abort(fn: Callable[[], None]) -> None:
     ctx = _current.get()
     if ctx is not None:
         ctx.abort.append(fn)
+
+
+def _no_org(slug: str) -> bool:
+    """No such org: the gates then run their body exactly as the lock-free
+    `blocked()` pre-gate used to let them (it answered None for a missing
+    org), instead of an org_tx raising "no such org" out of every delivery
+    of a deleted or never-created org."""
+    try:
+        store.cached_org(slug)
+        return False
+    except LedgerError:
+        return True
 
 
 def _gate_blocked(org, nid: str) -> str | None:
@@ -465,18 +509,45 @@ def _capture_tx(slug: str, nid: str, *states) -> None:
             _capture(tx.org, nid, st)
 
 
-def delivery(empty):
+_ROW_KINDS = ("nodes", "sections", "share_nodes", "share_sections", "logs")
+
+
+def _gate_rows(nid: str, rows, args, kwargs) -> dict[str, set]:
+    """The gate's own rows (nid FOR UPDATE, the killswitch FOR SHARE) united
+    with what the wrapped body declares. `rows` is called with the wrapped
+    call's own arguments BEFORE any lock is taken, and returns a mapping (or
+    an object with attributes) over `_ROW_KINDS`; None adds nothing."""
+    out = {k: set() for k in _ROW_KINDS}
+    out["nodes"].add(nid)
+    out["share_sections"].add(KILLSWITCH)
+    extra = rows(*args, **kwargs) if rows is not None else None
+    if extra is not None:
+        for k in _ROW_KINDS:
+            got = (extra.get(k) if isinstance(extra, Mapping)
+                   else getattr(extra, k, None))
+            if isinstance(got, str):
+                raise TypeError(f"halt gate rows: {k} must be an iterable "
+                                f"of names, not the string {got!r}")
+            out[k].update(got or ())
+    return out
+
+
+def delivery(empty, *, rows=None):
     """Serialize a short mailbox/receipt transaction with halt admission.
 
     The body runs INSIDE one halt transaction holding nid's row FOR UPDATE
     and the killswitch FOR SHARE, so it is strictly ordered against a halt's
     `halting` commit. A converted body takes that transaction from
     `current_tx()`; an unconverted one still runs under the fence's DOC_LOCK
-    exactly as before."""
+    exactly as before. `rows(slug, nid, *args, **kwargs)` optionally declares
+    the body's own rows; the gate locks their union in its one transaction."""
     def decorate(fn):
         @wraps(fn)
         def guarded(slug, nid, *args, **kwargs):
-            with txn(slug, nodes=[nid], share_sections=[KILLSWITCH]) as tx:
+            if _no_org(slug):
+                return fn(slug, nid, *args, **kwargs)
+            want = _gate_rows(nid, rows, (slug, nid) + args, kwargs)
+            with txn(slug, **want) as tx:
                 if _gate_blocked(tx.org, nid):
                     return empty()
                 return fn(slug, nid, *args, **kwargs)
@@ -484,17 +555,25 @@ def delivery(empty):
     return decorate
 
 
-def admission(fn):
+def admission(fn=None, *, rows=None):
     """The send door is atomic with halt, including steer envelope drains:
     the blocked decision, the retained carrier and the body are one halt
-    transaction on nid's row (killswitch FOR SHARE)."""
+    transaction on nid's row (killswitch FOR SHARE). Used bare, or as
+    `@admission(rows=...)` where `rows(slug, nid, text, *args, **kwargs)`
+    declares the body's own rows, locked with the gate's in one transaction."""
+    if fn is None:
+        return lambda f: admission(f, rows=rows)
+
     @wraps(fn)
     def guarded(slug, nid, text, *args, **kwargs):
         options = dict(zip(("command", "wake", "mail_ping", "idle_only", "view",
                             "sender", "ping_reason", "segments", "_inventory"),
                            args))
         options.update(kwargs)
-        with txn(slug, nodes=[nid], share_sections=[KILLSWITCH]) as tx:
+        if _no_org(slug):
+            return fn(slug, nid, text, *args, **kwargs)
+        want = _gate_rows(nid, rows, (slug, nid, text) + args, kwargs)
+        with txn(slug, **want) as tx:
             org = tx.org
             n = org.nodes.get(nid)
             cause = _gate_blocked(org, nid) if n else None
@@ -1375,7 +1454,7 @@ def killswitch_release(slug: str, actor: str = USER) -> dict[str, Any]:
         rec = org.d.get(KILLSWITCH)
         if not rec:
             return {"released": False, "status": "the killswitch is not latched"}
-        org.d.pop(KILLSWITCH)
+        org.d[KILLSWITCH] = KILLSWITCH_CLEAR   # keep the row (decision 26)
         org._log("killswitch_release", actor,
                  {"latched_at": rec.get("at"), "latched_by": rec.get("by")}, [])
         held = [nid for nid, n in org.nodes.items()

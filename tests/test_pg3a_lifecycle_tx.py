@@ -126,5 +126,387 @@ class MarkUnrecoverable(unittest.TestCase):
         self.assertEqual(order, ["mark", "other:unrecoverable"])
 
 
+class Move(unittest.TestCase):
+    """lifecycle_tx.move: the legacy `Org.move`, on exactly `_move_rows`."""
+
+    def build(self, slug):
+        org = store.create_org(slug)
+        org.hire(ledger.USER, None, "luna", 0, "root")
+        org.hire(ledger.USER, "root", "luna", 3, "a")
+        org.hire(ledger.USER, "root", "luna", 0, "b")
+        org.hire(ledger.USER, "a", "luna", 2, "x")
+        org.hire(ledger.USER, "x", "luna", 0, "x1")      # x moves WITH its subtree
+        store.save_org(org)
+
+    def setUp(self):
+        self.slug = "pg3a-mv-" + str(time.time_ns())
+        self.build(self.slug)
+
+    def tearDown(self):
+        store._POOL.close_all(self.slug)
+
+    def snapshot(self, slug):
+        o = store.load_org(slug)
+        return ({k: (v["parent"], v["grant"], v["state"]) for k, v in o.nodes.items()},
+                [(e["op"], e["detail"]) for e in o.d["events"] if e["op"] in ("demote", "promote")])
+
+    def test_matches_the_legacy_method(self):
+        twin = "pg3a-mv-twin-" + str(time.time_ns())
+        self.build(twin)
+        with store.DOC_LOCK:
+            o = store.load_org(twin)
+            legacy = o.move(ledger.USER, "x", "b")
+            store.save_org(o)
+        mine = lifecycle_tx.move(self.slug, ledger.USER, "x", "b")
+        self.assertEqual(mine, legacy)
+        self.assertEqual(self.snapshot(self.slug), self.snapshot(twin))
+        self.assertEqual(store.load_org(self.slug).node("x")["parent"], "b")
+        self.assertEqual(store.load_org(self.slug).node("x1")["parent"], "x")
+        store._POOL.close_all(twin)
+
+    def test_a_deep_move_matches_the_legacy_method_on_every_hop(self):
+        # the acquire leg runs from the LCA (root) down through b to b1: b's
+        # grant swells on the way, so b must be held FOR UPDATE even though
+        # it is neither the moved node nor its new parent
+        for slug in (self.slug,):
+            with store.DOC_LOCK:
+                o = store.load_org(slug)
+                o.hire(ledger.USER, "b", "luna", 0, "b1")
+                store.save_org(o)
+        twin = "pg3a-mv-deep-" + str(time.time_ns())
+        self.build(twin)
+        with store.DOC_LOCK:
+            o = store.load_org(twin)
+            o.hire(ledger.USER, "b", "luna", 0, "b1")
+            store.save_org(o)
+        g_before = store.load_org(self.slug).node("b")["grant"]
+        with store.DOC_LOCK:
+            o = store.load_org(twin)
+            legacy = o.move(ledger.USER, "x", "b1")
+            store.save_org(o)
+        mine = lifecycle_tx.move(self.slug, ledger.USER, "x", "b1")
+        self.assertEqual(mine, legacy)
+        self.assertEqual(self.snapshot(self.slug), self.snapshot(twin))
+        self.assertGreater(store.load_org(self.slug).node("b")["grant"], g_before)
+        store._POOL.close_all(twin)
+
+    def test_a_refused_move_writes_nothing(self):
+        before = self.snapshot(self.slug)
+        with self.assertRaises(ledger.LedgerError):
+            lifecycle_tx.move(self.slug, ledger.USER, "x", "x1")   # into its own subtree
+        self.assertEqual(self.snapshot(self.slug), before)
+
+    def test_a_stale_spec_widens_and_converges(self):
+        # the runner is handed a spec missing every row but the moved node:
+        # the body re-derives its rows on the LOCKED document, raises Widen,
+        # and the runner re-runs with them — nothing half-applied in between
+        calls = []
+        real = lifecycle_tx._move_rows
+
+        def rows(org, actor, nid, new_parent):
+            calls.append(len(calls))
+            if len(calls) == 1:
+                return {nid}, set()           # the stale snapshot
+            return real(org, actor, nid, new_parent)
+        widened = []
+        real_need = lifecycle_tx._need
+
+        def need(org, r, hn, hs):
+            try:
+                real_need(org, r, hn, hs)
+            except lifecycle_tx.Widen as w:
+                widened.append(w)
+                raise
+        with patch.object(lifecycle_tx, "_move_rows", rows),                 patch.object(lifecycle_tx, "_need", need):
+            lifecycle_tx.move(self.slug, ledger.USER, "x", "b")
+        self.assertEqual(len(widened), 1, "the stale spec never widened")
+        self.assertIn("b", widened[0].nodes)
+        self.assertEqual(store.load_org(self.slug).node("x")["parent"], "b")
+
+    def test_the_moved_nodes_new_parent_is_held_for_update(self):
+        upd, share = lifecycle_tx._move_rows(store.load_org(self.slug),
+                                             ledger.USER, "x", "b")
+        self.assertIn("b", upd)                      # the children-cap row
+        self.assertTrue({"x", "x1", "a"} <= upd)      # subtree + release leg
+        self.assertIn("root", share)                  # decided on, not written
+        self.assertFalse(upd & share)
+
+
+class Archive(unittest.TestCase):
+    """retire / dissolve / rescind: the legacy methods on `_archive_rows`."""
+
+    def build(self, slug):
+        org = store.create_org(slug)
+        org.hire(ledger.USER, None, "luna", 5, "root")
+        org.hire(ledger.USER, "root", "luna", 2, "a")
+        org.hire(ledger.USER, "a", "luna", 0, "a1")
+        org.hire(ledger.USER, "root", "luna", 0, "b")
+        org.hire(ledger.USER, None, "luna", 0, "t")          # top level
+        store.save_org(org)
+        with store.DOC_LOCK:
+            o = store.load_org(slug)
+            o.ask_user("t", "still there?")
+            o.request_credits("t", 50, "more room")
+            store.save_org(o)
+
+    def setUp(self):
+        self.slug = "pg3a-ar-" + str(time.time_ns())
+        self.build(self.slug)
+
+    def tearDown(self):
+        store._POOL.close_all(self.slug)
+
+    def view(self, slug):
+        o = store.load_org(slug)
+        return ({k: (v["parent"], v["grant"], v["state"], bool(v.get("rescinded_at")))
+                 for k, v in o.nodes.items()},
+                sorted((a["node"], a["status"]) for a in o.d.get("asks") or []),
+                sorted((r["node"], r["status"]) for r in o.d.get("credit_requests") or []),
+                [e["op"] for e in o.d["events"]][-6:])
+
+    def parity(self, op, actor, nid, prep=None):
+        twin = f"pg3a-ar-twin-{op}-" + str(time.time_ns())
+        self.build(twin)
+        if prep is not None:
+            prep(twin)
+        with store.DOC_LOCK:
+            o = store.load_org(twin)
+            legacy = getattr(o, op)(actor, nid)
+            store.save_org(o)
+        mine = getattr(lifecycle_tx, op)(self.slug, actor, nid)
+        self.assertEqual(mine, legacy, op)
+        self.assertEqual(self.view(self.slug), self.view(twin), op)
+        store._POOL.close_all(twin)
+        return mine
+
+    def test_retire_a_leaf(self):
+        self.parity("retire", ledger.USER, "b")
+        self.assertEqual(store.load_org(self.slug).node("b")["state"], "archived")
+
+    def test_retire_with_live_reports_becomes_dissolve(self):
+        r = self.parity("retire", ledger.USER, "a")
+        self.assertEqual(sorted(r["nodes"]), ["a", "a1"])
+
+    def test_dissolve(self):
+        self.parity("dissolve", "root", "a")
+
+    def test_rescind_claws_back_the_parents_grant(self):
+        g = store.load_org(self.slug).node("root")["grant"]
+        r = self.parity("rescind", ledger.USER, "b")
+        self.assertGreater(r["clawed"], 0)
+        self.assertLess(store.load_org(self.slug).node("root")["grant"], g)
+
+    def test_retire_moots_the_open_requests(self):
+        self.parity("retire", ledger.USER, "t")
+        o = store.load_org(self.slug)
+        self.assertEqual({a["status"] for a in o.d["asks"] if a["node"] == "t"}, {"moot"})
+        self.assertEqual({r["status"] for r in o.d["credit_requests"] if r["node"] == "t"},
+                         {"moot"})
+
+    def test_every_declared_section_the_retire_writes_is_needed(self):
+        spec = lifecycle_tx.SPECS["retire"]
+        refused = []
+        for drop in ("asks", "credit_requests", "notices"):
+            smaller = lifecycle_tx.Spec(
+                sections=tuple(x for x in spec.sections if x != drop), logs=spec.logs)
+            with patch.dict(lifecycle_tx.SPECS, {"retire": smaller}):
+                with self.assertRaises(orgtx.UnlockedWrite, msg=drop):
+                    lifecycle_tx.retire(self.slug, ledger.USER, "t")
+            refused.append(drop)
+            self.assertEqual(store.load_org(self.slug).node("t")["state"], "live", drop)
+        self.assertEqual(refused, ["asks", "credit_requests", "notices"])
+
+    def test_mooting_an_item_attached_question_rewrites_the_work_item(self):
+        # store._save_org runs reconcile_attention whenever `asks` was touched,
+        # and it rewrites the attention fields of the work item the question
+        # is attached to: a retire that moots it writes `work_items` too
+        def prep(org_slug):
+            with store.DOC_LOCK:
+                o = store.load_org(org_slug)
+                made = o.work_create(ledger.USER, "a docket item", "why it exists",
+                                     owner="t")["slug"]
+                o.ask_user("t", "about the item", work_item=made)
+                store.save_org(o)
+            return made
+        slug = prep(self.slug)
+        self.assertTrue(next(i for i in store.load_org(self.slug).d["work_items"]
+                             if i["slug"] == slug)["notification_attention_active"])
+        self.parity("retire", ledger.USER, "t", prep)
+        items = store.load_org(self.slug).d["work_items"]
+        self.assertFalse(next(i for i in items if i["slug"] == slug)
+                         ["notification_attention_active"])
+
+    def test_rescind_holds_the_parent_retire_does_not(self):
+        o = store.load_org(self.slug)
+        self.assertIn("root", lifecycle_tx._archive_rows(o, ledger.USER, "b", True)[0])
+        self.assertNotIn("root", lifecycle_tx._archive_rows(o, ledger.USER, "b")[0])
+        self.assertEqual(lifecycle_tx._archive_rows(o, ledger.USER, "a")[0], {"a", "a1"})
+
+
+class Rename(unittest.TestCase):
+    """supervisor.rename_node on lifecycle_tx's row plan."""
+
+    def setUp(self):
+        from orgtree import supervisor as sup, warmpool
+        self.sup = sup
+        self.slug = "pg3a-rn-" + str(time.time_ns())
+        org = store.create_org(self.slug)
+        org.hire(ledger.USER, None, "luna", 0, "boss")
+        org.hire(ledger.USER, "boss", "luna", 0, "alpha")
+        org.hire(ledger.USER, "alpha", "luna", 0, "kid")     # its pointer moves
+        store.save_org(org)
+        self.enterContext(patch.object(warmpool, "kill_node"))
+        self.enterContext(patch.object(sup, "notify"))
+        self.scratch = Path(store.scratch_root(self.slug))
+        (self.scratch / "alpha").mkdir(parents=True, exist_ok=True)
+        (self.scratch / "alpha" / "note.txt").write_text("mine")
+
+    def tearDown(self):
+        store._POOL.close_all(self.slug)
+
+    def test_rename_rekeys_the_stack_and_its_children_and_moves_the_folder(self):
+        r = self.sup.rename_node(self.slug, "alpha", "beta", actor=ledger.USER)
+        self.assertEqual(r["node"], "beta")
+        o = store.load_org(self.slug)
+        self.assertIn("beta", o.nodes)
+        self.assertNotIn("alpha", o.nodes)
+        self.assertEqual(o.node("kid")["parent"], "beta")
+        self.assertTrue((self.scratch / "beta" / "note.txt").exists())
+        self.assertFalse((self.scratch / "alpha").exists())
+
+    def test_the_plan_holds_the_children_and_the_new_id(self):
+        upd, share, sections, logs = lifecycle_tx._rename_plan(
+            store.load_org(self.slug), ledger.USER, "alpha", "beta")
+        self.assertTrue({"alpha", "beta", "kid"} <= upd)
+        self.assertIn("boss", share)
+        self.assertIn("audiences", sections)
+        self.assertIn(("mail_log", "alpha"), logs)
+        self.assertIn(("mail_log", "beta"), logs)
+
+    def test_a_refused_commit_puts_the_folder_back(self):
+        # negative control: a plan missing the child's row makes the commit
+        # refuse (the child's parent pointer is rewritten) — and the folder
+        # the body already moved must be moved back
+        real = lifecycle_tx._rename_plan
+
+        def short(org, actor, nid, new_name):
+            upd, share, sections, logs = real(org, actor, nid, new_name)
+            return upd - {"kid"}, share, sections, logs
+        with patch.object(lifecycle_tx, "_rename_plan", short), \
+                patch.object(lifecycle_tx, "check_rename_rows", lambda *a: None):
+            with self.assertRaises(orgtx.UnlockedWrite):
+                self.sup.rename_node(self.slug, "alpha", "beta", actor=ledger.USER)
+        self.assertTrue((self.scratch / "alpha" / "note.txt").exists())
+        self.assertFalse((self.scratch / "beta").exists())
+        o = store.load_org(self.slug)
+        self.assertIn("alpha", o.nodes)
+        self.assertEqual(o.node("kid")["parent"], "alpha")
+
+    def test_a_stale_plan_widens_before_any_folder_moves(self):
+        real = lifecycle_tx._rename_plan
+        calls = []
+
+        def stale_first(org, actor, nid, new_name):
+            upd, share, sections, logs = real(org, actor, nid, new_name)
+            calls.append(1)
+            if len(calls) == 1:
+                return upd - {"kid"}, share, sections, logs
+            return upd, share, sections, logs
+        with patch.object(lifecycle_tx, "_rename_plan", stale_first):
+            r = self.sup.rename_node(self.slug, "alpha", "beta", actor=ledger.USER)
+        self.assertEqual(r["node"], "beta")
+        self.assertGreaterEqual(len(calls), 3)      # snapshot, locked re-check (widen), re-check
+        self.assertTrue((self.scratch / "beta" / "note.txt").exists())
+
+
+class Rehire(unittest.TestCase):
+    """lifecycle_tx.rehire: the legacy `Org.rehire` on `_rehire_rows`."""
+
+    def build(self, slug):
+        org = store.create_org(slug)
+        org.hire(ledger.USER, None, "luna", 6, "root")
+        org.hire(ledger.USER, "root", "luna", 2, "mid")
+        org.hire(ledger.USER, "mid", "luna", 0, "leaf")
+        org.hire(ledger.USER, "root", "luna", 0, "solo")
+        org.dissolve(ledger.USER, "mid")                    # mid + leaf archived
+        org.retire(ledger.USER, "solo")
+        org.d.setdefault("watchdogs", []).append(
+            {"id": "w1", "name": "dog", "owner": "solo", "state": "paused",
+             "paused_why": org.WATCHDOG_ARCHIVE_PAUSE})
+        store.save_org(org)
+
+    def setUp(self):
+        self.slug = "pg3a-rh-" + str(time.time_ns())
+        self.build(self.slug)
+
+    def tearDown(self):
+        store._POOL.close_all(self.slug)
+
+    def view(self, slug):
+        o = store.load_org(slug)
+        return ({k: (v["parent"], v["grant"], v["state"]) for k, v in o.nodes.items()},
+                [(w["id"], w["state"]) for w in o.d.get("watchdogs") or []],
+                [e["op"] for e in o.d["events"]][-4:])
+
+    def parity(self, actor, nid, **kw):
+        twin = "pg3a-rh-twin-" + str(time.time_ns())
+        self.build(twin)
+        with store.DOC_LOCK:
+            o = store.load_org(twin)
+            legacy = o.rehire(actor, nid, **kw)
+            store.save_org(o)
+        mine = lifecycle_tx.rehire(self.slug, actor, nid, **kw)
+        self.assertEqual(mine, legacy)
+        self.assertEqual(self.view(self.slug), self.view(twin))
+        store._POOL.close_all(twin)
+        return mine
+
+    def test_rehire_a_leaf_rearms_its_archive_paused_watchdog(self):
+        self.parity(ledger.USER, "solo")
+        o = store.load_org(self.slug)
+        self.assertEqual(o.node("solo")["state"], "live")
+        self.assertEqual([w["state"] for w in o.d["watchdogs"]], ["armed"])
+
+    def test_rehire_under_an_archived_parent_rehires_the_chain_first(self):
+        r = self.parity(ledger.USER, "leaf")
+        o = store.load_org(self.slug)
+        self.assertEqual((o.node("mid")["state"], o.node("leaf")["state"]),
+                         ("live", "live"))
+        self.assertTrue(any("rehired first" in w for w in r["warnings"]))
+
+    def test_rehire_of_an_unrecoverable_node_reseeds(self):
+        for slug in (self.slug,):
+            with store.DOC_LOCK:
+                o = store.load_org(slug)
+                o.rehire(ledger.USER, "solo")
+                o.mark_unrecoverable("solo", "gone")
+                store.save_org(o)
+        twin = "pg3a-rh-rs-" + str(time.time_ns())
+        self.build(twin)
+        with store.DOC_LOCK:
+            o = store.load_org(twin)
+            o.rehire(ledger.USER, "solo")
+            o.mark_unrecoverable("solo", "gone")
+            store.save_org(o)
+        with store.DOC_LOCK:
+            o = store.load_org(twin)
+            legacy = o.rehire(ledger.USER, "solo")
+            store.save_org(o)
+        mine = lifecycle_tx.rehire(self.slug, ledger.USER, "solo")
+        strip = lambda r: {k: v for k, v in r.items() if k not in ("session_id",)}  # noqa: E731
+        self.assertEqual(sorted(strip(mine)), sorted(strip(legacy)))
+        a, b = store.load_org(twin), store.load_org(self.slug)
+        self.assertEqual(sorted(a.nodes), sorted(b.nodes))
+        self.assertIn("solo@0", b.nodes)
+        self.assertEqual(b.node("solo")["state"], "live")
+        store._POOL.close_all(twin)
+
+    def test_a_refused_rehire_writes_nothing(self):
+        before = self.view(self.slug)
+        with self.assertRaises(ledger.LedgerError):
+            lifecycle_tx.rehire(self.slug, ledger.USER, "solo", tier="no-such-tier")
+        self.assertEqual(self.view(self.slug), before)
+
+
 if __name__ == "__main__":
     unittest.main()
