@@ -723,6 +723,26 @@ impl<C: Connector> Executor<C> {
                 })
                 .collect();
             tx.emit(EventKind::XactStats { tables: &tables });
+            // Relation-level locks this backend holds (lead ruling 09:09Z):
+            // confirms the row-lock FAMILY server-side (every FOR mode shows
+            // RowShareLock or stronger); the exact mode is the SQL's.
+            let rows = db!(
+                tx.exec(
+                    "trace.xact_locks",
+                    "SELECT c.relname::text, l.mode FROM pg_locks l JOIN pg_class c ON c.oid = l.relation \
+                     WHERE l.pid = pg_backend_pid() AND l.locktype = 'relation' AND l.granted \
+                     AND c.relkind IN ('r', 'p') AND c.relnamespace = current_schema()::regnamespace",
+                    &[],
+                )
+                .await,
+                false
+            );
+            let locks: Vec<crate::hooks::XactLock> = rows
+                .0
+                .iter()
+                .filter_map(|r| Some(crate::hooks::XactLock { relname: r.first()?.as_text()?.to_string(), mode: r.get(1)?.as_text()?.to_string() }))
+                .collect();
+            tx.emit(EventKind::XactLocks { locks: &locks });
         }
         #[cfg(feature = "qualification")]
         let pre_commit_lsn: Option<String> = {
