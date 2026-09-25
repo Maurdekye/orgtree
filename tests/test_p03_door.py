@@ -183,10 +183,11 @@ class SharedGuardRules(Base):
             p03_door.refuse_live(str(self.base / "bad|name"), self.env)
 
 
-class UncRefusal(Base):
-    """Review N1: an admin-share alias reaches the live folder under a name no
-    prefix comparison sees, so every UNC or device path is refused (parity
-    with WS1's Rust guard). Fails if refuse_unc is removed."""
+class NonDriveRefusal(Base):
+    """Review N1, R1-R3: only absolute drive-letter paths (plain or ``\\\\?\\``)
+    may name a prototype or data root, typed OR resolved, as WS1's Rust guard
+    rules (Disk and VerbatimDisk prefixes only). An admin-share alias reaches
+    the live folder under a name no prefix comparison sees."""
 
     def admin_share(self, p: Path, host: str) -> str:
         drive, rest = os.path.splitdrive(str(p))
@@ -201,30 +202,67 @@ class UncRefusal(Base):
             with self.subTest(alias=alias):
                 with self.assertRaises(p03_door.LiveRootRefused):
                     self.install(alias, alias)
-                with self.assertRaises(p03_door.LiveRootRefused):
-                    self.install(live, alias)  # as the data root only
 
-    def test_every_unc_and_device_form_is_refused(self):
+    def test_r2_a_non_drive_data_root_alone_is_refused(self):
+        # the prototype root is benign and valid, so only the data-root check
+        # can refuse (review R2: isolate it)
+        proto = self.base / "proto"
+        self.mark(proto)
+        self.assertTrue(self.install(proto, proto)[0], "control: the benign pair installs")
+        live = self.base / "appdata" / "Orgtree v2" / "data"
+        live.mkdir(parents=True)
+        for data in (self.admin_share(live, "localhost"), self.admin_share(proto, "127.0.0.1")):
+            with self.subTest(data=data):
+                with self.assertRaises(p03_door.LiveRootRefused):
+                    self.install(proto, data)
+
+    def test_r2_a_non_drive_prototype_root_alone_is_refused(self):
+        proto = self.base / "proto"
+        self.mark(proto)
+        with self.assertRaises(p03_door.LiveRootRefused):
+            self.install(self.admin_share(proto, "localhost"), proto)
+
+    def test_r3_every_non_drive_form_is_refused(self):
         proto = self.base / "proto"
         self.mark(proto)
         drive, rest = os.path.splitdrive(str(proto))
+        d = drive[0]
         for form in (
             self.admin_share(proto, "localhost"),
             "\\\\server\\share\\proto",
-            "//localhost/" + drive[0] + "$" + rest.replace("\\", "/"),
-            "\\\\?\\UNC\\localhost\\" + drive[0] + "$" + rest,
+            "//localhost/" + d + "$" + rest.replace("\\", "/"),
+            "\\\\?\\UNC\\localhost\\" + d + "$" + rest,
             "\\\\.\\" + str(proto),
+            "\\\\?\\GLOBALROOT\\Device\\Mup\\localhost\\" + d + "$" + rest,
+            "\\\\?\\GLOBALROOT\\Device\\HarddiskVolume3" + rest,
+            "\\\\?\\Volume{01234567-89ab-cdef-0123-456789abcdef}" + rest,
+            "proto",  # relative
+            "\\proto",  # rooted but driveless
         ):
             with self.subTest(form=form):
                 with self.assertRaises(p03_door.LiveRootRefused):
                     p03_door.refuse_live(form, self.env)
+
+    def test_r1_the_resolved_form_is_checked_too(self):
+        # A drive-letter path that RESOLVES somewhere else (a symlink or mapped
+        # drive to a share) must be refused through its resolved form alone.
+        proto = self.base / "proto"
+        self.mark(proto)
+        to_share = lambda p: self.admin_share(Path(p), "localhost")
+        with self.assertRaises(p03_door.LiveRootRefused):
+            p03_door.refuse_non_drive(str(proto), resolve=to_share)
+        with self.assertRaises(p03_door.LiveRootRefused):
+            p03_door.refuse_non_drive(str(proto), resolve=lambda p: "\\\\?\\Volume{01234567-89ab-cdef-0123-456789abcdef}\\x")
+        # control: the same path with an honest resolver passes
+        p03_door.refuse_non_drive(str(proto), resolve=lambda p: str(p))
+        p03_door.refuse_non_drive(str(proto))
 
     def test_a_verbatim_drive_path_is_still_accepted(self):
         proto = self.base / "proto"
         self.mark(proto)
         verbatim = "\\\\?\\" + str(proto)
         ok, app = self.install(verbatim, verbatim)
-        self.assertTrue(ok, "a \\\\?\\C:\\ path is a drive-letter path, not UNC")
+        self.assertTrue(ok, "a \\\\?\\C:\\ path is a drive-letter path")
         self.assertEqual(len(app.installed), 1)
 
 

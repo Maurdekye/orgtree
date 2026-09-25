@@ -1,4 +1,10 @@
-//! `orgtree-store-service --root <prototype root> [--exit-on-stdin-eof] [--db-url-env NAME]`
+//! `orgtree-store-service --root <prototype root> [--exit-on-stdin-eof] [--db-url-env NAME]
+//!  [--lock-timeout-ms N] [--statement-timeout-ms N] [--idle-in-transaction-timeout-ms N]`
+//!
+//! The three executor timeouts default to `ExecConfig::default()` (5 s / 30 s
+//! / 60 s). A flag can raise one — a WS7 schedule that holds a transaction at a
+//! pause point longer than a default passes a larger value (review N3) — but
+//! never switch it off (review F4).
 //!
 //! The host bracket (lead ruling on WS1's item; call shape agreed with WS1):
 //! 1. validate the root (shared prototype guard);
@@ -53,12 +59,17 @@ async fn main() {
     let mut root: Option<PathBuf> = None;
     let mut url_env: Option<String> = None;
     let mut stdin_eof = false;
+    let mut exec_cfg = ExecConfig::default();
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
             "--root" => root = args.next().map(PathBuf::from),
             "--db-url-env" => url_env = Some(args.next().unwrap_or_else(|| fail("--db-url-env needs a name"))),
             "--exit-on-stdin-eof" => stdin_eof = true,
+            flag @ ("--lock-timeout-ms" | "--statement-timeout-ms" | "--idle-in-transaction-timeout-ms") => {
+                let value = args.next();
+                boot::set_timeout(&mut exec_cfg, flag, value.as_deref()).unwrap_or_else(|e| fail(e))
+            }
             other => fail(format!("unknown argument {other}")),
         }
     }
@@ -109,7 +120,7 @@ async fn main() {
     let service_incarnation = live.incarnation;
 
     let shutdown = Arc::new(tokio::sync::Notify::new());
-    let exec = Executor::new(main_pool, 8, reserved, 2, ExecConfig::default(), hooks);
+    let exec = Executor::new(main_pool, 8, reserved, 2, exec_cfg, hooks);
     let handler = Arc::new(StoreHandler {
         exec,
         build_sha: option_env!("ORGTREE_BUILD_SHA").unwrap_or("unknown").to_string(),
