@@ -93,11 +93,13 @@ class ResponseHandlesAreRetired(unittest.TestCase):
         self.assertNotIn("external_handles", org.nodes["top"])
 
     def test_a_stored_handle_survives_load_and_grants_nothing(self):
-        import json
         org = self._org()
         org.hire(ledger.USER, "top", "haiku", 0, "child")
         org.nodes["child"]["external_handles"] = ["@mcp:wizard"]
-        loaded = ledger.Org(json.loads(json.dumps(org.d)))
+        # through the REAL storage path (reviewer f2): a clear-on-load in
+        # store.load_org must fail here, not only in source-hash tests
+        store.save_org(org)
+        loaded = store.load_org(org.d["slug"])
         self.assertEqual(loaded.nodes["child"]["external_handles"], ["@mcp:wizard"],
                          "a stored handle must not be cleared on load")
         # its own address is refused like any @mcp: send ...
