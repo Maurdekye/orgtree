@@ -240,6 +240,15 @@ class _InstrumentedDocLock(profiling.TimedRLock):
         already the owner and nothing was ever in front of it.
         """
         me = threading.get_ident()
+        # PG-0b (plan decision 26 D1): with the org_tx test hooks on, taking
+        # DOC_LOCK for the FIRST time while this thread holds org_tx row
+        # locks is the door deadlock's shape (row locks -> DOC_LOCK against
+        # the fence's DOC_LOCK -> row locks). A re-entrant acquire is fine.
+        if (self._owner != me and getattr(_orgtx_local, "rowlock_depth", 0)
+                and os.environ.get("ORGTREE_ORGTX_TEST_HOOKS", "") == "1"):
+            raise AssertionError("DOC_LOCK first acquired while holding org_tx row "
+                                 "locks: lock-order inversion (take DOC_LOCK before "
+                                 "the org_tx, or keep the transition fence on)")
         with self._gate:
             if self._owner == me:
                 return True, -1                  # reentrant: already admitted
@@ -634,6 +643,7 @@ def claim_data_root(root: str | None = None) -> None:
         # (rows kept) so nothing half-made stays live (lead decision 20.2)
         for _s in pgstore.retire_unmarked(os.path.join(base, "orgs")):
             _log(f"postgres org {_s!r} has no marker in orgs/; retired (rows kept)")
+        pgstore.backfill_always_rows(ALWAYS_ROWS)
     os.makedirs(base, exist_ok=True)
     fd = os.open(owner_file(base), os.O_RDWR | os.O_CREAT, 0o644)
     if not _try_lock(fd):
@@ -2874,6 +2884,12 @@ _ROW_CAS = os.environ.get("ORGTREE_ROW_CAS",
                           "1" if STORE_BACKEND == "postgres" else "0").strip() == "1"
 
 
+#: doc rows that always exist, with their cleared value (JSON text). The org
+#: killswitch: admissions take it FOR SHARE and the latch FOR UPDATE, so the
+#: row must be there even when nothing is latched (plan decisions 26/33).
+ALWAYS_ROWS: dict[str, str] = {"killswitch": "null"}
+
+
 class StaleWrite(LedgerError):
     """A save's row changed under it since it was loaded (another writer —
     an org_tx — committed it). Nothing was written; reload and retry."""
@@ -2946,6 +2962,29 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
             if changes is not None:
                 changes.doc_upserts.append(k)
     known_doc = set(snap_doc) if snap_doc is not None else db_doc_keys
+    # PG-0b (plan decisions 26 D2 / 33): an ALWAYS-PRESENT row is never
+    # deleted — a save that lacks the key (popped, or never set) writes its
+    # cleared value and puts it back into the document, so the row exists for
+    # every FOR SHARE reader. SQLite plain-dict saves (create, the JSON
+    # migration and its verifier) are left exactly as they were.
+    if STORE_BACKEND == "postgres" or lazy is not None:
+        for k, default in ALWAYS_ROWS.items():
+            if dict.__contains__(d, k):
+                continue
+            if k in known_doc:
+                old_v = snap_doc.get(k) if snap_doc is not None else None
+                if _ROW_CAS and old_v is not None:
+                    _cas(conn, "UPDATE doc SET val=? WHERE key=? AND val=?",
+                         (default, k, old_v), f"section {k!r}")
+                else:
+                    conn.execute(_UPSERT_DOC, (k, default))
+                if changes is not None:
+                    changes.doc_upserts.append(k)
+            else:
+                conn.execute("INSERT INTO doc(key,val) VALUES(?,?) "
+                             "ON CONFLICT(key) DO NOTHING", (k, default))
+            dict.__setitem__(d, k, json.loads(default))
+            new_doc[k] = default
     for k in known_doc - set(new_doc) - LAZY_SECTIONS - set(ROWED):
         if _ROW_CAS and snap_doc is not None and k in snap_doc:
             _cas(conn, "DELETE FROM doc WHERE key=? AND val=?",
