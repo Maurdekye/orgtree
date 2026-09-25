@@ -74,6 +74,23 @@ SPECS: dict[str, Spec] = {
                      notes="nodes/share_nodes = _archive_rows(org, actor, nid)"),
     "rescind": Spec(sections=_ARCHIVE_SECTIONS, logs=("events", "notice_log"),
                     notes="nodes/share_nodes = _archive_rows(org, actor, nid, parent=True)"),
+    # rehire. Node rows from `_rehire_rows`: the node, EVERY ancestor FOR
+    # UPDATE (an archived chain above is rehired first, top-most first, and
+    # `_chain_acquire` inflates grants up the paying path), the actor (a node
+    # rehiring its own bearer becomes its parent and pays), and the re-seed
+    # branch's rows (the new `nid@gen` bearer and the successor it notifies).
+    # Sections: notices; watchdogs (archive-paused dogs re-arm); fable_lock
+    # (a user fable rehire clears it). Decided-on: the settings a hire reads
+    # (WS3a's staffdoor HIRE_SETTINGS, less fable_lock which is written).
+    "rehire": Spec(sections=("fable_lock", "notices", "watchdogs"),
+                   share_sections=("cascade_hire", "default_account",
+                                   "default_effort", "default_tools",
+                                   "default_top_grant", "default_visibility",
+                                   "dirs", "kiosk", "max_children", "max_depth",
+                                   "max_top_grant", "permission_mode", "slug",
+                                   "tiers"),
+                   logs=("events", "notice_log"),
+                   notes="nodes = _rehire_rows(org, actor, nid)"),
 }
 
 
@@ -303,3 +320,35 @@ def check_rename_rows(tx, actor: str, nid: str, new_name: str) -> None:
     miss_s = share - set(tx.lock_nodes) - set(tx.share_nodes)
     if miss_u or miss_s:
         raise Widen(miss_u, miss_s)
+
+
+def _rehire_rows(org, actor: str, nid: str) -> tuple[set[str], set[str]]:
+    """(FOR UPDATE, FOR SHARE) node rows of `Org.rehire(actor, nid, ...)`."""
+    n = org.nodes.get(nid)
+    if n is None:
+        return {nid}, set()
+    upd = {nid} | _anc(org, nid)
+    if actor in org.nodes:
+        upd.add(actor)
+    upd.add(f"{nid}@{n.get('generation', 0)}")      # a re-seed's new bearer
+    succ = n.get("successor")
+    if succ and succ in org.nodes:
+        upd.add(succ)
+    for k in [k for k in upd if k in org.nodes]:
+        upd |= _anc(org, k)
+    return upd, set()
+
+
+def rehire_body(org, held_nodes, held_share, actor: str, nid: str,
+                grant: float | None = None, tier: str | None = None,
+                raise_ceiling: bool = False) -> dict[str, Any]:
+    _need(org, lambda o: _rehire_rows(o, actor, nid), held_nodes, held_share)
+    return org.rehire(actor, nid, grant=grant, tier=tier,
+                      raise_ceiling=raise_ceiling)
+
+
+def rehire(slug: str, actor: str, nid: str, grant: float | None = None,
+           tier: str | None = None, raise_ceiling: bool = False) -> dict[str, Any]:
+    return _run("rehire", slug, lambda o: _rehire_rows(o, actor, nid),
+                lambda org, hn, hs: rehire_body(org, hn, hs, actor, nid, grant,
+                                                tier, raise_ceiling))
