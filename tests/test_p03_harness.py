@@ -401,7 +401,7 @@ class FaultKit(unittest.TestCase):
 
     def test_a_killed_backend_is_retried_on_a_new_one_and_seen_as_57P01(self):
         order = Order("kill-held", [("start", "A"), ("arrive", "A", WRITE), ("kill", "A"),
-                                    ("await_end", "A")],
+                                    ("release", "A", WRITE), ("await_end", "A")],
                       [("before", f"arrived:A:{WRITE}", "killed:A"), ("sqlstate", "A", "57P01"),
                        ("outcome", "A", "applied")])
         result = run_order(FakeExecutor(OPS), self.one(order), order)
@@ -414,7 +414,8 @@ class FaultKit(unittest.TestCase):
 
     def test_a_second_kill_terminates_the_retry_s_new_backend(self):
         order = Order("kill-twice", [("start", "A"), ("arrive", "A", WRITE), ("kill", "A"),
-                                     ("arrive", "A", WRITE, 2), ("kill", "A"), ("await_end", "A")],
+                                     ("release", "A", WRITE), ("arrive", "A", WRITE, 2),
+                                     ("kill", "A"), ("release", "A", WRITE, 2), ("await_end", "A")],
                       [("before", "killed:A", f"arrived:A:{WRITE}@2"),
                        ("before", f"arrived:A:{WRITE}@2", "killed:A@2"),
                        ("outcome", "A", "applied")])
@@ -446,6 +447,15 @@ class FaultKit(unittest.TestCase):
         self.assertTrue(any(r.startswith("the service reported an error: qual.kill")
                             for r in result.reasons), result.reasons)
 
+    def test_a_killed_operation_stays_held_until_released(self):
+        """Killing the backend does not end the executor's hold: without a release the
+        hold times out, which is a service error."""
+        order = Order("kill-no-release", [("start", "A"), ("arrive", "A", WRITE), ("kill", "A"),
+                                          ("await_end", "A")], [])
+        result = run_order(FakeExecutor(OPS), self.one(order, plan=0.3), order)
+        self.assertEqual(result.verdict, FAILED)
+        self.assertTrue(any("was never released" in r for r in result.reasons), result.reasons)
+
     def test_a_kill_without_an_arrival_fails_the_run(self):
         order = Order("kill-blind", [("start", "A"), ("kill", "A"), ("await_end", "A")], [])
         result = run_order(FakeExecutor(OPS), self.one(order), order)
@@ -464,7 +474,7 @@ class FaultKit(unittest.TestCase):
 
     def test_a_kill_over_the_wire(self):
         order = Order("kill-wire", [("start", "A"), ("arrive", "A", WRITE), ("kill", "A"),
-                                    ("await_end", "A")],
+                                    ("release", "A", WRITE), ("await_end", "A")],
                       [("sqlstate", "A", "57P01"), ("outcome", "A", "applied")])
         result = OverSockets.run_over(self, order, self.one(order))
         self.assertEqual(result.verdict, PASSED, result.reasons)

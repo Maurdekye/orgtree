@@ -24,8 +24,16 @@ retry (its attempt 2 arrives at the same point, ``@2``) and apply. Two orders:
   pass here, or a failure for some other reason (a service error, a refused
   plan), means the comparator is not what decided it.
 
-The check PASSES only if both hold, the host test itself reports ``1 passed``,
-and no other orders were run. Output (records per order, the summary) goes to
+``Q-C4.kill_held`` (the fault kit's harness-side kill, M1 §3): A (READ COMMITTED)
+is held at ``status.set.after_claim``; the harness terminates the backend its
+arrival reported (``pg_terminate_backend`` through the host), then releases it.
+A must find its connection gone, retry on a NEW backend and apply exactly once.
+Its META-CONTROL ``kill_unreleased`` kills without releasing: the hold is in the
+executor, not the backend, so it times out, WS2's endpoint sends an ``error``
+frame, and the run must be FAILED for that error.
+
+The check PASSES only if all of that holds and the host test itself reports
+``test result: ok. 1 passed; 0 failed``. Output (records per order, the summary) goes to
 ``--out``; nothing secret is written: ``host.json`` (loopback ports and per-run
 tokens) is deleted by the host on stop and by this script if the host did not.
 
@@ -89,6 +97,34 @@ SCHEDULE = Schedule("Q-C4", OPS, [ACHIEVED, EARLY], pass_condition=pass_conditio
                     step_timeout=20.0, plan_timeout=20.0,
                     notes="Q-C4 real 40001 (WS2 tests/pg.rs q_c4_real_serialization_failure...)")
 
+KILL_INTENDED = [
+    ("before", f"arrived:A:{P}", "killed:A"),
+    ("before", "killed:A", f"released:A:{P}"),
+    ("absent", f"arrived:A:{P}@2"),        # only attempt 1 is held
+    ("outcome", "A", "applied"),
+]
+KILL_HELD = Order("kill_held", [("start", "A"), ("arrive", "A", P), ("kill", "A"),
+                                ("release", "A", P), ("await_end", "A")], KILL_INTENDED)
+KILL_UNRELEASED = Order("kill_unreleased", [("start", "A"), ("arrive", "A", P), ("kill", "A"),
+                                            ("await_end", "A")], KILL_INTENDED)
+
+
+def kill_condition(records: list[dict], _achieved: list[dict], final: dict) -> bool:
+    s = final.get("state") or {}
+    begins = [r for r in records if r.get("kind") == "tx_begin" and r.get("op_tag") == "A"]
+    commits = [r for r in records if r.get("kind") == "tx_end" and r.get("op_tag") == "A"
+               and r.get("outcome") == "commit"]
+    return (s.get("version") == 1 and s.get("applied_receipts") == 1 and s.get("intents") == 1
+            and len({r.get("backend_pid") for r in begins}) >= 2 and len(commits) == 1)
+
+
+KILL = Schedule("Q-C4", {"A": ("status.set", {"status": "one", "serializable": False})},
+                [KILL_HELD], pass_condition=kill_condition, step_timeout=20.0, plan_timeout=20.0)
+KILL_CONTROL = Schedule("Q-C4", {"A": ("status.set", {"status": "one", "serializable": False})},
+                        [KILL_UNRELEASED], pass_condition=kill_condition, step_timeout=20.0,
+                        plan_timeout=2.0)
+RUNS = [(SCHEDULE, ACHIEVED), (SCHEDULE, EARLY), (KILL, KILL_HELD), (KILL_CONTROL, KILL_UNRELEASED)]
+
 
 def wait_for(path: Path, proc: subprocess.Popen, timeout: float) -> dict:
     deadline = time.monotonic() + timeout
@@ -107,8 +143,15 @@ def wait_for(path: Path, proc: subprocess.Popen, timeout: float) -> dict:
 def check(results: dict, host_log: str) -> list[str]:
     p = []
     a, e = results.get("achieved"), results.get("early_release")
-    if a is None or e is None:
+    k, ku = results.get("kill_held"), results.get("kill_unreleased")
+    if a is None or e is None or k is None or ku is None:
         return ["an order did not run"]
+    if k["verdict"] != PASSED or k.get("pass_condition_held") is not True:
+        p.append(f"kill_held: the killed operation did not retry to one outcome: {k['reasons']}")
+    if ku["verdict"] != FAILED or not any(
+            r.startswith("the service reported an error: hold at") for r in ku["reasons"]):
+        p.append(f"kill_unreleased: the control did not fail on the endpoint's error frame: "
+                 f"{ku['verdict']} {ku['reasons']}")
     if a["verdict"] != PASSED:
         p.append(f"achieved: the intended order did not pass on the real service: {a['reasons']}")
     if a.get("pass_condition_held") is not True:
@@ -158,10 +201,10 @@ def main(argv=None) -> int:
     problems: list[str] = []
     try:
         host = wait_for(desc, proc, args.serve_timeout)
-        for order in SCHEDULE.orders:
+        for sched, order in RUNS:
             ch = ServiceChannel(host, run=order.name)
             try:
-                r = run_order(ch, SCHEDULE, order)
+                r = run_order(ch, sched, order)
             finally:
                 ch.close()
             results[order.name] = {**r.summary(), "handshake_build": r.handshake.get("build_sha")}
@@ -193,7 +236,7 @@ def main(argv=None) -> int:
     host_log = log_path.read_text(encoding="utf-8", errors="replace")
     if not problems:
         problems = check(results, host_log)
-    report = {"schedule": "Q-C4.real_40001", "orders": results, "problems": problems,
+    report = {"schedules": ["Q-C4.real_40001", "Q-C4.kill_held"], "orders": results, "problems": problems,
               "host_exit": proc.returncode, "verdict": "PASSED" if not problems else "FAILED"}
     text = json.dumps(report, indent=2)
     if args.json:

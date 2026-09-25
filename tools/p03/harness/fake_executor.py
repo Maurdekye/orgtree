@@ -24,8 +24,9 @@ the protocol's generic set (``protocol.GENERIC_POINTS``) plus
 statement fails with that SQLSTATE; 40001/40P01 are retried as a new attempt,
 anything else ends the operation in ``error``), ``drop_conn`` (the connection
 is gone before COMMIT: retried on a new backend, as WS2's executor does) and
-``sleep``; ``kill_backend`` (harness-side) wakes a held operation to 57P01, retried
-the same way. A hold applies to its ``attempt`` or, without one, to
+``sleep``; ``kill_backend`` (harness-side) terminates a backend: an operation
+held on it sees 57P01 once RELEASED (the hold is in the executor, as in WS2's
+service), and is retried the same way. A hold applies to its ``attempt`` or, without one, to
 every attempt. A release is remembered until an arrival consumes it (sent early,
 the operation passes straight through), and a hold never released within its
 timeout emits an ``error`` event and CONTINUES: WS2's endpoint does the same. A
@@ -201,7 +202,7 @@ class FakeExecutor:
         self.stream.emit("release", point=point, op_tag=tag)
 
     def kill_backend(self, pid: int) -> bool:
-        """``pg_terminate_backend``: a held operation on ``pid`` wakes to 57P01."""
+        """``pg_terminate_backend``: an operation held on ``pid`` sees 57P01 once released."""
         with self._hcv:
             self._killed.add(pid)
             self._hcv.notify_all()
@@ -260,20 +261,22 @@ class FakeExecutor:
             deadline = time.monotonic() + h["timeout_ms"] / 1000
             with self._hcv:
                 while not self._finishing:
-                    if pid in self._killed:
-                        raise _Abort("57P01")
                     mine = [k for k in ((tag, point, attempt), (tag, point, None))
                             if k in self._released]
                     if mine:
                         self._released.discard(mine[0])
-                        return
+                        break
                     left = deadline - time.monotonic()
                     if left <= 0:
                         self._events.put({"kind": "error", "detail":
                                           f"hold at {point} for {tag} was never released "
                                           f"within {h['timeout_ms']} ms"})
-                        return
+                        break
                     self._hcv.wait(timeout=min(left, 0.05))
+            # the hold is in the executor, not the backend: a kill during it is seen
+            # only when the operation moves on, as the next statement's 57P01
+            if pid in self._killed:
+                raise _Abort("57P01")
         elif action == "fail_next":
             pending["sqlstate"] = h["sqlstate"]
         elif action == "drop_conn":
