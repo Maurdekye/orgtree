@@ -2884,10 +2884,15 @@ _ROW_CAS = os.environ.get("ORGTREE_ROW_CAS",
                           "1" if STORE_BACKEND == "postgres" else "0").strip() == "1"
 
 
-#: doc rows that always exist, with their cleared value (JSON text). The org
-#: killswitch: admissions take it FOR SHARE and the latch FOR UPDATE, so the
-#: row must be there even when nothing is latched (plan decisions 26/33).
-ALWAYS_ROWS: dict[str, str] = {"killswitch": "null"}
+#: THE DECLARED ORG SINGLETON ROWS (plan decisions 26/33/34): doc rows that
+#: always exist, with their cleared value as JSON text. Created by the save
+#: that first lacks them (create_org included) and backfilled at claim on
+#: postgres; a popped one is reset to its cleared value, never deleted.
+#: Families EXTEND THIS LIST — nobody inserts an absent singleton ad hoc.
+#:   killswitch        admissions take it FOR SHARE, the latch FOR UPDATE
+#:   deleted_cost_usd  the tombstone burn accumulator (WS3b's user delete
+#:                     adds to it inside org_tx); readers use `or 0.0`
+ALWAYS_ROWS: dict[str, str] = {"killswitch": "null", "deleted_cost_usd": "0"}
 
 
 class StaleWrite(LedgerError):
