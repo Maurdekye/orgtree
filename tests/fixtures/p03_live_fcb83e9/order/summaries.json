@@ -1,0 +1,74 @@
+{
+ "achieved": {
+  "schedule": "Q-C4",
+  "order": "achieved",
+  "verdict": "PASSED",
+  "reasons": [],
+  "pass_condition_held": true,
+  "achieved": [
+   "arrived:A:status.set.after_claim",
+   "arrived:B:status.set.after_claim",
+   "released:A:status.set.after_claim",
+   "end:A",
+   "released:B:status.set.after_claim",
+   "arrived:B:status.set.after_claim@2",
+   "released:B:status.set.after_claim@2",
+   "end:B"
+  ],
+  "complete_contact": true,
+  "handshake_build": "live_order.rs"
+ },
+ "early_release": {
+  "schedule": "Q-C4",
+  "order": "early_release",
+  "verdict": "FAILED",
+  "reasons": [
+   "interleaving not achieved: arrived:B:status.set.after_claim was not before released:A:status.set.after_claim",
+   "interleaving not achieved: arrived:B:status.set.after_claim@2 never observed",
+   "B never saw SQLSTATE 40001"
+  ],
+  "pass_condition_held": null,
+  "achieved": [
+   "arrived:A:status.set.after_claim",
+   "released:A:status.set.after_claim",
+   "end:A",
+   "arrived:B:status.set.after_claim",
+   "released:B:status.set.after_claim",
+   "end:B"
+  ],
+  "complete_contact": true,
+  "handshake_build": "live_order.rs"
+ },
+ "kill_held": {
+  "schedule": "Q-C4",
+  "order": "kill_held",
+  "verdict": "PASSED",
+  "reasons": [],
+  "pass_condition_held": true,
+  "achieved": [
+   "arrived:A:status.set.after_claim",
+   "killed:A",
+   "released:A:status.set.after_claim",
+   "end:A"
+  ],
+  "complete_contact": true,
+  "handshake_build": "live_order.rs"
+ },
+ "kill_unreleased": {
+  "schedule": "Q-C4",
+  "order": "kill_unreleased",
+  "verdict": "FAILED",
+  "reasons": [
+   "the service reported an error: hold at status.set.after_claim for A was never released within 2000 ms"
+  ],
+  "pass_condition_held": null,
+  "achieved": [
+   "arrived:A:status.set.after_claim",
+   "killed:A",
+   "error:1",
+   "end:A"
+  ],
+  "complete_contact": true,
+  "handshake_build": "live_order.rs"
+ }
+}
