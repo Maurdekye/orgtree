@@ -302,6 +302,38 @@ class OrgTxConcurrency(unittest.TestCase):
                 n['swept'] = True
         self.assertTrue(all(_node(self.slug, x).get('swept') for x in ('a', 'b', 'c')))
 
+    def test_multi_org_locks_and_commits_both(self) -> None:
+        other = _fresh_org(f'cc2-{self._testMethodName}')
+        entered, release = threading.Event(), threading.Event()
+        done: list[str] = []
+
+        def run() -> None:
+            with orgtx.org_tx_multi({self.slug: dict(nodes=['a']),
+                                     other: dict(nodes=['b'])}) as t:
+                entered.set()
+                release.wait(5)
+                t[self.slug].d['nodes']['a']['name'] = 'mA'
+                t[other].d['nodes']['b']['name'] = 'mB'
+            done.append('ok')
+        th = threading.Thread(target=run)
+        th.start()
+        self.assertTrue(entered.wait(5))
+        try:
+            with self.assertRaises(orgtx.LockTimeout):
+                with orgtx.org_tx(other, nodes=['b'], lock_timeout=0.2):
+                    pass
+            self.assertEqual(self._try(0.2, nodes=['c']), 'got')
+        finally:
+            release.set()
+            th.join(10)
+        self.assertEqual(done, ['ok'])
+        self.assertEqual(_node(self.slug, 'a')['name'], 'mA')
+        self.assertEqual(_node(other, 'b')['name'], 'mB')
+        with orgtx.org_tx_multi({self.slug: dict(nodes=['a']), other: dict()}):
+            with self.assertRaises(orgtx.NestedTx):
+                with orgtx.org_tx(other, nodes=['c']):
+                    pass
+
     def test_waiting_probe(self) -> None:
         locks = orgtx.RowLocks()
         o1, o2 = object(), object()

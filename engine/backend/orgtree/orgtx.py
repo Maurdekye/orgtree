@@ -375,7 +375,12 @@ def _heal(slug: str) -> None:
 
 
 class SeamBackend:
-    """The fake: in-process row locks over the existing SQLite seam."""
+    """The fake: in-process row locks over the existing SQLite seam.
+
+    ⚠ A MULTI-ORG transaction here is NOT atomic across orgs: each org is its
+    own SQLite file, so the saves commit one after another (in slug order)
+    and a failure in a later org leaves the earlier ones committed. Only the
+    PostgreSQL backend commits several orgs as one transaction."""
 
     def __init__(self) -> None:
         self.locks = RowLocks()
@@ -388,62 +393,77 @@ class SeamBackend:
         with self._rev_lock:
             return self.revisions.get(slug, 0)
 
+    def transaction(self, tx: OrgTx, lock_timeout: float) -> contextlib.AbstractContextManager[None]:
+        return self.transaction_many([tx], lock_timeout)
+
     @contextlib.contextmanager
-    def transaction(self, tx: OrgTx, lock_timeout: float) -> Iterator[None]:
+    def transaction_many(self, txs: list[OrgTx], lock_timeout: float) -> Iterator[None]:
         if store.STORE_BACKEND != "sqlite":
             raise OrgTxError(f"org_tx needs ORGTREE_STORE=sqlite or postgres, "
                              f"not {store.STORE_BACKEND!r}")
-        if tx.slug not in self.healed:
-            _heal(tx.slug)
-            self.healed.add(tx.slug)
+        order = sorted(txs, key=lambda t: t.slug)
+        for tx in order:
+            if tx.slug not in self.healed:
+                _heal(tx.slug)
+                self.healed.add(tx.slug)
         owner = object()
         try:
-            _pause("before_lock", tx)
-            ids: list[str] = []
-            if tx.all_nodes:
-                self.locks.acquire(owner, (tx.slug, "node", _ALL_NODES_KEY), True,
-                                   lock_timeout)
-                probe = store._load_sqlite_org(tx.slug)   # pyright: ignore[reportPrivateUsage]
-                ids = list(dict.keys(cast("dict[str, Any]", probe.d.get("nodes") or {})))
-                tx.lock_nodes = frozenset(ids)
-            for kind, name, exclusive in _lock_plan(tx, ids):
-                self.locks.acquire(owner, (tx.slug, kind, name), exclusive, lock_timeout)
-            _pause("after_lock", tx)
-            if tx.op_key is not None:
-                hit = self.receipts.get((tx.slug, tx.op_key))
-                if hit is not None:
-                    if hit[0] != tx.fingerprint:
-                        raise ReceiptConflict(
-                            f"op_key {tx.op_key!r} was used with another fingerprint")
-                    tx.replayed = True
-                    tx.result = hit[1]
-            tx.org = store._load_sqlite_org(tx.slug)   # pyright: ignore[reportPrivateUsage]
-            yield
-            if tx.replayed:
-                tx.revision = self.revision(tx.slug)
-                return
-            _pause("before_commit", tx)
-            got: list[SaveChanges] = []
-
-            def on_commit(changes: SaveChanges) -> None:
-                got.append(changes)
-                if not changes.is_empty() or tx.op_key is not None:
-                    with self._rev_lock:
-                        self.revisions[tx.slug] = self.revisions.get(tx.slug, 0) + 1
+            for tx in order:
+                _pause("before_lock", tx)
+            for tx in order:
+                ids: list[str] = []
+                if tx.all_nodes:
+                    self.locks.acquire(owner, (tx.slug, "node", _ALL_NODES_KEY), True,
+                                       lock_timeout)
+                    probe = store._load_sqlite_org(tx.slug)   # pyright: ignore[reportPrivateUsage]
+                    ids = list(dict.keys(cast("dict[str, Any]", probe.d.get("nodes") or {})))
+                    tx.lock_nodes = frozenset(ids)
+                for kind, name, exclusive in _lock_plan(tx, ids):
+                    self.locks.acquire(owner, (tx.slug, kind, name), exclusive, lock_timeout)
+            for tx in order:
+                _pause("after_lock", tx)
+            for tx in order:
                 if tx.op_key is not None:
-                    self.receipts[(tx.slug, tx.op_key)] = (tx.fingerprint, tx.result)
-
+                    hit = self.receipts.get((tx.slug, tx.op_key))
+                    if hit is not None:
+                        if hit[0] != tx.fingerprint:
+                            raise ReceiptConflict(
+                                f"op_key {tx.op_key!r} was used with another fingerprint")
+                        tx.replayed = True
+                        tx.result = hit[1]
+                tx.org = store._load_sqlite_org(tx.slug)   # pyright: ignore[reportPrivateUsage]
+            yield
+            if any(tx.replayed for tx in order):
+                for tx in order:
+                    tx.revision = self.revision(tx.slug)
+                return
+            for tx in order:
+                _pause("before_commit", tx)
             loc = store._orgtx_local                   # pyright: ignore[reportPrivateUsage]
-            loc.guard, loc.on_commit = (lambda c: _check(tx, c)), on_commit
-            loc.defer_hooks = tx.deferred_hooks
-            try:
-                store.save_org(tx.org)
-            finally:
-                loc.guard = loc.on_commit = loc.defer_hooks = None
-            changes = got[0] if got else SaveChanges()
-            tx.revision = self.revision(tx.slug)
-            tx.committed = Committed(tx.slug, tx.revision, changes, tx.op_key)
-            _pause("after_commit", tx)
+            for tx in order:
+                got: list[SaveChanges] = []
+
+                def on_commit(changes: SaveChanges, tx: OrgTx = tx,
+                              got: list[SaveChanges] = got) -> None:
+                    got.append(changes)
+                    if not changes.is_empty() or tx.op_key is not None:
+                        with self._rev_lock:
+                            self.revisions[tx.slug] = self.revisions.get(tx.slug, 0) + 1
+                    if tx.op_key is not None:
+                        self.receipts[(tx.slug, tx.op_key)] = (tx.fingerprint, tx.result)
+
+                loc.guard = (lambda c, tx=tx: _check(tx, c))
+                loc.on_commit = on_commit
+                loc.defer_hooks = tx.deferred_hooks
+                try:
+                    store.save_org(tx.org)
+                finally:
+                    loc.guard = loc.on_commit = loc.defer_hooks = None
+                tx.revision = self.revision(tx.slug)
+                tx.committed = Committed(tx.slug, tx.revision,
+                                         got[0] if got else SaveChanges(), tx.op_key)
+            for tx in order:
+                _pause("after_commit", tx)
         finally:
             self.locks.release_all(owner)
 
@@ -466,114 +486,160 @@ def _pg_error(e: BaseException) -> BaseException:
 
 
 class PgBackend:
-    """org_tx on PostgreSQL: one connection per transaction, pinned so the
-    seam's load and save run inside it (pgstore module docstring).
+    """org_tx on PostgreSQL: ONE server connection and ONE transaction for
+    every org the call names, pinned so the seam's loads and saves run inside
+    it (pgstore module docstring). Orgs are locked in org_id order, each by
+    `_lock_plan`.
 
     Each named row takes a transaction advisory lock keyed on (org, row) —
     exclusive or shared — which covers a row that does not exist yet (a
     node being created), then `SELECT … FOR UPDATE / FOR SHARE` on the row
     itself, so a legacy seam save's UPDATE of it waits too. PostgreSQL's
     own detector reports deadlocks (40P01) and `lock_timeout` bounds waits
-    (55P03 → LockTimeout)."""
+    (55P03 → LockTimeout). Each org's save bumps that org's revision and
+    NOTIFYs; only the last save's COMMIT reaches the server."""
 
     def __init__(self) -> None:
         self.healed: set[str] = set()
 
+    def transaction(self, tx: OrgTx, lock_timeout: float) -> contextlib.AbstractContextManager[None]:
+        return self.transaction_many([tx], lock_timeout)
+
     @contextlib.contextmanager
-    def transaction(self, tx: OrgTx, lock_timeout: float) -> Iterator[None]:
+    def transaction_many(self, txs: list[OrgTx], lock_timeout: float) -> Iterator[None]:
         from . import pgstore
-        import sqlite3
-        try:
-            conn = pgstore.open_conn(tx.slug, store._db_path(tx.slug))  # pyright: ignore[reportPrivateUsage]
-        except sqlite3.OperationalError:
-            from .ledger import LedgerError
-            raise LedgerError(f"no such org: {tx.slug!r}") from None
-        raw = conn.raw
-        loc = store._orgtx_local                   # pyright: ignore[reportPrivateUsage]
-        try:
+        from .ledger import LedgerError
+        for tx in txs:
             if tx.slug not in self.healed:
                 _heal(tx.slug)
                 self.healed.add(tx.slug)
-            _pause("before_lock", tx)
+        conns: dict[str, Any] = {}
+        for tx in txs:
+            org_id = pgstore.read_marker(store._db_path(tx.slug))  # pyright: ignore[reportPrivateUsage]
+            if org_id is None:
+                raise LedgerError(f"no such org: {tx.slug!r}")
+            conns[tx.slug] = org_id
+        order = sorted(txs, key=lambda t: conns[t.slug])
+        raw = pgstore._checkout()                  # pyright: ignore[reportPrivateUsage]
+        shared: list[int | None] = [None]
+        for tx in order:
+            c = pgstore.PgConn(raw, tx.slug, conns[tx.slug])
+            c.path_holder = shared
+            conns[tx.slug] = c
+        loc = store._orgtx_local                   # pyright: ignore[reportPrivateUsage]
+        try:
+            for tx in order:
+                _pause("before_lock", tx)
+            sel = {"node": "SELECT 1 FROM nodes WHERE id = %s",
+                   "section": "SELECT 1 FROM doc WHERE key = %s",
+                   "log": "SELECT 1 FROM log_d WHERE sect = %s AND owner = %s"}
             try:
                 raw.execute(f"SET lock_timeout = '{max(1, int(lock_timeout * 1000))}ms'")
                 raw.execute("BEGIN")
-                sel = {"node": "SELECT 1 FROM nodes WHERE id = %s",
-                       "section": "SELECT 1 FROM doc WHERE key = %s",
-                       "log": "SELECT 1 FROM log_d WHERE sect = %s AND owner = %s"}
-                ids: list[str] = []
-                if tx.all_nodes:
-                    raw.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))",
-                                (conn.org_id, f"node:{_ALL_NODES_KEY}"))
-                    ids = [str(r[0]) for r in raw.execute(
-                        "SELECT id FROM nodes ORDER BY id").fetchall()]
-                    tx.lock_nodes = frozenset(ids)
-                for kind, name, exclusive in _lock_plan(tx, ids):
-                    if tx.all_nodes and kind == "node" and name == _ALL_NODES_KEY:
-                        continue                       # taken above
-                    fn = "pg_advisory_xact_lock" if exclusive else "pg_advisory_xact_lock_shared"
-                    raw.execute(f"SELECT {fn}(%s, hashtext(%s))",
-                                (conn.org_id, f"{kind}:{name}"))
-                    if name == _ALL_NODES_KEY:
-                        continue                       # a pseudo-row: no table row
-                    args = tuple(name.split("\0")) if kind == "log" else (name,)
-                    raw.execute(sel[kind] + (" FOR UPDATE" if exclusive else " FOR SHARE"), args)
+                for tx in order:
+                    conn = conns[tx.slug]
+                    conn.use()
+                    ids: list[str] = []
+                    if tx.all_nodes:
+                        raw.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))",
+                                    (conn.org_id, f"node:{_ALL_NODES_KEY}"))
+                        ids = [str(r[0]) for r in raw.execute(
+                            "SELECT id FROM nodes ORDER BY id").fetchall()]
+                        tx.lock_nodes = frozenset(ids)
+                    for kind, name, exclusive in _lock_plan(tx, ids):
+                        if tx.all_nodes and kind == "node" and name == _ALL_NODES_KEY:
+                            continue                   # taken above
+                        fn = ("pg_advisory_xact_lock" if exclusive
+                              else "pg_advisory_xact_lock_shared")
+                        raw.execute(f"SELECT {fn}(%s, hashtext(%s))",
+                                    (conn.org_id, f"{kind}:{name}"))
+                        if name == _ALL_NODES_KEY:
+                            continue                   # a pseudo-row: no table row
+                        args = tuple(name.split("\0")) if kind == "log" else (name,)
+                        raw.execute(sel[kind] + (" FOR UPDATE" if exclusive else " FOR SHARE"),
+                                    args)
             except Exception as e:
                 raise _pg_error(e) from e
-            _pause("after_lock", tx)
-            if tx.op_key is not None:
+            for tx in order:
+                _pause("after_lock", tx)
+            for tx in order:
+                if tx.op_key is None:
+                    continue
                 row = raw.execute("SELECT fingerprint, result FROM public.receipts "
                                   "WHERE org_id = %s AND op_key = %s",
-                                  (conn.org_id, tx.op_key)).fetchone()
+                                  (conns[tx.slug].org_id, tx.op_key)).fetchone()
                 if row is not None:
                     if row[0] != tx.fingerprint:
                         raise ReceiptConflict(
                             f"op_key {tx.op_key!r} was used with another fingerprint")
                     tx.replayed = True
                     tx.result = None if row[1] is None else json.loads(row[1])
-            conn.pinned = True
-            loc.pinned = conn
+            for c in conns.values():
+                c.pinned = True
+            loc.pinned = dict(conns)
             try:
-                tx.org = store._load_sqlite_org(tx.slug)   # pyright: ignore[reportPrivateUsage]
+                for tx in order:
+                    tx.org = store._load_sqlite_org(tx.slug)   # pyright: ignore[reportPrivateUsage]
                 yield
-                if tx.replayed:
+                if any(tx.replayed for tx in order):
                     raw.execute("ROLLBACK")
-                    tx.revision = pgstore.revision(conn)
+                    for tx in order:
+                        tx.revision = pgstore.revision(conns[tx.slug])
                     return
-                _pause("before_commit", tx)
-                got: list[SaveChanges] = []
+                for tx in order:
+                    _pause("before_commit", tx)
+                gots: dict[str, list[SaveChanges]] = {}
+                for i, tx in enumerate(order):
+                    conn = conns[tx.slug]
+                    last = i == len(order) - 1
+                    got: list[SaveChanges] = []
+                    gots[tx.slug] = got
 
-                def guard(changes: SaveChanges) -> None:
-                    _check(tx, changes)
-                    if tx.op_key is not None:
-                        raw.execute("INSERT INTO public.receipts(org_id, op_key, "
-                                    "fingerprint, result) VALUES (%s, %s, %s, %s)",
-                                    (conn.org_id, tx.op_key, tx.fingerprint,
-                                     json.dumps(tx.result)))
-                    conn.commit_armed = True
+                    def guard(changes: SaveChanges, tx: OrgTx = tx, conn: Any = conn,
+                              last: bool = last) -> None:
+                        _check(tx, changes)
+                        if tx.op_key is not None:
+                            raw.execute("INSERT INTO public.receipts(org_id, op_key, "
+                                        "fingerprint, result) VALUES (%s, %s, %s, %s)",
+                                        (conn.org_id, tx.op_key, tx.fingerprint,
+                                         json.dumps(tx.result)))
+                        # only the LAST save's COMMIT reaches the server
+                        conn.commit_armed = last
 
-                loc.guard, loc.on_commit = guard, got.append
-                loc.defer_hooks = tx.deferred_hooks
-                try:
-                    store.save_org(tx.org)
-                except Exception as e:
-                    raise _pg_error(e) from e
-                finally:
-                    loc.guard = loc.on_commit = loc.defer_hooks = None
+                    loc.guard, loc.on_commit = guard, got.append
+                    loc.defer_hooks = tx.deferred_hooks
+                    try:
+                        store.save_org(tx.org)
+                    except Exception as e:
+                        raise _pg_error(e) from e
+                    finally:
+                        loc.guard = loc.on_commit = loc.defer_hooks = None
             finally:
                 loc.pinned = None
-                conn.pinned = False
-            changes = got[0] if got else SaveChanges()
-            tx.revision = (conn.last_revision if conn.last_revision is not None
-                           else pgstore.revision(conn))
-            tx.committed = Committed(tx.slug, tx.revision, changes, tx.op_key)
-            _pause("after_commit", tx)
+                for c in conns.values():
+                    c.pinned = False
+            if len(order) > 1:
+                # the earlier orgs published their change sets before the one
+                # real COMMIT; a snapshot rebuilt in that window may hold
+                # pre-commit rows under the new seq — bump again, as unknown
+                for tx in order[:-1]:
+                    store._publish_changes_unknown(tx.slug)   # pyright: ignore[reportPrivateUsage]
+                    store._bump_org_seq(tx.slug)              # pyright: ignore[reportPrivateUsage]
+            for tx in order:
+                conn = conns[tx.slug]
+                got = gots[tx.slug]
+                tx.revision = (conn.last_revision if conn.last_revision is not None
+                               else pgstore.revision(conn))
+                tx.committed = Committed(tx.slug, tx.revision,
+                                         got[0] if got else SaveChanges(), tx.op_key)
+            for tx in order:
+                _pause("after_commit", tx)
         finally:
             with contextlib.suppress(Exception):
-                if conn.in_transaction:
+                pq = pgstore._psycopg().pq          # pyright: ignore[reportPrivateUsage]
+                if raw.info.transaction_status != pq.TransactionStatus.IDLE:
                     raw.execute("ROLLBACK")
-            with contextlib.suppress(Exception):
-                conn.close()
+            pgstore._release(raw)                   # pyright: ignore[reportPrivateUsage]
 
     def read(self, slug: str, sections: tuple[str, ...]) -> Org:
         return store.load_org_snapshot(slug, sections)
@@ -654,6 +720,82 @@ def current_tx(slug: str) -> OrgTx | None:
     return cast("dict[str, OrgTx]", getattr(_open, "txs", None) or {}).get(slug)
 
 
+def _new_tx(slug: str, nodes: Iterable[str] | Any = None,
+            sections: Iterable[str] | None = None,
+            logs: Iterable[LogName] | None = None,
+            share_nodes: Iterable[str] | None = None,
+            share_sections: Iterable[str] | None = None,
+            op_key: str | None = None, fingerprint: str | None = None) -> OrgTx:
+    """Validate one org's names and build its (not yet begun) OrgTx."""
+    all_nodes = nodes is ALL
+    lock_nodes = frozenset() if all_nodes else _names(nodes, "nodes")
+    lock_sections = _names(sections, "sections")
+    sh_nodes = _names(share_nodes, "share_nodes") - lock_nodes
+    sh_sections = _names(share_sections, "share_sections") - lock_sections
+    _check_sections(lock_sections | sh_sections, "sections")
+    log_names = _check_logs(logs)
+    if fingerprint is not None and op_key is None:
+        raise ValueError("fingerprint without op_key")
+    return OrgTx(slug=slug, org=cast(Org, None), lock_nodes=lock_nodes,
+                 lock_sections=lock_sections, share_nodes=sh_nodes,
+                 share_sections=sh_sections, logs=log_names,
+                 op_key=op_key, fingerprint=fingerprint, all_nodes=all_nodes)
+
+
+@contextlib.contextmanager
+def _run(make: Callable[[], list[OrgTx]], lock_timeout: float | None,
+         retries: int) -> Iterator[list[OrgTx]]:
+    """The shared driver of org_tx and org_tx_multi: nesting check, retry
+    of failures raised while taking locks, deferred hooks, listeners."""
+    first = make()
+    slugs = [t.slug for t in first]
+    if len(set(slugs)) != len(slugs):
+        raise ValueError("an org is named twice")
+    open_slugs: set[str] = getattr(_open, "slugs", None) or set()
+    nested = sorted(set(slugs) & open_slugs)
+    if nested:
+        raise NestedTx(f"org_tx on {nested!r} is already open on this thread")
+    timeout = DEFAULT_LOCK_TIMEOUT_S if lock_timeout is None else lock_timeout
+    b = backend()
+    attempt = 0
+    txs = first
+    while True:
+        body_ran = False
+        open_slugs.update(slugs)
+        _open.slugs = open_slugs
+        registry: dict[str, OrgTx] = getattr(_open, "txs", None) or {}
+        for t in txs:
+            registry[t.slug] = t
+        _open.txs = registry
+        try:
+            with b.transaction_many(txs, timeout):
+                body_ran = True
+                yield txs
+        except Retryable:
+            if body_ran or attempt >= retries:
+                raise
+            attempt += 1
+            time.sleep(random.uniform(0, 0.01 * (2 ** attempt)))
+            txs = make()
+            continue
+        finally:
+            for sl in slugs:
+                open_slugs.discard(sl)
+                registry.pop(sl, None)
+        break
+    # save hooks deferred out of the transaction: after COMMIT, locks released
+    for t in txs:
+        for hs in t.deferred_hooks:
+            store.fire_save_hooks(hs)
+    for t in txs:
+        if t.committed is not None:
+            for fn in list(commit_listeners):
+                try:
+                    fn(t.committed)
+                except Exception:                               # noqa: BLE001
+                    pass
+
+
 @contextlib.contextmanager
 def org_tx(slug: str, *, nodes: Iterable[str] | Any = None,
            sections: Iterable[str] | None = None,
@@ -664,55 +806,32 @@ def org_tx(slug: str, *, nodes: Iterable[str] | Any = None,
            lock_timeout: float | None = None,
            retries: int = DEFAULT_RETRIES) -> Iterator[OrgTx]:
     """One row transaction on one org. See the module docstring."""
-    all_nodes = nodes is ALL
-    lock_nodes = frozenset() if all_nodes else _names(nodes, "nodes")
-    lock_sections = _names(sections, "sections")
-    sh_nodes = _names(share_nodes, "share_nodes") - lock_nodes
-    sh_sections = _names(share_sections, "share_sections") - lock_sections
-    _check_sections(lock_sections | sh_sections, "sections")
-    log_names = _check_logs(logs)
-    if fingerprint is not None and op_key is None:
-        raise ValueError("fingerprint without op_key")
-    open_slugs: set[str] = getattr(_open, "slugs", None) or set()
-    if slug in open_slugs:
-        raise NestedTx(f"org_tx on {slug!r} is already open on this thread")
-    timeout = DEFAULT_LOCK_TIMEOUT_S if lock_timeout is None else lock_timeout
-    b = backend()
-    attempt = 0
-    while True:
-        tx = OrgTx(slug=slug, org=cast(Org, None), lock_nodes=lock_nodes,
-                   lock_sections=lock_sections, share_nodes=sh_nodes,
-                   share_sections=sh_sections, logs=log_names,
-                   op_key=op_key, fingerprint=fingerprint, all_nodes=all_nodes)
-        body_ran = False
-        open_slugs.add(slug)
-        _open.slugs = open_slugs
-        txs: dict[str, OrgTx] = getattr(_open, "txs", None) or {}
-        txs[slug] = tx
-        _open.txs = txs
-        try:
-            with b.transaction(tx, timeout):
-                body_ran = True
-                yield tx
-        except Retryable:
-            if body_ran or attempt >= retries:
-                raise
-            attempt += 1
-            time.sleep(random.uniform(0, 0.01 * (2 ** attempt)))
-            continue
-        finally:
-            open_slugs.discard(slug)
-            txs.pop(slug, None)
-        break
-    # save hooks deferred out of the transaction: after COMMIT, locks released
-    for hs in tx.deferred_hooks:
-        store.fire_save_hooks(hs)
-    if tx.committed is not None:
-        for fn in list(commit_listeners):
-            try:
-                fn(tx.committed)
-            except Exception:                                   # noqa: BLE001
-                pass
+    def make() -> list[OrgTx]:
+        return [_new_tx(slug, nodes, sections, logs, share_nodes, share_sections,
+                        op_key, fingerprint)]
+    with _run(make, lock_timeout, retries) as txs:
+        yield txs[0]
+
+
+@contextlib.contextmanager
+def org_tx_multi(specs: dict[str, dict[str, Any]], *,
+                 lock_timeout: float | None = None,
+                 retries: int = DEFAULT_RETRIES) -> Iterator[dict[str, OrgTx]]:
+    """One transaction over SEVERAL orgs (plan decision 13: interorg_send,
+    deliver_org_inbox, net inbound), replacing DOC_LOCK's process-wide reach.
+
+        with orgtx.org_tx_multi({a: dict(nodes=[x]), b: dict(sections=["org_inbox_q"])}) as t:
+            t[a].d[...] ...; t[b].d[...] ...
+
+    Each spec takes org_tx's keywords (nodes/sections/logs/share_*/op_key/
+    fingerprint). Orgs are locked in org_id order (slug order on the fake);
+    on PostgreSQL every org commits in ONE transaction, and each org's
+    revision is bumped and NOTIFYd. ⚠ The SQLite fake commits the orgs one
+    after another — not atomic across orgs."""
+    def make() -> list[OrgTx]:
+        return [_new_tx(slug, **spec) for slug, spec in specs.items()]
+    with _run(make, lock_timeout, retries) as txs:
+        yield {t.slug: t for t in txs}
 
 
 def org_tx_call(slug: str, fn: Callable[[OrgTx], T], *,

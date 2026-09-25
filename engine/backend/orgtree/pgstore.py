@@ -261,6 +261,17 @@ class PgConn:
         self.commit_armed = False
         #: the revision the last committed save bumped to
         self.last_revision: int | None = None
+        #: set when several orgs share ONE server connection (a multi-org
+        #: org_tx): holds the org_id whose schema the search_path names now,
+        #: and every statement switches it first when it is another org's
+        self.path_holder: list[int | None] | None = None
+
+    def use(self) -> None:
+        """Point the shared connection's search_path at this org's schema."""
+        h = self.path_holder
+        if h is not None and h[0] != self.org_id:
+            self.raw.execute(f"SET search_path TO org_{int(self.org_id)}, public")
+            h[0] = self.org_id
 
     @property
     def in_transaction(self) -> bool:
@@ -279,6 +290,7 @@ class PgConn:
             if st.kind != "sql":
                 self.raw.execute(st.sql)
                 return _EMPTY
+            self.use()
             cur = self.raw.execute(st.sql, tuple(params) if params else None)
             rows: list[tuple[Any, ...]] = cur.fetchall() if cur.description else []
         except Exception as e:
@@ -419,6 +431,7 @@ def on_save_commit(conn: PgConn, changed: bool) -> None:
     same transaction, when the save changed anything."""
     if not changed:
         return
+    conn.use()
     try:
         row = conn.raw.execute(
             "UPDATE public.orgs SET revision = revision + 1 WHERE org_id = %s "
