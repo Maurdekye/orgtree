@@ -191,11 +191,16 @@ def count(slug, nid):
 
 
 def clear(org, nid):
+    """PG-3d: inside a transaction open on this org (which must name
+    `nodes=[nid]`) the new incarnation commits with it; otherwise it is
+    saved here, as before."""
+    from .mailtx import tx_open
     with _connect() as connection:
         deleted = connection.execute('DELETE FROM events WHERE org=? AND agent=?', (org.d['slug'],nid)).rowcount
     connection.close()
     org.node(nid)['reply_incarnation'] = uuid.uuid4().hex
-    store.save_org(org)
+    if not tx_open(org.d['slug']):
+        store.save_org(org)
     return deleted
 
 

@@ -126,6 +126,15 @@ class NothingToCommit(Exception):
     without a save did."""
 
 
+def tx_open(slug: str) -> bool:
+    """Is an `org_tx` open on `slug` on THIS thread? (A mail helper called
+    with a transaction's Org mutates it rather than opening a second
+    transaction, which would raise NestedTx.) Reads orgtx's per-thread
+    registry; PG-0 is asked for a public equivalent."""
+    slugs = getattr(orgtx._open, "slugs", None) or set()   # pyright: ignore[reportPrivateUsage]
+    return slug in slugs
+
+
 @contextlib.contextmanager
 def org_of(slug: str, **rows: Any) -> Iterator[Org]:
     """`org_tx` yielding the Org itself: the drop-in for a
