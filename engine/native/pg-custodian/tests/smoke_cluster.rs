@@ -341,6 +341,95 @@ fn dev_cli_end_to_end_with_captured_output() {
     println!("P03-WS1-CLI-RESULT ok: dev up/up/env/status --all/down/status/destroy via captured pipes; port {port}; 3 URLs connect");
 }
 
+fn schema_dir() -> PathBuf {
+    PathBuf::from(std::env::var_os("ORGTREE_P03_SCHEMA_DIR").expect(
+        "ORGTREE_P03_SCHEMA_DIR must name a checkout of engine/native/store-schema/migrations; this test never skips silently",
+    ))
+}
+
+fn write_dir(dir: &std::path::Path, files: &[(&str, &str)]) {
+    let _ = std::fs::remove_dir_all(dir);
+    std::fs::create_dir_all(dir).unwrap();
+    let mut m = String::new();
+    for (name, body) in files {
+        std::fs::write(dir.join(name), body).unwrap();
+        m.push_str(&format!("{}  {name}\n", orgtree_pg_custodian::migrate::checksum(body)));
+    }
+    std::fs::write(dir.join("SHA256SUMS"), m).unwrap();
+}
+
+#[test]
+#[ignore = "starts real PostgreSQL clusters; run under the P03 machine-test-run gate with ORGTREE_P03_SCHEMA_DIR"]
+fn migrations_apply_resume_and_refuse() {
+    use orgtree_pg_custodian::migrate;
+    let env = process_env();
+    let b = bin();
+    let ws2 = schema_dir();
+
+    // --- Part 1: resume after a failed migration (synthetic schema). ---
+    let root_path = fresh_root("migrate-resume");
+    let root = guard::init_root(&root_path, &env).unwrap();
+    let _cleanup = StopOnPanic::new(root.path(), &b);
+    cluster::init(&root, &b, &InitOptions::default()).unwrap();
+    let rt = cluster::start(&root, &b, None).unwrap();
+    let dir = root_path.join("schema");
+    write_dir(&dir, &[("0001_a.sql", "CREATE TABLE a (x int);\n"), ("0002_b.sql", "CREATE TABLE b (x int);\nCREATE TABLE b2 (x no_such_type);\n")]);
+    let e = migrate::migrate(&b, &rt, &dir, 1).unwrap_err();
+    assert_eq!(e.code, "migrate.apply_failed", "{e}");
+    let applied = migrate::read_applied(&b, &rt).unwrap();
+    assert_eq!(applied.iter().map(|a| a.version).collect::<Vec<_>>(), vec![1], "0001 committed, 0002 rolled back");
+    let b_exists = cluster::psql(&b, &rt, cluster::APP_DB, "select to_regclass('public.b') is not null").unwrap();
+    assert_eq!(b_exists, vec![vec!["f".to_string()]], "a failed migration must leave nothing behind");
+    // Fix 0002; the re-run applies only 0002.
+    write_dir(&dir, &[("0001_a.sql", "CREATE TABLE a (x int);\n"), ("0002_b.sql", "CREATE TABLE b (x int);\n")]);
+    let r = migrate::migrate(&b, &rt, &dir, 1).unwrap();
+    assert_eq!((r.already_applied.clone(), r.applied_now.clone()), (vec![1], vec![2]));
+    assert!(!r.store_incarnation_written, "no store_incarnation table in this schema");
+    // Rewriting applied history is refused against the database.
+    write_dir(&dir, &[("0001_a.sql", "CREATE TABLE a (x bigint);\n"), ("0002_b.sql", "CREATE TABLE b (x int);\n")]);
+    assert_eq!(migrate::migrate(&b, &rt, &dir, 1).unwrap_err().code, "migrate.history_mismatch");
+    // A manifest that ends before the database does is refused.
+    write_dir(&dir, &[("0001_a.sql", "CREATE TABLE a (x int);\n")]);
+    assert_eq!(migrate::migrate(&b, &rt, &dir, 1).unwrap_err().code, "migrate.database_newer");
+    cluster::stop(&root, &b, false, false).unwrap();
+    cluster::destroy(&root, &b).unwrap();
+
+    // --- Part 2: WS2's real schema. ---
+    let root_path = fresh_root("migrate-ws2");
+    let root = guard::init_root(&root_path, &env).unwrap();
+    let _cleanup2 = StopOnPanic::new(root.path(), &b);
+    cluster::init(&root, &b, &InitOptions::default()).unwrap();
+    let rt = cluster::start(&root, &b, None).unwrap();
+    let files = migrate::read_schema_dir(&ws2).unwrap();
+    let r = migrate::migrate(&b, &rt, &ws2, 1).unwrap();
+    assert_eq!(r.applied_now, files.iter().map(|m| m.version).collect::<Vec<_>>());
+    assert!(r.store_incarnation_written);
+    let inc = cluster::psql(&b, &rt, cluster::APP_DB, "select count(*), count(distinct incarnation) from store_incarnation").unwrap();
+    assert_eq!(inc, vec![vec!["1".to_string(), "1".to_string()]]);
+    // Idempotent: a second run applies nothing and keeps the incarnation.
+    let r2 = migrate::migrate(&b, &rt, &ws2, 1).unwrap();
+    assert!(r2.applied_now.is_empty() && !r2.store_incarnation_written, "{r2:?}");
+    assert_eq!(migrate::check_writer(&migrate::read_applied(&b, &rt).unwrap(), 1).unwrap(), 1);
+    // WS2's own grants (0008+) let the runtime role read store_incarnation;
+    // without them it is denied. Either way the runner granted nothing.
+    let mut as_runtime = rt.clone();
+    as_runtime.admin_role = cluster::RUNTIME_ROLE.into();
+    let has_grants = files.iter().any(|m| m.file.contains("grants"));
+    let seen = cluster::psql(&b, &as_runtime, cluster::APP_DB, "select count(*) from store_incarnation");
+    assert_eq!(seen.is_ok(), has_grants, "runtime access {seen:?} vs grants migration present {has_grants}");
+    let bk = cluster::psql(&b, &as_runtime, cluster::APP_DB, "select count(*) from orgtree_custodian.applied_migrations");
+    assert!(bk.is_err(), "the runtime role must not read the custodian's bookkeeping");
+    let tables = cluster::psql(&b, &rt, cluster::APP_DB, "select count(*) from pg_tables where schemaname = 'public'").unwrap();
+    cluster::stop(&root, &b, false, false).unwrap();
+    cluster::destroy(&root, &b).unwrap();
+    println!(
+        "P03-WS1-MIGRATE-RESULT ok: resume after failed 0002; history_mismatch and database_newer refused; WS2 schema {:?} applied ({} public tables), store_incarnation written once, re-run no-op, schema_dir {}",
+        r.applied_now,
+        tables[0][0],
+        ws2.display()
+    );
+}
+
 #[test]
 #[ignore = "runs initdb; run under the P03 machine-test-run gate"]
 fn init_killed_before_commit_leaves_only_quarantine() {
