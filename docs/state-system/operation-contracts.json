@@ -8385,7 +8385,7 @@
       ],
       "open_questions": [
         "Observe every lifecycle operation with the P02 per-operation probe: actual contacts per outcome, cold and warm, refusals and keyed replays included, and the org-level locality of each.",
-        "Owner: P02 (p02-contacts-opus55; coordinator ruling Q6 on p01-f1-contracts-for-the-org-lifecycle-and-catal: probed after this family lands). Closes with: a loss-accounted P02 record per lifecycle row. Not coverable at P01: P01 does not run the P02 probe."
+        "Owner: P02 (p02-contacts-opus55; coordinator ruling Q6 on p01-f1-contracts-for-the-org-lifecycle-and-catal: probed after this family lands). Closes with: a loss-accounted P02 record per lifecycle row. Not coverable at P01 from available evidence: P01 does not run the P02 probe, and no P02 record covers this family yet."
       ]
     }
   },
