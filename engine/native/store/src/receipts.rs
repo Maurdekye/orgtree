@@ -52,11 +52,12 @@ pub const FENCE_SQL: &str = "INSERT INTO operation_receipts \
     RETURNING receipt_id";
 
 pub const INFLIGHT_INSERT_SQL: &str = "INSERT INTO runtime_inflight \
-    (org_id, ns_kind, ns_id, op_key, service_incarnation, admitted_at) \
-    VALUES ($1, $2, $3, $4, $5, clock_timestamp())";
+    (org_id, ns_kind, ns_id, op_key, service_incarnation, call_id, admitted_at) \
+    VALUES ($1, $2, $3, $4, $5, $6, clock_timestamp())";
 
+/// Deletes exactly this call's row (a same-key duplicate keeps its own).
 pub const INFLIGHT_DELETE_SQL: &str = "DELETE FROM runtime_inflight \
-    WHERE org_id = $1 AND ns_kind = $2 AND ns_id = $3 AND op_key = $4 AND service_incarnation = $5";
+    WHERE org_id = $1 AND ns_kind = $2 AND ns_id = $3 AND op_key = $4 AND service_incarnation = $5 AND call_id = $6";
 
 /// An in-flight row counts only if its owning service is live: the liveness
 /// connection's (pid, backend_start) is in pg_stat_activity (CONTRACT-M1 §4).

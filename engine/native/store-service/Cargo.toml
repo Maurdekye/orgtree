@@ -22,7 +22,7 @@ orgtree-store = { path = "../store" }
 # THE shared P03 root guard (WS1, lead ruling 09:02Z); one live-location list.
 orgtree-prototype-guard = { path = "../prototype-guard" }
 # Same pins as every P03 crate (engine/native/store/DEPENDENCIES.md).
-tokio = { version = "=1.52.3", default-features = false, features = ["sync", "time", "rt", "rt-multi-thread", "macros", "net", "io-util", "signal"] }
+tokio = { version = "=1.52.3", default-features = false, features = ["sync", "time", "rt", "rt-multi-thread", "macros", "net", "io-util", "io-std", "signal"] }
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.150"
 uuid = { version = "1", default-features = false, features = ["v4", "std", "serde"] }

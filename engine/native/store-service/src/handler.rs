@@ -9,7 +9,7 @@ use orgtree_store::{Connector, Executor, KeyNamespace, OpIdentity, Uuid};
 use crate::proto::{Handshake, Request, PROTOCOL};
 use crate::server::Handler;
 
-pub const VERBS: &[&str] = &["ping", "receipt.lookup"];
+pub const VERBS: &[&str] = &["ping", "receipt.lookup", "service.shutdown"];
 
 /// Generic executor points every family verb exposes (CONTRACT-M1 §5).
 pub const GENERIC_POINTS: &[&str] =
@@ -27,6 +27,8 @@ pub const CONTROLS: &[&str] = &[
     "Q-C1.org_wide_lock",
     "Q-C6.register_without_lock",
     "Q-C5.no_xact_baseline",
+    "Q-C6.ack_without_lock",
+    "Q-C4.anchor_refuses_first",
 ];
 
 /// The handshake's DECLARED-CONTACTS table (CONTRACT-M1 §5 r4; WS7
@@ -95,6 +97,8 @@ pub struct StoreHandler<C: Connector> {
     pub exec: Executor<C>,
     pub build_sha: String,
     pub service_incarnation: Uuid,
+    /// Notified by the authenticated `service.shutdown` verb.
+    pub shutdown: std::sync::Arc<tokio::sync::Notify>,
 }
 
 fn lookup_json(a: &LookupAnswer) -> Value {
@@ -164,6 +168,10 @@ impl<C: Connector + 'static> Handler for StoreHandler<C> {
         let r = match req.verb.as_str() {
             "ping" => Ok(json!({"pong": true, "service_incarnation": self.service_incarnation})),
             "receipt.lookup" => self.lookup(&req).await,
+            "service.shutdown" => {
+                self.shutdown.notify_one();
+                Ok(json!({"ok": true, "stopping": true}))
+            }
             other => match crate::mail_verbs::handle(&self.exec, &req).await {
                 Some(r) => r,
                 None => Err(json!({"error": "unknown_verb", "verb": other})),

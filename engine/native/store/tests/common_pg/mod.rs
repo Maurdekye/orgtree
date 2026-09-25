@@ -238,7 +238,7 @@ pub fn executor_with(script: Arc<Script>, controls: Vec<&'static str>) -> (Execu
         6,
         Factory::new(cfg, "lookup", h.clone()),
         2,
-        ExecConfig { max_attempts: 8, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5), lock_timeout_ms: Some(10_000) },
+        ExecConfig { max_attempts: 8, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5), lock_timeout_ms: Some(10_000), statement_timeout_ms: None, idle_in_transaction_timeout_ms: None },
         h,
     );
     (ex, ev)

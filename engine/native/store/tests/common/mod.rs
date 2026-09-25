@@ -94,7 +94,7 @@ pub fn binding(key: &str, fp: &str) -> Binding {
 }
 
 pub fn fast() -> ExecConfig {
-    ExecConfig { max_attempts: 5, backoff_base: Duration::ZERO, backoff_cap: Duration::ZERO, lock_timeout_ms: None }
+    ExecConfig { max_attempts: 5, backoff_base: Duration::ZERO, backoff_cap: Duration::ZERO, lock_timeout_ms: None, statement_timeout_ms: None, idle_in_transaction_timeout_ms: None }
 }
 
 #[derive(Default)]

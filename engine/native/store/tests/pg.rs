@@ -108,7 +108,7 @@ struct SetStatus {
 
 const ANCHOR: &str = "SELECT lifecycle, generation FROM authority_epoch WHERE org_id = $1 AND principal_id = $2 FOR SHARE";
 const LOCK_OWN: &str = "SELECT version FROM runtime_state WHERE org_id = $1 AND principal_id = $2 FOR NO KEY UPDATE";
-const UPDATE: &str = "UPDATE runtime_state SET status = $3, version = version + 1, \
+const UPDATE: &str = "UPDATE runtime_state SET busy = ($3 <> ''), version = version + 1, \
      updated_at = to_timestamp($4::double precision / 1000000) WHERE org_id = $1 AND principal_id = $2 RETURNING version";
 const INTENT: &str = "INSERT INTO outgoing_intents (org_id, intent_id, kind, source_ref, dest_ref, due_at, created_at) \
      VALUES ($1, gen_random_uuid(), 'notify', $2, NULL, now(), now())";
@@ -275,7 +275,7 @@ fn executor(script: Arc<Script>, controls: Vec<&'static str>) -> (Executor<Facto
         4,
         Factory::new(cfg, "lookup", h.clone()),
         2,
-        ExecConfig { max_attempts: 6, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5), lock_timeout_ms: None },
+        ExecConfig { max_attempts: 6, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5), lock_timeout_ms: None, statement_timeout_ms: None, idle_in_transaction_timeout_ms: None },
         h,
     );
     (ex, ev)
@@ -540,7 +540,7 @@ fn executor_via(port: u16, controls: Vec<&'static str>) -> (Executor<Factory>, A
         2,
         Factory::new(cfg, "lookup", h.clone()),
         1,
-        ExecConfig { max_attempts: 6, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5), lock_timeout_ms: None },
+        ExecConfig { max_attempts: 6, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5), lock_timeout_ms: None, statement_timeout_ms: None, idle_in_transaction_timeout_ms: None },
         h,
     );
     (ex, ev)
@@ -920,7 +920,7 @@ async fn q_rl2_lock_timeout_answers_running_and_fences_nothing() {
         2,
         Factory::new(cfg, "lookup", h.clone()),
         1,
-        ExecConfig { max_attempts: 6, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5), lock_timeout_ms: Some(300) },
+        ExecConfig { max_attempts: 6, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5), lock_timeout_ms: Some(300), statement_timeout_ms: None, idle_in_transaction_timeout_ms: None },
         h,
     ));
     let k = key();
@@ -999,4 +999,78 @@ async fn q_rl3_control_skip_inflight_check_fences_a_live_admitted_call() {
     assert_eq!(ex.lookup(&lookup_req(&k)).await.unwrap(), LookupAnswer::NotApplied);
     assert!(ev.has("control_executed:Q-RL3.skip_inflight_check"), "control did not record that it ran");
     assert_eq!(ex.run(&SetStatus { status: "x", serializable: false }, &binding(&k)).await.unwrap(), Outcome::Fenced, "the admitted call was refused");
+}
+
+
+// ================================================================ review findings 2 and 3
+
+/// Review finding 2: a same-key duplicate in the same service is admitted
+/// (its own in-flight row), then waits on the original's claim and replays.
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn a_same_key_duplicate_in_the_same_service_is_admitted_and_replays() {
+    reset().await;
+    let script = Arc::new(Script::default());
+    let (ex, _) = executor(script.clone(), vec![]);
+    let ex = Arc::new(ex);
+    let owner = liveness(&ex.hooks().clone()).await;
+    let svc_inc = owner.incarnation;
+    let k = key();
+    let (mut at, release) = script.hold(&k, "after_claim");
+    let e1 = ex.clone();
+    let kc = k.clone();
+    let first = tokio::spawn(async move { e1.run_keyed(&SetStatus { status: "x", serializable: false }, &binding(&kc), svc_inc).await });
+    arrive(&mut at).await;
+    let e2 = ex.clone();
+    let kc = k.clone();
+    let second = tokio::spawn(async move { e2.run_keyed(&SetStatus { status: "x", serializable: false }, &binding(&kc), svc_inc).await });
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert!(!second.is_finished(), "the duplicate must be admitted and WAIT on the claim, not fail at admission");
+    assert_eq!(admin_count(&format!("SELECT count(*) FROM runtime_inflight WHERE op_key = '{k}'")).await, 2, "one in-flight row per call");
+    release.add_permits(1);
+    assert_eq!(first.await.unwrap().unwrap(), Outcome::Applied(1));
+    assert_eq!(second.await.unwrap().unwrap(), Outcome::Replayed(1));
+    assert_eq!(admin_count(&format!("SELECT count(*) FROM runtime_inflight WHERE op_key = '{k}'")).await, 0, "each call removed its own row");
+    drop(owner);
+}
+
+async fn two_services_ack_concurrently(controls: Vec<&'static str>) -> (bool, Arc<Events>) {
+    reset().await;
+    let script = Arc::new(Script::default());
+    let (ex, ev) = executor(script.clone(), controls);
+    let ex = Arc::new(ex);
+    ex.register_read_service(org(), svc(1)).await.unwrap();
+    ex.register_read_service(org(), svc(2)).await.unwrap();
+    let Outcome::Applied((_, obligations, rid)) = ex.run(&Narrow { serializable: false }, &binding(&key())).await.unwrap() else { panic!() };
+    assert_eq!(obligations.len(), 2);
+    // ack 1 runs up to just before its COMMIT (its NOT EXISTS already saw ack 2 pending)
+    let (mut at, release) = script.hold("*", "restrict.ack.before_commit");
+    let e1 = ex.clone();
+    let a1 = tokio::spawn(async move { e1.ack_restriction(org(), rid, svc(1)).await });
+    arrive(&mut at).await;
+    let e2 = ex.clone();
+    let a2 = tokio::spawn(async move { e2.ack_restriction(org(), rid, svc(2)).await });
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    release.add_permits(1);
+    a1.await.unwrap().unwrap();
+    a2.await.unwrap().unwrap();
+    let effective = admin_count(&format!("SELECT count(*) FROM restrictions WHERE restriction_id = '{rid}' AND effective_at IS NOT NULL")).await == 1;
+    (effective, ev)
+}
+
+/// Review finding 3: concurrent acks of one restriction still make it Effective.
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn q_c6_concurrent_acks_make_the_restriction_effective() {
+    let (effective, _) = two_services_ack_concurrently(vec![]).await;
+    assert!(effective, "all obligations acked, so the restriction must be Effective");
+}
+
+/// ... and without the restriction-row lock it stays un-Effective for good.
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn q_c6_control_ack_without_lock_never_becomes_effective() {
+    let (effective, ev) = two_services_ack_concurrently(vec!["Q-C6.ack_without_lock"]).await;
+    assert!(ev.has("control_executed:Q-C6.ack_without_lock"), "control did not record that it ran");
+    assert!(!effective, "the unsafe control must leave the restriction un-Effective");
 }

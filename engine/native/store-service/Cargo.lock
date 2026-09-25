@@ -313,6 +313,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "orgtree-funding-core"
+version = "0.1.0"
+dependencies = [
+ "orgtree-backend-codec",
+]
+
+[[package]]
 name = "orgtree-op-receipt-codec"
 version = "0.1.0"
 dependencies = [
@@ -332,6 +339,7 @@ name = "orgtree-store"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "orgtree-funding-core",
  "orgtree-op-receipt-codec",
  "serde",
  "serde_json",

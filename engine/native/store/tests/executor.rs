@@ -506,11 +506,247 @@ mod anchor_refusal {
         let (ex, trace) = exec(&db);
         let o = ex.run(&RefuseInAnchor, &binding("k1", "fp1")).await.unwrap();
         assert!(matches!(o, Outcome::Refused(ref r) if r.code == "caller_not_live"), "{o:?}");
-        assert_eq!(db.count("receipt.claim"), 0, "refused before the claim");
-        assert!(db.receipts().is_empty());
+        // freeze amendment 2: the claim runs (a committed receipt would have
+        // replayed), then the refusal rolls it back
+        assert_eq!(db.count("receipt.claim"), 1);
+        assert!(db.receipts().is_empty(), "the rollback removed the claim");
         assert!(db.rows("rows").is_empty());
         assert_eq!(db.count("commit"), 0);
         assert!(!trace.events.lock().unwrap().iter().any(|e| e.starts_with("retry:")), "a refusal is never retried");
         assert!(trace.has("outcome:refused"));
+    }
+}
+
+/// Review finding 1: after a lost COMMIT, the in-doubt original is settled by
+/// re-claiming its key BEFORE any anchor runs, so an anchor that now refuses
+/// (the operation retired its own caller; a halt landed) can never answer
+/// "refused" for an operation that committed.
+mod resolution_before_anchor {
+    use super::*;
+    use orgtree_store::{Binding, CmdError, Command, Decided, Family, Refusal, Session, Tx};
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    struct SelfRetire {
+        anchors: AtomicU32,
+    }
+    impl Command for SelfRetire {
+        type Output = i64;
+        fn family(&self) -> &'static Family {
+            &FAM
+        }
+        fn verb(&self) -> &'static str {
+            "self_retire"
+        }
+        async fn anchor<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding) -> Result<(), CmdError> {
+            // the first attempt retires the caller; any later anchor refuses
+            if self.anchors.fetch_add(1, Ordering::SeqCst) > 0 {
+                return Err(CmdError::Refused(Refusal::new("caller_not_live", "archived")));
+            }
+            Ok(())
+        }
+        async fn may_disclose<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding, _o: &i64) -> Result<bool, CmdError> {
+            Ok(true)
+        }
+        async fn execute<S: Session>(&self, tx: &mut Tx<'_, S>, _b: &Binding) -> Result<Decided<i64>, CmdError> {
+            tx.exec("fake.insert:rows", "INSERT ...", &[]).await?;
+            Ok(Decided::Applied(1))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_committed_operation_is_replayed_even_if_its_anchor_now_refuses() {
+        let db = FakeDb::new();
+        db.fault("commit", 1, FaultKind::CommitLostAfterApply);
+        let (ex, _) = exec(&db);
+        let cmd = SelfRetire { anchors: AtomicU32::new(0) };
+        let o = ex.run(&cmd, &binding("k1", "fp1")).await.unwrap();
+        assert_eq!(o, Outcome::Replayed(1), "the committed outcome, not a refusal");
+        assert_eq!(cmd.anchors.load(Ordering::SeqCst), 1, "no anchor ran before the resolution");
+        assert_eq!(db.rows("rows").len(), 1);
+    }
+
+    #[tokio::test]
+    async fn an_uncommitted_operation_then_meets_its_anchor_normally() {
+        let db = FakeDb::new();
+        db.fault("commit", 1, FaultKind::CommitLostBeforeApply);
+        let (ex, _) = exec(&db);
+        let cmd = SelfRetire { anchors: AtomicU32::new(0) };
+        let o = ex.run(&cmd, &binding("k1", "fp1")).await.unwrap();
+        assert!(matches!(o, Outcome::Refused(ref r) if r.code == "caller_not_live"), "{o:?}");
+        assert!(db.rows("rows").is_empty());
+    }
+}
+
+
+/// WS7: an operation's causal refs reach the trace with Admitted and Outcome.
+mod causal_refs {
+    use super::*;
+    use orgtree_store::hooks::{EventKind, Hooks, TraceEvent, TraceSink};
+    use orgtree_store::{Binding, CmdError, Command, Decided, Family, Session, Tx};
+    use std::sync::{Arc, Mutex};
+
+    struct WithRefs;
+    impl Command for WithRefs {
+        type Output = i64;
+        fn family(&self) -> &'static Family {
+            &FAM
+        }
+        fn verb(&self) -> &'static str {
+            "with_refs"
+        }
+        fn causal_refs(&self) -> Vec<String> {
+            vec!["msg-1".into()]
+        }
+        async fn anchor<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding) -> Result<(), CmdError> {
+            Ok(())
+        }
+        async fn may_disclose<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding, _o: &i64) -> Result<bool, CmdError> {
+            Ok(true)
+        }
+        async fn execute<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding) -> Result<Decided<i64>, CmdError> {
+            Ok(Decided::Applied(1))
+        }
+    }
+
+    #[derive(Default)]
+    struct Kinds(Mutex<Vec<String>>);
+    impl TraceSink for Kinds {
+        fn event(&self, e: &TraceEvent<'_>) {
+            let s = match &e.kind {
+                EventKind::Admitted => "admitted".to_string(),
+                EventKind::CausalRefs { refs } => format!("refs:{}", refs.join(",")),
+                EventKind::Outcome { outcome } => format!("outcome:{outcome}"),
+                _ => return,
+            };
+            self.0.lock().unwrap().push(s);
+        }
+    }
+
+    #[tokio::test]
+    async fn refs_follow_admitted_and_outcome() {
+        let db = FakeDb::new();
+        let k = Arc::new(Kinds::default());
+        let ex = exec_with(&db, Hooks::with_trace(k.clone()));
+        ex.run(&WithRefs, &binding("k1", "fp1")).await.unwrap();
+        assert_eq!(*k.0.lock().unwrap(), vec!["admitted", "refs:msg-1", "outcome:applied", "refs:msg-1"]);
+    }
+}
+
+
+/// Freeze amendment 2 (lead decision 3): tests (a), (b), (c) and the control
+/// Q-C4.anchor_refuses_first.
+mod amendment_2 {
+    use super::*;
+    use orgtree_store::{Binding, CmdError, Command, Decided, Family, Refusal, Session, Tx};
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    /// A caller whose anchor refuses once `halted` is set.
+    struct Halting {
+        halted: AtomicBool,
+        retire_self: bool,
+    }
+    impl Command for Halting {
+        type Output = i64;
+        fn family(&self) -> &'static Family {
+            &FAM
+        }
+        fn verb(&self) -> &'static str {
+            "halting"
+        }
+        async fn anchor<S: Session>(&self, tx: &mut Tx<'_, S>, _b: &Binding) -> Result<(), CmdError> {
+            tx.exec("test.anchor", "SELECT 1 FOR SHARE", &[]).await?;
+            if self.halted.load(Ordering::SeqCst) {
+                return Err(CmdError::Refused(Refusal::new("halted", "the caller is halted")));
+            }
+            Ok(())
+        }
+        async fn may_disclose<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding, _o: &i64) -> Result<bool, CmdError> {
+            Ok(true)
+        }
+        async fn execute<S: Session>(&self, tx: &mut Tx<'_, S>, _b: &Binding) -> Result<Decided<i64>, CmdError> {
+            tx.exec("fake.insert:rows", "INSERT ...", &[]).await?;
+            if self.retire_self {
+                // the operation itself makes the caller's anchor refuse from now on
+                self.halted.store(true, Ordering::SeqCst);
+            }
+            Ok(Decided::Applied(1))
+        }
+    }
+
+    #[cfg(feature = "qualification")]
+    fn armed(db: &std::sync::Arc<FakeDb>) -> orgtree_store::Executor<orgtree_store::fake::FakeConnector> {
+        {
+            use orgtree_store::hooks::{ControlPlan, Hooks};
+            struct Arm;
+            impl ControlPlan for Arm {
+                fn armed(&self, id: &str, _: &orgtree_store::OpIdentity, _: Option<&str>) -> bool {
+                    id == "Q-C4.anchor_refuses_first"
+                }
+            }
+            let mut h = Hooks::default();
+            h.controls = Some(std::sync::Arc::new(Arm));
+            exec_with(db, h)
+        }
+    }
+
+    /// (a) lost COMMIT, then the operation's own effect makes the anchor refuse.
+    #[tokio::test]
+    async fn a_lost_commit_then_self_retire_is_never_refused() {
+        let db = FakeDb::new();
+        db.fault("commit", 1, FaultKind::CommitLostAfterApply);
+        let (ex, _) = exec(&db);
+        let cmd = Halting { halted: AtomicBool::new(false), retire_self: true };
+        let o = ex.run(&cmd, &binding("k1", "fp1")).await.unwrap();
+        assert!(matches!(o, Outcome::Replayed(_) | Outcome::NotDisclosed | Outcome::Unknown), "never Refused: {o:?}");
+        assert_eq!(db.rows("rows").len(), 1);
+    }
+
+    /// (b) a same-key retry after the original applied, the caller since halted.
+    #[tokio::test]
+    async fn a_same_key_retry_after_halt_replays() {
+        let db = FakeDb::new();
+        let (ex, _) = exec(&db);
+        let cmd = Halting { halted: AtomicBool::new(false), retire_self: false };
+        assert_eq!(ex.run(&cmd, &binding("k1", "fp1")).await.unwrap(), Outcome::Applied(1));
+        cmd.halted.store(true, Ordering::SeqCst);
+        assert_eq!(ex.run(&cmd, &binding("k1", "fp1")).await.unwrap(), Outcome::Replayed(1), "replay, checked by may_disclose, not refused");
+        assert_eq!(db.rows("rows").len(), 1);
+    }
+
+    /// (c) a NEW operation from a halted caller: Refused, nothing written.
+    #[tokio::test]
+    async fn a_new_operation_from_a_halted_caller_is_refused_with_nothing_written() {
+        let db = FakeDb::new();
+        let (ex, _) = exec(&db);
+        let cmd = Halting { halted: AtomicBool::new(true), retire_self: false };
+        let o = ex.run(&cmd, &binding("k2", "fp1")).await.unwrap();
+        assert!(matches!(o, Outcome::Refused(ref r) if r.code == "halted"), "{o:?}");
+        assert!(db.receipts().is_empty());
+        assert!(db.rows("rows").is_empty());
+        assert_eq!(db.count("commit"), 0);
+        let labels = db.labels();
+        let pos = |l: &str| labels.iter().position(|x| x == l).unwrap();
+        assert!(pos("test.anchor") < pos("receipt.claim"), "the anchor's locks are still taken first");
+    }
+
+    /// Control Q-C4.anchor_refuses_first: the old order fails (a) and (b).
+    #[cfg(feature = "qualification")]
+    #[tokio::test]
+    async fn control_anchor_refuses_first_fails_a_and_b() {
+        // (a)
+        let db = FakeDb::new();
+        db.fault("commit", 1, FaultKind::CommitLostAfterApply);
+        let ex = armed(&db);
+        let cmd = Halting { halted: AtomicBool::new(false), retire_self: true };
+        let o = ex.run(&cmd, &binding("k1", "fp1")).await.unwrap();
+        assert!(matches!(o, Outcome::Refused(_)), "the unsafe control must answer Refused for a committed op: {o:?}");
+        assert_eq!(db.rows("rows").len(), 1, "yet it committed");
+        // (b)
+        let db = FakeDb::new();
+        let ex = armed(&db);
+        let cmd = Halting { halted: AtomicBool::new(false), retire_self: false };
+        assert_eq!(ex.run(&cmd, &binding("k1", "fp1")).await.unwrap(), Outcome::Applied(1));
+        cmd.halted.store(true, Ordering::SeqCst);
+        assert!(matches!(ex.run(&cmd, &binding("k1", "fp1")).await.unwrap(), Outcome::Refused(_)), "the unsafe control refuses the replay");
     }
 }
