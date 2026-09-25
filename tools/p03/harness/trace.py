@@ -27,6 +27,7 @@ KINDS: dict[str, tuple[str, ...]] = {
     "tx_begin": ("operation_id", "attempt", "conn_id", "backend_pid", "isolation", "factory"),
     "stmt": ("operation_id", "attempt", "conn_id", "backend_pid", "stmt_label", "fingerprint",
              "mode", "relations", "sqlstate"),
+    "xact_stats": ("operation_id", "attempt", "backend_pid", "tables"),
     "wait": ("operation_id", "attempt", "backend_pid", "wait_on"),
     "retry": ("operation_id", "attempt", "retry_cause", "sqlstate"),
     "tx_end": ("operation_id", "attempt", "conn_id", "backend_pid", "outcome", "sqlstate"),

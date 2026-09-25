@@ -25,6 +25,7 @@ What must hold:
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sys
 import unittest
@@ -33,7 +34,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
 from p03.harness import controls as ctl  # noqa: E402
-from p03.harness import protocol  # noqa: E402
+from p03.harness import oracle, protocol  # noqa: E402
 from p03.harness.fake_executor import FakeExecutor, Stmt  # noqa: E402
 from p03.harness.schedule import (FAILED, PASSED, REFUSED, Order, Schedule,  # noqa: E402
                                   compare, run_order)
@@ -53,7 +54,7 @@ def _write(_rows, ctx, writes, _args):
 
 
 OPS = {KIND: [Stmt("read", ("counters",), "read", lock="counter:1", apply=_read,
-                   skip_lock_control=CONTROL_ID),
+                   skip_lock_control=CONTROL_ID, lock_mode="for_update"),
               Stmt("write", ("counters",), "write", apply=_write)]}
 
 SAFE = Order(
@@ -191,6 +192,97 @@ class UnsafeControls(unittest.TestCase):
         with self.assertRaises(ValueError):
             reg.register(ctl.Control("Q-X1.y", "Q-X1", "", "site", "wording"))
         self.assertEqual([c.control_id for c in reg.for_schedule("Q-FAKE1")], [CONTROL_ID])
+
+
+EDIT = "item.edit"
+EDIT_OPS = {EDIT: [Stmt("anchor", ("agents",), "read", lock="agent:1", lock_mode="for_share"),
+                   Stmt("claim", ("operation_receipts",), "write"),
+                   Stmt("write", ("items",), "write")]}
+EDIT_DECLARED = {EDIT: {"relations": {
+    "agents": {"modes": ["read", "for_share"], "required": True},
+    "operation_receipts": {"modes": ["write"], "required": True},
+    "items": {"modes": ["write"], "required": True},
+    "item_participants": {"modes": ["read"], "required": False}},
+    "p01_contract": "work.item-update", "source": "test"}}
+ONE_EDIT = Order("one-edit", [("start", "A"), ("await_end", "A")], [("outcome", "A", "commit")])
+
+
+def edit_run(**fake):
+    fake.setdefault("declared", EDIT_DECLARED)
+    one = Schedule("Q-C5", {"A": (EDIT, {})}, [ONE_EDIT], pass_condition=lambda *_: True)
+    result = run_order(FakeExecutor(EDIT_OPS, **fake), one, ONE_EDIT)
+    return result, oracle.q_c5(fake["declared"], result.records, ["fake-pool"])
+
+
+class ContactOracle(unittest.TestCase):
+    """Q-C5 (r7, S3 §7.1 extended): observed relations equal declared relations."""
+
+    def test_declared_contacts_observed_pass_and_optional_ones_are_reported(self):
+        result, verdict = edit_run()
+        self.assertEqual(result.verdict, PASSED, result.reasons)
+        self.assertEqual(verdict["verdict"], "PASSED", verdict["failures"])
+        self.assertEqual(verdict["over_declared"], {EDIT: ["item_participants"]})
+
+    def test_server_side_access_the_executor_does_not_name_fails(self):
+        """A trigger writes audit_log: only the server's per-xact view shows it."""
+        _, verdict = edit_run(server_extra={"audit_log": {"n_tup_ins": 1}})
+        self.assertEqual(verdict["verdict"], "FAILED")
+        self.assertTrue(any("server observed undeclared relation audit_log" in f
+                            for f in verdict["failures"]), verdict["failures"])
+
+    def test_undeclared_lock_mode_fails(self):
+        weaker = json_copy(EDIT_DECLARED)
+        weaker[EDIT]["relations"]["agents"]["modes"] = ["read"]
+        _, verdict = edit_run(declared=weaker)
+        self.assertTrue(any("observed agents as for_share" in f for f in verdict["failures"]),
+                        verdict["failures"])
+
+    def test_deleted_required_anchor_fails(self):
+        """p03-lead's omitted-invariant control: the anchor statement is gone."""
+        _, verdict = edit_run(skip_stmts={"anchor"})
+        self.assertEqual(verdict["verdict"], "FAILED")
+        self.assertTrue(any("committed without its required agents" in f
+                            for f in verdict["failures"]), verdict["failures"])
+
+    def test_hidden_access_and_unregistered_factory_fail(self):
+        _, hidden = edit_run(hidden_statements=1)
+        self.assertTrue(any("hidden access" in f for f in hidden["failures"]), hidden["failures"])
+        _, stray = edit_run(factory="side-door")
+        self.assertTrue(any("unregistered factory 'side-door'" in f for f in stray["failures"]))
+
+    def test_trace_without_connection_activity_fails(self):
+        result, _ = edit_run()
+        records = [r for r in result.records if r["kind"] != "conn_activity"]
+        verdict = oracle.q_c5(EDIT_DECLARED, records, ["fake-pool"])
+        self.assertIn("no conn_activity records: hidden access cannot be ruled out",
+                      verdict["failures"])
+
+    def test_zero_contact_refusal_with_statements_fails(self):
+        result, _ = edit_run()
+        records = [dict(r, contacts=0) if r["kind"] == "op_end" else r for r in result.records]
+        verdict = oracle.q_c5(EDIT_DECLARED, records, ["fake-pool"])
+        self.assertTrue(any("reports zero contacts" in f for f in verdict["failures"]))
+
+    def test_unknown_lock_mode_is_reported_not_passed_silently(self):
+        result, _ = edit_run()
+        records = [dict(r, lock_mode="unknown") if r.get("stmt_label") == "anchor" else r
+                   for r in result.records]
+        verdict = oracle.q_c5(EDIT_DECLARED, records, ["fake-pool"])
+        self.assertEqual(list(verdict["unknown_modes"].values()), [["agents"]])
+
+    def test_invalid_declared_table_is_refused(self):
+        bad = {EDIT: {"relations": {"items": {"modes": ["write"]}}, "p01_contract": None,
+                      "source": "x"}}
+        self.assertTrue(oracle.declared_errors(bad))
+        self.assertEqual(oracle.q_c5(bad, [], [])["verdict"], "FAILED")
+        result = run_order(FakeExecutor(EDIT_OPS, declared=bad),
+                           Schedule("Q-C5", {"A": (EDIT, {})}, [ONE_EDIT],
+                                    pass_condition=lambda *_: True), ONE_EDIT)
+        self.assertEqual(result.verdict, REFUSED)
+
+
+def json_copy(value):
+    return json.loads(json.dumps(value))
 
 
 class Protocol(unittest.TestCase):

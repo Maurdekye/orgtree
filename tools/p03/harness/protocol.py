@@ -23,7 +23,10 @@ Harness -> service:
 - ``finish``  {}  : drain and end every trace stream; the service answers ``finished``.
 
 Service -> harness:
-- ``handshake`` {protocol, qualification, build_sha, points: [...], controls: [...]}
+- ``handshake`` {protocol, qualification, build_sha, points: [...], controls: [...],
+                 declared: {...}}  (``declared``: each family's static DECLARED-CONTACTS
+                 table, the Q-C5 oracle's declared side; shape in ``oracle.py``;
+                 p03-lead ruling 2026-09-25, CONTRACT-M1 §5 r4)
 - ``arrived``   {point, op_tag, operation_id, attempt, backend_pid, txid_if_assigned, seq}
 - ``trace``     {records: [trace record...]}   (orgtree.p03-trace/v1, see trace.py)
 - ``finished``  {streams: [stream name...], records: [...]}
@@ -65,7 +68,8 @@ FRAMES: dict[str, tuple[tuple[str, ...], str]] = {
     "plan": (("run_id", "holds", "controls"), "to_service"),
     "release": (("op_tag", "point"), "to_service"),
     "finish": ((), "to_service"),
-    "handshake": (("protocol", "qualification", "build_sha", "points", "controls"), "to_harness"),
+    "handshake": (("protocol", "qualification", "build_sha", "points", "controls", "declared"),
+                  "to_harness"),
     "arrived": (("point", "op_tag", "operation_id", "attempt", "backend_pid",
                  "txid_if_assigned", "seq"), "to_harness"),
     "trace": (("records",), "to_harness"),
@@ -117,6 +121,8 @@ def frame_errors(frame: Any) -> list[str]:
         errors.append(f"{kind}: protocol {frame.get('protocol')!r} is not {PROTOCOL}")
     if kind == "handshake" and not isinstance(frame.get("qualification"), bool):
         errors.append("handshake: qualification must be true or false")
+    if kind == "handshake" and not isinstance(frame.get("declared"), dict):
+        errors.append("handshake: declared must be an object")
     if kind == "plan":
         holds = frame.get("holds")
         if not isinstance(holds, list):
@@ -140,9 +146,13 @@ def frame_errors(frame: Any) -> list[str]:
 
 def plan_against_handshake(plan: dict[str, Any], handshake: dict[str, Any]) -> list[str]:
     """What a valid plan asks that this build cannot do. Non-empty: refuse the run."""
+    from .oracle import declared_errors
     errors = []
     if handshake.get("qualification") is not True:
         errors.append("the build reports no qualification pause points: refusing to drive it")
+    else:
+        errors += [f"the build's declared contacts are invalid: {e}"
+                   for e in declared_errors(handshake.get("declared"))]
     points = set(handshake.get("points") or ())
     unknown = sorted({h["point"] for h in plan.get("holds", [])} - points)
     if unknown:
