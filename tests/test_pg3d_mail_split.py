@@ -194,18 +194,53 @@ class SplitStorage(unittest.TestCase):
         self.assertEqual(mail['a'][-1], {'id': 'held'})
         self.assertEqual(mail['b'][-1], {'id': 'parallel'})
 
-    def test_snapshot_and_resident_see_owner_row_change(self) -> None:
-        with store.write_org(self.slug) as org:     # warm the resident
-            org.d['mail']['a'].append({'id': 'w1'})
-            store.save_org(org)
-        first = store.load_org(self.slug)          # snapshot/private load
-        self.assertEqual(first.d['mail']['a'][-1], {'id': 'w1'})
-        with orgtx.org_tx(self.slug, sections=[('mail', 'b')]) as tx:
-            tx.d['mail']['b'].append({'id': 'tx1'})
-        with store.write_org(self.slug) as org:
-            self.assertEqual(org.d['mail']['b'][-1], {'id': 'tx1'})
-            self.assertEqual(org.d['mail']['a'][-1], {'id': 'w1'})
-        self.assertEqual(store.load_org(self.slug).d['mail']['b'][-1], {'id': 'tx1'})
+    def test_shared_snapshot_refresh_reads_owner_rows(self) -> None:
+        store.cached_org(self.slug)                          # first build
+        assembled: list[bool] = []
+        orig = store._assemble_snapshot
+
+        def spy(slug, prev):
+            out = orig(slug, prev)
+            assembled.append(out is not None)
+            return out
+        store._assemble_snapshot = spy
+        try:
+            with orgtx.org_tx(self.slug, sections=[('mail', 'b')]) as tx:
+                tx.d['mail']['b'].append({'id': 'tx1'})
+            snap = store.cached_org(self.slug)
+        finally:
+            store._assemble_snapshot = orig
+        self.assertEqual(assembled, [True])     # the section-granular path ran
+        self.assertEqual(snap.d['mail']['b'][-1], {'id': 'tx1'})
+        self.assertEqual(snap.d['mail']['a'], [{'id': 'm1', 'body': 'x'}])
+
+    def test_resident_cold_start_advance_reads_owner_rows(self) -> None:
+        store._resident.pop(self.slug, None)
+        advanced: list[bool] = []
+        orig_pin, orig_adv = store._load_pinned, store._advance_resident
+
+        def pin(slug):
+            out = orig_pin(slug)
+            if slug == self.slug and not advanced:
+                # a commit AFTER the pin: the advance must re-read it
+                with orgtx.org_tx(slug, sections=[('mail', 'b')]) as tx:
+                    tx.d['mail']['b'].append({'id': 'late'})
+            return out
+
+        def adv(slug, d):
+            ok = orig_adv(slug, d)
+            advanced.append(ok)
+            return ok
+        store._load_pinned, store._advance_resident = pin, adv
+        try:
+            with store.write_org(self.slug) as org:
+                mail = {k: list(v) for k, v in org.d['mail'].items()}
+        finally:
+            store._load_pinned, store._advance_resident = orig_pin, orig_adv
+        self.assertEqual(advanced, [True])      # the advance ran and was trusted
+        self.assertIs(store._resident.get(self.slug) is not None, True)
+        self.assertEqual(mail['b'][-1], {'id': 'late'})
+        self.assertEqual(mail['a'], [{'id': 'm1', 'body': 'x'}])
 
 
 if __name__ == '__main__':
