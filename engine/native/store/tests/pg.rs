@@ -108,7 +108,7 @@ struct SetStatus {
 
 const ANCHOR: &str = "SELECT lifecycle, generation FROM authority_epoch WHERE org_id = $1 AND principal_id = $2 FOR SHARE";
 const LOCK_OWN: &str = "SELECT version FROM runtime_state WHERE org_id = $1 AND principal_id = $2 FOR NO KEY UPDATE";
-const UPDATE: &str = "UPDATE runtime_state SET status = $3, version = version + 1, \
+const UPDATE: &str = "UPDATE runtime_state SET busy = ($3 <> ''), version = version + 1, \
      updated_at = to_timestamp($4::double precision / 1000000) WHERE org_id = $1 AND principal_id = $2 RETURNING version";
 const INTENT: &str = "INSERT INTO outgoing_intents (org_id, intent_id, kind, source_ref, dest_ref, due_at, created_at) \
      VALUES ($1, gen_random_uuid(), 'notify', $2, NULL, now(), now())";
@@ -275,7 +275,7 @@ fn executor(script: Arc<Script>, controls: Vec<&'static str>) -> (Executor<Facto
         4,
         Factory::new(cfg, "lookup", h.clone()),
         2,
-        ExecConfig { max_attempts: 6, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5), lock_timeout_ms: None },
+        ExecConfig { max_attempts: 6, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5), lock_timeout_ms: None, statement_timeout_ms: None, idle_in_transaction_timeout_ms: None },
         h,
     );
     (ex, ev)
@@ -540,7 +540,7 @@ fn executor_via(port: u16, controls: Vec<&'static str>) -> (Executor<Factory>, A
         2,
         Factory::new(cfg, "lookup", h.clone()),
         1,
-        ExecConfig { max_attempts: 6, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5), lock_timeout_ms: None },
+        ExecConfig { max_attempts: 6, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5), lock_timeout_ms: None, statement_timeout_ms: None, idle_in_transaction_timeout_ms: None },
         h,
     );
     (ex, ev)
@@ -920,7 +920,7 @@ async fn q_rl2_lock_timeout_answers_running_and_fences_nothing() {
         2,
         Factory::new(cfg, "lookup", h.clone()),
         1,
-        ExecConfig { max_attempts: 6, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5), lock_timeout_ms: Some(300) },
+        ExecConfig { max_attempts: 6, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5), lock_timeout_ms: Some(300), statement_timeout_ms: None, idle_in_transaction_timeout_ms: None },
         h,
     ));
     let k = key();

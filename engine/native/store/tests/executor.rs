@@ -514,3 +514,63 @@ mod anchor_refusal {
         assert!(trace.has("outcome:refused"));
     }
 }
+
+/// Review finding 1: after a lost COMMIT, the in-doubt original is settled by
+/// re-claiming its key BEFORE any anchor runs, so an anchor that now refuses
+/// (the operation retired its own caller; a halt landed) can never answer
+/// "refused" for an operation that committed.
+mod resolution_before_anchor {
+    use super::*;
+    use orgtree_store::{Binding, CmdError, Command, Decided, Family, Refusal, Session, Tx};
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    struct SelfRetire {
+        anchors: AtomicU32,
+    }
+    impl Command for SelfRetire {
+        type Output = i64;
+        fn family(&self) -> &'static Family {
+            &FAM
+        }
+        fn verb(&self) -> &'static str {
+            "self_retire"
+        }
+        async fn anchor<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding) -> Result<(), CmdError> {
+            // the first attempt retires the caller; any later anchor refuses
+            if self.anchors.fetch_add(1, Ordering::SeqCst) > 0 {
+                return Err(CmdError::Refused(Refusal::new("caller_not_live", "archived")));
+            }
+            Ok(())
+        }
+        async fn may_disclose<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding, _o: &i64) -> Result<bool, CmdError> {
+            Ok(true)
+        }
+        async fn execute<S: Session>(&self, tx: &mut Tx<'_, S>, _b: &Binding) -> Result<Decided<i64>, CmdError> {
+            tx.exec("fake.insert:rows", "INSERT ...", &[]).await?;
+            Ok(Decided::Applied(1))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_committed_operation_is_replayed_even_if_its_anchor_now_refuses() {
+        let db = FakeDb::new();
+        db.fault("commit", 1, FaultKind::CommitLostAfterApply);
+        let (ex, _) = exec(&db);
+        let cmd = SelfRetire { anchors: AtomicU32::new(0) };
+        let o = ex.run(&cmd, &binding("k1", "fp1")).await.unwrap();
+        assert_eq!(o, Outcome::Replayed(1), "the committed outcome, not a refusal");
+        assert_eq!(cmd.anchors.load(Ordering::SeqCst), 1, "no anchor ran before the resolution");
+        assert_eq!(db.rows("rows").len(), 1);
+    }
+
+    #[tokio::test]
+    async fn an_uncommitted_operation_then_meets_its_anchor_normally() {
+        let db = FakeDb::new();
+        db.fault("commit", 1, FaultKind::CommitLostBeforeApply);
+        let (ex, _) = exec(&db);
+        let cmd = SelfRetire { anchors: AtomicU32::new(0) };
+        let o = ex.run(&cmd, &binding("k1", "fp1")).await.unwrap();
+        assert!(matches!(o, Outcome::Refused(ref r) if r.code == "caller_not_live"), "{o:?}");
+        assert!(db.rows("rows").is_empty());
+    }
+}
