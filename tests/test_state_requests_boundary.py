@@ -77,7 +77,10 @@ class BoundaryBinding(unittest.TestCase):
         self.assertEqual(len(spec['contracts']), 22)
         for fam in ('asks', 'watchdogs', 'audiences'):
             for d in contracts.DIMENSIONS:
-                want = 'unresolved' if d in ('conflicts', 'wire', 'instrumentation') else 'specified'
+                # instrumentation: asks and audiences closed, watchdogs narrowed to the smoke run, from P02's rows
+                # (P01 F3/F2 instrumentation follow-up; asserted in tests/test_state_p02_contact_facets.py)
+                open_dims = ('conflicts', 'wire') + (('instrumentation',) if fam == 'watchdogs' else ())
+                want = 'unresolved' if d in open_dims else 'specified'
                 self.assertEqual(registry['facets'][fam + '.' + d]['status'], want, fam + '.' + d)
         # the operator scope route joins lifecycle.* (a retool by the operator)
         self.assertEqual(registry['contracts']['lifecycle.operator-scope']['dimensions'],

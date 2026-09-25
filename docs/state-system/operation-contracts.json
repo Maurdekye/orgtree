@@ -8973,14 +8973,12 @@
     },
     "asks.instrumentation": {
       "dimension": "instrumentation",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "The agent door labels each call (stateprobe.refine('tool:' + tool)); the routes are labelled by the access middleware. No P02 per-operation record covers this family yet."
+        "The agent door labels each call (stateprobe.refine('tool:' + tool)); the routes are labelled by the access middleware. P02's per-operation record covers the family (below).",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 bfbc4ae): a loss-accounted per-operation record for all seven asks contracts cold and warm (one census record matching the harness each), with the routed, top-level, no-open-ask and dismiss variants and six refusals. No row makes an unknown contact or touches another org's store, every refusal writes nothing and changes no agent's mail, and agent-level locality stays within each row's declared set. The family's locality control control:requests-third-agent (a watchdogs.pause row that also writes a third agent) is flagged, and no other row of the asks, watchdogs or audiences families touches a third agent. Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
       ],
-      "open_questions": [
-        "Observe every asks, reports and scope requests operation with the P02 per-operation probe: actual contacts per outcome, cold and warm, refusals included.",
-        "Owner: P02 (p02-contacts-opus55; coordinator ruling Q6 on p01-f1-contracts-for-the-org-lifecycle-and-catal: probed after this family lands). Closes with: a loss-accounted P02 record per row. Not coverable at P01 from available evidence: P01 does not run the P02 probe, and no P02 record covers this family yet."
-      ],
+      "open_questions": [],
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
@@ -9398,11 +9396,12 @@
       "dimension": "instrumentation",
       "status": "unresolved",
       "facts": [
-        "The agent door labels each call (stateprobe.refine('tool:' + tool)); the routes are labelled by the access middleware. No P02 per-operation record covers this family yet."
+        "The agent door labels each call (stateprobe.refine('tool:' + tool)); the routes are labelled by the access middleware. P02's per-operation record covers the family, except the smoke run (below).",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 bfbc4ae): a loss-accounted per-operation record for all seven watchdog contracts cold and warm (one census record matching the harness each), with the ancestor list, the keyed list fresh and replayed, and six refusals. No row makes an unknown contact or touches another org's store, every refusal writes nothing and changes no agent's mail, and agent-level locality stays within each row's declared set. The family's locality control control:requests-third-agent (a watchdogs.pause row that also writes a third agent) is flagged, and no other row of the asks, watchdogs or audiences families touches a third agent. NOT covered: the actual contacts of the smoke run a create performs (supervisor.wd_smoke), which the probe replaces with a spy (question below). Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "open_questions": [
-        "Observe every watchdog operation with the P02 per-operation probe: actual contacts per outcome, cold and warm, refusals included.",
-        "Owner: P02 (p02-contacts-opus55; coordinator ruling Q6 on p01-f1-contracts-for-the-org-lifecycle-and-catal: probed after this family lands). Closes with: a loss-accounted P02 record per row. Not coverable at P01 from available evidence: P01 does not run the P02 probe, and no P02 record covers this family yet."
+        "Observe the actual contacts of a watchdog create's smoke run (its target run once at create) with the P02 per-operation probe, cold and warm.",
+        "Owner: P02 (p02-contacts-opus55). Closes with: a loss-accounted P02 record of a real smoke run (narrowed by P01's F3/F2 instrumentation follow-up from the whole family). Not coverable at P01 from available evidence: the P02 record at v3 bfbc4ae runs the smoke as a spy, and P01 does not run the P02 probe as its own evidence."
       ],
       "source_refs": [
         {
@@ -9819,14 +9818,12 @@
     },
     "audiences.instrumentation": {
       "dimension": "instrumentation",
-      "status": "unresolved",
+      "status": "specified",
       "facts": [
-        "The agent door labels each call (stateprobe.refine('tool:' + tool)); the routes are labelled by the access middleware. No P02 per-operation record covers this family yet."
+        "The agent door labels each call (stateprobe.refine('tool:' + tool)); the routes are labelled by the access middleware. P02's per-operation record covers the family (below).",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 bfbc4ae): a loss-accounted per-operation record for all seven audience contracts cold and warm (one census record matching the harness each), with the already-reachable request and four refusals, of which the agent-credential refusal is answered before any census attempt. No row makes an unknown contact or touches another org's store, every refusal writes nothing and changes no agent's mail, and agent-level locality stays within each row's declared set. The family's locality control control:requests-third-agent (a watchdogs.pause row that also writes a third agent) is flagged, and no other row of the asks, watchdogs or audiences families touches a third agent. Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
       ],
-      "open_questions": [
-        "Observe every audience operation with the P02 per-operation probe: actual contacts per outcome, cold and warm, refusals included.",
-        "Owner: P02 (p02-contacts-opus55; coordinator ruling Q6 on p01-f1-contracts-for-the-org-lifecycle-and-catal: probed after this family lands). Closes with: a loss-accounted P02 record per row. Not coverable at P01 from available evidence: P01 does not run the P02 probe, and no P02 record covers this family yet."
-      ],
+      "open_questions": [],
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
@@ -10217,11 +10214,12 @@
       "dimension": "instrumentation",
       "status": "unresolved",
       "facts": [
-        "The agent door labels each call (stateprobe.refine('tool:' + tool)); the routes are labelled by the access middleware. No P02 per-operation record covers this family yet."
+        "The agent door labels each call (stateprobe.refine('tool:' + tool)); the routes are labelled by the access middleware. P02's per-operation record covers the family, except the process effects (below).",
+        "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 bfbc4ae): a loss-accounted per-operation record for all 26 run-control contracts cold and warm (one census record matching the harness each, except the agent-credential refusal, which is answered before any census attempt), both product profiles for self_restart, prime_restart and the kiosk route (the stripped route answers 404 in the probe's app, which mounts no UI catch-all; see control.authority), the variants and 18 refusals. No row makes an unknown contact or touches another org's store, and every refusal writes nothing and changes no agent's mail. Agent-level locality: apart from the flagged control control:control-third-agent, the only third agent any row writes is the node unhalted earlier in the warm run, whose steer_attempts log_d rows every later warm save rewrites (the recorded legacy defect in control.writes). NOT covered: the process effects themselves, which the probe keeps as spies by design (question below). Native negative controls are the P03 gate, not a clause of this legacy facet (S2d decision 1, reviewer ruling on 803227e). Asserted by tests/test_state_p02_contact_facets.py."
       ],
       "open_questions": [
-        "Observe every run-control operation with the P02 per-operation probe, including the process effects the P01 test replaces with spies.",
-        "Owner: P02 (p02-contacts-opus55; coordinator ruling Q6 on p01-f1-contracts-for-the-org-lifecycle-and-catal: probed after this family lands). Closes with: a loss-accounted P02 record per row. Not coverable at P01 from available evidence: P01 does not run the P02 probe, and no P02 record covers this family yet."
+        "Observe the run-control process effects with real processes: halt's process cut, the interrupts, the killswitch sweep, the warm-pool process control, remote control, the restart launch and the prime arm and cancel.",
+        "Owner: P02's runtime instrumentation stage, with P08 for the runtime. Closes with: an observed record of each process effect on a disposable runtime (narrowed by P01's F3/F2 instrumentation follow-up from the whole family). Not coverable at P01 from available evidence: the P02 record at v3 bfbc4ae keeps the process effects as spies by design (never a real halt, restart or kill), as P01's own tests do."
       ],
       "source_refs": [
         {

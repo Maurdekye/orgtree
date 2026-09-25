@@ -870,6 +870,61 @@ class ContactFacets(unittest.TestCase):
         for contract in ("lifecycle.account-assign", "lifecycle.lineage-recover", "lifecycle.lineage-drop-phantom"):
             self.assertEqual({r["http_status"] for r in rows if r["contract"] == contract}, {422}, contract)
 
+    # -- P01 F3/F2 instrumentation follow-up: P02's rows at v3 bfbc4ae -----------------------------------------------
+    def family_rows(self, facet):
+        registry = json.loads((ROOT / "docs/state-system/operation-contracts.json").read_text(encoding="utf-8"))
+        names = {k for k, c in registry["contracts"].items() if c["dimensions"]["instrumentation"] == [facet]}
+        return names, [r for r in self.doc["rows"] if r["contract"] in names]
+
+    def assert_family(self, facet, refusals, unanswered=()):
+        names, rows = self.family_rows(facet)
+        for name in names:
+            self.assertEqual({r["condition"] for r in rows if r["contract"] == name}, {"cold", "warm"}, name)
+        for r in rows:
+            with self.subTest(facet=facet, variant=r["variant"], condition=r["condition"]):
+                self.assertEqual((r["unknown_contacts"], self.foreign(r)), ([], 0))
+                self.assertEqual(r["census"]["records"], 0 if r["variant"] in unanswered else 1)
+                if r["variant"].startswith("refusal:"):
+                    self.assertEqual((self.written(r), r["agents"]["physical_written"], r["agents"]["logical"]),
+                                     ([], [], {}))
+        self.assertEqual(sum(r["variant"].startswith("refusal:") for r in rows), refusals, facet)
+        return rows
+
+    def test_f3_requests_families_contacts_and_locality(self):
+        for facet, refusals, unanswered in (("asks.instrumentation", 6, ()), ("watchdogs.instrumentation", 6, ()),
+                                            ("audiences.instrumentation", 4, ("refusal:aud-list-agent-token",))):
+            rows = self.assert_family(facet, refusals, unanswered)
+            for r in rows:
+                if r["variant"] != "control:requests-third-agent":
+                    self.assertEqual((r["agents"]["third_agent_mail"], r["agents"]["third_agent_rows_written"]),
+                                     (0, 0), (r["variant"], r["condition"]))
+        # the family's locality control sits on a watchdogs.pause row and fires
+        [control] = [r for r in self.doc["rows"] if r["variant"] == "control:requests-third-agent"]
+        self.assertGreater(control["agents"]["third_agent_mail"], 0)
+
+    def test_f2_control_contacts_and_the_unhalt_carry_over(self):
+        rows = self.assert_family("control.instrumentation", 18, ("refusal:route-agent-token",))
+        # apart from the locality control, the only third agent a row writes is the node unhalted earlier in the
+        # warm run: its steer_attempts log_d rows, re-written by every later save (control.writes' legacy defect)
+        carried = 0
+        for r in rows:
+            third = set(r["agents"]["physical_written"]) - set(r["agents"]["targets"])
+            if r["variant"] == "control:control-third-agent":
+                self.assertGreater(r["agents"]["third_agent_mail"], 0)
+            elif third:
+                carried += 1
+                self.assertEqual((third, r["condition"], r["agents"]["third_agent_mail"]),
+                                 ({"ct-unhalt-warm-m"}, "warm", 0), r["variant"])
+                # what it WRITES of that node is only log_d (a read, e.g. halt.blocked's, is not a write)
+                writes = [site for site in r["agents"]["third_sites"] if ":write@" in site]
+                self.assertTrue(writes and all(site.startswith("log_d:write@") for site in writes),
+                                r["agents"]["third_sites"])
+        self.assertGreater(carried, 0)
+        # the stripped kiosk route: this probe's app mounts no UI catch-all, so 404 (405 where one is mounted)
+        for condition in ("cold", "warm"):
+            kiosk = self.exact("control.kiosk", "control.kiosk:desktop-stripped", condition)
+            self.assertEqual((kiosk["http_status"], self.written(kiosk)), (404, []))
+
     QS_READS = ("quick-staff.options", "quick-staff.options-refresh", "quick-staff.preview",
                 "quick-staff.preview:under-assignee", "quick-staff.preview:top-level",
                 "quick-staff.select:replay", "quick-staff.select:under-assignee:replay",

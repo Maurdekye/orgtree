@@ -59,7 +59,9 @@ class ContractCoverage(unittest.TestCase):
         # dimension occurrences (conflicts, wire and instrumentation on each of 5 relaunch contracts)
         # 673 -> 659 (P01 F1/F1b follow-up): operator-ops.variant-instrumentation closed from P02's rows, 14 open
         # dimension occurrences fewer (one on each F1b contract); lifecycle.instrumentation only narrowed
-        self.assertEqual(len(result["pending"]), 659)
+        # 659 -> 645 (P01 F3/F2 instrumentation follow-up): asks.instrumentation and audiences.instrumentation closed
+        # from P02's rows (7 contracts each); watchdogs and control instrumentation only narrowed
+        self.assertEqual(len(result["pending"]), 645)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the

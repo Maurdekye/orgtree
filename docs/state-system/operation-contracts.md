@@ -120,14 +120,14 @@ diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
 Current totals are 128 contracts, 87 mapped registrations and 158 mapped
-dispatch witnesses. **659 obligations remain**: 237 registrations, 62 dispatch
-witnesses, 14 storage candidates and 346 unresolved dimension occurrences.
+dispatch witnesses. **645 obligations remain**: 237 registrations, 62 dispatch
+witnesses, 14 storage candidates and 332 unresolved dimension occurrences.
 From P01 F1 on, progress is reported as three numbers (coordinator ruling Q1, decision 1 on
 p01-f1-contracts-for-the-org-lifecycle-and-catal): **entries contracted 54/194** (of the concrete http,
 websocket and tool entries that were on the generic reason; F1b contracts none of them, since the
 operator door had its own reason; F3 contracts thirteen; F2 twenty-two; the relaunch-cards item none of
-them, since its three contracted entries are new witnesses outside the 194), **346 open dimension
-occurrences** and **659 total pending**. Total pending RISES while the 194 are contracted, to about 790-1000 when all
+them, since its three contracted entries are new witnesses outside the 194), **332 open dimension
+occurrences** and **645 total pending**. Total pending RISES while the 194 are contracted, to about 790-1000 when all
 twelve families have landed, and that rise is expected: each new contract closes its entry but opens
 its own conflicts, wire and instrumentation dimensions until P03, the native conversion and P02 answer
 them.
@@ -434,6 +434,15 @@ lineage-recover and lineage-drop-phantom (refusal rows only). Both are asserted 
   warm sequence, which a reload between calls hides.
 - `control.authority`: the stripped kiosk route answers 405 when the packaged UI's GET catch-all is mounted, and
   404 otherwise. The earlier pin of 405 depended on the machine's `ORGTREE_V2_UI_DIR`.
+
+645 is fourteen fewer than that 659 (P01 F3/F2 instrumentation follow-up). P02's rows at v3 bfbc4ae close
+`asks.instrumentation` and `audiences.instrumentation`. They narrow `watchdogs.instrumentation` to the create's
+smoke run, which the probe spies, and `control.instrumentation` to the process effects, which stay spies by design.
+All four hand-offs are marked "partly". Following every earlier closure, native negative controls are the P03 gate
+and not a clause of a legacy facet (S2d decision 1), so a facet closes when that is all P02 names as not covered.
+The control rows also confirm the unhalt carry-over: apart from the locality control, the only third agent any
+warm run-control row writes is the node unhalted earlier, through its `steer_attempts` rows. Asserted in
+`tests/test_state_p02_contact_facets.py`.
 
 Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the
