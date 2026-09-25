@@ -221,8 +221,8 @@ async fn a_missing_charter_body_fails_closed_and_a_stale_vector_recaptures() {
     reset().await;
     let (ex, _ev) = executor(vec![]);
     admin_exec(&format!(
-        "INSERT INTO charter_versions (org_id, principal_id, version, body, body_sha256, saved_at) VALUES ('{o}', '{a}', 1, 'team charter', 'x', now());
-         INSERT INTO charter_heads (org_id, principal_id, current_version) VALUES ('{o}', '{a}', 1);",
+        "INSERT INTO charter_versions (org_id, principal_id, charter_kind, version, body, body_sha256, saved_at) VALUES ('{o}', '{a}', 'team', 1, 'team charter', 'x', now());
+         INSERT INTO charter_heads (org_id, principal_id, charter_kind, current_version) VALUES ('{o}', '{a}', 'team', 1);",
         o = org(),
         a = a()
     ))

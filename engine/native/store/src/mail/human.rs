@@ -122,6 +122,9 @@ impl Command for HumanSend {
     async fn may_disclose<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding, _o: &HumanSendResult) -> Result<bool, CmdError> {
         Ok(true)
     }
+    fn causal_refs(&self) -> Vec<String> {
+        vec![self.message_id.to_string()]
+    }
     async fn execute<S: Session>(&self, tx: &mut Tx<'_, S>, b: &Binding) -> Result<Decided<HumanSendResult>, CmdError> {
         let org = b.op.org;
         // step 3: the node's epoch row FOR NO KEY UPDATE from the start, since

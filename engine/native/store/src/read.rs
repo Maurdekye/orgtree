@@ -41,6 +41,7 @@ impl<C: Connector> Executor<C> {
             let mut tx = Tx::new_internal(&mut *conn, self.hooks(), r.family(), r.verb(), &op, op_tag, attempt, None);
             let res: Result<R::Output, CmdError> = async {
                 tx.begin(Isolation::RepeatableReadReadOnly).await?;
+                tx.set_timeouts(self.config()).await?;
                 tx.pause("begin").await?;
                 let out = r.run(&mut tx).await?;
                 tx.pause("before_emit").await?;

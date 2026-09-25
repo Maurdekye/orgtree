@@ -91,7 +91,7 @@ pub async fn run_turn<C: Connector>(exec: &Executor<C>, org: uuid::Uuid, seat: u
 
 fn mark(exec_hooks: &crate::hooks::Hooks, op: &OpIdentity, point: &str) {
     let s = Scope { hooks: exec_hooks, family: "runtime", verb: "turn", op: Some(op), op_tag: None, attempt: 0 };
-    s.emit(crate::hooks::EventKind::Pause { point }, false);
+    s.emit(crate::hooks::EventKind::Mark { name: point }, false);
 }
 
 async fn turn<C: Connector>(exec: &Executor<C>, org: uuid::Uuid, seat: uuid::Uuid, provider: &FakeProvider, op: &OpIdentity) -> Result<Turn, ExecError> {

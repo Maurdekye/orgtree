@@ -343,3 +343,14 @@ fn the_replication_role_reads_exactly_the_published_set() {
     let got: Vec<&str> = inner.split(',').map(str::trim).collect();
     assert_eq!(got, RECEIPT_PUBLISHED_COLUMNS);
 }
+
+/// WS1's runner rule (2026-09-25): a range's migrations are contiguous and
+/// start at the range's first number (0001, 0100, 0200, ...).
+#[test]
+fn each_range_is_contiguous_from_its_first_number() {
+    for r in RANGE_DEFS {
+        let versions: Vec<u32> = r.migrations().map(|m| m.version).collect();
+        let want: Vec<u32> = (r.first..r.first + versions.len() as u32).collect();
+        assert_eq!(versions, want, "range {} must number its migrations {}, {}, ... without gaps", r.name, r.first, r.first + 1);
+    }
+}

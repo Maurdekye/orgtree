@@ -52,9 +52,11 @@ async fn control_remint_identity_duplicates_rows() {
     assert!(c.has("control_executed:Q-C4.remint_identity"), "control did not record that it ran");
     assert!(matches!(o, Outcome::Applied(_)));
     assert_eq!(db.rows("rows").len(), 2, "the unsafe control must produce the duplicate");
+    // claims: the original, the resolution probe (under the re-minted key),
+    // then the new attempt under that same re-minted key
     let keys = claim_keys(&db);
-    assert_eq!(keys.len(), 2);
-    assert_ne!(keys[0], keys[1]);
+    assert!(keys.len() >= 2, "{keys:?}");
+    assert_ne!(keys[0], *keys.last().unwrap(), "the retry ran under a NEW key");
 }
 
 /// Q-C4 control: reusing the old attempt timestamp on retry.

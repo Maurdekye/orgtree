@@ -109,7 +109,13 @@ pub async fn handle<C: Connector>(exec: &Executor<C>, req: &Request) -> Option<R
         }
         "mail.human-send" => {
             let run = async {
-                let b = binding(req)?;
+                let operator = match (req.binding.principal_kind.as_str(), req.binding.principal) {
+                    ("operator", Some(id)) => id,
+                    _ => return Err(bad("the human send is made by the operator")),
+                };
+                let fp = a.get("fingerprint").and_then(Value::as_str).unwrap_or("");
+                // E-D4: client_op is the key (the Q-HM2 control ignores it)
+                let b = human::human_binding(exec.hooks(), org, operator, req.binding.key.as_deref(), fp);
                 let cmd = HumanSend {
                     node: uuid_arg(a, "node")?,
                     message_id: a.get("message_id").and_then(Value::as_str).and_then(|s| s.parse().ok()).unwrap_or_else(Uuid::new_v4),

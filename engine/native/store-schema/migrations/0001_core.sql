@@ -141,21 +141,20 @@ CREATE TABLE scope_rows (
 CREATE INDEX scope_rows_top_down ON scope_rows (org_id, depth, principal_id);
 
 -- Minimal runtime state (E-D13, r7 C2a P4). Frequently written: never an
--- anchor for authority.
+-- anchor for authority. The agent's reported STATUS is not here: S3 §4.1
+-- keeps it in its own narrow per-seat row, added by WS4 in 0200 (lead
+-- request 2026-09-25), so status lives in exactly one place.
 CREATE TABLE runtime_state (
     org_id        uuid        NOT NULL,
     principal_id  uuid        NOT NULL,
     busy          boolean     NOT NULL DEFAULT false,
-    status        text        COLLATE "C" NOT NULL DEFAULT 'idle',
-    status_note   text        NULL,
     bg_open       integer     NOT NULL DEFAULT 0,
     updated_at    timestamptz NOT NULL,
     version       bigint      NOT NULL DEFAULT 0,
     CONSTRAINT runtime_state_pk PRIMARY KEY (org_id, principal_id),
     CONSTRAINT runtime_state_agent_fk FOREIGN KEY (org_id, principal_id)
         REFERENCES agents (org_id, principal_id),
-    CONSTRAINT runtime_state_bg_open CHECK (bg_open >= 0),
-    CONSTRAINT runtime_state_note_bounded CHECK (status_note IS NULL OR octet_length(status_note) <= 16384)
+    CONSTRAINT runtime_state_bg_open CHECK (bg_open >= 0)
 );
 
 -- Audience grants. Every insert or delete bumps the grantee's
@@ -256,15 +255,19 @@ CREATE TABLE service_incarnations (
 );
 
 -- E-D13: an admitted keyed call, inserted in its own short transaction
--- before the command transaction and deleted when the call ends.
+-- before the command transaction and deleted when the call ends. ONE ROW PER
+-- CALL (call_id): a concurrent same-key duplicate is admitted too, then waits
+-- on the original's claim and replays (E7), as legacy's in-flight set lets
+-- both proceed (review finding 2).
 CREATE TABLE runtime_inflight (
     org_id               uuid        NOT NULL,
     ns_kind              text        COLLATE "C" NOT NULL,
     ns_id                uuid        NOT NULL,
     op_key               text        COLLATE "C" NOT NULL,
     service_incarnation  uuid        NOT NULL,
+    call_id              uuid        NOT NULL,
     admitted_at          timestamptz NOT NULL,
-    CONSTRAINT runtime_inflight_pk PRIMARY KEY (org_id, ns_kind, ns_id, op_key, service_incarnation),
+    CONSTRAINT runtime_inflight_pk PRIMARY KEY (org_id, ns_kind, ns_id, op_key, service_incarnation, call_id),
     -- no FK to organizations: high-rate table (F2)
     CONSTRAINT runtime_inflight_service_fk FOREIGN KEY (service_incarnation)
         REFERENCES service_incarnations (incarnation_id)
