@@ -362,7 +362,8 @@ def b():
         # branch in api.agent_call, routing the agent read door.
         # 226 -> 227: the same item adds the `orgtree_account_mark` branch.
         # 227 -> 223: the external-chat retirement removes externtool.py's four tool branches
-        self.assertEqual(summary["dispatch_selector_sites"], 223)
+        # 223 -> 224: P03 WS2's door registration seam adds p03_door._tool_name's orgtree_op_call branch
+        self.assertEqual(summary["dispatch_selector_sites"], 224)
         # 15 -> 18: engine/mailhub_runtime.py's hub store migration opens three connections
         self.assertEqual(summary["connection_sites"], 18)
         self.assertEqual([(r["source"]["path"], r["source"]["symbol"], r["target"])

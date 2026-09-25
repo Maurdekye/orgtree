@@ -80,7 +80,9 @@ class ContractCoverage(unittest.TestCase):
         # admission layers (RecoveryBarrier, FrozenAdminBoundary) stay pending
         # 744 -> 752 (P01 F9): 6 entries and 4 storage witnesses mapped, 18 new open dimension occurrences
         # (conflicts, wire and instrumentation on each of 6 desktop-import contracts)
-        self.assertEqual(len(result["pending"]), 752)
+        # 752 -> 753 (re-anchor on P03 WS2's door follow-up): the door's registration seam adds one dispatch branch,
+        # p03_door._tool_name's orgtree_op_call unwrap, which stays pending like its toolwait.tool_name twin
+        self.assertEqual(len(result["pending"]), 753)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -263,7 +265,7 @@ class ContractCoverage(unittest.TestCase):
                        ("service_host.py", 465)}
 
     # p01-inventory-misses-middleware-add-middleware-c: middleware installed by a call, not a decorator
-    MIDDLEWARE_EXCLUDED = {("api.py", 679), ("api.py", 683), ("p03_door.py", 219)}
+    MIDDLEWARE_EXCLUDED = {("api.py", 679), ("api.py", 683), ("p03_door.py", 258)}
     MIDDLEWARE_PENDING = {("api.py", 121), ("api.py", 680)}
 
     def test_middleware_registrations_are_triaged(self):
@@ -286,16 +288,36 @@ class ContractCoverage(unittest.TestCase):
                     self.assertEqual(r["disposition"], "excluded")
                     self.assertTrue(r["reason"].startswith("Not "), r["reason"])
                     self.assertIn(item, r["reason"])
-        door = found[("p03_door.py", 219)][0]
+        door = found[("p03_door.py", 258)][0]
         self.assertEqual((door["kind"], door["method"], door["form"], door["target"]),
                          ("hook", "middleware", "direct_call", "_Router(root)"))
-        # the door row is excluded only while the door is inert: once SLICE_TOOLS names a verb, _Router is a second
-        # /api/agent dispatch path and this row (and the contracts of the verbs it forwards) must be revisited
-        tree = ast.parse((ROOT / "engine/backend/orgtree/p03_door.py").read_text(encoding="utf-8-sig"))
-        [value] = [n.value for n in tree.body if isinstance(n, ast.AnnAssign)
-                   and isinstance(n.target, ast.Name) and n.target.id == "SLICE_TOOLS"]
-        self.assertEqual(ast.dump(value), ast.dump(ast.parse("frozenset()", mode="eval").body),
-                         "p03_door.SLICE_TOOLS names slice verbs: revisit the door's middleware entry row")
+        # the door row is excluded only while the door is inert: _Router dispatches nothing until a family calls
+        # p03_door.register, which fills the door's tool and route tables (SLICE_TOOLS is derived from them). Once a
+        # scanned engine module registers one, _Router is a second /api/agent dispatch path and a REST route owner,
+        # and this row (and the contracts of what it forwards) must be revisited
+        callers = []
+        for module in self.source["modules"]:
+            if module["path"].endswith("/p03_door.py"):
+                continue
+            tree = ast.parse((ROOT / module["path"]).read_text(encoding="utf-8-sig"))
+            names = {a.asname or a.name for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom))
+                     for a in n.names if a.name.rsplit(".", 1)[-1] == "p03_door"}
+            for n in ast.walk(tree):
+                if ((isinstance(n, ast.ImportFrom) and (n.module or "").rsplit(".", 1)[-1] == "p03_door"
+                     and any(a.name == "register" for a in n.names))
+                        or (isinstance(n, ast.Attribute) and n.attr == "register"
+                            and (isinstance(n.value, ast.Name) and n.value.id in names
+                                 or isinstance(n.value, ast.Attribute) and n.value.attr == "p03_door"))):
+                    callers.append((module["path"], n.lineno))
+        self.assertEqual(callers, [], "a family registers with the P03 door: revisit the door's middleware entry row")
+        # the door's one dispatch branch (the orgtree_op_call unwrap in _tool_name) stays pending, like its
+        # toolwait.tool_name twin
+        [branch] = [s for s in self.source["dispatch_selectors"] if s["source"]["path"].endswith("/p03_door.py")]
+        self.assertEqual((branch["source"]["symbol"], branch["values"]), ("_tool_name", ["orgtree_op_call"]))
+        row = {r["id"]: r for r in self.document["dispatch"]}[contracts.witness_id("dispatch", branch)]
+        self.assertEqual(row["disposition"], "pending")
+        self.assertIn("toolwait.tool_name", row["reason"])
+        self.assertIn("Owner: P01 (the agent door)", row["reason"])
 
     def test_every_excluded_witness_belongs_to_a_reviewed_triage_step(self):
         # no exclusion outside S2k (storage) and W1/W2/W3/W8 (their review records hold the source reading)
