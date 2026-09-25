@@ -177,6 +177,75 @@ class Hook(unittest.TestCase):
         self.assertNotIn('e', out, out.get('e'))
         self.assertEqual(out['r']['account'], rid)
 
+    # ---------------------------------------------------------- F1 / F2
+    # Plan decision 27.
+
+    def test_a_raising_after_step_keeps_the_committed_write(self):
+        """F2: an `after.then` that raises is AFTER the commit — the row is
+        committed, the call succeeds and the failure is a warning."""
+        def boom(result):
+            raise RuntimeError('then broke')
+
+        def body(tx):
+            self.good(tx)
+            tx.after.then.append(boom)
+            return {'ok': True}
+        self.declare(body)
+        r0 = self.rev()
+        r = self.call()
+        self.assertTrue(r['ok'])
+        self.assertEqual(self.rev(), r0 + 1)
+        self.assertEqual(store.load_org(self.slug).node('worker')['charter'],
+                         'via-door')
+        self.assertEqual(r['warnings'], [{'step': 'then:boom',
+                                          'error': 'RuntimeError: then broke'}])
+        self.assertEqual(self.hub, [1])          # the rest of the tail still ran
+
+    def test_a_raising_wake_is_a_warning_and_the_tail_goes_on(self):
+        def send(slug, target, *a, **k):
+            raise OSError('pipe gone')
+        self.declare(self.good)
+        with patch.object(supervisor, 'send_message', send):
+            r = self.call()
+        self.assertTrue(r['ok'])
+        self.assertEqual([w['step'] for w in r['warnings']], ['drive:boss'])
+        self.assertEqual(len(self.thens), 1)
+        self.assertEqual(self.hub, [1])
+
+    def test_before_runs_once_outside_the_transaction_and_feeds_pre(self):
+        seen, bodies = [], []
+
+        def before(call, a):
+            seen.append((pgdoor.current(self.slug), call.node))
+            return {'resolved': 'acct-x'}
+
+        def body(tx):
+            bodies.append(tx.pre.get('resolved'))
+            if len(bodies) == 1:
+                raise pgdoor.Widen(nodes=['boss'])     # one re-run
+            return {'ok': True}
+        pgdoor.LOCKS.pop(TOOL, None)
+        pgdoor.BODIES.pop(TOOL, None)
+        pgdoor.declare(TOOL, pgdoor.TxSpec(), body=body, before=before)
+        self.assertTrue(self.call()['ok'])
+        self.assertEqual(seen, [(None, 'worker')])     # once, no tx open
+        self.assertEqual(bodies, ['acct-x', 'acct-x'])
+
+    def test_when_routes_only_the_calls_it_accepts(self):
+        pgdoor.LOCKS.pop(TOOL, None)
+        pgdoor.BODIES.pop(TOOL, None)
+        pgdoor.declare(TOOL, pgdoor.TxSpec(), body=self.good,
+                       when=lambda a: a.get('mode') == 'door')
+        self.assertTrue(pgdoor.routed(TOOL, {'mode': 'door'}))
+        self.assertFalse(pgdoor.routed(TOOL, {'mode': 'cycle'}))
+        self.assertFalse(pgdoor.routed(TOOL))          # no args: not routed
+        api.agent_call(api.AgentCall(org=self.slug, node='worker', tool=TOOL,
+                                     args={'mode': 'cycle'}), REQUEST)
+        self.assertEqual(self.runs, 0)                  # the cycle took it
+        api.agent_call(api.AgentCall(org=self.slug, node='worker', tool=TOOL,
+                                     args={'mode': 'door'}), REQUEST)
+        self.assertEqual(self.runs, 1)
+
     def test_declared_tool_runs_on_the_door_not_the_cycle(self):
         self.declare(self.good)
         r0 = self.rev()
