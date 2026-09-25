@@ -659,21 +659,22 @@ def complete_auxiliary(slug: str, nid: str, carrier) -> None:
 
 
 def consumed(slug: str, nid: str) -> None:
-    """Initial provider acknowledgement also spends a retained raw carrier."""
+    """Initial provider acknowledgement also spends a retained raw carrier.
+    Opens a transaction only when there is a durable copy to spend."""
     from . import supervisor as sup
     n = _node(slug, nid)
     if not n or n.get("halt"):
         return
+    st = sup.state(slug, nid)
+    with sup._state_lock:
+        c = st.pop("halt_pending_carrier", None)
+        ident = (c or {}).get("_halt_id") or st.pop("halt_carrier_id", None)
+        st.pop("halt_carrier_id", None)
+    if not ident or not n.get("halt_queue"):
+        return
     with txn(slug, nodes=[nid]) as tx:
         n = tx.org.nodes.get(nid)
-        if not n or n.get("halt"):
-            return
-        st = sup.state(slug, nid)
-        with sup._state_lock:
-            c = st.pop("halt_pending_carrier", None)
-            ident = (c or {}).get("_halt_id") or st.pop("halt_carrier_id", None)
-            st.pop("halt_carrier_id", None)
-        if ident and n.get("halt_queue"):
+        if n and not n.get("halt") and n.get("halt_queue"):
             confirmed(tx.org, nid, [], [{"_halt_id": ident}])
 
 
