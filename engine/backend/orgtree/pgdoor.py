@@ -273,16 +273,21 @@ def _norm(spec: TxSpec) -> TxSpec:
 def agent_spec(body: Any, a: dict[str, Any], spec: TxSpec) -> TxSpec:
     """The rows `agent_tx` locks for this call, in lock order: the caller's
     node row FIRST and FOR UPDATE whatever the tool declared, the killswitch
-    FOR SHARE (unless the tool itself holds it FOR UPDATE), and the receipt
-    rows FOR UPDATE when a key rides the call. Public so a family (and a
+    FOR SHARE (unless the tool itself holds it FOR UPDATE), and — when a key
+    rides the call — the receipt log (appended) and its META row (FOR UPDATE). Public so a family (and a
     reviewer) can see exactly what a call will hold."""
     ns = (body.node,) + tuple(n for n in spec.nodes if n != body.node)
-    secs = tuple(spec.sections)
+    secs, logs = tuple(spec.sections), tuple(spec.logs)
     if _receipted(body, a):
-        secs += tuple(s for s in (opreceipts.SECTION, opreceipts.META)
-                      if s not in secs)
+        # the receipts are an append-only LIST log (store.LIST_LOGS: one row
+        # per receipt, appended); only the small META row — the seq counter
+        # the rewind check reads — is a single row every keyed call rewrites
+        if opreceipts.META not in secs:
+            secs += (opreceipts.META,)
+        if opreceipts.SECTION not in logs:
+            logs += (opreceipts.SECTION,)
     return _norm(TxSpec(ns, secs, spec.share_nodes,
-                        spec.share_sections + (KILLSWITCH,), spec.logs))
+                        spec.share_sections + (KILLSWITCH,), logs))
 
 
 def agent_tx(body: Any, a: dict[str, Any],

@@ -112,12 +112,13 @@ class FakeStore:
             def __exit__(self, et, e, tb):
                 try:
                     if et is None:
-                        # write back ONLY the rows held FOR UPDATE, as a row
-                        # store does — never the whole document
+                        # write back ONLY the rows held FOR UPDATE (and the
+                        # declared append logs), as a row store does — never
+                        # the whole document
                         for n in nodes:
                             if n in self.org.nodes:
                                 store.nodes[n] = self.org.nodes[n]
-                        for s_ in sections:
+                        for s_ in tuple(sections) + tuple(logs):
                             if s_ in self.org.d:
                                 store.d[s_] = self.org.d[s_]
                         store.commits += 1
@@ -191,7 +192,7 @@ class AgentTxTest(unittest.TestCase):
         self.assertEqual(r.nodes, (W, P))
         self.assertEqual(r.share_sections, ('killswitch',))
         self.assertEqual(r.share_nodes, ('x',))          # W is FOR UPDATE
-        self.assertIn(opreceipts.SECTION, r.sections)
+        self.assertIn(opreceipts.SECTION, r.logs)       # appended, not locked
         self.assertIn(opreceipts.META, r.sections)
         r0 = pgdoor.agent_spec(Body(), {}, pgdoor.TxSpec(sections=('tiers',)))
         self.assertEqual(r0.sections, ('tiers',))
