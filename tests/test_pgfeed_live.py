@@ -31,6 +31,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 from urllib.parse import urlsplit, urlunsplit
 
 ADMIN = os.environ.get("ORGTREE_TEST_PG_ADMIN_URL", "").strip()
@@ -276,6 +277,14 @@ class BoundedReadersOnPostgres(unittest.TestCase):
         store.save_org(org)
         cls.slug = slug
         cls.full = store.load_org(slug).d
+
+    def setUp(self) -> None:
+        # a reader that falls back to the whole document gives the SAME answer,
+        # so equality alone cannot see the fallback: forbid it outright
+        patch = mock.patch.object(store, "load_org",
+                                  side_effect=AssertionError("whole-document load"))
+        patch.start()
+        self.addCleanup(patch.stop)
 
     def test_events_page(self) -> None:
         ev = list(self.full["events"])
