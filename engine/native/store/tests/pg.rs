@@ -419,6 +419,124 @@ async fn q_c4_control_remint_identity_runs_twice_on_retry() {
     assert_eq!(admin_count("SELECT version FROM runtime_state").await, 2, "duplicate write");
 }
 
+// ---- an ambiguous COMMIT: a loopback proxy forwards the client's COMMIT to
+// the server, then cuts both sockets before the server's reply returns.
+
+struct CutAfterCommit {
+    port: u16,
+    armed: Arc<std::sync::atomic::AtomicBool>,
+    cuts: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+async fn proxy(upstream_port: u16) -> CutAfterCommit {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let l = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let port = l.local_addr().unwrap().port();
+    let armed = Arc::new(AtomicBool::new(false));
+    let cuts = Arc::new(AtomicUsize::new(0));
+    let (a2, c2) = (armed.clone(), cuts.clone());
+    tokio::spawn(async move {
+        loop {
+            let Ok((client, _)) = l.accept().await else { return };
+            let (armed, cuts) = (a2.clone(), c2.clone());
+            tokio::spawn(async move {
+                let Ok(server) = tokio::net::TcpStream::connect(("127.0.0.1", upstream_port)).await else { return };
+                let (mut cr, mut cw) = client.into_split();
+                let (mut sr, mut sw) = server.into_split();
+                let cut = Arc::new(tokio::sync::Notify::new());
+                let cut2 = cut.clone();
+                let up = tokio::spawn(async move {
+                    let mut buf = vec![0u8; 16384];
+                    loop {
+                        let n = match cr.read(&mut buf).await {
+                            Ok(0) | Err(_) => return,
+                            Ok(n) => n,
+                        };
+                        if sw.write_all(&buf[..n]).await.is_err() {
+                            return;
+                        }
+                        // a simple-protocol COMMIT: 'Q' ... "COMMIT\0"
+                        if armed.load(Ordering::SeqCst) && buf[..n].windows(7).any(|w| w == b"COMMIT\0") {
+                            armed.store(false, Ordering::SeqCst);
+                            cuts.fetch_add(1, Ordering::SeqCst);
+                            let _ = sw.flush().await;
+                            cut2.notify_one();
+                            return;
+                        }
+                    }
+                });
+                let mut buf = vec![0u8; 16384];
+                loop {
+                    tokio::select! {
+                        _ = cut.notified() => { break; }
+                        r = sr.read(&mut buf) => match r {
+                            Ok(0) | Err(_) => break,
+                            Ok(n) => if cw.write_all(&buf[..n]).await.is_err() { break },
+                        },
+                    }
+                }
+                up.abort();
+                // dropping cw closes the client side without relaying the reply
+            });
+        }
+    });
+    CutAfterCommit { port, armed, cuts }
+}
+
+fn executor_via(port: u16, controls: Vec<&'static str>) -> (Executor<Factory>, Arc<Events>) {
+    let mut cfg = PgConfig::from_url(&url("P03_PG_RUNTIME_URL")).unwrap();
+    cfg.port = port;
+    let ev = Arc::new(Events::default());
+    let mut h = Hooks::with_trace(ev.clone());
+    h.pause = Some(Arc::new(Script::default()));
+    h.controls = Some(Arc::new(Arm(controls)));
+    let ex = Executor::new(
+        Factory::new(cfg.clone(), "executor", h.clone()),
+        2,
+        Factory::new(cfg, "lookup", h.clone()),
+        1,
+        ExecConfig { max_attempts: 6, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5) },
+        h,
+    );
+    (ex, ev)
+}
+
+/// Q-C4: the connection dies DURING COMMIT (the server received it). The
+/// executor resolves the unknown outcome by re-claiming the SAME key: it
+/// finds the committed receipt and replays. One write, not two.
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn q_c4_connection_lost_during_commit_resolves_by_same_key() {
+    reset().await;
+    let real = PgConfig::from_url(&url("P03_PG_RUNTIME_URL")).unwrap().port;
+    let p = proxy(real).await;
+    let (ex, _ev) = executor_via(p.port, vec![]);
+    p.armed.store(true, std::sync::atomic::Ordering::SeqCst);
+    let o = ex.run(&SetStatus { status: "x", serializable: false }, &binding(&key())).await.unwrap();
+    assert_eq!(p.cuts.load(std::sync::atomic::Ordering::SeqCst), 1, "the COMMIT was never cut: the ambiguous case did not happen");
+    assert_eq!(o, Outcome::Replayed(1), "resolved by the same key to the committed outcome");
+    assert_eq!(admin_count("SELECT version FROM runtime_state").await, 1);
+    assert_eq!(admin_count("SELECT count(*) FROM outgoing_intents").await, 1);
+}
+
+/// Q-C4 unsafe control on the same schedule: re-minting the identity on the
+/// retry after an ambiguous COMMIT applies the write twice.
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn q_c4_control_remint_after_lost_commit_duplicates() {
+    reset().await;
+    let real = PgConfig::from_url(&url("P03_PG_RUNTIME_URL")).unwrap().port;
+    let p = proxy(real).await;
+    let (ex, ev) = executor_via(p.port, vec!["Q-C4.remint_identity"]);
+    p.armed.store(true, std::sync::atomic::Ordering::SeqCst);
+    let o = ex.run(&SetStatus { status: "x", serializable: false }, &binding(&key())).await.unwrap();
+    assert_eq!(p.cuts.load(std::sync::atomic::Ordering::SeqCst), 1, "the COMMIT was never cut");
+    assert!(ev.has("control_executed:Q-C4.remint_identity"), "control did not record that it ran");
+    assert!(matches!(o, Outcome::Applied(_)), "{o:?}");
+    assert_eq!(admin_count("SELECT version FROM runtime_state").await, 2, "the unsafe control must produce the duplicate");
+}
+
 // ================================================================ Q-RL1
 
 /// (a) the original claims first: the lookup's fence WAITS on the claim, then
