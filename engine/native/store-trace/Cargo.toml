@@ -26,8 +26,13 @@ orgtree-store = { path = "../store", optional = true }
 # trace.pre_commit_lsn statements, which the collector must mark as infrastructure
 orgtree-store = { path = "../store", features = ["fake", "qualification"] }
 # the same pinned versions as orgtree-store (engine/native/store/DEPENDENCIES.md)
-tokio = { version = "=1.52.3", default-features = false, features = ["rt", "macros", "time"] }
+tokio = { version = "=1.52.3", default-features = false, features = ["rt", "rt-multi-thread", "macros", "time", "sync", "net"] }
 # tests/live_qc5.rs only (an #[ignore] run against a WS1 dev cluster): the
 # harness's own admin connection and the schema the executor needs
 tokio-postgres = { version = "0.7", default-features = false, features = ["runtime", "with-uuid-1", "with-serde_json-1"] }
 orgtree-store-schema = { path = "../store-schema" }
+# tests/live_order.rs only (#[ignore], WS1 dev cluster): hosts WS2's REAL harness
+# endpoint (harness::serve) and channel server in-process, so the Python harness's
+# achieved-order comparator is driven by real arrived/release frames
+orgtree-store-service = { path = "../store-service", features = ["qualification"] }
+serde_json = "=1.0.150"

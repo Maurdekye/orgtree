@@ -12,9 +12,14 @@ store-service's harness channel, or ``fake_executor.FakeExecutor`` for testing
 the harness itself.
 
 Event names used in scripts and intended orders:
-- ``arrived:<tag>:<point>``: operation ``tag`` reached pause point ``point`` and
-  is held there;
-- ``released:<tag>:<point>``: the harness released it;
+- ``arrived:<tag>:<point>``: operation ``tag``'s FIRST attempt reached pause
+  point ``point`` (``arrived:<tag>:<point>@<n>`` for attempt n >= 2, e.g. the
+  retry after a real 40001);
+- ``released:<tag>:<point>`` (``@<n>``): the harness sent the release. It is
+  recorded when SENT, so a release sent before the arrival it was meant for
+  shows up in the achieved order before that arrival: the barrier was lost;
+- ``error:<n>``: the service reported an error frame (for example a hold that
+  was never released); any error fails the run;
 - ``wait:<waiter>:<holder>``: OBSERVED (sampled from the database's lock view) that
   ``waiter``'s backend was waiting on ``holder``'s;
 - ``end:<tag>``: the operation finished (its outcome is in the trace).
@@ -38,7 +43,7 @@ class Channel(Protocol):
     def install_plan(self, plan: dict[str, Any]) -> None: ...
     def start(self, tag: str, op_kind: str, args: dict[str, Any]) -> None: ...
     def next_event(self, timeout: float) -> "dict[str, Any] | None": ...
-    def release(self, tag: str, point: str) -> None: ...
+    def release(self, tag: str, point: str, attempt: "int | None" = None) -> None: ...
     def sample_waits(self) -> list[dict[str, Any]]: ...
     def finish(self) -> dict[str, Any]: ...
 
@@ -47,8 +52,9 @@ class Channel(Protocol):
 class Order:
     """One order a schedule names: the script that forces it, and what it must achieve."""
     name: str
-    #: steps: ("start", tag) | ("arrive", tag, point) | ("release", tag, point)
-    #:        | ("await_wait", waiter, holder) | ("await_end", tag)
+    #: steps: ("start", tag) | ("arrive", tag, point[, attempt]) | ("release", tag, point[,
+    #:        attempt]) | ("await_wait", waiter, holder) | ("await_end", tag).
+    #:        ``attempt`` defaults to 1; every "arrive" step becomes a hold on that attempt
     script: list[tuple[str, ...]]
     #: constraints: ("before", event_a, event_b) | ("present", event)
     #:              | ("absent", event) | ("outcome", tag, outcome)
@@ -59,7 +65,8 @@ class Order:
     controls: list[str] = field(default_factory=list)
     #: non-hold executor actions at points (protocol holds with action fail_next,
     #: drop_conn or sleep), e.g. {"op_tag": "A", "point": ..., "action": "fail_next",
-    #: "sqlstate": "40001"}
+    #: "sqlstate": "40001"}. They apply to attempt 1 unless they say otherwise;
+    #: ``"attempt": None`` makes one apply to EVERY attempt
     faults: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -98,13 +105,28 @@ class RunResult:
                 "complete_contact": self.health.get("complete")}
 
 
+def _attempt(step: tuple[Any, ...]) -> int:
+    return step[3] if len(step) > 3 else 1
+
+
+def event_name(what: str, tag: str, point: str, attempt: "int | None") -> str:
+    """``arrived``/``released`` event names: attempt 1 bare, later attempts ``@n``."""
+    base = f"{what}:{tag}:{point}"
+    return base if attempt in (None, 1) else f"{base}@{attempt}"
+
+
 def _plan_for(schedule_id: str, order: Order, timeout: float) -> dict[str, Any]:
-    """The protocol ``plan`` frame: every point the script waits at is a HOLD, plus
-    the order's fault actions and the controls it arms."""
+    """The protocol ``plan`` frame: every point the script waits at is a HOLD on
+    that attempt, plus the order's fault actions and the controls it arms."""
     ms = max(1, int(timeout * 1000))
-    holds = [{"op_tag": step[1], "point": step[2], "action": "hold", "timeout_ms": ms}
+    holds = [{"op_tag": step[1], "point": step[2], "attempt": _attempt(step), "action": "hold",
+              "timeout_ms": ms}
              for step in order.script if step[0] == "arrive"]
-    holds += [{"timeout_ms": ms, **f} for f in order.faults]
+    for f in order.faults:
+        h = {"timeout_ms": ms, "attempt": 1, **f}
+        if h["attempt"] is None:
+            del h["attempt"]
+        holds.append(h)
     return {"type": "plan", "run_id": f"{schedule_id}/{order.name}", "holds": holds,
             "controls": list(order.controls)}
 
@@ -116,6 +138,7 @@ class _Recorder:
         self.events: list[dict[str, Any]] = []
         self._seen: set[str] = set()
         self.pids: dict[int, str] = {}
+        self.errors: list[str] = []
 
     def add(self, name: str, **detail: Any) -> None:
         if name in self._seen:
@@ -139,10 +162,14 @@ def _absorb(recorder: _Recorder, event: dict[str, Any]) -> None:
     if kind == "arrived":
         if isinstance(event.get("backend_pid"), int):
             recorder.pids[event["backend_pid"]] = event["op_tag"]
-        recorder.add(f"arrived:{event['op_tag']}:{event['point']}",
+        recorder.add(event_name("arrived", event["op_tag"], event["point"], event.get("attempt")),
                      backend_pid=event.get("backend_pid"), attempt=event.get("attempt"))
-    elif kind == "op_begin":
-        if isinstance(event.get("backend_pid"), int):
+    elif kind == "error":
+        recorder.errors.append(str(event.get("detail")))
+        recorder.add(f"error:{len(recorder.errors)}", detail=event.get("detail"))
+    elif kind in ("op_begin", "tx_begin", "stmt"):
+        # which backend runs which tagged operation: the wait view names pids only
+        if isinstance(event.get("backend_pid"), int) and event.get("op_tag"):
             recorder.pids[event["backend_pid"]] = event["op_tag"]
     elif kind == "op_end":
         recorder.add(f"end:{event['op_tag']}", outcome=event.get("outcome"))
@@ -223,13 +250,14 @@ def run_order(channel: Channel, schedule: Schedule, order: Order) -> RunResult:
             kind, args = schedule.ops[step[1]]
             channel.start(step[1], kind, args)
         elif op == "arrive":
-            name = f"arrived:{step[1]}:{step[2]}"
+            name = event_name("arrived", step[1], step[2], _attempt(step))
             if not _await(channel, recorder, name, schedule.step_timeout):
-                reasons.append(f"interleaving not achieved: {step[1]} never reached {step[2]}")
+                at = "" if _attempt(step) == 1 else f" (attempt {_attempt(step)})"
+                reasons.append(f"interleaving not achieved: {step[1]} never reached {step[2]}{at}")
                 break
         elif op == "release":
-            channel.release(step[1], step[2])
-            recorder.add(f"released:{step[1]}:{step[2]}")
+            channel.release(step[1], step[2], _attempt(step))
+            recorder.add(event_name("released", step[1], step[2], _attempt(step)))
         elif op == "await_wait":
             name = f"wait:{step[1]}:{step[2]}"
             if not _await(channel, recorder, name, schedule.step_timeout):
@@ -246,6 +274,8 @@ def run_order(channel: Channel, schedule: Schedule, order: Order) -> RunResult:
     final = channel.finish()
     for event in final.get("events", []):
         _absorb(recorder, event)
+    if recorder.errors:
+        reasons += [f"the service reported an error: {e}" for e in recorder.errors]
     records = final.get("records", [])
     health = stream_health(records, final.get("streams", []))
     if not reasons:

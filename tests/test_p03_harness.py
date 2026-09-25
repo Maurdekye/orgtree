@@ -36,12 +36,15 @@ sys.path.insert(0, str(ROOT / "tools"))
 from p03.harness import controls as ctl  # noqa: E402
 from p03.harness import oracle, protocol, serverlog  # noqa: E402
 from p03.harness.fake_executor import FakeExecutor, Stmt  # noqa: E402
+from p03.harness.fake_service import FakeService  # noqa: E402
+from p03.harness.service_channel import ServiceChannel  # noqa: E402
 from p03.harness.schedule import (FAILED, PASSED, REFUSED, Order, Schedule,  # noqa: E402
                                   compare, run_order)
 from p03.harness.trace import stream_health  # noqa: E402
 
 KIND = "counter.increment"
 WRITE = f"{KIND}.stmt.write.before"
+READ = f"{KIND}.stmt.read.before"
 CONTROL_ID = "Q-FAKE1.skip_row_lock"
 
 
@@ -153,6 +156,156 @@ class ForcedInterleaving(unittest.TestCase):
         kinds = [(r["kind"], r.get("attempt")) for r in result.records
                  if r["kind"] in ("tx_end", "retry")]
         self.assertEqual(kinds, [("tx_end", 1), ("retry", 2), ("tx_end", 2)])
+
+    def test_a_retry_arrives_as_its_own_attempt(self):
+        """A hold names its attempt: the retry's arrival is ``@2``, held and released
+        on its own, and the plan says which attempt each hold is for."""
+        order = Order(
+            "a-retries-held", [("start", "A"), ("arrive", "A", READ), ("release", "A", READ),
+                               ("arrive", "A", READ, 2), ("release", "A", READ, 2),
+                               ("await_end", "A")],
+            [("before", f"arrived:A:{READ}", f"released:A:{READ}"),
+             ("before", f"released:A:{READ}", f"arrived:A:{READ}@2"),
+             ("sqlstate", "A", "40001"), ("outcome", "A", "applied")],
+            faults=[{"op_tag": "A", "point": WRITE, "action": "fail_next", "sqlstate": "40001"}])
+        one = Schedule("Q-FAKE1", {"A": (KIND, {})}, [order],
+                       pass_condition=lambda _r, _a, final: final["rows"].get("counter") == 1)
+        fake = FakeExecutor(OPS)
+        result = run_order(fake, one, order)
+        self.assertEqual(result.verdict, PASSED, result.reasons)
+        self.assertEqual(sorted((k[2] for k in fake._holds)), [1, 1, 2])
+
+    def test_an_unqualified_fault_hits_every_attempt(self):
+        """``attempt: None`` is the protocol's every-attempt hold: the retries fail too."""
+        order = Order("a-fails-always", [("start", "A"), ("await_end", "A")],
+                      [("outcome", "A", "applied")],
+                      faults=[{"op_tag": "A", "point": WRITE, "action": "fail_next",
+                               "sqlstate": "40001", "attempt": None}])
+        one = Schedule("Q-FAKE1", {"A": (KIND, {})}, [order],
+                       pass_condition=lambda _r, _a, _f: True)
+        result = run_order(FakeExecutor(OPS), one, order)
+        self.assertEqual(result.verdict, FAILED)
+        self.assertIn("A ended 'error', intended 'applied'", result.reasons)
+
+    def test_a_hold_released_too_early_fails_the_run(self):
+        """The meta-control on a real barrier: A's release is sent before B was
+        started, so A never makes B wait. Every step of the script still ran."""
+        early = Order("a-released-early",
+                      [("start", "A"), ("arrive", "A", WRITE), ("release", "A", WRITE),
+                       ("await_end", "A"), ("start", "B"), ("await_end", "B")],
+                      SAFE.intended)
+        result = run_order(FakeExecutor(OPS), schedule(), early)
+        self.assertEqual(result.verdict, FAILED)
+        self.assertIn("interleaving not achieved: wait:B:A never observed", result.reasons)
+        self.assertIsNone(result.pass_condition_held)
+
+    def test_a_release_sent_before_the_arrival_is_seen_in_the_achieved_order(self):
+        """Released before it arrived: the op passes straight through, and the
+        achieved order shows the release first."""
+        order = Order("release-first", [("start", "A"), ("release", "A", WRITE),
+                                        ("arrive", "A", WRITE), ("await_end", "A")],
+                      [("before", f"arrived:A:{WRITE}", f"released:A:{WRITE}")])
+        one = Schedule("Q-FAKE1", {"A": (KIND, {})}, [order],
+                       pass_condition=lambda _r, _a, _f: True)
+        result = run_order(FakeExecutor(OPS), one, order)
+        self.assertEqual(result.verdict, FAILED)
+        self.assertIn(f"interleaving not achieved: arrived:A:{WRITE} was not before "
+                      f"released:A:{WRITE}", result.reasons)
+
+    def test_a_hold_never_released_is_a_service_error_that_fails_the_run(self):
+        """The service gives up on the hold, reports an error, and the op CONTINUES:
+        it ends ``applied``, and the run still fails on the error."""
+        order = Order("never-released", [("start", "A"), ("arrive", "A", WRITE),
+                                         ("await_end", "A")],
+                      [("outcome", "A", "applied")])
+        one = Schedule("Q-FAKE1", {"A": (KIND, {})}, [order],
+                       pass_condition=lambda _r, _a, _f: True, step_timeout=3.0,
+                       plan_timeout=0.2)
+        result = run_order(FakeExecutor(OPS), one, order)
+        self.assertEqual(result.verdict, FAILED)
+        self.assertTrue(any(r.startswith("the service reported an error: hold at "
+                                         f"{WRITE} for A was never released")
+                            for r in result.reasons), result.reasons)
+        self.assertIn("error:1", [e["event"] for e in result.achieved])
+
+
+class OverSockets(unittest.TestCase):
+    """``ServiceChannel`` against ``FakeService``: the same verdicts through real
+    loopback sockets, the protocol's framing and a service that, like WS2's, sends
+    no records in ``finished``."""
+
+    def run_over(self, order, sched=None, **fake_kw):
+        svc = FakeService(FakeExecutor(OPS, **fake_kw))
+        try:
+            ch = ServiceChannel(svc.host, run=order.name, timeout=10.0)
+            try:
+                return run_order(ch, sched or socket_schedule(), order)
+            finally:
+                ch.close()
+        finally:
+            svc.close()
+
+    def test_the_intended_order_passes_over_the_wire(self):
+        result = self.run_over(SAFE)
+        self.assertEqual(result.verdict, PASSED, result.reasons)
+        self.assertTrue(result.health["complete"])
+        self.assertIn("wait:B:A", [e["event"] for e in result.achieved])
+
+    def test_a_hold_released_too_early_fails_over_the_wire(self):
+        early = Order("a-released-early",
+                      [("start", "A"), ("arrive", "A", WRITE), ("release", "A", WRITE),
+                       ("await_end", "A"), ("start", "B"), ("await_end", "B")],
+                      SAFE.intended)
+        result = self.run_over(early)
+        self.assertEqual(result.verdict, FAILED)
+        self.assertIn("interleaving not achieved: wait:B:A never observed", result.reasons)
+        self.assertFalse([r for r in result.reasons if r.startswith("the service reported")])
+
+    def test_a_retry_attempt_is_held_and_released_over_the_wire(self):
+        order = Order(
+            "a-retries-held", [("start", "A"), ("arrive", "A", READ), ("release", "A", READ),
+                               ("arrive", "A", READ, 2), ("release", "A", READ, 2),
+                               ("await_end", "A")],
+            [("before", f"released:A:{READ}", f"arrived:A:{READ}@2"),
+             ("sqlstate", "A", "40001"), ("outcome", "A", "applied")],
+            faults=[{"op_tag": "A", "point": WRITE, "action": "fail_next", "sqlstate": "40001"}])
+        result = self.run_over(order, Schedule("Q-FAKE1", {"A": (KIND, {})}, [order],
+                                               pass_condition=lambda *_: True))
+        self.assertEqual(result.verdict, PASSED, result.reasons)
+
+    def test_a_service_error_frame_fails_the_run(self):
+        order = Order("never-released", [("start", "A"), ("arrive", "A", WRITE),
+                                         ("await_end", "A")], [("outcome", "A", "applied")])
+        sched = Schedule("Q-FAKE1", {"A": (KIND, {})}, [order], pass_condition=lambda *_: True,
+                         step_timeout=3.0, plan_timeout=0.2)
+        result = self.run_over(order, sched)
+        self.assertEqual(result.verdict, FAILED)
+        self.assertTrue(any(r.startswith("the service reported an error: hold at")
+                            for r in result.reasons), result.reasons)
+
+    def test_records_missing_from_the_end_verb_are_incomplete(self):
+        """No records from the host: the run cannot be complete-contact."""
+        svc = FakeService(FakeExecutor(OPS))
+        svc._handle_orig = svc._handle
+        svc._handle = lambda req: ({"records": [], "stream": "fake-executor"}
+                                   if req.get("verb") in ("qual.trace_end", "qual.trace_drain")
+                                   else svc._handle_orig(req))
+        try:
+            ch = ServiceChannel(svc.host, run="x", timeout=10.0)
+            try:
+                result = run_order(ch, socket_schedule(), SAFE)
+            finally:
+                ch.close()
+        finally:
+            svc.close()
+        self.assertEqual(result.verdict, FAILED)
+        self.assertFalse(result.health["complete"])
+
+
+def socket_schedule(timeout: float = 3.0) -> Schedule:
+    return Schedule("Q-FAKE1", {"A": (KIND, {}), "B": (KIND, {})}, [SAFE],
+                    pass_condition=lambda _r, _a, final: final["state"]["rows"].get("counter") == 2,
+                    step_timeout=timeout, plan_timeout=timeout)
 
 
 class UnsafeControls(unittest.TestCase):
@@ -481,6 +634,21 @@ class Protocol(unittest.TestCase):
             {"type": "plan", "run_id": "r", "controls": [], "holds": [
                 {"op_tag": "A", "point": WRITE, "action": "hold", "timeout_ms": 1},
                 {"op_tag": "A", "point": WRITE, "action": "hold", "timeout_ms": 1}]},
+            {"type": "plan", "run_id": "r", "controls": [], "holds": [
+                {"op_tag": "A", "point": WRITE, "action": "hold", "timeout_ms": 1,
+                 "attempt": 0}]},
+            {"type": "plan", "run_id": "r", "controls": [], "holds": [
+                {"op_tag": "A", "point": WRITE, "action": "hold", "timeout_ms": 1,
+                 "attempt": True}]},
+            {"type": "plan", "run_id": "r", "controls": [], "holds": [
+                {"op_tag": "A", "point": WRITE, "action": "hold", "timeout_ms": 1, "attempt": 2},
+                {"op_tag": "A", "point": WRITE, "action": "hold", "timeout_ms": 1, "attempt": 2}]},
+            {"type": "plan", "run_id": "r", "controls": [], "holds": [
+                {"op_tag": "A", "point": WRITE, "action": "hold", "timeout_ms": 1},
+                {"op_tag": "A", "point": WRITE, "action": "hold", "timeout_ms": 1, "attempt": 2}]},
+            {"type": "release", "op_tag": "A", "point": WRITE, "attempt": "2"},
+            {"type": "arrived", "point": WRITE, "op_tag": "A", "operation_id": "o",
+             "attempt": 0, "backend_pid": 1, "txid_if_assigned": None, "seq": 0},
             {"type": "hello", "token": "t", "protocol": "something-else"},
             {"type": "handshake", "protocol": protocol.PROTOCOL, "qualification": "yes",
              "build_sha": "x", "points": [], "controls": []},
@@ -491,6 +659,14 @@ class Protocol(unittest.TestCase):
                 self.assertTrue(protocol.frame_errors(frame))
                 with self.assertRaises(ValueError):
                     protocol.encode(frame)
+
+    def test_holds_on_different_attempts_of_one_point_are_valid(self):
+        plan = {"type": "plan", "run_id": "r", "controls": [], "holds": [
+            {"op_tag": "A", "point": WRITE, "action": "hold", "timeout_ms": 1, "attempt": 1},
+            {"op_tag": "A", "point": WRITE, "action": "hold", "timeout_ms": 1, "attempt": 2}]}
+        self.assertEqual(protocol.frame_errors(plan), [])
+        self.assertEqual(protocol.frame_errors(
+            {"type": "release", "op_tag": "A", "point": WRITE, "attempt": 2}), [])
 
     def test_every_operation_has_the_generic_points(self):
         self.assertEqual(protocol.generic_points("staffing.hire")[:2],

@@ -23,7 +23,11 @@ the protocol's generic set (``protocol.GENERIC_POINTS``) plus
 ``stmt.<label>.before``/``.after``. Actions: ``hold``, ``fail_next`` (the next
 statement fails with that SQLSTATE; 40001/40P01 are retried as a new attempt,
 anything else ends the operation in ``error``), ``drop_conn`` (the outcome is
-``unknown``) and ``sleep``. A control fires only if the run's plan ARMS it.
+``unknown``) and ``sleep``. A hold applies to its ``attempt`` or, without one, to
+every attempt. A release is remembered until an arrival consumes it (sent early,
+the operation passes straight through), and a hold never released within its
+timeout emits an ``error`` event and CONTINUES: WS2's endpoint does the same. A
+control fires only if the run's plan ARMS it.
 """
 from __future__ import annotations
 
@@ -119,8 +123,10 @@ class FakeExecutor:
         self.stream = _Stream("fake-executor")
         self.stream.stub = stub      # every operation record says stub: true (WS2's Sent stub)
         self._events: "queue.Queue[dict[str, Any]]" = queue.Queue()
-        self._holds: dict[tuple[str, str], dict[str, Any]] = {}
-        self._gates: dict[tuple[str, str], threading.Event] = {}
+        self._holds: dict[tuple[str, str, "int | None"], dict[str, Any]] = {}
+        self._released: set[tuple[str, str, "int | None"]] = set()
+        self._hcv = threading.Condition()
+        self._finishing = False
         self._armed: set[str] = set()
         self._run_id = ""
         self._locks: dict[str, int] = {}                 # lock key -> holder pid
@@ -169,9 +175,7 @@ class FakeExecutor:
         self._run_id = plan["run_id"]
         self._armed = set(plan["controls"])
         for h in plan["holds"]:
-            key = (h["op_tag"], h["point"])
-            self._holds[key] = h
-            self._gates[key] = threading.Event()
+            self._holds[(h["op_tag"], h["point"], h.get("attempt"))] = h
 
     def start(self, tag: str, op_kind: str, args: dict[str, Any]) -> None:
         t = threading.Thread(target=self._run, args=(tag, op_kind, args), daemon=True)
@@ -184,10 +188,10 @@ class FakeExecutor:
         except queue.Empty:
             return None
 
-    def release(self, tag: str, point: str) -> None:
-        gate = self._gates.get((tag, point))
-        if gate is not None:
-            gate.set()
+    def release(self, tag: str, point: str, attempt: "int | None" = None) -> None:
+        with self._hcv:
+            self._released.add((tag, point, attempt))
+            self._hcv.notify_all()
         self.stream.emit("release", point=point, op_tag=tag)
 
     def sample_waits(self) -> list[dict[str, Any]]:
@@ -196,8 +200,9 @@ class FakeExecutor:
                     for w, (h, key) in self._waiting.items()]
 
     def finish(self, timeout: float = 2.0) -> dict[str, Any]:
-        for gate in self._gates.values():   # never leave a thread parked
-            gate.set()
+        with self._hcv:                     # never leave a thread parked
+            self._finishing = True
+            self._hcv.notify_all()
         for t in self._threads:
             t.join(timeout)
         # the server's own view of every backend: its transaction count
@@ -230,18 +235,33 @@ class FakeExecutor:
                pending: dict[str, Any]) -> None:
         if not self.barriers:
             return
-        h = self._holds.get((tag, point))
+        h = self._holds.get((tag, point, attempt)) or self._holds.get((tag, point, None))
         if h is None:
             return
         action = h["action"]
+        # like WS2's endpoint: every PLANNED point reports its arrival, whatever the action
+        rec = self.stream.emit("arrived", point=point, op_tag=tag, operation_id=op_id,
+                               attempt=attempt, backend_pid=pid, txid_if_assigned=None)
+        self._events.put(rec)
         if action == "hold":
-            rec = self.stream.emit("arrived", point=point, op_tag=tag, operation_id=op_id,
-                                   attempt=attempt, backend_pid=pid, txid_if_assigned=None)
-            self._events.put(rec)
-            self._gates[(tag, point)].wait(timeout=h["timeout_ms"] / 1000 + 5.0)
-        elif action == "fail_next" and attempt == 1:
+            deadline = time.monotonic() + h["timeout_ms"] / 1000
+            with self._hcv:
+                while not self._finishing:
+                    mine = [k for k in ((tag, point, attempt), (tag, point, None))
+                            if k in self._released]
+                    if mine:
+                        self._released.discard(mine[0])
+                        return
+                    left = deadline - time.monotonic()
+                    if left <= 0:
+                        self._events.put({"kind": "error", "detail":
+                                          f"hold at {point} for {tag} was never released "
+                                          f"within {h['timeout_ms']} ms"})
+                        return
+                    self._hcv.wait(timeout=min(left, 0.05))
+        elif action == "fail_next":
             pending["sqlstate"] = h["sqlstate"]
-        elif action == "drop_conn" and attempt == 1:
+        elif action == "drop_conn":
             raise _Abort("08006", outcome="unknown")
         elif action == "sleep":
             time.sleep(h["ms"] / 1000)

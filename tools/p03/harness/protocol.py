@@ -15,11 +15,19 @@ with the per-run token; the service answers ``handshake`` or closes.
 Harness -> service:
 - ``hello``   {token, protocol}
 - ``plan``    {run_id, holds: [Hold...], controls: [control id...]}
-              A hold names ONE (op_tag, point) and ONE action. ``controls`` ARMS
-              those unsafe controls for this run only: ``controls::fire(id)``
-              returns true only for an armed id (and then emits
-              ``control_executed`` at its site).
-- ``release`` {op_tag, point}
+              A hold names ONE (op_tag, point[, attempt]) and ONE action. With
+              ``attempt`` (an integer >= 1) it applies to that attempt only;
+              without it, to EVERY attempt of the operation (so an unqualified
+              ``fail_next`` fails every retry too). A plan with an unqualified and
+              a qualified hold for the same (op_tag, point) is ambiguous and
+              refused. ``controls`` ARMS those unsafe controls for this run only:
+              ``controls::fire(id)`` returns true only for an armed id (and then
+              emits ``control_executed`` at its site).
+- ``release`` {op_tag, point[, attempt]}: lets the held operation continue. A
+              release that arrives BEFORE the operation does is remembered and
+              consumed by the next matching arrival, which then does not wait:
+              that is exactly how a schedule's barrier is lost, and why the
+              harness judges the ACHIEVED order, never the script.
 - ``finish``  {}  : drain and end every trace stream; the service answers ``finished``.
 
 Service -> harness:
@@ -30,7 +38,9 @@ Service -> harness:
 - ``arrived``   {point, op_tag, operation_id, attempt, backend_pid, txid_if_assigned, seq}
 - ``trace``     {records: [trace record...]}   (orgtree.p03-trace/v1, see trace.py)
 - ``finished``  {streams: [stream name...], records: [...]}
-- ``error``     {detail}
+- ``error``     {detail}: the service could not do what the plan asked (for example
+                a hold that was never released within its timeout, after which the
+                operation CONTINUED). Any error frame fails the run.
 
 Actions (WS2's ``HookAction``): ``hold`` (block until ``release``),
 ``fail_next`` (the next statement fails with ``sqlstate``, as if the server
@@ -86,6 +96,10 @@ def generic_points(family_verb: str, stmt_labels: "tuple[str, ...] | list[str]" 
     return out
 
 
+def _positive_int(v: Any) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool) and v >= 1
+
+
 def hold_errors(h: Any) -> list[str]:
     if not isinstance(h, dict):
         return ["hold is not an object"]
@@ -101,6 +115,8 @@ def hold_errors(h: Any) -> list[str]:
         errors.append(f"hold: bad point name {h.get('point')!r}")
     if not isinstance(h.get("timeout_ms"), int) or h.get("timeout_ms", 0) <= 0:
         errors.append("hold: timeout_ms must be a positive integer")
+    if "attempt" in h and not _positive_int(h.get("attempt")):
+        errors.append("hold: attempt must be an integer >= 1 when present")
     if action == "fail_next" and not SQLSTATE_RE.match(str(h.get("sqlstate", ""))):
         errors.append("hold: fail_next needs a five-character sqlstate")
     if action == "sleep" and (not isinstance(h.get("ms"), int) or h.get("ms", 0) <= 0):
@@ -128,17 +144,30 @@ def frame_errors(frame: Any) -> list[str]:
         if not isinstance(holds, list):
             errors.append("plan: holds must be a list")
         else:
-            seen = set()
+            seen: set = set()
             for h in holds:
                 errors += hold_errors(h)
-                key = (h.get("op_tag"), h.get("point")) if isinstance(h, dict) else None
+                if not isinstance(h, dict):
+                    continue
+                key = (h.get("op_tag"), h.get("point"), h.get("attempt"))
                 if key in seen:
                     errors.append(f"plan: two holds for {key}")
                 seen.add(key)
+            pairs: dict = {}
+            for tag, point, attempt in seen:
+                pairs.setdefault((tag, point), set()).add(attempt is None)
+            for pair, kinds in sorted(pairs.items(), key=str):
+                if kinds == {True, False}:
+                    errors.append(f"plan: holds for {pair} both with and without an attempt "
+                                  "are ambiguous")
         controls = frame.get("controls")
         if not isinstance(controls, list) or not all(
                 isinstance(c, str) and CONTROL_RE.match(c) for c in controls):
             errors.append("plan: controls must be a list of <schedule>.<variant> ids")
+    if kind == "release" and "attempt" in frame and not _positive_int(frame.get("attempt")):
+        errors.append("release: attempt must be an integer >= 1 when present")
+    if kind == "arrived" and not _positive_int(frame.get("attempt")):
+        errors.append("arrived: attempt must be an integer >= 1")
     if kind == "arrived" and not isinstance(frame.get("backend_pid"), int):
         errors.append("arrived: backend_pid must be an integer")
     return errors
