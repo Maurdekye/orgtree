@@ -119,6 +119,16 @@ PAUSE_POINTS: tuple[str, ...] = ("before_lock", "after_lock", "before_commit",
 
 DEFAULT_LOCK_TIMEOUT_S = float(os.environ.get("ORGTREE_ORGTX_LOCK_TIMEOUT_S", "10") or 10)
 DEFAULT_RETRIES = 5
+
+#: THE TRANSITION FENCE (plan decision 19). While any writer is still on
+#: DOC_LOCK, every org_tx (single or multi-org) takes store.DOC_LOCK BEFORE
+#: any row lock and holds it until its commit or rollback, so an unconverted
+#: load→change→save cycle can never interleave with a converted write of the
+#: same row. DOC_LOCK is re-entrant, so code that already holds it may call
+#: org_tx. Read at call time; turn it off (tests, or once the last DOC_LOCK
+#: writer is converted) with `orgtx.TRANSITION_FENCE = False` or
+#: ORGTREE_ORGTX_FENCE=0. store.StaleWrite stays as the backstop.
+TRANSITION_FENCE: bool = os.environ.get("ORGTREE_ORGTX_FENCE", "1").strip() != "0"
 #: PostgreSQL ends a transaction whose body sits idle (between statements)
 #: longer than this while holding its row locks (review N5)
 IDLE_IN_TX_TIMEOUT_S = float(os.environ.get("ORGTREE_ORGTX_IDLE_TIMEOUT_S", "120") or 120)
@@ -828,8 +838,31 @@ def _run(make: Callable[[], list[OrgTx]], lock_timeout: float | None,
         raise NestedTx(f"org_tx on {nested!r} is already open on this thread")
     timeout = DEFAULT_LOCK_TIMEOUT_S if lock_timeout is None else lock_timeout
     b = backend()
-    attempt = 0
     txs = first
+    fence: contextlib.AbstractContextManager[Any] = (
+        store.DOC_LOCK if TRANSITION_FENCE else contextlib.nullcontext())
+    with fence:
+        txs = yield from _attempts(b, txs, make, slugs, open_slugs, timeout, retries)
+    # save hooks deferred out of the transaction: after COMMIT, with the row
+    # locks AND the fence released
+    for t in txs:
+        for hs in t.deferred_hooks:
+            store.fire_save_hooks(hs)
+    for t in txs:
+        if t.committed is not None:
+            for fn in list(commit_listeners):
+                try:
+                    fn(t.committed)
+                except Exception:                               # noqa: BLE001
+                    pass
+
+
+def _attempts(b: Backend, txs: list[OrgTx], make: Callable[[], list[OrgTx]],
+              slugs: list[str], open_slugs: set[str], timeout: float,
+              retries: int) -> Iterator[list[OrgTx]]:
+    """The retry loop of `_run` (a generator it delegates to): retries only a
+    failure raised while taking locks, before the body ran."""
+    attempt = 0
     while True:
         body_ran = False
         open_slugs.update(slugs)
@@ -853,18 +886,7 @@ def _run(make: Callable[[], list[OrgTx]], lock_timeout: float | None,
             for sl in slugs:
                 open_slugs.discard(sl)
                 registry.pop(sl, None)
-        break
-    # save hooks deferred out of the transaction: after COMMIT, locks released
-    for t in txs:
-        for hs in t.deferred_hooks:
-            store.fire_save_hooks(hs)
-    for t in txs:
-        if t.committed is not None:
-            for fn in list(commit_listeners):
-                try:
-                    fn(t.committed)
-                except Exception:                               # noqa: BLE001
-                    pass
+        return txs
 
 
 @contextlib.contextmanager
