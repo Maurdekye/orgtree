@@ -320,6 +320,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "orgtree-prototype-guard"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "orgtree-store"
 version = "0.1.0"
 dependencies = [
@@ -336,6 +344,7 @@ dependencies = [
 name = "orgtree-store-service"
 version = "0.1.0"
 dependencies = [
+ "orgtree-prototype-guard",
  "orgtree-store",
  "serde",
  "serde_json",

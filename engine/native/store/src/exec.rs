@@ -248,6 +248,47 @@ pub trait Command: Send + Sync {
 
 type Effect = Box<dyn FnOnce() + Send>;
 
+#[cfg(feature = "qualification")]
+const XACT_STATS_SQL: &str = "SELECT relname::text, seq_scan, coalesce(idx_scan, 0), n_tup_ins, n_tup_upd, n_tup_del      FROM pg_stat_xact_user_tables WHERE schemaname = current_schema()      AND seq_scan + coalesce(idx_scan, 0) + n_tup_ins + n_tup_upd + n_tup_del > 0";
+
+#[cfg(feature = "qualification")]
+fn xact_tables(rows: &Rows) -> Vec<crate::hooks::XactTable> {
+    rows.0
+        .iter()
+        .filter_map(|r| {
+            Some(crate::hooks::XactTable {
+                relname: r.first()?.as_text()?.to_string(),
+                seq_scan: r.get(1)?.as_int().unwrap_or(0),
+                idx_scan: r.get(2)?.as_int().unwrap_or(0),
+                n_tup_ins: r.get(3)?.as_int().unwrap_or(0),
+                n_tup_upd: r.get(4)?.as_int().unwrap_or(0),
+                n_tup_del: r.get(5)?.as_int().unwrap_or(0),
+            })
+        })
+        .collect()
+}
+
+/// This transaction's own counters: `after - base` per relation, keeping only
+/// relations with a non-zero difference.
+pub fn xact_diff(base: &[crate::hooks::XactTable], after: &[crate::hooks::XactTable]) -> Vec<crate::hooks::XactTable> {
+    after
+        .iter()
+        .filter_map(|a| {
+            let b = base.iter().find(|b| b.relname == a.relname);
+            let d = |f: fn(&crate::hooks::XactTable) -> i64| f(a) - b.map_or(0, f);
+            let t = crate::hooks::XactTable {
+                relname: a.relname.clone(),
+                seq_scan: d(|t| t.seq_scan),
+                idx_scan: d(|t| t.idx_scan),
+                n_tup_ins: d(|t| t.n_tup_ins),
+                n_tup_upd: d(|t| t.n_tup_upd),
+                n_tup_del: d(|t| t.n_tup_del),
+            };
+            (t.seq_scan | t.idx_scan | t.n_tup_ins | t.n_tup_upd | t.n_tup_del != 0).then_some(t)
+        })
+        .collect()
+}
+
 /// The only handle a command gets on its transaction.
 ///
 /// Statement text must be static, so a value cannot be spliced into SQL:
@@ -274,6 +315,8 @@ pub struct Tx<'a, S: Session> {
     stub: bool,
     #[cfg(feature = "qualification")]
     fail_next: Option<String>,
+    #[cfg(feature = "qualification")]
+    xact_baseline: Option<Vec<crate::hooks::XactTable>>,
 }
 
 impl<'a, S: Session> Tx<'a, S> {
@@ -344,6 +387,8 @@ impl<'a, S: Session> Tx<'a, S> {
             stub: false,
             #[cfg(feature = "qualification")]
             fail_next: None,
+            #[cfg(feature = "qualification")]
+            xact_baseline: None,
         }
     }
 
@@ -646,6 +691,11 @@ impl<C: Connector> Executor<C> {
         if let Some(ms) = self.cfg.lock_timeout_ms {
             db!(tx.set_lock_timeout(ms).await, false);
         }
+        #[cfg(feature = "qualification")]
+        {
+            let rows = db!(tx.exec("trace.xact_stats_begin", XACT_STATS_SQL, &[]).await, false);
+            tx.xact_baseline = Some(xact_tables(&rows));
+        }
         db!(tx.pause("begin").await, false);
         cmd!(cmd.anchor(&mut tx, b).await);
         // Q-C1 unsafe control: a per-organization lock taken by every command,
@@ -730,29 +780,18 @@ impl<C: Connector> Executor<C> {
         #[cfg(feature = "qualification")]
         {
             // Provisional server-side relation check (CONTRACT-M1 §5).
-            let rows = db!(
-                tx.exec(
-                    "trace.xact_stats",
-                    "SELECT relname::text, seq_scan, coalesce(idx_scan, 0), n_tup_ins, n_tup_upd, n_tup_del FROM pg_stat_xact_user_tables WHERE schemaname = current_schema() AND seq_scan + coalesce(idx_scan, 0) + n_tup_ins + n_tup_upd + n_tup_del > 0",
-                    &[],
-                )
-                .await,
-                false
-            );
-            let tables: Vec<crate::hooks::XactTable> = rows
-                .0
-                .iter()
-                .filter_map(|r| {
-                    Some(crate::hooks::XactTable {
-                        relname: r.first()?.as_text()?.to_string(),
-                        seq_scan: r.get(1)?.as_int().unwrap_or(0),
-                        idx_scan: r.get(2)?.as_int().unwrap_or(0),
-                        n_tup_ins: r.get(3)?.as_int().unwrap_or(0),
-                        n_tup_upd: r.get(4)?.as_int().unwrap_or(0),
-                        n_tup_del: r.get(5)?.as_int().unwrap_or(0),
-                    })
-                })
-                .collect();
+            // pg_stat_xact_user_tables reports the backend's PENDING
+            // counters, which include earlier transactions on a pooled
+            // connection (WS7 measurement); the backend does not flush while
+            // a transaction is open, so after-minus-baseline is exact.
+            let rows = db!(tx.exec("trace.xact_stats", XACT_STATS_SQL, &[]).await, false);
+            let after = xact_tables(&rows);
+            let mut base = tx.xact_baseline.take().unwrap_or_default();
+            // Q-C5 unsafe control: report the raw pending counters (no baseline).
+            if controls::fire(&tx.scope(), "Q-C5.no_xact_baseline") {
+                base.clear();
+            }
+            let tables = xact_diff(&base, &after);
             tx.emit(EventKind::XactStats { tables: &tables });
             // Relation-level locks this backend holds (lead ruling 09:09Z):
             // confirms the row-lock FAMILY server-side (every FOR mode shows
