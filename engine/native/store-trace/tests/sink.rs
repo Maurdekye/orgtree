@@ -31,6 +31,9 @@ impl Command for Edit {
     fn verb(&self) -> &'static str {
         "edit"
     }
+    fn causal_refs(&self) -> Vec<String> {
+        vec!["msg-7f3a".into(), "batch-2c".into()]
+    }
     async fn anchor<S: Session>(&self, tx: &mut Tx<'_, S>, _b: &Binding) -> Result<(), CmdError> {
         tx.exec("item.anchor", "SELECT 1 FROM agents WHERE id = $1 FOR SHARE", &[Val::Int(1)]).await?;
         Ok(())
@@ -72,7 +75,7 @@ fn run_one() -> (Vec<Record>, Arc<Collector>) {
         ["agents", "items", "operation_receipts"].iter().map(|s| s.to_string()).collect();
     let c = Arc::new(Collector::new("exec-1", 1024, "run-1", known));
     let db = FakeDb::new();
-    let cfg = ExecConfig { max_attempts: 3, backoff_base: Duration::ZERO, backoff_cap: Duration::ZERO, lock_timeout_ms: None };
+    let cfg = ExecConfig { max_attempts: 3, backoff_base: Duration::ZERO, backoff_cap: Duration::ZERO, ..ExecConfig::default() };
     let ex = Executor::new(FakeConnector { db: db.clone() }, 1, FakeConnector { db }, 1, cfg,
                            Hooks::with_trace(c.clone()));
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
@@ -96,6 +99,11 @@ fn one_operation_becomes_a_complete_trace() {
     assert!(xs < commit);
     assert!(matches!(field(&records[xs], "tables"), Some(Value::List(_))));
     assert_eq!(kinds.last(), Some(&"stream_end"));
+    // the workflow ids right after op_begin, and again after op_end
+    assert_eq!(kinds.get(1), Some(&"causal_refs"), "{kinds:?}");
+    let end = kinds.iter().position(|k| *k == "op_end").unwrap();
+    assert_eq!(kinds.get(end + 1), Some(&"causal_refs"), "{kinds:?}");
+    assert_eq!(field(&records[1], "refs"), Some(&Value::List(vec![Value::str("msg-7f3a"), Value::str("batch-2c")])));
     let seqs: Vec<u64> = records.iter().map(|r| r.seq).collect();
     assert_eq!(seqs, (1..=records.len() as u64).collect::<Vec<_>>(), "contiguous sequence");
     let end = records.last().unwrap();
@@ -179,7 +187,7 @@ impl Command for StubbedEdit {
 fn stub_statements_keep_their_stub_flag() {
     let known: BTreeSet<String> = ["items", "operation_receipts"].iter().map(|s| s.to_string()).collect();
     let c = Arc::new(Collector::new("exec-2", 1024, "run-2", known));
-    let cfg = ExecConfig { max_attempts: 3, backoff_base: Duration::ZERO, backoff_cap: Duration::ZERO, lock_timeout_ms: None };
+    let cfg = ExecConfig { max_attempts: 3, backoff_base: Duration::ZERO, backoff_cap: Duration::ZERO, ..ExecConfig::default() };
     let db = FakeDb::new();
     let ex = Executor::new(FakeConnector { db: db.clone() }, 1, FakeConnector { db }, 1, cfg,
                            Hooks::with_trace(c.clone()));
@@ -285,6 +293,29 @@ fn every_record_meets_the_python_schema() {
         for f in required {
             assert!(field(r, f).is_some(), "{} lacks {f}: {}", r.kind, r.to_json());
         }
+    }
+}
+
+/// A family's Mark (not a statement, not a hookable point) is its own record kind.
+#[test]
+fn a_mark_is_recorded_with_its_name_and_meets_the_schema() {
+    let kinds = python_kinds();
+    let c = Collector::new("mark-1", 16, "run-m", BTreeSet::new());
+    let op = binding().op;
+    orgtree_store::hooks::TraceSink::event(&c, &orgtree_store::hooks::TraceEvent {
+        kind: orgtree_store::hooks::EventKind::Mark { name: "runtime.turn.provider_input.begin" },
+        family: "runtime",
+        verb: "turn",
+        op: Some(&op),
+        op_tag: Some("A"),
+        attempt: 1,
+        stub: false,
+    });
+    let r = c.drain().pop().expect("a record");
+    assert_eq!(r.kind, "mark");
+    assert_eq!(field(&r, "name"), Some(&Value::str("runtime.turn.provider_input.begin")));
+    for f in &kinds["mark"] {
+        assert!(field(&r, f).is_some(), "mark lacks {f}");
     }
 }
 
