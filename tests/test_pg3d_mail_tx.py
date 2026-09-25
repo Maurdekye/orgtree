@@ -213,7 +213,7 @@ class MailTx(unittest.TestCase):
             return real_log(org, direction, *a, **kw)
 
         def outs() -> list:
-            return [e for e in store.load_org(self.slug).d['org_inbox']
+            return [e for e in store.load_org(self.slug).d.get('org_inbox') or []
                     if e.get('dir') == 'out' and e.get('body') == 'cross-org hello']
 
         def copies() -> int:
