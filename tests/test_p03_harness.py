@@ -412,6 +412,40 @@ class FaultKit(unittest.TestCase):
         killed = [e for e in result.achieved if e["event"] == "killed:A"]
         self.assertEqual(killed[0]["backend_pid"], begins[0])
 
+    def test_a_second_kill_terminates_the_retry_s_new_backend(self):
+        order = Order("kill-twice", [("start", "A"), ("arrive", "A", WRITE), ("kill", "A"),
+                                     ("arrive", "A", WRITE, 2), ("kill", "A"), ("await_end", "A")],
+                      [("before", "killed:A", f"arrived:A:{WRITE}@2"),
+                       ("before", f"arrived:A:{WRITE}@2", "killed:A@2"),
+                       ("outcome", "A", "applied")])
+        result = run_order(FakeExecutor(OPS), self.one(order), order)
+        self.assertEqual(result.verdict, PASSED, result.reasons)
+        begins = [r["backend_pid"] for r in result.records if r["kind"] == "tx_begin"]
+        kills = {e["event"]: e["backend_pid"] for e in result.achieved
+                 if e["event"].startswith("killed:")}
+        self.assertEqual(kills, {"killed:A": begins[0], "killed:A@2": begins[1]})
+        self.assertEqual(len(set(begins)), 3)
+
+    def test_a_kill_the_service_refuses_over_the_wire_fails_the_run(self):
+        class Refusing(FakeExecutor):
+            def kill_backend(self, pid):
+                return False
+        order = Order("kill-refused-wire", [("start", "A"), ("arrive", "A", WRITE), ("kill", "A"),
+                                            ("release", "A", WRITE), ("await_end", "A")], [])
+        svc = FakeService(Refusing(OPS))
+        try:
+            ch = ServiceChannel(svc.host, run="x", timeout=10.0)
+            try:
+                result = run_order(ch, self.one(order), order)
+            finally:
+                ch.close()
+        finally:
+            svc.close()
+        self.assertEqual(result.verdict, FAILED)
+        self.assertTrue(any("was not terminated" in r for r in result.reasons), result.reasons)
+        self.assertTrue(any(r.startswith("the service reported an error: qual.kill")
+                            for r in result.reasons), result.reasons)
+
     def test_a_kill_without_an_arrival_fails_the_run(self):
         order = Order("kill-blind", [("start", "A"), ("kill", "A"), ("await_end", "A")], [])
         result = run_order(FakeExecutor(OPS), self.one(order), order)
