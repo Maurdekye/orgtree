@@ -11218,7 +11218,8 @@ def _agent_door(body: AgentCall, a: dict[str, Any],
             if routed and not result.get("deferred"):
                 tx.after.drive.append(str(routed))
         k = supervisor.kiosk_cfg(tx.org)
-        if k and int(k.get("credits") or 0) > 0:
+        if k and int(k.get("credits") or 0) > 0 \
+                and body.tool not in pgdoor.KIOSK_EXEMPT:
             # the cap is a decision on the kiosk section: hold it
             with pgdoor.join(body.org, share_sections=["kiosk"]):
                 _kiosk_cap_check(tx.org)
@@ -11254,6 +11255,10 @@ def _agent_door(body: AgentCall, a: dict[str, Any],
                                      on_commit=witness)
     except LedgerError as e:
         raise HTTPException(422, str(e))
+    if after.replayed:
+        # a replayed key: nothing ran and nothing committed, so NOTHING of
+        # the post-commit tail runs either (the cycle returns it the same way)
+        return result
     if "account" in notify:
         supervisor.notify(body.org, notify["account"], "account")
     if "unpark" in notify:
