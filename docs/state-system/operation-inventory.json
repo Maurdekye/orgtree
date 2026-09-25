@@ -14,15 +14,16 @@
   },
   "summary": {
     "modules": 129,
-    "registration_sites": 333,
+    "registration_sites": 342,
     "registration_kinds": {
       "callback": 5,
       "hook": 4,
       "http": 194,
       "registration_call": 10,
       "task": 13,
-      "tool": 49,
+      "tool": 51,
       "tool_catalog": 1,
+      "tool_verb": 7,
       "websocket": 1,
       "worker": 56
     },
@@ -30,6 +31,7 @@
     "dispatch_selector_sites": 227,
     "connection_sites": 18,
     "unresolved_connect_calls": 2,
+    "unresolved_tool_refs": 0,
     "doc_lock_references": 249
   },
   "modules": [
@@ -5530,6 +5532,46 @@
       "resolution": "literal"
     },
     {
+      "site_id": "d1d0a186d8065924bd0fb33a6d15f1f6e1d5c67da7a71ab5968c571484eb3727",
+      "kind": "tool",
+      "source": {
+        "path": "engine/backend/orgtree/mcptool.py",
+        "symbol": "<module>",
+        "line": 2047,
+        "end_line": 2068,
+        "syntax_sha256": "b8342e0e4e32d3d4e6be82dc03da428b38569929b1340b14ce2373b5dd6ebfb2"
+      },
+      "names": [
+        "orgtree_self_relaunch"
+      ],
+      "actions": null,
+      "action_schema_present": false,
+      "action_expression": null,
+      "resolution": "literal"
+    },
+    {
+      "site_id": "ec929c254863a503915852f5fcb1cab65cc55b57a6ba41913489126d919acbc6",
+      "kind": "tool",
+      "source": {
+        "path": "engine/backend/orgtree/mcptool.py",
+        "symbol": "<module>",
+        "line": 2069,
+        "end_line": 2096,
+        "syntax_sha256": "bb6a099dc0d0d90f65b62d2b841c30da3dfd278a3da74dc7dd30f129f9d55e6d"
+      },
+      "names": [
+        "orgtree_prime_relaunch"
+      ],
+      "actions": [
+        "arm",
+        "cancel",
+        "status"
+      ],
+      "action_schema_present": true,
+      "action_expression": "['arm', 'cancel', 'status']",
+      "resolution": "literal"
+    },
+    {
       "site_id": "e7f59429bccbadb81ad0e2807b29f5f44fed72b7ff0f104e25fb7ac57a122f06",
       "kind": "worker",
       "source": {
@@ -6500,6 +6542,111 @@
       "mechanism": "threading.Thread",
       "target": "read_stdout",
       "resolution": "expression"
+    },
+    {
+      "site_id": "efc09cc1572d8187a5eb6da097c487d53e8a98cce8367b2bb454a02d61cc8613",
+      "kind": "tool_verb",
+      "source": {
+        "path": "engine/backend/orgtree/api.py",
+        "symbol": "agent_call",
+        "line": 12416,
+        "end_line": 12416,
+        "syntax_sha256": "8d80289381ee38d42703e9a4944330197c34f23bcdfd76baacce825f726ac530"
+      },
+      "names": [
+        "orgtree_account_assign"
+      ],
+      "resolution": "literal"
+    },
+    {
+      "site_id": "f5286ebf105c8d4dd53d8bc104ec8909d4309f899b02bf9c0183cdea391bb3ea",
+      "kind": "tool_verb",
+      "source": {
+        "path": "engine/backend/orgtree/api.py",
+        "symbol": "_op_unwrap",
+        "line": 10959,
+        "end_line": 10959,
+        "syntax_sha256": "3f268ef306000955de12a05e706b407f8a8532e26f53707e116f13b31dae4b1f"
+      },
+      "names": [
+        "orgtree_op_call"
+      ],
+      "resolution": "constant"
+    },
+    {
+      "site_id": "bac304773b95657325508aba3460676db7ae534f4549894a2fd5433fbfef10fd",
+      "kind": "tool_verb",
+      "source": {
+        "path": "engine/backend/orgtree/api.py",
+        "symbol": "agent_call",
+        "line": 11300,
+        "end_line": 11300,
+        "syntax_sha256": "fe942b7461f2f3750cd0085294c851a06ea70fe5aa1d0d05768dbb78ddb44375"
+      },
+      "names": [
+        "orgtree_op_epoch"
+      ],
+      "resolution": "constant"
+    },
+    {
+      "site_id": "2cfeb26c8d2d2303db4cbd34f0489d80c24f6bb27fd1311d426b8aacfe668c42",
+      "kind": "tool_verb",
+      "source": {
+        "path": "engine/backend/orgtree/api.py",
+        "symbol": "agent_call",
+        "line": 11325,
+        "end_line": 11325,
+        "syntax_sha256": "7e8b7605e163e517a8b3d8ff542c451ff331d38a5e3107ef110a7e425ea7731c"
+      },
+      "names": [
+        "orgtree_op_lookup"
+      ],
+      "resolution": "constant"
+    },
+    {
+      "site_id": "abac168b606a992547035ed962d5884b39720de167c8b232bcf3d391a1e3408d",
+      "kind": "tool_verb",
+      "source": {
+        "path": "engine/backend/orgtree/api.py",
+        "symbol": "agent_call",
+        "line": 11363,
+        "end_line": 11364,
+        "syntax_sha256": "c4f2269f997146834a22959fe98bcf1815d9fab6869837ad7cc413c9ff2be330"
+      },
+      "names": [
+        "orgtree_operation_census"
+      ],
+      "resolution": "literal"
+    },
+    {
+      "site_id": "9535f68af4f33293825005b454dcbe84b42a936ad4a95f4ad9b8e09b8c7723ed",
+      "kind": "tool_verb",
+      "source": {
+        "path": "engine/backend/orgtree/api.py",
+        "symbol": "agent_call",
+        "line": 11336,
+        "end_line": 11337,
+        "syntax_sha256": "f472e3454d36fb4f77a7e0cbb544126a5faf6a1a650b6f8f2a2cfeff36688b5f"
+      },
+      "names": [
+        "orgtree_self_update"
+      ],
+      "resolution": "constant"
+    },
+    {
+      "site_id": "50c7b946887edfa794feb7ff098901427465623401aa9f0f8daf243496d8396f",
+      "kind": "tool_verb",
+      "source": {
+        "path": "engine/backend/orgtree/api.py",
+        "symbol": "agent_call",
+        "line": 11279,
+        "end_line": 11279,
+        "syntax_sha256": "d31c3e32afef87224332cbeb3877ee005ce1a6b49387c32aeb84223b8d8a29f3"
+      },
+      "names": [
+        "orgtree_send_file_once"
+      ],
+      "resolution": "literal"
     }
   ],
   "dispatch_selectors": [

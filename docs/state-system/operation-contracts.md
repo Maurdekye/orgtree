@@ -119,14 +119,15 @@ runtime probes remain unresolved. Material reads add two cards and two selectors
 diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
-Current totals are 123 contracts, 84 mapped registrations and 147 mapped
-dispatch witnesses. **663 obligations remain**: 231 registrations, 73 dispatch
-witnesses, 14 storage candidates and 345 unresolved dimension occurrences.
+Current totals are 128 contracts, 87 mapped registrations and 158 mapped
+dispatch witnesses. **673 obligations remain**: 237 registrations, 62 dispatch
+witnesses, 14 storage candidates and 360 unresolved dimension occurrences.
 From P01 F1 on, progress is reported as three numbers (coordinator ruling Q1, decision 1 on
 p01-f1-contracts-for-the-org-lifecycle-and-catal): **entries contracted 54/194** (of the concrete http,
 websocket and tool entries that were on the generic reason; F1b contracts none of them, since the
-operator door had its own reason; F3 contracts thirteen; F2 twenty-two), **345 open dimension
-occurrences** and **663 total pending**. Total pending RISES while the 194 are contracted, to about 790-1000 when all
+operator door had its own reason; F3 contracts thirteen; F2 twenty-two; the relaunch-cards item none of
+them, since its three contracted entries are new witnesses outside the 194), **360 open dimension
+occurrences** and **673 total pending**. Total pending RISES while the 194 are contracted, to about 790-1000 when all
 twelve families have landed, and that rise is expected: each new contract closes its entry but opens
 its own conflicts, wire and instrumentation dimensions until P03, the native conversion and P02 answer
 them.
@@ -391,6 +392,32 @@ the kiosk route is stripped (`desktop_policy.install_routes` also strips `/git/`
 which F8 and F10 will state). The branches the desktop relaunch verbs reach stay pending until their tool
 cards are inventoried (p01-inventory-misses-the-desktop-relaunch-tool-c), and three branches stay pending on
 the card-less `orgtree_self_update` alias.
+
+673 is ten more than that 663 (P01 relaunch-cards item, p01-inventory-misses-the-desktop-relaunch-tool-c). The
+scanner missed two kinds of entry point. It read only the `TOOLS` catalogue, so mcptool's
+`_DESKTOP_RELAUNCH_CARDS` (the `orgtree_self_relaunch` and `orgtree_prime_relaunch` cards the desktop-managed
+profile swaps in) were not entries; and it knew nothing of the names the agent door dispatches without any card.
+It now reads any module-level literal of tool cards as a catalogue, and records every `body.tool` operand, through
+literals, sets, starred constants and other modules' constants, as a `tool_verb` entry when no card carries the
+name (`unresolved_tool_refs` counts an operand it cannot resolve; it is 0). That adds nine entry witnesses: the two
+cards and seven verbs (`orgtree_self_update`, `orgtree_send_file_once`, `orgtree_op_call`, `orgtree_op_epoch`,
+`orgtree_op_lookup`, `orgtree_operation_census` and `orgtree_account_assign`). The validator treats a
+`tool_verb` like a card: it cannot be excluded, and a contract bound to one must name it. Two guards in
+`tests/test_state_operation_inventory.py` find card literals anywhere and `body.tool` names by a different walk
+than the scanner, and fail on any that is not inventoried.
+
+Five contracts on a new `relaunch.*` facet family (the closed `control.*` facets are not reused, decision 1 on
+the F1b item) cover the two cards and `orgtree_self_update`, pinned by `tests/test_state_relaunch_boundary.py`
+against `docs/state-system/relaunch-boundary.json` with the real desktop maintenance adapter writing its request
+file. `orgtree_self_update` gets its own contract and is not recorded as an alias of `control.self-restart`,
+because the source does not support that: under the non-desktop profile it behaves exactly as
+`orgtree_self_restart`, but under the desktop-managed profile it is not refused as renamed and records a
+maintenance request with action `update` and the caller's target (recorded legacy defect). Also recorded:
+`orgtree_self_relaunch` accepts a `reason` and keeps none of it, and `orgtree_self_update`'s desktop receipt keeps
+nothing. The eleven dispatch rows F2 left pending are mapped. The other six verbs stay pending with owner-named
+reasons (the receipt verbs with the S3 receipt family, the census with P02, `orgtree_send_file_once` with F4,
+`orgtree_account_assign` as an F1 follow-up). Pending moves by -11 dispatch, +6 entries and +15 open dimension
+occurrences (conflicts, wire and instrumentation on each of the five contracts).
 
 Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the

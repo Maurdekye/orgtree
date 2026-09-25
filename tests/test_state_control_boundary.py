@@ -132,20 +132,8 @@ class BoundaryBinding(unittest.TestCase):
                                                  args={'action': ''}), headers={'X-Orgtree-Agent-Token': token})
         self.assertEqual((out.status_code, out.json().get('armed')), (200, True), out.text)
 
-    def test_relaunch_and_alias_branches_stay_pending_with_their_reason(self):
-        registry = contracts.load(ROOT / 'docs/state-system/operation-contracts.json')
-        source = contracts.inventory.scan(ROOT)
-        rows = {r['id']: r for r in registry['dispatch']}
-        relaunch = alias = 0
-        for s in source['dispatch_selectors']:
-            r = rows[contracts.witness_id('dispatch', s)]
-            if 'p01-inventory-misses-the-desktop-relaunch-tool-c' in r['reason']:
-                relaunch += 1
-                self.assertEqual(r['disposition'], 'pending')
-            if 'deprecated alias orgtree_self_update' in r['reason']:
-                alias += 1
-                self.assertEqual(r['disposition'], 'pending')
-        self.assertEqual((relaunch, alias), (8, 3))
+    # the relaunch and self_update-alias branches this family left pending are mapped by the relaunch-cards item:
+    # tests/test_state_relaunch_boundary.py, test_the_rows_f2_left_pending_are_mapped_and_the_other_verbs_are_owned
 
 
 class ControlBoundary(unittest.TestCase):

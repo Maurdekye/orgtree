@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.state-operation-contracts/v1",
-  "source_inventory_sha256": "94b41dffbd505ea8abbb6e33d0264caf052dfaf62e1a881a10ea886f70b8caf2",
+  "source_inventory_sha256": "8e10efcbbc4e2044fb9556bac87db71dde74bae66738e313b0aa376b5070d9b2",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false
@@ -10202,6 +10202,315 @@
           "sha256": "24fb1b215a1ca90da01d06ffbcec547f96015d884df313e19af49622ae40075a"
         }
       ]
+    },
+    "relaunch.authority": {
+      "dimension": "authority",
+      "status": "specified",
+      "facts": [
+        "PROFILES (decision 1 on p01-f2-contracts-for-the-run-control-entry-point). Under the desktop-managed profile (ORGTREE_DESKTOP_MANAGED=1, which engine/launch.py sets, and under which it installs desktop_maintenance) orgtree_self_relaunch, orgtree_prime_relaunch arm and cancel and the deprecated orgtree_self_update take the machine-wide gate (Org.self_restart_gate and Org.prime_restart_gate): only a top-level agent or a holder of a user audience, any other caller refused 422 ('a self-restart restarts the shared orgtree install for EVERY org on this machine …' or 'a primed restart …'). prime_relaunch status takes no gate and needs only a live caller (an archived seat is refused 403 'authenticated seat is archived or replaced …'). Under the non-desktop profile orgtree_self_relaunch and orgtree_prime_relaunch are refused 422 at the door whatever their action or options ('<tool> is available only to the desktop-managed V2 profile'), while orgtree_self_update takes the same gate as orgtree_self_restart. The frozen deployment profile refuses all three 403 before any write, prime_relaunch status included, under either profile ('the frozen deployment profile disables agent-triggered self-update, self-restart, and primed restart …'). A halted caller, or any caller while the org killswitch is latched, is refused 409 before any tool runs (the shared door gate, source; pinned for the run-control tools by tests/test_state_control_boundary.py). Pinned by tests/test_state_relaunch_boundary.py against docs/state-system/relaunch-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11290,
+          "end": 11295,
+          "sha256": "24fb1b215a1ca90da01d06ffbcec547f96015d884df313e19af49622ae40075a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11335,
+          "end": 11362,
+          "sha256": "9233bf695148dc766b5af549b0e559a0b6f48c1630e31db3116d2c6150c62ba8"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 10383,
+          "end": 10406,
+          "sha256": "8d67d1f2d663b823886c9e76fd7080385da778da05903fabe90a4874830fa27d"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 10408,
+          "end": 10428,
+          "sha256": "12bdda62f88214dd763ef9c1a0c3fcaaef1167470df8f677e5d63454685244e7"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 10458,
+          "end": 10519,
+          "sha256": "7a3d0b16b2523e35e714617ced50b52ffe7164a6a355f0efc72826b2b977b03a"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 10355,
+          "end": 10381,
+          "sha256": "660ec9a99869251c24914e332f94200bc8635e0019447b938ba416933e44cf6c"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12289,
+          "end": 12322,
+          "sha256": "1ca02676b89971ce08c5cf9fcda3d78430badbf950c16138f8aa46c703c08420"
+        },
+        {
+          "path": "engine/launch.py",
+          "start": 336,
+          "end": 336,
+          "sha256": "1b5b5049aec72f3071c12c8bd759144cf60673a02b4aec3a68ee9b2329089bce"
+        }
+      ]
+    },
+    "relaunch.reads": {
+      "dimension": "reads",
+      "status": "specified",
+      "facts": [
+        "Under the desktop-managed profile self_relaunch, prime_relaunch arm and self_update first read the machine-wide request file <DATA_ROOT>/desktop-maintenance.json under desktop_maintenance's lock: a request that is pending or acknowledged is returned as it stands (armed true, already_armed true, and the whole request: its action, target, reason, by_org and by_node, which may be another org's) and no new request is written. prime_relaunch status reads only a pending request (desktop_maintenance.pending) and names its by_org, by_node and arming time; cancel reads the pending request. The gates read the caller's node and its audiences. Pinned by tests/test_state_relaunch_boundary.py against docs/state-system/relaunch-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/desktop_maintenance.py",
+          "start": 61,
+          "end": 77,
+          "sha256": "e1496c500bde4901c916a67005602babca0a35c8bdc217ad2ed0303567fd69c4"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_maintenance.py",
+          "start": 50,
+          "end": 53,
+          "sha256": "e8a74cd38184bf880d6af84668fb2654c1cb1a9fc33a27edc94bb1c52e6a4c5d"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_maintenance.py",
+          "start": 86,
+          "end": 91,
+          "sha256": "825a893159c7c7740d90ee7ef8ecdc2c069c9053e0d80f6a4911e337cc34883f"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12289,
+          "end": 12322,
+          "sha256": "1ca02676b89971ce08c5cf9fcda3d78430badbf950c16138f8aa46c703c08420"
+        }
+      ]
+    },
+    "relaunch.writes": {
+      "dimension": "writes",
+      "status": "specified",
+      "facts": [
+        "Desktop-managed profile: every admitted call except status appends one org event in this request's save: self_relaunch and self_update 'self_restart' with detail {} (no reason is recorded), prime_relaunch arm 'prime_restart_arm' with {target: 'org', reason} and cancel 'prime_restart_cancel' with {}. The event is appended even when nothing new is requested (already_armed) and when nothing is cancelled (cancelled false, which includes an acknowledged request: cancel leaves it untouched). Outside the org document the maintenance adapter writes <DATA_ROOT>/desktop-maintenance.json (a temporary file then os.replace, source): a new request {id, action, target, reason, by_org, by_node, at, state: 'pending'} with action 'restart' and target 'org' for self_relaunch and prime arm, and action 'update' with the caller's target for self_update; cancel rewrites a pending request to state 'cancelled' with cancelled_by. status writes nothing. Every refusal writes nothing, including self_update's refused target, which is refused after the gate has run and so drops the gate's event with the request's save. Non-desktop profile: self_update appends the 'self_restart' event, with {force: true, reason} followed by 'self_restart_forced' on the forced path, and writes nothing else here; the relaunch tools write nothing. Keyed calls also write op_receipts and op_receipts_meta. Pinned by tests/test_state_relaunch_boundary.py against docs/state-system/relaunch-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 10383,
+          "end": 10406,
+          "sha256": "8d67d1f2d663b823886c9e76fd7080385da778da05903fabe90a4874830fa27d"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 10458,
+          "end": 10519,
+          "sha256": "7a3d0b16b2523e35e714617ced50b52ffe7164a6a355f0efc72826b2b977b03a"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_maintenance.py",
+          "start": 61,
+          "end": 77,
+          "sha256": "e1496c500bde4901c916a67005602babca0a35c8bdc217ad2ed0303567fd69c4"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_maintenance.py",
+          "start": 86,
+          "end": 91,
+          "sha256": "825a893159c7c7740d90ee7ef8ecdc2c069c9053e0d80f6a4911e337cc34883f"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_maintenance.py",
+          "start": 44,
+          "end": 47,
+          "sha256": "a9f6a152a1d722f5decf7809e4509adfa0bf1504674aeca23bd653d1d994234d"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10709,
+          "end": 10770,
+          "sha256": "09dbf106ff3b91c09250abd128b70c102125795cd300d0464cc56fda4494fc56"
+        }
+      ]
+    },
+    "relaunch.predicates": {
+      "dimension": "predicates",
+      "status": "specified",
+      "facts": [
+        "The door reads prime_relaunch's action as str(a.get('action') or 'arm') and refuses anything but arm, cancel and status 422 ('action must be arm|cancel|status'); the selectors use that same reading (action normalization str_or_arm), so every falsy action selects the arm contract and an unknown action ('nope', 'ARM') selects none. _desktop_relaunch_args admits only reason for self_relaunch and only action and reason for prime_relaunch, refusing any other option 422 before the gate ('orgtree_self_relaunch accepts only reason; unsupported option(s): target'), so target, force, deadline_minutes and a legacy action on self_relaunch are refused. Under the non-desktop profile the profile refusal comes first, so an extra option draws the same 'available only to the desktop-managed V2 profile'. self_update is not checked by _desktop_relaunch_args: under the desktop-managed profile force is refused 422 ('Desktop maintenance waits for idle; force is unavailable') and a target outside org, mailhub and both is refused 422 by the adapter ('invalid desktop maintenance target/action'); under the non-desktop profile a forced call needs a reason (422 'a FORCED self-restart requires a `reason` …') and takes the forced path. Pinned by tests/test_state_relaunch_boundary.py against docs/state-system/relaunch-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12289,
+          "end": 12322,
+          "sha256": "1ca02676b89971ce08c5cf9fcda3d78430badbf950c16138f8aa46c703c08420"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9953,
+          "end": 9968,
+          "sha256": "50e82d17dee92768415c437bb5179b3746b65fe77190bde02777e4531789ecd3"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11335,
+          "end": 11362,
+          "sha256": "9233bf695148dc766b5af549b0e559a0b6f48c1630e31db3116d2c6150c62ba8"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_maintenance.py",
+          "start": 61,
+          "end": 77,
+          "sha256": "e1496c500bde4901c916a67005602babca0a35c8bdc217ad2ed0303567fd69c4"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 10408,
+          "end": 10428,
+          "sha256": "12bdda62f88214dd763ef9c1a0c3fcaaef1167470df8f677e5d63454685244e7"
+        }
+      ]
+    },
+    "relaunch.conflicts": {
+      "dimension": "conflicts",
+      "status": "unresolved",
+      "facts": [
+        "The maintenance request is one machine-wide file guarded by a lock local to the engine process and written outside the org document's transaction: the org event and the request are two separate writes, and a pending request made by one org is returned to, and cancellable by, a gated agent of any org on the machine (source)."
+      ],
+      "open_questions": [
+        "Implement and qualify native transactions for the relaunch operations: how the org event and the machine-wide maintenance request order against each other and against another org's request or cancel.",
+        "Owner: P03 (native design and qualification), with P08 for the runtime and the desktop maintenance adapter. Closes with: a native design qualified by two orgs arming and cancelling one request concurrently. Not coverable at P01 from available evidence: no native build exists, and P01 has not cited a native design section for these operations."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/desktop_maintenance.py",
+          "start": 61,
+          "end": 77,
+          "sha256": "e1496c500bde4901c916a67005602babca0a35c8bdc217ad2ed0303567fd69c4"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_maintenance.py",
+          "start": 86,
+          "end": 91,
+          "sha256": "825a893159c7c7740d90ee7ef8ecdc2c069c9053e0d80f6a4911e337cc34883f"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_maintenance.py",
+          "start": 44,
+          "end": 47,
+          "sha256": "a9f6a152a1d722f5decf7809e4509adfa0bf1504674aeca23bd653d1d994234d"
+        }
+      ]
+    },
+    "relaunch.wire": {
+      "dimension": "wire",
+      "status": "unresolved",
+      "facts": [
+        "The shapes are fixtured in docs/state-system/relaunch-boundary.json per case and per profile."
+      ],
+      "open_questions": [
+        "Carry the fixtured relaunch shapes to the native/Rust door, per profile, and decide each recorded legacy defect.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured shapes passing against the native and Rust builds. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12262,
+          "end": 12268,
+          "sha256": "38a5ce644332937cd2699e7fcb37ee5569f2b35ea03e6c143a3bcf31092b13ed"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12289,
+          "end": 12322,
+          "sha256": "1ca02676b89971ce08c5cf9fcda3d78430badbf950c16138f8aa46c703c08420"
+        }
+      ]
+    },
+    "relaunch.receipt": {
+      "dimension": "receipt",
+      "status": "specified",
+      "facts": [
+        "Coverage: self_relaunch, prime_relaunch and self_update UNROLLED (a keyed call files an unrolled_side_effect receipt, prime_relaunch status included; a keyed replay returns replayed true with the first receipt and does not run the call again). Kept: self_relaunch keeps armed; prime_relaunch keeps state and armed, so arm keeps armed and status keeps nothing (cancel's result carries neither field, source); self_update keeps target, a field the desktop-managed result does not carry, so under that profile its receipt keeps nothing (recorded legacy defect). Pinned by tests/test_state_relaunch_boundary.py against docs/state-system/relaunch-boundary.json."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 161,
+          "end": 162,
+          "sha256": "53feaa5e666065efdcfa1cf7e657eec3de8190c676f29a7d93eee3d913ca8020"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 343,
+          "end": 344,
+          "sha256": "15066afe573184fb0d9d24e638519f0a7c0651400010ad8dd0d359d6f42031be"
+        }
+      ]
+    },
+    "relaunch.effects": {
+      "dimension": "effects",
+      "status": "specified",
+      "facts": [
+        "Under the desktop-managed profile nothing is launched in this process: the adapter only records the request, and the native shell relaunches the engine once both the engine and the operating system are idle (desktop_maintenance, source; the native consumer is outside this test). Every call the door admits ends with one hub_changed, status included. Under the non-desktop profile self_update calls supervisor.launch_self_restart(org, node, target) with no action argument, exactly as self_restart does, and the forced path calls supervisor.force_quiesce_for_restart first (spies here: the real launch starts a detached deploy). Pinned by tests/test_state_relaunch_boundary.py against docs/state-system/relaunch-boundary.json for the spy calls."
+      ],
+      "open_questions": [],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/desktop_maintenance.py",
+          "start": 183,
+          "end": 196,
+          "sha256": "5f3cde4255a8efb7ce754e7ec6d09f536e391f47e1832ff084ceca604566e8b7"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12269,
+          "end": 12288,
+          "sha256": "6acd473c0d6ad18ff9037fef8067c29b42e99a2ff337f16b4fbc9fab453b4821"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10709,
+          "end": 10770,
+          "sha256": "09dbf106ff3b91c09250abd128b70c102125795cd300d0464cc56fda4494fc56"
+        }
+      ]
+    },
+    "relaunch.instrumentation": {
+      "dimension": "instrumentation",
+      "status": "unresolved",
+      "facts": [
+        "The agent door labels each call (stateprobe.refine('tool:' + tool)); self_update is also one of api._PROFILE_EXTRA_TOOL_VERBS. No P02 per-operation record covers this family yet."
+      ],
+      "open_questions": [
+        "Observe every relaunch operation with the P02 per-operation probe, including the native consumer the P01 test does not run and the non-desktop launch it replaces with a spy.",
+        "Owner: P02 (p02-contacts-opus55; coordinator ruling Q6 on p01-f1-contracts-for-the-org-lifecycle-and-catal: probed after this family lands). Closes with: a loss-accounted P02 record per row. Not coverable at P01 from available evidence: P01 does not run the P02 probe, and no P02 record covers this family yet."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11290,
+          "end": 11295,
+          "sha256": "24fb1b215a1ca90da01d06ffbcec547f96015d884df313e19af49622ae40075a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 263,
+          "end": 264,
+          "sha256": "16baa198105b00e8a60432ad883e5e38a0a29b2cb970e632d4e1a4c3fc2b81a2"
+        }
+      ]
     }
   },
   "contracts": {
@@ -17803,6 +18112,417 @@
         }
       ],
       "domain_mode": "write"
+    },
+    "relaunch.self-relaunch": {
+      "entry_ids": [
+        "d1d0a186d8065924bd0fb33a6d15f1f6e1d5c67da7a71ab5968c571484eb3727"
+      ],
+      "tools": [
+        "orgtree_self_relaunch"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "relaunch.authority"
+        ],
+        "reads": [
+          "relaunch.reads"
+        ],
+        "writes": [
+          "relaunch.writes"
+        ],
+        "predicates": [
+          "relaunch.predicates"
+        ],
+        "conflicts": [
+          "relaunch.conflicts"
+        ],
+        "wire": [
+          "relaunch.wire"
+        ],
+        "receipt": [
+          "relaunch.receipt"
+        ],
+        "effects": [
+          "relaunch.effects"
+        ],
+        "instrumentation": [
+          "relaunch.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2047,
+          "end": 2068,
+          "sha256": "3abd3911f090769c45881708ad23ecf94ddfde2e5a80dc0e6d8b833d3b001577"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11335,
+          "end": 11362,
+          "sha256": "9233bf695148dc766b5af549b0e559a0b6f48c1630e31db3116d2c6150c62ba8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9953,
+          "end": 9968,
+          "sha256": "50e82d17dee92768415c437bb5179b3746b65fe77190bde02777e4531789ecd3"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12262,
+          "end": 12268,
+          "sha256": "38a5ce644332937cd2699e7fcb37ee5569f2b35ea03e6c143a3bcf31092b13ed"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 10383,
+          "end": 10406,
+          "sha256": "8d67d1f2d663b823886c9e76fd7080385da778da05903fabe90a4874830fa27d"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_maintenance.py",
+          "start": 61,
+          "end": 77,
+          "sha256": "e1496c500bde4901c916a67005602babca0a35c8bdc217ad2ed0303567fd69c4"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "relaunch.prime-relaunch-arm": {
+      "entry_ids": [
+        "ec929c254863a503915852f5fcb1cab65cc55b57a6ba41913489126d919acbc6"
+      ],
+      "tools": [
+        "orgtree_prime_relaunch"
+      ],
+      "action": "arm",
+      "action_normalization": "str_or_arm",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "relaunch.authority"
+        ],
+        "reads": [
+          "relaunch.reads"
+        ],
+        "writes": [
+          "relaunch.writes"
+        ],
+        "predicates": [
+          "relaunch.predicates"
+        ],
+        "conflicts": [
+          "relaunch.conflicts"
+        ],
+        "wire": [
+          "relaunch.wire"
+        ],
+        "receipt": [
+          "relaunch.receipt"
+        ],
+        "effects": [
+          "relaunch.effects"
+        ],
+        "instrumentation": [
+          "relaunch.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2069,
+          "end": 2096,
+          "sha256": "de797fd0cbc31c3034f0ff1260d21981680b5930710e48972e3056a59fad7679"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11335,
+          "end": 11362,
+          "sha256": "9233bf695148dc766b5af549b0e559a0b6f48c1630e31db3116d2c6150c62ba8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9953,
+          "end": 9968,
+          "sha256": "50e82d17dee92768415c437bb5179b3746b65fe77190bde02777e4531789ecd3"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12289,
+          "end": 12322,
+          "sha256": "1ca02676b89971ce08c5cf9fcda3d78430badbf950c16138f8aa46c703c08420"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 10458,
+          "end": 10519,
+          "sha256": "7a3d0b16b2523e35e714617ced50b52ffe7164a6a355f0efc72826b2b977b03a"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_maintenance.py",
+          "start": 80,
+          "end": 83,
+          "sha256": "e721a49f283165ead9df1b86ed21aba568da93fa290c469dac8d8ff1f8b5959a"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_maintenance.py",
+          "start": 61,
+          "end": 77,
+          "sha256": "e1496c500bde4901c916a67005602babca0a35c8bdc217ad2ed0303567fd69c4"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "relaunch.prime-relaunch-cancel": {
+      "entry_ids": [
+        "ec929c254863a503915852f5fcb1cab65cc55b57a6ba41913489126d919acbc6"
+      ],
+      "tools": [
+        "orgtree_prime_relaunch"
+      ],
+      "action": "cancel",
+      "action_normalization": "str_or_arm",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "relaunch.authority"
+        ],
+        "reads": [
+          "relaunch.reads"
+        ],
+        "writes": [
+          "relaunch.writes"
+        ],
+        "predicates": [
+          "relaunch.predicates"
+        ],
+        "conflicts": [
+          "relaunch.conflicts"
+        ],
+        "wire": [
+          "relaunch.wire"
+        ],
+        "receipt": [
+          "relaunch.receipt"
+        ],
+        "effects": [
+          "relaunch.effects"
+        ],
+        "instrumentation": [
+          "relaunch.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2069,
+          "end": 2096,
+          "sha256": "de797fd0cbc31c3034f0ff1260d21981680b5930710e48972e3056a59fad7679"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11335,
+          "end": 11362,
+          "sha256": "9233bf695148dc766b5af549b0e559a0b6f48c1630e31db3116d2c6150c62ba8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9953,
+          "end": 9968,
+          "sha256": "50e82d17dee92768415c437bb5179b3746b65fe77190bde02777e4531789ecd3"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12289,
+          "end": 12322,
+          "sha256": "1ca02676b89971ce08c5cf9fcda3d78430badbf950c16138f8aa46c703c08420"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 10458,
+          "end": 10519,
+          "sha256": "7a3d0b16b2523e35e714617ced50b52ffe7164a6a355f0efc72826b2b977b03a"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_maintenance.py",
+          "start": 86,
+          "end": 91,
+          "sha256": "825a893159c7c7740d90ee7ef8ecdc2c069c9053e0d80f6a4911e337cc34883f"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "relaunch.prime-relaunch-status": {
+      "entry_ids": [
+        "ec929c254863a503915852f5fcb1cab65cc55b57a6ba41913489126d919acbc6"
+      ],
+      "tools": [
+        "orgtree_prime_relaunch"
+      ],
+      "action": "status",
+      "action_normalization": "str_or_arm",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "relaunch.authority"
+        ],
+        "reads": [
+          "relaunch.reads"
+        ],
+        "writes": [
+          "relaunch.writes"
+        ],
+        "predicates": [
+          "relaunch.predicates"
+        ],
+        "conflicts": [
+          "relaunch.conflicts"
+        ],
+        "wire": [
+          "relaunch.wire"
+        ],
+        "receipt": [
+          "relaunch.receipt"
+        ],
+        "effects": [
+          "relaunch.effects"
+        ],
+        "instrumentation": [
+          "relaunch.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2069,
+          "end": 2096,
+          "sha256": "de797fd0cbc31c3034f0ff1260d21981680b5930710e48972e3056a59fad7679"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11335,
+          "end": 11362,
+          "sha256": "9233bf695148dc766b5af549b0e559a0b6f48c1630e31db3116d2c6150c62ba8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9953,
+          "end": 9968,
+          "sha256": "50e82d17dee92768415c437bb5179b3746b65fe77190bde02777e4531789ecd3"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12289,
+          "end": 12322,
+          "sha256": "1ca02676b89971ce08c5cf9fcda3d78430badbf950c16138f8aa46c703c08420"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_maintenance.py",
+          "start": 50,
+          "end": 53,
+          "sha256": "e8a74cd38184bf880d6af84668fb2654c1cb1a9fc33a27edc94bb1c52e6a4c5d"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "relaunch.self-update": {
+      "entry_ids": [
+        "9535f68af4f33293825005b454dcbe84b42a936ad4a95f4ad9b8e09b8c7723ed"
+      ],
+      "tools": [
+        "orgtree_self_update"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "relaunch.authority"
+        ],
+        "reads": [
+          "relaunch.reads"
+        ],
+        "writes": [
+          "relaunch.writes"
+        ],
+        "predicates": [
+          "relaunch.predicates"
+        ],
+        "conflicts": [
+          "relaunch.conflicts"
+        ],
+        "wire": [
+          "relaunch.wire"
+        ],
+        "receipt": [
+          "relaunch.receipt"
+        ],
+        "effects": [
+          "relaunch.effects"
+        ],
+        "instrumentation": [
+          "relaunch.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11336,
+          "end": 11337,
+          "sha256": "5186f05a0cd01fb1769f449b0001a4a10e408d08162a10d350f4b451f616954a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11335,
+          "end": 11362,
+          "sha256": "9233bf695148dc766b5af549b0e559a0b6f48c1630e31db3116d2c6150c62ba8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12269,
+          "end": 12288,
+          "sha256": "6acd473c0d6ad18ff9037fef8067c29b42e99a2ff337f16b4fbc9fab453b4821"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10709,
+          "end": 10770,
+          "sha256": "09dbf106ff3b91c09250abd128b70c102125795cd300d0464cc56fda4494fc56"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 10383,
+          "end": 10406,
+          "sha256": "8d67d1f2d663b823886c9e76fd7080385da778da05903fabe90a4874830fa27d"
+        },
+        {
+          "path": "engine/backend/orgtree/desktop_maintenance.py",
+          "start": 61,
+          "end": 77,
+          "sha256": "e1496c500bde4901c916a67005602babca0a35c8bdc217ad2ed0303567fd69c4"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 263,
+          "end": 264,
+          "sha256": "16baa198105b00e8a60432ad883e5e38a0a29b2cb970e632d4e1a4c3fc2b81a2"
+        }
+      ],
+      "domain_mode": "write"
     }
   },
   "wire_cases": [
@@ -19134,6 +19854,47 @@
       "entry_id": "298626b210b4ed959f9131db158887c7950fdffa24a3a8bc1e8a63694b60f821",
       "args": {},
       "contract": "control.kiosk",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_self_relaunch:relaunch.self-relaunch",
+      "entry_id": "d1d0a186d8065924bd0fb33a6d15f1f6e1d5c67da7a71ab5968c571484eb3727",
+      "args": {},
+      "contract": "relaunch.self-relaunch",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_prime_relaunch:relaunch.prime-relaunch-arm",
+      "entry_id": "ec929c254863a503915852f5fcb1cab65cc55b57a6ba41913489126d919acbc6",
+      "args": {
+        "action": "arm"
+      },
+      "contract": "relaunch.prime-relaunch-arm",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_prime_relaunch:relaunch.prime-relaunch-cancel",
+      "entry_id": "ec929c254863a503915852f5fcb1cab65cc55b57a6ba41913489126d919acbc6",
+      "args": {
+        "action": "cancel"
+      },
+      "contract": "relaunch.prime-relaunch-cancel",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_prime_relaunch:relaunch.prime-relaunch-status",
+      "entry_id": "ec929c254863a503915852f5fcb1cab65cc55b57a6ba41913489126d919acbc6",
+      "args": {
+        "action": "status"
+      },
+      "contract": "relaunch.prime-relaunch-status",
+      "domain_mode": "read"
+    },
+    {
+      "name": "orgtree_self_update:relaunch.self-update",
+      "entry_id": "9535f68af4f33293825005b454dcbe84b42a936ad4a95f4ad9b8e09b8c7723ed",
+      "args": {},
+      "contract": "relaunch.self-update",
       "domain_mode": "write"
     }
   ],
@@ -22541,6 +23302,98 @@
           "sha256": "a4bcccf6e5dc881e570038a171a3ea138b5993299b7b30a18ea37c26cd51fba1"
         }
       ]
+    },
+    {
+      "id": "d1d0a186d8065924bd0fb33a6d15f1f6e1d5c67da7a71ab5968c571484eb3727",
+      "disposition": "mapped",
+      "contracts": [
+        "relaunch.self-relaunch"
+      ],
+      "reason": "orgtree_self_relaunch tool card (mcptool._DESKTOP_RELAUNCH_CARDS): relaunch.self-relaunch (P01 relaunch-cards item, p01-inventory-misses-the-desktop-relaunch-tool-c.)",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2047,
+          "end": 2068,
+          "sha256": "3abd3911f090769c45881708ad23ecf94ddfde2e5a80dc0e6d8b833d3b001577"
+        }
+      ]
+    },
+    {
+      "id": "ec929c254863a503915852f5fcb1cab65cc55b57a6ba41913489126d919acbc6",
+      "disposition": "mapped",
+      "contracts": [
+        "relaunch.prime-relaunch-arm",
+        "relaunch.prime-relaunch-cancel",
+        "relaunch.prime-relaunch-status"
+      ],
+      "reason": "orgtree_prime_relaunch tool card (mcptool._DESKTOP_RELAUNCH_CARDS): relaunch.prime-relaunch-arm, relaunch.prime-relaunch-cancel, relaunch.prime-relaunch-status (P01 relaunch-cards item, p01-inventory-misses-the-desktop-relaunch-tool-c.)",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 2069,
+          "end": 2096,
+          "sha256": "de797fd0cbc31c3034f0ff1260d21981680b5930710e48972e3056a59fad7679"
+        }
+      ]
+    },
+    {
+      "id": "efc09cc1572d8187a5eb6da097c487d53e8a98cce8367b2bb454a02d61cc8613",
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "orgtree_account_assign, dispatched at the agent door without a tool card and absent from api._PROFILE_EXTRA_TOOL_VERBS, so the profile's tool-name list does not name it (reported on the relaunch-cards item). Stays pending: lifecycle.account-assign contracts only the operator route. Owner: P01 (an F1 follow-up; multi-account D2d). (P01 relaunch-cards item, p01-inventory-misses-the-desktop-relaunch-tool-c.)",
+      "source_refs": []
+    },
+    {
+      "id": "f5286ebf105c8d4dd53d8bc104ec8909d4309f899b02bf9c0183cdea391bb3ea",
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "orgtree_op_call, the receipt wrapper, dispatched without a card: the agent door unwraps it to the verb it carries before any gate (_op_unwrap), so what it does is the carried verb's contract. Stays pending: the wrapper's own unwrap and its refusals have no contract yet. Owner: P01 (the receipt verbs, with the S3 receipt family). (P01 relaunch-cards item, p01-inventory-misses-the-desktop-relaunch-tool-c.)",
+      "source_refs": []
+    },
+    {
+      "id": "bac304773b95657325508aba3460676db7ae534f4549894a2fd5433fbfef10fd",
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "orgtree_op_epoch, the receipt preflight verb, dispatched without a card: it reads the operation epoch under the write cycle's lock and may mint a fresh epoch into the custody record. Stays pending: no contract yet. Owner: P01 (the receipt verbs, with the S3 receipt family). (P01 relaunch-cards item, p01-inventory-misses-the-desktop-relaunch-tool-c.)",
+      "source_refs": []
+    },
+    {
+      "id": "2cfeb26c8d2d2303db4cbd34f0489d80c24f6bb27fd1311d426b8aacfe668c42",
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "orgtree_op_lookup, the receipt lookup verb, dispatched without a card. Its operation is contracted as receipt.lookup on the POST /api/agent entry, selected by the envelope's tool (S3 decision 9); this verb witness stays pending because binding it needs a selector over the verb's own arguments, which receipt.lookup's facets do not state. Owner: P01 (the receipt verbs). (P01 relaunch-cards item, p01-inventory-misses-the-desktop-relaunch-tool-c.)",
+      "source_refs": []
+    },
+    {
+      "id": "abac168b606a992547035ed962d5884b39720de167c8b232bcf3d391a1e3408d",
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "orgtree_operation_census, the agent read door to the operation census, dispatched without a card (deliberately unadvertised, api._PROFILE_EXTRA_TOOL_VERBS). Stays pending with its dispatch rows. Owner: P02 (the census), with P01 for its contract. (P01 relaunch-cards item, p01-inventory-misses-the-desktop-relaunch-tool-c.)",
+      "source_refs": []
+    },
+    {
+      "id": "9535f68af4f33293825005b454dcbe84b42a936ad4a95f4ad9b8e09b8c7723ed",
+      "disposition": "mapped",
+      "contracts": [
+        "relaunch.self-update"
+      ],
+      "reason": "orgtree_self_update (deprecated alias of orgtree_self_restart, dispatched without a card): relaunch.self-update (P01 relaunch-cards item, p01-inventory-misses-the-desktop-relaunch-tool-c.)",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11336,
+          "end": 11337,
+          "sha256": "5186f05a0cd01fb1769f449b0001a4a10e408d08162a10d350f4b451f616954a"
+        }
+      ]
+    },
+    {
+      "id": "50c7b946887edfa794feb7ff098901427465623401aa9f0f8daf243496d8396f",
+      "disposition": "pending",
+      "contracts": [],
+      "reason": "orgtree_send_file_once, the internal transport verb the agent-side client posts for a retryable file delivery: the door refuses it 422 without a delivery_id and then dispatches it as orgtree_send_file. Stays pending until orgtree_send_file is contracted. Owner: P01 F4 (mail, inbox and files). (P01 relaunch-cards item, p01-inventory-misses-the-desktop-relaunch-tool-c.)",
+      "source_refs": []
     }
   ],
   "dispatch": [
@@ -22891,10 +23744,22 @@
     },
     {
       "id": "273404a312f2c106f74f182bd840123a4db1c462e6991a3dcf4d1d425cd46b0d",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): _desktop_relaunch_args's orgtree_self_relaunch branch validates a relaunch request's options before the relaunch writes the desktop maintenance record; orgtree_self_relaunch has no contract. Owner: the runtime (P08). (P01 F2: still pending because the desktop relaunch verbs orgtree_self_relaunch and orgtree_prime_relaunch reach it and their tool cards are not yet inventoried; item p01-inventory-misses-the-desktop-relaunch-tool-c.)",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "relaunch.prime-relaunch-arm",
+        "relaunch.prime-relaunch-cancel",
+        "relaunch.prime-relaunch-status",
+        "relaunch.self-relaunch"
+      ],
+      "reason": "_desktop_relaunch_args's option allowlist, reached only by orgtree_self_relaunch and orgtree_prime_relaunch (P01 relaunch-cards item, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 9961,
+          "end": 9961,
+          "sha256": "d63609f5dd0dc73a1e76f1c3315b8b3fa125a14d06f4f3c92214490d58af4c90"
+        }
+      ]
     },
     {
       "id": "a129adb0711aa3c86eb0b63e4d4d692096f31bdd292b121329b41164de71967b",
@@ -23013,10 +23878,20 @@
     },
     {
       "id": "e108fcd300df9a85955f7bcc61cf57e710b19c92712517cb5ab0ea43f27c8efc",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_self_restart and orgtree_self_update (agent_call, a shared branch for these tools); these tools have no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08). (P01 F2: orgtree_self_restart is contracted, but its deprecated alias orgtree_self_update still reaches this branch and has no tool card, so there is no entry to contract it on.)",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.self-restart",
+        "relaunch.self-update"
+      ],
+      "reason": "The agent door's shared orgtree_self_restart and orgtree_self_update branch (P01 relaunch-cards item, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11358,
+          "end": 11358,
+          "sha256": "aeecbe96d04b99d3e97beca8e35b50c3f1c9415e644609ada956641dc5e548ae"
+        }
+      ]
     },
     {
       "id": "dd72cf1a60af5dcdb9407510b45fa58a2b3a0850b589f67ca3f6e892d3129bc3",
@@ -23466,52 +24341,120 @@
     },
     {
       "id": "04c9ab3044870c36cba0f56a9eecb2df6b01c540492bdaa15c8bc5db34bb9333",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_self_relaunch (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08). (P01 F2: still pending because the desktop relaunch verbs orgtree_self_relaunch and orgtree_prime_relaunch reach it and their tool cards are not yet inventoried; item p01-inventory-misses-the-desktop-relaunch-tool-c.)",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "relaunch.self-relaunch"
+      ],
+      "reason": "Exact orgtree_self_relaunch branch in the agent door (P01 relaunch-cards item, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12262,
+          "end": 12262,
+          "sha256": "d22d379627ee1ff8bb366ce4ff5c4bbcd3ac2e67017afaf64ee9c535d1897071"
+        }
+      ]
     },
     {
       "id": "78bcf7d6e1d896289ac81dd76e82c9e19de38372978553721bc065e7bb1a929a",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_self_restart and orgtree_self_update (agent_call, a shared branch for these tools); these tools have no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08). (P01 F2: orgtree_self_restart is contracted, but its deprecated alias orgtree_self_update still reaches this branch and has no tool card, so there is no entry to contract it on.)",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.self-restart",
+        "relaunch.self-update"
+      ],
+      "reason": "The agent door's shared orgtree_self_restart and orgtree_self_update branch (P01 relaunch-cards item, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12269,
+          "end": 12269,
+          "sha256": "b41ce82fd26cdb3958ff07a0d72fdf65f7e7a2e5334be69317d3581f38bad582"
+        }
+      ]
     },
     {
       "id": "7260ec6dfe6db59567f38a37ceb69e607e07e41eba9c4e3ebb8820939faa6a0c",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_self_update (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08). (P01 F2: orgtree_self_restart is contracted, but its deprecated alias orgtree_self_update still reaches this branch and has no tool card, so there is no entry to contract it on.)",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "relaunch.self-update"
+      ],
+      "reason": "The agent door's orgtree_self_update action choice (P01 relaunch-cards item, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12287,
+          "end": 12287,
+          "sha256": "4a20e7e35ccef6386fd6e4d2422c64e83e8306148395210db66cd83f8d3f67b5"
+        }
+      ]
     },
     {
       "id": "610bbe31f73f5199355498d73747cdb4cd0026eaa76af7cfe79f4eb6418255f3",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_prime_relaunch (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08). (P01 F2: still pending because the desktop relaunch verbs orgtree_self_relaunch and orgtree_prime_relaunch reach it and their tool cards are not yet inventoried; item p01-inventory-misses-the-desktop-relaunch-tool-c.)",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "relaunch.prime-relaunch-arm",
+        "relaunch.prime-relaunch-cancel",
+        "relaunch.prime-relaunch-status"
+      ],
+      "reason": "Exact orgtree_prime_relaunch branch in the agent door, every contract it admits (P01 relaunch-cards item, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12289,
+          "end": 12289,
+          "sha256": "fd367b5400b3a525c3a61e68d8af8ebff0fcc1c6786895368c04cd4f9f0a87bd"
+        }
+      ]
     },
     {
       "id": "769e54da8999ddd0597f873c72fde6c7b93ba4113d1512ab38f9c36a7f4e23c8",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_prime_relaunch anything but arm, cancel and status branch (agent_call); orgtree_prime_relaunch has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08). (P01 F2: still pending because the desktop relaunch verbs orgtree_self_relaunch and orgtree_prime_relaunch reach it and their tool cards are not yet inventoried; item p01-inventory-misses-the-desktop-relaunch-tool-c.)",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "relaunch.prime-relaunch-arm",
+        "relaunch.prime-relaunch-cancel",
+        "relaunch.prime-relaunch-status"
+      ],
+      "reason": "The agent door's orgtree_prime_relaunch unknown-action refusal branch (P01 relaunch-cards item, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12294,
+          "end": 12294,
+          "sha256": "da33fde02eaed5b680d6b048f5e20d494dfb59bea5a86f20e05f6d351ee79372"
+        }
+      ]
     },
     {
       "id": "70240d31ff1df7a706888cdea98a26241b2bb370f20e1cfdef4567b4c9c8c032",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_prime_relaunch status branch (agent_call); orgtree_prime_relaunch has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08). (P01 F2: still pending because the desktop relaunch verbs orgtree_self_relaunch and orgtree_prime_relaunch reach it and their tool cards are not yet inventoried; item p01-inventory-misses-the-desktop-relaunch-tool-c.)",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "relaunch.prime-relaunch-status"
+      ],
+      "reason": "The agent door's orgtree_prime_relaunch status branch (P01 relaunch-cards item, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12297,
+          "end": 12297,
+          "sha256": "87caf2147d88680edfebd6b8b39a7fdee98da7b0712bf1eb0bdc2b42524b4434"
+        }
+      ]
     },
     {
       "id": "06b5828d8a1f9eff1d0c17e1644cf730514aec6a39de28d032b75adf1d8e0670",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): the /api/agent door's orgtree_prime_relaunch cancel branch (agent_call); orgtree_prime_relaunch has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08). (P01 F2: still pending because the desktop relaunch verbs orgtree_self_relaunch and orgtree_prime_relaunch reach it and their tool cards are not yet inventoried; item p01-inventory-misses-the-desktop-relaunch-tool-c.)",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "relaunch.prime-relaunch-cancel"
+      ],
+      "reason": "The agent door's orgtree_prime_relaunch cancel branch (P01 relaunch-cards item, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12312,
+          "end": 12312,
+          "sha256": "3f45bfe3169cb8c3f47db83ddeaa5ddba933d8ee595e4d61901f06987bca22f1"
+        }
+      ]
     },
     {
       "id": "6d6142e4adf54ad77e92975fb0678862ea22848d7cbb25700faa714cdde86aed",
@@ -24394,10 +25337,21 @@
     },
     {
       "id": "b07f7c84d90501c93280583285a1220a063a7ae2b9e396c380773f6601af4f19",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): (review fix) desktop_maintenance.request's anything but restart and update branch refuses an unknown maintenance action before the request writes <DATA_ROOT>/desktop-maintenance.json, which the launcher's maintenance routes read. Under the desktop launcher it is installed at engine/launch.py:336 (desktop_maintenance.install rebinds supervisor.launch_self_restart to request and supervisor.arm_prime_restart to prime, which calls request), so /api/agent reaches it through orgtree_self_relaunch, orgtree_self_restart and orgtree_self_update and the prime restart tools. Owner: desktop maintenance with the runtime (P08). (P01 F2: still pending because the desktop relaunch verbs orgtree_self_relaunch and orgtree_prime_relaunch reach it and their tool cards are not yet inventoried; item p01-inventory-misses-the-desktop-relaunch-tool-c.)",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "relaunch.prime-relaunch-arm",
+        "relaunch.self-relaunch",
+        "relaunch.self-update"
+      ],
+      "reason": "desktop_maintenance.request's unknown-action refusal. The adapter is installed only under the desktop-managed profile (engine/launch.py), where the standard restart tools are refused before it, so only the relaunch verbs and orgtree_self_update reach it (P01 relaunch-cards item, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/desktop_maintenance.py",
+          "start": 66,
+          "end": 66,
+          "sha256": "78144908c76c7c18bacb512d222361adbfc4c5e2a1d9a4fff3eb5deea36a2185"
+        }
+      ]
     },
     {
       "id": "625400a54f4e76c02479d8cb1ed8c7a448013c7b1c1132b73489c4e475c7cff4",
@@ -24694,10 +25648,20 @@
     },
     {
       "id": "2af0ce55aa8904c224dc811495bb194a2f7a51357cde6a6effe2afa54542f9a3",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W7): the prime restart gate's arm action (Org.prime_restart_gate in ledger.py), which records a pending prime restart in the org. Owner: the runtime (P08). (P01 F2: still pending because the desktop relaunch verbs orgtree_self_relaunch and orgtree_prime_relaunch reach it and their tool cards are not yet inventoried; item p01-inventory-misses-the-desktop-relaunch-tool-c.)",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "control.prime-restart-arm",
+        "relaunch.prime-relaunch-arm"
+      ],
+      "reason": "The prime restart gate's arm action, reached by orgtree_prime_restart arm (non-desktop) and orgtree_prime_relaunch arm (desktop-managed) (P01 relaunch-cards item, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 10481,
+          "end": 10481,
+          "sha256": "a75f6b419065e11acbddd3d56f100e54c09c57a4f49a8456a668bfd8543bc8f7"
+        }
+      ]
     },
     {
       "id": "ccaf86bce59c069af64b351ad12a5bb52dc636a7e795b006c01360090478a455",

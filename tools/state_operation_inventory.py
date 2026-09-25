@@ -66,6 +66,18 @@ def literal_strings(node: ast.AST | None) -> list[str] | None:
     return None
 
 
+def is_tool_card(node: ast.AST | None) -> bool:
+    """A literal agent tool card: a dict whose "name" is a literal orgtree_* string and that has an inputSchema."""
+    name = literal_strings(dictionary_value(node, "name"))
+    return (isinstance(node, ast.Dict) and bool(name) and name[0].startswith("orgtree_")
+            and any(isinstance(k, ast.Constant) and k.value == "inputSchema" for k in node.keys))
+
+
+def card_collection(node: ast.AST | None) -> bool:
+    """A module-level list or tuple literal made only of tool cards."""
+    return isinstance(node, (ast.List, ast.Tuple)) and bool(node.elts) and all(is_tool_card(e) for e in node.elts)
+
+
 def dictionary_value(node: ast.AST | None, key: str) -> ast.AST | None:
     if isinstance(node, ast.Dict):
         for left, right in zip(node.keys, node.values):
@@ -107,6 +119,10 @@ class ModuleInventory(ast.NodeVisitor):
         self.storage: list[dict] = []
         self.lock_references: list[dict] = []
         self.ordinals: Counter = Counter()
+        # module-level constant assignments (name -> value expression) and the non-literal operands the agent door
+        # compares `body.tool` against; scan() resolves both across modules into the dispatchable tool names
+        self.constants: dict[str, ast.AST] = {}
+        self.tool_refs: list[tuple[dict, ast.AST]] = []
         # Imports are evidence for name resolution only. Local shadowing and
         # computed receiver types are not proven by this pass.
         for node in ast.walk(self.tree):
@@ -182,13 +198,29 @@ class ModuleInventory(ast.NodeVisitor):
                               else "unresolved")
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
-        if isinstance(node.target, ast.Name) and node.target.id == "TOOLS":
+        if isinstance(node.target, ast.Name) and (node.target.id == "TOOLS" or
+                                                  (not self.scope and card_collection(node.value))):
             self.tools(node, node.value)
+        if not self.scope and isinstance(node.target, ast.Name) and node.value is not None:
+            self.constants[node.target.id] = node.value
         self.generic_visit(node)
 
     def visit_Assign(self, node: ast.Assign) -> None:
-        if any(isinstance(target, ast.Name) and target.id == "TOOLS" for target in node.targets):
+        # TOOLS is the standard catalogue; any OTHER module-level literal of tool cards (e.g. mcptool's
+        # _DESKTOP_RELAUNCH_CARDS, which a profile swaps in) is a catalogue too (P01 item
+        # p01-inventory-misses-the-desktop-relaunch-tool-c)
+        if any(isinstance(target, ast.Name) and target.id == "TOOLS" for target in node.targets) or \
+                (not self.scope and card_collection(node.value)):
             self.tools(node, node.value)
+        if not self.scope:
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    self.constants[target.id] = node.value
+                elif isinstance(target, ast.Tuple) and isinstance(node.value, ast.Tuple) \
+                        and len(target.elts) == len(node.value.elts):
+                    for name, value in zip(target.elts, node.value.elts):
+                        if isinstance(name, ast.Name):
+                            self.constants[name.id] = value
         self.generic_visit(node)
 
     def visit_Compare(self, node: ast.Compare) -> None:
@@ -196,6 +228,9 @@ class ModuleInventory(ast.NodeVisitor):
         for index, operator in enumerate(node.ops):
             left, right = operands[index:index + 2]
             for selector, values_node in ((left, right), (right, left)):
+                if expression(selector) == "body.tool":
+                    # every name the agent door dispatches on, literal or through a constant (resolved in scan())
+                    self.tool_refs.append((self.site(node), values_node))
                 values = literal_strings(values_node)
                 if not values:
                     continue
@@ -283,22 +318,83 @@ def module_paths(repo: Path) -> list[Path]:
     return paths
 
 
+def resolve_strings(inventories: list[ModuleInventory], inventory: ModuleInventory, node: ast.AST | None,
+                    depth: int = 0) -> set[str] | None:
+    """The string values an expression denotes: literals, tuples/lists/sets of them (starred parts included),
+    frozenset/set/tuple(...) of them, a module-level constant of the same module, or `module.CONSTANT` of another
+    scanned module. None when anything is not provably a constant."""
+    if node is None or depth > 8:
+        return None
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return {node.value}
+    if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+        out: set[str] = set()
+        for element in node.elts:
+            part = resolve_strings(inventories, inventory,
+                                   element.value if isinstance(element, ast.Starred) else element, depth + 1)
+            if part is None:
+                return None
+            out |= part
+        return out
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in ("frozenset", "set", "tuple") \
+            and len(node.args) == 1 and not node.keywords:
+        return resolve_strings(inventories, inventory, node.args[0], depth + 1)
+    if isinstance(node, ast.Name) and node.id in inventory.constants:
+        return resolve_strings(inventories, inventory, inventory.constants[node.id], depth + 1)
+    if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+        owners = [m for m in inventories if m.path.rsplit("/", 1)[-1] == node.value.id + ".py"]
+        if len(owners) == 1 and node.attr in owners[0].constants:
+            return resolve_strings(inventories, owners[0], owners[0].constants[node.attr], depth + 1)
+    return None
+
+
+def tool_verbs(inventories: list[ModuleInventory], registrations: list[dict]) -> tuple[list[dict], int]:
+    """One `tool_verb` registration per tool name the agent door dispatches on (`body.tool`) that no scanned
+    catalogue carries as a card: deprecated aliases, internal transport verbs, the receipt protocol verbs and
+    unadvertised doors are entry points too (P01 item p01-inventory-misses-the-desktop-relaunch-tool-c). Returns the
+    registrations and the number of `body.tool` operands that could not be resolved to constants."""
+    cards = {n for r in registrations if r["kind"] == "tool" for n in (r.get("names") or [])}
+    first: dict[str, tuple[dict, str]] = {}
+    unresolved = 0
+    for inventory in inventories:
+        for site, operand in inventory.tool_refs:
+            values = resolve_strings(inventories, inventory, operand)
+            if values is None:
+                unresolved += 1
+                continue
+            literal = literal_strings(operand) is not None
+            for name in sorted(v for v in values if v.startswith("orgtree_")):
+                if name not in cards and name not in first:
+                    first[name] = (site, "literal" if literal else "constant")
+    out = []
+    for name in sorted(first):
+        site, resolution = first[name]
+        identity = json.dumps([site["path"], "tool_verb", site["symbol"], name], separators=(",", ":"))
+        out.append({"site_id": fingerprint(identity), "kind": "tool_verb", "source": site, "names": [name],
+                    "resolution": resolution})
+    return out, unresolved
+
+
 def scan(repo: Path) -> dict:
     backend = repo / "engine/backend"
     if not backend.is_dir():
         raise ValueError("repository has no engine/backend directory")
     modules, registrations, selectors, storage, locks = [], [], [], [], []
+    inventories: list[ModuleInventory] = []
     for path in module_paths(repo):
         # Universal newlines make a checkout's CRLF policy irrelevant.
         source = path.read_text(encoding="utf-8-sig")
         relative = path.relative_to(repo).as_posix()
         inventory = ModuleInventory(relative, source)
         inventory.visit(inventory.tree)
+        inventories.append(inventory)
         modules.append({"path": relative, "normalized_source_sha256": fingerprint(source)})
         registrations.extend(inventory.registrations)
         selectors.extend(inventory.selectors)
         storage.extend(inventory.storage)
         locks.extend(inventory.lock_references)
+    verbs, unresolved_tool_refs = tool_verbs(inventories, registrations)
+    registrations.extend(verbs)
     return {"schema": SCHEMA, "limits": LIMITS,
             "qualification": {"runtime_census": False, "conversion_authorized": False,
                               "exact_effect_contracts": "pending per-entry review"},
@@ -307,6 +403,7 @@ def scan(repo: Path) -> dict:
                         "unresolved_registrations": sum(r["resolution"] == "unresolved" for r in registrations),
                         "dispatch_selector_sites": len(selectors), "connection_sites": len(storage),
                         "unresolved_connect_calls": sum(r["classification"] == "unresolved_connect_call" for r in storage),
+                        "unresolved_tool_refs": unresolved_tool_refs,
                         "doc_lock_references": len(locks)},
             "modules": modules, "registrations": registrations, "dispatch_selectors": selectors,
             "connection_sites": storage, "doc_lock_references": locks}

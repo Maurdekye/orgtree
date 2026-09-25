@@ -210,7 +210,8 @@ def validate(document, source, repo):
         if strings(contract["entry_ids"], where + ".entry_ids"):
             require(set(contract["entry_ids"]) <= set(entry_sites), where + ": unknown entry binding")
             bound_sites = [entry_sites[k] for k in contract["entry_ids"] if k in entry_sites]
-            expected_names = {n for r in bound_sites if r["kind"] == "tool" for n in (r.get("names") or [])}
+            expected_names = {n for r in bound_sites if r["kind"] in {"tool", "tool_verb"}
+                              for n in (r.get("names") or [])}
             require(set(contract["tools"]) == expected_names, where + ": entry/tool binding mismatch")
         strings(contract["tools"], where + ".tools", nonempty=False)
         require(contract["action"] is None or text(contract["action"]), where + ": action must be null or text")
@@ -288,9 +289,11 @@ def validate(document, source, repo):
                 require(row["contracts"] == [], where + ": excluded witness cannot bind contracts")
                 refs(row["source_refs"], where)
                 # A static literal HTTP/tool registration is an obligation; it
-                # cannot disappear by being relabelled as a false positive.
+                # cannot disappear by being relabelled as a false positive. A
+                # tool verb (a name the agent door dispatches without a card) is
+                # one too: an agent can call it whether or not it is advertised.
                 if group == "entries":
-                    require(expected[identity]["kind"] not in {"http", "websocket", "tool"},
+                    require(expected[identity]["kind"] not in {"http", "websocket", "tool", "tool_verb"},
                             where + ": concrete entry cannot be excluded")
             else:
                 require(row["contracts"] == [] and row["source_refs"] == [],

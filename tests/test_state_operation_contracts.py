@@ -43,9 +43,9 @@ class ContractCoverage(unittest.TestCase):
         self.assertGreater(result["summary"]["storage"]["pending"], 0)
         # THE one registry-wide tripwire (review of S3 candidate 1): every candidate
         # that maps a witness or adds a contract moves these numbers here, and only here.
-        self.assertEqual(result["contracts"], 123)
+        self.assertEqual(result["contracts"], 128)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
-                          result["summary"]["storage"]["mapped"]), (84, 147, 0))
+                          result["summary"]["storage"]["mapped"]), (87, 158, 0))
         # 571 -> 590 (P01 F1): 19 entries and 19 dispatch witnesses mapped, 57 new open dimension occurrences
         # (conflicts, wire and instrumentation on each of the 19 lifecycle contracts), as the Q1 ruling expects
         # 590 -> 608 (P01 F1b): the operator door and 23 of its branches mapped, 42 new open dimension
@@ -54,7 +54,10 @@ class ContractCoverage(unittest.TestCase):
         # occurrences (conflicts, wire and instrumentation on each of 22 contracts)
         # 635 -> 663 (P01 F2): 22 entries and 28 dispatch witnesses mapped, 78 new open dimension
         # occurrences (conflicts, wire and instrumentation on each of 26 contracts)
-        self.assertEqual(len(result["pending"]), 663)
+        # 663 -> 673 (P01 relaunch-cards item): 9 new entry witnesses (the 2 relaunch cards and 7 card-less tool
+        # verbs), 3 of them mapped and 6 pending with their owners; 11 dispatch witnesses mapped; 15 new open
+        # dimension occurrences (conflicts, wire and instrumentation on each of 5 relaunch contracts)
+        self.assertEqual(len(result["pending"]), 673)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -294,7 +297,8 @@ class ContractCoverage(unittest.TestCase):
         # 40 -> 24: P01 F1 mapped the sixteen lifecycle and catalogue tool branches
         # 24 -> 17: P01 F3 mapped the seven ask, report, scope, watchdog and audience tool branches
         # 17 -> 9: P01 F2 mapped the eight run-control tool branches
-        self.assertEqual(len(branches), 9)
+        # 9 -> 4: the relaunch-cards item mapped the self_relaunch, prime_relaunch and self_update branches
+        self.assertEqual(len(branches), 4)
         for s in branches:
             r = rows[contracts.witness_id("dispatch", s)]
             with self.subTest(line=s["source"]["line"]):
@@ -334,9 +338,9 @@ class ContractCoverage(unittest.TestCase):
         self.assertEqual((len(reservation), set(slice_row["contracts"])), (11, reservation))
 
     # P01 F3 mapped user_audience, Org.watchdog_action and the seven watchdog/audience agent_call branches
-    # P01 F2 mapped remote_control and the prime_restart/restart_wake action branches; the prime_relaunch
-    # branches wait for the relaunch cards to be inventoried
-    W7_SYMBOLS = {"_desktop_relaunch_args": 1, "agent_call": 3, "request": 1, "Org.prime_restart_gate": 1}
+    # P01 F2 mapped remote_control and the prime_restart/restart_wake action branches, and the relaunch-cards
+    # item the prime_relaunch branches, the relaunch option check, the maintenance request and the prime gate
+    W7_SYMBOLS: dict[str, int] = {}
 
     def test_w7_last_dispatch_branches_name_their_owner_and_none_stays_generic(self):
         rows = {r["id"]: r for r in self.document["dispatch"]}
@@ -356,7 +360,8 @@ class ContractCoverage(unittest.TestCase):
                          if s["source"]["path"].endswith("/desktop_maintenance.py")
                          and s["source"]["symbol"] == "request"]
         self.assertNotIn("only tests", maintenance["reason"])
-        self.assertIn("engine/launch.py:336", maintenance["reason"])
+        self.assertIn("engine/launch.py", maintenance["reason"])
+        self.assertEqual(maintenance["disposition"], "mapped")
         # W4-W8 leave no dispatch witness with the generic reason
         self.assertEqual([r["id"] for r in self.document["dispatch"]
                           if r["reason"].startswith("Requires explicit source review")], [])
@@ -789,6 +794,22 @@ class ContractCoverage(unittest.TestCase):
 
     def test_tool_binding_is_checked_against_source(self):
         self.rejects(lambda d: d["contracts"]["reservation.acquire"].update(tools=["orgtree_move"]),
+                     "entry/tool binding mismatch")
+
+    # P01 relaunch-cards item: a name the agent door dispatches without a card (a tool_verb witness) is an entry
+    # point like a card; it cannot be excluded, and a contract bound to it must name it
+    def test_no_tool_verb_exclusion_escape(self):
+        verb = next(r for r in self.source["registrations"]
+                    if r["kind"] == "tool_verb" and r["names"] == ["orgtree_account_assign"])
+        def edit(d):
+            row = next(r for r in d["entries"] if r["id"] == contracts.witness_id("entries", verb))
+            row.update(disposition="excluded", reason="claim it is only transport",
+                       source_refs=[{"path": verb["source"]["path"], "start": verb["source"]["line"],
+                                     "end": verb["source"]["end_line"], "sha256": "0" * 64}])
+        self.rejects(edit, "concrete entry cannot be excluded")
+
+    def test_tool_verb_binding_is_checked_against_source(self):
+        self.rejects(lambda d: d["contracts"]["relaunch.self-update"].update(tools=["orgtree_self_restart"]),
                      "entry/tool binding mismatch")
 
     def test_declared_action_cannot_disappear(self):

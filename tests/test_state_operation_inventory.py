@@ -5,6 +5,7 @@ separate gate, not an inference from these static tests.
 """
 from __future__ import annotations
 
+import ast
 import asyncio
 import contextlib
 import copy
@@ -78,6 +79,35 @@ def agent(tool, action):
         self.assertTrue(any(r["values"] == ["orgtree_hidden"] for r in result["dispatch_selectors"]))
         self.assertTrue(any(r["values"] == ["list", "land"] for r in result["dispatch_selectors"]))
         self.assertEqual(len(result["registrations"]), 2)
+
+    def test_card_literals_outside_tools_and_card_less_door_verbs_are_entries(self):
+        # p01-inventory-misses-the-desktop-relaunch-tool-c: a module-level literal of tool cards is a catalogue
+        # whatever it is called, and every name the agent door dispatches on (`body.tool`) is an entry point,
+        # through a literal, a set, a starred constant or another module's constant
+        self.source('''
+from typing import Any
+TOOLS = [{"name": "orgtree_listed", "inputSchema": {}}]
+_SWAPPED: tuple[dict[str, Any], ...] = ({"name": "orgtree_swapped", "inputSchema": {}},)
+''', "mcptool.py")
+        self.source('''OP_CALL = "orgtree_wrapped"
+''', "receipts.py")
+        self.source('''from . import receipts
+_EXTRA = frozenset({"orgtree_starred"})
+def agent_call(body, dynamic):
+    if body.tool == "orgtree_listed": pass
+    if body.tool == "orgtree_hidden": pass
+    if body.tool in ("orgtree_hidden", *_EXTRA): pass
+    if body.tool == receipts.OP_CALL: pass
+    if body.tool == dynamic: pass
+''')
+        result = self.scan()
+        cards = sorted(n for r in result["registrations"] if r["kind"] == "tool" for n in r["names"])
+        verbs = {r["names"][0]: r["resolution"] for r in result["registrations"] if r["kind"] == "tool_verb"}
+        self.assertEqual(cards, ["orgtree_listed", "orgtree_swapped"])
+        self.assertEqual(verbs, {"orgtree_hidden": "literal", "orgtree_starred": "constant",
+                                 "orgtree_wrapped": "constant"})
+        # an operand that is not provably constant is counted, never silently dropped
+        self.assertEqual(result["summary"]["unresolved_tool_refs"], 1)
 
     def test_thread_timer_tasks_and_callback_registration(self):
         self.source('''
@@ -292,8 +322,13 @@ def b():
         # (p01-inventory-misses-the-production-routes-mount): engine/launch.py adds 10 routes, its
         # include_router(desktop_import.router) and the server task; process_lifetime.py and service_host.py
         # add one worker each.
-        self.assertEqual(summary["registration_sites"], 333)
+        # 333 -> 342: p01-inventory-misses-the-desktop-relaunch-tool-c inventories mcptool's
+        # _DESKTOP_RELAUNCH_CARDS (the orgtree_self_relaunch and orgtree_prime_relaunch cards) and the 7 names the
+        # agent door dispatches without any card (tool_verb), every body.tool operand resolved
+        self.assertEqual(summary["registration_sites"], 342)
         self.assertEqual(summary["registration_kinds"]["task"], 13)
+        self.assertEqual((summary["registration_kinds"]["tool"], summary["registration_kinds"]["tool_verb"],
+                          summary["unresolved_tool_refs"]), (51, 7, 0))
         # 225 -> 226: P02-A1 adds one `body.tool == "orgtree_operation_census"`
         # branch in api.agent_call, routing the agent read door.
         # 226 -> 227: the same item adds the `orgtree_account_mark` branch.
@@ -331,6 +366,70 @@ def b():
         self.assertGreater(checked, 0)
         for rel in scanned:
             self.assertFalse(rel.startswith(self.NOT_SCANNED), rel)
+
+    # p01-inventory-misses-the-desktop-relaunch-tool-c: the two relaunch cards lived in a module-level literal the
+    # scanner did not read, and seven dispatchable names had no card at all. These two guards find both shapes by
+    # a DIFFERENT method than the scanner (a walk of every node, not the scanner's assignment and resolution rules),
+    # so a new card literal anywhere, at any depth, or a new body.tool name, fails here until it is inventoried.
+    @staticmethod
+    def _trees():
+        for m in inventory.scan(ROOT)["modules"]:
+            yield m["path"], ast.parse((ROOT / m["path"]).read_text(encoding="utf-8-sig"))
+
+    @staticmethod
+    def _inventoried(kinds):
+        # what the scanner sees NOW, not the committed snapshot: a scanner that went blind would regenerate a
+        # snapshot without the name (test_committed_inventory_matches_current_backend covers the snapshot)
+        return {n for r in inventory.scan(ROOT)["registrations"] if r["kind"] in kinds for n in (r.get("names") or [])}
+
+    def test_every_literal_tool_card_in_the_engine_is_inventoried(self):
+        found = {}
+        for path, tree in self._trees():
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Dict):
+                    keys = {k.value: v for k, v in zip(node.keys, node.values) if isinstance(k, ast.Constant)}
+                    name = keys.get("name")
+                    if "inputSchema" in keys and isinstance(name, ast.Constant) and str(name.value).startswith("orgtree_"):
+                        found.setdefault(name.value, path)
+        self.assertLessEqual({"orgtree_self_relaunch", "orgtree_prime_relaunch", "orgtree_work"}, set(found))
+        self.assertEqual(sorted(set(found) - self._inventoried({"tool"})), [])
+
+    def test_every_name_the_agent_door_dispatches_is_inventoried(self):
+        constants = {}          # (module file stem, NAME) -> (module file stem, its value)
+        trees = dict(self._trees())
+        for path, tree in trees.items():
+            stem = path.rsplit("/", 1)[-1][:-3]
+            for node in tree.body:
+                targets = node.targets if isinstance(node, ast.Assign) else \
+                    [node.target] if isinstance(node, ast.AnnAssign) and node.value is not None else []
+                for t in targets:
+                    if isinstance(t, ast.Name):
+                        constants[(stem, t.id)] = (stem, node.value)
+
+        def strings(stem, operand, seen=frozenset()):
+            # every string literal under the operand, following module constants (and constants of constants,
+            # e.g. api.OP_EPOCH = opreceipts.OP_EPOCH) wherever they lead
+            out = set()
+            for n in ast.walk(operand):
+                key = (stem, n.id) if isinstance(n, ast.Name) else \
+                    (n.value.id, n.attr) if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) else None
+                if isinstance(n, ast.Constant) and isinstance(n.value, str):
+                    out.add(n.value)
+                elif key in constants and key not in seen:
+                    out |= strings(constants[key][0], constants[key][1], seen | {key})
+            return out
+        dispatched = set()
+        for path, tree in trees.items():
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Compare):
+                    parts = [node.left, *node.comparators]
+                    if any(ast.unparse(p) == "body.tool" for p in parts):
+                        for p in parts:
+                            dispatched |= {s for s in strings(path.rsplit("/", 1)[-1][:-3], p)
+                                           if s.startswith("orgtree_")}
+        self.assertLessEqual({"orgtree_self_update", "orgtree_op_epoch", "orgtree_self_relaunch",
+                              "orgtree_send_file_once", "orgtree_account_assign"}, dispatched)
+        self.assertEqual(sorted(dispatched - self._inventoried({"tool", "tool_verb"})), [])
 
     def test_the_launcher_routes_and_engine_modules_are_inventoried(self):
         baseline = json.loads((ROOT / "docs/state-system/operation-inventory.json").read_text(encoding="utf-8"))

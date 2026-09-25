@@ -1,0 +1,858 @@
+{
+  "schema": "orgtree.relaunch-boundary/v1",
+  "source_contract_sha256": "43af4c4704954187037abf861c502151e7cd1438eba8d5be6f462f40ae36d724",
+  "qualification": {
+    "runtime_census": false,
+    "conversion_authorized": false
+  },
+  "contracts": {
+    "relaunch.self-relaunch": "orgtree_self_relaunch",
+    "relaunch.prime-relaunch-arm": "orgtree_prime_relaunch",
+    "relaunch.prime-relaunch-cancel": "orgtree_prime_relaunch",
+    "relaunch.prime-relaunch-status": "orgtree_prime_relaunch",
+    "relaunch.self-update": "orgtree_self_update"
+  },
+  "cases": {
+    "d_self_relaunch": {
+      "status": 200,
+      "results": [
+        "armed",
+        "maintenance",
+        "note"
+      ],
+      "detail": null,
+      "sections": [
+        "events"
+      ],
+      "events": [
+        [
+          "self_restart",
+          {}
+        ]
+      ],
+      "maintenance": {
+        "action": "restart",
+        "target": "org",
+        "state": "pending"
+      }
+    },
+    "d_self_relaunch_reason": {
+      "status": 200,
+      "results": [
+        "armed",
+        "maintenance",
+        "note"
+      ],
+      "detail": null,
+      "sections": [
+        "events"
+      ],
+      "events": [
+        [
+          "self_restart",
+          {}
+        ]
+      ],
+      "maintenance": {
+        "action": "restart",
+        "target": "org",
+        "state": "pending"
+      }
+    },
+    "d_self_relaunch_mid": {
+      "status": 422,
+      "results": null,
+      "detail": "a self-restart restarts the shared orgtree install for EVERY org on this machine — only top-level agents (or holders of a user audience) may trigger it; ask your superior to run it, or to grant you a user audience",
+      "sections": [],
+      "events": [],
+      "maintenance": null
+    },
+    "d_self_relaunch_top2": {
+      "status": 200,
+      "results": [
+        "armed",
+        "maintenance",
+        "note"
+      ],
+      "detail": null,
+      "sections": [
+        "events"
+      ],
+      "events": [
+        [
+          "self_restart",
+          {}
+        ]
+      ],
+      "maintenance": {
+        "action": "restart",
+        "target": "org",
+        "state": "pending"
+      }
+    },
+    "d_self_relaunch_target": {
+      "status": 422,
+      "results": null,
+      "detail": "orgtree_self_relaunch accepts only reason; unsupported option(s): target",
+      "sections": [],
+      "events": [],
+      "maintenance": null
+    },
+    "d_self_relaunch_force": {
+      "status": 422,
+      "results": null,
+      "detail": "orgtree_self_relaunch accepts only reason; unsupported option(s): force",
+      "sections": [],
+      "events": [],
+      "maintenance": null
+    },
+    "d_self_relaunch_action": {
+      "status": 422,
+      "results": null,
+      "detail": "orgtree_self_relaunch accepts only reason; unsupported option(s): action",
+      "sections": [],
+      "events": [],
+      "maintenance": null
+    },
+    "d_self_relaunch_pending": {
+      "status": 200,
+      "results": [
+        "already_armed",
+        "armed",
+        "maintenance"
+      ],
+      "detail": null,
+      "sections": [
+        "events"
+      ],
+      "events": [
+        [
+          "self_restart",
+          {}
+        ]
+      ],
+      "maintenance": null
+    },
+    "d_self_relaunch_acked": {
+      "status": 200,
+      "results": [
+        "already_armed",
+        "armed",
+        "maintenance"
+      ],
+      "detail": null,
+      "sections": [
+        "events"
+      ],
+      "events": [
+        [
+          "self_restart",
+          {}
+        ]
+      ],
+      "maintenance": null
+    },
+    "d_self_relaunch_twice": {
+      "status": 200,
+      "results": [
+        "already_armed",
+        "armed",
+        "maintenance"
+      ],
+      "detail": null,
+      "sections": [
+        "events"
+      ],
+      "events": [
+        [
+          "self_restart",
+          {}
+        ],
+        [
+          "self_restart",
+          {}
+        ]
+      ],
+      "maintenance": {
+        "action": "restart",
+        "target": "org",
+        "state": "pending"
+      }
+    },
+    "d_prime_arm": {
+      "status": 200,
+      "results": [
+        "armed",
+        "maintenance",
+        "note"
+      ],
+      "detail": null,
+      "sections": [
+        "events"
+      ],
+      "events": [
+        [
+          "prime_restart_arm",
+          {
+            "target": "org",
+            "reason": "r"
+          }
+        ]
+      ],
+      "maintenance": {
+        "action": "restart",
+        "target": "org",
+        "state": "pending"
+      }
+    },
+    "d_prime_default": {
+      "status": 200,
+      "results": [
+        "armed",
+        "maintenance",
+        "note"
+      ],
+      "detail": null,
+      "sections": [
+        "events"
+      ],
+      "events": [
+        [
+          "prime_restart_arm",
+          {
+            "target": "org"
+          }
+        ]
+      ],
+      "maintenance": {
+        "action": "restart",
+        "target": "org",
+        "state": "pending"
+      }
+    },
+    "d_prime_null": {
+      "status": 200,
+      "results": [
+        "armed",
+        "maintenance",
+        "note"
+      ],
+      "detail": null,
+      "sections": [
+        "events"
+      ],
+      "events": [
+        [
+          "prime_restart_arm",
+          {
+            "target": "org"
+          }
+        ]
+      ],
+      "maintenance": {
+        "action": "restart",
+        "target": "org",
+        "state": "pending"
+      }
+    },
+    "d_prime_mid": {
+      "status": 422,
+      "results": null,
+      "detail": "a primed restart restarts the shared orgtree install for EVERY org on this machine — only top-level agents (or holders of a user audience) may trigger it; ask your superior to run it, or to grant you a user audience",
+      "sections": [],
+      "events": [],
+      "maintenance": null
+    },
+    "d_prime_arm_pending": {
+      "status": 200,
+      "results": [
+        "already_armed",
+        "armed",
+        "maintenance"
+      ],
+      "detail": null,
+      "sections": [
+        "events"
+      ],
+      "events": [
+        [
+          "prime_restart_arm",
+          {
+            "target": "org"
+          }
+        ]
+      ],
+      "maintenance": null
+    },
+    "d_prime_cancel": {
+      "status": 200,
+      "results": [
+        "cancelled"
+      ],
+      "detail": null,
+      "sections": [
+        "events"
+      ],
+      "events": [
+        [
+          "prime_restart_cancel",
+          {}
+        ]
+      ],
+      "maintenance": {
+        "action": "restart",
+        "target": "org",
+        "state": "cancelled"
+      }
+    },
+    "d_prime_cancel_none": {
+      "status": 200,
+      "results": [
+        "cancelled"
+      ],
+      "detail": null,
+      "sections": [
+        "events"
+      ],
+      "events": [
+        [
+          "prime_restart_cancel",
+          {}
+        ]
+      ],
+      "maintenance": null
+    },
+    "d_prime_cancel_mid": {
+      "status": 422,
+      "results": null,
+      "detail": "a primed restart restarts the shared orgtree install for EVERY org on this machine — only top-level agents (or holders of a user audience) may trigger it; ask your superior to run it, or to grant you a user audience",
+      "sections": [],
+      "events": [],
+      "maintenance": null
+    },
+    "d_prime_cancel_acked": {
+      "status": 200,
+      "results": [
+        "cancelled"
+      ],
+      "detail": null,
+      "sections": [
+        "events"
+      ],
+      "events": [
+        [
+          "prime_restart_cancel",
+          {}
+        ]
+      ],
+      "maintenance": null
+    },
+    "d_prime_status": {
+      "status": 200,
+      "results": [
+        "primed",
+        "status"
+      ],
+      "detail": null,
+      "sections": [],
+      "events": [],
+      "maintenance": null
+    },
+    "d_prime_status_none": {
+      "status": 200,
+      "results": [
+        "primed",
+        "status"
+      ],
+      "detail": null,
+      "sections": [],
+      "events": [],
+      "maintenance": null
+    },
+    "d_prime_status_retired": {
+      "status": 403,
+      "results": null,
+      "detail": "authenticated seat is archived or replaced; reconnect through its live successor",
+      "sections": [],
+      "events": [],
+      "maintenance": null
+    },
+    "d_prime_bad": {
+      "status": 422,
+      "results": null,
+      "detail": "action must be arm|cancel|status",
+      "sections": [],
+      "events": [],
+      "maintenance": null
+    },
+    "d_prime_upper": {
+      "status": 422,
+      "results": null,
+      "detail": "action must be arm|cancel|status",
+      "sections": [],
+      "events": [],
+      "maintenance": null
+    },
+    "d_prime_target": {
+      "status": 422,
+      "results": null,
+      "detail": "orgtree_prime_relaunch accepts only action, reason; unsupported option(s): target",
+      "sections": [],
+      "events": [],
+      "maintenance": null
+    },
+    "d_prime_deadline": {
+      "status": 422,
+      "results": null,
+      "detail": "orgtree_prime_relaunch accepts only action, reason; unsupported option(s): deadline_minutes",
+      "sections": [],
+      "events": [],
+      "maintenance": null
+    },
+    "d_update": {
+      "status": 200,
+      "results": [
+        "armed",
+        "maintenance",
+        "note"
+      ],
+      "detail": null,
+      "sections": [
+        "events"
+      ],
+      "events": [
+        [
+          "self_restart",
+          {}
+        ]
+      ],
+      "maintenance": {
+        "action": "update",
+        "target": "org",
+        "state": "pending"
+      }
+    },
+    "d_update_target_both": {
+      "status": 200,
+      "results": [
+        "armed",
+        "maintenance",
+        "note"
+      ],
+      "detail": null,
+      "sections": [
+        "events"
+      ],
+      "events": [
+        [
+          "self_restart",
+          {}
+        ]
+      ],
+      "maintenance": {
+        "action": "update",
+        "target": "both",
+        "state": "pending"
+      }
+    },
+    "d_update_target_mailhub": {
+      "status": 200,
+      "results": [
+        "armed",
+        "maintenance",
+        "note"
+      ],
+      "detail": null,
+      "sections": [
+        "events"
+      ],
+      "events": [
+        [
+          "self_restart",
+          {}
+        ]
+      ],
+      "maintenance": {
+        "action": "update",
+        "target": "mailhub",
+        "state": "pending"
+      }
+    },
+    "d_update_target_bad": {
+      "status": 422,
+      "results": null,
+      "detail": "invalid desktop maintenance target/action",
+      "sections": [],
+      "events": [],
+      "maintenance": null
+    },
+    "d_update_force": {
+      "status": 422,
+      "results": null,
+      "detail": "Desktop maintenance waits for idle; force is unavailable",
+      "sections": [],
+      "events": [],
+      "maintenance": null
+    },
+    "d_update_mid": {
+      "status": 422,
+      "results": null,
+      "detail": "a self-restart restarts the shared orgtree install for EVERY org on this machine — only top-level agents (or holders of a user audience) may trigger it; ask your superior to run it, or to grant you a user audience",
+      "sections": [],
+      "events": [],
+      "maintenance": null
+    },
+    "d_update_pending": {
+      "status": 200,
+      "results": [
+        "already_armed",
+        "armed",
+        "maintenance"
+      ],
+      "detail": null,
+      "sections": [
+        "events"
+      ],
+      "events": [
+        [
+          "self_restart",
+          {}
+        ]
+      ],
+      "maintenance": null
+    },
+    "d_self_restart": {
+      "status": 422,
+      "results": null,
+      "detail": "desktop-managed V2 renamed orgtree_self_restart to orgtree_self_relaunch; use orgtree_self_relaunch for an installed-app relaunch",
+      "sections": [],
+      "events": [],
+      "maintenance": null
+    },
+    "dk_self_relaunch": {
+      "status": 200,
+      "results": [
+        "armed",
+        "maintenance",
+        "note"
+      ],
+      "detail": null,
+      "sections": [
+        "events",
+        "op_receipts",
+        "op_receipts_meta"
+      ],
+      "events": [
+        [
+          "self_restart",
+          {}
+        ]
+      ],
+      "maintenance": {
+        "action": "restart",
+        "target": "org",
+        "state": "pending"
+      }
+    },
+    "dk_prime_arm": {
+      "status": 200,
+      "results": [
+        "armed",
+        "maintenance",
+        "note"
+      ],
+      "detail": null,
+      "sections": [
+        "events",
+        "op_receipts",
+        "op_receipts_meta"
+      ],
+      "events": [
+        [
+          "prime_restart_arm",
+          {
+            "target": "org"
+          }
+        ]
+      ],
+      "maintenance": {
+        "action": "restart",
+        "target": "org",
+        "state": "pending"
+      }
+    },
+    "dk_prime_status": {
+      "status": 200,
+      "results": [
+        "primed",
+        "status"
+      ],
+      "detail": null,
+      "sections": [
+        "op_receipts",
+        "op_receipts_meta"
+      ],
+      "events": [],
+      "maintenance": null
+    },
+    "dk_update": {
+      "status": 200,
+      "results": [
+        "armed",
+        "maintenance",
+        "note"
+      ],
+      "detail": null,
+      "sections": [
+        "events",
+        "op_receipts",
+        "op_receipts_meta"
+      ],
+      "events": [
+        [
+          "self_restart",
+          {}
+        ]
+      ],
+      "maintenance": {
+        "action": "update",
+        "target": "org",
+        "state": "pending"
+      }
+    },
+    "dk_self_relaunch_replay": {
+      "status": 200,
+      "results": [
+        "at",
+        "op_id",
+        "outcome",
+        "receipt",
+        "replayed",
+        "status",
+        "tool"
+      ],
+      "detail": null,
+      "sections": [
+        "events",
+        "op_receipts",
+        "op_receipts_meta"
+      ],
+      "events": [
+        [
+          "self_restart",
+          {}
+        ]
+      ],
+      "maintenance": {
+        "action": "restart",
+        "target": "org",
+        "state": "pending"
+      }
+    },
+    "nd_self_relaunch": {
+      "status": 422,
+      "results": null,
+      "detail": "orgtree_self_relaunch is available only to the desktop-managed V2 profile",
+      "sections": [],
+      "events": [],
+      "maintenance": null
+    },
+    "nd_self_relaunch_mid": {
+      "status": 422,
+      "results": null,
+      "detail": "orgtree_self_relaunch is available only to the desktop-managed V2 profile",
+      "sections": [],
+      "events": [],
+      "maintenance": null
+    },
+    "nd_prime_status": {
+      "status": 422,
+      "results": null,
+      "detail": "orgtree_prime_relaunch is available only to the desktop-managed V2 profile",
+      "sections": [],
+      "events": [],
+      "maintenance": null
+    },
+    "nd_update": {
+      "status": 200,
+      "results": [
+        "launched"
+      ],
+      "detail": null,
+      "sections": [
+        "events"
+      ],
+      "events": [
+        [
+          "self_restart",
+          {}
+        ]
+      ],
+      "maintenance": null
+    },
+    "nd_update_target": {
+      "status": 200,
+      "results": [
+        "launched"
+      ],
+      "detail": null,
+      "sections": [
+        "events"
+      ],
+      "events": [
+        [
+          "self_restart",
+          {}
+        ]
+      ],
+      "maintenance": null
+    },
+    "nd_update_mid": {
+      "status": 422,
+      "results": null,
+      "detail": "a self-restart restarts the shared orgtree install for EVERY org on this machine — only top-level agents (or holders of a user audience) may trigger it; ask your superior to run it, or to grant you a user audience",
+      "sections": [],
+      "events": [],
+      "maintenance": null
+    },
+    "nd_update_force": {
+      "status": 200,
+      "results": [
+        "launched"
+      ],
+      "detail": null,
+      "sections": [
+        "events"
+      ],
+      "events": [
+        [
+          "self_restart",
+          {
+            "force": true,
+            "reason": "r"
+          }
+        ],
+        [
+          "self_restart_forced",
+          {
+            "cut": [],
+            "cut_count": 0
+          }
+        ]
+      ],
+      "maintenance": null
+    },
+    "nd_update_force_noreason": {
+      "status": 422,
+      "results": null,
+      "detail": "a FORCED self-restart requires a `reason` — it stops every agent that is mid-turn on this machine, and that cost is recorded against you. Say why in one line, or drop `force` and wait for the machine to go idle (orgtree_prime_restart arms a deploy that fires by itself when it does).",
+      "sections": [],
+      "events": [],
+      "maintenance": null
+    },
+    "nd_restart": {
+      "status": 200,
+      "results": [
+        "launched"
+      ],
+      "detail": null,
+      "sections": [
+        "events"
+      ],
+      "events": [
+        [
+          "self_restart",
+          {}
+        ]
+      ],
+      "maintenance": null
+    },
+    "ndk_update": {
+      "status": 200,
+      "results": [
+        "launched"
+      ],
+      "detail": null,
+      "sections": [
+        "events",
+        "op_receipts",
+        "op_receipts_meta"
+      ],
+      "events": [
+        [
+          "self_restart",
+          {}
+        ]
+      ],
+      "maintenance": null
+    },
+    "df_self_relaunch": {
+      "status": 403,
+      "results": null,
+      "detail": "the frozen deployment profile disables agent-triggered self-update, self-restart, and primed restart; deploy this installation through an operator-controlled path",
+      "sections": [],
+      "events": [],
+      "maintenance": null
+    },
+    "df_prime_status": {
+      "status": 403,
+      "results": null,
+      "detail": "the frozen deployment profile disables agent-triggered self-update, self-restart, and primed restart; deploy this installation through an operator-controlled path",
+      "sections": [],
+      "events": [],
+      "maintenance": null
+    },
+    "df_update": {
+      "status": 403,
+      "results": null,
+      "detail": "the frozen deployment profile disables agent-triggered self-update, self-restart, and primed restart; deploy this installation through an operator-controlled path",
+      "sections": [],
+      "events": [],
+      "maintenance": null
+    },
+    "ndf_update": {
+      "status": 403,
+      "results": null,
+      "detail": "the frozen deployment profile disables agent-triggered self-update, self-restart, and primed restart; deploy this installation through an operator-controlled path",
+      "sections": [],
+      "events": [],
+      "maintenance": null
+    }
+  },
+  "receipts": {
+    "orgtree_self_relaunch": [
+      "unrolled_side_effect",
+      [
+        "armed"
+      ]
+    ],
+    "orgtree_prime_relaunch": [
+      "unrolled_side_effect",
+      [
+        "armed"
+      ]
+    ],
+    "orgtree_prime_relaunch:status": [
+      "unrolled_side_effect",
+      []
+    ],
+    "orgtree_self_update": [
+      "unrolled_side_effect",
+      []
+    ]
+  },
+  "profiles": {
+    "desktop_only": {
+      "orgtree_self_relaunch": "orgtree_self_relaunch is available only to the desktop-managed V2 profile",
+      "orgtree_prime_relaunch": "orgtree_prime_relaunch is available only to the desktop-managed V2 profile"
+    },
+    "frozen_refusal": "the frozen deployment profile disables agent-triggered self-update, self-restart, and primed restart; deploy this installation through an operator-controlled path",
+    "legacy_restart_refusal": "desktop-managed V2 renamed orgtree_self_restart to orgtree_self_relaunch; use orgtree_self_relaunch for an installed-app relaunch"
+  },
+  "legacy_defects": [
+    "orgtree_self_relaunch accepts a reason and records none of it: the maintenance request says 'agent requested desktop maintenance' and the org event's detail is {}",
+    "orgtree_self_update is not refused as a renamed tool under the desktop-managed profile (it is absent from api._DESKTOP_LEGACY_RESTART_TOOLS) and records a maintenance request with action 'update' and the caller's target (mailhub and both accepted), options the renamed V2 verbs refuse",
+    "orgtree_self_update's receipt keeps target, which the desktop-managed result does not carry, so its desktop receipt keeps nothing"
+  ],
+  "scope": "Legacy boundary of the desktop relaunch entry points and the deprecated orgtree_self_update (P01 relaunch-cards item) on disposable SQLite, per product profile. Under the desktop-managed profile the real desktop maintenance adapter runs and writes the machine-wide request file in the temporary data root; under the non-desktop profile the launch and the quiesce are spies. The doors, the gates, the receipts, save and reload are real. Legacy conformance evidence only: not a runtime census, not PostgreSQL or Rust qualification."
+}
