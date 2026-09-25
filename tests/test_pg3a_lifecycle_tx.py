@@ -126,5 +126,85 @@ class MarkUnrecoverable(unittest.TestCase):
         self.assertEqual(order, ["mark", "other:unrecoverable"])
 
 
+class Move(unittest.TestCase):
+    """lifecycle_tx.move: the legacy `Org.move`, on exactly `_move_rows`."""
+
+    def build(self, slug):
+        org = store.create_org(slug)
+        org.hire(ledger.USER, None, "luna", 0, "root")
+        org.hire(ledger.USER, "root", "luna", 3, "a")
+        org.hire(ledger.USER, "root", "luna", 0, "b")
+        org.hire(ledger.USER, "a", "luna", 2, "x")
+        org.hire(ledger.USER, "x", "luna", 0, "x1")      # x moves WITH its subtree
+        store.save_org(org)
+
+    def setUp(self):
+        self.slug = "pg3a-mv-" + str(time.time_ns())
+        self.build(self.slug)
+
+    def tearDown(self):
+        store._POOL.close_all(self.slug)
+
+    def snapshot(self, slug):
+        o = store.load_org(slug)
+        return ({k: (v["parent"], v["grant"], v["state"]) for k, v in o.nodes.items()},
+                [(e["op"], e["detail"]) for e in o.d["events"] if e["op"] in ("demote", "promote")])
+
+    def test_matches_the_legacy_method(self):
+        twin = "pg3a-mv-twin-" + str(time.time_ns())
+        self.build(twin)
+        with store.DOC_LOCK:
+            o = store.load_org(twin)
+            legacy = o.move(ledger.USER, "x", "b")
+            store.save_org(o)
+        mine = lifecycle_tx.move(self.slug, ledger.USER, "x", "b")
+        self.assertEqual(mine, legacy)
+        self.assertEqual(self.snapshot(self.slug), self.snapshot(twin))
+        self.assertEqual(store.load_org(self.slug).node("x")["parent"], "b")
+        self.assertEqual(store.load_org(self.slug).node("x1")["parent"], "x")
+        store._POOL.close_all(twin)
+
+    def test_a_refused_move_writes_nothing(self):
+        before = self.snapshot(self.slug)
+        with self.assertRaises(ledger.LedgerError):
+            lifecycle_tx.move(self.slug, ledger.USER, "x", "x1")   # into its own subtree
+        self.assertEqual(self.snapshot(self.slug), before)
+
+    def test_a_stale_spec_widens_and_converges(self):
+        # the runner is handed a spec missing every row but the moved node:
+        # the body re-derives its rows on the LOCKED document, raises Widen,
+        # and the runner re-runs with them — nothing half-applied in between
+        calls = []
+        real = lifecycle_tx._move_rows
+
+        def rows(org, actor, nid, new_parent):
+            calls.append(len(calls))
+            if len(calls) == 1:
+                return {nid}, set()           # the stale snapshot
+            return real(org, actor, nid, new_parent)
+        widened = []
+        real_need = lifecycle_tx._need
+
+        def need(org, r, hn, hs):
+            try:
+                real_need(org, r, hn, hs)
+            except lifecycle_tx.Widen as w:
+                widened.append(w)
+                raise
+        with patch.object(lifecycle_tx, "_move_rows", rows),                 patch.object(lifecycle_tx, "_need", need):
+            lifecycle_tx.move(self.slug, ledger.USER, "x", "b")
+        self.assertEqual(len(widened), 1, "the stale spec never widened")
+        self.assertIn("b", widened[0].nodes)
+        self.assertEqual(store.load_org(self.slug).node("x")["parent"], "b")
+
+    def test_the_moved_nodes_new_parent_is_held_for_update(self):
+        upd, share = lifecycle_tx._move_rows(store.load_org(self.slug),
+                                             ledger.USER, "x", "b")
+        self.assertIn("b", upd)                      # the children-cap row
+        self.assertTrue({"x", "x1", "a"} <= upd)      # subtree + release leg
+        self.assertIn("root", share)                  # decided on, not written
+        self.assertFalse(upd & share)
+
+
 if __name__ == "__main__":
     unittest.main()
