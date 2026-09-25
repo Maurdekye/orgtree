@@ -27,6 +27,7 @@ pub const CONTROLS: &[&str] = &[
     "Q-C1.org_wide_lock",
     "Q-C6.register_without_lock",
     "Q-C5.no_xact_baseline",
+    "Q-C6.ack_without_lock",
 ];
 
 /// The handshake's DECLARED-CONTACTS table (CONTRACT-M1 §5 r4; WS7
