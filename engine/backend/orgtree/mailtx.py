@@ -119,6 +119,16 @@ def confirm_rows(nid: str) -> dict[str, list[Any]]:
     return {"nodes": [nid], "sections": [("delivering", nid), "mail_transitions"]}
 
 
+def inbound_rows(recipients: Iterable[str]) -> dict[str, list[Any]]:
+    """Outside mail landing in the org inbox (`Org.post_external_mail`):
+    the inbox log, each recipient holder's box, node row and archive, the
+    audiences (a first contact bootstraps a holder) and the user inbox (an
+    unroutable message surfaces there). The holders are a decision input the
+    caller must PREDICT (`extern_recipients_preview`) and re-check inside the
+    transaction — see `supervisor.deliver_org_inbox`."""
+    return send_rows(*recipients, USER)
+
+
 def reclaim_rows(nid: str) -> dict[str, list[Any]]:
     """Folding undelivered batches back: the journal and reclaim receipts,
     the pending boxes and notices they return to, and the node row."""

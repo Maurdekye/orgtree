@@ -175,6 +175,67 @@ class MailTx(unittest.TestCase):
         self.assertNotEqual(new_node, old_node)
         self.assertNotEqual(reply_events.incarnation(store.load_org(self.slug), 'deep'), before)
 
+    def test_inbound_org_inbox_delivery_and_interorg_send_without_doc_lock(self) -> None:
+        other = store.create_org(f'{self.slug}src')
+        other.hire(ledger.USER, None, 'haiku', 0, 'sender')
+        store.save_org(other)
+        with patch.object(supervisor, 'send_message', return_value={'accepted': True}):
+            with DocLockHeld():
+                got = call_with_timeout(lambda: supervisor.deliver_org_inbox(
+                    self.slug, '@net:someone', 'hello org'))
+                err = call_with_timeout(lambda: supervisor.interorg_send(
+                    other.d['slug'], self.slug, 'org to org'))
+        self.assertEqual(got, ['boss'])            # first contact bootstraps a holder
+        self.assertIsNone(err)
+        d = store.load_org(self.slug).d
+        self.assertEqual([m['body'] for m in d['mail']['boss']], ['hello org', 'org to org'])
+        self.assertEqual([m['from'] for m in d['mail']['boss']],
+                         ['@net:someone', f"@org:{other.d['slug']}"])
+        inbox = [str(e) for e in d['org_inbox']]
+        self.assertTrue(any('hello org' in e for e in inbox), inbox)
+        self.assertTrue(any('org to org' in e for e in inbox), inbox)
+
+    def test_inbound_retries_when_the_holders_moved(self) -> None:
+        real = orgtx.org_read
+        calls = {'n': 0, 'stale': 0}
+
+        class Stale:
+            def extern_recipients_preview(self):
+                return ['deep']                    # wrong: boss will be bootstrapped
+
+        def reader(slug, **kw):
+            calls['n'] += 1
+            if calls['stale'] == 0:
+                calls['stale'] += 1
+                return Stale()
+            return real(slug, **kw)
+        with patch.object(supervisor, 'send_message', return_value={'accepted': True}), \
+                patch.object(orgtx, 'org_read', reader):
+            got = supervisor.deliver_org_inbox(self.slug, '@net:x', 'retry me')
+        self.assertEqual(calls['stale'], 1, 'the stale prediction was never served')
+        self.assertEqual(got, ['boss'])
+        d = store.load_org(self.slug).d
+        self.assertEqual([m['body'] for m in d['mail']['boss']], ['retry me'])
+        self.assertFalse(d['mail'].get('deep'))
+
+    def test_control_inbound_under_declared_is_refused_and_writes_nothing(self) -> None:
+        real = mailtx.inbound_rows
+
+        def under(recipients):
+            rows = real(recipients)
+            kept = [s for s in rows['sections'] if not (isinstance(s, tuple) and s[0] == 'mail')]
+            under.removed = len(rows['sections']) - len(kept)
+            rows['sections'] = kept
+            return rows
+        under.removed = 0
+        with patch.object(supervisor, 'send_message', return_value={'accepted': True}), \
+                patch.object(mailtx, 'inbound_rows', under):
+            with self.assertRaises(orgtx.UnlockedWrite):
+                supervisor.deliver_org_inbox(self.slug, '@net:x', 'must not land')
+        self.assertGreater(under.removed, 0, 'the control removed no mail declaration')
+        d = store.load_org(self.slug).d
+        self.assertFalse((d.get('mail') or {}).get('boss'), 'CONTROL FAILED AS DESIGNED')
+
     def test_read_marks_commit_without_doc_lock(self) -> None:
         org = store.load_org(self.slug)
         a = org.to_user_inbox({'id': 'u1', 'from': 'boss', 'at': '2026-09-25T00:00:01Z', 'body': 'one'})
