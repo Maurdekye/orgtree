@@ -90,7 +90,9 @@ class FakeExecutor:
                  declared: "dict[str, Any] | None" = None,
                  server_extra: "dict[str, dict[str, int]] | None" = None,
                  hidden_statements: int = 0, skip_stmts: "set[str] | None" = None,
-                 factory: str = "fake-pool", stub: bool = False) -> None:
+                 factory: str = "fake-pool", stub: bool = False,
+                 server_locks: bool = True,
+                 server_extra_locks: "dict[str, str] | None" = None) -> None:
         """Fault options for the Q-C5 oracle's meta-controls:
         ``server_extra``: relation -> pg_stat_xact_user_tables counters the SERVER
         reports for every transaction but no statement names (a trigger);
@@ -109,6 +111,10 @@ class FakeExecutor:
         self.hidden_statements = hidden_statements
         self.skip_stmts = set(skip_stmts or ())
         self.factory = factory
+        # the server's relation-lock view before COMMIT (xact_locks): on by default;
+        # extra locks stand in for ones the server takes that no statement names
+        self.server_locks = server_locks
+        self.server_extra_locks = dict(server_extra_locks or {})
         self.rows: dict[str, Any] = {}
         self.stream = _Stream("fake-executor")
         self.stream.stub = stub      # every operation record says stub: true (WS2's Sent stub)
@@ -268,12 +274,19 @@ class FakeExecutor:
         ctx: dict[str, Any] = {}
         writes: dict[str, Any] = {}
         server: dict[str, dict[str, int]] = {}
+        locks: dict[str, set[str]] = {}     # the server's relation locks (pg_locks)
         for s in self.op_kinds[kind]:
             if s.label in self.skip_stmts:
                 continue
             point(f"stmt.{s.label}.before")
+            row_locked = False
             if s.lock and not self._fire(s.skip_lock_control, tag, op_id):
                 self._take(s.lock, pid)
+                row_locked = True
+            for rel in s.relations:
+                locks.setdefault(rel, set()).add(
+                    "RowShareLock" if row_locked and s.lock_mode
+                    else "RowExclusiveLock" if s.mode == "write" else "AccessShareLock")
             code = pending.pop("sqlstate", "00000")
             if code == "00000" and s.apply:
                 with self._rows_lock:
@@ -293,6 +306,12 @@ class FakeExecutor:
             server.setdefault(rel, {"relname": rel}).update(counters)
         emit("xact_stats", operation_id=op_id, attempt=attempt, backend_pid=pid,
              tables=list(server.values()))
+        if self.server_locks:
+            for rel, mode in self.server_extra_locks.items():
+                locks.setdefault(rel, set()).add(mode)
+            emit("xact_locks", operation_id=op_id, attempt=attempt, backend_pid=pid,
+                 locks=[{"relname": rel, "mode": m} for rel in sorted(locks)
+                        for m in sorted(locks[rel])])
         point("before_commit")
         with self._rows_lock:
             self.rows.update(writes)

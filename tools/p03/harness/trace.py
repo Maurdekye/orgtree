@@ -30,6 +30,9 @@ KINDS: dict[str, tuple[str, ...]] = {
     "stmt": ("operation_id", "attempt", "backend_pid", "stmt_label", "fingerprint",
              "mode", "relations", "sqlstate"),
     "xact_stats": ("operation_id", "attempt", "backend_pid", "tables"),
+    # the backend's own relation locks before COMMIT (qualification builds): the
+    # server-side lock-FAMILY cross-check (lead ruling 09:09Z, decision 4)
+    "xact_locks": ("operation_id", "attempt", "backend_pid", "locks"),
     "wait": ("operation_id", "attempt", "backend_pid", "wait_on"),
     "retry": ("operation_id", "attempt", "retry_cause", "sqlstate"),
     "tx_end": ("operation_id", "attempt", "backend_pid", "outcome", "sqlstate"),

@@ -22,10 +22,14 @@ OBSERVED side, from the trace (``trace.py``), per operation attempt:
 - ``stmt`` records: the executor's labelled relations and mode (``read``/``write``),
   plus ``lock_mode`` when the statement takes a row lock;
 - ``xact_stats`` records: the SERVER's per-transaction relation activity
-  (``pg_stat_xact_user_tables`` read just before COMMIT; M1 §3, provisional). A
+  (``pg_stat_xact_user_tables`` read just before COMMIT; ADOPTED, decision 4). A
   relation with scans is a read, one with inserted/updated/deleted tuples is a
-  write. It catches a trigger, function or nested adapter the executor's own
-  statement map does not name (PROFILING:19);
+  write; scan TYPE is never evidence. It catches a trigger, function or nested
+  adapter the executor's own statement map does not name (PROFILING:19);
+- ``xact_locks`` records: the backend's own relation locks before COMMIT. The
+  server shows ``RowShareLock`` for every FOR mode (measured), so it confirms
+  the lock FAMILY only; the exact mode is the executor's, and the server-side
+  exact mode is ``unknown`` unless a schedule samples ``pgrowlocks`` (decision 4);
 - ``tx_end`` records: which attempts COMMITTED;
 - ``conn_activity`` records, one per physical backend at run end: the server's
   own transaction count for that pid and the factory that opened it.
@@ -40,6 +44,12 @@ Verdicts:
 - FAIL, HIDDEN ACCESS: a backend whose server-side transaction count exceeds the
   transactions the trace attributes to it, a backend opened by an unregistered
   factory, or no ``conn_activity`` at all (M1 §4 amendment 6);
+- FAIL, LOCK FAMILY (when ``xact_locks`` is present): a relation the executor
+  row-locks with no RowShareLock-or-stronger lock server-side; a RowShareLock
+  on a relation for which no row-lock mode is declared (an undeclared lock);
+  a committed attempt whose required row lock the server does not show. If an
+  operation declares row-lock modes and a committed attempt has NO
+  ``xact_locks``, the lock family is unverified: FAIL, never a default pass;
 - REPORT only: a ``required: false`` relation never observed in the run.
 A lock mode the trace marks ``unknown`` is not a pass: it is reported under
 ``unknown_modes`` and the run cannot claim that mode was checked.
@@ -52,6 +62,9 @@ from typing import Any, Iterable
 LOCK_MODES = ("for_key_share", "for_share", "for_no_key_update", "for_update")
 MODES = ("read", "write") + LOCK_MODES
 UNKNOWN = "unknown"
+#: relation locks at least as strong as the RowShareLock every FOR clause takes
+ROW_LOCK_FAMILY = {"RowShareLock", "RowExclusiveLock", "ShareUpdateExclusiveLock", "ShareLock",
+                   "ShareRowExclusiveLock", "ExclusiveLock", "AccessExclusiveLock"}
 
 
 def declared_errors(declared: dict[str, Any]) -> list[str]:
@@ -104,6 +117,7 @@ def observed_contacts(records: Iterable[dict[str, Any]]) -> dict[tuple[str, int]
         if key not in ops:
             ops[key] = {"op_kind": kind_of.get(r["operation_id"]),
                         "executor": defaultdict(set), "server": defaultdict(set),
+                        "server_locks": None,   # None: the server's lock view never arrived
                         "stmts": 0, "txs": 0, "committed": False, "unknown_modes": set(),
                         "unresolved": set(), "contacts": contacts.get(r["operation_id"])}
         return ops[key]
@@ -146,7 +160,43 @@ def observed_contacts(records: Iterable[dict[str, Any]]) -> dict[tuple[str, int]
             for t in r.get("tables") or []:
                 for m in _xact_modes(t):
                     s["server"][t["relname"]].add(m)
+        elif k == "xact_locks":
+            s = slot(r)
+            if s["server_locks"] is None:
+                s["server_locks"] = defaultdict(set)
+            for lk in r.get("locks") or []:
+                s["server_locks"][lk["relname"]].add(lk["mode"])
     return ops
+
+
+def lock_family_failures(where: str, s: dict[str, Any], spec: dict[str, Any]) -> list[str]:
+    """The server-side lock-FAMILY cross-check (lead ruling, decision 4)."""
+    declares_locks = any(set(r["modes"]) & set(LOCK_MODES) for r in spec.values())
+    server = s["server_locks"]
+    if server is None:
+        if declares_locks and s["committed"]:
+            return [f"{where}: row-lock family unverified: no server lock view (xact_locks) for a "
+                    f"committed attempt of an operation that declares row locks"]
+        return []
+    out = []
+    claimed = {rel for rel, modes in s["executor"].items() if modes & set(LOCK_MODES)}
+    for rel in sorted(claimed):
+        if not server.get(rel, set()) & ROW_LOCK_FAMILY:
+            out.append(f"{where}: the executor row-locks {rel} but the server shows no "
+                       f"RowShareLock-or-stronger lock on it")
+    for rel, modes in sorted(server.items()):
+        if "RowShareLock" in modes and rel not in claimed:
+            declared = set(spec.get(rel, {}).get("modes", ())) & set(LOCK_MODES)
+            if not declared:
+                out.append(f"{where}: the server shows a row lock on {rel} that is declared "
+                           f"nowhere (undeclared lock)")
+    if s["committed"]:
+        for rel, r in sorted(spec.items()):
+            if r["required"] and set(r["modes"]) & set(LOCK_MODES) \
+                    and not server.get(rel, set()) & ROW_LOCK_FAMILY:
+                out.append(f"{where}: committed without the server showing its required row "
+                           f"lock on {rel} (omitted anchor)")
+    return out
 
 
 def q_c5(declared: dict[str, dict[str, Any]], records: list[dict[str, Any]],
@@ -189,8 +239,13 @@ def q_c5(declared: dict[str, dict[str, Any]], records: list[dict[str, Any]],
             if missing:
                 failures.append(f"{where}: committed without its required "
                                 f"{', '.join(missing)} (omitted invariant)")
-        if s["unknown_modes"]:
-            unknown_modes[where] = sorted(s["unknown_modes"])
+        failures += lock_family_failures(where, s, spec)
+        # the server confirms a lock FAMILY only: every exact row-lock mode it did not
+        # sample (pgrowlocks) stays unknown server-side, and is reported as such
+        server_exact = sorted(rel for rel, modes in s["executor"].items()
+                              if modes & set(LOCK_MODES))
+        if s["unknown_modes"] or server_exact:
+            unknown_modes[where] = sorted(set(s["unknown_modes"]) | set(server_exact))
         if s["contacts"] == 0 and (s["stmts"] or s["txs"]):
             failures.append(f"{where}: reports zero contacts but has {s['stmts']} statements "
                             f"and {s['txs']} transactions")
