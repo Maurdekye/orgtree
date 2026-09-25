@@ -119,9 +119,16 @@ runtime probes remain unresolved. Material reads add two cards and two selectors
 diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
-Current totals are 42 contracts, 29 mapped registrations and 51 mapped
-dispatch witnesses. **571 obligations remain**: 286 registrations, 169 dispatch
-witnesses, 14 storage candidates and 102 unresolved dimension occurrences.
+Current totals are 61 contracts, 48 mapped registrations and 70 mapped
+dispatch witnesses. **590 obligations remain**: 267 registrations, 150 dispatch
+witnesses, 14 storage candidates and 159 unresolved dimension occurrences.
+From P01 F1 on, progress is reported as three numbers (coordinator ruling Q1, decision 1 on
+p01-f1-contracts-for-the-org-lifecycle-and-catal): **entries contracted 19/194** (of the concrete http,
+websocket and tool entries that were on the generic reason), **159 open dimension occurrences** and
+**590 total pending**. Total pending RISES while the 194 are contracted, to about 790-1000 when all
+twelve families have landed, and that rise is expected: each new contract closes its entry but opens
+its own conflicts, wire and instrumentation dimensions until P03, the native conversion and P02 answer
+them.
 How it got there: 600 was two more registrations than the preceding 598 because the scanner now
 recognizes `asyncio.to_thread` hand-offs; both new witnesses are pending and no
 existing witness identity, disposition or contract changed.
@@ -333,8 +340,21 @@ file with a route, hook, task, worker or connection site is left out.
 The owner-form step (p01-put-the-owner-of-the-35-older-pending-rows-i) closes nothing: 35 older
 pending rows (the operation census, account marks, charter template folders, the `orgtree_work`
 card, shared selectors, the S2k storage sites and two thread hand-offs) now state their owner as
-`Owner: ...`. Every pending witness names its owner that way except the 194 concrete http,
-websocket and tool entries still on the generic reason, and a test holds that.
+`Owner: ...`. Every pending witness names its owner that way except the concrete http,
+websocket and tool entries still on the generic reason (194 then, 175 after F1), and a test holds that.
+590 is nineteen more than that 571, and the rise is expected (P01 F1,
+p01-f1-contracts-for-the-org-lifecycle-and-catal). F1 contracts the org lifecycle and catalogue entry
+points: nineteen contracts on nineteen entries, twelve agent tools (rename, retool, retire, dissolve,
+cheap_compact, rehire, move, swap, self_subjugate, switch_model, list_orgs, list_tiers) and seven operator
+routes (node account, reorder, compact, dissolve-all, lineage recover and drop-phantom, repair-rename), on
+nine shared `lifecycle.*` facets. Authority, reads, writes, predicates, receipt and effects are specified
+from source and pinned by `tests/test_state_lifecycle_boundary.py` against
+`docs/state-system/lifecycle-boundary.json`; conflicts, wire and instrumentation stay open (P03 and P05, the
+native conversion, and P02, which probes the family after it lands). Nineteen dispatch branches that only
+these tools reach are mapped. The plan listed twenty entries: the external-chat server's `orgtree_list_orgs`
+card calls `GET /api/orgs`, a different handler, so it moves to the external-chat family (F4). The fixture
+records six legacy defects, among them that retire and dissolve interrupt the target's turn before the
+call can still be refused.
 
 Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the

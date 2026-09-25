@@ -7872,6 +7872,521 @@
         }
       ],
       "open_questions": []
+    },
+    "lifecycle.authority": {
+      "dimension": "authority",
+      "status": "specified",
+      "facts": [
+        "The twelve tool contracts arrive on the agent door (POST /api/agent, api.agent_call) with an agent credential, and the caller is body.node; a halted caller or a latched org killswitch is refused 409 before any tool runs. The target is governed by the ledger's downward rule (Org._require_authority: the user, the system, or a strict ancestor of the target), refused as 'X has no authority over Y — authority is downward only'. Pinned by tests/test_state_lifecycle_boundary.py against docs/state-system/lifecycle-boundary.json for rename, retool, retire, dissolve, cheap_compact, move and swap.",
+        "Acting on oneself differs per tool: retire allows the caller itself, but only as a leaf ('you have live reports …'); self_subjugate always acts on the caller; retool on oneself may set team_charter only ('you may not rewrite your OWN charter'); rename, dissolve and cheap_compact refuse the caller itself through the downward rule; switch_model refuses the caller's own model ('you cannot switch your OWN model'). rehire also admits the caller's own knowledge bearer (successor == caller), which then joins as the caller's subordinate (source). Pinned, except the bearer case.",
+        "The door's identity check (api._agent_identity) refuses 403 a caller whose seat is archived or replaced ('authenticated seat is archived or replaced …') and a credential minted for an earlier session generation ('agent credential is stale: session generation changed …'). So after a dissolve the archived seats can no longer call, and after a cheap compaction the seat's pre-compaction credential is refused. Pinned.",
+        "The two catalogue reads need only a known caller; list_tiers also needs a live one (org._require_live), and list_orgs, which runs inside the agent write cycle, takes the halt and killswitch refusals too. Pinned for the successful reads.",
+        "The seven routes are operator routes behind the desktop TokenGate (engine/launch.py): an agent credential is refused 401, and the operator acts as the user (ledger actor USER). repair-rename is the exception: its body names an actor (default the user) that must be the user or the renamed identity itself (Org.repair_rename_identity). account-assign leaves every account check to supervisor.assign_account's shared validator, so being the user does not bypass the account rules. Pinned for the 401 and the refusals; the actor rule of repair-rename is source."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11290,
+          "end": 11295,
+          "sha256": "24fb1b215a1ca90da01d06ffbcec547f96015d884df313e19af49622ae40075a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11213,
+          "end": 11271,
+          "sha256": "3364dd0d8d7b27a9b16eff4385e2a0c17e3eefc0d9ad57b1411cef8111c7988e"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 2027,
+          "end": 2038,
+          "sha256": "5599fe66a1d8a44ad61a5ac3fc35810a848dadf78c1870477888701b6b19a1b4"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11548,
+          "end": 11554,
+          "sha256": "7432cf741933486dcf2096e0c1e0761f0dadfa5073067ef0638fb1827d45cc83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12451,
+          "end": 12523,
+          "sha256": "ab6ee19640dbb0d20a60e497c610d9e186617e7e82b5672f7290b25e6f67c038"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4950,
+          "end": 4997,
+          "sha256": "82aa2a6f33d66b0c051e93f98ec3ad6f65d2c956554e550867ee5574f35f4f76"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5800,
+          "end": 6125,
+          "sha256": "c27697c81f4c248ed773edc3a4de5a3e7ed5a0d6c060fe51a8c014601f7d9cee"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5330,
+          "end": 5588,
+          "sha256": "4efcfb5f9298374d0a3a146d96d9b8eb47235e5be894a4d940f2f7d95272af7e"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11441,
+          "end": 11459,
+          "sha256": "b0e1e1cf90c49a07c1706037253060268a48fc2b154f1dbfb40d5045d7ca351b"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6445,
+          "end": 6483,
+          "sha256": "795e6d7ff6d6cdf8737a5fe5f8068ca6d591c23648b426e56c7a5f064d6c8ad9"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5419,
+          "end": 5434,
+          "sha256": "af44225dec682ca1c94d50d046ff41ea40e967f545887883523c67ca0423774c"
+        }
+      ],
+      "open_questions": []
+    },
+    "lifecycle.reads": {
+      "dimension": "reads",
+      "status": "specified",
+      "facts": [
+        "Every write-cycle tool (retool, retire, dissolve, cheap_compact, rehire, move, swap, self_subjugate, switch_model and list_orgs) loads the org document under DOC_LOCK through store.write_org (the resident write cycle); rename loads it under supervisor.rename_node's own DOC_LOCK, and list_tiers reads the shared snapshot (store.cached_org). Before the lock, retire and dissolve load the org once more for their authority pre-guard. Source.",
+        "Reads outside the org document: list_orgs reads every org's catalogue row (store.list_orgs, kiosk orgs dropped) and the mail hub roster (net.remote_peers); list_tiers reads provider discovery (_tier_discovery_payload, machine state behind its own cache, outside the lock); rename reads the turn state of every generation (supervisor.state) and refuses a busy one; switch_model reads the live busy state and the account registry (check_switch_account); a retool naming an account reads the registry (registry.validate_selection); compact reads the turn state and the org killswitch. Source; which of these contacts are org-local is the open instrumentation question."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11831,
+          "end": 11845,
+          "sha256": "6d6e90de70a545f4cc8f2bf9ddf48a34a218b2e4e3bd4574fe600952c66fa285"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11808,
+          "end": 11818,
+          "sha256": "d0f253870f698775d05dc31506af76943b55d8001e6ab5425f61b715cc5bf303"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 3894,
+          "end": 4017,
+          "sha256": "db45c5be3f775efe7605af77e2b00f5ba6f4302705b69efd3573dd2da5014e58"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11441,
+          "end": 11459,
+          "sha256": "b0e1e1cf90c49a07c1706037253060268a48fc2b154f1dbfb40d5045d7ca351b"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 4614,
+          "end": 4694,
+          "sha256": "f8ab8d574e02e528de9ec9ae6d256a590059ce632ca3601e11d4b54046406b83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12524,
+          "end": 12663,
+          "sha256": "0b4f342223744f3ca34d3bd3294b20818ce66c4bc0be2b4ceb57304c11e2c1b8"
+        }
+      ],
+      "open_questions": []
+    },
+    "lifecycle.writes": {
+      "dimension": "writes",
+      "status": "specified",
+      "facts": [
+        "Measured with the committed document read cold (changed top-level sections): rename writes nodes, events and the renamed seat's notices (lifecycle.renamed); retool writes nodes and events (set_scope), and access.scope_changed to a target other than the caller; retire writes nodes and events, plus lifecycle.retired to the parent and peers other than the caller; dissolve writes nodes and events and lifecycle.dissolved to the parent and peers other than the caller (the dissolved subtree is told nothing); cheap_compact writes nodes (a knowledge bearer row nid@gen, a fresh session id, generation + 1), events, and the seat's own notices (its backlog folded into a context.notice_digest, then lifecycle.cheap_compacted); rehire writes nodes and events and lifecycle.rehired to the seat and to a parent and peers other than the caller; move writes nodes, events and lifecycle.moved to the old parent, the new parent and the node; swap writes nodes, events and lifecycle.seat_swapped to both parties and their reports; self_subjugate writes nodes, events and lifecycle.subtree_promoted to the new parent, the peers and the promoted target; switch_model writes nodes, events and lifecycle.model_switched to the node. Every changed notices section also changes notice_log. Pinned by tests/test_state_lifecycle_boundary.py against docs/state-system/lifecycle-boundary.json.",
+        "No-ops and refusals write nothing: a rehire of a live node, a move to the current parent (result moved: false, changed: false) and a switch to the tier the node already runs; every refusal discards the unsaved document. The exception is a rehire with `name`: its rename runs before the transaction and survives a later refusal (source, as for staffing in rehire mode). A keyed call adds op_receipts and op_receipts_meta in the same save, except rename, list_orgs and list_tiers, which file no receipt. Pinned.",
+        "Routes: reorder writes only nodes (the siblings' ui_order reindexed; no event, no notice); dissolve-all dissolves every top-level seat in ONE save (nodes, one dissolve event per top-level seat, notices); account-assign writes the node's account binding through supervisor.assign_account; compact starts supervisor.manual_compact on a daemon thread and answers {started: true} before that thread writes anything (the fork, the successor session and the archived self are the thread's writes); lineage recover and drop-phantom write through supervisor.recover_lost_generation and drop_phantom_generation under DOC_LOCK; repair-rename moves documents[].node and the current-identity work-item fields and adds one rename_repair log line. Pinned for reorder, dissolve-all, the compact start and every refusal (which writes nothing); the account, lineage and repair success paths are source (they need a registered account, on-disk session files and a stranded record)."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 9104,
+          "end": 9230,
+          "sha256": "845a5a3d6d94ddc60e33bbcbf10b317d32c4da39fd4de01764239c722d0f2f48"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 7615,
+          "end": 8014,
+          "sha256": "73691be64a65f5209c3ee2b9525ad3d951a189ab1d90700c21bc1a84c6de4d70"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4950,
+          "end": 4997,
+          "sha256": "82aa2a6f33d66b0c051e93f98ec3ad6f65d2c956554e550867ee5574f35f4f76"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5617,
+          "end": 5647,
+          "sha256": "66d901ad6e98372ead29068f704bc809843c023ce5e84b4090bd1931a9f63f4c"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5245,
+          "end": 5327,
+          "sha256": "f495153dfc32fcea96009363a901be01860c98277f88544fed8e3277e19662a2"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5081,
+          "end": 5181,
+          "sha256": "7b6387dcc434ddd7acd8160d7b60e60b59ef84fc954f8cbcd3084b3d0a992b87"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5330,
+          "end": 5588,
+          "sha256": "4efcfb5f9298374d0a3a146d96d9b8eb47235e5be894a4d940f2f7d95272af7e"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6259,
+          "end": 6282,
+          "sha256": "4c69c5e5d1aa404c0e8ee8c1b5447b64367376eb6ff5a2afb6d90edb2af1eb1b"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6531,
+          "end": 6784,
+          "sha256": "13a114f2a764e329a4729ffeec9b873e39eba1b34faa7cb505eb916be75e628d"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6308,
+          "end": 6470,
+          "sha256": "550daaeb174c03eef04d8c39c685bf1e96b79527ba45b1f1db6d64cceab9fc10"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5800,
+          "end": 6125,
+          "sha256": "c27697c81f4c248ed773edc3a4de5a3e7ed5a0d6c060fe51a8c014601f7d9cee"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8016,
+          "end": 8036,
+          "sha256": "b4c3a309c64637d572d32efd0d5d6867b52ec6d15ec093028c925648a512de92"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6063,
+          "end": 6078,
+          "sha256": "c39ab1540acda9c5c739fb1f561c2136c49a3de0052266c933717de481135da5"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5964,
+          "end": 6012,
+          "sha256": "4c1793d33649a5b0658e249b3d5ec17c8c0eb6f3302908f517b84c5307b5c544"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 9395,
+          "end": 9561,
+          "sha256": "034c65bbb36c03d7e667cef747f77c5b0c203d1bf1affde9f14945ad679fbafe"
+        }
+      ],
+      "open_questions": []
+    },
+    "lifecycle.predicates": {
+      "dimension": "predicates",
+      "status": "specified",
+      "facts": [
+        "Tool refusals (422 unless stated): rename 'the name X is already taken'; retool 'you may not rewrite your OWN charter' and granting a tool the caller does not hold ('… cannot grant it'); retire by the caller itself with live reports; move batches whose element is not an object with new_parent ('moves[i] must be an object …'); self_subjugate whose target is not a live descendant ('… is not a live descendant …'); switch_model to an unknown tier (the refusal lists the known tiers). Open background tasks refuse retire, dissolve and cheap_compact (source). Pinned, except the background-task refusals.",
+        "Not refused, by the design motto: a superior retiring a node with live reports gets a dissolve with a warning ('… retire became dissolve'); a rehire of a live node, a move to the current parent and a switch to the current tier succeed as no-ops with a warning. A switch asked for while the node is mid-turn is QUEUED (pending_switch) rather than applied, and asking for the current tier while one is queued cancels it (source). Pinned, except the queue.",
+        "Route refusals (422 unless stated): reorder with no sibling as before= or after=; compact of a node with no conversation yet (and, from source, of a node not live, a knowledge bearer, one just compacted, and 409 for remote control, a freeze, a halt, the killswitch or a busy turn); lineage recover of a row that is not a lost generation; drop-phantom of a row that is not a LOST one; repair-rename with no allowlist; account-assign naming an account that is not registered. Pinned for each named refusal; the other compact refusals are source."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4950,
+          "end": 4997,
+          "sha256": "82aa2a6f33d66b0c051e93f98ec3ad6f65d2c956554e550867ee5574f35f4f76"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6786,
+          "end": 6818,
+          "sha256": "0e0af00c065c18ac766cb74df3ff526f79123ef8070053113133f20de44a12b7"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12524,
+          "end": 12663,
+          "sha256": "0b4f342223744f3ca34d3bd3294b20818ce66c4bc0be2b4ceb57304c11e2c1b8"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6308,
+          "end": 6470,
+          "sha256": "550daaeb174c03eef04d8c39c685bf1e96b79527ba45b1f1db6d64cceab9fc10"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5800,
+          "end": 6125,
+          "sha256": "c27697c81f4c248ed773edc3a4de5a3e7ed5a0d6c060fe51a8c014601f7d9cee"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8016,
+          "end": 8036,
+          "sha256": "b4c3a309c64637d572d32efd0d5d6867b52ec6d15ec093028c925648a512de92"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5964,
+          "end": 6012,
+          "sha256": "4c1793d33649a5b0658e249b3d5ec17c8c0eb6f3302908f517b84c5307b5c544"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 25591,
+          "end": 25754,
+          "sha256": "376c0dbcb8ac1b3ffe33a0bb8373ffd26cf4d49d55fef810354fa155793471cb"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 25575,
+          "end": 25588,
+          "sha256": "4237b51c91e9a8a2153269571a53069ae153029c675a749093f5c7a548f2f918"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 9395,
+          "end": 9561,
+          "sha256": "034c65bbb36c03d7e667cef747f77c5b0c203d1bf1affde9f14945ad679fbafe"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 15312,
+          "end": 15624,
+          "sha256": "f318b97f9639fb06f8b3756a3ad37a9f1a490ed4c0c7796b5d2647980af209d8"
+        }
+      ],
+      "open_questions": []
+    },
+    "lifecycle.conflicts": {
+      "dimension": "conflicts",
+      "status": "unresolved",
+      "facts": [
+        "Every tool's ledger mutation runs under DOC_LOCK in one load-mutate-save window; three pieces sit outside it: the pre-archive interrupt of retire and dissolve, the filesystem moves and warm-process kills of rename (before its own save), and compact's daemon thread. move batches, swap and self_subjugate validate every refusal before their first write and roll back to a snapshot on a late refusal (source)."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11831,
+          "end": 11845,
+          "sha256": "6d6e90de70a545f4cc8f2bf9ddf48a34a218b2e4e3bd4574fe600952c66fa285"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11808,
+          "end": 11818,
+          "sha256": "d0f253870f698775d05dc31506af76943b55d8001e6ab5425f61b715cc5bf303"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 3894,
+          "end": 4017,
+          "sha256": "db45c5be3f775efe7605af77e2b00f5ba6f4302705b69efd3573dd2da5014e58"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5964,
+          "end": 6012,
+          "sha256": "4c1793d33649a5b0658e249b3d5ec17c8c0eb6f3302908f517b84c5307b5c544"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6308,
+          "end": 6470,
+          "sha256": "550daaeb174c03eef04d8c39c685bf1e96b79527ba45b1f1db6d64cceab9fc10"
+        }
+      ],
+      "open_questions": [
+        "Implement and qualify native transactions for the lifecycle operations, including where the pre-archive interrupt, rename's filesystem moves and compaction's fork belong relative to the document transaction.",
+        "Owner: P03 (native design and qualification), with P05 for the refusal fixtures. Closes with: a native design for these operations, qualified by concurrent lifecycle operations on one subtree (retire racing a move, a rename racing a rehire) and by a refusal after the interrupt. Not coverable at P01 from available evidence: no native build exists, and P01 has not cited a native design section for these operations."
+      ]
+    },
+    "lifecycle.wire": {
+      "dimension": "wire",
+      "status": "unresolved",
+      "facts": [
+        "The legacy shapes are fixtured in docs/state-system/lifecycle-boundary.json (result keys per case, changed sections, notices by recipient, receipt classes and retained fields) together with the recorded legacy defects."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12524,
+          "end": 12663,
+          "sha256": "0b4f342223744f3ca34d3bd3294b20818ce66c4bc0be2b4ceb57304c11e2c1b8"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12972,
+          "end": 12974,
+          "sha256": "e50ce10d6027e893d3d4f37d6d3ae028f8ce35a30bd75f94e5080e0b72b06820"
+        }
+      ],
+      "open_questions": [
+        "Carry the fixtured lifecycle shapes to the native/Rust door and decide each recorded legacy defect.",
+        "Owner: the native/Rust conversion, from the P03 prototype onward. Closes with: the fixtured lifecycle shapes passing against the native and Rust builds, with each recorded legacy defect reproduced deliberately or replaced. Not coverable at P01 from available evidence: no native or Rust build exists to run the fixtures against."
+      ]
+    },
+    "lifecycle.receipt": {
+      "dimension": "receipt",
+      "status": "specified",
+      "facts": [
+        "Coverage classes (opreceipts.coverage): retire and dissolve PRE (their pre-archive interrupt runs before the lock); rehire TX_POST, or PRE when it carries `name`; retool and switch_model TX_POST; move, swap and self_subjugate TX; cheap_compact UNROLLED (the transcript copy inside the lock); rename, list_orgs and list_tiers NONE. A keyed call files its receipt in the same save as the effect; a replay of a filed key answers the replay envelope (replayed, op_id, outcome applied, the receipt) and writes and broadcasts nothing. The routes take no operation key. Pinned per tool.",
+        "Retained result fields follow the per-tool allowlist, scalars only (opreceipts.result_slice). Recorded legacy defect: several allowlists name fields the result never carries, so the receipt keeps nothing — retire and dissolve keep (archived, node) but return freed, nodes and warnings; move keeps (moved), which only the no-op result carries; retool keeps (node, started, account) but returns scope; swap keeps (swapped), whose value is a list. What is kept: cheap_compact node and old_session, rehire node and started, switch_model queued, self_subjugate promoted, demoted and parent. Pinned.",
+        "Recorded legacy behaviour: rename returns before admission, so a keyed rename is executed with its key unexamined — a malformed op_key is not refused and no receipt is filed, and a lost answer cannot be looked up. Pinned."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 150,
+          "end": 212,
+          "sha256": "8a6f86d83cb208ba46849728f9efcf8ca18dd6d559412dc6fe4f2b513ad6c7e5"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 250,
+          "end": 266,
+          "sha256": "b9b20a475c2dae24bba05a930465c9ce50bd546f96f8c576a1bcacd6996635e0"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 298,
+          "end": 334,
+          "sha256": "30d76f00ea3eaafde4324d811f1103b1b5b80027f2492d45c450670dc3a69bf0"
+        },
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 387,
+          "end": 394,
+          "sha256": "293fc32c81ca47d559edf0d216c6b98e947be32abb1e4a60dc66d96126ad49a2"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11548,
+          "end": 11554,
+          "sha256": "7432cf741933486dcf2096e0c1e0761f0dadfa5073067ef0638fb1827d45cc83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11831,
+          "end": 11845,
+          "sha256": "6d6e90de70a545f4cc8f2bf9ddf48a34a218b2e4e3bd4574fe600952c66fa285"
+        }
+      ],
+      "open_questions": []
+    },
+    "lifecycle.effects": {
+      "dimension": "effects",
+      "status": "specified",
+      "facts": [
+        "retire and dissolve call supervisor.interrupt_before_archive BEFORE the transaction, after only an authority pre-guard: it interrupts the target's in-flight turn and every live descendant's and waits for the turn boundary. Recorded legacy defect: a call refused after that point has already interrupted the target — pinned for a self-retire with live reports and for a keyed retire whose op_key is refused at admission.",
+        "After the save: retire, dissolve and cheap_compact call supervisor.remote_reap(slug); cheap_compact calls supervisor.export_predecessor_transcript(org, node, old_sid, reason='cheap_compact') inside the lock; a rehire whose seat has waiting mail drives it once (supervisor.send_message, mail_ping, no ping_reason; the result says RUNNING), and otherwise nothing is driven and the result says IDLE. Recorded legacy defect: the post-save reap names orgtree_rename but the rename branch returns before it, so a rename never reaps. Pinned. From source: a cross-provider switch copies the transcript the same way and wakes a node whose stale freeze it cleared (drive_unfrozen_by_switch); a retool changing effort sends it live (send_live_effort); an account choice on retool or switch_model notifies after the save.",
+        "Every accepted write-cycle call ends with exactly one hub_changed, including the no-ops (a rehire of a live node, a move to the current parent, a switch to the current tier) and list_orgs. Recorded legacy behaviour: list_orgs is a read that takes the write lock, saves and broadcasts. A replay broadcasts nothing. rename and list_tiers never call hub_changed; rename's broadcast is supervisor.notify(slug, new, 'renamed', …) after its own save. rename also kills the parked warm process of every generation (warmpool.kill_node) and moves the scratch directory and the CLI project directory before the save, rolling them back if the save fails (source). Pinned for the broadcasts.",
+        "Routes: reorder, dissolve-all, lineage recover and drop-phantom and repair-rename end with hub_changed (account-assign awaits hub.changed, source); compact starts a daemon thread running supervisor.manual_compact and broadcasts nothing itself. Recorded legacy behaviour: dissolve-all tells each later top-level seat that an earlier one was dissolved (lifecycle.dissolved, relation peer) and then dissolves it in the same save. Pinned, except account-assign."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11808,
+          "end": 11818,
+          "sha256": "d0f253870f698775d05dc31506af76943b55d8001e6ab5425f61b715cc5bf303"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 27869,
+          "end": 28000,
+          "sha256": "9c38af47d5e6c096ab8e547ad5f328da0c358449865dda7e5ee92e184e5e1a9b"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12877,
+          "end": 12881,
+          "sha256": "0e5647b5ff5d639aeb9366d65ad17253218537bd8e9361f101ab433beb47c689"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12882,
+          "end": 12890,
+          "sha256": "4df85e42ee64d2706e2ccc264d330b69e0ebdccd11e538e60598236e09c31efb"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12972,
+          "end": 12974,
+          "sha256": "e50ce10d6027e893d3d4f37d6d3ae028f8ce35a30bd75f94e5080e0b72b06820"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12524,
+          "end": 12663,
+          "sha256": "0b4f342223744f3ca34d3bd3294b20818ce66c4bc0be2b4ceb57304c11e2c1b8"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 3894,
+          "end": 4017,
+          "sha256": "db45c5be3f775efe7605af77e2b00f5ba6f4302705b69efd3573dd2da5014e58"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5964,
+          "end": 6012,
+          "sha256": "4c1793d33649a5b0658e249b3d5ec17c8c0eb6f3302908f517b84c5307b5c544"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6063,
+          "end": 6078,
+          "sha256": "c39ab1540acda9c5c739fb1f561c2136c49a3de0052266c933717de481135da5"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10817,
+          "end": 10826,
+          "sha256": "7b31e542762264c6ba4659d5f20e3be9d9a810c1728ec203ce615c30d2524a46"
+        }
+      ],
+      "open_questions": []
+    },
+    "lifecycle.instrumentation": {
+      "dimension": "instrumentation",
+      "status": "unresolved",
+      "facts": [
+        "The agent door labels each call for the storage census (stateprobe.refine('tool:' + tool)); the routes are labelled by the access middleware. No P02 per-operation record covers the lifecycle family yet."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11278,
+          "end": 11278,
+          "sha256": "905ea78d214464795c92a04330a721f74a8654da38bf9593afc6698637d27f34"
+        }
+      ],
+      "open_questions": [
+        "Observe every lifecycle operation with the P02 per-operation probe: actual contacts per outcome, cold and warm, refusals and keyed replays included, and the org-level locality of each.",
+        "Owner: P02 (p02-contacts-opus55; coordinator ruling Q6 on p01-f1-contracts-for-the-org-lifecycle-and-catal: probed after this family lands). Closes with: a loss-accounted P02 record per lifecycle row. Not coverable at P01: P01 does not run the P02 probe."
+      ]
     }
   },
   "contracts": {
@@ -10305,6 +10820,1177 @@
           "sha256": "8654d6cd1c082714a646cf729d704c57572ef55904a6abd0a6b79fa0798fd3d0"
         }
       ]
+    },
+    "lifecycle.rename": {
+      "entry_ids": [
+        "dad8cca65df6d60e98f9c239e4e271a7eeb740a651830688a016157bd66ab169"
+      ],
+      "tools": [
+        "orgtree_rename"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "lifecycle.authority"
+        ],
+        "reads": [
+          "lifecycle.reads"
+        ],
+        "writes": [
+          "lifecycle.writes"
+        ],
+        "predicates": [
+          "lifecycle.predicates"
+        ],
+        "conflicts": [
+          "lifecycle.conflicts"
+        ],
+        "wire": [
+          "lifecycle.wire"
+        ],
+        "receipt": [
+          "lifecycle.receipt"
+        ],
+        "effects": [
+          "lifecycle.effects"
+        ],
+        "instrumentation": [
+          "lifecycle.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 253,
+          "end": 267,
+          "sha256": "e64b57362c77ef3f429078f76a99f542df52cf6e2e8a4e7b2927f3e676d477ae"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11548,
+          "end": 11554,
+          "sha256": "7432cf741933486dcf2096e0c1e0761f0dadfa5073067ef0638fb1827d45cc83"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 3894,
+          "end": 4017,
+          "sha256": "db45c5be3f775efe7605af77e2b00f5ba6f4302705b69efd3573dd2da5014e58"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 9104,
+          "end": 9230,
+          "sha256": "845a5a3d6d94ddc60e33bbcbf10b317d32c4da39fd4de01764239c722d0f2f48"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "lifecycle.retool": {
+      "entry_ids": [
+        "eaec0b8b7860e34dac3c71daa0b8d8dc4ec214a432cd02abc257ca30a75560f4"
+      ],
+      "tools": [
+        "orgtree_retool"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "lifecycle.authority"
+        ],
+        "reads": [
+          "lifecycle.reads"
+        ],
+        "writes": [
+          "lifecycle.writes"
+        ],
+        "predicates": [
+          "lifecycle.predicates"
+        ],
+        "conflicts": [
+          "lifecycle.conflicts"
+        ],
+        "wire": [
+          "lifecycle.wire"
+        ],
+        "receipt": [
+          "lifecycle.receipt"
+        ],
+        "effects": [
+          "lifecycle.effects"
+        ],
+        "instrumentation": [
+          "lifecycle.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1308,
+          "end": 1374,
+          "sha256": "ce18d7192bcff984d7910ccaa67241a49ddd5b2ea2ca833a9d1a183a00577a74"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12451,
+          "end": 12523,
+          "sha256": "ab6ee19640dbb0d20a60e497c610d9e186617e7e82b5672f7290b25e6f67c038"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 7615,
+          "end": 8014,
+          "sha256": "73691be64a65f5209c3ee2b9525ad3d951a189ab1d90700c21bc1a84c6de4d70"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "lifecycle.retire": {
+      "entry_ids": [
+        "d98898e0003826c3f852ffed87244df237b484869add163a5eea424ba7aaa983"
+      ],
+      "tools": [
+        "orgtree_retire"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "lifecycle.authority"
+        ],
+        "reads": [
+          "lifecycle.reads"
+        ],
+        "writes": [
+          "lifecycle.writes"
+        ],
+        "predicates": [
+          "lifecycle.predicates"
+        ],
+        "conflicts": [
+          "lifecycle.conflicts"
+        ],
+        "wire": [
+          "lifecycle.wire"
+        ],
+        "receipt": [
+          "lifecycle.receipt"
+        ],
+        "effects": [
+          "lifecycle.effects"
+        ],
+        "instrumentation": [
+          "lifecycle.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1375,
+          "end": 1388,
+          "sha256": "01f536ed251a0b79c8310a35fe7ee4d0a44aaf9c5508c086054f6ff5baa28c86"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11808,
+          "end": 11818,
+          "sha256": "d0f253870f698775d05dc31506af76943b55d8001e6ab5425f61b715cc5bf303"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12524,
+          "end": 12663,
+          "sha256": "0b4f342223744f3ca34d3bd3294b20818ce66c4bc0be2b4ceb57304c11e2c1b8"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4950,
+          "end": 4997,
+          "sha256": "82aa2a6f33d66b0c051e93f98ec3ad6f65d2c956554e550867ee5574f35f4f76"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "lifecycle.dissolve": {
+      "entry_ids": [
+        "fbf5ae8cd606fe04462dab535bbaf9f2def07c7df9eae6afe9e92ea93bfb691a"
+      ],
+      "tools": [
+        "orgtree_dissolve"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "lifecycle.authority"
+        ],
+        "reads": [
+          "lifecycle.reads"
+        ],
+        "writes": [
+          "lifecycle.writes"
+        ],
+        "predicates": [
+          "lifecycle.predicates"
+        ],
+        "conflicts": [
+          "lifecycle.conflicts"
+        ],
+        "wire": [
+          "lifecycle.wire"
+        ],
+        "receipt": [
+          "lifecycle.receipt"
+        ],
+        "effects": [
+          "lifecycle.effects"
+        ],
+        "instrumentation": [
+          "lifecycle.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1698,
+          "end": 1706,
+          "sha256": "b1a2aa37e24a79cfb0812d7ceacf7d3d7c24a28666e6059754a3f75639ec9eb5"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11808,
+          "end": 11818,
+          "sha256": "d0f253870f698775d05dc31506af76943b55d8001e6ab5425f61b715cc5bf303"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12524,
+          "end": 12663,
+          "sha256": "0b4f342223744f3ca34d3bd3294b20818ce66c4bc0be2b4ceb57304c11e2c1b8"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5617,
+          "end": 5647,
+          "sha256": "66d901ad6e98372ead29068f704bc809843c023ce5e84b4090bd1931a9f63f4c"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "lifecycle.cheap-compact": {
+      "entry_ids": [
+        "4ec3faee98d0659a60c2ccfe2c87639f4ba89921e55302035bc2e237eac0d335"
+      ],
+      "tools": [
+        "orgtree_cheap_compact"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "lifecycle.authority"
+        ],
+        "reads": [
+          "lifecycle.reads"
+        ],
+        "writes": [
+          "lifecycle.writes"
+        ],
+        "predicates": [
+          "lifecycle.predicates"
+        ],
+        "conflicts": [
+          "lifecycle.conflicts"
+        ],
+        "wire": [
+          "lifecycle.wire"
+        ],
+        "receipt": [
+          "lifecycle.receipt"
+        ],
+        "effects": [
+          "lifecycle.effects"
+        ],
+        "instrumentation": [
+          "lifecycle.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1389,
+          "end": 1402,
+          "sha256": "c25651b94e778943606b7101d645c9199b2b592500f840878b44d393f9514ae1"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12524,
+          "end": 12663,
+          "sha256": "0b4f342223744f3ca34d3bd3294b20818ce66c4bc0be2b4ceb57304c11e2c1b8"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5245,
+          "end": 5327,
+          "sha256": "f495153dfc32fcea96009363a901be01860c98277f88544fed8e3277e19662a2"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "lifecycle.rehire": {
+      "entry_ids": [
+        "605eb91eaf166fad5b908387381802248ec547e891e440f6e7a127ad5e6326b1"
+      ],
+      "tools": [
+        "orgtree_rehire"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "lifecycle.authority"
+        ],
+        "reads": [
+          "lifecycle.reads"
+        ],
+        "writes": [
+          "lifecycle.writes"
+        ],
+        "predicates": [
+          "lifecycle.predicates"
+        ],
+        "conflicts": [
+          "lifecycle.conflicts"
+        ],
+        "wire": [
+          "lifecycle.wire"
+        ],
+        "receipt": [
+          "lifecycle.receipt"
+        ],
+        "effects": [
+          "lifecycle.effects"
+        ],
+        "instrumentation": [
+          "lifecycle.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1403,
+          "end": 1499,
+          "sha256": "d467efcb0088044e3fa02320a2ca57b816591611686f51b39fb1418ad71a2c06"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11778,
+          "end": 11796,
+          "sha256": "510ba9d274fefbcbd55d92175ca72e204075176ebf7bb2e8ffa338b79f713eb1"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12524,
+          "end": 12663,
+          "sha256": "0b4f342223744f3ca34d3bd3294b20818ce66c4bc0be2b4ceb57304c11e2c1b8"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5330,
+          "end": 5588,
+          "sha256": "4efcfb5f9298374d0a3a146d96d9b8eb47235e5be894a4d940f2f7d95272af7e"
+        }
+      ],
+      "domain_mode": "conditional_write"
+    },
+    "lifecycle.move": {
+      "entry_ids": [
+        "320889998296e46f1cea8ef8771a128cc0e2bb02531407b98ca8992c61b68c40"
+      ],
+      "tools": [
+        "orgtree_move"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "lifecycle.authority"
+        ],
+        "reads": [
+          "lifecycle.reads"
+        ],
+        "writes": [
+          "lifecycle.writes"
+        ],
+        "predicates": [
+          "lifecycle.predicates"
+        ],
+        "conflicts": [
+          "lifecycle.conflicts"
+        ],
+        "wire": [
+          "lifecycle.wire"
+        ],
+        "receipt": [
+          "lifecycle.receipt"
+        ],
+        "effects": [
+          "lifecycle.effects"
+        ],
+        "instrumentation": [
+          "lifecycle.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1638,
+          "end": 1662,
+          "sha256": "52ce4e3f4b60ef246e34c3558b7ea33bd742ec7299ee8bace23541df942f2351"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12524,
+          "end": 12663,
+          "sha256": "0b4f342223744f3ca34d3bd3294b20818ce66c4bc0be2b4ceb57304c11e2c1b8"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6259,
+          "end": 6282,
+          "sha256": "4c69c5e5d1aa404c0e8ee8c1b5447b64367376eb6ff5a2afb6d90edb2af1eb1b"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6786,
+          "end": 6818,
+          "sha256": "0e0af00c065c18ac766cb74df3ff526f79123ef8070053113133f20de44a12b7"
+        }
+      ],
+      "domain_mode": "conditional_write"
+    },
+    "lifecycle.swap": {
+      "entry_ids": [
+        "1a5347dc29a325901ae43925279ab4b9a53131aa49e7b1ae4214dc451b8ce6dc"
+      ],
+      "tools": [
+        "orgtree_swap"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "lifecycle.authority"
+        ],
+        "reads": [
+          "lifecycle.reads"
+        ],
+        "writes": [
+          "lifecycle.writes"
+        ],
+        "predicates": [
+          "lifecycle.predicates"
+        ],
+        "conflicts": [
+          "lifecycle.conflicts"
+        ],
+        "wire": [
+          "lifecycle.wire"
+        ],
+        "receipt": [
+          "lifecycle.receipt"
+        ],
+        "effects": [
+          "lifecycle.effects"
+        ],
+        "instrumentation": [
+          "lifecycle.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1663,
+          "end": 1677,
+          "sha256": "0e3e315ac26c6a2030d583153ee5e29749d54ad153e5fe58ef6d4e4ae86927d7"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12524,
+          "end": 12663,
+          "sha256": "0b4f342223744f3ca34d3bd3294b20818ce66c4bc0be2b4ceb57304c11e2c1b8"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6531,
+          "end": 6784,
+          "sha256": "13a114f2a764e329a4729ffeec9b873e39eba1b34faa7cb505eb916be75e628d"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "lifecycle.self-subjugate": {
+      "entry_ids": [
+        "740b26e8f8b977900442200ed7298ae8290b6a4217da707482038e62f2326210"
+      ],
+      "tools": [
+        "orgtree_self_subjugate"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "lifecycle.authority"
+        ],
+        "reads": [
+          "lifecycle.reads"
+        ],
+        "writes": [
+          "lifecycle.writes"
+        ],
+        "predicates": [
+          "lifecycle.predicates"
+        ],
+        "conflicts": [
+          "lifecycle.conflicts"
+        ],
+        "wire": [
+          "lifecycle.wire"
+        ],
+        "receipt": [
+          "lifecycle.receipt"
+        ],
+        "effects": [
+          "lifecycle.effects"
+        ],
+        "instrumentation": [
+          "lifecycle.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1678,
+          "end": 1697,
+          "sha256": "80547e28bdf6ffa632d42016c9b5bcc8bf14a564425df88bbecb5593b2dc1934"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12524,
+          "end": 12663,
+          "sha256": "0b4f342223744f3ca34d3bd3294b20818ce66c4bc0be2b4ceb57304c11e2c1b8"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6285,
+          "end": 6306,
+          "sha256": "46e26d1ac91e44b939d9db84b973c5f222ccc1c4b806efcf9bd13ca91355d5a8"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6308,
+          "end": 6470,
+          "sha256": "550daaeb174c03eef04d8c39c685bf1e96b79527ba45b1f1db6d64cceab9fc10"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "lifecycle.switch-model": {
+      "entry_ids": [
+        "7c5751ff07172b9d7e56f3ffaac6195746ddec717d11466763bd80be38f7e9fc"
+      ],
+      "tools": [
+        "orgtree_switch_model"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "lifecycle.authority"
+        ],
+        "reads": [
+          "lifecycle.reads"
+        ],
+        "writes": [
+          "lifecycle.writes"
+        ],
+        "predicates": [
+          "lifecycle.predicates"
+        ],
+        "conflicts": [
+          "lifecycle.conflicts"
+        ],
+        "wire": [
+          "lifecycle.wire"
+        ],
+        "receipt": [
+          "lifecycle.receipt"
+        ],
+        "effects": [
+          "lifecycle.effects"
+        ],
+        "instrumentation": [
+          "lifecycle.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1987,
+          "end": 2012,
+          "sha256": "016519b2fb569fc68bb594db598e2cb7b6af82b5397860acb0c48311b2aa0ba4"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12524,
+          "end": 12663,
+          "sha256": "0b4f342223744f3ca34d3bd3294b20818ce66c4bc0be2b4ceb57304c11e2c1b8"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5800,
+          "end": 6125,
+          "sha256": "c27697c81f4c248ed773edc3a4de5a3e7ed5a0d6c060fe51a8c014601f7d9cee"
+        }
+      ],
+      "domain_mode": "conditional_write"
+    },
+    "catalogue.list-orgs": {
+      "entry_ids": [
+        "d1f730585781c6ee6d63735daf79e9f43d3febdaf2413ad426dead8b8d8dffc4"
+      ],
+      "tools": [
+        "orgtree_list_orgs"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "lifecycle.authority"
+        ],
+        "reads": [
+          "lifecycle.reads"
+        ],
+        "writes": [
+          "lifecycle.writes"
+        ],
+        "predicates": [
+          "lifecycle.predicates"
+        ],
+        "conflicts": [
+          "lifecycle.conflicts"
+        ],
+        "wire": [
+          "lifecycle.wire"
+        ],
+        "receipt": [
+          "lifecycle.receipt"
+        ],
+        "effects": [
+          "lifecycle.effects"
+        ],
+        "instrumentation": [
+          "lifecycle.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1619,
+          "end": 1628,
+          "sha256": "698c3a1388480c795e72196e698be12f64abc7b17739e10c38bd9c23518ea2cd"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12524,
+          "end": 12663,
+          "sha256": "0b4f342223744f3ca34d3bd3294b20818ce66c4bc0be2b4ceb57304c11e2c1b8"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "catalogue.list-tiers": {
+      "entry_ids": [
+        "ed5c1e831a189cf521a4f71cc95df81b819be1d95be2418588c9189becab9eb6"
+      ],
+      "tools": [
+        "orgtree_list_tiers"
+      ],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "lifecycle.authority"
+        ],
+        "reads": [
+          "lifecycle.reads"
+        ],
+        "writes": [
+          "lifecycle.writes"
+        ],
+        "predicates": [
+          "lifecycle.predicates"
+        ],
+        "conflicts": [
+          "lifecycle.conflicts"
+        ],
+        "wire": [
+          "lifecycle.wire"
+        ],
+        "receipt": [
+          "lifecycle.receipt"
+        ],
+        "effects": [
+          "lifecycle.effects"
+        ],
+        "instrumentation": [
+          "lifecycle.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1629,
+          "end": 1637,
+          "sha256": "9d28d97c5fee9e119ba4721b4b07d819df626d2454ccc184a1d5a1ab73e2f758"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11441,
+          "end": 11459,
+          "sha256": "b0e1e1cf90c49a07c1706037253060268a48fc2b154f1dbfb40d5045d7ca351b"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 4614,
+          "end": 4694,
+          "sha256": "f8ab8d574e02e528de9ec9ae6d256a590059ce632ca3601e11d4b54046406b83"
+        }
+      ],
+      "domain_mode": "read"
+    },
+    "lifecycle.account-assign": {
+      "entry_ids": [
+        "615f070dfaa4fabb968d180a2ea1f1d833d5e5832683309e980ef6e5a2c2067a"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "lifecycle.authority"
+        ],
+        "reads": [
+          "lifecycle.reads"
+        ],
+        "writes": [
+          "lifecycle.writes"
+        ],
+        "predicates": [
+          "lifecycle.predicates"
+        ],
+        "conflicts": [
+          "lifecycle.conflicts"
+        ],
+        "wire": [
+          "lifecycle.wire"
+        ],
+        "receipt": [
+          "lifecycle.receipt"
+        ],
+        "effects": [
+          "lifecycle.effects"
+        ],
+        "instrumentation": [
+          "lifecycle.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5419,
+          "end": 5434,
+          "sha256": "af44225dec682ca1c94d50d046ff41ea40e967f545887883523c67ca0423774c"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 15312,
+          "end": 15624,
+          "sha256": "f318b97f9639fb06f8b3756a3ad37a9f1a490ed4c0c7796b5d2647980af209d8"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "lifecycle.reorder": {
+      "entry_ids": [
+        "8889d8bdb5fb57f5c7701994ab3eba3ab7b87f71a5ce47bce7277d4891dbdde3"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "lifecycle.authority"
+        ],
+        "reads": [
+          "lifecycle.reads"
+        ],
+        "writes": [
+          "lifecycle.writes"
+        ],
+        "predicates": [
+          "lifecycle.predicates"
+        ],
+        "conflicts": [
+          "lifecycle.conflicts"
+        ],
+        "wire": [
+          "lifecycle.wire"
+        ],
+        "receipt": [
+          "lifecycle.receipt"
+        ],
+        "effects": [
+          "lifecycle.effects"
+        ],
+        "instrumentation": [
+          "lifecycle.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5437,
+          "end": 5447,
+          "sha256": "522d7a0fa815c1ef6d43bb6fb091b22cc6e096262c66634d3351b52640236644"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 8016,
+          "end": 8036,
+          "sha256": "b4c3a309c64637d572d32efd0d5d6867b52ec6d15ec093028c925648a512de92"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "lifecycle.compact": {
+      "entry_ids": [
+        "d607b55b58da547e339a0d6332bbcc91dbbb4d2c1e2d2de9f5e2e0d536a15aee"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "lifecycle.authority"
+        ],
+        "reads": [
+          "lifecycle.reads"
+        ],
+        "writes": [
+          "lifecycle.writes"
+        ],
+        "predicates": [
+          "lifecycle.predicates"
+        ],
+        "conflicts": [
+          "lifecycle.conflicts"
+        ],
+        "wire": [
+          "lifecycle.wire"
+        ],
+        "receipt": [
+          "lifecycle.receipt"
+        ],
+        "effects": [
+          "lifecycle.effects"
+        ],
+        "instrumentation": [
+          "lifecycle.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5964,
+          "end": 6012,
+          "sha256": "4c1793d33649a5b0658e249b3d5ec17c8c0eb6f3302908f517b84c5307b5c544"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 26191,
+          "end": 26253,
+          "sha256": "06ddc9a6ad33af8359b296f26034244aa36fc61a879658ae10aab59ea8f845d6"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "lifecycle.dissolve-all": {
+      "entry_ids": [
+        "d09889ed5cb0148e31473dbf08dd8cefec7761e8035d608de4baad6354174740"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "lifecycle.authority"
+        ],
+        "reads": [
+          "lifecycle.reads"
+        ],
+        "writes": [
+          "lifecycle.writes"
+        ],
+        "predicates": [
+          "lifecycle.predicates"
+        ],
+        "conflicts": [
+          "lifecycle.conflicts"
+        ],
+        "wire": [
+          "lifecycle.wire"
+        ],
+        "receipt": [
+          "lifecycle.receipt"
+        ],
+        "effects": [
+          "lifecycle.effects"
+        ],
+        "instrumentation": [
+          "lifecycle.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6063,
+          "end": 6078,
+          "sha256": "c39ab1540acda9c5c739fb1f561c2136c49a3de0052266c933717de481135da5"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5617,
+          "end": 5647,
+          "sha256": "66d901ad6e98372ead29068f704bc809843c023ce5e84b4090bd1931a9f63f4c"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "lifecycle.lineage-recover": {
+      "entry_ids": [
+        "647ec28967a9fc2a8fbddcc7673d860cacd9c3c1a5e4dde1ec153b632ba75241"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "lifecycle.authority"
+        ],
+        "reads": [
+          "lifecycle.reads"
+        ],
+        "writes": [
+          "lifecycle.writes"
+        ],
+        "predicates": [
+          "lifecycle.predicates"
+        ],
+        "conflicts": [
+          "lifecycle.conflicts"
+        ],
+        "wire": [
+          "lifecycle.wire"
+        ],
+        "receipt": [
+          "lifecycle.receipt"
+        ],
+        "effects": [
+          "lifecycle.effects"
+        ],
+        "instrumentation": [
+          "lifecycle.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6015,
+          "end": 6036,
+          "sha256": "d5b33f71a66f15fc0f1855c45b7ea60e81b61bd6051905b02a1c31752ce3c409"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 25591,
+          "end": 25754,
+          "sha256": "376c0dbcb8ac1b3ffe33a0bb8373ffd26cf4d49d55fef810354fa155793471cb"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "lifecycle.lineage-drop-phantom": {
+      "entry_ids": [
+        "f1c1cce528ae9436195af65f5fd47009c82dd7eed8a31fa75363435aedffa1e0"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "lifecycle.authority"
+        ],
+        "reads": [
+          "lifecycle.reads"
+        ],
+        "writes": [
+          "lifecycle.writes"
+        ],
+        "predicates": [
+          "lifecycle.predicates"
+        ],
+        "conflicts": [
+          "lifecycle.conflicts"
+        ],
+        "wire": [
+          "lifecycle.wire"
+        ],
+        "receipt": [
+          "lifecycle.receipt"
+        ],
+        "effects": [
+          "lifecycle.effects"
+        ],
+        "instrumentation": [
+          "lifecycle.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6039,
+          "end": 6060,
+          "sha256": "ce4c3647dca3c38f54c3e594ce9012681dbeae62c7732025252813d16ce360a2"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 25575,
+          "end": 25588,
+          "sha256": "4237b51c91e9a8a2153269571a53069ae153029c675a749093f5c7a548f2f918"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "lifecycle.repair-rename": {
+      "entry_ids": [
+        "3f67964871526a5722dad7d16d1ec2978b4fb4cb9d02327cb4203b1cc784d590"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "always": true
+      },
+      "dimensions": {
+        "authority": [
+          "lifecycle.authority"
+        ],
+        "reads": [
+          "lifecycle.reads"
+        ],
+        "writes": [
+          "lifecycle.writes"
+        ],
+        "predicates": [
+          "lifecycle.predicates"
+        ],
+        "conflicts": [
+          "lifecycle.conflicts"
+        ],
+        "wire": [
+          "lifecycle.wire"
+        ],
+        "receipt": [
+          "lifecycle.receipt"
+        ],
+        "effects": [
+          "lifecycle.effects"
+        ],
+        "instrumentation": [
+          "lifecycle.instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6445,
+          "end": 6483,
+          "sha256": "795e6d7ff6d6cdf8737a5fe5f8068ca6d591c23648b426e56c7a5f064d6c8ad9"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 9395,
+          "end": 9561,
+          "sha256": "034c65bbb36c03d7e667cef747f77c5b0c203d1bf1affde9f14945ad679fbafe"
+        }
+      ],
+      "domain_mode": "write"
     }
   },
   "wire_cases": [
@@ -10954,6 +12640,173 @@
       },
       "contract": "receipt.lookup",
       "domain_mode": "conditional_write"
+    },
+    {
+      "name": "orgtree_rename:lifecycle.rename",
+      "entry_id": "dad8cca65df6d60e98f9c239e4e271a7eeb740a651830688a016157bd66ab169",
+      "args": {
+        "node": "leaf",
+        "name": "leafy"
+      },
+      "contract": "lifecycle.rename",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_retool:lifecycle.retool",
+      "entry_id": "eaec0b8b7860e34dac3c71daa0b8d8dc4ec214a432cd02abc257ca30a75560f4",
+      "args": {
+        "node": "leaf",
+        "charter": "c"
+      },
+      "contract": "lifecycle.retool",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_retire:lifecycle.retire",
+      "entry_id": "d98898e0003826c3f852ffed87244df237b484869add163a5eea424ba7aaa983",
+      "args": {
+        "node": "leaf"
+      },
+      "contract": "lifecycle.retire",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_dissolve:lifecycle.dissolve",
+      "entry_id": "fbf5ae8cd606fe04462dab535bbaf9f2def07c7df9eae6afe9e92ea93bfb691a",
+      "args": {
+        "node": "mid"
+      },
+      "contract": "lifecycle.dissolve",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_cheap_compact:lifecycle.cheap-compact",
+      "entry_id": "4ec3faee98d0659a60c2ccfe2c87639f4ba89921e55302035bc2e237eac0d335",
+      "args": {
+        "node": "mid"
+      },
+      "contract": "lifecycle.cheap-compact",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_rehire:lifecycle.rehire",
+      "entry_id": "605eb91eaf166fad5b908387381802248ec547e891e440f6e7a127ad5e6326b1",
+      "args": {
+        "node": "leaf"
+      },
+      "contract": "lifecycle.rehire",
+      "domain_mode": "conditional_write"
+    },
+    {
+      "name": "orgtree_move:lifecycle.move",
+      "entry_id": "320889998296e46f1cea8ef8771a128cc0e2bb02531407b98ca8992c61b68c40",
+      "args": {
+        "node": "leaf",
+        "new_parent": "sib"
+      },
+      "contract": "lifecycle.move",
+      "domain_mode": "conditional_write"
+    },
+    {
+      "name": "orgtree_swap:lifecycle.swap",
+      "entry_id": "1a5347dc29a325901ae43925279ab4b9a53131aa49e7b1ae4214dc451b8ce6dc",
+      "args": {
+        "a": "mid",
+        "b": "sib"
+      },
+      "contract": "lifecycle.swap",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_self_subjugate:lifecycle.self-subjugate",
+      "entry_id": "740b26e8f8b977900442200ed7298ae8290b6a4217da707482038e62f2326210",
+      "args": {
+        "target": "leaf"
+      },
+      "contract": "lifecycle.self-subjugate",
+      "domain_mode": "write"
+    },
+    {
+      "name": "orgtree_switch_model:lifecycle.switch-model",
+      "entry_id": "7c5751ff07172b9d7e56f3ffaac6195746ddec717d11466763bd80be38f7e9fc",
+      "args": {
+        "node": "leaf",
+        "tier": "sonnet"
+      },
+      "contract": "lifecycle.switch-model",
+      "domain_mode": "conditional_write"
+    },
+    {
+      "name": "orgtree_list_orgs:catalogue.list-orgs",
+      "entry_id": "d1f730585781c6ee6d63735daf79e9f43d3febdaf2413ad426dead8b8d8dffc4",
+      "args": {},
+      "contract": "catalogue.list-orgs",
+      "domain_mode": "read"
+    },
+    {
+      "name": "orgtree_list_tiers:catalogue.list-tiers",
+      "entry_id": "ed5c1e831a189cf521a4f71cc95df81b819be1d95be2418588c9189becab9eb6",
+      "args": {},
+      "contract": "catalogue.list-tiers",
+      "domain_mode": "read"
+    },
+    {
+      "name": "node_account_assign:lifecycle.account-assign",
+      "entry_id": "615f070dfaa4fabb968d180a2ea1f1d833d5e5832683309e980ef6e5a2c2067a",
+      "args": {
+        "account": "a"
+      },
+      "contract": "lifecycle.account-assign",
+      "domain_mode": "write"
+    },
+    {
+      "name": "node_reorder:lifecycle.reorder",
+      "entry_id": "8889d8bdb5fb57f5c7701994ab3eba3ab7b87f71a5ce47bce7277d4891dbdde3",
+      "args": {
+        "before": "mid"
+      },
+      "contract": "lifecycle.reorder",
+      "domain_mode": "write"
+    },
+    {
+      "name": "node_compact:lifecycle.compact",
+      "entry_id": "d607b55b58da547e339a0d6332bbcc91dbbb4d2c1e2d2de9f5e2e0d536a15aee",
+      "args": {},
+      "contract": "lifecycle.compact",
+      "domain_mode": "write"
+    },
+    {
+      "name": "org_dissolve_all:lifecycle.dissolve-all",
+      "entry_id": "d09889ed5cb0148e31473dbf08dd8cefec7761e8035d608de4baad6354174740",
+      "args": {},
+      "contract": "lifecycle.dissolve-all",
+      "domain_mode": "write"
+    },
+    {
+      "name": "lineage_recover:lifecycle.lineage-recover",
+      "entry_id": "647ec28967a9fc2a8fbddcc7673d860cacd9c3c1a5e4dde1ec153b632ba75241",
+      "args": {},
+      "contract": "lifecycle.lineage-recover",
+      "domain_mode": "write"
+    },
+    {
+      "name": "lineage_drop_phantom:lifecycle.lineage-drop-phantom",
+      "entry_id": "f1c1cce528ae9436195af65f5fd47009c82dd7eed8a31fa75363435aedffa1e0",
+      "args": {},
+      "contract": "lifecycle.lineage-drop-phantom",
+      "domain_mode": "write"
+    },
+    {
+      "name": "repair_rename:lifecycle.repair-rename",
+      "entry_id": "3f67964871526a5722dad7d16d1ec2978b4fb4cb9d02327cb4203b1cc784d590",
+      "args": {
+        "rename_at": "t",
+        "documents": [
+          "d"
+        ]
+      },
+      "contract": "lifecycle.repair-rename",
+      "domain_mode": "write"
     }
   ],
   "limits": [
@@ -11563,17 +13416,35 @@
     },
     {
       "id": "615f070dfaa4fabb968d180a2ea1f1d833d5e5832683309e980ef6e5a2c2067a",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.account-assign"
+      ],
+      "reason": "POST /api/orgs/{slug}/nodes/{nid}/account: lifecycle.account-assign (P01 F1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5419,
+          "end": 5419,
+          "sha256": "7c946d02446851d2fbecadb6aae9e800fcc5c6955c4b9f0a0c33486712189b5a"
+        }
+      ]
     },
     {
       "id": "8889d8bdb5fb57f5c7701994ab3eba3ab7b87f71a5ce47bce7277d4891dbdde3",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.reorder"
+      ],
+      "reason": "POST /api/orgs/{slug}/nodes/{nid}/reorder: lifecycle.reorder (P01 F1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5437,
+          "end": 5437,
+          "sha256": "e6c8c6af1df35a9b8ce2e889c4bc2472809bdb3eb227d8e77e7efc55ff01cb0a"
+        }
+      ]
     },
     {
       "id": "fd7b053b6db5e7715796fc2b3aeb4a7ffbd925c6747c4537e731831371738346",
@@ -11649,10 +13520,19 @@
     },
     {
       "id": "d607b55b58da547e339a0d6332bbcc91dbbb4d2c1e2d2de9f5e2e0d536a15aee",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.compact"
+      ],
+      "reason": "POST /api/orgs/{slug}/nodes/{nid}/compact: lifecycle.compact (P01 F1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 5964,
+          "end": 5964,
+          "sha256": "1a518d8d1fc29b000b5918b460820616f72584a609cdc77fb9693c54f9330829"
+        }
+      ]
     },
     {
       "id": "b19c0db2415893d7c0a8c92c6749974a82060bf89becc8e9a7a51c54fcbab785",
@@ -11663,24 +13543,51 @@
     },
     {
       "id": "647ec28967a9fc2a8fbddcc7673d860cacd9c3c1a5e4dde1ec153b632ba75241",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.lineage-recover"
+      ],
+      "reason": "POST /api/orgs/{slug}/lineage/{nid}/recover: lifecycle.lineage-recover (P01 F1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6015,
+          "end": 6015,
+          "sha256": "c1dee06601e6b487829e6ba46383e842ad7c40192ac5c08a26235af093e796c2"
+        }
+      ]
     },
     {
       "id": "f1c1cce528ae9436195af65f5fd47009c82dd7eed8a31fa75363435aedffa1e0",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.lineage-drop-phantom"
+      ],
+      "reason": "POST /api/orgs/{slug}/lineage/{nid}/drop-phantom: lifecycle.lineage-drop-phantom (P01 F1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6039,
+          "end": 6039,
+          "sha256": "0f2ced3d03d3824f2ff5e9d179e06b78e4da8e4b659daef25c27b1bb053c9783"
+        }
+      ]
     },
     {
       "id": "d09889ed5cb0148e31473dbf08dd8cefec7761e8035d608de4baad6354174740",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.dissolve-all"
+      ],
+      "reason": "POST /api/orgs/{slug}/dissolve-all: lifecycle.dissolve-all (P01 F1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6063,
+          "end": 6063,
+          "sha256": "441c1af9bc14ff09e97029ccb68888b8f76ace90bb20e4953305b3925207d4ba"
+        }
+      ]
     },
     {
       "id": "19069da4d0f84c432611edd3f3aaa2f89324a574281219f8c949d234e0c12cc9",
@@ -11763,10 +13670,19 @@
     },
     {
       "id": "3f67964871526a5722dad7d16d1ec2978b4fb4cb9d02327cb4203b1cc784d590",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.repair-rename"
+      ],
+      "reason": "POST /api/orgs/{slug}/repair-rename: lifecycle.repair-rename (P01 F1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 6445,
+          "end": 6445,
+          "sha256": "b8766640540142f6b1b025e8acc7140a4c9b155d7e8389acdde03a037c21d309"
+        }
+      ]
     },
     {
       "id": "113d4e27212249d3275e61fe36fce79aae25d30cbd72062779640fb244b6e9a0",
@@ -12765,10 +14681,19 @@
     },
     {
       "id": "dad8cca65df6d60e98f9c239e4e271a7eeb740a651830688a016157bd66ab169",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.rename"
+      ],
+      "reason": "orgtree_rename tool card: lifecycle.rename (P01 F1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 253,
+          "end": 267,
+          "sha256": "e64b57362c77ef3f429078f76a99f542df52cf6e2e8a4e7b2927f3e676d477ae"
+        }
+      ]
     },
     {
       "id": "64d79e5cda0a4eefa30caea3eca0f47d302299b822c7eaedcca46cccf80ccb61",
@@ -12938,31 +14863,67 @@
     },
     {
       "id": "eaec0b8b7860e34dac3c71daa0b8d8dc4ec214a432cd02abc257ca30a75560f4",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.retool"
+      ],
+      "reason": "orgtree_retool tool card: lifecycle.retool (P01 F1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1308,
+          "end": 1374,
+          "sha256": "ce18d7192bcff984d7910ccaa67241a49ddd5b2ea2ca833a9d1a183a00577a74"
+        }
+      ]
     },
     {
       "id": "d98898e0003826c3f852ffed87244df237b484869add163a5eea424ba7aaa983",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.retire"
+      ],
+      "reason": "orgtree_retire tool card: lifecycle.retire (P01 F1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1375,
+          "end": 1388,
+          "sha256": "01f536ed251a0b79c8310a35fe7ee4d0a44aaf9c5508c086054f6ff5baa28c86"
+        }
+      ]
     },
     {
       "id": "4ec3faee98d0659a60c2ccfe2c87639f4ba89921e55302035bc2e237eac0d335",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.cheap-compact"
+      ],
+      "reason": "orgtree_cheap_compact tool card: lifecycle.cheap-compact (P01 F1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1389,
+          "end": 1402,
+          "sha256": "c25651b94e778943606b7101d645c9199b2b592500f840878b44d393f9514ae1"
+        }
+      ]
     },
     {
       "id": "605eb91eaf166fad5b908387381802248ec547e891e440f6e7a127ad5e6326b1",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.rehire"
+      ],
+      "reason": "orgtree_rehire tool card: lifecycle.rehire (P01 F1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1403,
+          "end": 1499,
+          "sha256": "d467efcb0088044e3fa02320a2ca57b816591611686f51b39fb1418ad71a2c06"
+        }
+      ]
     },
     {
       "id": "b77b25e891a35aac05166f56195b7a125fc7cb1017e50709c00ffd4dafd8d69c",
@@ -12983,45 +14944,99 @@
     },
     {
       "id": "d1f730585781c6ee6d63735daf79e9f43d3febdaf2413ad426dead8b8d8dffc4",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "catalogue.list-orgs"
+      ],
+      "reason": "orgtree_list_orgs tool card: catalogue.list-orgs (P01 F1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1619,
+          "end": 1628,
+          "sha256": "698c3a1388480c795e72196e698be12f64abc7b17739e10c38bd9c23518ea2cd"
+        }
+      ]
     },
     {
       "id": "ed5c1e831a189cf521a4f71cc95df81b819be1d95be2418588c9189becab9eb6",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "catalogue.list-tiers"
+      ],
+      "reason": "orgtree_list_tiers tool card: catalogue.list-tiers (P01 F1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1629,
+          "end": 1637,
+          "sha256": "9d28d97c5fee9e119ba4721b4b07d819df626d2454ccc184a1d5a1ab73e2f758"
+        }
+      ]
     },
     {
       "id": "320889998296e46f1cea8ef8771a128cc0e2bb02531407b98ca8992c61b68c40",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.move"
+      ],
+      "reason": "orgtree_move tool card: lifecycle.move (P01 F1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1638,
+          "end": 1662,
+          "sha256": "52ce4e3f4b60ef246e34c3558b7ea33bd742ec7299ee8bace23541df942f2351"
+        }
+      ]
     },
     {
       "id": "1a5347dc29a325901ae43925279ab4b9a53131aa49e7b1ae4214dc451b8ce6dc",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.swap"
+      ],
+      "reason": "orgtree_swap tool card: lifecycle.swap (P01 F1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1663,
+          "end": 1677,
+          "sha256": "0e3e315ac26c6a2030d583153ee5e29749d54ad153e5fe58ef6d4e4ae86927d7"
+        }
+      ]
     },
     {
       "id": "740b26e8f8b977900442200ed7298ae8290b6a4217da707482038e62f2326210",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.self-subjugate"
+      ],
+      "reason": "orgtree_self_subjugate tool card: lifecycle.self-subjugate (P01 F1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1678,
+          "end": 1697,
+          "sha256": "80547e28bdf6ffa632d42016c9b5bcc8bf14a564425df88bbecb5593b2dc1934"
+        }
+      ]
     },
     {
       "id": "fbf5ae8cd606fe04462dab535bbaf9f2def07c7df9eae6afe9e92ea93bfb691a",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.dissolve"
+      ],
+      "reason": "orgtree_dissolve tool card: lifecycle.dissolve (P01 F1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1698,
+          "end": 1706,
+          "sha256": "b1a2aa37e24a79cfb0812d7ceacf7d3d7c24a28666e6059754a3f75639ec9eb5"
+        }
+      ]
     },
     {
       "id": "d9dec10cb800b80b1cadadf48eba427bae9036dab086278d5715e4bd599910ba",
@@ -13249,10 +15264,19 @@
     },
     {
       "id": "7c5751ff07172b9d7e56f3ffaac6195746ddec717d11466763bd80be38f7e9fc",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Requires explicit source review, per-entry contracts and transitive contact closure.",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.switch-model"
+      ],
+      "reason": "orgtree_switch_model tool card: lifecycle.switch-model (P01 F1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/mcptool.py",
+          "start": 1987,
+          "end": 2012,
+          "sha256": "016519b2fb569fc68bb594db598e2cb7b6af82b5397860acb0c48311b2aa0ba4"
+        }
+      ]
     },
     {
       "id": "56a9e6d31826a496c0e0482833fedf11aa27e7d90dd08ca603bd40d819b47655",
@@ -14185,10 +16209,21 @@
     },
     {
       "id": "225cd500a3ad4324c5222fd51ef5d08525004ad94c6871a23a8351955430cf25",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W6): _op_post_expected records in a keyed call's receipt that orgtree_retire, orgtree_dissolve and orgtree_cheap_compact will attempt a remote reap after the save; those tools have no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.cheap-compact",
+        "lifecycle.dissolve",
+        "lifecycle.retire"
+      ],
+      "reason": "_op_post_expected's remote-reap note for orgtree_retire, orgtree_dissolve and orgtree_cheap_compact, all three contracted (P01 F1, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 10824,
+          "end": 10824,
+          "sha256": "f7adbc80b8e9cd949c488e3c7a70e287efbf9b7db4899e3dafde24791e7d80ac"
+        }
+      ]
     },
     {
       "id": "6f92baec27e561d9e9498a8ad7bdf46f6eff521b5e58588bc240a3f99fc4fc91",
@@ -14284,15 +16319,24 @@
       "id": "c477bfda5f7697e4b93a2d52c3d9ed7287174c785c3ea0f9ecc834e0b21603dc",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Shared read-shaped block: material.transcript, material.scratch and chart.read are contracted; orgtree_send_file and orgtree_list_tiers are uncontracted (outside the 51-row P03 surface), so the shared branch stays pending. Owner: channels and mail (P07) for orgtree_send_file, with P01 for orgtree_list_tiers once the catalogue reads join the contracted surface.",
+      "reason": "Shared read-shaped block: material.transcript, material.scratch and chart.read are contracted, and catalogue.list-tiers since P01 F1; orgtree_send_file is uncontracted (outside the 51-row P03 surface), so the shared branch stays pending. Owner: channels and mail (P07) for orgtree_send_file.",
       "source_refs": []
     },
     {
       "id": "d5c7084188e88cf0324c691f4aaf8d7afb1f7d3ff569301cb950d611965fb327",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_list_tiers (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the catalogue reads join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "catalogue.list-tiers"
+      ],
+      "reason": "Exact orgtree_list_tiers branch in the agent door (P01 F1, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11452,
+          "end": 11452,
+          "sha256": "afd5a94cb3595706b5b6df69f9da4b09237e7e5101b783066dd95a25043030b6"
+        }
+      ]
     },
     {
       "id": "0d98f01dcdbfd7decbc59b6dcebc7e43483fdf92f1b5e156e24217df5c265dc9",
@@ -14342,10 +16386,19 @@
     },
     {
       "id": "5a64d06c2be2a9c430a60111cbcf5bf99646c2a2c0493b40631997a3ead18a9a",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_rename (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the org lifecycle tools join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.rename"
+      ],
+      "reason": "Exact orgtree_rename branch in the agent door (P01 F1, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11548,
+          "end": 11548,
+          "sha256": "49db127e3aecc76b441419a5f95f4db253ed9695c45aa2f1b0957d969b66c451"
+        }
+      ]
     },
     {
       "id": "f476037f0c3b7c786de2095b7caad4bf576a05e3a24a8b872b6a3a80f6a1ed4e",
@@ -14370,10 +16423,19 @@
     },
     {
       "id": "d1b6558d0f42f587be004b7684930d1a8c8313173b2d36a7c3b8d7e84baa568d",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_rehire (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the org lifecycle tools join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.rehire"
+      ],
+      "reason": "Exact orgtree_rehire branch in the agent door (P01 F1, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11779,
+          "end": 11779,
+          "sha256": "63e35e4a90728a5f6ddf3ab45ac3c06c9ad9e3852d513c9987c639c67c74ed33"
+        }
+      ]
     },
     {
       "id": "9518992b70440acede921d8437b1407cf654dca5e903fbc8e2b2b5d3abd0ee65",
@@ -14394,17 +16456,36 @@
     },
     {
       "id": "c37496b1268f1bd9f0e9fd1b410c9c1f62ae2d2d7d76fbfb8e14e5b3a17da8a5",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_retire and orgtree_dissolve (agent_call, a shared branch for these tools); these tools have no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the org lifecycle tools join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.dissolve",
+        "lifecycle.retire"
+      ],
+      "reason": "Shared agent-door branch for orgtree_retire and orgtree_dissolve; every tool it admits is contracted (P01 F1, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11808,
+          "end": 11808,
+          "sha256": "b6cbb53c183721c50e94c7a88cb45e41eaefc6677422294819f99b905c0dcdd8"
+        }
+      ]
     },
     {
       "id": "3e10672008b8f43a28dab9a14c15399265d29b3692b05e6a7816259822f5a1ca",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_retire (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the org lifecycle tools join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.retire"
+      ],
+      "reason": "Exact orgtree_retire branch in the agent door (P01 F1, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 11814,
+          "end": 11814,
+          "sha256": "f94909eb8760e2aceeb833edf250c5cffd4530ac3676f9b9b0a0efdb7da32538"
+        }
+      ]
     },
     {
       "id": "0bcf6e96525556c1e6dedca709719176058448f11d261828dc9237a2d4478562",
@@ -14691,31 +16772,67 @@
     },
     {
       "id": "b6594ff1d5dccebdbd80e33d8d45b1d5bdc8b7eb2f56f1621daeec060314344d",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_retool (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the org lifecycle tools join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.retool"
+      ],
+      "reason": "Exact orgtree_retool branch in the agent door (P01 F1, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12451,
+          "end": 12451,
+          "sha256": "2fec0c632812220a8d49d5f90793749824e80609258e17ea8e3bdcb3c286da58"
+        }
+      ]
     },
     {
       "id": "7f063efa365761bb48024f68f79c6c3428a86c5125e7a393cf34b774cdd40e4d",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_retire (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the org lifecycle tools join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.retire"
+      ],
+      "reason": "Exact orgtree_retire branch in the agent door (P01 F1, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12524,
+          "end": 12524,
+          "sha256": "2cf6cd969de239cf0d4709814815458c6a4d66268afa2076ddbaa13c78af908c"
+        }
+      ]
     },
     {
       "id": "92c865a2f9734f758fc334eed64e7f771453ab1d4945d98cb30e710ec83b987b",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_cheap_compact (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the org lifecycle tools join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.cheap-compact"
+      ],
+      "reason": "Exact orgtree_cheap_compact branch in the agent door (P01 F1, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12528,
+          "end": 12528,
+          "sha256": "78285638a5cf7ac34951193d528b7397c88e65c3ddf5ba8d5009a2d2b2fd861e"
+        }
+      ]
     },
     {
       "id": "c18d45ff655681388fdcce74612292e0e8dd2c5425cd2df16e1be6ea7e0c3d18",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_rehire (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the org lifecycle tools join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.rehire"
+      ],
+      "reason": "Exact orgtree_rehire branch in the agent door (P01 F1, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12536,
+          "end": 12536,
+          "sha256": "8fe07f3930f9d9c57f613d315aa9df8f9d7d9d8701d6b1cd6c3de49e894f2b47"
+        }
+      ]
     },
     {
       "id": "097c8ea95c8d62a8d05a385379ada1f008c02dc19d5a553198fabe910b6389ca",
@@ -14736,38 +16853,83 @@
     },
     {
       "id": "3d8d2c7e5a4cb07ac6bb1ead402fad6a8d3e703bb43355caf3493adec32d7d80",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_move (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the org lifecycle tools join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.move"
+      ],
+      "reason": "Exact orgtree_move branch in the agent door (P01 F1, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12544,
+          "end": 12544,
+          "sha256": "f5ce40804ee8b400227cf4f34b4af06fd8f347de149da1494ba7a3e92c9b0bae"
+        }
+      ]
     },
     {
       "id": "fad8b1859385498a83fb7c275cbd94e6a1150d4a188e732335fb97c1f9b60f0e",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_swap (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the org lifecycle tools join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.swap"
+      ],
+      "reason": "Exact orgtree_swap branch in the agent door (P01 F1, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12582,
+          "end": 12582,
+          "sha256": "092ac4a32b56b0817e058a9d50ec538cfea5dbadb2b981c6725ed12ed0d68bf8"
+        }
+      ]
     },
     {
       "id": "cce18177d6274405c9210886d7d6e17f4550256898aac21b3e275a1b401a3449",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_self_subjugate (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the org lifecycle tools join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.self-subjugate"
+      ],
+      "reason": "Exact orgtree_self_subjugate branch in the agent door (P01 F1, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12585,
+          "end": 12585,
+          "sha256": "ac70241bba22568842c6643305830382055acb07a6184a7ab1a09c50e9d1066c"
+        }
+      ]
     },
     {
       "id": "380cf712778106a6f2aa34a97da1ab3e8b6ec91445c711053b91361b8fd31eb4",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_list_orgs (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the catalogue reads join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "catalogue.list-orgs"
+      ],
+      "reason": "Exact orgtree_list_orgs branch in the agent door (P01 F1, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12588,
+          "end": 12588,
+          "sha256": "f2ffd368aafa1db4793353889a7758ed3cf9af7446fbcc127619174ecbfaa2dc"
+        }
+      ]
     },
     {
       "id": "2578ad2cf6c173ed1bb834859c561150742eb2d8630eec9e54102895faac3d32",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_dissolve (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the org lifecycle tools join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.dissolve"
+      ],
+      "reason": "Exact orgtree_dissolve branch in the agent door (P01 F1, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12613,
+          "end": 12613,
+          "sha256": "26868f88877ab0d9eb9c02423e335cf124ace723cb24b3d9d1c1af4dd8a20b81"
+        }
+      ]
     },
     {
       "id": "f799f0ddf2995a7449107cf928518e46788c5f65c1956a53bb11602dba8eede7",
@@ -14787,10 +16949,19 @@
     },
     {
       "id": "5e7aa359995706871993600d83408f923a15b360714fa37165e0ee4fee249ee5",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_switch_model (agent_call, an exact tool match); that tool has no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.switch-model"
+      ],
+      "reason": "Exact orgtree_switch_model branch in the agent door (P01 F1, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12619,
+          "end": 12619,
+          "sha256": "77c2298f4a7bd22dc794e956d3ec5a202e6d37be821011483dbf1f78cb9f5c55"
+        }
+      ]
     },
     {
       "id": "52eeebdeebab683ab10461570816239eee463a0a5e48b98454bc4bfd5bf7a007",
@@ -14866,10 +17037,22 @@
     },
     {
       "id": "5023cdbfc8eaa13c41065cb2cd8e15cb1ed382b59891d0c5726440f8bfec14e6",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W4): the /api/agent door's branch for orgtree_retire, orgtree_dissolve, orgtree_rename and orgtree_cheap_compact (agent_call, a shared branch for these tools); these tools have no contract, and the agent door stays pending by precedent (S3 decision 1). Owner: P01, once the org lifecycle tools join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.cheap-compact",
+        "lifecycle.dissolve",
+        "lifecycle.rename",
+        "lifecycle.retire"
+      ],
+      "reason": "Shared agent-door branch for orgtree_retire, orgtree_dissolve, orgtree_rename and orgtree_cheap_compact; every tool it admits is contracted (P01 F1, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 12877,
+          "end": 12878,
+          "sha256": "2fd152c6d796e51da36eb6badf1da43681fe65922bfde7fbebfd2a8250c05d7d"
+        }
+      ]
     },
     {
       "id": "a3b59ae683f581e5498d4ad7bdae004fd0aa18e50fbdc8d61d4262eb01863fae",
@@ -15400,10 +17583,19 @@
     },
     {
       "id": "0e067aac866fa734e990a896947545dd030837fad7389b9358c1d49bb4781b83",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W6): opreceipts.coverage's orgtree_rehire branch classifies a rehire's receipt (PRE when it renames, TX_POST otherwise), which a keyed call writes into the org's receipt log; orgtree_rehire has no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.rehire"
+      ],
+      "reason": "opreceipts.coverage's orgtree_rehire branch (PRE with a name, TX_POST without), reached only by the contracted rehire (P01 F1, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 258,
+          "end": 258,
+          "sha256": "f4be2287b3a3b3b8e5e421e294b34a19bdf877916c0967bcc17535f16ca7cb19"
+        }
+      ]
     },
     {
       "id": "61f97ed29330fd84842ee5f49cbe7e55cc8c3697beceba87333bb7375efaf9fa",
@@ -15439,10 +17631,23 @@
     },
     {
       "id": "e82170eca24774bc6890d3f0e5c3cec9da4280cc548c4cece0065f2d22a33104",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "opreceipts.result_slice's account_binding branch, shared by orgtree_hire, orgtree_rehire, orgtree_retool and orgtree_staff: hire and staff are contracted (staffing.*), rehire and retool are not (outside the accepted surface; coordinator ruling on S3 candidate 6), so the shared branch stays pending. Owner: P01, once the org lifecycle tools join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "lifecycle.rehire",
+        "lifecycle.retool",
+        "staffing.hire",
+        "staffing.staff-create",
+        "staffing.staff-update"
+      ],
+      "reason": "opreceipts.result_slice's account_binding branch, shared by orgtree_hire, orgtree_staff, orgtree_rehire and orgtree_retool, now all contracted (P01 F1, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/opreceipts.py",
+          "start": 419,
+          "end": 419,
+          "sha256": "4d527d8af6246898e5041a7eb2c1d1f06b71133fb6bcab1fb2d066953d3f59ce"
+        }
+      ]
     },
     {
       "id": "e3acd1a95b0e469e20d6f3641d107e0f5da615b1d663d954161a0fab5060b72b",
@@ -16168,7 +18373,7 @@
       "id": "7e2342632e71afe6c4baa5118942e015b1eeb6d2d9db8a878c8c3dc513ed903b",
       "disposition": "pending",
       "contracts": [],
-      "reason": "Stays pending (P01 S2k): the tool_waits sidecar (the journal of every managed-wait agent tool, mcptool.MANAGED_WAIT_TOOLS). P02's per-operation probe observes it under the three staffing contracts (orgtree_hire and orgtree_staff), but a shared site is mapped only once every operation reaching it has a contract (the rule for shared selectors, S3 decision 3), and the uncontracted managed-wait tools (orgtree_rehire, orgtree_retire, orgtree_dissolve, orgtree_cheap_compact, orgtree_watchdog, orgtree_continue_on) and the backend-start recovery (toolwait.start) reach it. Owner: P01, once the org lifecycle tools join the contracted surface, with the runtime (P08) for the backend-start recovery (toolwait.start).",
+      "reason": "Stays pending (P01 S2k): the tool_waits sidecar (the journal of every managed-wait agent tool, mcptool.MANAGED_WAIT_TOOLS). P02's per-operation probe observes it under the three staffing contracts (orgtree_hire and orgtree_staff), but a shared site is mapped only once every operation reaching it has a contract (the rule for shared selectors, S3 decision 3), and the uncontracted managed-wait tools (orgtree_watchdog, orgtree_continue_on) and the backend-start recovery (toolwait.start) reach it; orgtree_rehire, orgtree_retire, orgtree_dissolve and orgtree_cheap_compact were contracted in P01 F1. Owner: watchdogs (orgtree_watchdog), with the runtime (P08) for orgtree_continue_on and toolwait.start.",
       "source_refs": []
     },
     {

@@ -1,0 +1,438 @@
+{
+  "schema": "orgtree.lifecycle-boundary/v1",
+  "source_contract_sha256": "ffde78eb3dfcd8942831f0d84bd66444dbb89bafb08f86fceb73f60765d3f4fb",
+  "qualification": {
+    "runtime_census": false,
+    "conversion_authorized": false
+  },
+  "contracts": {
+    "catalogue.list-orgs": "orgtree_list_orgs",
+    "catalogue.list-tiers": "orgtree_list_tiers",
+    "lifecycle.account-assign": "POST /api/orgs/{slug}/nodes/{nid}/account",
+    "lifecycle.cheap-compact": "orgtree_cheap_compact",
+    "lifecycle.compact": "POST /api/orgs/{slug}/nodes/{nid}/compact",
+    "lifecycle.dissolve": "orgtree_dissolve",
+    "lifecycle.dissolve-all": "POST /api/orgs/{slug}/dissolve-all",
+    "lifecycle.lineage-drop-phantom": "POST /api/orgs/{slug}/lineage/{nid}/drop-phantom",
+    "lifecycle.lineage-recover": "POST /api/orgs/{slug}/lineage/{nid}/recover",
+    "lifecycle.move": "orgtree_move",
+    "lifecycle.rehire": "orgtree_rehire",
+    "lifecycle.rename": "orgtree_rename",
+    "lifecycle.reorder": "POST /api/orgs/{slug}/nodes/{nid}/reorder",
+    "lifecycle.repair-rename": "POST /api/orgs/{slug}/repair-rename",
+    "lifecycle.retire": "orgtree_retire",
+    "lifecycle.retool": "orgtree_retool",
+    "lifecycle.self-subjugate": "orgtree_self_subjugate",
+    "lifecycle.swap": "orgtree_swap",
+    "lifecycle.switch-model": "orgtree_switch_model"
+  },
+  "results": {
+    "rename_ok": [
+      "node",
+      "renamed",
+      "warnings",
+      "was"
+    ],
+    "retool_ok": [
+      "scope",
+      "warnings"
+    ],
+    "retire_leaf": [
+      "freed",
+      "warnings"
+    ],
+    "retire_with_kids": [
+      "freed",
+      "nodes",
+      "warnings"
+    ],
+    "dissolve_mid": [
+      "freed",
+      "nodes",
+      "warnings"
+    ],
+    "cheap_compact_ok": [
+      "bearer",
+      "node",
+      "old_session",
+      "warnings"
+    ],
+    "rehire_ok": [
+      "cost",
+      "next_step",
+      "node",
+      "started",
+      "warnings"
+    ],
+    "rehire_rename": [
+      "cost",
+      "next_step",
+      "node",
+      "renamed_to",
+      "started",
+      "warnings"
+    ],
+    "move_ok": [
+      "warnings"
+    ],
+    "move_noop": [
+      "changed",
+      "moved",
+      "node",
+      "parent",
+      "warnings"
+    ],
+    "move_batch": [
+      "moved",
+      "warnings"
+    ],
+    "swap_ok": [
+      "audience_retained",
+      "nested",
+      "now_under",
+      "swapped",
+      "warnings"
+    ],
+    "subjugate_ok": [
+      "after",
+      "before",
+      "demoted",
+      "next_step",
+      "parent",
+      "promoted",
+      "retained_by_caller",
+      "subtree_kept",
+      "warnings"
+    ],
+    "switch_up": [
+      "freed",
+      "model",
+      "queued",
+      "seat",
+      "warnings"
+    ],
+    "list_orgs": [
+      "orgs"
+    ],
+    "list_tiers": [
+      "tiers"
+    ],
+    "keyed_move_replay": [
+      "at",
+      "op_id",
+      "outcome",
+      "receipt",
+      "replayed",
+      "status",
+      "tool"
+    ],
+    "r_reorder_sib": [
+      "ui_order",
+      "warnings"
+    ],
+    "r_dissolve_all": [
+      "freed",
+      "nodes"
+    ],
+    "r_compact_ok": [
+      "started"
+    ]
+  },
+  "sections": {
+    "rename_ok": [
+      "events",
+      "nodes",
+      "notice_log",
+      "notices"
+    ],
+    "retool_ok": [
+      "events",
+      "nodes",
+      "notice_log",
+      "notices"
+    ],
+    "retool_self_team": [
+      "events",
+      "nodes"
+    ],
+    "retire_leaf": [
+      "events",
+      "nodes"
+    ],
+    "retire_self_leaf": [
+      "events",
+      "nodes",
+      "notice_log",
+      "notices"
+    ],
+    "retire_with_kids": [
+      "events",
+      "nodes",
+      "notice_log",
+      "notices"
+    ],
+    "dissolve_mid": [
+      "events",
+      "nodes",
+      "notice_log",
+      "notices"
+    ],
+    "cheap_compact_ok": [
+      "events",
+      "nodes",
+      "notice_log",
+      "notices"
+    ],
+    "rehire_ok": [
+      "events",
+      "nodes",
+      "notice_log",
+      "notices"
+    ],
+    "move_ok": [
+      "events",
+      "nodes",
+      "notice_log",
+      "notices"
+    ],
+    "swap_ok": [
+      "events",
+      "nodes",
+      "notice_log",
+      "notices"
+    ],
+    "subjugate_ok": [
+      "events",
+      "nodes",
+      "notice_log",
+      "notices"
+    ],
+    "switch_up": [
+      "events",
+      "nodes",
+      "notice_log",
+      "notices"
+    ],
+    "keyed_retire": [
+      "events",
+      "nodes",
+      "op_receipts",
+      "op_receipts_meta"
+    ],
+    "keyed_move": [
+      "events",
+      "nodes",
+      "notice_log",
+      "notices",
+      "op_receipts",
+      "op_receipts_meta"
+    ],
+    "r_reorder_sib": [
+      "nodes"
+    ],
+    "r_dissolve_all": [
+      "events",
+      "nodes",
+      "notice_log",
+      "notices"
+    ]
+  },
+  "told": {
+    "rename_ok": {
+      "leafy": [
+        [
+          "lifecycle.renamed",
+          null
+        ]
+      ]
+    },
+    "retool_ok": {
+      "leaf": [
+        [
+          "access.scope_changed",
+          null
+        ]
+      ]
+    },
+    "retire_self_leaf": {
+      "mid": [
+        [
+          "lifecycle.retired",
+          "report"
+        ]
+      ]
+    },
+    "dissolve_mid": {
+      "sib": [
+        [
+          "lifecycle.dissolved",
+          "peer"
+        ]
+      ]
+    },
+    "cheap_compact_ok": {
+      "mid": [
+        [
+          "context.notice_digest",
+          null
+        ],
+        [
+          "lifecycle.cheap_compacted",
+          "self"
+        ]
+      ]
+    },
+    "rehire_ok": {
+      "leaf": [
+        [
+          "lifecycle.rehired",
+          "self"
+        ]
+      ]
+    },
+    "move_ok": {
+      "mid": [
+        [
+          "lifecycle.moved",
+          "old_parent"
+        ]
+      ],
+      "sib": [
+        [
+          "lifecycle.moved",
+          "new_parent"
+        ]
+      ],
+      "leaf": [
+        [
+          "lifecycle.moved",
+          "self"
+        ]
+      ]
+    },
+    "swap_ok": {
+      "mid": [
+        [
+          "lifecycle.seat_swapped",
+          "a"
+        ]
+      ],
+      "leaf": [
+        [
+          "lifecycle.seat_swapped",
+          "child_of_a"
+        ]
+      ],
+      "sib": [
+        [
+          "lifecycle.seat_swapped",
+          "b"
+        ]
+      ]
+    },
+    "subjugate_ok": {
+      "top": [
+        [
+          "lifecycle.subtree_promoted",
+          "new_parent"
+        ]
+      ],
+      "sib": [
+        [
+          "lifecycle.subtree_promoted",
+          "peer"
+        ]
+      ],
+      "leaf": [
+        [
+          "lifecycle.subtree_promoted",
+          "promoted"
+        ]
+      ]
+    },
+    "switch_up": {
+      "leaf": [
+        [
+          "lifecycle.model_switched",
+          "self"
+        ]
+      ]
+    },
+    "r_dissolve_all": {
+      "top2": [
+        [
+          "lifecycle.dissolved",
+          "peer"
+        ]
+      ]
+    }
+  },
+  "receipts": {
+    "orgtree_retire": [
+      "pre_transaction",
+      {}
+    ],
+    "orgtree_dissolve": [
+      "pre_transaction",
+      {}
+    ],
+    "orgtree_move": [
+      "transaction",
+      {}
+    ],
+    "orgtree_swap": [
+      "transaction",
+      {}
+    ],
+    "orgtree_self_subjugate": [
+      "transaction",
+      {
+        "demoted": "mid",
+        "parent": "top",
+        "promoted": "leaf"
+      }
+    ],
+    "orgtree_switch_model": [
+      "transaction+post",
+      {
+        "queued": false
+      }
+    ],
+    "orgtree_retool": [
+      "transaction+post",
+      {}
+    ],
+    "orgtree_rehire": [
+      "transaction+post",
+      {
+        "node": "leaf",
+        "started": false
+      }
+    ],
+    "orgtree_rehire+name": [
+      "pre_transaction",
+      {
+        "node": "leaf3",
+        "started": false
+      }
+    ],
+    "orgtree_cheap_compact": [
+      "unrolled_side_effect",
+      [
+        "node",
+        "old_session"
+      ]
+    ],
+    "orgtree_rename": null,
+    "orgtree_list_orgs": null
+  },
+  "legacy_defects": [
+    "retire and dissolve interrupt the target's turn before the transaction; a call refused afterwards (a self-retire with live reports, a keyed call refused at admission) has already interrupted it",
+    "a keyed rename is executed without admission: a malformed op_key is not refused and no receipt is filed",
+    "the retained-result allowlists of retire, dissolve, move, retool and swap name fields the result never carries as a scalar, so their receipts keep nothing",
+    "the post-save remote reap names orgtree_rename, but the rename branch returns before it",
+    "list_orgs is a read that takes the write lock, saves and broadcasts hub_changed",
+    "dissolve-all tells each later top-level seat that an earlier one was dissolved, then dissolves it in the same save"
+  ],
+  "scope": "Legacy boundary of the org lifecycle and catalogue entry points (P01 F1) on disposable SQLite: the agent door's lifecycle tools and catalogue reads and the seven lifecycle operator routes. Turn delivery, the pre-archive interrupt, the remote reap, the transcript copy, manual compaction, provider discovery, the mail hub roster and the broadcasts are spies; the ledger, the doors, the receipts, save and reload are real. Legacy conformance evidence only: not a runtime census, not PostgreSQL or Rust qualification."
+}

@@ -43,10 +43,12 @@ class ContractCoverage(unittest.TestCase):
         self.assertGreater(result["summary"]["storage"]["pending"], 0)
         # THE one registry-wide tripwire (review of S3 candidate 1): every candidate
         # that maps a witness or adds a contract moves these numbers here, and only here.
-        self.assertEqual(result["contracts"], 42)
+        self.assertEqual(result["contracts"], 61)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
-                          result["summary"]["storage"]["mapped"]), (29, 51, 0))
-        self.assertEqual(len(result["pending"]), 571)
+                          result["summary"]["storage"]["mapped"]), (48, 70, 0))
+        # 571 -> 590 (P01 F1): 19 entries and 19 dispatch witnesses mapped, 57 new open dimension occurrences
+        # (conflicts, wire and instrumentation on each of the 19 lifecycle contracts), as the Q1 ruling expects
+        self.assertEqual(len(result["pending"]), 590)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -283,7 +285,8 @@ class ContractCoverage(unittest.TestCase):
         branches = [s for s in self.source["dispatch_selectors"]
                     if s["source"]["symbol"] == "agent_call" and s["selector"] == "body.tool"
                     and rows[contracts.witness_id("dispatch", s)]["reason"].startswith("Stays pending (P01 W4): ")]
-        self.assertEqual(len(branches), 40)
+        # 40 -> 24: P01 F1 mapped the sixteen lifecycle and catalogue tool branches
+        self.assertEqual(len(branches), 24)
         for s in branches:
             r = rows[contracts.witness_id("dispatch", s)]
             with self.subTest(line=s["source"]["line"]):
@@ -294,7 +297,8 @@ class ContractCoverage(unittest.TestCase):
 
     W5_SYMBOLS = {"_work_mutate_action": 25, "_work_read_call": 6, "_work_expected_rev_route": 1,
                   "_work_refuse_unused": 1, "Org._work_status_at": 3, "_attach_ref": 1}
-    W6_SYMBOLS = {"org_op": 5, "_org_op_locked": 12, "_apply": 6, "_op_post_expected": 1, "coverage": 1}
+    # P01 F1 mapped _op_post_expected and coverage's rehire branch (their tools are contracted)
+    W6_SYMBOLS = {"org_op": 5, "_org_op_locked": 12, "_apply": 6}
 
     def test_w5_w6_docket_and_operator_branches_name_their_owner(self):
         rows = {r["id"]: r for r in self.document["dispatch"]}
@@ -348,7 +352,8 @@ class ContractCoverage(unittest.TestCase):
 
     # p01-put-the-owner-of-the-35-older-pending-rows-i: every pending witness names its owner in the standard
     # form, except the concrete http, websocket and tool entries still on the generic reason (no owner by rule)
-    GENERIC_PENDING_ENTRIES = 194
+    # 194 -> 175: P01 F1 contracted 19 of them
+    GENERIC_PENDING_ENTRIES = 175
 
     def test_every_pending_witness_names_its_owner_or_is_a_generic_entry_point(self):
         kinds = {s["site_id"]: s["kind"] for s in self.source["registrations"]}
@@ -380,6 +385,27 @@ class ContractCoverage(unittest.TestCase):
         self.assertEqual(found, {"accounts_remove": "pending", "Recovery.start.run": "pending"})
         self.assertEqual([r["id"] for r in self.document["entries"]
                           if r["reason"].startswith("Newly recognized")], [])
+
+    # p01-f1-contracts-for-the-org-lifecycle-and-catal: the dispatch branches every reaching operation of which is
+    # now contracted are mapped (rule 1); the shared read-shaped block keeps waiting on orgtree_send_file
+    F1_MAPPED = {("agent_call", 16), ("_op_post_expected", 1), ("coverage", 1), ("result_slice", 1)}
+
+    def test_f1_maps_the_branches_only_lifecycle_tools_reach(self):
+        rows = {r["id"]: r for r in self.document["dispatch"]}
+        found = {}
+        for s in self.source["dispatch_selectors"]:
+            r = rows[contracts.witness_id("dispatch", s)]
+            if "(P01 F1" in r["reason"] and r["disposition"] == "mapped":
+                found[s["source"]["symbol"]] = found.get(s["source"]["symbol"], 0) + 1
+                with self.subTest(line=s["source"]["line"]):
+                    for c in r["contracts"]:
+                        self.assertIn(c, self.document["contracts"])
+        self.assertEqual(set(found.items()), self.F1_MAPPED)
+        [shared] = [rows[contracts.witness_id("dispatch", s)] for s in self.source["dispatch_selectors"]
+                    if s["source"]["symbol"] == "agent_call" and "orgtree_send_file" in s["values"]
+                    and "orgtree_list_tiers" in s["values"]]
+        self.assertEqual(shared["disposition"], "pending")
+        self.assertIn("catalogue.list-tiers", shared["reason"])
 
     def test_contacts_is_specified_only_with_agent_level_mail_locality(self):
         # S2b ruling R1: org-store locality is not mail locality. contacts became
