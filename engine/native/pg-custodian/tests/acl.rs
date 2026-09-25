@@ -14,6 +14,7 @@ fn the_owner_only_rule() {
         format!("O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;{ME})"),                     // wrong owner
         format!("O:{ME}D:(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;{ME})"),                    // not protected
         format!("O:{ME}D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;{ME})(A;;FR;;;WD)"),       // Everyone read
+        format!("O:{ME}D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;{ME})(A;;FA;;;WD)"),       // Everyone full: extra trustee
         format!("O:{ME}D:P(A;ID;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;{ME})"),                 // inherited ACE
         format!("O:{ME}D:P(A;;FR;;;SY)(A;;FA;;;BA)(A;;FA;;;{ME})"),                   // not full access
         format!("O:{ME}D:P(A;;FA;;;SY)(A;;FA;;;{ME})"),                               // Administrators missing
