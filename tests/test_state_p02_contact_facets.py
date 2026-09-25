@@ -778,7 +778,8 @@ class ContactFacets(unittest.TestCase):
             self.assertIn("op-top", up["targets"])
             down = self.exact("operator.reallocate", "operator.reallocate:down", condition)["agents"]
             self.assertEqual((down["physical_written"], set(down["physical_nodes"])), (["op-mid"], {"op-mid"}))
-        refusals = {r["variant"]: r for r in self.contract_rows("operator.") if r["variant"].startswith("refusal:")}
+        refusals = {r["variant"]: r for r in self.contract_rows("operator.")
+                    if r["contract"] in ("operator.hire", "operator.reallocate") and r["variant"].startswith("refusal:")}
         self.assertEqual(set(refusals), {"refusal:op-hire-no-name", "refusal:op-hire-unknown-tier",
                                          "refusal:op-hire-above-not-a-report", "refusal:op-hire-agent-token",
                                          "refusal:op-reallocate-no-delta", "refusal:op-reallocate-committed-floor",

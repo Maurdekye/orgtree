@@ -44,6 +44,11 @@ synthetic data; none is fixed here. P01 and P05 should cite these rows.
 - `mail.message:bare-unknown-name` looks the name up in every org.
 - A human send to a name that is no node here does the same before its 422
   (`mail.human-send` `refusal:human-unknown-node`).
+- **An agent's `orgtree_list_orgs` loads EVERY org's whole document**
+  (`store.list_orgs` → `_scan_orgs`), cold and warm, to keep one summary row
+  of each. Rows: `catalogue.list-orgs`, as declared
+  `statement:data:org-db:foreign` statements at `orgtree.store:_load_lazy`
+  and `_meta_get` (P01 F1, below).
 
 ## Where each number comes from
 
@@ -973,6 +978,202 @@ Owned elsewhere, with no rows added:
 - `work-read.conflicts`, `receipt-lookup.conflicts`: the native design,
   then P03;
 - `work-read.wire`, `receipt-lookup.wire`: the native/Rust conversion.
+
+## P01 F1: the org lifecycle and catalogue entry points
+
+The fixture follows `tests/test_state_lifecycle_boundary.py`, one small team
+(a cell) per row so every row acts on a fresh target whose peers are known.
+A cell is `lc-<cell>-<cond>-<role>`: `p` the cell's head under `lc-top`
+(grant 6), `m` its report, `k` `m`'s report, `s` `m`'s peer. `lc-top2` is
+top-level, and `lc-third` sits under `lc-top`, never named: the third agent.
+Pre-states set in the fixture:
+- the rehire cells' reports are archived (one with waiting mail);
+- the compact cells' managers have a conversation (`occupancy`);
+- each repair cell has a rename that stranded a presented document under
+  the old id;
+- the switch cells' managers hold a grant of 2, because a model switch draws
+  its seat cost from the chain only up to the ACTOR (`ledger._chain_acquire`).
+
+`lifecycle.dissolve-all` runs on two orgs of its own (`da-*`), because it
+archives every seat. As in the P01 fixture, these are counting spies, and
+each row records its calls in `spies`:
+- the provider gate;
+- the pre-archive interrupt;
+- the remote reap;
+- the transcript copy;
+- manual compaction;
+- `supervisor.notify`;
+- tier discovery;
+- the mail hub roster.
+
+`hub_changed` is real and counted.
+
+- **Each contract, cold and warm:**
+  - on the agent door: `lifecycle.rename`, `.retool`, `.retire`,
+    `.dissolve`, `.cheap-compact`, `.rehire`, `.move`, `.swap`,
+    `.self-subjugate`, `.switch-model`, `catalogue.list-orgs` and
+    `.list-tiers`;
+  - on the operator routes (`@user`): `lifecycle.reorder`, `.compact` (the
+    call waits for the compaction thread's spy, so the effect falls inside
+    the window), `.repair-rename` and `.dissolve-all`.
+- **Refusal rows only, cold and warm:**
+  - `lifecycle.account-assign` (`refusal:account-unknown`): success needs a
+    registered account, which is machine state;
+  - `lifecycle.lineage-recover` and `.lineage-drop-phantom`
+    (`refusal:lineage-not-lost`, `refusal:lineage-not-phantom`): success
+    needs a lost or phantom generation backed by a real session file.
+- **Variants** (warm):
+  - `retool:self-team`;
+  - `retire:self` (a leaf retires itself);
+  - `retire:with-reports` (a superior retires a manager: a dissolve);
+  - `rehire:name`, `rehire:mail` (driven exactly once) and `rehire:live` (a
+    no-op);
+  - `move:batch`;
+  - `move:noop-unrelated-caller`;
+  - `move:keyed-fresh` and `:keyed-replay`;
+  - `rename:keyed-malformed-key`;
+  - `switch-model:no-op`.
+- **Refusals** (warm; no primary write, nothing logical):
+  - 14 tool refusals, covering authority, a taken name, one's own charter,
+    a self-retire with reports, dissolve and cheap-compact of oneself, a
+    batch entry that is not an object, a swap of one agent, a top-level swap,
+    a non-descendant subjugation, one's own model and an unknown tier;
+  - the malformed-key retire;
+  - four route refusals, including an agent credential on a route (401,
+    before any attempt is recorded).
+- **Agent-level locality:** each row declares what it reaches without naming
+  it in its arguments:
+  - a new name, or a bearer (`m@0`);
+  - the subtree it archives;
+  - the agents it tells: P01's pinned `told`, per cell role (a dissolved
+    seat's peer, a move's old parent, a swap's reports, a subjugation's new
+    parent and peer).
+
+  The test checks every F1 row against that set. Nothing outside the actor
+  and its targets is written. Every notice goes to a target, and the test
+  asserts the pinned set exactly. `lc-third` is never touched. The only
+  third-agent contacts are READS, at the carry-over re-read of the rows the
+  previous operation changed (`api._agent_identity`; for compact also
+  `halt.org_killswitch`). The control `control:lifecycle-third-agent` (a
+  retool whose closing broadcast also posts mail to `lc-third`) is flagged.
+
+Observed and recorded:
+- **`orgtree_list_orgs` loads every org's whole document** (see "Cross-org
+  reads found"). P01's `lifecycle.reads` fact says "every org's catalogue
+  row". The statements say whole document, of which the summary row is kept.
+- **rehire, retire, dissolve and cheap-compact are managed-wait tools**
+  (`mcptool.MANAGED_WAIT_TOOLS`), as are hire and staff. EVERY call, a
+  refusal or a no-op too, journals in the `tool_waits` sidecar.
+- These pinned legacy behaviours are measured, not fixed, and each is
+  confirmed by the rows:
+  - the pre-archive interrupt runs BEFORE the refusal of a self-retire with
+    live reports and of a malformed key (spy count 1, no primary write), but
+    not before the authority pre-guard;
+  - a same-parent move by an unrelated caller answers 200, writes nothing,
+    and still broadcasts (`lifecycle-tool-receipts-and-admission-keyed-rena`
+    #6);
+  - rename goes through `supervisor.notify` only (no `hub_changed`, no remote
+    reap);
+  - a keyed rename with a malformed key is executed, and writes no `meta`
+    row, where the keyed move's receipt goes (observed);
+  - `list_orgs` takes the write lock and broadcasts, but writes nothing;
+  - dissolve-all tells the later top-level seat, then dissolves it in the
+    same save.
+
+## Hand-off to P01 (F1, lifecycle): facet → clause → rows
+
+Clause from the Owner line at v3 c86a5e7.
+
+| Facet | Closing clause | Status | Rows |
+|---|---|---|---|
+| `lifecycle.instrumentation` | a loss-accounted P02 record per lifecycle row (actual contacts per outcome, cold and warm, refusals and keyed replays included, and the org-level locality of each) | partly | covered: every F1 contract cold and warm, per-row loss zero, with the variants, keyed calls (fresh, replay, malformed) and refusals above; org-level locality (only `list_orgs` reads other orgs, declared); agent-level locality within the declared set; `control:lifecycle-third-agent` flagged. NOT covered: the success paths of account-assign, lineage-recover and lineage-drop-phantom (refusal rows only); P03 native negative controls |
+
+Owned elsewhere, with no rows added:
+- `lifecycle.conflicts`: P03/P05;
+- `lifecycle.wire`: the native conversion.
+
+## P01 F1b: the operator ops door's remaining operations and its preview
+
+The fixture follows `tests/test_state_operator_variants_boundary.py`, one
+cell per row (`vx-<cell>-<cond>-<role>`, the same shape as F1): `p` is the
+P01 fixture's top, `m` its mid, `k` its leaf, `s` its sib. `vx-top2` is
+top-level and `vx-third` sits under `vx-top`, never named. Pre-states:
+- the rehire cells' leaves are archived (one with waiting mail);
+- the reseed cells' managers are unrecoverable;
+- the revoke cells' manager and leaf hold the fixture directory;
+- one archived leaf exists for the cheap-compact refusal.
+
+Every row is a `POST /api/orgs/{slug}/ops` on the desktop token. As in the
+P01 fixture, these are counting spies (`spies`):
+- the provider gate;
+- the pre-archive interrupt;
+- the remote reap;
+- the transcript copy;
+- `supervisor.forget`;
+- `supervisor.notify`.
+
+`hub_changed` is real and counted.
+
+- **Each operation, cold and warm, as `@user`:** `operator.rename`,
+  `.retire`, `.rescind`, `.cheap-compact`, `.rehire`, `.dissolve`,
+  `.delete`, `.switch-model`, `.promote` (to the top level), `.demote`,
+  `.move`, `.reseed`, `.revoke-dir` and `.preview` (a retire preview).
+- **Variants** (warm):
+  - the preview of a delete, a reallocation and a model switch, and a
+    retire preview with an agent actor named in the body;
+  - `operator.rehire:mail` (driven exactly once);
+  - `operator.reseed:no-op` (a live seat: no write, still a broadcast).
+- **Refusals** (warm; no write, nothing logical): 16 of them:
+  - missing arguments (rename, switch, demote, revoke);
+  - a taken name;
+  - agent actors named in the body, covering authority, delete, promote to
+    the top level, rescind, a self-retire with reports, and a retire without
+    authority;
+  - an unknown op;
+  - a preview of rename and of rehire;
+  - cheap-compact of an archived seat;
+  - an agent credential (401, before any attempt is recorded).
+- **Agent-level locality:** each row declares P01's pinned `told` per cell
+  role, plus a new name, a bearer and the subtree an operation archives or
+  rescopes. For a promotion it also declares every live top-level seat (the
+  new peers) and the promoted seat's whole old chain. Nothing outside the
+  actor and its targets is written. Every notice goes to a target, and the
+  test asserts the pinned set exactly. `vx-third` is never touched, and a
+  third agent's row is only ever read. The control
+  `control:op-variants-third-agent` (a move whose closing broadcast also
+  posts mail to `vx-third`) is flagged.
+
+Observed and recorded:
+- **A promotion to the top level writes the promoted seat's whole old
+  chain.** Cold and warm, the promote rows WRITE the old parent, the old
+  grandparent and `vx-top`, besides the seat and its new top-level peers.
+  This is `ledger._move`'s credit path: the seat's credits are released from
+  the old parent up to the lowest common ancestor, which for a promotion to
+  the top level is `@user`, so every ancestor's grant changes. P01's pinned
+  `told` does not name the old grandparent. It is the same shape as an
+  operator raise (S3 F3c).
+- The operator preview runs the same simulation as the agent door's preview
+  (`clone` is recorded), and the store is not written.
+- These pinned legacy behaviours are measured, not fixed, and each is
+  confirmed by the rows:
+  - retire, dissolve and rescind interrupt the target first; an agent-actor
+    rescind and an agent-actor self-retire with live reports are refused
+    AFTER that interrupt, while the authority pre-guard refuses before it;
+  - delete takes no pre-archive interrupt (`forget` and the reap run);
+  - the operator door's rename reaps and broadcasts, and the agent door's
+    does neither.
+
+## Hand-off to P01 (F1b, operator variants): facet → clause → rows
+
+Clause from the Owner line at v3 c86a5e7.
+
+| Facet | Closing clause | Status | Rows |
+|---|---|---|---|
+| `operator-ops.variant-instrumentation` | a loss-accounted P02 record per variant row (actual contacts per outcome, cold and warm, refusals included, and the org-level locality of each) | partly | covered: all 13 operations and the preview, cold and warm, per-row loss zero, with the preview variants, the waiting-mail rehire, the no-op reseed and 16 refusals; org-level locality (every statement on this org's store); agent-level locality within the declared set, which for promote includes the old chain that the pinned `told` does not name; `control:op-variants-third-agent` flagged. NOT covered: P03 native negative controls; the kiosk visitor path |
+
+Owned elsewhere, with no rows added:
+- `operator-ops.variant-conflicts`: the native design, then P03;
+- `operator-ops.wire`: the native/Rust conversion.
 
 ## Limits
 

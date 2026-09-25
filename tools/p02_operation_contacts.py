@@ -3016,6 +3016,573 @@ class Probe:
                refusal="negative control (not a product path)",
                patches=[(api, "_op_lookup_call", lookup_and_mail_third)])
 
+    # -- P01 F1b: the operator ops door's remaining operations and its preview ---
+    VX_CELLS = ("rename", "retire", "rescind", "cc", "rehire", "dissolve", "delete", "switch",
+                "promote", "demote", "move", "reseed", "revoke", "preview")
+    #: warm-only cells: the waiting-mail rehire, the refusals, an archived seat
+    #: for the cheap-compact refusal, and the control
+    VX_EXTRA = ("rehmail", "ref", "refarch", "ctl")
+    VX_DIR = "C:/fixture-dir"
+
+    def build_opvariants(self) -> None:
+        """tests/test_state_operator_variants_boundary.py's shape, one cell per
+        row (distinctive `vx-*` ids): `vx-<cell>-<cond>-<role>`, p the cell's
+        head under vx-top (the P01 fixture's top), m p's report (mid), k m's
+        report (leaf), s m's peer (sib). vx-top2 is top-level; vx-third sits
+        under vx-top, never named. Pre-states: the rehire cells' leaves are
+        archived (one with waiting mail), the reseed cells' managers are
+        unrecoverable, the revoke cells' manager and leaf hold the fixture
+        directory, and refarch's leaf is archived."""
+        store, ledger = self.m["store"], self.m["ledger"]
+        user, both = ledger.USER, ("cold", "warm")
+        org = store.create_org("p02-contacts-opvariants")
+        self.vxslug = str(org.d["slug"])
+        org.hire(user, None, "haiku", 400, "vx-top", add_dirs=[], tools={}, charter="fixture")
+        org.hire(user, None, "haiku", 5, "vx-top2", add_dirs=[], tools={}, charter="fixture")
+        org.hire("vx-top", "vx-top", "haiku", 0, "vx-third", **self.SCOPE)
+        for cell in [f"{c}-{cond}" for c in self.VX_CELLS for cond in both] + [
+                f"{c}-warm" for c in self.VX_EXTRA]:
+            p, m = f"vx-{cell}-p", f"vx-{cell}-m"
+            org.hire("vx-top", "vx-top", "haiku", 6, p, **self.SCOPE)
+            org.hire("vx-top", p, "haiku", 0, m, **self.SCOPE)
+            org.hire("vx-top", m, "haiku", 0, f"vx-{cell}-k", **self.SCOPE)
+            org.hire("vx-top", p, "haiku", 0, f"vx-{cell}-s", **self.SCOPE)
+        for cell in ("rehire-cold", "rehire-warm", "rehmail-warm", "refarch-warm"):
+            org.retire(f"vx-{cell}-m", f"vx-{cell}-k")
+        org.post_mail("vx-rehmail-warm-m", "vx-rehmail-warm-k", "waiting work")
+        for cond in both:
+            org.node(f"vx-reseed-{cond}-m")["state"] = "unrecoverable"
+            for role in ("m", "k"):
+                org.node(f"vx-revoke-{cond}-{role}")["scope"]["add_dirs"] = [
+                    {"path": self.VX_DIR, "mode": "rw"}]
+        org.d["mail"] = {"vx-rehmail-warm-k": org.d["mail"].get("vx-rehmail-warm-k", [])}
+        org.d["audiences"] = []
+        store.save_org(org)
+        self.tokens[(self.vxslug, "vx-top")] = self.m["agentauth"].child_env(
+            self.vxslug, "vx-top")["ORGTREE_AGENT_TOKEN"]
+
+    def op_variants(self) -> None:
+        """Every F1b operation on POST /api/orgs/{slug}/ops, cold and warm, as
+        the operator (@user) on the desktop token, plus the preview's
+        variants, a waiting-mail rehire, a no-op reseed, refusals (agent
+        actors named in the body among them) and a locality control. As in
+        the P01 fixture, the provider gate, the pre-archive interrupt, the
+        remote reap, the transcript copy, supervisor.forget and
+        supervisor.notify are counting spies (`spies`); hub_changed is real
+        and counted. `implied` is P01's pinned `told` per cell role, plus a
+        new name, a bearer, the subtree an operation archives or rescopes, and,
+        for a promotion to the top level, every live top-level seat."""
+        s, store, api = self.vxslug, self.m["store"], self.m["api"]
+        supervisor = self.m["supervisor"]
+        both = ("cold", "warm")
+        _NODES[s] |= {f"vx-rename-{c}-k2" for c in both} | {f"vx-cc-{c}-m@0" for c in both}
+        spies: collections.Counter = collections.Counter()
+
+        def spy(name: str, answer: Any = None) -> Callable[..., Any]:
+            def call(*_a: Any, **_k: Any) -> Any:
+                spies[name] += 1
+                return answer
+            return call
+        hub = api.hub_changed
+
+        def hub_counted(*a: Any, **k: Any) -> Any:
+            spies["hub_changed"] += 1
+            return hub(*a, **k)
+        family = [(api, "provider_hire_gate", lambda *_a, **_k: None),
+                  (api, "hub_changed", hub_counted),
+                  (supervisor, "interrupt_before_archive", spy("interrupt_before_archive", [])),
+                  (supervisor, "remote_reap", spy("remote_reap")),
+                  (supervisor, "export_predecessor_transcript",
+                   spy("export_predecessor_transcript")),
+                  (supervisor, "forget", spy("forget")),
+                  (supervisor, "notify", spy("notify"))]
+        saved = [(obj, name, getattr(obj, name)) for obj, name, _ in family]
+        for obj, name, value in family:
+            setattr(obj, name, value)
+        try:
+            self._op_variant_rows(s, store, api, both, spies)
+        finally:
+            for obj, name, value in reversed(saved):
+                setattr(obj, name, value)
+
+    def _op_variant_rows(self, s: str, store: Any, api: Any, both: tuple[str, str],
+                         spies: collections.Counter) -> None:
+        user, op = self.m["ledger"].USER, self.OPERATOR
+
+        def run(contract: str, variant: str, condition: str, body: dict[str, Any],
+                actor: str = user, headers: Any = op, **kw: Any) -> dict[str, Any]:
+            args = {k: v for k, v in body.items() if k in ("node", "new_parent", "name")}
+            n0 = dict(spies)
+            row = self.run(contract, variant, condition, s, actor, f"POST {contract}", args,
+                           call=self.http(self.client, f"/api/orgs/{s}/ops", headers,
+                                          {**body, "actor": actor}), **kw)
+            row["spies"] = {k: v - n0.get(k, 0) for k, v in sorted(spies.items())
+                            if v - n0.get(k, 0)}
+            return row
+
+        def top_level() -> set[str]:
+            org = store.load_org(s)
+            return {k for k, v in org.nodes.items()
+                    if v.get("parent") is None and v.get("state") != "archived"}
+
+        def chain(nid: str) -> set[str]:
+            """Every ancestor of `nid`: a promotion to the top level releases
+            the seat's credits from the old parent up to the lowest common
+            ancestor, @user (ledger._move's LCA credit path), writing each."""
+            org, up = store.load_org(s), set()
+            p = org.node(nid)["parent"]
+            while p:
+                up.add(str(p))
+                p = org.node(p)["parent"]
+            return up
+
+        for cond in both:
+            def c(cell: str, role: str) -> str:
+                return f"vx-{cell}-{cond}-{role}"
+            run("operator.rename", "operator.rename", cond,
+                {"op": "rename", "node": c("rename", "k"), "name": c("rename", "k2")},
+                implied=(c("rename", "k2"),))
+            run("operator.retire", "operator.retire", cond,
+                {"op": "retire", "node": c("retire", "k")}, implied=(c("retire", "m"),))
+            run("operator.rescind", "operator.rescind", cond,
+                {"op": "rescind", "node": c("rescind", "k")}, implied=(c("rescind", "m"),))
+            run("operator.cheap-compact", "operator.cheap-compact", cond,
+                {"op": "cheap_compact", "node": c("cc", "m")},
+                implied=(c("cc", "m") + "@0", c("cc", "p")))
+            run("operator.rehire", "operator.rehire", cond,
+                {"op": "rehire", "node": c("rehire", "k")}, implied=(c("rehire", "m"),))
+            run("operator.dissolve", "operator.dissolve", cond,
+                {"op": "dissolve", "node": c("dissolve", "m")},
+                implied=(c("dissolve", "k"), c("dissolve", "p"), c("dissolve", "s")))
+            run("operator.delete", "operator.delete", cond,
+                {"op": "delete", "node": c("delete", "k")}, implied=(c("delete", "m"),))
+            run("operator.switch-model", "operator.switch-model", cond,
+                {"op": "switch_model", "node": c("switch", "k"), "tier": "sonnet"},
+                implied=(c("switch", "m"),))
+            run("operator.promote", "operator.promote", cond,
+                {"op": "promote", "node": c("promote", "k"), "new_parent": None},
+                implied=tuple(sorted(top_level() | chain(c("promote", "k")))))
+            run("operator.demote", "operator.demote", cond,
+                {"op": "demote", "node": c("demote", "s"), "new_parent": c("demote", "m")},
+                implied=(c("demote", "k"), c("demote", "p")))
+            run("operator.move", "operator.move", cond,
+                {"op": "move", "node": c("move", "k"), "new_parent": c("move", "s")},
+                implied=(c("move", "m"),))
+            run("operator.reseed", "operator.reseed", cond,
+                {"op": "reseed", "node": c("reseed", "m")}, implied=(c("reseed", "p"),))
+            run("operator.revoke-dir", "operator.revoke-dir", cond,
+                {"op": "revoke_dir", "node": c("revoke", "m"), "dir": self.VX_DIR},
+                implied=(c("revoke", "k"),))
+            run("operator.preview", "operator.preview", cond,
+                {"op": "retire", "node": c("preview", "m"), "preview": True},
+                implied=(c("preview", "k"),))
+
+        def w(cell: str, role: str) -> str:
+            return f"vx-{cell}-warm-{role}"
+
+        def r(role: str) -> str:
+            return f"vx-ref-warm-{role}"
+        for variant, body, actor in (
+                ("operator.preview:delete", {"op": "delete", "node": r("k")}, user),
+                ("operator.preview:reallocate", {"op": "reallocate", "node": r("m"), "delta": 1},
+                 user),
+                ("operator.preview:switch-model",
+                 {"op": "switch_model", "node": r("k"), "tier": "sonnet"}, user),
+                ("operator.preview:retire-agent-actor", {"op": "retire", "node": r("k")},
+                 r("m"))):
+            run("operator.preview", variant, "warm", {**body, "preview": True}, actor=actor)
+        run("operator.rehire", "operator.rehire:mail", "warm",
+            {"op": "rehire", "node": w("rehmail", "k")}, implied=(w("rehmail", "m"),))
+        # a live seat: nothing to re-seed, still a broadcast
+        run("operator.reseed", "operator.reseed:no-op", "warm", {"op": "reseed", "node": r("m")})
+        agent = {"X-Orgtree-Agent-Token": self.tokens[(s, "vx-top")]}
+        for contract, variant, body, actor, headers, refusal in (
+                ("operator.rename", "refusal:op-rename-no-name", {"op": "rename", "node": r("k")},
+                 user, op, "422 rename needs node and name"),
+                ("operator.rename", "refusal:op-rename-taken",
+                 {"op": "rename", "node": r("k"), "name": r("s")}, user, op,
+                 "422 the name is already taken"),
+                ("operator.rename", "refusal:op-rename-no-authority",
+                 {"op": "rename", "node": r("p"), "name": "x"}, r("m"), op,
+                 "422 the named actor has no authority over its superior"),
+                ("operator.delete", "refusal:op-delete-agent-actor",
+                 {"op": "delete", "node": r("k")}, r("m"), op, "422 only the user may delete agents"),
+                ("operator.switch-model", "refusal:op-switch-no-tier",
+                 {"op": "switch_model", "node": r("k")}, user, op, "422 switch_model needs tier"),
+                ("operator.promote", "refusal:op-promote-agent-actor",
+                 {"op": "promote", "node": r("k"), "new_parent": None}, r("p"), op,
+                 "422 only the user promotes agents to top level"),
+                ("operator.demote", "refusal:op-demote-no-parent", {"op": "demote", "node": r("s")},
+                 user, op, "422 demote needs new_parent"),
+                ("operator.revoke-dir", "refusal:op-revoke-no-dir",
+                 {"op": "revoke_dir", "node": r("m")}, user, op, "422 revoke_dir needs dir"),
+                ("operator.preview", "refusal:op-unknown-op", {"op": "frobnicate", "node": r("m")},
+                 user, op, "422 unknown op"),
+                ("operator.rename", "refusal:op-preview-rename",
+                 {"op": "rename", "node": r("k"), "name": "x", "preview": True}, user, op,
+                 "422 preview does not support rename"),
+                ("operator.rehire", "refusal:op-preview-rehire",
+                 {"op": "rehire", "node": r("k"), "preview": True}, user, op,
+                 "422 preview does not support rehire"),
+                ("operator.retire", "refusal:op-agent-token", {"op": "retire", "node": r("k")},
+                 user, agent, "401 an agent credential is refused here"),
+                ("operator.cheap-compact", "refusal:op-cheap-compact-archived",
+                 {"op": "cheap_compact", "node": "vx-refarch-warm-k"}, user, op,
+                 "422 cheap compact replaces a LIVE agent's session"),
+                # recorded legacy: refused AFTER the pre-archive interrupt
+                ("operator.rescind", "refusal:op-rescind-agent-actor",
+                 {"op": "rescind", "node": r("k")}, r("m"), op,
+                 "422 only the user may rescind (legacy: after the interrupt)"),
+                ("operator.retire", "refusal:op-retire-self-with-reports",
+                 {"op": "retire", "node": r("m")}, r("m"), op,
+                 "422 live reports (legacy: after the interrupt)"),
+                ("operator.retire", "refusal:op-retire-no-authority",
+                 {"op": "retire", "node": r("m")}, r("k"), op,
+                 "422 no authority (the pre-guard, before the interrupt)")):
+            run(contract, variant, "warm", body, actor=actor, headers=headers, refusal=refusal)
+
+        # agent-level locality control: a move whose closing tree broadcast
+        # (api.hub_changed) ALSO posts mail to a third agent
+        def mail_third(*_a: Any, **_k: Any) -> None:
+            spies["hub_changed"] += 1
+            with store.write_org(s) as o:
+                o.post_mail("vx-top", "vx-third", "p02 control: mail to a third agent")
+                store.save_org(o)
+        run("operator.move", "control:op-variants-third-agent", "warm",
+            {"op": "move", "node": w("ctl", "k"), "new_parent": w("ctl", "s")},
+            implied=(w("ctl", "m"),), refusal="negative control (not a product path)",
+            patches=[(api, "hub_changed", mail_third)])
+
+    # -- P01 F1: the org lifecycle and catalogue entry points -------------------
+    #: one small team (a cell) per operation and condition, so every row acts
+    #: on a fresh target whose peers are known: `lc-<cell>-<cond>-<role>`, p the
+    #: cell's head under lc-top, m p's report, k m's report, s m's peer
+    LC_CELLS = ("rename", "retool", "retire", "dissolve", "cc", "rehire", "move", "swap",
+                "subj", "switch", "reorder", "compact", "repair")
+    #: warm-only cells: variants, keyed calls, the refusals and the control
+    LC_EXTRA = ("retself", "retkids", "rehname", "rehmail", "movekey", "keyren", "ref", "ctl")
+
+    def build_lifecycle(self) -> None:
+        """tests/test_state_lifecycle_boundary.py's shape, one cell per row
+        (distinctive `lc-*` ids), under lc-top; lc-top2 top-level; lc-third
+        under lc-top, never named (the third agent). The cells' heads hold a
+        grant, so a seat cost is covered at the head. Pre-states: the rehire
+        cells' reports are archived (one with waiting mail), the compact cells'
+        managers have a conversation, and each repair cell has a rename that
+        stranded a presented document under the old id. dissolve-all runs on
+        two orgs of its own (it archives every seat)."""
+        store, ledger = self.m["store"], self.m["ledger"]
+        user, both = ledger.USER, ("cold", "warm")
+        org = store.create_org("p02-contacts-lifecycle")
+        self.lcslug = str(org.d["slug"])
+        org.hire(user, None, "haiku", 400, "lc-top", add_dirs=[], tools={}, charter="fixture")
+        org.hire(user, None, "haiku", 5, "lc-top2", add_dirs=[], tools={}, charter="fixture")
+        org.hire("lc-top", "lc-top", "haiku", 0, "lc-third", **self.SCOPE)
+        cells = [f"{c}-{cond}" for c in self.LC_CELLS for cond in both] + [
+            f"{c}-warm" for c in self.LC_EXTRA]
+        for cell in cells:
+            p, m = f"lc-{cell}-p", f"lc-{cell}-m"
+            org.hire("lc-top", "lc-top", "haiku", 6, p, **self.SCOPE)
+            # a model switch's seat cost is drawn from the chain up to the
+            # ACTOR (ledger._chain_acquire), so the switching manager holds it
+            org.hire("lc-top", p, "haiku", 2 if cell.startswith("switch") else 0, m,
+                     **self.SCOPE)
+            org.hire("lc-top", m, "haiku", 0, f"lc-{cell}-k", **self.SCOPE)
+            org.hire("lc-top", p, "haiku", 0, f"lc-{cell}-s", **self.SCOPE)
+        for cell in ("rehire-cold", "rehire-warm", "rehname-warm", "rehmail-warm"):
+            org.retire(f"lc-{cell}-m", f"lc-{cell}-k")
+        org.post_mail("lc-rehmail-warm-m", "lc-rehmail-warm-k", "waiting work")
+        for cond in both:
+            org.node(f"lc-compact-{cond}-m")["occupancy"] = {"used": 1000, "window": 200000}
+        self.lc_repair_at: dict[str, str] = {}
+        for cond in both:
+            k = f"lc-repair-{cond}-k"
+            if self.lc_repair_at:
+                time.sleep(1.05)          # each rename event needs its own `at`
+            org.rename(f"lc-repair-{cond}-m", k, k + "2")
+            self.lc_repair_at[cond] = str([
+                e for e in org.d["events"] if e.get("op") == "rename"
+                and (e.get("detail") or {}).get("node") == k][-1]["at"])
+            org.d.setdefault("documents", []).append({"id": f"lc-repair-{cond}-doc", "node": k})
+        org.d["mail"] = {"lc-rehmail-warm-k": org.d["mail"].get("lc-rehmail-warm-k", [])}
+        org.d["audiences"] = []
+        store.save_org(org)
+        for nid, n in org.nodes.items():
+            if n.get("state") == "live" and not nid.endswith(("-s", "lc-third")):
+                self.tokens[(self.lcslug, nid)] = self.m["agentauth"].child_env(
+                    self.lcslug, nid)["ORGTREE_AGENT_TOKEN"]
+        self.lc_all: dict[str, str] = {}
+        for cond in both:
+            org = store.create_org(f"p02-contacts-lc-all-{cond}")
+            self.lc_all[cond] = str(org.d["slug"])
+            org.hire(user, None, "haiku", 6, f"da-{cond}-top", add_dirs=[], tools={},
+                     charter="fixture")
+            org.hire(f"da-{cond}-top", f"da-{cond}-top", "haiku", 0, f"da-{cond}-kid",
+                     **self.SCOPE)
+            org.hire(user, None, "haiku", 2, f"da-{cond}-top2", add_dirs=[], tools={},
+                     charter="fixture")
+            org.d["mail"], org.d["audiences"] = {}, []
+            store.save_org(org)
+
+    def lifecycle(self) -> None:
+        """Every F1 contract, cold and warm: the ten lifecycle tools and the
+        two catalogue reads on the agent door, the seven operator routes;
+        variants, keyed calls, refusals and a locality control. As in the P01
+        fixture, the provider gate, the pre-archive interrupt, the remote
+        reap, the transcript copy, manual compaction, supervisor.notify, tier
+        discovery and the mail hub roster are counting spies (each row carries
+        `spies`, its calls); hub_changed is real and counted. `implied` names
+        what each operation reaches without naming it in its arguments: a new
+        name, a bearer, the subtree it archives and the agents it tells
+        (P01's pinned `told`: a dissolved seat's peers, a move's old parent, a
+        swap's reports, a subjugation's new parent and peer)."""
+        s, store, api = self.lcslug, self.m["store"], self.m["api"]
+        opreceipts, supervisor = self.m["opreceipts"], self.m["supervisor"]
+        user, op, both = self.m["ledger"].USER, self.OPERATOR, ("cold", "warm")
+        _NODES[s] |= ({f"lc-rename-{c}-k2" for c in both} | {f"lc-cc-{c}-m@0" for c in both}
+                      | {"lc-rehname-warm-k2", "lc-keyren-warm-k2"})
+        spies: collections.Counter = collections.Counter()
+
+        def spy(name: str, answer: Any = None) -> Callable[..., Any]:
+            def call(*_a: Any, **_k: Any) -> Any:
+                spies[name] += 1
+                return answer
+            return call
+        hub = api.hub_changed
+
+        def hub_counted(*a: Any, **k: Any) -> Any:
+            spies["hub_changed"] += 1
+            return hub(*a, **k)
+        family = [(api, "provider_hire_gate", lambda *_a, **_k: None),
+                  (api, "hub_changed", hub_counted),
+                  (supervisor, "interrupt_before_archive", spy("interrupt_before_archive", [])),
+                  (supervisor, "remote_reap", spy("remote_reap")),
+                  (supervisor, "export_predecessor_transcript",
+                   spy("export_predecessor_transcript")),
+                  (supervisor, "manual_compact", spy("manual_compact")),
+                  (supervisor, "notify", spy("notify")),
+                  (api, "_tier_discovery_payload", lambda *_a, **_k: {"tiers": ["fixture"]}),
+                  (api.net, "remote_peers", lambda *_a, **_k: [])]
+        saved = [(obj, name, getattr(obj, name)) for obj, name, _ in family]
+        for obj, name, value in family:
+            setattr(obj, name, value)
+        try:
+            self._lifecycle_rows(s, store, api, opreceipts, user, op, both, spies)
+        finally:
+            for obj, name, value in reversed(saved):
+                setattr(obj, name, value)
+
+    def _lifecycle_rows(self, s: str, store: Any, api: Any, opreceipts: Any, user: str,
+                        op: dict[str, str], both: tuple[str, str],
+                        spies: collections.Counter) -> None:
+        def counted(row_of: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+            n0 = dict(spies)
+            row = row_of()
+            row["spies"] = {k: v - n0.get(k, 0) for k, v in sorted(spies.items())
+                            if v - n0.get(k, 0)}
+            return row
+
+        def run(contract: str, variant: str, condition: str, actor: str, tool: str,
+                args: dict[str, Any], **kw: Any) -> dict[str, Any]:
+            return counted(lambda: self.run(contract, variant, condition, s, actor, tool,
+                                            args, **kw))
+
+        def route(contract: str, variant: str, condition: str, path: str, body: Any = None,
+                  headers: Any = op, slug: str = s, args: "dict[str, Any] | None" = None,
+                  call: "Callable[[], tuple[int, Any]] | None" = None,
+                  **kw: Any) -> dict[str, Any]:
+            call = call or self.http(self.client, path, headers, {} if body is None else body)
+            return counted(lambda: self.run(contract, variant, condition, slug, user,
+                                            f"POST {contract}", args or {}, call=call, **kw))
+
+        def compact(path: str) -> Callable[[], tuple[int, Any]]:
+            """The route starts manual compaction on a thread and answers at
+            once; the call waits (up to 5 s) for the spy, so the effect is
+            counted inside the row's window."""
+            post = self.http(self.client, path, op, {})
+
+            def call() -> tuple[int, Any]:
+                n = spies["manual_compact"]
+                status, payload = post()
+                deadline = time.monotonic() + 5
+                while status == 200 and spies["manual_compact"] == n and \
+                        time.monotonic() < deadline:
+                    time.sleep(0.01)
+                return status, payload
+            return call
+
+        def epoch(actor: str) -> str:
+            return str(self.client.post(
+                "/api/agent", json=self.agent_body(s, actor, opreceipts.OP_EPOCH, {}),
+                headers={"X-Orgtree-Agent-Token": self.tokens[(s, actor)]}).json()["epoch"])
+
+        base = f"/api/orgs/{s}"
+        for cond in both:
+            def c(cell: str, role: str) -> str:
+                return f"lc-{cell}-{cond}-{role}"
+            run("lifecycle.rename", "lifecycle.rename", cond, c("rename", "m"), "orgtree_rename",
+                {"node": c("rename", "k"), "name": c("rename", "k2")},
+                implied=(c("rename", "k2"),))
+            run("lifecycle.retool", "lifecycle.retool", cond, c("retool", "m"), "orgtree_retool",
+                {"node": c("retool", "k"), "charter": "new charter"})
+            run("lifecycle.retire", "lifecycle.retire", cond, c("retire", "m"), "orgtree_retire",
+                {"node": c("retire", "k")})
+            run("lifecycle.dissolve", "lifecycle.dissolve", cond, c("dissolve", "p"),
+                "orgtree_dissolve", {"node": c("dissolve", "m")},
+                implied=(c("dissolve", "k"), c("dissolve", "s")))
+            run("lifecycle.cheap-compact", "lifecycle.cheap-compact", cond, c("cc", "p"),
+                "orgtree_cheap_compact", {"node": c("cc", "m")}, implied=(c("cc", "m") + "@0",))
+            run("lifecycle.rehire", "lifecycle.rehire", cond, c("rehire", "m"), "orgtree_rehire",
+                {"node": c("rehire", "k")})
+            run("lifecycle.move", "lifecycle.move", cond, c("move", "p"), "orgtree_move",
+                {"node": c("move", "k"), "new_parent": c("move", "s")},
+                implied=(c("move", "m"),))
+            run("lifecycle.swap", "lifecycle.swap", cond, c("swap", "p"), "orgtree_swap",
+                {"a": c("swap", "m"), "b": c("swap", "s")}, implied=(c("swap", "k"),))
+            run("lifecycle.self-subjugate", "lifecycle.self-subjugate", cond, c("subj", "m"),
+                "orgtree_self_subjugate", {"target": c("subj", "k")},
+                implied=(c("subj", "p"), c("subj", "s")))
+            run("lifecycle.switch-model", "lifecycle.switch-model", cond, c("switch", "m"),
+                "orgtree_switch_model", {"node": c("switch", "k"), "tier": "sonnet"})
+            # the catalogue loads EVERY org in the data root (their stores are
+            # pooled, so the statements show without a connect)
+            run("catalogue.list-orgs", "catalogue.list-orgs", cond, "lc-top2", "orgtree_list_orgs",
+                {}, expected_unknown=("statement:data:org-db:foreign",))
+            run("catalogue.list-tiers", "catalogue.list-tiers", cond, "lc-top2",
+                "orgtree_list_tiers", {})
+            # the operator routes (@user on the desktop token)
+            route("lifecycle.reorder", "lifecycle.reorder", cond,
+                  f"{base}/nodes/{c('reorder', 's')}/reorder", {"before": c("reorder", "m")},
+                  args={"node": c("reorder", "s")}, implied=(c("reorder", "m"),))
+            route("lifecycle.compact", "lifecycle.compact", cond, "", args={"node": c("compact", "m")},
+                  call=compact(f"{base}/nodes/{c('compact', 'm')}/compact"))
+            route("lifecycle.repair-rename", "lifecycle.repair-rename", cond,
+                  f"{base}/repair-rename",
+                  {"actor": user, "rename_at": self.lc_repair_at[cond],
+                   "documents": [f"lc-repair-{cond}-doc"], "work_items": []},
+                  args={"node": c("repair", "k2")})
+            # success needs a registered account (machine state) or a lost /
+            # phantom lineage generation (a real session file): refusal rows
+            route("lifecycle.account-assign", "refusal:account-unknown", cond,
+                  f"{base}/nodes/lc-top2/account", {"account": "nope"}, args={"node": "lc-top2"},
+                  refusal="422 no account 'nope' is registered")
+            route("lifecycle.lineage-recover", "refusal:lineage-not-lost", cond,
+                  f"{base}/lineage/lc-top2/recover", args={"node": "lc-top2"},
+                  refusal="422 not a lost generation")
+            route("lifecycle.lineage-drop-phantom", "refusal:lineage-not-phantom", cond,
+                  f"{base}/lineage/lc-top2/drop-phantom", args={"node": "lc-top2"},
+                  refusal="422 not a LOST generation")
+            everyone = self.lc_all[cond]
+            if cond == "warm":
+                store.load_org(everyone)
+            route("lifecycle.dissolve-all", "lifecycle.dissolve-all", cond,
+                  f"/api/orgs/{everyone}/dissolve-all", slug=everyone,
+                  implied=tuple(sorted(_NODES[everyone])))
+
+        def w(cell: str, role: str) -> str:
+            return f"lc-{cell}-warm-{role}"
+        run("lifecycle.retool", "lifecycle.retool:self-team", "warm", w("retool", "m"),
+            "orgtree_retool", {"node": w("retool", "m"), "team_charter": "tc"})
+        run("lifecycle.retire", "lifecycle.retire:self", "warm", w("retself", "k"),
+            "orgtree_retire", {"node": w("retself", "k")}, implied=(w("retself", "m"),))
+        run("lifecycle.retire", "lifecycle.retire:with-reports", "warm", w("retkids", "p"),
+            "orgtree_retire", {"node": w("retkids", "m")},
+            implied=(w("retkids", "k"), w("retkids", "s")))
+        run("lifecycle.rehire", "lifecycle.rehire:name", "warm", w("rehname", "m"),
+            "orgtree_rehire", {"node": w("rehname", "k"), "name": w("rehname", "k2")},
+            implied=(w("rehname", "k2"),))
+        run("lifecycle.rehire", "lifecycle.rehire:mail", "warm", w("rehmail", "m"),
+            "orgtree_rehire", {"node": w("rehmail", "k")})
+        # already live after the warm rehire row: a no-op that still broadcasts
+        run("lifecycle.rehire", "lifecycle.rehire:live", "warm", w("rehire", "m"),
+            "orgtree_rehire", {"node": w("rehire", "k")})
+        # back under m after the warm move row
+        run("lifecycle.move", "lifecycle.move:batch", "warm", w("move", "p"), "orgtree_move",
+            {"moves": [{"node": w("move", "k"), "new_parent": w("move", "m")}]},
+            implied=(w("move", "k"), w("move", "m"), w("move", "s")))
+        # recorded legacy defect: a same-parent move answers its no-op before
+        # any authority check, so an unrelated caller gets an accepted cycle
+        run("lifecycle.move", "lifecycle.move:noop-unrelated-caller", "warm", "lc-top2",
+            "orgtree_move", {"node": w("move", "k"), "new_parent": w("move", "m")})
+        run("lifecycle.switch-model", "lifecycle.switch-model:no-op", "warm", w("switch", "m"),
+            "orgtree_switch_model", {"node": w("switch", "k"), "tier": "sonnet"})
+        key, args = opreceipts.mint_key(), {"node": w("movekey", "k"),
+                                            "new_parent": w("movekey", "s")}
+        ep = epoch(w("movekey", "p"))
+        run("lifecycle.move", "lifecycle.move:keyed-fresh", "warm", w("movekey", "p"),
+            "orgtree_move", args, key=key, epoch=ep, implied=(w("movekey", "m"),))
+        run("lifecycle.move", "lifecycle.move:keyed-replay", "warm", w("movekey", "p"),
+            "orgtree_move", args, key=key, epoch=ep, implied=(w("movekey", "m"),),
+            refusal="keyed replay (answered from the receipt, no effect)")
+        # recorded legacy: a keyed rename skips admission (a malformed key is
+        # executed, and no receipt is filed)
+        run("lifecycle.rename", "lifecycle.rename:keyed-malformed-key", "warm", w("keyren", "m"),
+            "orgtree_rename", {"node": w("keyren", "k"), "name": w("keyren", "k2")},
+            key="not-a-key", epoch=epoch(w("keyren", "m")), implied=(w("keyren", "k2"),))
+
+        def r(role: str) -> str:
+            return f"lc-ref-warm-{role}"
+        for contract, variant, actor, tool, args, refusal in (
+                ("lifecycle.rename", "refusal:rename-no-authority", r("m"), "orgtree_rename",
+                 {"node": r("p"), "name": "x"}, "422 no authority over its superior"),
+                ("lifecycle.rename", "refusal:rename-taken", r("p"), "orgtree_rename",
+                 {"node": r("k"), "name": r("s")}, "422 the name is already taken"),
+                ("lifecycle.retool", "refusal:retool-own-charter", r("m"), "orgtree_retool",
+                 {"node": r("m"), "charter": "x"}, "422 an agent may not rewrite its own charter"),
+                ("lifecycle.retire", "refusal:retire-self-with-reports", r("m"), "orgtree_retire",
+                 {"node": r("m")}, "422 live reports (legacy: after the interrupt)"),
+                ("lifecycle.retire", "refusal:retire-no-authority", r("k"), "orgtree_retire",
+                 {"node": r("m")}, "422 no authority (the pre-guard, before the interrupt)"),
+                ("lifecycle.dissolve", "refusal:dissolve-self", r("m"), "orgtree_dissolve",
+                 {"node": r("m")}, "422 no authority over itself"),
+                ("lifecycle.cheap-compact", "refusal:cheap-compact-self", r("m"),
+                 "orgtree_cheap_compact", {"node": r("m")}, "422 no authority over itself"),
+                ("lifecycle.move", "refusal:move-batch-not-object", r("p"), "orgtree_move",
+                 {"moves": [r("k")]}, "422 moves[0] must be an object"),
+                ("lifecycle.move", "refusal:move-no-authority", r("m"), "orgtree_move",
+                 {"node": r("k"), "new_parent": r("s")}, "422 no authority over the new parent"),
+                ("lifecycle.swap", "refusal:swap-same-agent", r("p"), "orgtree_swap",
+                 {"a": r("m"), "b": r("m")}, "422 a seat swap needs two different agents"),
+                ("lifecycle.swap", "refusal:swap-top-level", "lc-top", "orgtree_swap",
+                 {"a": "lc-top", "b": r("p")}, "422 only the user reseats the top level"),
+                ("lifecycle.self-subjugate", "refusal:subjugate-not-descendant", r("m"),
+                 "orgtree_self_subjugate", {"target": r("s")}, "422 not a live descendant"),
+                ("lifecycle.switch-model", "refusal:switch-own-model", r("m"),
+                 "orgtree_switch_model", {"node": r("m"), "tier": "sonnet"},
+                 "422 an agent cannot switch its own model"),
+                ("lifecycle.switch-model", "refusal:switch-unknown-tier", r("m"),
+                 "orgtree_switch_model", {"node": r("k"), "tier": "nope"}, "422 unknown tier")):
+            run(contract, variant, "warm", actor, tool, args, refusal=refusal)
+        # recorded legacy defect: the interrupt runs before admission refuses a
+        # malformed key
+        run("lifecycle.retire", "refusal:retire-keyed-malformed-key", "warm", r("m"),
+            "orgtree_retire", {"node": r("k")}, key="not-a-key", epoch=epoch(r("m")),
+            refusal="422 op_key refused (legacy: after the interrupt)")
+        route("lifecycle.reorder", "refusal:reorder-no-sibling", "warm",
+              f"{base}/nodes/{r('k')}/reorder", {"before": None, "after": None},
+              args={"node": r("k")}, refusal="422 reorder needs a sibling")
+        route("lifecycle.compact", "refusal:compact-no-conversation", "warm",
+              f"{base}/nodes/{r('m')}/compact", args={"node": r("m")},
+              refusal="422 no conversation yet")
+        route("lifecycle.repair-rename", "refusal:repair-no-records", "warm",
+              f"{base}/repair-rename", {"rename_at": "t", "documents": [], "work_items": []},
+              refusal="422 name the records to repair")
+        route("lifecycle.dissolve-all", "refusal:route-agent-token", "warm",
+              f"{base}/dissolve-all", headers={"X-Orgtree-Agent-Token": self.tokens[(s, "lc-top")]},
+              refusal="401 an agent credential is refused here")
+
+        # agent-level locality control: a retool whose closing tree broadcast
+        # (api.hub_changed) ALSO posts mail to a third agent
+        def mail_third(*_a: Any, **_k: Any) -> None:
+            spies["hub_changed"] += 1
+            with store.write_org(s) as o:
+                o.post_mail("lc-top", "lc-third", "p02 control: mail to a third agent")
+                store.save_org(o)
+        run("lifecycle.retool", "control:lifecycle-third-agent", "warm", w("ctl", "m"),
+            "orgtree_retool", {"node": w("ctl", "k"), "charter": "control"},
+            refusal="negative control (not a product path)",
+            patches=[(api, "hub_changed", mail_third)])
+
     # -- the r5 residuals ----------------------------------------------------
     def residuals(self) -> dict[str, Any]:
         """db_unbound and unclassified_action, reproduced: which records carry
@@ -3112,11 +3679,14 @@ class Probe:
             self.build_quickstaff()
             self.build_workread()
             self.build_receipts()
+            self.build_lifecycle()
+            self.build_opvariants()
         self.build_human()
         for slug in ((self.dslug, self.hslug) if json_backend else
                      (self.rslug, self.mslug, self.dslug, self.pslug, self.sslug,
                       self.stslug, self.ovslug, self.mlslug, self.hslug, self.fslug,
-                      self.stfslug, self.opslug, self.qsslug, self.wrslug, self.rlslug)):
+                      self.stfslug, self.opslug, self.qsslug, self.wrslug, self.rlslug,
+                      self.lcslug, *self.lc_all.values(), self.vxslug)):
             _NODES[slug] = {str(n) for n in self.m["store"].load_org(slug).nodes}
         self.operator("post", "/api/diagnostics/operation-census/reset")
         self.operator("post", "/api/diagnostics/operation-census", json={"enabled": True})
@@ -3143,6 +3713,8 @@ class Probe:
             self.quick_staff()
             self.work_read()
             self.receipts()
+            self.lifecycle()
+            self.op_variants()
         w1 = self.census_state()
         self.load_table_catalogue()
         self.map_tables()
