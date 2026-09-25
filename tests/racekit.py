@@ -35,6 +35,11 @@ USE:
         race.join(a, b)
         race.expect_order("A.after_commit", "B.after_lock")
 
+Pass `Race(pair="converted")` when both racers are org_tx paths: it refuses
+to arm while `orgtx.TRANSITION_FENCE` is on (plan decision 19), because then
+DOC_LOCK, not the row locks, orders them. `pair="unconverted"` (one racer is
+legacy DOC_LOCK code) leaves the fence alone. `race.facts` records both.
+
 Inside actor code, `race.mark("body-enter")` records a point of the test's
 own (and can be held like any pause point). `Race.mark` is a no-op on a
 thread that is not an actor.
@@ -174,8 +179,27 @@ class Actor:
         return f"<Actor {self.name}>"
 
 
+def fence_state() -> str:
+    """`orgtx.TRANSITION_FENCE` (plan decision 19): while ON, every org_tx
+    takes DOC_LOCK before its rows, so DOC_LOCK, not the row locks, orders
+    two org_tx paths. 'absent' on a build that has no fence."""
+    from orgtree import orgtx
+    if not hasattr(orgtx, "TRANSITION_FENCE"):
+        return "absent"
+    return "on" if orgtx.TRANSITION_FENCE else "off"
+
+
 class Race:
-    def __init__(self, wait: float = WAIT_S, hold: float | None = None):
+    def __init__(self, wait: float = WAIT_S, hold: float | None = None,
+                 pair: str | None = None):
+        # `pair` (plan decision 19): "converted" = both racers are org_tx
+        # paths, meaningful only with the transition fence OFF, so it refuses
+        # to arm with the fence on; "unconverted" = one racer is legacy
+        # DOC_LOCK code, fence left as the build ships it. Either way the
+        # fence state is recorded in `facts`.
+        if pair not in (None, "converted", "unconverted"):
+            raise ValueError(f"pair must be 'converted' or 'unconverted', not {pair!r}")
+        self.pair = pair
         # `wait` bounds each step the TEST waits for; `hold` bounds how long a
         # gate holds an actor, and outlasts several steps by default
         self.wait = wait
@@ -194,6 +218,12 @@ class Race:
     def __enter__(self) -> "Race":
         from orgtree import orgtx
         self.facts = isolation_proof()
+        self.facts["transition_fence"] = fence_state()
+        self.facts["pair"] = self.pair or "unspecified"
+        if self.pair == "converted" and self.facts["transition_fence"] == "on":
+            raise RaceFailure("a converted-vs-converted race needs orgtx.TRANSITION_FENCE "
+                              "off: with it on, DOC_LOCK orders the racers and hides the "
+                              "row-lock ordering under test")
         self._backend = orgtx.backend()
         orgtx.set_pause_hook(self._hook)
         self._undo.append(lambda: orgtx.set_pause_hook(None))
@@ -251,10 +281,14 @@ class Race:
         self._undo.append(lambda: delattr(locks, "acquire"))
 
         def waiting(a: Actor) -> str | None:
-            with locks._cv:                         # the lock manager's own state
-                if a.lock_owner is None or a.lock_owner not in locks._waits:
-                    return None
-                return "row lock (RowLocks wait-for table)"
+            if a.lock_owner is None:
+                return None
+            if hasattr(locks, "waiting"):           # PG-0 round 2: public view
+                blockers = locks.waiting(a.lock_owner)
+            else:
+                with locks._cv:                     # the lock manager's own state
+                    blockers = frozenset(locks._waits.get(a.lock_owner, ()))
+            return "row lock (RowLocks wait-for table)" if blockers else None
         self._waiting = waiting
 
     def _wrap_pg_open(self) -> None:

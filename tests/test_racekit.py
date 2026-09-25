@@ -200,6 +200,22 @@ class RaceKit(unittest.TestCase):
             with self.assertRaisesRegex(racekit.RaceFailure, 'disposable_pg'):
                 racekit.Race().__enter__()
 
+    def test_fence_state_is_recorded(self) -> None:
+        with racekit.Race(pair='converted') as race:
+            pass
+        self.assertIn(race.facts['transition_fence'], ('absent', 'off'))
+        self.assertEqual(race.facts['pair'], 'converted')
+
+    def test_converted_pair_refuses_with_the_fence_on(self) -> None:
+        with patch.object(orgtx, 'TRANSITION_FENCE', True, create=True):
+            with self.assertRaisesRegex(racekit.RaceFailure, 'TRANSITION_FENCE'):
+                racekit.Race(pair='converted').__enter__()
+            with racekit.Race(pair='unconverted') as race:
+                pass
+            self.assertEqual(race.facts['transition_fence'], 'on')
+        with self.assertRaises(ValueError):
+            racekit.Race(pair='both')
+
     def test_hook_is_cleared_and_probe_unwrapped_after(self) -> None:
         b = orgtx.backend()
         with racekit.Race():

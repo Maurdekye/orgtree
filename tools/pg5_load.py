@@ -91,10 +91,19 @@ def child(root: Path, nonce: str, config: dict) -> None:
             raise RuntimeError(f"store backend {store.STORE_BACKEND!r} is not the arm {config['arm']!r}")
         if config["arm"] == "postgres":
             store.claim_data_root()           # migrates the disposable database
+        from orgtree import orgtx
+        fence = "absent"
+        if hasattr(orgtx, "TRANSITION_FENCE"):
+            if config.get("fence") == "off":
+                orgtx.TRANSITION_FENCE = False
+            fence = "on" if orgtx.TRANSITION_FENCE else "off"
+        elif config.get("fence") == "off":
+            fence = "absent (requested off; this build has no fence)"
         adapter.fixture(AGENTS)
         slug, _ = adapter.item("pg5 load", AGENTS)
         rows = [measure(adapter, slug, mode, config) for mode in config["modes"]]
         result = {"arm": config["arm"], "store_backend": store.STORE_BACKEND,
+                  "transition_fence": fence,
                   "provenance": list(adapter.provenance), "workloads": rows}
         (root / "arm.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     finally:
@@ -264,7 +273,10 @@ def run_arm(arm: str, interpreter: str, args, config: dict) -> dict:
                 sys.path.insert(0, args.pydeps)
             url = _disposable_db(args.pg_admin_url)
             env["ORGTREE_PG_URL"] = url
-        cfg = dict(config, arm=arm, pydeps=args.pydeps or "")
+        # plan decision 19: the "after" (postgres) arm runs with the
+        # transition fence OFF, so it measures row locks, not DOC_LOCK again
+        cfg = dict(config, arm=arm, pydeps=args.pydeps or "",
+                   fence="off" if arm == "postgres" and args.after_fence == "off" else "as-built")
         cmd = [interpreter, "-I", "-B", str(Path(__file__).resolve()), "--child",
                "--root", str(root), "--nonce", nonce, "--config", json.dumps(cfg)]
         free_before = _free_commit_gb()
@@ -297,6 +309,8 @@ def main(argv=None) -> int:
     p.add_argument("--python", help="interpreter (selected via run-python-verification)")
     p.add_argument("--timeout", type=float, default=900)
     p.add_argument("--min-free-commit-gb", type=float, default=8.0)
+    p.add_argument("--after-fence", choices=["off", "as-built"], default="off",
+                   help="orgtx.TRANSITION_FENCE in the postgres arm (plan decision 19: off)")
     p.add_argument("--output")
     p.add_argument("--child", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--root", help=argparse.SUPPRESS)
