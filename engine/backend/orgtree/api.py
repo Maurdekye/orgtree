@@ -5680,7 +5680,11 @@ def node_message(slug: str, nid: str, body: Message,
             missing.append(f"{extra} further attachment(s) — past the "
                            f"{ledger_mod.ATTACHMENT_MAX}-per-message limit")
     # PG-3d: a row transaction on the recipient's rows, not DOC_LOCK
-    with _entry_ledger_422(mailtx.org_of(slug, **mailtx.send_rows(nid))) as org:
+    # (a quoted reply may mint the node's reply-event incarnation, so it
+    # names that row too — reply_events.incarnation mints on this Org)
+    rows = mailtx.merge(mailtx.send_rows(nid),
+                        sections=["reply_incarnation"] if body.reply_to is not None else [])
+    with _entry_ledger_422(mailtx.org_of(slug, **rows)) as org:
         try:
             reply_meta: dict[str, Any] | None = None
             if body.reply_to is not None and target is None:
@@ -13888,9 +13892,12 @@ def retained_reply_events(slug: str, nid: str) -> dict[str, Any]:
 def clear_reply_events(slug: str, nid: str) -> dict[str, Any]:
     """Explicit operator removal of retained reply quotes for one agent."""
     from . import reply_events
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
-        org.node(nid)
+    # PG-3d: that node's row, not DOC_LOCK
+    with _entry_ledger_422(mailtx.org_of(slug, nodes=[nid]), 404) as org:
+        try:
+            org.node(nid)
+        except LedgerError as e:
+            raise HTTPException(404, str(e))
         count = reply_events.clear(org, nid)
     return {'removed':count}
 
