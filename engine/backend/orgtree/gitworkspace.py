@@ -91,13 +91,8 @@ def identify(path: str) -> dict[str, Any]:
 
 def org_facts(slug: str) -> dict[str, Any]:
     # Never call supervisor.scratch_dir here: that accessor creates directories.
-    # PG-3r/PG-3f: a lock-free coherent read; nothing written to it is saved.
-    # `work_items_archive` is a LAZY section that roots()/the item checks read,
-    # so it is named here (org_read only captures the lazy sections it names).
-    org = orgtx.org_read(slug, sections=["work_items_archive"])
-    facts = deepcopy(org.d)
-    facts["work_items_archive"] = deepcopy(org.d.get("work_items_archive") or [])
-    return facts
+    # PG-3r: a lock-free coherent read; nothing written to it is saved.
+    return deepcopy(orgtx.org_read(slug).d)
 
 
 def roots(slug: str, facts: dict[str, Any] | None = None) -> list[str]:
