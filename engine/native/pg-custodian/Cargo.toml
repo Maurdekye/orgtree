@@ -1,0 +1,29 @@
+[package]
+name = "orgtree-pg-custodian"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "P03 custodian: the one component allowed to create, start, stop and identify a disposable private PostgreSQL cluster under an explicit prototype root"
+license = "MIT"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "pg-custodian"
+path = "src/main.rs"
+
+# Every dependency is listed with its version, licence and purpose in
+# DEPENDENCIES.md. Adding one here without a row there is a review finding.
+[dependencies]
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.150"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Security_Cryptography",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+] }
