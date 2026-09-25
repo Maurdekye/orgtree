@@ -19769,8 +19769,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
             # same transaction that makes the binding real.
             if _g_acct.startswith("missing:"):
                 _g_parked = False
-                with store.DOC_LOCK:
-                    o_g = store.load_org(slug)
+                with halt.txn(slug, nodes=[nid]) as _g_tx:  # PG-3e-A: the agent's row
+                    o_g = _g_tx.org
                     if (nid in o_g.nodes
                             and not o_g.node(nid).get("frozen")):
                         _g_tier = str(o_g.node(nid).get("model") or "")
@@ -19785,7 +19785,6 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                         "it, then resume")
                         fzg["reset_src"] = "account"
                         fzg["resource_pool"] = ""
-                        store.save_org(o_g)
                         _g_parked = True
                 if _g_parked:
                     _parked_announce(slug, nid, "account",
@@ -19824,8 +19823,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 if _g_sub_bound or (not _g_acct and apikey_lane_row(
                         "claude", _g_tier0) is None):
                     _g_parked2 = False
-                    with store.DOC_LOCK:
-                        o_g = store.load_org(slug)
+                    with halt.txn(slug, nodes=[nid]) as _g_tx:  # PG-3e-A: the agent's row
+                        o_g = _g_tx.org
                         if (nid in o_g.nodes
                                 and not o_g.node(nid).get("frozen")):
                             fzg = _ensure_frozen(o_g.node(nid))
@@ -19848,7 +19847,6 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                     "then resume"))
                             fzg["reset_src"] = "account"
                             fzg["resource_pool"] = ""
-                            store.save_org(o_g)
                             _g_parked2 = True
                     if _g_parked2:
                         _parked_announce(slug, nid, "account",
@@ -19862,8 +19860,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 # which is the precedence working, not a hole in it.
                 _g_mark = None
             if _g_mark:
-                with store.DOC_LOCK:
-                    o_g = store.load_org(slug)
+                with halt.txn(slug, nodes=[nid]) as _g_tx:  # PG-3e-A: the agent's row
+                    o_g = _g_tx.org
                     if (nid in o_g.nodes
                             and not o_g.node(nid).get("frozen")):
                         _g_tier = str(o_g.node(nid).get("model") or "")
@@ -19881,7 +19879,6 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         fzg["resource_pool"] = (
                             accounts.FABLE if _g_tier == accounts.FABLE
                             else "+".join(accounts.POOLED))
-                        store.save_org(o_g)
         st["waiting"] = True
         _slot_wait_t0 = time.monotonic()
         with _InterruptibleTurnSlot(st):
