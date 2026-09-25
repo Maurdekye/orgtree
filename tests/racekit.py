@@ -59,9 +59,15 @@ import threading
 import time
 import traceback
 from typing import Any, Callable
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit, urlunsplit
 
-from orgtree import orgtx, store
+if TYPE_CHECKING:
+    from orgtree import orgtx
+
+# orgtree is imported where it is used, never at import time: a test must be
+# able to create its disposable database (disposable_pg) BEFORE store reads
+# ORGTREE_STORE / ORGTREE_PG_URL.
 
 WAIT_S = 5.0
 
@@ -109,6 +115,7 @@ def _inside(child: Path, parent: Path) -> bool:
 
 def isolation_proof() -> dict[str, str]:
     """Why this process may force races: returns the facts, or raises."""
+    from orgtree import store
     if os.environ.get("ORGTREE_ORGTX_TEST_HOOKS", "") != "1":
         raise RaceFailure("racekit needs ORGTREE_ORGTX_TEST_HOOKS=1")
     tmp = Path(tempfile.gettempdir()).resolve()
@@ -185,6 +192,7 @@ class Race:
 
     # ------------------------------------------------------------ arming
     def __enter__(self) -> "Race":
+        from orgtree import orgtx
         self.facts = isolation_proof()
         self._backend = orgtx.backend()
         orgtx.set_pause_hook(self._hook)
