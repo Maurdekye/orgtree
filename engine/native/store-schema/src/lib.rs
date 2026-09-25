@@ -20,9 +20,24 @@ pub struct Migration {
     pub name: &'static str,
     pub file: &'static str,
     pub sql: &'static str,
+}
+
+impl Migration {
     /// The minimum store-writer version that understands the schema once this
-    /// migration is applied (recorded by the WS1 runner).
-    pub min_writer: u32,
+    /// migration is applied: the optional FIRST-line header
+    /// `-- orgtree:min_writer=N` (covered by the checksum), else 1. The WS1
+    /// runner reads the same header from the file at run time.
+    pub fn min_writer(&self) -> u32 {
+        header_min_writer(self.sql)
+    }
+}
+
+pub fn header_min_writer(sql: &str) -> u32 {
+    let first = normalized(sql).lines().next().unwrap_or("").trim().to_string();
+    first
+        .strip_prefix("-- orgtree:min_writer=")
+        .and_then(|n| n.trim().parse().ok())
+        .unwrap_or(1)
 }
 
 macro_rules! migration {
@@ -32,7 +47,6 @@ macro_rules! migration {
             name: $name,
             file: $file,
             sql: include_str!(concat!("../migrations/", $file)),
-            min_writer: 1,
         }
     };
 }
@@ -46,6 +60,7 @@ pub const MIGRATIONS: &[Migration] = &[
     migration!(5, "mail", "0005_mail.sql"),
     migration!(6, "requests_charters_runtime", "0006_requests_charters_runtime.sql"),
     migration!(7, "publication", "0007_publication.sql"),
+    migration!(8, "grants", "0008_grants.sql"),
 ];
 
 /// Migration number ranges per workstream, so parallel branches never collide.
@@ -58,7 +73,13 @@ pub const RANGES: &[(&str, u32, u32)] = &[
     ("WS7", 500, 599),
 ];
 
-/// The pinned checksums (`<sha256 hex>  <file>` per line, LF-normalized content).
+/// The pinned checksums (`<sha256 hex>  <file>` per line, two spaces).
+///
+/// HASHING RULE, shared verbatim with the WS1 migration runner (which reads
+/// `migrations/` and this file at run time): sha256 over the file's bytes
+/// with EVERY carriage return (CR) removed, nothing else changed (no trimming, no BOM
+/// handling). The runner applies exactly those CR-stripped bytes. Changing
+/// [`normalized`] requires telling WS1 first.
 pub const MANIFEST: &str = include_str!("../migrations/SHA256SUMS");
 
 /// Tables that are not organization-scoped (no `org_id`).

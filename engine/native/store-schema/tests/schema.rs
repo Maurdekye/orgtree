@@ -228,3 +228,96 @@ fn control_comment_and_dollar_bodies_do_not_hide_tables() {
     assert_eq!(s.tables.len(), 1);
     assert_eq!(s.tables[0].name, "t");
 }
+
+// ---- runner compatibility (WS1 applies each file in ONE transaction)
+
+#[test]
+fn migrations_carry_no_transaction_control_or_concurrent_index() {
+    use orgtree_store_schema::lint::{split_statements, strip_comments};
+    for m in MIGRATIONS {
+        for stmt in split_statements(&strip_comments(m.sql)) {
+            let up = stmt.split_whitespace().collect::<Vec<_>>().join(" ").to_ascii_uppercase();
+            for bad in ["BEGIN", "COMMIT", "ROLLBACK", "START TRANSACTION", "SAVEPOINT"] {
+                assert!(!(up == bad || up.starts_with(&format!("{bad} ")) || up.starts_with(&format!("{bad};"))), "{}: {stmt}", m.file);
+            }
+            assert!(!up.contains("CONCURRENTLY"), "{}: {stmt}", m.file);
+        }
+    }
+}
+
+#[test]
+fn min_writer_header_is_read_from_the_first_line_only() {
+    use orgtree_store_schema::header_min_writer;
+    assert_eq!(header_min_writer("-- orgtree:min_writer=3\nCREATE TABLE t ();"), 3);
+    assert_eq!(header_min_writer("-- orgtree:min_writer=3\r\nCREATE TABLE t ();"), 3);
+    assert_eq!(header_min_writer("CREATE TABLE t ();\n-- orgtree:min_writer=3"), 1);
+    assert_eq!(header_min_writer("-- something else"), 1);
+    for m in MIGRATIONS {
+        assert_eq!(m.min_writer(), 1, "{}", m.file);
+    }
+}
+
+// ---- grants (0008): every table has a deliberate runtime grant, the
+// replication role reads exactly the published set, receipts only through
+// their safe columns, and retained tables have no DELETE.
+
+fn grants() -> Vec<(String, Vec<String>, String)> {
+    use orgtree_store_schema::lint::{split_statements, strip_comments};
+    let mut out = Vec::new();
+    for m in MIGRATIONS {
+        for stmt in split_statements(&strip_comments(m.sql)) {
+            let s = stmt.split_whitespace().collect::<Vec<_>>().join(" ");
+            let Some(rest) = s.strip_prefix("GRANT ") else { continue };
+            let (privs, rest) = rest.split_once(" ON ").unwrap();
+            let (objs, to) = rest.rsplit_once(" TO ").unwrap();
+            if objs.starts_with("SCHEMA ") {
+                continue;
+            }
+            let objs: Vec<String> = objs.split(',').map(|o| o.trim().to_string()).collect();
+            out.push((privs.to_string(), objs, to.to_string()));
+        }
+    }
+    assert!(out.len() >= 5, "parsed only {} grants: the check did not run", out.len());
+    out
+}
+
+#[test]
+fn every_table_has_a_runtime_grant_and_retained_tables_have_no_delete() {
+    let s = schema();
+    let g = grants();
+    let runtime: Vec<&(String, Vec<String>, String)> = g.iter().filter(|x| x.2.contains("orgtree_runtime")).collect();
+    for t in &s.tables {
+        let mine: Vec<&String> = runtime.iter().filter(|x| x.1.iter().any(|o| o == &t.name)).map(|x| &x.0).collect();
+        assert_eq!(mine.len(), 1, "{} needs exactly one runtime grant, has {:?}", t.name, mine);
+        let has_delete = mine[0].contains("DELETE");
+        let retained = ["operation_receipts", "restrictions", "work_item_versions", "charter_versions", "price_catalog",
+                        "mail_sent", "store_incarnation", "legacy_work_names", "publication_catalog"];
+        assert_eq!(has_delete, !retained.contains(&t.name.as_str()), "{}: DELETE granted = {has_delete}", t.name);
+        if t.name == "store_incarnation" {
+            assert_eq!(mine[0], "SELECT", "only the custodian writes store_incarnation");
+        }
+    }
+}
+
+#[test]
+fn the_replication_role_reads_exactly_the_published_set() {
+    let g = grants();
+    let mut tables: BTreeSet<String> = BTreeSet::new();
+    let mut receipt_cols: Option<String> = None;
+    for (privs, objs, to) in g.iter().filter(|x| x.2.contains("orgtree_repl")) {
+        let _ = to;
+        if privs.starts_with("SELECT (") {
+            assert_eq!(objs, &vec!["operation_receipts".to_string()]);
+            receipt_cols = Some(privs.clone());
+        } else {
+            assert_eq!(privs, "SELECT");
+            tables.extend(objs.iter().cloned());
+        }
+    }
+    let want: BTreeSet<String> = PUBLISHED.iter().filter(|t| **t != "operation_receipts").map(|t| t.to_string()).collect();
+    assert_eq!(tables, want);
+    let cols = receipt_cols.expect("no column grant on operation_receipts");
+    let inner = cols.trim_start_matches("SELECT (").trim_end_matches(')');
+    let got: Vec<&str> = inner.split(',').map(str::trim).collect();
+    assert_eq!(got, RECEIPT_PUBLISHED_COLUMNS);
+}
