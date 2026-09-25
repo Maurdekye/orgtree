@@ -70,6 +70,11 @@ pub struct Vector {
     pub generation: i64,
     pub halted: bool,
     pub chain: Vec<ChainNode>,
+    /// WS4 `charter.capture`: the captured charter content, (principal, kind,
+    /// version, body sha256) in vector order. Default for vectors stored
+    /// before it existed (WS5 ack, 2026-09-25).
+    #[serde(default)]
+    pub bodies: Vec<(Uuid, String, i64, String)>,
 }
 
 pub const CAP_EPOCH_SQL: &str = "SELECT lifecycle, generation, halted FROM authority_epoch WHERE org_id = $1 AND principal_id = $2";
@@ -109,6 +114,7 @@ impl Read for Capture {
             generation: er.get(1).and_then(Val::as_int).unwrap_or(-1),
             halted: er.get(2) == Some(&Val::Bool(true)),
             chain: Vec::new(),
+            bodies: Vec::new(),
         };
         let mut cur = Some(self.seat);
         while let Some(n) = cur {
