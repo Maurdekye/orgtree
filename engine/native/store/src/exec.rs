@@ -786,7 +786,11 @@ impl<C: Connector> Executor<C> {
             // a transaction is open, so after-minus-baseline is exact.
             let rows = db!(tx.exec("trace.xact_stats", XACT_STATS_SQL, &[]).await, false);
             let after = xact_tables(&rows);
-            let base = tx.xact_baseline.take().unwrap_or_default();
+            let mut base = tx.xact_baseline.take().unwrap_or_default();
+            // Q-C5 unsafe control: report the raw pending counters (no baseline).
+            if controls::fire(&tx.scope(), "Q-C5.no_xact_baseline") {
+                base.clear();
+            }
             let tables = xact_diff(&base, &after);
             tx.emit(EventKind::XactStats { tables: &tables });
             // Relation-level locks this backend holds (lead ruling 09:09Z):
