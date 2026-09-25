@@ -29522,8 +29522,19 @@ def _auto_resume_org(slug: str, now: float | None = None) -> bool:
     """Run one org's real consent -> claim -> resume scheduler path."""
     from . import account_fallback
     now = time.time() if now is None else now
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
+    # PG-3e-A: one halt transaction over the nodes frozen at planning time
+    # (the cached snapshot) — the only rows the wake-deadline stamp writes —
+    # with spend_frozen read FOR SHARE. A node that froze after the plan was
+    # stamped by its own freeze writer (`commit_node_wake` runs wherever a
+    # freeze is written) and is re-stamped on the next tick.
+    try:
+        _ar_frozen = [k for k, v in store.cached_org(slug).nodes.items()
+                      if v.get("frozen")]
+    except Exception:                                    # noqa: BLE001
+        _ar_frozen = []
+    with halt.txn(slug, nodes=_ar_frozen,
+                  share_sections=["spend_frozen"]) as _ar_tx:
+        org = _ar_tx.org
         if org.d.get("spend_frozen"):
             return True
         # ⚠ BEFORE the readiness query, and it WRITES. Each frozen node records
@@ -29533,8 +29544,9 @@ def _auto_resume_org(slug: str, now: float | None = None) -> bool:
         # wake never being taken (review round 5). Runs on every tick whether
         # or not `auto_resume` is on, because the BADGE reads this too and the
         # user's rule is that the two agree.
-        if commit_wake_deadlines(org, now):
-            store.save_org(org)
+        for _ar_nid in _ar_frozen:
+            if _ar_nid in org.nodes:
+                commit_node_wake(org.node(_ar_nid), now)
         ready = auto_resume_ready(org, now)
         if not org.d.get("auto_resume"):
             # connection wakes always pass; a LIMIT wake passes only on the
@@ -29591,10 +29603,8 @@ def _auto_resume_org(slug: str, now: float | None = None) -> bool:
         except Exception:                                      # noqa: BLE001
             _release_limit_probe(slug, nid, token=token)
     if resumed:
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            org.d["auto_resume_last"] = now
-            store.save_org(org)
+        with halt.txn(slug, sections=["auto_resume_last"]) as _arl_tx:
+            _arl_tx.org.d["auto_resume_last"] = now
     return True
 
 
