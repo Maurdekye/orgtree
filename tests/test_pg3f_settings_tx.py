@@ -241,6 +241,51 @@ class ParticipantsSelfHeal(unittest.TestCase):
         self.assertIn(healed, out[0])
 
 
+class DesktopRecovery(unittest.TestCase):
+    def _org(self) -> str:
+        slug = _fresh_org(desktop_import={
+            'active_nodes': ['w'], 'recovery_phase': 'held',
+            'recovery_intents': {'w': {'text': 'hi', 'view': 'hi'}}})
+        org = store.load_org(slug)
+        org.d['nodes']['w'] = {'id': 'w', 'name': 'w', 'parent': None,
+                               'children': [], 'state': 'live'}
+        store.save_org(org)
+        store.save_org(store.load_org(slug))
+        return slug
+
+    def test_status_and_resolve_never_wait_on_doc_lock(self) -> None:
+        from orgtree import desktop_recovery as rec
+        slug = self._org()
+        with _Held(lambda: store.DOC_LOCK):
+            done, out, _t = _run(lambda: rec.status(slug), FREE_S)
+            self.assertTrue(done, 'status waited on DOC_LOCK')
+            self.assertFalse(isinstance(out[0], BaseException), out)
+            row = out[0]['nodes'][0]
+            done, out, _t = _run(lambda: rec.resolve_import(
+                slug, [{'node': 'w', 'attempt': row['attempt'],
+                        'expected_phase': row['phase']}],
+                'mark-handled', True), FREE_S)
+            self.assertTrue(done, 'resolve_import waited on DOC_LOCK')
+        self.assertFalse(isinstance(out[0], BaseException), out)
+        self.assertEqual(out[0]['results'][0]['phase'], 'handled', out)
+        meta = _doc(slug)['desktop_import']
+        self.assertEqual(meta['recovery_attempts']['w']['phase'], 'handled')
+        self.assertFalse(meta['recovery_pending'])
+
+    def test_resolve_waits_for_a_holder_of_the_seat(self) -> None:
+        from orgtree import desktop_recovery as rec
+        slug = self._org()
+        row = rec.status(slug)['nodes'][0]
+        with _Held(lambda: orgtx.org_tx(slug, nodes=['w'])):
+            done, out, t = _run(lambda: rec.resolve_import(
+                slug, [{'node': 'w', 'attempt': row['attempt'],
+                        'expected_phase': row['phase']}],
+                'mark-handled', True), BLOCKED_S)
+            self.assertFalse(done, 'resolve_import did not wait for the seat row')
+        t.join(FREE_S)
+        self.assertEqual(out[0]['results'][0]['phase'], 'handled', out)
+
+
 class Semantics(unittest.TestCase):
     def test_disk_none_pops_and_other_keys_survive(self) -> None:
         slug = _fresh_org(disk={'size_mb': 4096, 'pending_size_mb': 5000})
