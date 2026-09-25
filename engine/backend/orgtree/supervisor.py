@@ -32851,20 +32851,65 @@ def _wd_stop_epoch_of(slug: str) -> int:
         return _wd_stop_epoch.get(slug, 0)
 
 
+class _WdSkip(Exception):
+    """Raised by a `_wd_write` body that decides to write nothing: the door
+    rolls its transaction back, the DOC_LOCK path skips the save."""
+
+
+def _wd_write(slug: str, fn: Callable[[Org, Callable[[Any], None]], Any],
+              owner: str | None = None) -> Any:
+    """PG-3c (plan decision 22): ONE watchdog write by the engine.
+
+    On the door (PostgreSQL, or ORGTREE_PGDOOR=1) it is one row transaction
+    on the dog rows — plus `owner`'s mail rows when it mails — not DOC_LOCK.
+    Elsewhere it keeps the DOC_LOCK load/save: on SQLite `org_tx` takes no
+    DOC_LOCK, so it would not serialise with the unconverted writers of the
+    same rows. `fn(org, hold)` does the write; `hold(spec)` re-checks, on the
+    locked document, that the rows it needs are held (a no-op off the door).
+    `fn` raising `_WdSkip` writes nothing and returns None."""
+    from . import pgdoor, rcdoor
+    try:
+        if pgdoor.enabled():
+            spec = (rcdoor.watchdog_fire_rows(owner) if owner
+                    else rcdoor.watchdog_rows())
+            return rcdoor.run_op(
+                slug, spec,
+                lambda h: fn(h.org, lambda need: rcdoor.hold(slug, need)))
+        with store.DOC_LOCK:
+            org = store.load_org(slug)
+            out = fn(org, lambda need: None)
+            store.save_org(org)
+            return out
+    except _WdSkip:
+        return None
+
+
+def _wd_owner_guess(slug: str, wid: str) -> str | None:
+    """The dog's owner as an unlocked read sees it — only to name the mail
+    rows up front; the body re-derives it under the locks and `hold`s."""
+    try:
+        return str(orgtx.org_read(slug)._watchdog(wid).get("owner") or "") \
+            or None
+    except LedgerError:
+        return None
+
+
 def _wd_pause(slug: str, wid: str, why: str) -> None:
     """Persist an engine-side pause with its reason, so `resume` is an
     informed choice rather than a guess (the reason clears on resume)."""
-    with store.DOC_LOCK:
+    def _pause(org: Org, hold: Callable[[Any], None]) -> None:
         try:
-            org = store.load_org(slug)
             w = org._watchdog(wid)
-            if w.get("state") != "armed":
-                return
-            w["state"] = "paused"
-            w["paused_why"] = why
-            store.save_org(org)
         except LedgerError:
-            return
+            raise _WdSkip() from None
+        if w.get("state") != "armed":
+            raise _WdSkip()
+        w["state"] = "paused"
+        w["paused_why"] = why
+    try:
+        _wd_write(slug, _pause)
+    except LedgerError:
+        return
 
 
 def _wd_fire(slug: str, wid: str, name: str, lines: list[str],
@@ -32892,29 +32937,34 @@ def _wd_fire(slug: str, wid: str, name: str, lines: list[str],
     # NOT enough: a one-shot dog deletes itself as part of firing, so it has no
     # state left to read and would sail through. The epoch has no such hole.
     epoch0 = _wd_stop_epoch_of(slug)
+
+    def _fire(org: Org, hold: Callable[[Any], None]) -> tuple[Any, ...]:
+        from . import rcdoor
+        # ⚠ READ THE FLAGS BEFORE THE FIRE, under the SAME lock (D-200).
+        # This used to read `notice` AFTER `watchdog_fire` returned, which
+        # was correct while a fire always left the dog in place. A
+        # ONE-SHOT dog is gone from the document by the time the fire
+        # returns, so the lookup would raise, `notice` would fall back to
+        # False, and every one-shot NOTICE dog would silently WAKE its
+        # owner — the exact opposite of what it was armed with, with
+        # nothing anywhere to show why. Reading first keeps the original
+        # invariant (one lock spans both, so no other dog's setting can
+        # be substituted) and survives the removal.
+        try:
+            w0 = org._watchdog(wid)
+            flags = (bool(w0.get("notice")), bool(w0.get("once")),
+                     str(w0.get("kind") or ""))
+            o0 = str(w0.get("owner") or "")
+        except LedgerError:
+            flags, o0 = (False, False, ""), ""
+        # the owner's mail rows, re-derived from the locked dog (PG-3c)
+        hold(rcdoor.watchdog_fire_rows(o0) if o0 else rcdoor.watchdog_rows())
+        return flags + (org.watchdog_fire(wid, lines[0] if lines else "event",
+                                          lines=lines, prefix=prefix),)
+
     try:
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            # ⚠ READ THE FLAGS BEFORE THE FIRE, under the SAME lock (D-200).
-            # This used to read `notice` AFTER `watchdog_fire` returned, which
-            # was correct while a fire always left the dog in place. A
-            # ONE-SHOT dog is gone from the document by the time the fire
-            # returns, so the lookup would raise, `notice` would fall back to
-            # False, and every one-shot NOTICE dog would silently WAKE its
-            # owner — the exact opposite of what it was armed with, with
-            # nothing anywhere to show why. Reading first keeps the original
-            # invariant (one lock spans both, so no other dog's setting can
-            # be substituted) and survives the removal.
-            try:
-                w0 = org._watchdog(wid)
-                notice = bool(w0.get("notice"))
-                one_shot = bool(w0.get("once"))
-                kind = str(w0.get("kind") or "")
-            except LedgerError:
-                notice = one_shot = False
-            owner = org.watchdog_fire(wid, lines[0] if lines else "event",
-                                      lines=lines, prefix=prefix)
-            store.save_org(org)
+        notice, one_shot, kind, owner = _wd_write(
+            slug, _fire, owner=_wd_owner_guess(slug, wid))
     except LedgerError:
         return
     if one_shot and owner and kind == "stream":
@@ -33032,15 +33082,16 @@ def _wd_alert(slug: str, wid: str, lost: dict[str, Any]) -> None:
     under the doc lock, and ONLY a dog this call actually claimed goes on to
     mail. A dog silently paused and never announced would turn a wait into a
     permanent AND invisible one — worse than the bug being fixed."""
-    owner = None
-    with store.DOC_LOCK:
+    def _alert(org: Org, hold: Callable[[Any], None]) -> Any:
+        from . import rcdoor
         try:
-            org = store.load_org(slug)
             w = org._watchdog(wid)
         except LedgerError:
-            return
+            raise _WdSkip() from None
         if w.get("state") != "armed" or w.get("alerted_why") == lost["why"]:
-            return                            # already told them, or not ours
+            raise _WdSkip()                   # already told them, or not ours
+        o0 = str(w.get("owner") or "")
+        hold(rcdoor.watchdog_fire_rows(o0) if o0 else rcdoor.watchdog_rows())
         w["alerted_why"] = lost["why"]
         owner = org.watchdog_alert(wid, ev=wd_alert_event(org, w, lost))
         if owner and lost.get("pause"):
@@ -33049,7 +33100,12 @@ def _wd_alert(slug: str, wid: str, lost: dict[str, Any]) -> None:
             # permanent AND invisible one, which is worse than the bug
             w["state"] = "paused"
             w["paused_why"] = f"{lost['headline']} — {lost['advice']}"
-        store.save_org(org)
+        return owner
+
+    try:
+        owner = _wd_write(slug, _alert, owner=_wd_owner_guess(slug, wid))
+    except LedgerError:
+        return
     if not owner:
         return
     mail_spark(slug, "dogalert:" + wid, owner)
@@ -33253,12 +33309,11 @@ def _wd_cmd_submit(slug: str, w: dict[str, Any], org: Org,
                                     fut.result())
         except Exception:                                        # noqa: BLE001
             return
-        with store.DOC_LOCK:
+        def _mark(o2: Org, hold: Callable[[Any], None]) -> Any:
             try:
-                o2 = store.load_org(slug)
                 w2 = o2._watchdog(wid)
             except LedgerError:
-                return                          # removed mid-check
+                raise _WdSkip() from None       # removed mid-check
             # ⚠ NOT "the command failed" — a `findstr` waiting for a string
             # that has not appeared exits 1 on every check, and that is a
             # HEALTHY dog doing its job. The countable thing is narrower: the
@@ -33274,8 +33329,14 @@ def _wd_cmd_submit(slug: str, w: dict[str, Any], org: Org,
             _wd_mark_check(w2, now_t, raw, code)
             if not broke:
                 w2.pop("alerted_why", None)
-            store.save_org(o2)
-            lost = wd_subject_lost(w2)
+            return (wd_subject_lost(w2),)
+        try:
+            got = _wd_write(slug, _mark)
+        except LedgerError:
+            return
+        if got is None:
+            return                              # removed mid-check
+        lost = got[0]
         if lines:
             _wd_fire(slug, wid, str(w["name"]), lines)
         if lost:
@@ -33299,7 +33360,7 @@ def _wd_tick() -> None:
     # full load PER ORG every 5 s — even with zero dogs anywhere — and was
     # the fastest of the six loops re-parsing the unchanged root. The org
     # here is READ-ONLY; every state change below goes through its own
-    # DOC_LOCK load (_wd_pause, _wd_mark_check's block, the stream exits).
+    # write of its own (_wd_write: _wd_pause, the check marks, the stream exits).
     for o in store.cached_list():
         slug = str(o["slug"])
         try:
@@ -33336,12 +33397,13 @@ def _wd_tick() -> None:
                 _wd_cmd_submit(slug, w, org, now_t)
                 continue
             lines, hw, seen = _wd_check_poll(slug, w, org)
-            with store.DOC_LOCK:
-                o2 = store.load_org(slug)
+            def _mark(o2: Org, hold: Callable[[Any], None],
+                      wid: str = wid, hw: dict[str, Any] = hw,
+                      seen: Any = seen, now_t: float = now_t) -> Any:
                 try:
                     w2 = o2._watchdog(wid)
                 except LedgerError:
-                    continue                    # removed mid-check
+                    raise _WdSkip() from None   # removed mid-check
                 w2["high_water"] = hw
                 _wd_mark_check(w2, now_t, seen)
                 if not int(hw.get("quiet") or 0):
@@ -33349,8 +33411,11 @@ def _wd_tick() -> None:
                     # that goes quiet, resumes and goes quiet again is
                     # reported both times (D-176)
                     w2.pop("alerted_why", None)
-                store.save_org(o2)
-                lost = wd_subject_lost(w2)
+                return (wd_subject_lost(w2),)
+            got = _wd_write(slug, _mark)
+            if got is None:
+                continue                        # removed mid-check
+            lost = got[0]
             if lines:
                 _wd_fire(slug, wid, str(w["name"]), lines)
             if lost:
@@ -33404,15 +33469,17 @@ def _wd_ensure_stream(slug: str, org: Org, w: dict[str, Any],
         _wd_fire(slug, key[1], str(w["name"]),
                  tail + [f"(stream exited with code {code})"],
                  prefix=" STREAM EXITED —")
-        with store.DOC_LOCK:
+        def _exited(o2: Org, hold: Callable[[Any], None]) -> None:
             try:
-                o2 = store.load_org(slug)
                 w2 = o2._watchdog(key[1])
-                w2["state"] = "exited"
-                w2["exit"] = {"code": code, "at": now_iso()}
-                store.save_org(o2)
             except LedgerError:
-                pass
+                raise _WdSkip() from None
+            w2["state"] = "exited"
+            w2["exit"] = {"code": code, "at": now_iso()}
+        try:
+            _wd_write(slug, _exited)
+        except LedgerError:
+            pass
         return
     # not running — spawn + reader
     try:
@@ -33461,19 +33528,21 @@ def _wd_stream_stats(slug: str, wid: str, ent: dict[str, Any]) -> None:
         if seen == ent["pushed"] or time.time() - float(ent["pushed_at"]) < 60:
             return
         ent["pushed"], ent["pushed_at"] = seen, time.time()
-    with store.DOC_LOCK:
+    def _stats(o2: Org, hold: Callable[[Any], None]) -> None:
         try:
-            o2 = store.load_org(slug)
             w2 = o2._watchdog(wid)
         except LedgerError:
-            return
+            raise _WdSkip() from None
         w2["last_check"] = now_iso()
         w2["_last_check_ts"] = time.time()
         # for a stream, "checks" are OUTPUT LINES READ — the same question
         # (has this dog had anything to work with?) asked of a listener
         w2["checks_run"] = seen
         w2["last_output"] = line
-        store.save_org(o2)
+    try:
+        _wd_write(slug, _stats)
+    except LedgerError:
+        return
 
 
 def _wd_reap_stream(key: tuple[str, str]) -> None:
