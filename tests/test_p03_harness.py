@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import sys
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -187,6 +188,49 @@ class ForcedInterleaving(unittest.TestCase):
         self.assertEqual(result.verdict, FAILED)
         self.assertIn("A ended 'error', intended 'applied'", result.reasons)
 
+    def test_an_early_release_names_the_attempt_it_is_for(self):
+        """A release sent early for attempt 2 must not free attempt 1: attempt 1
+        stays held until its own release, and attempt 2 then consumes the early one."""
+        order = Order(
+            "early-for-attempt-2",
+            [("start", "A"), ("release", "A", READ, 2), ("arrive", "A", READ),
+             ("release", "A", READ), ("arrive", "A", READ, 2), ("await_end", "A")],
+            [("before", f"released:A:{READ}@2", f"arrived:A:{READ}@2"),
+             ("sqlstate", "A", "40001"), ("outcome", "A", "applied")],
+            faults=[{"op_tag": "A", "point": WRITE, "action": "fail_next", "sqlstate": "40001"}])
+        one = Schedule("Q-FAKE1", {"A": (KIND, {})}, [order], pass_condition=lambda *_: True,
+                       step_timeout=3.0, plan_timeout=1.0)
+        result = run_order(FakeExecutor(OPS), one, order)
+        self.assertEqual(result.verdict, PASSED, result.reasons)
+        held = [r for r in result.records if r["kind"] == "tx_end"]
+        self.assertEqual([r["attempt"] for r in held], [1, 2])
+
+    def test_an_every_attempt_hold_holds_the_retry_again(self):
+        """Without ``attempt`` a hold applies to every attempt, and one release frees
+        one arrival: the retry is held again until a second release."""
+        fake = FakeExecutor(OPS)
+        fake.install_plan({"type": "plan", "run_id": "r", "controls": [], "holds": [
+            {"op_tag": "A", "point": READ, "action": "hold", "timeout_ms": 5000},
+            {"op_tag": "A", "point": WRITE, "action": "fail_next", "sqlstate": "40001",
+             "timeout_ms": 5000, "attempt": 1}]})
+        fake.start("A", KIND, {})
+
+        def next_kind(kind, timeout=3.0):
+            end = time.monotonic() + timeout
+            while time.monotonic() < end:
+                ev = fake.next_event(0.05)
+                if ev is not None and ev.get("kind") == kind and ev.get("point", READ) == READ:
+                    return ev
+            return None
+
+        self.assertEqual(next_kind("arrived")["attempt"], 1)
+        fake.release("A", READ)
+        self.assertEqual(next_kind("arrived")["attempt"], 2)
+        self.assertIsNone(next_kind("op_end", 0.4), "the retry was not held again")
+        fake.release("A", READ)
+        self.assertEqual(next_kind("op_end")["outcome"], "applied")
+        fake.finish()
+
     def test_a_hold_released_too_early_fails_the_run(self):
         """The meta-control on a real barrier: A's release is sent before B was
         started, so A never makes B wait. Every step of the script still ran."""
@@ -281,6 +325,46 @@ class OverSockets(unittest.TestCase):
         result = self.run_over(order, sched)
         self.assertEqual(result.verdict, FAILED)
         self.assertTrue(any(r.startswith("the service reported an error: hold at")
+                            for r in result.reasons), result.reasons)
+
+    def test_a_service_that_never_answers_finish_fails_the_run(self):
+        svc = FakeService(FakeExecutor(OPS), send_finished=False)
+        try:
+            ch = ServiceChannel(svc.host, run="x", timeout=1.5)
+            try:
+                result = run_order(ch, socket_schedule(), SAFE)
+            finally:
+                ch.close()
+        finally:
+            svc.close()
+        self.assertEqual(result.verdict, FAILED)
+        self.assertTrue(any("no finished frame" in r for r in result.reasons), result.reasons)
+
+    def test_an_operation_still_running_at_finish_fails_the_run(self):
+        """A is held and never released: at finish its request has not returned."""
+        order = Order("left-held", [("start", "A"), ("arrive", "A", WRITE)], [])
+        sched = Schedule("Q-FAKE1", {"A": (KIND, {})}, [order], pass_condition=lambda *_: True,
+                         plan_timeout=30.0)
+        svc = FakeService(FakeExecutor(OPS))
+        try:
+            ch = ServiceChannel(svc.host, run="x", timeout=1.5)
+            try:
+                result = run_order(ch, sched, order)
+            finally:
+                ch.close()
+        finally:
+            svc.close()
+        self.assertEqual(result.verdict, FAILED)
+        self.assertIn("the service reported an error: 1 operation(s) never returned",
+                      result.reasons)
+
+    def test_an_error_response_to_an_operation_fails_the_run(self):
+        order = Order("unknown-verb", [("start", "X")], [])
+        sched = Schedule("Q-FAKE1", {"X": ("no.such_verb", {})}, [order],
+                         pass_condition=lambda *_: True)
+        result = self.run_over(order, sched)
+        self.assertEqual(result.verdict, FAILED)
+        self.assertTrue(any(r.startswith("the service reported an error: X (no.such_verb)")
                             for r in result.reasons), result.reasons)
 
     def test_records_missing_from_the_end_verb_are_incomplete(self):
@@ -690,6 +774,16 @@ class Checkers(unittest.TestCase):
         self.assertFalse(silent["complete"])
         self.assertIn("no records at all", silent["streams"]["silent"]["problems"])
         self.assertFalse(stream_health(ok + [dict(self.rec(1), stream="stray")], ["s"])["complete"])
+
+    def test_backend_pids_are_learned_from_collector_records(self):
+        """The native collector's op_begin carries no pid; tx_begin and stmt do."""
+        from p03.harness.schedule import _absorb, _Recorder
+        rec = _Recorder()
+        _absorb(rec, {"kind": "op_begin", "op_tag": "A", "operation_id": "o"})
+        _absorb(rec, {"kind": "tx_begin", "op_tag": "A", "backend_pid": 17})
+        _absorb(rec, {"kind": "stmt", "op_tag": "B", "backend_pid": 18})
+        _absorb(rec, {"kind": "stmt", "op_tag": None, "backend_pid": 19})
+        self.assertEqual(rec.pids, {17: "A", 18: "B"})
 
     def test_compare_catches_a_reversed_order(self):
         achieved = [{"hseq": 1, "event": "end:B"}, {"hseq": 2, "event": "end:A"}]

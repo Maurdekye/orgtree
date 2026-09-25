@@ -49,8 +49,10 @@ def _recv(sock: socket.socket) -> "dict[str, Any] | None":
 
 
 class FakeService:
-    def __init__(self, fake: FakeExecutor) -> None:
+    def __init__(self, fake: FakeExecutor, *, send_finished: bool = True) -> None:
+        """``send_finished=False``: the harness endpoint never answers ``finish``."""
         self.fake = fake
+        self.send_finished = send_finished
         self._main = socket.create_server(("127.0.0.1", 0))
         self._harness = socket.create_server(("127.0.0.1", 0))
         self.host = {"port": self._main.getsockname()[1], "token": secrets.token_hex(32),
@@ -124,9 +126,9 @@ class FakeService:
                             self._hsend({"type": "error", "detail": str(e)})
                     elif kind == "release":
                         self.fake.release(frame["op_tag"], frame["point"], frame.get("attempt"))
-                    elif kind == "finish":
+                    elif kind == "finish" and self.send_finished:
                         self._hsend({"type": "finished", "streams": [], "records": []})
-                    else:
+                    elif kind != "finish":
                         self._hsend({"type": "error", "detail": f"unexpected frame {kind!r}"})
             except (OSError, ValueError):
                 pass
