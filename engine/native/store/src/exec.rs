@@ -723,6 +723,15 @@ impl<C: Connector> Executor<C> {
         #[cfg(not(feature = "qualification"))]
         let pre_commit_lsn: Option<String> = None;
         db!(tx.pause("before_commit").await, false);
+        // A FailNext planned at before_commit applies to the COMMIT itself:
+        // COMMIT is not a Tx::exec statement, so it would otherwise never be
+        // consumed (found by the DB-backed Q-C4 run, 2026-09-25).
+        #[cfg(feature = "qualification")]
+        if let Some(code) = tx.fail_next.take() {
+            let e = DbError::sql(&code);
+            tx.emit(EventKind::Statement { label: "exec.commit", sql: "COMMIT", micros: 0, rows: 0, sqlstate: Some(&code) });
+            return self.classify(&mut tx, family, e, claimed, false, true).await;
+        }
         let now = tx.now;
         match tx.sess.commit().await {
             Ok(()) => tx.emit(EventKind::Commit { pre_commit_lsn: pre_commit_lsn.as_deref() }),
