@@ -196,10 +196,13 @@ class OrgTxBasics(unittest.TestCase):
 
     def test_save_hooks_fire_after_commit_outside_locks(self) -> None:
         seen: list[str] = []
+        with orgtx.org_tx(self.slug, nodes=['a']):
+            pass                                # heal first (its save fires hooks)
 
         def hook(slug: str) -> None:
-            if slug != self.slug:
+            if slug != self.slug or seen:
                 return
+            seen.append('fired')
             out: list[str] = []
 
             def other() -> None:
@@ -218,7 +221,7 @@ class OrgTxBasics(unittest.TestCase):
                 tx.d['nodes']['a']['name'] = 'H'
         finally:
             store.save_hooks.remove(hook)
-        self.assertEqual(seen, ['got'])
+        self.assertEqual(seen, ['fired', 'got'])
 
     def test_org_read_never_saves(self) -> None:
         org = orgtx.org_read(self.slug, sections=['events'])
