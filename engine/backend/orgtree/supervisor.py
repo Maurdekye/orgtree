@@ -6338,11 +6338,13 @@ def _note_provider_attempt(slug: str, nid: str) -> None:
 
     Cheap and safe to call unconditionally: `_spend_admit_once` answers False
     for a node holding no pass, and nothing is written then. `DOC_LOCK` is an
-    RLock, so a caller already holding it is not deadlocked by this."""
-    with store.DOC_LOCK:
-        o = store.load_org(slug)
-        if _spend_admit_once(o, nid):
-            store.save_org(o)
+    RLock, so a caller already holding it is not deadlocked by this.
+    PG-3e-A: the pass lives on the agent's row, so this is one halt
+    transaction on it (joining an enclosing halt transaction that already
+    holds the row; after DOC_LOCK is fine — org_tx never waits on it the
+    other way round)."""
+    with _node_write(slug, nid) as o:
+        _spend_admit_once(o, nid)
 
 
 def _record_account_reset(account: str, tier: str, blob: str,
@@ -6413,34 +6415,34 @@ def _refresh_freeze_reset(slug: str, nid: str, blob: str,
         return False
     wrote = False
     corrected_freeze = False
-    with store.DOC_LOCK:
-        try:
-            o = store.load_org(slug)
-        except LedgerError:
-            return False
-        if nid not in o.nodes:
-            return False
-        same_account = not account or o.node(nid).get('account') == account
-        fz = o.node(nid).get("frozen")
-        if (freeze_moved and same_account and fz and fz.get("limit")
-                and fz.get("until_ts") == stamped_ts
-                and (stamped_kind is None
-                     or fz.get("schedule_kind") == stamped_kind)):
-            provenance = 'observed' if schedule_kind == 'observed-deadline' else 'inferred'
-            mark_owned = not account or registry.correct_mark(
-                account, tier, stamped_ts, ts, provenance=provenance)
-            if mark_owned:
-                if account:
-                    fz['provenance'] = provenance
-                fz["until_ts"] = ts
-                fz["until"] = (("capacity recheck " if schedule_kind == "probe"
-                                else "") + _reset_label(ts))
-                fz["reset_src"] = src
-                fz["schedule_kind"] = schedule_kind
-                wrote = corrected_freeze = True
-        if not wrote:
-            return False
-        store.save_org(o)
+    # PG-3e-A: the freeze lives on the agent's row. An unloadable org is
+    # still "nothing corrected" (the old load-time LedgerError return).
+    try:
+        with _node_write(slug, nid) as o:
+            if nid not in o.nodes:
+                return False
+            same_account = not account or o.node(nid).get('account') == account
+            fz = o.node(nid).get("frozen")
+            if (freeze_moved and same_account and fz and fz.get("limit")
+                    and fz.get("until_ts") == stamped_ts
+                    and (stamped_kind is None
+                         or fz.get("schedule_kind") == stamped_kind)):
+                provenance = 'observed' if schedule_kind == 'observed-deadline' else 'inferred'
+                mark_owned = not account or registry.correct_mark(
+                    account, tier, stamped_ts, ts, provenance=provenance)
+                if mark_owned:
+                    if account:
+                        fz['provenance'] = provenance
+                    fz["until_ts"] = ts
+                    fz["until"] = (("capacity recheck " if schedule_kind == "probe"
+                                    else "") + _reset_label(ts))
+                    fz["reset_src"] = src
+                    fz["schedule_kind"] = schedule_kind
+                    wrote = corrected_freeze = True
+            if not wrote:
+                return False
+    except LedgerError:
+        return False
     # the canonical instant, not `_reset_label`'s token: this is a server log
     # correlated across machines, and nothing localises it
     if corrected_freeze and ts:
@@ -20291,10 +20293,9 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 if not _g_pass:
                     return
                 _g_pass = False
-                with store.DOC_LOCK:
-                    _o_pass = store.load_org(slug)
-                    if _spend_admit_once(_o_pass, nid):
-                        store.save_org(_o_pass)
+                # PG-3e-A: the pass lives on the agent's row.
+                with _node_write(slug, nid) as _o_pass:
+                    _spend_admit_once(_o_pass, nid)
 
             if codex_harness_turn(org, nid, _turn_tier):
                 # THE PROVIDER SEAM (FR-15 M1b): a codex tier takes its own
