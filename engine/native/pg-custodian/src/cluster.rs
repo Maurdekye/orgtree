@@ -249,11 +249,16 @@ pub enum ClusterState {
     /// `pg/cluster` exists but is not a complete, consistent cluster.
     Incomplete { reason: String },
     Stopped { instance: InstanceRecord },
-    /// `postmaster.pid` names a live process whose image is our postgres.exe.
+    /// `postmaster.pid` names THIS cluster's postmaster: our postgres.exe,
+    /// started with `-D` this data folder, not a reused pid (`classify_holder`).
     /// `pm_status` is line 8 of postmaster.pid: starting, ready or STOPPING.
     Running { instance: InstanceRecord, postmaster_pid: u32, pm_status: Option<String>, runtime: Option<RuntimeRecord> },
-    /// `postmaster.pid` exists but its PID is dead or is not our postgres.exe.
-    StalePid { instance: InstanceRecord, pid: u32 },
+    /// `postmaster.pid` names a pid that is PROVABLY not this cluster's
+    /// postmaster (dead, reused, a child process, or another data folder's).
+    StalePid { instance: InstanceRecord, pid: u32, reason: String },
+    /// `postmaster.pid` names a live process whose identity cannot be proven
+    /// either way. Nothing signals it, and its lock is never removed.
+    Unidentified { instance: InstanceRecord, pid: u32, reason: String },
 }
 
 fn quarantined(layout: &Layout) -> usize {
@@ -311,8 +316,112 @@ pub fn lock_is_stale(pid_present: bool, holder_created_unix: Option<u64>, lock_s
     }
 }
 
+/// Who holds the pid that a postmaster.pid names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Holder {
+    /// Our postgres.exe, a postmaster started with `-D` THIS data folder, and
+    /// not a process that reused the pid.
+    Ours,
+    /// Provably not the postmaster that wrote this lock.
+    Foreign(String),
+    /// Alive, but its identity cannot be proven either way.
+    Unidentified(String),
+}
+
+/// What could be observed about a lock's pid holder (`holder_facts`).
+#[derive(Debug, Clone, Default)]
+pub struct HolderFacts {
+    pub present: bool,
+    pub image_is_ours: Option<bool>,
+    pub created_unix: Option<u64>,
+    pub argv: Option<Vec<String>>,
+}
+
+/// A postgres command line's `-D` value (`-D dir` or `-Ddir`).
+pub fn data_dir_arg(argv: &[String]) -> Option<&str> {
+    let mut it = argv.iter().skip(1);
+    while let Some(a) = it.next() {
+        if a == "-D" {
+            return it.next().map(|s| s.as_str());
+        }
+        if let Some(rest) = a.strip_prefix("-D").filter(|r| !r.is_empty()) {
+            return Some(rest);
+        }
+    }
+    None
+}
+
+/// Same folder after canonicalization; None when either side cannot be
+/// resolved (then nothing is proven).
+fn same_dir(a: &Path, b: &Path) -> Option<bool> {
+    Some(fs::canonicalize(a).ok()? == fs::canonicalize(b).ok()?)
+}
+
+/// The identity rule for a lock's pid holder. Every postgres.exe on this
+/// machine that runs from the same bin has the same image (other agents'
+/// clusters, and every backend), so the image alone proves nothing: only a
+/// postmaster whose own `-D` is this data folder is ours (review B1).
+pub fn classify_holder(f: &HolderFacts, lock_started_unix: Option<u64>, data: &Path) -> Holder {
+    if !f.present {
+        return Holder::Foreign("the pid is not running".into());
+    }
+    if lock_is_stale(true, f.created_unix, lock_started_unix) {
+        return Holder::Foreign("the pid was reused: its process was created after this lock's postmaster started".into());
+    }
+    match f.image_is_ours {
+        Some(true) => {}
+        Some(false) => return Holder::Unidentified("a live process that is not our postgres.exe, and pid reuse cannot be proven".into()),
+        None => return Holder::Unidentified("the process image cannot be read".into()),
+    }
+    let Some(argv) = &f.argv else {
+        return Holder::Unidentified("the process command line cannot be read".into());
+    };
+    if argv.iter().skip(1).any(|a| a.starts_with("--fork")) {
+        return Holder::Foreign("a postgres child process (backend or auxiliary), not a postmaster".into());
+    }
+    let Some(d) = data_dir_arg(argv) else {
+        return Holder::Unidentified("our postgres.exe, but its command line has no -D".into());
+    };
+    match same_dir(Path::new(d), data) {
+        Some(true) => Holder::Ours,
+        Some(false) => Holder::Foreign(format!("a postmaster for another data folder (-D {d})")),
+        None => Holder::Unidentified(format!("cannot compare -D {d} with this data folder")),
+    }
+}
+
+/// Observe the process holding `pid`, through `h` when the caller already
+/// holds a handle on it (so the facts describe exactly that process).
+pub fn holder_facts(pid: u32, h: Option<&ProcessHandle>, bin: &PgBin) -> Result<HolderFacts> {
+    let opened;
+    let h = match h {
+        Some(h) => Some(h),
+        None => {
+            opened = ProcessHandle::open(pid);
+            opened.as_ref()
+        }
+    };
+    let Some(live) = h.filter(|h| !h.wait_exit(0)) else {
+        // A handle on an exited process, or none at all: absent unless the
+        // snapshot still lists the pid (alive but not openable by us).
+        let present = h.is_none() && win::snapshot()?.iter().any(|p| p.pid == pid);
+        return Ok(HolderFacts { present, ..Default::default() });
+    };
+    Ok(HolderFacts {
+        present: true,
+        image_is_ours: live.image_path().map(|p| win::same_file(&p, &bin.exe("postgres"))),
+        created_unix: live.creation_time().map(filetime_to_unix),
+        argv: live.argv(),
+    })
+}
+
+/// Classify the holder of the pid in `data`'s postmaster.pid.
+pub fn holder(data: &Path, bin: &PgBin, pid: u32, h: Option<&ProcessHandle>) -> Result<Holder> {
+    Ok(classify_holder(&holder_facts(pid, h, bin)?, lock_started_unix(data), data))
+}
+
 /// Wait until postmaster.pid names OUR new postmaster (our image, created
-/// after the launch, the asked port, status ready). Public for its tests.
+/// after the launch, `-D` this data folder, the asked port, status ready).
+/// Public for its tests.
 pub fn wait_for_new_postmaster(data: &Path, bin: &PgBin, port: u16, launched_unix: u64, timeout: Duration) -> Result<(u32, Option<u16>)> {
     let deadline = Instant::now() + timeout;
     let ours = bin.exe("postgres");
@@ -321,15 +430,17 @@ pub fn wait_for_new_postmaster(data: &Path, bin: &PgBin, port: u16, launched_uni
         if let Some((pid, pid_port)) = read_pid_file(data) {
             let status = pm_status(data);
             let fresh = win::creation_time(pid).map(filetime_to_unix).map(|c| c + 1 >= launched_unix).unwrap_or(false);
-            let is_ours = ProcessHandle::open(pid)
-                .filter(|h| !h.wait_exit(0))
-                .and_then(|h| h.image_path())
-                .map(|p| win::same_file(&p, &ours))
+            let live = ProcessHandle::open(pid).filter(|h| !h.wait_exit(0));
+            let is_ours = live.as_ref().and_then(|h| h.image_path()).map(|p| win::same_file(&p, &ours)).unwrap_or(false);
+            let our_dir = live
+                .as_ref()
+                .and_then(|h| h.argv())
+                .and_then(|a| data_dir_arg(&a).and_then(|d| same_dir(Path::new(d), data)))
                 .unwrap_or(false);
-            if pid_port == Some(port) && status.as_deref() == Some("ready") && fresh && is_ours {
+            if pid_port == Some(port) && status.as_deref() == Some("ready") && fresh && is_ours && our_dir {
                 return Ok((pid, pid_port));
             }
-            last = format!("pid {pid} port {pid_port:?} status {status:?} fresh {fresh} ours {is_ours}");
+            last = format!("pid {pid} port {pid_port:?} status {status:?} fresh {fresh} ours {is_ours} our_dir {our_dir}");
         }
         if Instant::now() > deadline {
             return Err(CustodianError::new(
@@ -367,22 +478,17 @@ pub fn state(root: &PrototypeRoot, bin: &PgBin) -> Result<ClusterState> {
     };
     match read_pid_file(&layout.data) {
         None => Ok(ClusterState::Stopped { instance }),
-        Some((pid, _)) => {
-            let ours = ProcessHandle::open(pid)
-                .filter(|h| !h.wait_exit(0))
-                .and_then(|h| h.image_path())
-                .map(|p| win::same_file(&p, &bin.exe("postgres")))
-                .unwrap_or(false);
-            if ours {
+        Some((pid, _)) => match holder(&layout.data, bin, pid, None)? {
+            Holder::Ours => {
                 let runtime = fs::read_to_string(&layout.attach)
                     .or_else(|_| fs::read_to_string(&layout.runtime))
                     .ok()
                     .and_then(|t| serde_json::from_str::<RuntimeRecord>(&t).ok());
                 Ok(ClusterState::Running { instance, postmaster_pid: pid, pm_status: pm_status(&layout.data), runtime })
-            } else {
-                Ok(ClusterState::StalePid { instance, pid })
             }
-        }
+            Holder::Foreign(reason) => Ok(ClusterState::StalePid { instance, pid, reason }),
+            Holder::Unidentified(reason) => Ok(ClusterState::Unidentified { instance, pid, reason }),
+        },
     }
 }
 
@@ -679,25 +785,21 @@ pub fn start(root: &PrototypeRoot, bin: &PgBin, port: Option<u16>) -> Result<Run
     let layout = Layout::of(root);
     let instance = match state(root, bin)? {
         ClusterState::Stopped { instance } => instance,
-        ClusterState::StalePid { instance, pid } => {
+        ClusterState::StalePid { instance, .. } => {
             // On Windows `pg_ctl start -w` cannot check the postmaster's pid
             // (it launches a cmd.exe shim), so a stale lock file written
             // within ~2 s of its own launch reads as "started" (WS1 drill
-            // finding at 43d2683). Remove a lock that is PROVABLY stale; refuse
-            // one that might belong to a live server we cannot see.
-            let started = lock_started_unix(&layout.data);
-            let snap = win::snapshot()?;
-            let present = snap.iter().any(|p| p.pid == pid);
-            let created = win::creation_time(pid).map(filetime_to_unix);
-            if !lock_is_stale(present, created, started) {
-                return Err(CustodianError::new(
-                    "start.lock_held",
-                    format!("postmaster.pid names pid {pid}, a live process this custodian cannot identify as stale"),
-                ));
-            }
+            // finding at 43d2683). StalePid means `classify_holder` PROVED the
+            // lock is not held by this cluster's postmaster: remove it.
             let lock = layout.data.join("postmaster.pid");
             fs::remove_file(&lock).map_err(|e| CustodianError::io("start.stale_lock", &lock, e))?;
             instance
+        }
+        ClusterState::Unidentified { pid, reason, .. } => {
+            return Err(CustodianError::new(
+                "start.lock_held",
+                format!("postmaster.pid names pid {pid}, a live process this custodian cannot identify ({reason})"),
+            ))
         }
         ClusterState::Running { postmaster_pid, .. } => {
             return Err(CustodianError::new(
@@ -1164,10 +1266,16 @@ pub fn stop_with(root: &PrototypeRoot, bin: &PgBin, immediate: bool, force: bool
                 elapsed_ms: t0.elapsed().as_millis(),
             });
         }
-        ClusterState::StalePid { pid, .. } => {
+        ClusterState::StalePid { pid, reason, .. } => {
             return Err(CustodianError::new(
                 "stop.stale_pid",
-                format!("postmaster.pid names pid {pid}, which is not our running postgres.exe; nothing was signalled"),
+                format!("postmaster.pid names pid {pid}, which is not this cluster's postmaster ({reason}); nothing was signalled"),
+            ))
+        }
+        ClusterState::Unidentified { pid, reason, .. } => {
+            return Err(CustodianError::new(
+                "stop.unidentified_postmaster",
+                format!("postmaster.pid names live pid {pid}, whose identity cannot be proven ({reason}); nothing was signalled"),
             ))
         }
         ClusterState::Incomplete { reason } => return Err(CustodianError::new("cluster.incomplete", reason)),
@@ -1175,15 +1283,17 @@ pub fn stop_with(root: &PrototypeRoot, bin: &PgBin, immediate: bool, force: bool
     let _ = instance;
     let fam = family(pm_pid)?;
     let our_postgres = bin.exe("postgres");
-    let pm_ok = fam
-        .iter()
-        .find(|(p, _)| p.pid == pm_pid)
-        .and_then(|(_, h)| h.as_ref())
-        .and_then(|h| h.image_path())
-        .map(|p| win::same_file(&p, &our_postgres))
-        .unwrap_or(false);
-    if !pm_ok {
-        return Err(CustodianError::new("stop.foreign_postmaster", format!("pid {pm_pid} is not {}", our_postgres.display())));
+    // Prove the identity again through the handle we hold: it pins the pid,
+    // so the process pg_ctl signals is exactly the one checked here.
+    let verdict = match fam.iter().find(|(p, _)| p.pid == pm_pid).and_then(|(_, h)| h.as_ref()) {
+        Some(h) => holder(&layout.data, bin, pm_pid, Some(h))?,
+        None => Holder::Foreign("the postmaster could not be opened".into()),
+    };
+    if verdict != Holder::Ours {
+        return Err(CustodianError::new(
+            "stop.foreign_postmaster",
+            format!("pid {pm_pid} is not this cluster's postmaster ({verdict:?}); nothing was signalled"),
+        ));
     }
 
     let mut cmd = child(&bin.exe("pg_ctl"));
@@ -1252,8 +1362,14 @@ pub fn stop_with(root: &PrototypeRoot, bin: &PgBin, immediate: bool, force: bool
 /// validated root can reach here, so this cannot delete anything the guard
 /// did not accept.
 pub fn destroy(root: &PrototypeRoot, bin: &PgBin) -> Result<()> {
-    if let ClusterState::Running { postmaster_pid, .. } = state(root, bin)? {
-        return Err(CustodianError::new("destroy.running", format!("postmaster {postmaster_pid} still runs; stop first")));
+    match state(root, bin)? {
+        ClusterState::Running { postmaster_pid, .. } => {
+            return Err(CustodianError::new("destroy.running", format!("postmaster {postmaster_pid} still runs; stop first")))
+        }
+        ClusterState::Unidentified { pid, reason, .. } => {
+            return Err(CustodianError::new("destroy.unidentified", format!("postmaster.pid names live pid {pid} ({reason})")))
+        }
+        _ => {}
     }
     fs::remove_dir_all(root.path()).map_err(|e| CustodianError::io("destroy.remove", root.path(), e))
 }
