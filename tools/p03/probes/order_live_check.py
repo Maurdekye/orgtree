@@ -66,7 +66,8 @@ INTENDED = [
     ("before", f"arrived:B:{P}", f"released:A:{P}"),   # both snapshots before A moves
     ("before", "end:A", f"released:B:{P}"),             # A committed before B moves
     ("present", f"arrived:B:{P}@2"),                    # B retried ...
-    ("absent", f"arrived:A:{P}@2"),                     # ... and A did not
+    ("attempts", "B", 2),
+    ("attempts", "A", 1),                               # ... and A did not (from the trace)
     ("sqlstate", "B", "40001"),
     ("outcome", "A", "applied"),
     ("outcome", "B", "applied"),
@@ -100,7 +101,7 @@ SCHEDULE = Schedule("Q-C4", OPS, [ACHIEVED, EARLY], pass_condition=pass_conditio
 KILL_INTENDED = [
     ("before", f"arrived:A:{P}", "killed:A"),
     ("before", "killed:A", f"released:A:{P}"),
-    ("absent", f"arrived:A:{P}@2"),        # only attempt 1 is held
+    ("attempts", "A", 2),                  # the kill forced exactly one retry
     ("outcome", "A", "applied"),
 ]
 KILL_HELD = Order("kill_held", [("start", "A"), ("arrive", "A", P), ("kill", "A"),

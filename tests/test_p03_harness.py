@@ -40,7 +40,7 @@ from p03.harness.fake_executor import FakeExecutor, Stmt  # noqa: E402
 from p03.harness.fake_service import FakeService  # noqa: E402
 from p03.harness.service_channel import ServiceChannel  # noqa: E402
 from p03.harness.schedule import (FAILED, PASSED, REFUSED, Order, Schedule,  # noqa: E402
-                                  compare, run_order)
+                                  compare, run_order, vacuous_constraints)
 from p03.harness.trace import stream_health  # noqa: E402
 
 KIND = "counter.increment"
@@ -175,6 +175,73 @@ class ForcedInterleaving(unittest.TestCase):
         result = run_order(fake, one, order)
         self.assertEqual(result.verdict, PASSED, result.reasons)
         self.assertEqual(sorted((k[2] for k in fake._holds)), [1, 1, 2])
+
+    def test_absent_arrival_at_an_unheld_point_is_refused(self):
+        """The service reports arrivals only at held points, so ``absent`` of an
+        unheld arrival could never fail (review, native-design-review): refused."""
+        order = Order(
+            "a-absent-unheld", [("start", "A"), ("arrive", "A", READ), ("release", "A", READ),
+                                ("await_end", "A")],
+            [("absent", f"arrived:A:{READ}@2"), ("outcome", "A", "applied")],
+            faults=[{"op_tag": "A", "point": WRITE, "action": "fail_next", "sqlstate": "40001"}])
+        one = Schedule("Q-FAKE1", {"A": (KIND, {})}, [order],
+                       pass_condition=lambda _r, _a, final: final["rows"].get("counter") == 1)
+        result = run_order(FakeExecutor(OPS), one, order)
+        self.assertEqual(result.verdict, REFUSED)
+        self.assertEqual(result.reasons, [
+            f"vacuous constraint: ('absent', 'arrived:A:{READ}@2') names an arrival the plan "
+            "does not hold, which the service never reports; use ('attempts', 'A', n) for "
+            "retries"])
+
+    def test_absent_arrival_at_a_held_point_is_judged(self):
+        """Held on attempt 2 (or on every attempt), the arrival IS reported, so the
+        constraint is real: A retries, the arrival is observed and the run fails."""
+        for extra in ({"attempt": 2}, {"attempt": None}):
+            order = Order(
+                "a-absent-held", [("start", "A"), ("await_end", "A")],
+                [("absent", f"arrived:A:{READ}@2")],
+                faults=[{"op_tag": "A", "point": WRITE, "action": "fail_next",
+                         "sqlstate": "40001"},
+                        {"op_tag": "A", "point": READ, "action": "sleep", "ms": 1, **extra}])
+            # a sleep is not a hold: still vacuous
+            one = Schedule("Q-FAKE1", {"A": (KIND, {})}, [order],
+                           pass_condition=lambda _r, _a, _f: True)
+            self.assertEqual(run_order(FakeExecutor(OPS), one, order).verdict, REFUSED)
+        order = Order(
+            "a-absent-held", [("start", "A"), ("arrive", "A", READ), ("release", "A", READ),
+                              ("arrive", "A", READ, 2), ("release", "A", READ, 2),
+                              ("await_end", "A")],
+            [("absent", f"arrived:A:{READ}@2")],
+            faults=[{"op_tag": "A", "point": WRITE, "action": "fail_next", "sqlstate": "40001"}])
+        one = Schedule("Q-FAKE1", {"A": (KIND, {})}, [order],
+                       pass_condition=lambda _r, _a, _f: True)
+        result = run_order(FakeExecutor(OPS), one, order)
+        self.assertEqual(result.verdict, FAILED)
+        self.assertEqual(result.reasons, [f"interleaving not achieved: arrived:A:{READ}@2 "
+                                          "observed but must not be"])
+        every = Order("x", [], [("absent", f"arrived:A:{READ}@2")])
+        hold = {"op_tag": "A", "point": READ, "action": "hold", "timeout_ms": 1}
+        self.assertEqual(vacuous_constraints(every, {"holds": [hold]}), [])   # every attempt
+        self.assertEqual(len(vacuous_constraints(every, {"holds": [{**hold, "attempt": 1}]})), 1)
+        self.assertEqual(len(vacuous_constraints(every, {"holds": [{**hold, "op_tag": "B"}]})), 1)
+        self.assertEqual(len(vacuous_constraints(every, {"holds": [{**hold, "point": WRITE}]})), 1)
+
+    def test_attempts_counts_the_attempts_the_trace_began(self):
+        """``attempts`` is how an order says an operation did or did not retry: it is
+        read from the trace's tx_begin records, held point or not."""
+        def run(n):
+            order = Order(
+                "a-attempts", [("start", "A"), ("await_end", "A")],
+                [("attempts", "A", n), ("outcome", "A", "applied")],
+                faults=[{"op_tag": "A", "point": WRITE, "action": "fail_next",
+                         "sqlstate": "40001"}])
+            one = Schedule("Q-FAKE1", {"A": (KIND, {})}, [order],
+                           pass_condition=lambda _r, _a, final: final["rows"].get("counter") == 1)
+            return run_order(FakeExecutor(OPS), one, order)
+        self.assertEqual(run(2).verdict, PASSED, run(2).reasons)
+        one = run(1)
+        self.assertEqual(one.verdict, FAILED)
+        self.assertEqual(one.reasons, ["A began 2 attempt(s) [1, 2], intended 1"])
 
     def test_an_unqualified_fault_hits_every_attempt(self):
         """``attempt: None`` is the protocol's every-attempt hold: the retries fail too."""

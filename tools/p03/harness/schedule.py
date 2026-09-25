@@ -62,7 +62,12 @@ class Order:
     script: list[tuple[str, ...]]
     #: constraints: ("before", event_a, event_b) | ("present", event)
     #:              | ("absent", event) | ("outcome", tag, outcome)
-    #:              | ("sqlstate", tag, code)
+    #:              | ("sqlstate", tag, code) | ("attempts", tag, n)
+    #:        ``absent`` of an ``arrived:`` event is only allowed at a point the plan
+    #:        HOLDS on that attempt: the service reports arrivals only at held points,
+    #:        so an unheld arrival is never observed and the constraint could not fail
+    #:        (review, native-design-review). To say an operation did or did not
+    #:        retry, use ``attempts``: it counts the attempts the TRACE began
     intended: list[tuple[str, ...]]
     #: unsafe controls this order ARMS through the plan (``<schedule>.<variant>``);
     #: empty for a safe-build order
@@ -229,6 +234,13 @@ def compare(intended: list[tuple[str, ...]], achieved: list[dict[str, Any]],
         elif c[0] == "outcome":
             if outcomes.get(c[1]) != c[2]:
                 problems.append(f"{c[1]} ended {outcomes.get(c[1])!r}, intended {c[2]!r}")
+        elif c[0] == "attempts":
+            began = {r.get("attempt") for r in records
+                     if r.get("kind") == "tx_begin" and not r.get("infrastructure")
+                     and tag_of.get(r.get("operation_id")) == c[1]}
+            if len(began) != c[2]:
+                problems.append(f"{c[1]} began {len(began)} attempt(s) "
+                                f"{sorted(began, key=str)}, intended {c[2]}")
         elif c[0] == "sqlstate":
             seen = {r.get("sqlstate") for r in records
                     if tag_of.get(r.get("operation_id")) == c[1] and r.get("kind") in (
@@ -240,6 +252,24 @@ def compare(intended: list[tuple[str, ...]], achieved: list[dict[str, Any]],
     return problems
 
 
+def vacuous_constraints(order: Order, plan: dict[str, Any]) -> list[str]:
+    """``absent`` constraints on arrivals the plan does not hold: they can never fail."""
+    out = []
+    for c in order.intended:
+        if c[0] != "absent" or not c[1].startswith("arrived:"):
+            continue
+        _, tag, rest = c[1].split(":", 2)
+        point, _, n = rest.partition("@")
+        attempt = int(n) if n else 1
+        if not any(h.get("action") == "hold" and h.get("op_tag") == tag
+                   and h.get("point") == point and h.get("attempt", attempt) == attempt
+                   for h in plan["holds"]):
+            out.append(f"vacuous constraint: ('absent', {c[1]!r}) names an arrival the plan "
+                       f"does not hold, which the service never reports; use "
+                       f"('attempts', {tag!r}, n) for retries")
+    return out
+
+
 def run_order(channel: Channel, schedule: Schedule, order: Order) -> RunResult:
     """Drive one order of one schedule and judge it. Never returns PASSED on a guess."""
     recorder = _Recorder()
@@ -247,6 +277,7 @@ def run_order(channel: Channel, schedule: Schedule, order: Order) -> RunResult:
     plan = _plan_for(schedule.schedule_id, order, schedule.plan_timeout)
     reasons = [f"invalid plan: {e}" for e in frame_errors(plan)]
     reasons += plan_against_handshake(plan, hs)
+    reasons += vacuous_constraints(order, plan)
     if reasons:
         return RunResult(schedule.schedule_id, order.name, REFUSED, reasons, [], [],
                          {"complete": False, "problems": ["not run"]}, None, hs)
