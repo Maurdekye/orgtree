@@ -28981,70 +28981,92 @@ def _invariant_sweep_org(slug: str) -> None:
     known = set(_PROVIDER_SCOPED_FREEZE_FLAGS) | {"spend"}
     announce: list[tuple[str, str, str, str]] = []   # nid, name, sup, body
     rc_cleared: list[tuple[str, bool, str | None]] = []   # nid, had_mail, sid
+    def _repairs(o: Org) -> list[str]:
+        """The nodes this pass will WRITE (PG-3e-B): an unrecognised freeze
+        flag to quarantine, or a remote-control flag whose driver is provably
+        dead. Everything else it looks at is announce-only."""
+        out: list[str] = []
+        for k, v in o.nodes.items():
+            if v.get("state") != "live":
+                continue
+            fz = v.get("frozen")
+            if isinstance(fz, dict) and any(
+                    val is True and key not in known for key, val in fz.items()):
+                out.append(k)
+                continue
+            rc = v.get("remote_controlled")
+            if isinstance(rc, dict):
+                pid = rc.get("pid")
+                if isinstance(pid, int) and pid > 0 and _pid_provably_dead(pid):
+                    out.append(k)
+        return out
+
+    def _sweep(tx: orgtx.OrgTx) -> None:
+        org = tx.org
+        announce.clear()
+        rc_cleared.clear()
+        for nid, n in org.nodes.items():
+            if n.get("state") != "live":
+                continue
+            name = str(n.get("name") or nid)
+            sup = str(n.get("parent") or "")
+            # SH-6: quarantine an unknown True freeze key
+            fz = n.get("frozen")
+            if isinstance(fz, dict):
+                bad = sorted(k for k, v in fz.items()
+                             if v is True and k not in known)
+                if bad:
+                    q = cast("dict[str, Any]",
+                             fz.setdefault("_quarantined", {}))
+                    for k in bad:
+                        q[k] = fz.pop(k)
+                    fz["_quarantined_at"] = now_iso()
+                    announce.append((
+                        nid, name, sup,
+                        f"{name}'s freeze carried an unrecognised flag "
+                        f"({', '.join(bad)}) that NOTHING could clear — it "
+                        f"could never be woken by resume, the timer, or "
+                        f"anything else. The flag has been quarantined so "
+                        f"it can be resumed again; check it and ▶ resume "
+                        f"it (or unstick it) if the work should continue."))
+            # dead remote-control driver — cleared ONLY on a DECISIVE
+            # death signal (state-review 2026-09-12): _wd_proc_alive==False
+            # also covers access-denied/uncertain on Windows, and clearing
+            # on that would detach a LIVE user session. _pid_provably_dead
+            # answers True only for a real 'no such process'.
+            rc = n.get("remote_controlled")
+            if isinstance(rc, dict):
+                pid = rc.get("pid")
+                if isinstance(pid, int) and pid > 0 \
+                        and _pid_provably_dead(pid):
+                    # capture the waiting-mail state so the node can be
+                    # driven after the lock, exactly as remote_control_stop
+                    # does — clearing the flag without that left queued
+                    # mail undelivered (state-review finding 3)
+                    had_mail = bool((org.d.get("mail") or {}).get(nid))
+                    n.pop("remote_controlled", None)
+                    rc_cleared.append((nid, had_mail, n.get("session_id")))
+                    print(f"[orgtree] {slug}/{nid}: cleared a "
+                          f"remote-control flag whose driver (pid {pid}) "
+                          f"is provably gone — the node is live again")
+            # live node under a non-live parent (detection only)
+            if sup and sup in org.nodes \
+                    and org.nodes[sup]["state"] != "live":
+                key = (slug, nid, "orphan")
+                if key not in _invariant_announced:
+                    _invariant_announced.add(key)
+                    announce.append((
+                        nid, name, sup,
+                        f"{name} is live but its superior {sup!r} is "
+                        f"{org.nodes[sup]['state']} — an invalid tree "
+                        f"state. Rehire {sup!r} (which rehires the chain), "
+                        f"or move {name} to a live superior."))
+
     try:
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            changed = False
-            for nid, n in org.nodes.items():
-                if n.get("state") != "live":
-                    continue
-                name = str(n.get("name") or nid)
-                sup = str(n.get("parent") or "")
-                # SH-6: quarantine an unknown True freeze key
-                fz = n.get("frozen")
-                if isinstance(fz, dict):
-                    bad = sorted(k for k, v in fz.items()
-                                 if v is True and k not in known)
-                    if bad:
-                        q = cast("dict[str, Any]",
-                                 fz.setdefault("_quarantined", {}))
-                        for k in bad:
-                            q[k] = fz.pop(k)
-                        fz["_quarantined_at"] = now_iso()
-                        changed = True
-                        announce.append((
-                            nid, name, sup,
-                            f"{name}'s freeze carried an unrecognised flag "
-                            f"({', '.join(bad)}) that NOTHING could clear — it "
-                            f"could never be woken by resume, the timer, or "
-                            f"anything else. The flag has been quarantined so "
-                            f"it can be resumed again; check it and ▶ resume "
-                            f"it (or unstick it) if the work should continue."))
-                # dead remote-control driver — cleared ONLY on a DECISIVE
-                # death signal (state-review 2026-09-12): _wd_proc_alive==False
-                # also covers access-denied/uncertain on Windows, and clearing
-                # on that would detach a LIVE user session. _pid_provably_dead
-                # answers True only for a real 'no such process'.
-                rc = n.get("remote_controlled")
-                if isinstance(rc, dict):
-                    pid = rc.get("pid")
-                    if isinstance(pid, int) and pid > 0 \
-                            and _pid_provably_dead(pid):
-                        # capture the waiting-mail state so the node can be
-                        # driven after the lock, exactly as remote_control_stop
-                        # does — clearing the flag without that left queued
-                        # mail undelivered (state-review finding 3)
-                        had_mail = bool((org.d.get("mail") or {}).get(nid))
-                        n.pop("remote_controlled", None)
-                        changed = True
-                        rc_cleared.append((nid, had_mail, n.get("session_id")))
-                        print(f"[orgtree] {slug}/{nid}: cleared a "
-                              f"remote-control flag whose driver (pid {pid}) "
-                              f"is provably gone — the node is live again")
-                # live node under a non-live parent (detection only)
-                if sup and sup in org.nodes \
-                        and org.nodes[sup]["state"] != "live":
-                    key = (slug, nid, "orphan")
-                    if key not in _invariant_announced:
-                        _invariant_announced.add(key)
-                        announce.append((
-                            nid, name, sup,
-                            f"{name} is live but its superior {sup!r} is "
-                            f"{org.nodes[sup]['state']} — an invalid tree "
-                            f"state. Rehire {sup!r} (which rehires the chain), "
-                            f"or move {name} to a live superior."))
-            if changed:
-                store.save_org(org)
+        # one org_tx over exactly the rows the pass repairs (usually none),
+        # recomputed under the locks — never the whole node table every 30 s
+        _computed_tx(slug, _repairs, _sweep,
+                     logs=["events"])
     except Exception as exc:                                 # noqa: BLE001
         print(f"[orgtree] {slug}: invariant sweep skipped "
               f"({type(exc).__name__})", flush=True)
@@ -29079,8 +29101,12 @@ def _invariant_sweep_org(slug: str) -> None:
         # a self-heal finding is an FYI, not an interruption, and several at
         # once on a restart must not wake a manager once per node.
         try:
-            with store.DOC_LOCK:
-                o2 = store.load_org(slug)
+            # the superior's row: its liveness decides the route, and the
+            # deposit writes its mailbox counters
+            with orgtx.org_tx(slug, nodes=[sup] if sup else [],
+                              sections=["mail"],
+                              logs=["user_mail_log", "mail_log"]) as tx:
+                o2 = tx.org
                 live_sup = (sup and sup in o2.nodes
                             and o2.nodes[sup]["state"] == "live")
                 if live_sup:
@@ -29096,7 +29122,6 @@ def _invariant_sweep_org(slug: str) -> None:
                     o2.to_user_inbox({
                         "id": uuid_hex8(), "from": SYSTEM, "kind": "notice",
                         "at": now_iso(), "body": body})
-                store.save_org(o2)
         except Exception:                                    # noqa: BLE001
             print(f"[orgtree] {slug}/{nid}: invariant announcement failed")
 
