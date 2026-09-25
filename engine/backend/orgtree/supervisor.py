@@ -13277,9 +13277,11 @@ def _working_checkup_reserve(slug: str, nid: str, now: float) -> str | None:
     before the worker starts, startup reconciliation sees ordinary waking mail
     and drives it. ``working_activity_at`` is both the cross-restart dedupe and
     the failed-wake cooldown; it is written before any fallible thread start.
+    PG-3e-A: one halt transaction on the agent's row plus the rows a mail
+    deposit to it writes (PG-3d's `mailtx.send_rows`).
     """
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
+    with halt.txn(slug, **mailtx.send_rows(nid)) as _ck_tx:
+        org = _ck_tx.org
         if not _working_checkup_eligible(org, nid):
             return None
         n = org.node(nid)
@@ -13288,7 +13290,6 @@ def _working_checkup_reserve(slug: str, nid: str, now: float) -> str | None:
             # Reconcile a legacy/hand-edited working row without a timestamp
             # conservatively. Absence is not evidence that 20 minutes passed.
             n["working_activity_at"] = _iso_ts(now)
-            store.save_org(org)
             return None
         if now - anchor <= WORKING_CHECKUP_AFTER_S:
             return None
@@ -13312,7 +13313,6 @@ def _working_checkup_reserve(slug: str, nid: str, now: float) -> str | None:
         # archive copy and the receive ordinal, in one place.
         org.deposit_mail(nid, cast("dict[str, Any]", dict(entry)))
 
-        store.save_org(org)
         return mid
 
 
@@ -13339,12 +13339,10 @@ def _note_working_activity(slug: str, nid: str,
                            now: float | None = None) -> None:
     """Reset stale-working time at the single real-turn wake choke point."""
     try:
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
+        with _node_write(slug, nid) as org:   # PG-3e-A: the agent's row
             if nid in org.nodes and _reported_working(org.node(nid)):
                 org.node(nid)["working_activity_at"] = _iso_ts(
                     time.time() if now is None else now)
-                store.save_org(org)
     except Exception:                                        # noqa: BLE001
         # Advisory bookkeeping must never become a new turn-admission gate.
         pass
