@@ -2,9 +2,9 @@
 runs as ONE row transaction on the item and the recipient's mail rows (lead
 decision 18.6), not the DOC_LOCK cycle.
 
-  * the reply goes through rcdoor.run_op (spied), the mail lands in the
-    recipient's box and mail_log, and the reply clears a manual attention
-    flag in the same commit;
+  * the reply goes through rcdoor.run_op (spied) holding the item row, and
+    the mail lands in the recipient's box exactly once (the attention-flag
+    clearing is covered by the existing reply suites, not asserted here);
   * a WRONG snapshot guess of the recipient (the reply is addressed to a
     participant the snapshot did not name) is corrected under the locks:
     the body's hold() widens, the transaction re-runs, and the mail still
