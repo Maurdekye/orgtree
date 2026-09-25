@@ -8,7 +8,9 @@ that falls back into the resident DOC_LOCK cycle fails loudly:
   * an assignment mails the new owner once, drives it once AFTER the commit,
     and calls `mail_notify` for it (the legacy branch's two effects);
   * a new participant gets the door tail's participation notice, not a drive;
-  * a halted caller is refused (422) and nothing is written;
+  * a halted caller is refused — by agent_call's pre-check (409) and, for a
+    halt that commits after it, by the door's gate on the locked row (422) —
+    and nothing is written;
   * the archive move is deferred inside the door body, and the NEXT call's
     `before` step sweeps it in its own transaction (plan decision 13);
   * ORGTREE_PGDOOR=0 takes the legacy cycle.
@@ -119,10 +121,19 @@ class WorkDoor(unittest.TestCase):
         org.d['nodes']['boss']['halt'] = {'at': 'now'}
         store.save_org(org)
         before = self.item()[0]
+        # agent_call's own pre-check (the same 409 the legacy path gives)
         with self.assertRaises(HTTPException) as cm:
             self.call('boss', action='update', slug=self.wid,
                       done_so_far=['no'], working_on_next=['no'])
+        self.assertEqual(cm.exception.status_code, 409)
+        # a halt that commits AFTER that unlocked pre-check: the door's gate
+        # on the LOCKED caller row refuses it, and the whole tx rolls back
+        with patch.object(supervisor.halt, 'blocked', lambda *a, **k: None):
+            with self.assertRaises(HTTPException) as cm:
+                self.call('boss', action='update', slug=self.wid,
+                          done_so_far=['no'], working_on_next=['no'])
         self.assertEqual(cm.exception.status_code, 422)
+        self.assertIn('halted', str(cm.exception.detail))
         self.assertEqual(self.item()[0], before)
 
     def test_archive_deferred_in_the_body_and_swept_by_the_next_before(self):
@@ -131,14 +142,17 @@ class WorkDoor(unittest.TestCase):
                   dropped_reason='Cancelled by the test; nothing to resume.')
         self.assertFalse(self.item()[1])
         # the door body WITHOUT its before-step must not archive it: the
-        # ledger's head-of-call sweep is deferred inside the door
+        # ledger's head-of-call sweep is deferred inside the door (agent_tx
+        # runs the declared before-step itself, so take it away for this call)
         call = SimpleNamespace(tool=workdoor.TOOL, org=self.slug, node='boss',
                                op_key=None)
         a = {'action': 'create', 'title': 'Unswept call',
              'objective': 'Problem: a. Solution: b.'}
-        pgdoor.agent_tx(call, a, pgdoor.BODIES[workdoor.TOOL],
-                        admit=lambda o, b, x: None, file=lambda *x: None,
-                        spec=workdoor.spec(None, call, a))
+        with patch.dict(pgdoor.BEFORE):
+            del pgdoor.BEFORE[workdoor.TOOL]
+            pgdoor.agent_tx(call, a, pgdoor.BODIES[workdoor.TOOL],
+                            admit=lambda o, b, x: None, file=lambda *x: None,
+                            spec=workdoor.spec(None, call, a))
         self.assertFalse(self.item()[1], 'the door body archived (deferral lost)')
         self.call('boss', action='create', title='Another item',
                   objective='Problem: a. Solution: b.')
