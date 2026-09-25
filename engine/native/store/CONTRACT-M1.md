@@ -1,5 +1,14 @@
 # P03 WS2 — M1 interface contract (executor API, base schema slice, Sent stub)
 
+**Implementation notes after the freeze (no frozen name changed; lead notified 08:23Z / 08:4xZ):**
+- `Tx::exec(label, sql: &'static str, params)`: statement text must be a constant, so no argument-derived literal can reach SQL text or traces (lead condition on `Statement.sql`); a compile_fail doctest proves it.
+- Sent stub: `record_sent(tx, &SendRequest) -> Result<SentRecord, SendError>` with `SendError = Refused(Refusal) | Db(DbError)`, org taken from `tx.op().org`; `lock_grantee_for_grant(tx, org, grantee) -> Result<(), CmdError>`.
+- Unsafe controls: `controls::fire(&tx.scope(), "<schedule>.<variant>")`.
+- `Executor::new(main, main_size, reserved, reserved_size, cfg, hooks)`: the reserved pool serves lookups and in-flight rows (§4).
+- Trace additions for WS7: `Statement.sql`, `ConnOpened.{backend_start, host, port, role, database}`, `Commit.pre_commit_lsn` (lower bound), `XactStats { tables }`.
+- The door hook is **two** lines in `api.py` (an import and the `install(app, store.DATA_ROOT)` call, matching the neighbouring `startup` pattern), not one.
+- Migration `0008_grants.sql` (WS2 range) grants the WS1 roles; `min_writer` is the optional first-line header `-- orgtree:min_writer=N` shared with WS1's run-time runner.
+
 **FROZEN at r3 = `7a19d55`** (lead decision 1 on `p03-ws2-store-core-schema-slice-command-executor`, 2026-09-25 08:08Z). **r4** adds, with the lead's ack and no frozen name changed, the DECLARED-CONTACTS table and the WS7 protocol reference to §5.
 
 **r3** applies the lead's review of the r2 migrations: F1 inverts the `restriction_epoch` lock modes (§6), F2 removes the foreign keys from high-rate tables to `organizations` and F3 removes `mail_sent`'s foreign key to the destination head (§7 "Foreign-key rules"), N1 declares server-side statements (§7). Nothing else changed.
