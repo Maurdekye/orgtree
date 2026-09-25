@@ -94,6 +94,7 @@ from . import workitems
 from . import workevidence
 from . import opreceipts
 from . import pgdoor
+from . import staffdoor  # noqa: F401  PG-3b: registers its door tools
 from . import reservations
 from . import ledger as ledger_mod
 from . import (accounts, antigravity_limits, appsettings, bridgeauth,
