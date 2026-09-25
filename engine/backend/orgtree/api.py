@@ -11212,6 +11212,14 @@ def _agent_door_tail(body: AgentCall, result: Any,
     `after.then`. The legacy tail below stays for the cycle's tools until the
     last family converts; this copy is kept to the steps every tool shares.
 
+    ⚠ NOT HERE — tool-specific legacy tail steps a family must carry in its
+    own `after.then` when it converts the tool (pg-workitems' co-review, F3):
+    switch_model's `drive_unfrozen_by_switch(stale_freeze_resumed)`;
+    orgtree_message's `mail_to` delivery note, `ping_reason="agent_mail"` and
+    `delivery_receipt.carrier_note`; send_notice's `notice_to`; the
+    inter-org send's `net.kick`; and effort_live / unstick_resume / the
+    watchdog smoke run.
+
     Everything here runs AFTER the commit, so each step goes through
     `pgdoor.after_commit` (plan decision 27, F2): one that raises is logged
     and disclosed in `result["warnings"]`, and the steps after it still run."""
