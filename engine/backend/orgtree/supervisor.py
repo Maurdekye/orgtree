@@ -19548,10 +19548,12 @@ def _envelope_rows(nid: str) -> dict[str, Any]:
     drain sections (PG-3d's `mailtx.reclaim_rows` plus
     `ADMISSION_WRITE_SECTIONS`) and `mail_log` — with the killswitch FOR
     SHARE for the locked halt decision. `_admit_message`'s gate declares
-    exactly these so the envelope joins it."""
+    exactly these so the envelope joins it. `reply_incarnation`: composing a
+    quoted user reply may mint the org's reply-identity id on THIS
+    transaction (`reply_events.incarnation` inside an open org_tx)."""
     sections = list(dict.fromkeys(
         [*mailtx.reclaim_rows(nid).get("sections", ()),
-         *ADMISSION_WRITE_SECTIONS]))
+         *ADMISSION_WRITE_SECTIONS, "reply_incarnation"]))
     return {"nodes": [nid], "sections": sections,
             "share_sections": [halt.KILLSWITCH], "logs": list(ADMISSION_LOGS)}
 
