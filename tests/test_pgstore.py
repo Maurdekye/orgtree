@@ -271,6 +271,32 @@ class OrgTxOnPostgres(unittest.TestCase):
                 n['swept'] = True
         self.assertTrue(all(_node(self.slug, x).get('swept') for x in ('a', 'b', 'c')))
 
+    def test_multi_org_is_one_atomic_transaction(self) -> None:
+        other = _fresh_org(f'pg2-{self._testMethodName}'[:60])
+        r0a, r0b = _rev(self.slug), _rev(other)
+        listen = psycopg.connect(os.environ['ORGTREE_PG_URL'], autocommit=True)
+        try:
+            listen.execute('LISTEN org_rev')
+            with orgtx.org_tx_multi({self.slug: dict(nodes=['a']),
+                                     other: dict(sections=['killswitch'])}) as t:
+                t[self.slug].d['nodes']['a']['name'] = 'mA'
+                t[other].d['killswitch']['on'] = True
+            got = sorted(n.payload for n in listen.notifies(timeout=2, stop_after=2))
+        finally:
+            listen.close()
+        self.assertEqual(got, sorted([f'{self.slug}:{r0a + 1}', f'{other}:{r0b + 1}']))
+        self.assertEqual(_node(self.slug, 'a')['name'], 'mA')
+        self.assertTrue(store.load_org(other).d['killswitch']['on'])
+        # atomic: an unlocked write in the SECOND org leaves the first unwritten
+        with self.assertRaises(orgtx.UnlockedWrite):
+            with orgtx.org_tx_multi({self.slug: dict(nodes=['a']),
+                                     other: dict(nodes=['a'])}) as t:
+                t[self.slug].d['nodes']['a']['name'] = 'lost'
+                t[other].d['nodes']['b']['name'] = 'unlocked'
+        self.assertEqual(_node(self.slug, 'a')['name'], 'mA')
+        self.assertEqual(_node(other, 'b')['name'], 'b')
+        self.assertEqual((_rev(self.slug), _rev(other)), (r0a + 1, r0b + 1))
+
     def test_racing_increments_are_not_lost(self) -> None:
         errs: list[BaseException] = []
 

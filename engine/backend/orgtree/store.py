@@ -1255,10 +1255,12 @@ class _Pool:
         `_open_conn`. Every read path leaves it False so that a database
         deleted under us raises instead of coming back empty."""
         pinned = getattr(_orgtx_local, "pinned", None)
-        if pinned is not None and pinned.slug == slug:
+        pc = pinned.get(slug) if pinned else None
+        if pc is not None:
             # PG-0: inside an org_tx on postgres, the load and the save run
-            # on the transaction's own connection (pgstore module docstring)
-            yield pinned
+            # on the transaction's own connection (pgstore module docstring);
+            # a multi-org org_tx pins one entry per org, all on one connection
+            yield pc
             return
         with self._lock:
             epoch = self._epoch.get(slug, 0)
