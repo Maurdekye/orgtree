@@ -87,7 +87,7 @@ fn one_operation_becomes_a_complete_trace() {
     let (records, _) = run_one();
     let kinds: Vec<&str> = records.iter().map(|r| r.kind.as_str()).collect();
     assert_eq!(kinds.first(), Some(&"op_begin"), "{kinds:?}");
-    for k in ["tx_begin", "stmt", "xact_stats", "tx_end", "op_end"] {
+    for k in ["tx_begin", "stmt", "xact_stats", "xact_locks", "tx_end", "op_end"] {
         assert!(kinds.contains(&k), "{k} missing: {kinds:?}");
     }
     // the server-side relation rows arrive as a list, before the commit
