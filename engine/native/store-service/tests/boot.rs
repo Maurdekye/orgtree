@@ -71,3 +71,31 @@ fn the_ready_line_is_one_json_object() {
     assert_eq!(v["port"], 5000);
     assert_eq!(v["service_incarnation"], "abc");
 }
+
+#[test]
+fn timeout_flags_raise_a_timeout_but_never_switch_it_off() {
+    use orgtree_store::ExecConfig;
+    let mut cfg = ExecConfig::default();
+    boot::set_timeout(&mut cfg, "--lock-timeout-ms", Some("600000")).unwrap();
+    boot::set_timeout(&mut cfg, "--statement-timeout-ms", Some("900000")).unwrap();
+    boot::set_timeout(&mut cfg, "--idle-in-transaction-timeout-ms", Some("1200000")).unwrap();
+    assert_eq!(
+        (cfg.lock_timeout_ms, cfg.statement_timeout_ms, cfg.idle_in_transaction_timeout_ms),
+        (Some(600_000), Some(900_000), Some(1_200_000))
+    );
+    let d = ExecConfig::default();
+    for bad in [Some("0"), Some("-1"), Some("5s"), Some("3600001"), Some(""), None] {
+        for flag in ["--lock-timeout-ms", "--statement-timeout-ms", "--idle-in-transaction-timeout-ms"] {
+            let mut c = ExecConfig::default();
+            assert!(boot::set_timeout(&mut c, flag, bad).is_err(), "{flag} {bad:?} must be refused");
+            assert_eq!(
+                (c.lock_timeout_ms, c.statement_timeout_ms, c.idle_in_transaction_timeout_ms),
+                (d.lock_timeout_ms, d.statement_timeout_ms, d.idle_in_transaction_timeout_ms),
+                "a refused flag changes nothing"
+            );
+        }
+    }
+    assert!(boot::set_timeout(&mut cfg, "--other-timeout-ms", Some("5")).is_err());
+    // the defaults themselves are on (review F4)
+    assert!(d.lock_timeout_ms.is_some() && d.statement_timeout_ms.is_some() && d.idle_in_transaction_timeout_ms.is_some());
+}

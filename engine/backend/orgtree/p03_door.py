@@ -15,8 +15,10 @@ inside, or contains a live Orgtree location — ``%APPDATA%\\Orgtree v2`` (so
 ``%APPDATA%\\Orgtree v2\\data`` and everything under it), its
 ``%USERPROFILE%`` spelling, ``~/orgtree`` and the installed app folders —
 whatever the marker says (plan R11). It never silently installs there. It also
-raises for ANY UNC or device path (``\\\\server\\share``, ``\\\\localhost\\C$``,
-``\\\\?\\UNC\\``, ``\\\\.\\``), typed or resolved, as WS1's Rust guard does.
+raises for any path that is not an absolute drive-letter path, typed or
+resolved — UNC (``\\\\server\\share``, ``\\\\localhost\\C$``, ``\\\\?\\UNC\\``),
+device (``\\\\.\\``), volume (``\\\\?\\Volume{GUID}\\``), ``\\\\?\\GLOBALROOT\\``
+and relative paths — as WS1's Rust guard does.
 
 When active, requests for the slice's agent verbs (:data:`SLICE_TOOLS`) are
 forwarded to the Rust store service over its authenticated loopback channel;
@@ -140,30 +142,39 @@ def refuse_reparse_points(root: Path) -> None:
                 pass
 
 
-def refuse_unc(path: Any) -> None:
-    """Refuse a UNC or device path, typed or as it resolves (review N1): only
-    drive-letter paths, plain or ``\\\\?\\``-prefixed, may name a prototype root.
-    An admin-share alias such as ``\\\\localhost\\C$\\...`` reaches the live folder
-    under a name no prefix comparison sees; WS1's Rust guard refuses these
-    outright too."""
-    forms = [str(path).replace("/", "\\")]
+def _is_drive_path(s: str) -> bool:
+    """``C:\\...`` or ``\\\\?\\C:\\...`` (any case, either slash) and nothing else."""
+    low = s.replace("/", "\\").lower()
+    if low.startswith("\\\\?\\"):
+        low = low[4:]
+    return len(low) >= 3 and "a" <= low[0] <= "z" and low[1:3] == ":\\"
+
+
+def refuse_non_drive(path: Any, resolve: Any = None) -> None:
+    """Refuse any path that is not an absolute drive-letter path, typed OR as
+    it resolves (review N1, R3): UNC (``\\\\server\\share``, ``\\\\localhost\\C$``,
+    ``\\\\?\\UNC\\``), device (``\\\\.\\``), volume (``\\\\?\\Volume{GUID}\\``),
+    object-namespace (``\\\\?\\GLOBALROOT\\...``) and relative paths. This is
+    the rule WS1's Rust guard applies (only Disk and VerbatimDisk prefixes):
+    an alias of this kind reaches the live folder under a name no prefix
+    comparison sees. ``resolve`` is the resolver, replaceable in tests."""
+    resolve = resolve or (lambda p: Path(p).resolve(strict=False))
+    typed = os.path.expanduser(str(path))
+    forms = [typed]
     try:
-        forms.append(str(Path(os.path.expanduser(forms[0])).resolve(strict=False)).replace("/", "\\"))
+        forms.append(str(resolve(typed)))
     except OSError:
         pass
     for s in forms:
-        low = s.lower()
-        if low.startswith("\\\\?\\") and not low.startswith("\\\\?\\unc\\"):
-            low = low[4:]
-        if low.startswith("\\\\"):
-            raise LiveRootRefused(f"P03 hook refused: UNC or device path {s!r} (only drive-letter paths)")
+        if not _is_drive_path(s):
+            raise LiveRootRefused(f"P03 hook refused: {s!r} is not an absolute drive-letter path (UNC, device, volume and relative paths are refused)")
 
 
 def refuse_live(path: Any, env: Mapping[str, str]) -> None:
-    """Raise :class:`LiveRootRefused` if ``path`` is a UNC or device path, or
-    is, is inside, or contains a live location — typed and canonical forms,
-    on both sides."""
-    refuse_unc(path)
+    """Raise :class:`LiveRootRefused` if ``path`` is not an absolute
+    drive-letter path (typed or resolved), or is, is inside, or contains a
+    live location — typed and canonical forms, on both sides."""
+    refuse_non_drive(path)
     _refuse_bad_name(path)
     forms = {_norm(path), os.path.abspath(str(path)).replace("/", "\\").lower().rstrip("\\")}
     for label, live in live_locations(env):
