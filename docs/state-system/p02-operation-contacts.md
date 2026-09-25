@@ -50,6 +50,16 @@ synthetic data; none is fixed here. P01 and P05 should cite these rows.
   `statement:data:org-db:foreign` statements at `orgtree.store:_load_lazy`
   and `_meta_get` (P01 F1, below).
 
+- **The org list and the external-chat routes read EVERY org's whole
+  document** (`GET /api/orgs`; `GET /api/extern/{peer}/messages` and
+  `/wait`), cold and warm: several hundred statements on other orgs' stores
+  per call (P01 F4, below). **An `?org=` filter on the read does not stop
+  it**: `_extern_scan` lists every org through `store.list_orgs()`
+  (`_scan_orgs`, a full parse of each) before it applies the filter, which
+  only skips the per-org `load_org`.
+- **An `@org:` send from the org inbox writes the other org's store**; to a
+  sealed kiosk it reads the other store and only warns.
+
 ## Where each number comes from
 
 | Source | What it is |
@@ -1366,6 +1376,109 @@ facet's first open question, not the Owner line.
 
 Owned elsewhere, with no rows added: `asks.*`, `watchdogs.*`, `audiences.*`
 and `control.*` conflicts and wire.
+
+## P01 F4: mail, inbox, files and external chat (`exchange.*`)
+
+The fixture follows `tests/test_state_exchange_boundary.py` with
+distinctive ids. The main org has `ex-top` and `ex-top2` at the top level,
+`ex-mid` under `ex-top`, `ex-leaf` under `ex-mid`, and `ex-third` under
+`ex-top`, never named. Three more orgs exist:
+- the OTHER org an `@org:` send reaches;
+- a sealed KIOSK org, with a ceiling set as in P01's fixture, so a cold load
+  mints no ceiling notice;
+- a STORAGE-BLOCKED org, because the flag is org-wide.
+
+**External chat:**
+- **Every external-chat row uses a peer id of its own** (`p02x.<n>`). Extern
+  send records the peer in the machine-wide `extern-peers.json` before it
+  validates anything, and the extern scans read every org, so rows must not
+  see each other's replies.
+- `extern-peers.json` is the SYNTHETIC data root's: the live file is never
+  touched, and the guards protect the live roots.
+
+**Spies:** as in the P01 fixture, these are counting spies (`spies`):
+- turn delivery;
+- the mail spark;
+- `supervisor.notify`;
+- the storage check;
+- the workspace usage read;
+- the mail-hub kick.
+
+`hub_changed` is real and counted.
+
+- **Each contract, cold and warm** (15): `exchange.orgs-list` (`GET
+  /api/orgs`), `.extern-send`, `.extern-read`, `.extern-wait`,
+  `.org-inbox-list`, `.mail-item`, `.org-inbox-read`, `.org-inbox-upload`,
+  `.org-inbox-send`, `.inbox-clear`, `.node-upload`, `.reply-events-count`,
+  `.reply-events-clear`, `.mail-retract`, and `.send-file` (the agent tool).
+  Routes run on the desktop token.
+- **Variants** (warm):
+  - an extern read with an `?org=` filter;
+  - an extern wait that times out;
+  - mail items from the node, org and user boxes, including a missing one;
+  - `@org:` sends: delivered, to a sealed kiosk, to a missing org, with an
+    attachment;
+  - a duplicate node upload;
+  - send_file with a delivery id, its replay, `send_file_once`, and a keyed
+    call.
+- **Refusals** (warm; no primary write, nothing logical): 33 of them.
+  - extern send: an empty body, a bad peer id, no org, a sealed kiosk, a
+    missing attachment;
+  - an unknown org on the inbox, read and clear routes;
+  - an unknown node and a bad box on a mail item;
+  - `@ext:`, a bad recipient, an unknown stage id, `@net:` with no hub, and
+    an attachment on an `@mcp:` send;
+  - an empty, unknown-node and storage-blocked upload;
+  - the three raw-500 reply-event cases;
+  - a retract of mail that is gone;
+  - a route with no credential and with an agent credential, and an extern
+    route with no credential;
+  - seven send_file refusals (missing, no path, escape, bad delivery id,
+    `_once` without an id, a delivery conflict, storage blocked);
+  - **the external-chat MCP server's own client** (`externtool.run_tool`),
+    its `http()` served by this app with exactly the headers it sends: 401 at
+    the gate, before any attempt is recorded (docket
+    `the-external-chat-mcp-server-cannot-reach-the-v2`, recorded, not fixed).
+- **Org-level locality, as found:**
+  - the org list and both extern scans run statements on every other org's
+    store, the org-filtered read included (see "Cross-org reads found");
+  - an `@org:` send writes the other org's store; to a sealed kiosk it only
+    reads it;
+  - no other row leaves its org.
+- **Agent-level locality:** an outside message lands in the org inbox and
+  reaches the org's external-mail recipients, as the product names them
+  (`Org.extern_recipients_preview`: `ex-top` here), which the row declares.
+  Nothing outside the actor and its targets is written, `ex-third` is never
+  touched, and a third agent's row is only ever read. The control
+  `control:exchange-third-agent` (an org-inbox read whose closing broadcast
+  also posts mail to `ex-third`) is flagged.
+
+Observed and recorded:
+- **An org filter does not stop the extern scan reading every org** (above).
+  This contradicts P01's pin that "an org filter skips the other docs'
+  loads", which holds only for `load_org` (reported to p01).
+- These pinned legacy behaviours are measured, not fixed, and each is
+  confirmed by the rows:
+  - extern send writes the peer sighting (`store._peers_write`) before the
+    empty-body, no-org, kiosk and missing-attachment refusals, but not
+    before a bad peer id;
+  - a sealed kiosk answers exactly like a missing org;
+  - the reply-event routes answer a raw 500 for an unknown org or node;
+  - send_file never writes the org's store, and a keyed call files no
+    receipt;
+  - the external-chat MCP server's client is refused by the gate.
+
+## Hand-off to P01 (F4, exchange): facet → clause → rows
+
+Clause from the Owner line at v3 72945c2. The parenthetical is the facet's
+first open question, not the Owner line.
+
+| Facet | Closing clause | Status | Rows |
+|---|---|---|---|
+| `exchange.instrumentation` | a loss-accounted P02 record per row (open question: actual contacts per outcome, cold and warm, refusals included, and the org-level locality of each; the extern scans and the @org: send cross orgs) | partly | covered: all 15 contracts cold and warm, the variants above and 33 refusals, per-row loss zero; org-level locality measured (the org list and the extern scans read every org, the filtered read included; an @org: send writes the other org); agent-level locality within the declared recipients; `control:exchange-third-agent` flagged. NOT covered: the tokenless externtool path beyond its 401 (the gate refuses every verb); a live mail hub (`@net:` answers "no mailserver is configured"); P03 native negative controls |
+
+Owned elsewhere, with no rows added: `exchange.conflicts` and
+`exchange.wire`.
 
 ## Limits
 

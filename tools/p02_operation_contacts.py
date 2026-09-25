@@ -62,6 +62,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
 import uuid
 from pathlib import Path
 from typing import Any, Callable
@@ -3016,6 +3017,365 @@ class Probe:
                refusal="negative control (not a product path)",
                patches=[(api, "_op_lookup_call", lookup_and_mail_third)])
 
+    # -- P01 F4: the exchange routes and tools (mail, inbox, files, external chat) --
+    def build_exchange(self) -> None:
+        """tests/test_state_exchange_boundary.py's shape (distinctive `ex-*` ids):
+        the main org (ex-top and ex-top2 top-level, ex-mid under ex-top, ex-leaf
+        under ex-mid, ex-third under ex-top and never named), the OTHER org an
+        @org: send reaches, a sealed KIOSK org (a ceiling set, as P01's fixture
+        does, so a cold load mints no ceiling notice), and a STORAGE-BLOCKED org
+        (the flag is org-wide) for the blocked upload and send_file refusals."""
+        store, ledger = self.m["store"], self.m["ledger"]
+        user = ledger.USER
+        self.ex: dict[str, str] = {}
+        for role in ("main", "other", "kiosk", "blocked"):
+            org = store.create_org(f"p02-contacts-exchange-{role}")
+            slug = str(org.d["slug"])
+            self.ex[role] = slug
+            x = "ex" if role == "main" else f"ex{role[0]}"
+            org.hire(user, None, "haiku", 20, f"{x}-top", add_dirs=[], tools={}, charter="fixture")
+            org.hire(f"{x}-top", f"{x}-top", "haiku", 6, f"{x}-mid", **self.SCOPE)
+            org.hire(f"{x}-top", f"{x}-mid", "haiku", 2, f"{x}-leaf", **self.SCOPE)
+            org.hire(user, None, "haiku", 5, f"{x}-top2", add_dirs=[], tools={}, charter="fixture")
+            if role == "main":
+                org.hire("ex-top", "ex-top", "haiku", 0, "ex-third", **self.SCOPE)
+            if role == "kiosk":
+                org.d["kiosk"] = {"enabled": True, "credits": 0, "spend_limit": 0.0,
+                                  "storage_limit_mb": 0, "token": "kiosk-token-fixture",
+                                  "auto_raise": False,
+                                  "max_scope": {"tools": self.NO_TOOLS, "add_dirs": [],
+                                                "org_visibility": "team",
+                                                "permission_mode": "acceptEdits"}}
+            if role == "blocked":
+                org.d["storage_blocked"] = True
+            org.d["mail"], org.d["audiences"] = {}, []
+            store.save_org(org)
+            if role in ("main", "blocked"):
+                self.tokens[(slug, f"{x}-mid")] = self.m["agentauth"].child_env(
+                    slug, f"{x}-mid")["ORGTREE_AGENT_TOKEN"]
+                scratch = Path(self.m["supervisor"].scratch_dir(slug, f"{x}-mid"))
+                scratch.mkdir(parents=True, exist_ok=True)
+                (scratch / "report.txt").write_text("report", encoding="utf-8")
+                (scratch / "other.txt").write_text("other", encoding="utf-8")
+
+    def exchange(self) -> None:
+        """Every F4 contract, cold and warm. As in the P01 fixture, turn
+        delivery, the mail spark, supervisor.notify, the storage check, the
+        workspace usage read and the mail-hub kick are counting spies
+        (`spies`); hub_changed is real and counted. Every external-chat row
+        uses a peer id of its own (`p02x.<n>`): extern send records the peer in
+        the machine-wide extern-peers.json (of this synthetic data root) before
+        it validates anything, and the extern scans read EVERY org, so rows
+        must not see each other's replies."""
+        s, api, supervisor = self.ex["main"], self.m["api"], self.m["supervisor"]
+        spies: collections.Counter = collections.Counter()
+
+        def spy(name: str, answer: Any = None) -> Callable[..., Any]:
+            def call(*_a: Any, **_k: Any) -> Any:
+                spies[name] += 1
+                return answer
+            return call
+        hub = api.hub_changed
+
+        def hub_counted(*a: Any, **k: Any) -> Any:
+            spies["hub_changed"] += 1
+            return hub(*a, **k)
+        family = [(api, "hub_changed", hub_counted),
+                  (supervisor, "mail_spark", spy("mail_spark")),
+                  (supervisor, "notify", spy("notify")),
+                  (supervisor, "maybe_storage_check", spy("maybe_storage_check")),
+                  (supervisor, "workspace_usage_cached", spy("workspace_usage_cached")),
+                  (api.net, "kick", spy("net_kick"))]
+        saved = [(obj, name, getattr(obj, name)) for obj, name, _ in family]
+        for obj, name, value in family:
+            setattr(obj, name, value)
+        try:
+            self._exchange_rows(s, api, spies)
+        finally:
+            for obj, name, value in reversed(saved):
+                setattr(obj, name, value)
+
+    def _exchange_rows(self, s: str, api: Any, spies: collections.Counter) -> None:
+        store, opreceipts = self.m["store"], self.m["opreceipts"]
+        user, op, both = self.m["ledger"].USER, self.OPERATOR, ("cold", "warm")
+        other, kiosk, blocked = self.ex["other"], self.ex["kiosk"], self.ex["blocked"]
+        peers = iter(range(1, 1000))
+        stmt = ("statement:data:org-db:foreign",)
+
+        def peer() -> str:
+            return f"p02x.{next(peers)}"
+
+        def counted(row_of: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+            n0 = dict(spies)
+            row = row_of()
+            row["spies"] = {k: v - n0.get(k, 0) for k, v in sorted(spies.items())
+                            if v - n0.get(k, 0)}
+            return row
+
+        def route(contract: str, variant: str, condition: str, method: str, path: str,
+                  headers: Any = op, args: "dict[str, Any] | None" = None, slug: str = s,
+                  json_body: Any = None, params: Any = None, content: "bytes | None" = None,
+                  **kw: Any) -> dict[str, Any]:
+            def call() -> tuple[int, Any]:
+                extra: dict[str, Any] = {}
+                if json_body is not None:
+                    extra["json"] = json_body
+                if params is not None:
+                    extra["params"] = params
+                if content is not None:
+                    extra["content"] = content
+                resp = self.client.request(method, path, headers=headers, **extra)
+                try:
+                    return resp.status_code, resp.json()
+                except ValueError:
+                    return resp.status_code, None
+            return counted(lambda: self.run(contract, variant, condition, slug, user,
+                                            f"{method} {contract}", args or {}, call=call, **kw))
+
+        def run(contract: str, variant: str, condition: str, actor: str, tool: str,
+                args: dict[str, Any], slug: str = s, **kw: Any) -> dict[str, Any]:
+            return counted(lambda: self.run(contract, variant, condition, slug, actor, tool,
+                                            args, **kw))
+
+        def req(method: str, path: str, **kw: Any) -> Any:
+            """A setup call on the desktop token, outside any row."""
+            r = self.client.request(method, path, headers=op, **kw)
+            if r.status_code != 200:
+                raise RuntimeError(f"setup {path} answered {r.status_code}: {r.text[:200]}")
+            return r.json()
+
+        def org_reply(p: str, slug: str = s) -> None:
+            """The peer asks, the org answers: an 'out' entry to @mcp:<peer>."""
+            req("POST", f"/api/extern/{p}/send", json={"org": slug, "body": "question one"})
+            self.mutate(slug, lambda o: o._org_inbox_log("out", f"@mcp:{p}", "answer one",
+                                                         by="ex-top"))
+
+        def user_mail() -> str:
+            self.mutate(s, lambda o: o.post_mail("ex-top", user, "hello user"))
+            return str(store.load_org(s).d["user_inbox"][-1]["id"])
+
+        def pending_mail() -> str:
+            self.mutate(s, lambda o: o.post_mail("ex-top", "ex-mid", "pending for mid"))
+            return str(store.load_org(s).d["mail"]["ex-mid"][-1]["id"])
+
+        def staged() -> str:
+            return str(req("POST", f"/api/orgs/{s}/org_inbox/upload", params={"name": "note.txt"},
+                           content=b"staged bytes")["id"])
+
+        base = f"/api/orgs/{s}"
+        for cond in both:
+            route("exchange.orgs-list", "exchange.orgs-list", cond, "GET", "/api/orgs",
+                  expected_unknown=stmt)
+            p = peer()
+            # delivered to the org's external-mail recipients, as the product
+            # names them (Org.extern_recipients_preview), read before the row
+            route("exchange.extern-send", "exchange.extern-send", cond, "POST",
+                  f"/api/extern/{p}/send", json_body={"org": s, "body": "hi"},
+                  implied=tuple(store.load_org(s).extern_recipients_preview()))
+            p = peer()
+            org_reply(p)
+            route("exchange.extern-read", "exchange.extern-read", cond, "GET",
+                  f"/api/extern/{p}/messages", expected_unknown=stmt)
+            p = peer()
+            org_reply(p)
+            route("exchange.extern-wait", "exchange.extern-wait", cond, "GET",
+                  f"/api/extern/{p}/wait", params={"timeout": 1}, expected_unknown=stmt)
+            org_reply(peer())
+            route("exchange.org-inbox-list", "exchange.org-inbox-list", cond, "GET",
+                  f"{base}/org_inbox")
+            mid = user_mail()
+            route("exchange.mail-item", "exchange.mail-item", cond, "GET", f"{base}/mail/user/{mid}")
+            org_reply(peer())
+            route("exchange.org-inbox-read", "exchange.org-inbox-read", cond, "POST",
+                  f"{base}/org_inbox/read")
+            route("exchange.org-inbox-upload", "exchange.org-inbox-upload", cond, "POST",
+                  f"{base}/org_inbox/upload", params={"name": "a b?.txt"}, content=b"bytes")
+            route("exchange.org-inbox-send", "exchange.org-inbox-send", cond, "POST",
+                  f"{base}/org_inbox/send", json_body={"to": f"@mcp:{peer()}", "body": "hi"})
+            user_mail()
+            route("exchange.inbox-clear", "exchange.inbox-clear", cond, "POST", f"{base}/inbox/clear")
+            route("exchange.node-upload", "exchange.node-upload", cond, "POST",
+                  f"{base}/nodes/ex-mid/upload", params={"name": f"a-{cond}.txt"},
+                  content=b"one", args={"node": "ex-mid"})
+            route("exchange.reply-events-count", "exchange.reply-events-count", cond, "GET",
+                  f"{base}/nodes/ex-mid/reply-events", args={"node": "ex-mid"})
+            route("exchange.reply-events-clear", "exchange.reply-events-clear", cond, "DELETE",
+                  f"{base}/nodes/ex-mid/reply-events", args={"node": "ex-mid"})
+            mid = pending_mail()
+            route("exchange.mail-retract", "exchange.mail-retract", cond, "DELETE",
+                  f"{base}/nodes/ex-mid/mail/{mid}", args={"node": "ex-mid"})
+            run("exchange.send-file", "exchange.send-file", cond, "ex-mid", "orgtree_send_file",
+                {"path": "report.txt", "note": "the report"})
+
+        # variants (warm)
+        p = peer()
+        org_reply(p)
+        # the org filter does not stop the scan: it lists every org first
+        route("exchange.extern-read", "exchange.extern-read:org-filter", "warm", "GET",
+              f"/api/extern/{p}/messages", params={"org": s}, expected_unknown=stmt)
+        route("exchange.extern-wait", "exchange.extern-wait:timeout", "warm", "GET",
+              f"/api/extern/{peer()}/wait", params={"timeout": 1}, expected_unknown=stmt)
+        route("exchange.mail-item", "exchange.mail-item:user-missing", "warm", "GET",
+              f"{base}/mail/user/nope")
+        mid = pending_mail()
+        route("exchange.mail-item", "exchange.mail-item:node", "warm", "GET",
+              f"{base}/mail/node/{mid}", params={"node": "ex-mid"}, args={"node": "ex-mid"})
+        org_reply(peer())
+        oid = str(store.load_org(s).d["org_inbox"][-1]["id"])
+        route("exchange.mail-item", "exchange.mail-item:org", "warm", "GET", f"{base}/mail/org/{oid}")
+        # an @org: send writes the OTHER org's document; to a sealed kiosk or a
+        # missing org it only warns
+        for variant, to, extra in (
+                ("exchange.org-inbox-send:org", f"@org:{other}", {}),
+                ("exchange.org-inbox-send:org-kiosk", f"@org:{kiosk}", {}),
+                ("exchange.org-inbox-send:org-missing", "@org:nope-org", {}),
+                ("exchange.org-inbox-send:org-attachment", f"@org:{other}",
+                 {"attachments": [staged()]})):
+            route("exchange.org-inbox-send", variant, "warm", "POST", f"{base}/org_inbox/send",
+                  json_body={"to": to, "body": "hi", **extra},
+                  expected_unknown=(stmt if ":org" in variant and "missing" not in variant
+                                    else ()))
+        # attachments ride @org: and @net: only: @mcp: is a text-only transport
+        route("exchange.org-inbox-send", "refusal:org-send-mcp-attachment", "warm", "POST",
+              f"{base}/org_inbox/send",
+              json_body={"to": f"@mcp:{peer()}", "body": "hi", "attachments": [staged()]},
+              refusal="422 @mcp: carries no attachments")
+        route("exchange.node-upload", "exchange.node-upload:duplicate", "warm", "POST",
+              f"{base}/nodes/ex-mid/upload", params={"name": "a-warm.txt"}, content=b"one",
+              args={"node": "ex-mid"})
+        did = "p02-delivery-0001"
+        for variant, tool, args in (
+                ("exchange.send-file:delivery", "orgtree_send_file",
+                 {"path": "report.txt", "delivery_id": did}),
+                ("exchange.send-file:delivery-replay", "orgtree_send_file",
+                 {"path": "report.txt", "delivery_id": did}),
+                ("exchange.send-file:once", "orgtree_send_file_once",
+                 {"path": "report.txt", "delivery_id": "p02-delivery-0002"})):
+            run("exchange.send-file", variant, "warm", "ex-mid", tool, args)
+        ep = str(self.client.post(
+            "/api/agent", json=self.agent_body(s, "ex-mid", opreceipts.OP_EPOCH, {}),
+            headers={"X-Orgtree-Agent-Token": self.tokens[(s, "ex-mid")]}).json()["epoch"])
+        run("exchange.send-file", "exchange.send-file:keyed", "warm", "ex-mid", "orgtree_send_file",
+            {"path": "report.txt"}, key=opreceipts.mint_key(), epoch=ep)
+
+        # refusals (warm): the routes
+        agent = {"X-Orgtree-Agent-Token": self.tokens[(s, "ex-mid")]}
+        for contract, variant, method, path, kw, refusal in (
+                ("exchange.extern-send", "refusal:extern-send-empty", "POST",
+                 f"/api/extern/{peer()}/send", {"json_body": {"org": s, "body": "  "}},
+                 "422 empty body (after the peer sighting)"),
+                ("exchange.extern-send", "refusal:extern-send-bad-peer", "POST",
+                 "/api/extern/bad!peer/send", {"json_body": {"org": s, "body": "hi"}},
+                 "422 bad peer id (before the sighting)"),
+                ("exchange.extern-send", "refusal:extern-send-no-org", "POST",
+                 f"/api/extern/{peer()}/send", {"json_body": {"org": "nope-org", "body": "hi"}},
+                 "404 no org (after the sighting)"),
+                ("exchange.extern-send", "refusal:extern-send-kiosk", "POST",
+                 f"/api/extern/{peer()}/send", {"json_body": {"org": kiosk, "body": "hi"}},
+                 "404 a sealed kiosk answers like a missing org"),
+                ("exchange.extern-send", "refusal:extern-send-attachment-missing", "POST",
+                 f"/api/extern/{peer()}/send",
+                 {"json_body": {"org": s, "body": "x", "attachments": ["C:/nope/missing.txt"]}},
+                 "422 a missing attachment"),
+                ("exchange.org-inbox-list", "refusal:org-inbox-no-org", "GET",
+                 "/api/orgs/nope-org/org_inbox", {}, "404 no org"),
+                ("exchange.mail-item", "refusal:mail-node-unknown", "GET", f"{base}/mail/node/x",
+                 {"params": {"node": "ghost"}}, "404 unknown node"),
+                ("exchange.mail-item", "refusal:mail-bad-box", "GET", f"{base}/mail/bogus/x", {},
+                 "422 bad box"),
+                ("exchange.org-inbox-read", "refusal:org-inbox-read-no-org", "POST",
+                 "/api/orgs/nope-org/org_inbox/read", {}, "404 no org"),
+                ("exchange.org-inbox-send", "refusal:org-send-ext", "POST", f"{base}/org_inbox/send",
+                 {"json_body": {"to": "@ext:x", "body": "x"}}, "422 @ext: is not a channel"),
+                ("exchange.org-inbox-send", "refusal:org-send-bad-to", "POST",
+                 f"{base}/org_inbox/send", {"json_body": {"to": "bob", "body": "x"}},
+                 "422 bad recipient"),
+                ("exchange.org-inbox-send", "refusal:org-send-bad-stage", "POST",
+                 f"{base}/org_inbox/send",
+                 {"json_body": {"to": f"@org:{other}", "body": "x", "attachments": ["nope"]}},
+                 "422 unknown stage id"),
+                ("exchange.org-inbox-send", "refusal:org-send-net-no-hub", "POST",
+                 f"{base}/org_inbox/send", {"json_body": {"to": "@net:elsewhere", "body": "x"}},
+                 "the mail hub is not running"),
+                ("exchange.inbox-clear", "refusal:inbox-clear-no-org", "POST",
+                 "/api/orgs/nope-org/inbox/clear", {}, "404 no org"),
+                ("exchange.node-upload", "refusal:node-upload-empty", "POST",
+                 f"{base}/nodes/ex-mid/upload", {"params": {"name": "a.txt"}, "content": b""},
+                 "422 empty upload"),
+                ("exchange.node-upload", "refusal:node-upload-ghost", "POST",
+                 f"{base}/nodes/ghost/upload", {"content": b"x"}, "404 unknown node"),
+                ("exchange.node-upload", "refusal:node-upload-blocked", "POST",
+                 f"/api/orgs/{blocked}/nodes/exb-mid/upload", {"content": b"x", "slug": blocked},
+                 "storage blocked"),
+                ("exchange.reply-events-count", "refusal:reply-events-ghost-node", "GET",
+                 f"{base}/nodes/ghost/reply-events", {}, "500 legacy: raw LedgerError"),
+                ("exchange.reply-events-count", "refusal:reply-events-no-org", "GET",
+                 "/api/orgs/nope-org/nodes/ex-mid/reply-events", {}, "500 legacy: raw LedgerError"),
+                ("exchange.reply-events-clear", "refusal:reply-events-clear-ghost", "DELETE",
+                 f"{base}/nodes/ghost/reply-events", {}, "500 legacy: raw LedgerError"),
+                ("exchange.mail-retract", "refusal:retract-gone", "DELETE",
+                 f"{base}/nodes/ex-mid/mail/nope", {}, "the mail is gone"),
+                ("exchange.orgs-list", "refusal:route-no-token", "GET", "/api/orgs",
+                 {"headers": {}}, "401 no credential"),
+                ("exchange.org-inbox-list", "refusal:route-agent-token", "GET", f"{base}/org_inbox",
+                 {"headers": agent}, "401 an agent credential is refused here"),
+                ("exchange.extern-read", "refusal:extern-no-token", "GET",
+                 f"/api/extern/{peer()}/messages", {"headers": {}}, "401 no credential")):
+            route(contract, variant, "warm", method, path, refusal=refusal, **kw)
+        # refusals (warm): the agent tools
+        for variant, tool, args, slug, actor in (
+                ("refusal:send-file-missing", "orgtree_send_file", {"path": "nope.txt"}, s, "ex-mid"),
+                ("refusal:send-file-no-path", "orgtree_send_file", {}, s, "ex-mid"),
+                ("refusal:send-file-escape", "orgtree_send_file", {"path": "../../x.txt"}, s,
+                 "ex-mid"),
+                ("refusal:send-file-bad-delivery-id", "orgtree_send_file",
+                 {"path": "report.txt", "delivery_id": "short"}, s, "ex-mid"),
+                ("refusal:send-file-once-no-id", "orgtree_send_file_once", {"path": "report.txt"},
+                 s, "ex-mid"),
+                ("refusal:send-file-delivery-conflict", "orgtree_send_file",
+                 {"path": "other.txt", "delivery_id": did}, s, "ex-mid"),
+                ("refusal:send-file-blocked", "orgtree_send_file",
+                 {"path": "report.txt", "delivery_id": "p02-delivery-0003"}, blocked, "exb-mid")):
+            run("exchange.send-file", variant, "warm", actor, tool, args, slug=slug,
+                refusal="refused")
+        # the external-chat MCP server's own client: it sends no credential, so
+        # the TokenGate refuses every verb (recorded; the user question on that
+        # docket item is pending). Its http() is served by this app with
+        # EXACTLY the headers it sends; a fixed ORGTREE_EXTERN_ID keeps its
+        # import from writing an extern-id file
+        os.environ.setdefault("ORGTREE_EXTERN_ID", "p02x.externtool")
+        from orgtree import externtool
+        seen: dict[str, Any] = {}
+
+        def extern_http(method: str, path: str, body: Any = None, timeout: float = 30.0) -> Any:
+            r = self.client.request(method, path, json=body,
+                                    headers={"Content-Type": "application/json"})
+            seen["status"] = r.status_code
+            if r.status_code >= 400:
+                raise urllib.error.HTTPError(path, r.status_code, "error", {},  # type: ignore[arg-type]
+                                             io.BytesIO(r.content))
+            return r.json()
+
+        def extern_call() -> tuple[int, Any]:
+            text, err = externtool.run_tool("orgtree_list_orgs", {})
+            return int(seen.get("status") or 0), {"error": bool(err), "detail": str(text)[:200]}
+        run("exchange.orgs-list", "refusal:externtool-no-credential", "warm", user,
+            "externtool orgtree_list_orgs", {}, call=extern_call,
+            patches=[(externtool, "http", extern_http)],
+            refusal="401 the MCP server's client sends no credential")
+
+        # agent-level locality control: an org-inbox read whose closing tree
+        # broadcast (api.hub_changed) ALSO posts mail to a third agent
+        def mail_third(*_a: Any, **_k: Any) -> None:
+            spies["hub_changed"] += 1
+            with store.write_org(s) as o:
+                o.post_mail("ex-top", "ex-third", "p02 control: mail to a third agent")
+                store.save_org(o)
+        org_reply(peer())
+        route("exchange.org-inbox-read", "control:exchange-third-agent", "warm", "POST",
+              f"{base}/org_inbox/read", refusal="negative control (not a product path)",
+              patches=[(api, "hub_changed", mail_third)])
+
     # -- P01 F3: asks, reports, scope requests, watchdogs, audiences -------------
     RQ_CELLS = ("ask", "withdraw", "present", "report", "scope", "wdcreate", "wdlist", "wdpause",
                 "wdresume", "wdremove", "wdsupersede", "audreq", "audfwd", "audgrant", "auddeny",
@@ -4311,6 +4671,7 @@ class Probe:
             self.build_opvariants()
             self.build_requests()
             self.build_control()
+            self.build_exchange()
         self.build_human()
         for slug in ((self.dslug, self.hslug) if json_backend else
                      (self.rslug, self.mslug, self.dslug, self.pslug, self.sslug,
@@ -4318,7 +4679,7 @@ class Probe:
                       self.stfslug, self.opslug, self.qsslug, self.wrslug, self.rlslug,
                       self.lcslug, *self.lc_all.values(), self.vxslug,
                       self.rqslug, self.ctslug, *self.ks.values(),
-                      *self.kx.values())):
+                      *self.kx.values(), *self.ex.values())):
             _NODES[slug] = {str(n) for n in self.m["store"].load_org(slug).nodes}
         self.operator("post", "/api/diagnostics/operation-census/reset")
         self.operator("post", "/api/diagnostics/operation-census", json={"enabled": True})
@@ -4349,6 +4710,7 @@ class Probe:
             self.op_variants()
             self.requests()
             self.control()
+            self.exchange()
         w1 = self.census_state()
         self.load_table_catalogue()
         self.map_tables()

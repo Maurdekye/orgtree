@@ -61,7 +61,11 @@ CONTRACTS = {f"reservation.{v}" for v in RESERVATION} | {
         "restart-wake-cancel", "restart-wake-status", "op-interrupt", "op-unstick",
         "op-continue-on", "op-halt", "op-unhalt", "op-process", "killswitch",
         "killswitch-release", "resume", "remote-control", "steer-claim", "steer-ack",
-        "steer-state", "kiosk")}
+        "steer-state", "kiosk")} | {
+    f"exchange.{v}" for v in (
+        "orgs-list", "extern-send", "extern-read", "extern-wait", "org-inbox-list", "mail-item",
+        "org-inbox-read", "org-inbox-upload", "org-inbox-send", "inbox-clear", "node-upload",
+        "reply-events-count", "reply-events-clear", "mail-retract", "send-file")}
 #: the managed-wait tools (mcptool.MANAGED_WAIT_TOOLS) among the probed ones
 MANAGED_WAIT = {"orgtree_hire", "orgtree_staff", "orgtree_rehire", "orgtree_retire",
                 "orgtree_dissolve", "orgtree_cheap_compact", "orgtree_watchdog",
@@ -304,7 +308,8 @@ class OperationContacts(unittest.TestCase):
                                 self.HUMAN_CONTROL, self.FUNDING_CONTROL,
                                 self.STAFFING_CONTROL, self.OPERATOR_CONTROL,
                                 self.QS_CONTROL, self.RL_CONTROL, self.LC_CONTROL,
-                                self.VX_CONTROL, self.RQ_CONTROL, self.CT_CONTROL):
+                                self.VX_CONTROL, self.RQ_CONTROL, self.CT_CONTROL,
+                                self.EX_CONTROL):
                 continue
             with self.subTest(variant=r["variant"], condition=r["condition"]):
                 self.assertEqual(r["agents"]["third_agent_mail"], 0)
@@ -337,7 +342,8 @@ class OperationContacts(unittest.TestCase):
                                          "audiences.deny", "audiences.forward", "audiences.grant",
                                          "audiences.operator-action", "audiences.request",
                                          "audiences.revoke", "control.op-unstick",
-                                         "control.unstick", "lifecycle.operator-scope"})
+                                         "control.unstick", "lifecycle.operator-scope",
+                                         "exchange.extern-send", "exchange.mail-retract"})
 
     def test_third_agent_mail_control_is_flagged(self):
         control = self.rows(variant=self.CONTROL)
@@ -439,6 +445,8 @@ class OperationContacts(unittest.TestCase):
             return [self.F_STMT]      # store.local_net_slugs: a doc row of EVERY org
         if variant == "catalogue.list-orgs":
             return [self.F_STMT]      # the catalogue loads EVERY org (pooled stores)
+        if variant in self.EX_FOREIGN:
+            return [self.F_STMT]      # F4: the org list, the extern scans, an @org: send
         return self.DECLARED.get(variant, [])
 
     def test_every_row_loses_nothing(self):
@@ -471,7 +479,7 @@ class OperationContacts(unittest.TestCase):
         self.assertEqual(seen, set(self.DECLARED) | {
             "control:foreign-org-contact", "mail.message:org", "mail.message:bare-unknown-name",
             "org.tree", "migration:legacy-json", "refusal:human-unknown-node",
-            "control:work-read-foreign-org", "catalogue.list-orgs"})
+            "control:work-read-foreign-org", "catalogue.list-orgs"} | self.EX_FOREIGN)
 
     def test_sandboxed_org_reads_come_from_the_sandbox_placement(self):
         """material.reads: a SANDBOXED org's transcript is read from the
@@ -833,7 +841,8 @@ class OperationContacts(unittest.TestCase):
         self.assertEqual(scan["statements_unbound"], scan["statements"])
         self.assertGreater(scan["db_unattributed_delta"], 0)
         self.assertEqual(scan["recorded_delta"], 0)
-        self.assertEqual(scan["kiosk_orgs_mapped"], 1)
+        # the org-view kiosk and F4's sealed kiosk (F2's kiosk orgs hold no token)
+        self.assertEqual(scan["kiosk_orgs_mapped"], 2)
         self.assertGreater(scan["orgs_listed"], 1)
 
 
@@ -2115,6 +2124,141 @@ class OperationContacts(unittest.TestCase):
         self.assertEqual(control["http_status"], 200, control["detail"])
         agents = control["agents"]
         self.assertEqual(agents["logical"]["mail"], {"ct-third": "third"})
+        self.assertGreaterEqual(agents["third_agent_mail"], 1)
+        self.assertGreaterEqual(agents["third_agent_rows_written"], 1)
+
+    # -- P01 F4: the exchange routes and tools --------------------------------------
+    EX_CONTROL = "control:exchange-third-agent"
+    EX_MAIN = ("exchange.orgs-list", "exchange.extern-send", "exchange.extern-read",
+               "exchange.extern-wait", "exchange.org-inbox-list", "exchange.mail-item",
+               "exchange.org-inbox-read", "exchange.org-inbox-upload", "exchange.org-inbox-send",
+               "exchange.inbox-clear", "exchange.node-upload", "exchange.reply-events-count",
+               "exchange.reply-events-clear", "exchange.mail-retract", "exchange.send-file")
+    #: the rows that run statements on OTHER orgs' stores, as found: the org list
+    #: and the external-chat scans (every org), and an @org: send (the other org)
+    EX_FOREIGN = {"exchange.orgs-list", "exchange.extern-read", "exchange.extern-wait",
+                  "exchange.extern-read:org-filter", "exchange.extern-wait:timeout",
+                  "exchange.org-inbox-send:org", "exchange.org-inbox-send:org-kiosk",
+                  "exchange.org-inbox-send:org-attachment"}
+
+    def ex_rows(self):
+        return [r for r in self.doc["rows"] if r["contract"].startswith("exchange.")
+                and r["variant"] != self.EX_CONTROL]
+
+    def test_exchange_contracts_run_cold_and_warm(self):
+        """exchange.instrumentation: every F4 contract, cold and warm,
+        loss-accounted (one census record whose statements the harness
+        matches)."""
+        self.assertEqual({r["contract"] for r in self.ex_rows()}, set(self.EX_MAIN))
+        for contract in self.EX_MAIN:
+            for condition in ("cold", "warm"):
+                with self.subTest(contract=contract, condition=condition):
+                    [r] = self.rows(contract=contract, variant=contract, condition=condition)
+                    self.assertEqual(r["http_status"], 200, r["detail"])
+                    self.assertEqual(r["census"]["records"], 1)
+                    self.assertIs(r["harness"]["matches_census"], True)
+
+    def test_exchange_org_level_locality_as_found(self):
+        """The org list and the external-chat scans read EVERY org's document
+        (docket external-chat-messages-and-wait-read-every-org-u), and an
+        org FILTER on the read does not stop that: the scan lists every org
+        through store.list_orgs before it filters. An @org: send writes the
+        other org's store; to a sealed kiosk it reads the other store and
+        only warns. Nothing else leaves the org."""
+        for r in self.ex_rows():
+            foreign = r["harness"]["statement_stores"].get("data:org-db:foreign", 0)
+            with self.subTest(variant=r["variant"], condition=r["condition"]):
+                self.assertEqual(foreign > 0, r["variant"] in self.EX_FOREIGN)
+        for variant in ("exchange.extern-read", "exchange.extern-read:org-filter",
+                        "exchange.orgs-list"):
+            [r] = self.rows(variant=variant, condition="warm")
+            self.assertLessEqual({"orgtree.store:_load_lazy", "orgtree.store:_meta_get"},
+                                 set(r["harness"]["foreign_statement_sites"]), variant)
+            self.assertGreater(r["harness"]["statement_stores"]["data:org-db:foreign"], 100, variant)
+        sent = self.rows(variant="exchange.org-inbox-send:org")[0]["harness"]["foreign_statement_sites"]
+        self.assertIn("orgtree.store:_save_sqlite", sent)
+        sealed = self.rows(variant="exchange.org-inbox-send:org-kiosk")[0]
+        self.assertNotIn("orgtree.store:_save_sqlite", sealed["harness"]["foreign_statement_sites"])
+
+    def test_exchange_rows_reach_only_the_declared_set(self):
+        rows = self.ex_rows()
+        self.assertGreater(len(rows), 70)
+        for r in rows:
+            agents = r["agents"]
+            with self.subTest(variant=r["variant"], condition=r["condition"]):
+                self.assertEqual((agents["third_agent_mail"], agents["third_agent_rows_written"]),
+                                 (0, 0))
+                self.assertLessEqual(set(agents["physical_written"]),
+                                     {agents["actor"]} | set(agents["targets"]))
+                # (an outside peer's audience grant is logged under @extern)
+                roles = {role for sect in agents["logical"].values() for role in sect.values()}
+                self.assertLessEqual(roles, {"actor", "target", "user-or-org"})
+                self.assertNotIn("ex-third", agents["physical_nodes"])
+                self.assertFalse([s for s in agents["third_sites"] if ":read@" not in s])
+        # an outside message lands in the org inbox and reaches the org's
+        # external-mail recipients (Org.extern_recipients_preview): ex-top
+        for condition in ("cold", "warm"):
+            [r] = self.rows(variant="exchange.extern-send", condition=condition)
+            self.assertEqual(set(r["agents"]["logical"]["mail"]), {"ex-top"})
+            self.assertEqual(r["agents"]["targets"], ["ex-top"])
+
+    def test_exchange_effects_and_pinned_legacy_behaviour(self):
+        def one(variant, condition="warm"):
+            [r] = [x for x in self.rows(variant=variant, condition=condition)
+                   if x["contract"].startswith("exchange.")]
+            return r
+
+        def sighting(r):
+            return any("_peers_write" in k for k in r["audit"].get("file_write", {}))
+        # extern send records the peer's sighting before it validates the body,
+        # the org or the attachments; not before a bad peer id
+        for variant in ("exchange.extern-send", "refusal:extern-send-empty",
+                        "refusal:extern-send-no-org", "refusal:extern-send-kiosk",
+                        "refusal:extern-send-attachment-missing"):
+            self.assertTrue(sighting(one(variant)), variant)
+        self.assertFalse(sighting(one("refusal:extern-send-bad-peer")))
+        # a sealed kiosk answers exactly like a missing org
+        self.assertEqual(one("refusal:extern-send-kiosk")["http_status"],
+                         one("refusal:extern-send-no-org")["http_status"])
+        # the reply-events routes answer a raw 500 for an unknown org or node
+        for variant in ("refusal:reply-events-ghost-node", "refusal:reply-events-no-org",
+                        "refusal:reply-events-clear-ghost"):
+            self.assertEqual(one(variant)["http_status"], 500, variant)
+        # send_file touches the filesystem and the deliveries sidecar only: no
+        # call writes the org's store, and a keyed call files no receipt
+        for r in self.rows(contract="exchange.send-file"):
+            with self.subTest(variant=r["variant"], condition=r["condition"]):
+                self.assertEqual(r["harness"]["stores"].get("primary", {}).get("tables_written", []),
+                                 [])
+        # the external-chat MCP server's client sends no credential: 401 at the
+        # gate, before any attempt is recorded
+        ext = one("refusal:externtool-no-credential")
+        self.assertEqual((ext["http_status"], ext["census"]["records"]), (401, 0))
+        for variant in ("refusal:route-no-token", "refusal:route-agent-token",
+                        "refusal:extern-no-token"):
+            self.assertEqual((one(variant)["http_status"], one(variant)["census"]["records"]),
+                             (401, 0), variant)
+        # an @org: send sparks the other org's recipient; a sealed kiosk does not
+        self.assertEqual(one("exchange.org-inbox-send:org")["spies"].get("mail_spark"), 1)
+        self.assertNotIn("mail_spark", one("exchange.org-inbox-send:org-kiosk")["spies"])
+
+    def test_exchange_refusals_write_nothing_to_the_org(self):
+        refusals = [r for r in self.ex_rows() if r["variant"].startswith("refusal:")]
+        # 24 route refusals, the attachment on an @mcp: send (a text-only
+        # transport), 7 send_file refusals and the tokenless externtool call
+        self.assertEqual(len(refusals), 33)
+        for r in refusals:
+            with self.subTest(variant=r["variant"]):
+                self.assertGreaterEqual(r["http_status"], 400)
+                self.assertEqual(r["harness"]["stores"].get("primary", {}).get("tables_written", []),
+                                 [])
+                self.assertEqual(r["agents"]["logical"], {})
+
+    def test_exchange_third_agent_control_is_flagged(self):
+        control = self.rows(variant=self.EX_CONTROL)[0]
+        self.assertEqual(control["http_status"], 200, control["detail"])
+        agents = control["agents"]
+        self.assertEqual(agents["logical"]["mail"], {"ex-third": "third"})
         self.assertGreaterEqual(agents["third_agent_mail"], 1)
         self.assertGreaterEqual(agents["third_agent_rows_written"], 1)
 
