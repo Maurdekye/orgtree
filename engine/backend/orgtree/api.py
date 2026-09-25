@@ -83,6 +83,8 @@ from pydantic import BaseModel, model_validator
 
 from . import account_fallback as accountfallback
 from . import crashreports
+from . import mailtx  # PG-3d: mail on row transactions
+from . import orgtx
 from . import events
 from . import registry
 from . import refs
@@ -5676,7 +5678,8 @@ def node_message(slug: str, nid: str, body: Message,
             # an agent's context
             missing.append(f"{extra} further attachment(s) — past the "
                            f"{ledger_mod.ATTACHMENT_MAX}-per-message limit")
-    with _entry_ledger_422(store.write_org(slug)) as org:
+    # PG-3d: a row transaction on the recipient's rows, not DOC_LOCK
+    with _entry_ledger_422(mailtx.org_of(slug, **mailtx.send_rows(nid))) as org:
         try:
             reply_meta: dict[str, Any] | None = None
             if body.reply_to is not None and target is None:
@@ -5715,7 +5718,6 @@ def node_message(slug: str, nid: str, body: Message,
             # 80 chars truncated most instructions mid-clause; the notice is a
             # gist, but it has to survive being read on its own
             org.user_deep_reach(nid, body.text.strip().splitlines()[0][:160])
-            store.save_org(org)
         except LedgerError as e:
             raise HTTPException(422, str(e))
     mail_notify(slug, USER, nid)
@@ -8575,6 +8577,18 @@ class AskAnswer(Body):
     dismiss: bool = False
 
 
+def _ask_node(slug: str, aid: str) -> str | None:
+    """The node that asked `aid`, read lock-free (PG-3d): it names the rows
+    the answer's transaction locks. None when there is no such ask — the
+    ledger then refuses inside the transaction, as before."""
+    try:
+        pre = orgtx.org_read(slug)
+    except LedgerError as e:
+        raise HTTPException(422, str(e))
+    a = next((x for x in pre.d.get("asks", []) if x.get("id") == aid), None)
+    return str(a["node"]) if a and a.get("node") else None
+
+
 @app.post("/api/orgs/{slug}/asks/{aid}/answer")
 def ask_answer(slug: str, aid: str, body: AskAnswer) -> dict[str, Any]:
     """Answer an agent's question (F-04) — from the desk card or the inbox
@@ -8582,7 +8596,9 @@ def ask_answer(slug: str, aid: str, body: AskAnswer) -> dict[str, Any]:
     is posted, under one doc lock; every other rendering of the card nulls
     to grey "answered" on the next payload. (The wake-void this ordering
     once guarded against was retired 2026-08-06 — see withdraw_ask.)"""
-    with _entry_ledger_422(store.write_org(slug)) as org:
+    # PG-3d: the asks row plus the asking node's mail rows, not DOC_LOCK.
+    # The asker is read lock-free first (an ask's node never changes).
+    with _entry_ledger_422(mailtx.org_of(slug, **mailtx.ask_rows(_ask_node(slug, aid)))) as org:
         try:
             r = (org.ask_dismiss(aid) if body.dismiss
                  else org.ask_answer(aid, selected=body.selected,
@@ -8596,7 +8612,6 @@ def ask_answer(slug: str, aid: str, body: AskAnswer) -> dict[str, Any]:
             org.bind_answer_mail(str(posted.get("id") or ""), ask=aid)
         except LedgerError as e:
             raise HTTPException(422, str(e))
-        store.save_org(org)
     if drive:
         mail_notify(slug, USER, r["node"])
         supervisor.send_message(
@@ -8914,7 +8929,8 @@ class InboxRead(Body):
 def user_inbox_read(slug: str, body: InboxRead) -> dict[str, Any]:
     """Per-mail read: a viewed mail is marked read when the user clicks off it
     (user ruling) — it moves from unread into the read archive."""
-    with _entry_ledger_422(store.write_org(slug), 404) as org:
+    # PG-3d: locks the user inbox and its read archive only, not DOC_LOCK
+    with _entry_ledger_422(mailtx.org_of(slug, **mailtx.READ_MARK_ROWS), 404) as org:
         ids = set(body.ids)
         keep: list[UserMailEntry] = []
         read: list[UserMailEntry] = []
@@ -8930,8 +8946,6 @@ def user_inbox_read(slug: str, body: InboxRead) -> dict[str, Any]:
             # second outranks one sent later (user bug 2026-08-02). `at` is
             # ISO-8601 Z, so a string sort is a time sort.
             log.sort(key=lambda m: m.get("at") or "")
-
-            store.save_org(org)
     hub_changed(slug)
     return {"read": len(read)}
 
@@ -9014,13 +9028,9 @@ def mail_one(slug: str, box: str, mid: str, request: Request = cast(Request, Non
 @app.post("/api/orgs/{slug}/org_inbox/read")
 def org_inbox_read(slug: str) -> dict[str, Any]:
     """The user opened the org-inbox panel: clear its unread count."""
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
+    # PG-3d: the org-inbox read mark alone, not DOC_LOCK
+    with _entry_ledger_422(mailtx.org_of(slug, sections=["org_inbox_read"]), 404) as org:
         org.org_inbox_mark_read()
-        store.save_org(org)
     hub_changed(slug)
     return {"ok": True}
 
@@ -9168,16 +9178,12 @@ def org_inbox_send(slug: str, body: OrgInboxSend,
 def user_inbox_clear(slug: str) -> dict[str, Any]:
     """Mark-all-read: archives into the read log (mirror of a node's mail_log)
     rather than deleting."""
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
+    # PG-3d: the user inbox and its read archive only, not DOC_LOCK
+    with _entry_ledger_422(mailtx.org_of(slug, **mailtx.READ_MARK_ROWS), 404) as org:
         log = org.d.setdefault("user_mail_log", [])
         log.extend(org.d.get("user_inbox", []))
 
         org.d["user_inbox"] = []
-        store.save_org(org)
     hub_changed(slug)
     return {"ok": True}
 
@@ -9470,9 +9476,10 @@ class AudienceAction(Body):
 def user_audience(slug: str, body: AudienceAction) -> dict[str, Any]:
     """User-side audience management: grant/deny requests that reached you, and
     one-click rescind of any audience (your authority is unconditional)."""
-    with store.DOC_LOCK:
+    # PG-3d: audiences, requests and the mail/notice rows a decision writes,
+    # not DOC_LOCK
+    with _entry_ledger_422(mailtx.org_of(slug, **mailtx.audience_rows(body.node)), 404) as org:
         try:
-            org = store.load_org(slug)
             if body.action == "grant":
                 result = org.audience_grant(USER, body.node, body.target)
             elif body.action == "deny":
@@ -9483,7 +9490,6 @@ def user_audience(slug: str, body: AudienceAction) -> dict[str, Any]:
                 raise LedgerError("action must be grant|deny|revoke")
         except LedgerError as e:
             raise HTTPException(422, str(e))
-        store.save_org(org)
     for t in result.pop("drive", []):
         supervisor.send_message(slug, t, "(orgtree) You have new mail above.",
                                 mail_ping=True, ping_reason="audience")
@@ -13882,16 +13888,15 @@ def clear_reply_events(slug: str, nid: str) -> dict[str, Any]:
 def node_mail_retract(slug: str, nid: str, mid: str) -> dict[str, Any]:
     """Parity №17: retract one UNDRAINED mail entry — the only correction
     channel for a wrong send, since delivery deliberately never interrupts."""
-    with store.DOC_LOCK:
+    # PG-3d: that node's pending box and archive rows, not DOC_LOCK
+    with _entry_ledger_422(mailtx.org_of(slug, **mailtx.retract_rows(nid)), 404) as org:
         try:
-            org = store.load_org(slug)
             org.node(nid)
         except LedgerError as e:
             raise HTTPException(404, str(e))
         if not _retract_mail(org, nid, mid):
             raise HTTPException(404, "no such pending mail — it may already "
                                      "have been delivered")
-        store.save_org(org)
     hub_changed(slug)
     return {"retracted": mid}
 
