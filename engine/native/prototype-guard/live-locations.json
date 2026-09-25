@@ -1,0 +1,14 @@
+{
+  "schema": "orgtree.p03.live-locations/v1",
+  "about": "THE list of locations no P03 prototype root may be inside or contain. Read by the Rust guard (orgtree-prototype-guard, compiled in) and by the Python door hook (engine/backend/orgtree/p03_door.py). A location is base + parts, where base is the FIRST non-empty environment variable named in base_env; a location whose base_env are all unset is skipped. unconditional=false means the location is unlocked only when it is itself a valid prototype root (marker bound to exactly its canonical path) lying outside every unconditional location.",
+  "locations": [
+    { "label": "ORGTREE_AGENT_PARENT_DATA", "base_env": ["ORGTREE_AGENT_PARENT_DATA"], "parts": [], "unconditional": true },
+    { "label": "ORGTREE_AGENT_LEGACY_DATA", "base_env": ["ORGTREE_AGENT_LEGACY_DATA"], "parts": [], "unconditional": true },
+    { "label": "%APPDATA%\\Orgtree v2", "base_env": ["APPDATA"], "parts": ["Orgtree v2"], "unconditional": true },
+    { "label": "%USERPROFILE%\\AppData\\Roaming\\Orgtree v2", "base_env": ["USERPROFILE", "HOME"], "parts": ["AppData", "Roaming", "Orgtree v2"], "unconditional": true },
+    { "label": "~/orgtree", "base_env": ["USERPROFILE", "HOME"], "parts": ["orgtree"], "unconditional": true },
+    { "label": "%ProgramFiles%\\Orgtree", "base_env": ["ProgramFiles"], "parts": ["Orgtree"], "unconditional": true },
+    { "label": "%LOCALAPPDATA%\\Programs\\Orgtree", "base_env": ["LOCALAPPDATA"], "parts": ["Programs", "Orgtree"], "unconditional": true },
+    { "label": "ORGTREE_DATA", "base_env": ["ORGTREE_DATA"], "parts": [], "unconditional": false }
+  ]
+}

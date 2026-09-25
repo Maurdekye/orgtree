@@ -15,41 +15,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
-name = "orgtree-backend-codec"
-version = "0.1.0"
-dependencies = [
- "orgtree-work-name-codec",
-]
-
-[[package]]
-name = "orgtree-op-receipt-codec"
-version = "0.1.0"
-dependencies = [
- "orgtree-backend-codec",
-]
-
-[[package]]
-name = "orgtree-pg-custodian"
-version = "0.1.0"
-dependencies = [
- "orgtree-op-receipt-codec",
- "orgtree-prototype-guard",
- "serde",
- "serde_json",
- "windows-sys",
-]
-
-[[package]]
 name = "orgtree-prototype-guard"
 version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
 ]
-
-[[package]]
-name = "orgtree-work-name-codec"
-version = "0.1.0"
 
 [[package]]
 name = "proc-macro2"
@@ -128,21 +99,6 @@ name = "unicode-ident"
 version = "1.0.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d245f478577f809a851594d02313b640fb437e0bb33866753cff937863096954"
-
-[[package]]
-name = "windows-link"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5"
-
-[[package]]
-name = "windows-sys"
-version = "0.61.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc"
-dependencies = [
- "windows-link",
-]
 
 [[package]]
 name = "zmij"
