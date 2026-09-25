@@ -97,6 +97,7 @@ from . import workitems
 from . import workevidence
 from . import opreceipts
 from . import pgdoor
+from . import rcdoor  # PG-3c: credits/reservations/status on row transactions
 from . import reservations
 from . import ledger as ledger_mod
 from . import (accounts, antigravity_limits, appsettings, bridgeauth,
@@ -6379,31 +6380,40 @@ def credit_request_decide(slug: str, body: CreditDecision) -> dict[str, Any]:
     if body.dry:
         if body.granted is None:
             raise HTTPException(422, "dry run needs `granted`")
-        with store.DOC_LOCK:
-            try:
-                return store.load_org(slug).credit_preview(body.id, body.granted)
-            except LedgerError as e:
-                raise HTTPException(422, str(e))
-    with store.DOC_LOCK:
+        # PG-3c: a preview writes nothing — a coherent read, no lock
         try:
-            org = store.load_org(slug)
-            req = org.credit_request_action(body.id, body.action,
-                                            granted=body.granted)
-            _kiosk_cap_check(org)
-            notice = req.get("notice")
-            drive = False
-            if notice and req["node"] in org.nodes:
-                # typed: decision.credit rides the result as `ev`; the body is
-                # its rendering (== `notice`)
-                posted = org.post_mail(USER, req["node"], "", ev=req["ev"])
-                drive = not posted.get("deferred")
-                # message-visibility invariant: see ask_answer
-                org.bind_answer_mail(str(posted.get("id") or ""),
-                                     credits=body.id)
-            req = {k: v for k, v in req.items() if k != "ev"}
+            return orgtx.org_read(slug).credit_preview(body.id, body.granted)
         except LedgerError as e:
             raise HTTPException(422, str(e))
-        store.save_org(org)
+    # PG-3c: one row transaction on the request row, the approval's chain
+    # (actor USER: the target up to the top) and the decision mail's rows —
+    # not DOC_LOCK (rcdoor.decide_rows)
+    st: dict[str, Any] = {"drive": False}
+
+    def _decide(tx: Any) -> dict[str, Any]:
+        org = tx.org
+        rcdoor.require(tx.spec, rcdoor.decide_rows(org, body.id))
+        req = org.credit_request_action(body.id, body.action,
+                                        granted=body.granted)
+        _kiosk_cap_check(org)
+        notice = req.get("notice")
+        st["drive"] = False
+        if notice and req["node"] in org.nodes:
+            # typed: decision.credit rides the result as `ev`; the body is
+            # its rendering (== `notice`)
+            posted = org.post_mail(USER, req["node"], "", ev=req["ev"])
+            st["drive"] = not posted.get("deferred")
+            # message-visibility invariant: see ask_answer
+            org.bind_answer_mail(str(posted.get("id") or ""),
+                                 credits=body.id)
+        return {k: v for k, v in req.items() if k != "ev"}
+
+    try:
+        req = rcdoor.run_op(slug, rcdoor.decide_rows(orgtx.org_read(slug),
+                                                     body.id), _decide)
+    except LedgerError as e:
+        raise HTTPException(422, str(e))
+    drive = st["drive"]
     if drive:
         mail_notify(slug, USER, req["node"])
         supervisor.send_message(
