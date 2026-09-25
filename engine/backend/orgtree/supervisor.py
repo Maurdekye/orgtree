@@ -42,7 +42,7 @@ from collections.abc import (Callable, Iterable, Iterator, Mapping,
 import contextlib
 from functools import wraps
 from pathlib import Path
-from typing import Any, Final, Protocol, cast
+from typing import Any, Final, Protocol, TypeVar, cast
 
 from . import halt, inbox, maildrain, mailtx, orgtx
 from . import (accounts, agentauth, antigravity_limits, appsettings,
@@ -25882,6 +25882,47 @@ def _compact_split(slug: str, nid: str) -> None:
         st0.pop("phase", None)
 
 
+_T = TypeVar("_T")
+
+
+class _OrgGone(LedgerError):
+    """The org was deleted before a lineage write could open."""
+
+
+def _lineage_tx(slug: str, nid: str, fn: Callable[[orgtx.OrgTx], _T],
+                *, sections: Iterable[str] = (),
+                logs: Iterable[orgtx.LogName] = ("events", "notice_log"),
+                tries: int = 4) -> _T:
+    """Run `fn(tx)` in one org_tx that locks `nid` AND the `nid@<gen>` bearer
+    row a lineage split of it would insert (PG-3e-B).
+
+    The bearer's id depends on the node's CURRENT generation, and the lock
+    set has to be named before the body reads anything, so the generation is
+    read first (lock-free) and re-checked under the lock. If another split
+    moved it in between, nothing has been written yet: the empty transaction
+    commits and the lock set is recomputed. `fn` therefore runs exactly once,
+    on a node whose generation matches the row it may insert. Raises
+    `_OrgGone` when the org is gone (the caller's "deleted" arm)."""
+    for _ in range(tries):
+        try:
+            pre = orgtx.org_read(slug)
+        except LedgerError as e:
+            raise _OrgGone(str(e)) from e
+        gen = pre.nodes[nid].get("generation", 0) if nid in pre.nodes else None
+        names = [nid] if gen is None else [nid, f"{nid}@{gen}"]
+        moved = False
+        with orgtx.org_tx(slug, nodes=names, sections=sections, logs=logs) as tx:
+            now_gen = (tx.org.nodes[nid].get("generation", 0)
+                       if nid in tx.org.nodes else None)
+            if now_gen != gen:
+                moved = True
+            else:
+                return fn(tx)
+        if not moved:
+            break
+    raise LedgerError(f"{nid}'s generation kept moving; lineage write not applied")
+
+
 def _compact_split_codex_body(slug: str, nid: str, org: Org,
                               n: NodeDoc | dict[str, Any],
                               old_sid: str, model: str) -> None:
@@ -25982,29 +26023,22 @@ def _compact_split_codex_body(slug: str, nid: str, org: Org,
         st["compact_retry_at"] = time.time() + 900
         return
 
-    with store.DOC_LOCK:
-        try:
-            current = store.load_org(slug)
-        except LedgerError:
-            print(f"[orgtree] {slug}/{nid}: Codex compaction finished after "
-                  f"the org was deleted (${fork_cost:.4f} unrecorded)")
-            return
+    def _apply(tx: orgtx.OrgTx) -> tuple[str, float, KioskCfg | None] | None:
+        current = tx.org
         if nid not in current.nodes:
             if fork_cost:
                 current.d["deleted_cost_usd"] = round(
                     float(current.d.get("deleted_cost_usd") or 0.0)
                     + fork_cost, 6)
-                store.save_org(current)
-            return
+            return None
         if current.node(nid)["session_id"] != old_sid:
             if fork_cost:
                 live0 = current.node(nid)
                 live0["cost_usd"] = round(
                     float(live0.get("cost_usd") or 0.0) + fork_cost, 6)
-                store.save_org(current)
             print(f"[orgtree] {slug}/{nid}: Codex compaction abandoned; "
                   "the session was replaced while the fork ran")
-            return
+            return None
         pred = current.compact_split(nid, new_sid)
         live = current.node(nid)
         # compact_split copies provider-specific fields before rebinding the
@@ -26017,9 +26051,20 @@ def _compact_split_codex_body(slug: str, nid: str, org: Org,
         live["occupancy"] = occ_new
         live.pop("occupancy_est", None)
         live["compacted_unrun"] = True
-        store.save_org(current)
-        spend_total = current.cost_total()
-        kcfg = kiosk_cfg(current)
+        # unlocked reads: the kiosk check after the commit is advisory, as it
+        # was when these ran after the save under DOC_LOCK
+        return pred, current.cost_total(), kiosk_cfg(current)
+
+    try:
+        done = _lineage_tx(slug, nid, _apply,
+                           sections=["notices", "deleted_cost_usd"])
+    except _OrgGone:
+        print(f"[orgtree] {slug}/{nid}: Codex compaction finished after "
+              f"the org was deleted (${fork_cost:.4f} unrecorded)")
+        return
+    if done is None:
+        return
+    pred, spend_total, kcfg = done
     if (kcfg and float(kcfg.get("spend_limit") or 0) > 0
             and spend_total >= float(kcfg["spend_limit"])):  # pyright: ignore[reportTypedDictNotRequiredAccess]
         hard_freeze(slug, "spend", "kiosk spend limit reached")
@@ -26049,15 +26094,16 @@ def _claude_fork_context(org: Org, nid: str) -> tuple[str, dict[str, str]]:
 
 
 def _compact_split_body(slug: str, nid: str) -> None:
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
-        n = org.node(nid)
-        old_sid = n["session_id"]
-        # ⚠ resolved through claude_model_for even though the codex/antigravity
-        # branches below also read it: the downgrade only ever rewrites the
-        # fable id, so it is a no-op on those lanes, and computing it once
-        # here is what keeps the fork's `--model` equal to the turn's.
-        model = claude_model_for(org, nid)
+    # a read-only snapshot (PG-3e-B): nothing here is written, and the write
+    # below re-checks the session id under the node's row lock
+    org = orgtx.org_read(slug)
+    n = org.node(nid)
+    old_sid = n["session_id"]
+    # ⚠ resolved through claude_model_for even though the codex/antigravity
+    # branches below also read it: the downgrade only ever rewrites the
+    # fable id, so it is a no-op on those lanes, and computing it once
+    # here is what keeps the fork's `--model` equal to the turn's.
+    model = claude_model_for(org, nid)
     # the fork is a CLI operation — `thread/fork` on an app-server, or the
     # claude CLI's own resume — so it follows the harness. An OpenRouter node
     # on the codex harness holds a codex threadId, which the claude fork
@@ -26165,7 +26211,7 @@ def _compact_split_body(slug: str, nid: str) -> None:
                                                    org.d.get("models"))
                                     if nid in org.nodes else None,
                                     require_boundary=True)
-    with store.DOC_LOCK:
+    def _apply(tx: orgtx.OrgTx) -> tuple[str, float, KioskCfg | None] | None:
         # ⚠ Everything above ran for up to 600 s with no lock held, and the
         # node can be deleted — or the whole org dropped — inside that window.
         # `org.node(nid)` then raised a LedgerError out of a DAEMON THREAD
@@ -26173,22 +26219,16 @@ def _compact_split_body(slug: str, nid: str) -> None:
         # thread died with a traceback and the fork's dollar cost vanished
         # with it: a real, billed, expensive API call that nothing recorded.
         # Bank the burn where every other removed node's burn goes and stop.
-        try:
-            org = store.load_org(slug)
-        except LedgerError:
-            print(f"[orgtree] {slug}/{nid}: compaction fork finished after the "
-                  f"org was deleted (${fork_cost:.4f} unrecorded)")
-            return
+        org = tx.org
         if nid not in org.nodes:
             if fork_cost:
                 org.d["deleted_cost_usd"] = round(
                     float(org.d.get("deleted_cost_usd") or 0.0) + fork_cost, 6)
                 if on_fallback_key:
                     _bank_api_cost(org, fork_cost, served=_fork_served)
-                store.save_org(org)
             print(f"[orgtree] {slug}/{nid}: compaction split abandoned — the "
                   f"node was removed while the fork ran")
-            return
+            return None
         # …and the node can still be here while its SESSION is not. The same
         # 600 s window the arm above guards against deletion is a window in
         # which `cheap_compact` or `reseed` can mint a fresh empty session
@@ -26209,11 +26249,10 @@ def _compact_split_body(slug: str, nid: str) -> None:
                                        + fork_cost, 6)
                 if on_fallback_key:
                     _bank_api_cost(org, fork_cost, served=_fork_served)
-                store.save_org(org)
             print(f"[orgtree] {slug}/{nid}: compaction split abandoned — the "
                   f"session was replaced while the fork ran "
                   f"(${fork_cost:.4f} banked)")
-            return
+            return None
         pred = org.compact_split(nid, new_sid)
         n = org.node(nid)
         if fork_cost:
@@ -26242,9 +26281,20 @@ def _compact_split_body(slug: str, nid: str) -> None:
         # guards a 600 s billed CLI child on a public kiosk surface with it
         # (redteam 2026-08-20). Cleared by the next completed turn.
         n["compacted_unrun"] = True
-        store.save_org(org)
-        spend_total = org.cost_total()      # incl. deleted agents' burn
-        kcfg = kiosk_cfg(org)
+        # incl. deleted agents' burn; unlocked reads, advisory as before
+        return pred, org.cost_total(), kiosk_cfg(org)
+
+    try:
+        done = _lineage_tx(slug, nid, _apply,
+                           sections=["notices", "deleted_cost_usd",
+                                     "api_cost_usd"])
+    except _OrgGone:
+        print(f"[orgtree] {slug}/{nid}: compaction fork finished after the "
+              f"org was deleted (${fork_cost:.4f} unrecorded)")
+        return
+    if done is None:
+        return
+    pred, spend_total, kcfg = done
     if (kcfg and float(kcfg.get("spend_limit") or 0) > 0
             # the .get guard above proves the key is present
             and spend_total >= float(kcfg["spend_limit"])):   # pyright: ignore[reportTypedDictNotRequiredAccess]
@@ -26266,9 +26316,11 @@ def manual_compact(slug: str, nid: str) -> None:
     # FR-01 (redteam): compaction forks the SAME session id and rebinds the
     # node to a new one — started under remote control, the user would keep
     # driving an id the org no longer uses, their work landing in an
-    # orphaned session
-    with store.DOC_LOCK:
-        _o = store.load_org(slug)
+    # orphaned session. The node row is read FOR SHARE (PG-3e-B), so this
+    # gate orders against remote-control's park, which locks it FOR UPDATE,
+    # exactly as the two used to order on DOC_LOCK.
+    with orgtx.org_tx(slug, share_nodes=[nid]) as tx:
+        _o = tx.org
         halt.check(slug, nid)
         if nid in _o.nodes and _o.node(nid).get("remote_controlled"):
             raise RuntimeError(

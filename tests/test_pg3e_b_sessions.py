@@ -14,6 +14,7 @@ What these prove, on PG-0's SeamBackend fake over a throwaway SQLite root:
 
 Run:  python tools/run-python-verification.py tests/test_pg3e_b_sessions.py
 """
+import json
 import os
 import sys
 import tempfile
@@ -247,6 +248,103 @@ class NeverWaitsOnDocLock(unittest.TestCase):
         r = self._start()
         self.assertIn("killswitch", r.get("error", ""))
         self.assertNotIn("remote_controlled", _node(self.slug, "worker"))
+
+
+class CompactionSplit(unittest.TestCase):
+    """The claude compaction split writes its bearer row, the successor's new
+    session and the fork's cost in ONE org_tx that locks `nid` and `nid@gen`,
+    with DOC_LOCK held elsewhere the whole time."""
+
+    def setUp(self) -> None:
+        orgtx.use_backend(orgtx.SeamBackend())
+        self.slug = _org(_slug("cmp"))
+        self.old = _node(self.slug, "worker")["session_id"]
+        self.during = None                      # runs while the "fork" is in flight
+
+    def _fork(self, new_sid="fork-1", cost=0.5):
+        test = self
+
+        class Proc:
+            returncode = 0
+
+            def communicate(self, input=None, timeout=None):
+                if test.during is not None:
+                    test.during()
+                return (json.dumps({"session_id": new_sid,
+                                    "total_cost_usd": cost}), "")
+
+            def kill(self):
+                pass
+        with patch.object(supervisor.subprocess, "Popen", return_value=Proc()),                 patch.object(supervisor, "_claude_fork_context",
+                             return_value=(self.old, {})),                 patch.object(supervisor, "_claude_argv", return_value=["claude"]),                 patch.object(supervisor, "_leash"),                 patch.object(supervisor, "_copy_prompt_views"),                 patch.object(supervisor, "occupancy_of", return_value=(12345, False)),                 patch.object(supervisor, "notify"),                 patch.object(supervisor.halt, "check"):
+            with _Holder(lambda: store.DOC_LOCK):
+                done, out = _finishes(
+                    lambda: supervisor._compact_split_body(self.slug, "worker"))
+        self.assertTrue(done, "the compaction write waited on DOC_LOCK")
+        if out and isinstance(out[0], BaseException):
+            raise out[0]
+        self.assertIsNone(supervisor.state(self.slug, "worker").get("last_error"),
+                          supervisor.state(self.slug, "worker").get("last_error"))
+
+    def test_split_lands_whole(self) -> None:
+        self._fork()
+        org = store.load_org(self.slug)
+        n = org.node("worker")
+        self.assertEqual(n["session_id"], "fork-1")
+        self.assertEqual(n["generation"], 1)
+        self.assertEqual(n["predecessor"], "worker@0")
+        self.assertEqual(n["occupancy"], 12345)
+        self.assertTrue(n["compacted_unrun"])
+        self.assertAlmostEqual(n["cost_usd"], 0.5)
+        bearer = org.node("worker@0")
+        self.assertEqual(bearer["state"], "archived")
+        self.assertEqual(bearer["session_id"], self.old)
+        self.assertTrue(any(e.get("op") == "compact_split" for e in org.d["events"]))
+
+    def test_session_replaced_mid_fork_banks_cost_and_abandons(self) -> None:
+        self.during = lambda: _set(self.slug, "worker", session_id="reseeded")
+        self._fork()
+        org = store.load_org(self.slug)
+        self.assertEqual(org.node("worker")["session_id"], "reseeded")
+        self.assertNotIn("worker@0", org.nodes)
+        self.assertAlmostEqual(org.node("worker")["cost_usd"], 0.5)
+
+    def test_generation_moved_mid_fork_relocks_the_right_bearer_row(self) -> None:
+        # a CLI-side compaction bumps the generation WITHOUT changing the
+        # session id, so the split still applies — but its bearer is now
+        # worker@1, a row the first lock set did not name. The lineage tx has
+        # to notice and lock the right row, not fail with UnlockedWrite.
+        def bump():
+            with orgtx.org_tx(self.slug, nodes=["worker", "worker@0"],
+                              logs=["events", "notice_log"],
+                              sections=["notices"]) as tx:
+                tx.org.record_cli_compaction("worker")
+        calls = []
+        real_read = orgtx.org_read
+
+        def read(slug, **kw):
+            calls.append(1)
+            if len(calls) == 2:          # #1 is the pre-fork snapshot
+                bump()                      # moves between the read and the lock
+            return real_read(slug, **kw)
+        with patch.object(orgtx, "org_read", side_effect=read):
+            self._fork()
+        org = store.load_org(self.slug)
+        n = org.node("worker")
+        self.assertEqual(n["session_id"], "fork-1")
+        self.assertEqual(n["predecessor"], "worker@1")
+        self.assertIn("worker@1", org.nodes)
+        self.assertGreaterEqual(len(calls), 3, "the lock set was never recomputed")
+
+    def test_node_deleted_mid_fork_banks_to_deleted_cost(self) -> None:
+        def drop():
+            with orgtx.org_tx(self.slug, nodes=["worker"]) as tx:
+                del tx.org.d["nodes"]["worker"]
+        self.during = drop
+        self._fork()
+        org = store.load_org(self.slug)
+        self.assertNotIn("worker", org.nodes)
+        self.assertAlmostEqual(float(org.d.get("deleted_cost_usd") or 0), 0.5)
 
 
 class LocksOnlyItsOwnNode(unittest.TestCase):
