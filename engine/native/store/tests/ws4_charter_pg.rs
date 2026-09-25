@@ -90,8 +90,12 @@ async fn q_cr1_control_per_statement_reads_yields_a_state_that_never_existed() {
     reset().await;
     let x = executor(vec!["Q-CR1.per_statement_reads"]);
     fixture(&x).await;
-    // S's role head is read; E_S, E_P, E_A commit (in that order) before P's head is read
-    let point = format!("charter.capture.stmt.head.{}.team.before", b());
+    // S's heads are read; E_S, E_P, E_A commit (in that order) before P's head is read.
+    // Each per-statement read opens its own transaction, and the executor's
+    // timeout statement right after BEGIN fixes that transaction's snapshot, so
+    // the hold is at the END of S's last head read (the next read, P's, then
+    // starts after the edits), not inside P's read.
+    let point = format!("charter.capture.stmt.head.{}.team.after", c());
     let mut h = x.script.hold(None, &point);
     let (v, _) = tokio::join!(charter::capture(&x.ex, org(), c(), None), async {
         h.arrive().await;
