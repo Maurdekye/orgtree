@@ -388,10 +388,7 @@ def _delete_plan(org, actor: str, nid: str
             sections.add(key)
     share: set[str] = set()
     if n is not None:
-        parent = n["parent"]
-        if parent is not None and parent in org.nodes:
-            share.add(parent)
-        share |= _anc(org, nid)
+        share |= _anc(org, nid)       # the parent is the first of these
         if actor in org.nodes:
             share.add(actor)
     return (doomed, share - doomed, tuple(sorted(sections)),
