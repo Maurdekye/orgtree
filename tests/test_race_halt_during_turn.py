@@ -8,8 +8,9 @@ UPDATE across the blocked decision and its body, and a halt commits
 orders with org_tx's test pause hooks and check the order that was achieved:
 
   (i)   admission first — admission holds the row; halt must not commit
-        `halting` until admission is done, and must then wait for the turn it
-        admitted to finish before publishing `halted`;
+        `halting` until admission is done; the turn it admitted then either
+        runs (and `halted` waits for it) or is refused with its carrier
+        retained — never runs under `halted`, never lost;
   (ii)  halt first — halt holds the row; admission must wait, then see the
         halt and start NO turn body;
   (iii) halt during a running turn — once `halting` has committed, neither a
@@ -197,22 +198,40 @@ class RaceHaltDuringTurn(unittest.TestCase):
         pause.release.set()
         admit_t.join(WAIT)
         self.assertEqual(admit.get("result"), {"accepted": True})
-        self.assertTrue(self.body_entered.wait(WAIT), "the admitted turn never ran")
-        # the halt now commits `halting`, but must NOT publish `halted` while
-        # the admitted body is still inside
-        deadline = time.monotonic() + WAIT
-        while self.durable_phase() != "halting" and time.monotonic() < deadline:
-            time.sleep(0.01)
-        self.assertEqual(self.durable_phase(), "halting")
-        time.sleep(0.3)
-        self.assertEqual(self.durable_phase(), "halting")
-        self.body_may_leave.set()
-        halt_t.join(WAIT + 2)
+        # The admitted message started its turn worker on another thread, and
+        # that worker and the halt now race. Both outcomes keep the invariant,
+        # and which one happens is scheduling: with the fence the worker
+        # usually queues behind the halt on DOC_LOCK, exactly as before PYPG.
+        #   ran:     the body entered before `halting` committed, and `halted`
+        #            waits for it to leave;
+        #   refused: the worker saw `halting`, ran nothing, and its carrier
+        #            is retained for after unhalt.
+        if self.body_entered.wait(1.0):
+            deadline = time.monotonic() + WAIT
+            while self.durable_phase() != "halting" and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertEqual(self.durable_phase(), "halting")
+            time.sleep(0.3)
+            self.assertEqual(self.durable_phase(), "halting")
+            self.body_may_leave.set()
+            halt_t.join(WAIT + 2)
+            self.assertEqual(self.bodies, 1)
+            self.assertLess(self.log.index("body-leave"), self.log.index("halt-returned"))
+            outcome = "ran"
+        else:
+            halt_t.join(WAIT + 2)
+            for t in self.threads:
+                t.join(WAIT)
+            self.assertEqual(self.bodies, 0)
+            outcome = "refused"
         self.assertFalse(halt_t.is_alive())
         self.assertTrue(halted["result"]["halted"], halted)
         self.assertEqual(self.durable_phase(), "halted")
-        self.assertEqual(self.bodies, 1)
-        self.assertLess(self.log.index("body-leave"), self.log.index("halt-returned"))
+        texts = [c.get("text") for c in
+                 store.load_org(self.slug).node(self.nid).get("halt_queue") or []]
+        # the admitted carrier is never lost: retained whether it ran (its
+        # input was never confirmed by a provider) or was refused
+        self.assertIn("work", texts, outcome)
         self.assertEqual(pause.fired, 1, "the pause never held admission's transaction")
         self.assert_clean()
 
