@@ -78,15 +78,20 @@ class FakeStore:
         self.locks = {}
         self.commits = 0
         self.waiting = []
+        self.specs = []
         self._g = threading.Lock()
 
     def _lock(self, key):
         with self._g:
             return self.locks.setdefault(key, _RW())
 
-    def org_tx(self, slug, *, nodes=(), sections=(), share_sections=(), logs=()):
+    def org_tx(self, slug, *, nodes=(), sections=(), share_nodes=(),
+               share_sections=(), logs=()):
         store = self
+        self.specs.append((tuple(nodes), tuple(sections), tuple(share_nodes),
+                           tuple(share_sections)))
         want = ([(('n', n), False) for n in nodes]
+                + [(('n', n), True) for n in share_nodes]
                 + [(('s', s), True) for s in share_sections]
                 + [(('s', s), False) for s in sections])
 
@@ -154,11 +159,17 @@ def _file(org, body, a, ctx, result):
 class AgentTxTest(unittest.TestCase):
     def setUp(self):
         self.fs = FakeStore({}, {W: {'id': W, 'n': 0}, P: {'id': P, 'n': 0}})
-        pgdoor.use_org_tx(self.fs.org_tx)
+        pgdoor.use_org_tx(self.fs.org_tx, snapshot=lambda slug: FakeOrg(
+            copy.deepcopy(self.fs.d), copy.deepcopy(self.fs.nodes)))
+        self._saved_locks = dict(pgdoor.LOCKS)
+        pgdoor.LOCKS.clear()
+        pgdoor.declare('orgtree_hire', pgdoor.TxSpec(nodes=(P,)))
         self.ran = 0
 
     def tearDown(self):
         pgdoor.use_org_tx(None)
+        pgdoor.LOCKS.clear()
+        pgdoor.LOCKS.update(self._saved_locks)
 
     def _body_fn(self, tx):
         self.ran += 1
@@ -175,14 +186,91 @@ class AgentTxTest(unittest.TestCase):
 
     # ---------------------------------------------------------------- rows
     def test_rows_caller_first_killswitch_shared_receipts_when_keyed(self):
-        r = pgdoor.rows(Body(op_key='k'), {}, nodes=[P, W, P], sections=['tiers', 'killswitch'])
-        self.assertEqual(r['nodes'], [W, P])
-        self.assertEqual(r['share_sections'], ['killswitch'])
-        self.assertNotIn('killswitch', r['sections'])
-        self.assertIn(opreceipts.SECTION, r['sections'])
-        self.assertIn(opreceipts.META, r['sections'])
-        r0 = pgdoor.rows(Body(), {}, sections=['tiers'])
-        self.assertEqual(r0['sections'], ['tiers'])
+        r = pgdoor.agent_spec(Body(op_key='k'), {}, pgdoor.TxSpec(
+            nodes=(P, W, P), sections=('tiers',), share_nodes=(W, 'x')))
+        self.assertEqual(r.nodes, (W, P))
+        self.assertEqual(r.share_sections, ('killswitch',))
+        self.assertEqual(r.share_nodes, ('x',))          # W is FOR UPDATE
+        self.assertIn(opreceipts.SECTION, r.sections)
+        self.assertIn(opreceipts.META, r.sections)
+        r0 = pgdoor.agent_spec(Body(), {}, pgdoor.TxSpec(sections=('tiers',)))
+        self.assertEqual(r0.sections, ('tiers',))
+        # a tool that itself holds the killswitch FOR UPDATE keeps that
+        r1 = pgdoor.agent_spec(Body(), {}, pgdoor.TxSpec(sections=('killswitch',)))
+        self.assertEqual((r1.sections, r1.share_sections), (('killswitch',), ()))
+        # the call actually opened org_tx on that set
+        self.call(Body(op_key='k'))
+        self.assertEqual(self.fs.specs[-1][0], (W, P))
+        self.assertEqual(self.fs.specs[-1][3], ('killswitch',))
+
+    # --------------------------------------------------- the declarations
+    def test_undeclared_tool_is_refused_and_opens_nothing(self):
+        with self.assertRaisesRegex(LedgerError, 'no lock declaration'):
+            self.call(Body(tool='orgtree_message'))
+        self.assertEqual(self.fs.specs, [])
+        self.assertTrue(pgdoor.declared('orgtree_hire'))
+        self.assertFalse(pgdoor.declared('orgtree_message'))
+
+    def test_redeclare_with_different_spec_is_refused(self):
+        pgdoor.declare('orgtree_hire', pgdoor.TxSpec(nodes=(P,)))   # same: fine
+        with self.assertRaises(ValueError):
+            pgdoor.declare('orgtree_hire', pgdoor.TxSpec(nodes=('other',)))
+
+    def test_callable_spec_reads_the_snapshot(self):
+        seen = {}
+
+        def spec(snap, body, a):
+            seen['parent_n'] = snap.node(P)['n']
+            return pgdoor.TxSpec(nodes=(a['to'],))
+
+        pgdoor.LOCKS['orgtree_hire'] = spec
+        pgdoor.agent_tx(Body(), {'to': P}, self._body_fn, admit=_admit, file=_file)
+        self.assertEqual(seen, {'parent_n': 0})
+        self.assertEqual(self.fs.specs[-1][0], (W, P))
+
+    def test_widen_reruns_with_the_extra_rows_and_discards_the_first_run(self):
+        runs = []
+
+        def body(tx):
+            runs.append(1)
+            tx.org.node(W)['n'] += 1
+            if 'extra' not in [n for n in self.fs.specs[-1][0]]:
+                raise pgdoor.Widen(nodes=['extra'])
+            return 'ok'
+
+        self.fs.nodes['extra'] = {'id': 'extra'}
+        self.assertEqual(self.call(fn=body), 'ok')
+        self.assertEqual(len(runs), 2)
+        self.assertEqual(self.n(), 1)                  # first run rolled back
+        self.assertEqual(self.fs.specs[-1][0], (W, P, 'extra'))
+        self.assertEqual(self.fs.commits, 1)
+
+    def test_runaway_widening_is_refused_with_nothing_applied(self):
+        k = iter(range(100))
+
+        def body(tx):
+            tx.org.node(W)['n'] += 1
+            raise pgdoor.Widen(nodes=[f'n{next(k)}'])
+
+        with self.assertRaisesRegex(LedgerError, 'kept growing'):
+            self.call(fn=body)
+        self.assertEqual((self.n(), self.fs.commits), (0, 0))
+
+    # ------------------------------------------------------------ op_tx
+    def test_op_tx_has_no_halt_gate_and_locks_only_declared_rows(self):
+        self.fs.nodes[W]['halt'] = True
+        self.fs.d['killswitch'] = {'at': 't'}
+        pgdoor.declare('unhalt', pgdoor.TxSpec(nodes=(W,)))
+
+        def unhalt(tx):
+            tx.org.node(W)['halt'] = False
+            return tx.op
+
+        self.assertEqual(pgdoor.op_tx(SLUG, 'unhalt', None, {}, unhalt), 'unhalt')
+        self.assertFalse(self.fs.nodes[W]['halt'])
+        self.assertEqual(self.fs.specs[-1], ((W,), (), (), ()))
+        with self.assertRaisesRegex(LedgerError, 'no lock declaration'):
+            pgdoor.op_tx(SLUG, 'hire', None, {}, unhalt)
 
     # ------------------------------------------------------- the halt rule
     def test_halted_refuses_and_runs_nothing(self):
@@ -242,7 +330,8 @@ class AgentTxTest(unittest.TestCase):
             release.wait(5)
             return self._body_fn(tx)
 
-        ts = [threading.Thread(target=lambda n=n: self.call(Body(node=n), fn=slow))
+        ts = [threading.Thread(target=lambda n=n: self.call(Body(node=n), fn=slow,
+                                                      spec=pgdoor.TxSpec()))
               for n in (W, P)]
         for t in ts:
             t.start()
