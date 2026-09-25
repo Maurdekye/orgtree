@@ -99,7 +99,7 @@ pub async fn reset() {
          INSERT INTO mailboxes (org_id, mailbox_id, owner_kind, owner_id, incarnation, state) VALUES ('{o}', '{u}', 'user', NULL, 1, 'open');",
         u = user_mb()
     );
-    for (id, name, parent) in [(a(), "alpha", None), (b(), "bravo", Some(a())), (c(), "charlie", Some(b())), (d(), "delta", Some(a())), (e(), "echo", None)] {
+    for (id, name, parent, depth) in [(a(), "alpha", None, 0), (b(), "bravo", Some(a()), 1), (c(), "charlie", Some(b()), 2), (d(), "delta", Some(a()), 1), (e(), "echo", None, 0)] {
         let p = parent.map(|p| format!("'{p}'")).unwrap_or_else(|| "NULL".into());
         sql.push_str(&format!(
             "INSERT INTO agents (org_id, principal_id, name, seat_id, tier, created_at) VALUES ('{o}', '{id}', '{name}', gen_random_uuid(), 'opus', now());
@@ -107,6 +107,7 @@ pub async fn reset() {
              INSERT INTO authority_epoch (org_id, principal_id, lifecycle, generation) VALUES ('{o}', '{id}', 'live', 1);
              INSERT INTO topology_edges (org_id, principal_id, parent_id) VALUES ('{o}', '{id}', {p});
              INSERT INTO runtime_state (org_id, principal_id, updated_at) VALUES ('{o}', '{id}', now());
+             INSERT INTO scope_rows (org_id, principal_id, depth, visibility, permission_mode) VALUES ('{o}', '{id}', {depth}, 'all', 'default');
              INSERT INTO mailboxes (org_id, mailbox_id, owner_kind, owner_id, incarnation, state) VALUES ('{o}', '{m}', 'agent', '{id}', 1, 'open');",
             m = mb(id)
         ));
@@ -338,5 +339,25 @@ impl Command for Island {
             Island::Close(a) => mailbox::close_mailbox(tx, org, *a).await? as i64,
             Island::Fold(a) => mailbox::fold_notices(tx, org, *a).await?.folded as i64,
         }))
+    }
+}
+
+pub fn operator() -> Uuid {
+    Uuid::from_u128(0x0000_0000_0000_4000_8000_0000_0000_0e0e)
+}
+
+/// The human door's binding: the request's `client_op` as the key (E-D4),
+/// or a minted key when it has none (E4).
+pub fn operator_binding(client_op: Option<&str>, fp: &str) -> Binding {
+    let (ns, key, keyed) = match client_op {
+        Some(k) => (KeyNamespace::Operator { operator: operator() }, k.to_string(), true),
+        None => (KeyNamespace::Minted, Uuid::new_v4().to_string(), false),
+    };
+    Binding {
+        principal: Principal::Operator { id: operator() },
+        acting: None,
+        op: OpIdentity { org: org(), ns, key, fingerprint: fp.into(), fingerprint_codec: "legacy-1", caller_keyed: keyed },
+        db_incarnation: incarnation(),
+        op_tag: None,
     }
 }
