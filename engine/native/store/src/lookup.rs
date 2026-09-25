@@ -217,7 +217,7 @@ impl<C: Connector> Executor<C> {
         self.short_write(op, receipts::INFLIGHT_DELETE_LABEL, receipts::INFLIGHT_DELETE_SQL, service).await
     }
 
-    async fn short_write(&self, op: &OpIdentity, label: &str, sql: &str, service: Uuid) -> Result<(), ExecError> {
+    async fn short_write(&self, op: &OpIdentity, label: &'static str, sql: &'static str, service: Uuid) -> Result<(), ExecError> {
         let mut conn = self.reserved().get().await.map_err(ExecError::Sql)?;
         let mut tx = Tx::new_internal(&mut *conn, self.hooks(), "inflight", label, op, None, 1, None);
         tx.begin(Isolation::ReadCommitted).await.map_err(ExecError::Sql)?;
