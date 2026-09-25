@@ -16,7 +16,9 @@ put in an ``Order``'s ``faults`` list; each names ONE (op_tag, point, attempt):
 Harness-side (M1 §3): ``kill_backend`` is never an executor action. A schedule's
 script step ``("kill", tag)`` terminates the backend the tag's most recent
 ``arrived`` frame reported (``pg_terminate_backend``), so it always follows a
-hold; the server then reports SQLSTATE 57P01 to that session.
+hold. The hold is in the executor, not the backend, so the script must still
+RELEASE the operation: it then finds its connection gone (57P01, or a closed
+socket) and the executor resolves or retries the attempt.
 
 A fault never passes by being planned: the schedule's ``intended`` order must
 still name what the fault is expected to CAUSE (``("sqlstate", tag, code)``, an

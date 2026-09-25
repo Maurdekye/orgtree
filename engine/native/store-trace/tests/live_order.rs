@@ -19,6 +19,7 @@
 //!   `Collector` (stream `order-<run>`) for one order;
 //! - `qual.trace_drain` / `qual.trace_end`: the collector's records (end = drain,
 //!   then the stream's closing records);
+//! - `qual.kill` {pid}: `pg_terminate_backend` (the harness-side kill of M1 §3);
 //! - `qual.waits`: the server's lock-wait view (pg_blocking_pids);
 //! - `qual.state`: the seeded agent's `runtime_state.version`, applied receipts and
 //!   intents, read back through the admin connection;
@@ -295,7 +296,7 @@ impl Handler for Host {
             protocol: orgtree_store_service::proto::PROTOCOL.into(),
             qualification: orgtree_store::hooks::QUALIFICATION,
             build_sha: "live_order.rs".into(),
-            verbs: ["status.set", "qual.reset", "qual.trace_drain", "qual.trace_end", "qual.waits", "qual.state", "qual.stop"]
+            verbs: ["status.set", "qual.reset", "qual.trace_drain", "qual.trace_end", "qual.kill", "qual.waits", "qual.state", "qual.stop"]
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),
@@ -320,6 +321,16 @@ impl Handler for Host {
                 }
                 None => err("no run"),
             },
+            "qual.kill" => {
+                // harness-side kill_backend (M1 §3): the pid an arrived frame reported
+                let Some(pid) = req.args.get("pid").and_then(Value::as_i64).and_then(|p| i32::try_from(p).ok()) else {
+                    return err("qual.kill needs an integer pid");
+                };
+                match self.admin.query_one("SELECT pg_terminate_backend($1)", &[&pid]).await {
+                    Ok(r) => json!({"terminated": r.get::<_, bool>(0), "pid": pid}),
+                    Err(e) => err(e),
+                }
+            }
             "qual.waits" => json!({"waits": self.waits().await}),
             "qual.state" => self.state().await,
             "qual.stop" => {
