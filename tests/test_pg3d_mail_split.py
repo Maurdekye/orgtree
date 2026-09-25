@@ -109,6 +109,17 @@ class SplitStorage(unittest.TestCase):
         self.assertNotIn('mail' + SEP + 'b', rows)
         self.assertEqual(len(json.loads(rows['mail' + SEP + 'a'])), 2)
 
+    def test_two_writers_creating_one_new_owner_row_second_is_stale(self) -> None:
+        # ORGTREE_ROW_CAS=1 (module env): the whole-section CAS used to catch
+        # this; a new owner row must not be silently overwritten either
+        first, second = store.load_org(self.slug), store.load_org(self.slug)
+        first.d['mail']['z'] = [{'id': 'first'}]
+        store.save_org(first)
+        second.d['mail']['z'] = [{'id': 'second'}]
+        with self.assertRaises(store.StaleWrite):
+            store.save_org(second)
+        self.assertEqual(store.load_org(self.slug).d['mail']['z'], [{'id': 'first'}])
+
     def test_legacy_blob_loads_and_converts(self) -> None:
         blob = {'a': [{'id': 'old'}], 'c': []}
         with store._POOL.acquire(self.slug) as conn:
