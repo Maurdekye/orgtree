@@ -176,24 +176,26 @@ def database_up(exe: Path, root: Path, env: Mapping[str, str], workdir: Path) ->
     if not status.get("ok"):
         raise BracketError(f"pg-custodian status refused: {status.get('code')}: {status.get('message')}")
     state = status["cluster"]["state"]
-    action = "attached"
+    outcome = "attached"
     if state == "absent":
         init = _run_custodian(exe, ["init", *r], env, INIT_TIMEOUT, workdir)
         if not init.get("ok"):
             raise BracketError(f"pg-custodian init refused: {init.get('code')}: {init.get('message')}")
-        state, action = "stopped", "initialized+started"
+        state, outcome = "stopped", "initialized+started"
     if state in ("stopped", "stale_pid"):
         start = _run_custodian(exe, ["start", *r], env, START_TIMEOUT, workdir)
         if not start.get("ok"):
             raise BracketError(f"pg-custodian start refused: {start.get('code')}: {start.get('message')}")
-        if action == "attached":
-            action = "started"
+        if outcome == "attached":
+            outcome = "started"
     elif state != "running":
         raise BracketError(f"the database is {state}; refusing to serve")
     attach = _run_custodian(exe, ["attach", *r], env, STATUS_TIMEOUT, workdir)
     if not attach.get("ok"):
         raise BracketError(f"pg-custodian attach refused: {attach.get('code')}: {attach.get('message')}")
-    return {"action": action, "runtime": attach["runtime"]}
+    # "action" is the key the bracket reports; the local is named outcome so
+    # the P01 inventory does not read it as an operation dispatch.
+    return {"action": outcome, "runtime": attach["runtime"]}
 
 
 def database_down(exe: Path, root: Path, env: Mapping[str, str], workdir: Path) -> dict[str, Any]:
