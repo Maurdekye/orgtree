@@ -456,6 +456,33 @@ class WorkingCacheKeepalive(unittest.TestCase):
         self.assertTrue(n.get("cache_keepalive_at"), "freshness was not recorded")
 
 
+class CredWatcher(unittest.TestCase):
+    def setUp(self) -> None:
+        orgtx.use_backend(orgtx.SeamBackend())
+        self.slug = _org(_slug("cred"))
+
+    def _notes(self) -> list:
+        return [m for m in store.load_org(self.slug).d.get("user_mail_log") or []
+                if (m.get("ev") or {}).get("kind") == "runtime.token_expiry"
+                or "expir" in str(m.get("body") or "").lower()]
+
+    def test_warns_once_a_day_without_doc_lock(self) -> None:
+        for _ in range(2):
+            with _Holder(lambda: store.DOC_LOCK):
+                done, out = _finishes(lambda: supervisor._cred_warn_org(self.slug, 1.5))
+            self.assertTrue(done, f"the cred warning waited on DOC_LOCK: {out}")
+            self.assertFalse(out and isinstance(out[0], BaseException), out)
+        self.assertTrue(store.load_org(self.slug).d.get("cred_warned_at"))
+        self.assertEqual(len(self._notes()), 1, "not exactly one warning per day")
+
+    def test_an_api_key_org_is_never_warned(self) -> None:
+        with orgtx.org_tx(self.slug, sections=["api_key"]) as tx:
+            tx.d["api_key"] = "sk-test"
+        supervisor._cred_warn_org(self.slug, 1.5)
+        self.assertFalse(store.load_org(self.slug).d.get("cred_warned_at"))
+        self.assertEqual(self._notes(), [])
+
+
 class LocksOnlyItsOwnNode(unittest.TestCase):
     def setUp(self) -> None:
         orgtx.use_backend(orgtx.SeamBackend())

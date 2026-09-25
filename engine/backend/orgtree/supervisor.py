@@ -31713,6 +31713,43 @@ def _steer_late_sweep(now: float | None = None) -> list[tuple[str, str, str, flo
 _cred_watch_started = False
 
 
+def _cred_warn_org(slug: str, left_days: float) -> None:
+    """One org's refresh-token warning, at most one per day (the cred
+    watcher's per-org body)."""
+    # PG-3e-B: the ≤1/day stamp is the decision, so its row is locked; the
+    # notice is an append (no row lock)
+    with orgtx.org_tx(slug, sections=["cred_warned_at"],
+                      share_sections=["api_key"],
+                      logs=["user_mail_log"]) as tx:
+        org = tx.org
+        if org.d.get("api_key"):
+            return       # no ceiling on a key
+        # ≤1/day PERSISTED on the doc (redteam: a closure clock made it
+        # one-per-RESTART on exactly the host that restarts on a schedule)
+        last = str(org.d.get("cred_warned_at") or "")
+        if last:
+            try:
+                lt = _dtm.datetime.fromisoformat(
+                    last.replace("Z", "+00:00"))
+                age = (_dtm.datetime.now(
+                    _dtm.timezone.utc)
+                    - lt).total_seconds()
+                if age < 86400.0:
+                    return
+            except ValueError:
+                pass
+        org.d["cred_warned_at"] = now_iso()
+        # typed: runtime.token_expiry (the days are the fact; the text is
+        # its rendering)
+        tev = events.mint(
+            "runtime.token_expiry", _SYSTEM_ACTOR,
+            _org_ref(org), days=float(left_days))
+        org.to_user_inbox({
+            "id": uuid_hex8(), "from": "@system",
+            "kind": "notice", "at": now_iso(),
+            "body": events.render_agent(tev)}, tev)
+
+
 def start_cred_watcher() -> None:
     """§9.2: the refresh token is the hard ceiling on unattended subscription
     auth — when it lapses, re-auth is INTERACTIVE, and an unattended box
@@ -31748,38 +31785,7 @@ def start_cred_watcher() -> None:
                             if o.get("kiosk"):
                                 continue
                             try:
-                                with store.DOC_LOCK:
-                                    org = store.load_org(slug)
-                                    if org.d.get("api_key"):
-                                        continue     # no ceiling on a key
-                                    # ≤1/day PERSISTED on the doc (redteam:
-                                    # a closure clock made it one-per-
-                                    # RESTART on exactly the host that
-                                    # restarts on a schedule)
-                                    last = str(org.d.get("cred_warned_at")
-                                               or "")
-                                    if last:
-                                        try:
-                                            lt = _dtm.datetime.fromisoformat(
-                                                last.replace("Z", "+00:00"))
-                                            age = (_dtm.datetime.now(
-                                                _dtm.timezone.utc)
-                                                - lt).total_seconds()
-                                            if age < 86400.0:
-                                                continue
-                                        except ValueError:
-                                            pass
-                                    org.d["cred_warned_at"] = now_iso()
-                                    # typed: runtime.token_expiry (the days are
-                                    # the fact; the text is its rendering)
-                                    tev = events.mint(
-                                        "runtime.token_expiry", _SYSTEM_ACTOR,
-                                        _org_ref(org), days=float(left_days))
-                                    org.to_user_inbox({
-                                        "id": uuid_hex8(), "from": "@system",
-                                        "kind": "notice", "at": now_iso(),
-                                        "body": events.render_agent(tev)}, tev)
-                                    store.save_org(org)
+                                _cred_warn_org(slug, left_days)
                             except Exception:                    # noqa: BLE001
                                 pass
             except Exception:                                    # noqa: BLE001
