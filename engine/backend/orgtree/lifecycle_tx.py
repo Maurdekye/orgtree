@@ -460,3 +460,79 @@ def swap_body(org, held_nodes, held_share, actor: str, a: str,
 def swap_seats(slug: str, actor: str, a: str, b: str) -> dict[str, Any]:
     return _run("swap_seats", slug, lambda o: _swap_rows(o, actor, a, b),
                 lambda org, hn, hs: swap_body(org, hn, hs, actor, a, b))
+
+
+# ---------------------------------------------------------------- node scope
+# §retool (`Org.set_scope`; lead decision 18.6: node_scope is PG-3a's). What
+# it writes depends on which fields the call carries, so the plan is per call:
+#   nodes FOR UPDATE: nid always. With a CAPABILITY field (add_dirs, tools,
+#     org_visibility, permission_mode) also nid's whole subtree + stacks
+#     (`_sweep_dirs` clamps it) and the path from the actor down to nid
+#     (`_raise_along` cascades the grant up it);
+#   nodes FOR SHARE: every other ancestor (authority) and the actor (its cap);
+#   sections: notices always. With a capability field: for a user/system
+#     actor the four org grant sections FOR UPDATE (a top-level seat's grant
+#     is absorbed into them), for an agent FOR SHARE (decided on only);
+#     `kiosk` FOR UPDATE when the ceiling may be raised (its max_scope is
+#     rewritten), else FOR SHARE (the ceiling clamps every grant);
+#   logs: events, notice_log.
+_SCOPE_CAPS = ("add_dirs", "tools", "org_visibility", "permission_mode")
+_ORG_GRANTS = ("default_tools", "default_visibility", "dirs", "permission_mode")
+
+
+def _scope_plan(org, actor: str, nid: str, kw: dict[str, Any], may_raise: bool
+                ) -> tuple[set[str], set[str], tuple[str, ...], tuple[str, ...],
+                           tuple[Any, ...]]:
+    from .ledger import actor_kind
+    caps = any(kw.get(k) is not None for k in _SCOPE_CAPS)
+    upd = {nid}
+    share: set[str] = set(_anc(org, nid))
+    sections = {"notices"}
+    share_sections: set[str] = set()
+    if caps and nid in org.nodes:
+        upd |= set(org._taken_with(nid))
+        top = actor if actor_kind(actor) not in ("user", "system") else USER
+        upd |= {k for k in org._path_down(top, nid) if k in org.nodes}
+        if actor_kind(actor) in ("user", "system"):
+            sections |= set(_ORG_GRANTS)
+        else:
+            share_sections |= set(_ORG_GRANTS)
+        (sections if may_raise else share_sections).add("kiosk")
+    if actor in org.nodes:
+        share.add(actor)
+    return (upd, share - upd, tuple(sorted(sections)),
+            tuple(sorted(share_sections - sections)), ("events", "notice_log"))
+
+
+def set_scope_body(tx, actor: str, nid: str, kw: dict[str, Any],
+                   may_raise: bool) -> dict[str, Any]:
+    """The door body. `may_raise` is the route's permission to raise the
+    kiosk ceiling (not a public slug); whether it IS raised is decided here on
+    the locked kiosk row, exactly as `node_scope` did on its loaded document."""
+    upd, share, _s, _ss, _l = _scope_plan(tx.org, actor, nid, kw, may_raise)
+    miss_u = upd - set(tx.lock_nodes)
+    miss_s = share - set(tx.lock_nodes) - set(tx.share_nodes)
+    if miss_u or miss_s:
+        raise Widen(miss_u, miss_s)
+    org = tx.org
+    rc = may_raise and (bool((org.d.get("kiosk") or {}).get("auto_raise"))
+                        or bool(kw.get("raise_ceiling")))
+    return org.set_scope(actor, nid, **{**kw, "raise_ceiling": rc})
+
+
+def set_scope(slug: str, actor: str, nid: str, may_raise: bool = True,
+              **kw: Any) -> dict[str, Any]:
+    """Standalone runner for `Org.set_scope` (the `node_scope` route's body)."""
+    upd, share, sections, share_sections, logs = _scope_plan(
+        store.cached_org(slug), actor, nid, kw, may_raise)
+    for _ in range(MAX_WIDEN + 1):
+        try:
+            with halt.txn(slug, nodes=upd, share_nodes=share - upd,
+                          sections=sections, share_sections=share_sections,
+                          logs=logs) as tx:
+                return set_scope_body(tx, actor, nid, kw, may_raise)
+        except Widen as w:
+            upd |= w.nodes
+            share |= w.share_nodes
+    raise LedgerError(f"set_scope: the lock set kept growing after {MAX_WIDEN} "
+                      "widenings — nothing was applied; retry")
