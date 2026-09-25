@@ -126,6 +126,31 @@ def txn(slug: str, *, nodes: Iterable[str] = (), sections: Iterable[str] = (),
                 + ", ".join(missing))
         yield outer.tx
         return
+    foreign = orgtx.current_tx(slug)
+    if foreign is not None:
+        # a transaction some other code opened on this thread (the agent
+        # door, an operator op): join it the same way. Its commit is not
+        # ours to see, so `_after` work runs when THIS block ends and
+        # `_on_abort` work when it raises — the closest this caller can get.
+        missing = _covers(foreign, *want)
+        if missing:
+            raise orgtx.OrgTxError(
+                "halt: the enclosing transaction does not lock "
+                + ", ".join(missing))
+        jctx = _Ctx(foreign)
+        token = _current.set(jctx)
+        try:
+            yield foreign
+        except BaseException:
+            for fn in jctx.abort:
+                with contextlib.suppress(Exception):
+                    fn()
+            raise
+        finally:
+            _current.reset(token)
+        for fn in jctx.after:
+            fn()
+        return
     ctx: _Ctx | None = None
     try:
         with _fence(), orgtx.org_tx(slug, nodes=want[0], sections=want[1],

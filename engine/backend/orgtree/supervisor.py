@@ -3898,123 +3898,162 @@ def rename_node(slug: str, nid: str, new_name: str,
     CLI's project dir (resume is project-scoped: without the move the agent
     answers 'No conversation found' and loses its memory), then re-key the
     org doc (ledger.rename) and the in-memory turn state. Filesystem moves
-    happen FIRST and roll back if the doc mutation refuses."""
+    happen FIRST and roll back if the doc mutation refuses.
+
+    PYPG (PG-3a, lead decisions 14 + 18.6): ONE row transaction on exactly
+    the rows the re-key touches (`lifecycle_tx.rename_rows`), joined when the
+    caller already holds one. The filesystem moves run INSIDE it, after the
+    locked rows are re-checked, and are rolled back if the body OR the commit
+    fails; the worktree-registry repair and the in-memory re-key run only
+    after the commit."""
     from .ledger import LedgerError
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
-        n = org.node(nid)                      # 422s unknown nodes
-        stack = [nid] + [k for k in org.nodes if k.startswith(nid + "@")]
-        for k in stack:
-            st = state(slug, k)
-            if st["busy"] or st["queue"]:
-                raise LedgerError(f"{k} is mid-turn — wait for it to finish, "
-                                  f"then rename")
-        new_slug_probe = org.rename(actor, nid, new_name)  # validates; mutates
-        new = str(new_slug_probe["node"])
-        if new == nid:
-            # no-op — the ledger changed nothing; leave the filesystem alone
-            _ = n
-            return new_slug_probe
-        for k in stack:
-            # D-201: a PARKED warm process holds the scratch dir as its cwd,
-            # which blocks the directory move below on Windows outright. Kill
-            # it — AFTER the ledger validated and actually changed the name
-            # (a refused or no-op rename changes neither prompt nor argv, and
-            # killing on it would be a process death outside the closed list:
-            # process-cache-2's rename probe, 2026-08-30). The busy check
-            # above proves no turn owns it; the keeper re-warms the seat
-            # under its new name right after.
-            warmpool.kill_node(slug, k, "renamed")
-        # ---- filesystem, before save: scratch dir + CLI project dir ----
-        moved: list[tuple[str, str]] = []
+    from . import lifecycle_tx
+    plan = lifecycle_tx.rename_rows(slug, actor, nid, new_name)
+    moved: list[tuple[str, str]] = []
+    ctx: dict[str, Any] = {}
+    for attempt in range(lifecycle_tx.MAX_WIDEN + 1):
+        moved.clear()
+        ctx.clear()
         try:
-            if sbx.on_disk(slug):
-                from . import disk as dsk
-                base = dsk.windows_sub(slug, "scratch")
-            else:
-                base = store.scratch_root(slug)
-            old_dir, new_dir = (os.path.join(base, nid),
-                                os.path.join(base, new))
-            # the CLI project dir rides the CWD — container path for sandboxed
-            # orgs, host path natively. One directory holds every generation's
-            # sessions (they share the scratch cwd).
-            troot = _transcript_root(org, nid) or os.path.expanduser("~/.claude")
-            if sbx.is_sandboxed(org):
-                old_cwd = sbx.cpath_scratch(slug, nid)
-                new_cwd = sbx.cpath_scratch(slug, new)
-            else:
-                old_cwd, new_cwd = old_dir, new_dir
-            oldp = os.path.join(troot, "projects", _cli_project_dir(old_cwd))
-            newp = os.path.join(troot, "projects", _cli_project_dir(new_cwd))
-            # an occupied DESTINATION is an ORPHAN by construction (redteam +
-            # user report 2026-08-05): the ledger's taken-name check has
-            # already passed, so no existing node — live, archived, or
-            # lineage — is named `new`; any directory sitting there belongs
-            # to a DELETED or previously-renamed agent. The old refusal
-            # blocked exactly the ordinary reclaim (delete alpha → rename
-            # beta to alpha) with a ~/.claude path the user cannot reasonably
-            # act on. Move it aside instead — the stranger-inheritance hazard
-            # the refusal closed cannot occur, and the delete's deliberately
-            # preserved transcripts survive under the .orphan name.
-            aside_notes: list[str] = []
-            for tgt in (new_dir, newp):
-                if os.path.exists(tgt):
-                    aside = f"{tgt}.orphan-{int(time.time())}"
-                    i = 2
-                    while os.path.exists(aside):
-                        aside = f"{tgt}.orphan-{int(time.time())}-{i}"
-                        i += 1
-                    os.rename(tgt, aside)
-                    moved.append((tgt, aside))    # rollback restores it
-                    aside_notes.append(
-                        f"a leftover folder from a deleted agent was moved "
-                        f"aside as {os.path.basename(aside)}")
-            if os.path.isdir(old_dir):
-                os.rename(old_dir, new_dir)
-                moved.append((old_dir, new_dir))
-            if os.path.isdir(oldp):
-                os.rename(oldp, newp)
-                moved.append((oldp, newp))
-            store.save_org(org)
-            # Git worktree registrations live in the machine registry, not in
-            # the org ledger. Repair only paths contained by this agent's
-            # moved checkout root; similarly named siblings and unrelated
-            # repositories are deliberately untouched. No old-path alias is
-            # created, so a stale reference cannot silently revive old work.
-            try:
-                from . import gitworkspace
-                repaired_worktrees = gitworkspace.repair_registered_worktrees(
-                    slug, old_dir, new_dir)
-            except Exception as repair_error:
-                # The identity rename is already durable. Keep the rename
-                # visible and report the registry repair failure so the host
-                # operator can repair it explicitly rather than hiding it.
-                repaired_worktrees = []
-                new_slug_probe.setdefault("warnings", []).append(
-                    f"registered worktree paths were not repaired: {repair_error}")
-            if repaired_worktrees:
-                new_slug_probe["worktrees"] = repaired_worktrees
-            if aside_notes:
-                new_slug_probe.setdefault("warnings", []).extend(aside_notes)
+            with lifecycle_tx.rename_tx(slug, plan) as tx:
+                lifecycle_tx.check_rename_rows(tx, actor, nid, new_name)
+                _rename_locked(slug, nid, new_name, actor, tx.org, moved, ctx)
+            break
+        except lifecycle_tx.Widen as w:
+            if attempt == lifecycle_tx.MAX_WIDEN:
+                raise LedgerError("rename: the lock set kept growing - nothing "
+                                  "was applied; retry") from None
+            plan = lifecycle_tx.widen_plan(plan, w)
         except Exception:
-            for a, b in reversed(moved):
+            # the body raised, or the COMMIT did (a refused write, a
+            # serialization failure): the folders go back where they were
+            for src, dst in reversed(moved):
                 try:
-                    os.rename(b, a)
+                    os.rename(dst, src)
                 except OSError:
                     pass
             raise
-        # ---- in-memory turn state re-keys with the identity ----
-        with _state_lock:
-            for k in stack:
-                nk = new + k[len(nid):]
-                if (slug, k) in _state:
-                    _state[(slug, nk)] = _state.pop((slug, k))
-        _ = n
+    new_slug_probe = ctx["result"]
+    if ctx.get("noop"):
+        return new_slug_probe
+    new, stack = ctx["new"], ctx["stack"]
+    old_dir, new_dir = ctx["dirs"]
+    # Git worktree registrations live in the machine registry, not in
+    # the org ledger. Repair only paths contained by this agent's
+    # moved checkout root; similarly named siblings and unrelated
+    # repositories are deliberately untouched. No old-path alias is
+    # created, so a stale reference cannot silently revive old work.
+    try:
+        from . import gitworkspace
+        repaired_worktrees = gitworkspace.repair_registered_worktrees(
+            slug, old_dir, new_dir)
+    except Exception as repair_error:
+        # The identity rename is already durable. Keep the rename
+        # visible and report the registry repair failure so the host
+        # operator can repair it explicitly rather than hiding it.
+        repaired_worktrees = []
+        new_slug_probe.setdefault("warnings", []).append(
+            f"registered worktree paths were not repaired: {repair_error}")
+    if repaired_worktrees:
+        new_slug_probe["worktrees"] = repaired_worktrees
+    if ctx.get("aside_notes"):
+        new_slug_probe.setdefault("warnings", []).extend(ctx["aside_notes"])
+    # ---- in-memory turn state re-keys with the identity ----
+    with _state_lock:
+        for k in stack:
+            nk = new + k[len(nid):]
+            if (slug, k) in _state:
+                _state[(slug, nk)] = _state.pop((slug, k))
     notify(slug, new, "renamed", {
         "was": str(new_slug_probe.get("was") or nid),
         "renamed": dict(new_slug_probe.get("renamed") or {}),
     })
     return new_slug_probe
+
+
+def _rename_locked(slug: str, nid: str, new_name: str, actor: str, org: Any,
+                   moved: list[tuple[str, str]], ctx: dict[str, Any]) -> None:
+    """The part of `rename_node` that runs inside its row transaction: the
+    busy check, the ledger re-key, and the filesystem moves (recorded in
+    `moved` so the caller can undo them). Does not save: the transaction
+    commits."""
+    from .ledger import LedgerError
+    n = org.node(nid)                      # 422s unknown nodes
+    stack = [nid] + [k for k in org.nodes if k.startswith(nid + "@")]
+    for k in stack:
+        st = state(slug, k)
+        if st["busy"] or st["queue"]:
+            raise LedgerError(f"{k} is mid-turn — wait for it to finish, "
+                              f"then rename")
+    new_slug_probe = org.rename(actor, nid, new_name)  # validates; mutates
+    new = str(new_slug_probe["node"])
+    ctx["result"] = new_slug_probe
+    if new == nid:
+        # no-op — the ledger changed nothing; leave the filesystem alone
+        _ = n
+        ctx["noop"] = True
+        return
+    ctx["new"], ctx["stack"] = new, stack
+    for k in stack:
+        # D-201: a PARKED warm process holds the scratch dir as its cwd,
+        # which blocks the directory move below on Windows outright. Kill
+        # it — AFTER the ledger validated and actually changed the name
+        # (a refused or no-op rename changes neither prompt nor argv, and
+        # killing on it would be a process death outside the closed list:
+        # process-cache-2's rename probe, 2026-08-30). The busy check
+        # above proves no turn owns it; the keeper re-warms the seat
+        # under its new name right after.
+        warmpool.kill_node(slug, k, "renamed")
+    # ---- filesystem, before commit: scratch dir + CLI project dir ----
+    if sbx.on_disk(slug):
+        from . import disk as dsk
+        base = dsk.windows_sub(slug, "scratch")
+    else:
+        base = store.scratch_root(slug)
+    old_dir, new_dir = (os.path.join(base, nid),
+                        os.path.join(base, new))
+    ctx["dirs"] = (old_dir, new_dir)
+    # the CLI project dir rides the CWD — container path for sandboxed
+    # orgs, host path natively. One directory holds every generation's
+    # sessions (they share the scratch cwd).
+    troot = _transcript_root(org, nid) or os.path.expanduser("~/.claude")
+    if sbx.is_sandboxed(org):
+        old_cwd = sbx.cpath_scratch(slug, nid)
+        new_cwd = sbx.cpath_scratch(slug, new)
+    else:
+        old_cwd, new_cwd = old_dir, new_dir
+    oldp = os.path.join(troot, "projects", _cli_project_dir(old_cwd))
+    newp = os.path.join(troot, "projects", _cli_project_dir(new_cwd))
+    # an occupied DESTINATION is an ORPHAN by construction (redteam +
+    # user report 2026-08-05): the ledger's taken-name check has
+    # already passed, so no existing node — live, archived, or
+    # lineage — is named `new`; any directory sitting there belongs
+    # to a DELETED or previously-renamed agent. The old refusal
+    # blocked exactly the ordinary reclaim (delete alpha → rename
+    # beta to alpha) with a ~/.claude path the user cannot reasonably
+    # act on. Move it aside instead — the stranger-inheritance hazard
+    # the refusal closed cannot occur, and the delete's deliberately
+    # preserved transcripts survive under the .orphan name.
+    aside_notes: list[str] = []
+    for tgt in (new_dir, newp):
+        if os.path.exists(tgt):
+            aside = f"{tgt}.orphan-{int(time.time())}"
+            i = 2
+            while os.path.exists(aside):
+                aside = f"{tgt}.orphan-{int(time.time())}-{i}"
+                i += 1
+            os.rename(tgt, aside)
+            moved.append((tgt, aside))    # rollback restores it
+            aside_notes.append(
+                f"a leftover folder from a deleted agent was moved "
+                f"aside as {os.path.basename(aside)}")
+    if os.path.isdir(old_dir):
+        os.rename(old_dir, new_dir)
+        moved.append((old_dir, new_dir))
+    if os.path.isdir(oldp):
+        os.rename(oldp, newp)
+        moved.append((oldp, newp))
+    ctx["aside_notes"] = aside_notes
 
 
 def export_predecessor_transcript(org: Org, nid: str,
