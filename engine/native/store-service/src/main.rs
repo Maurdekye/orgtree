@@ -40,7 +40,15 @@ async fn main() {
     let url = std::env::var(&url_env).unwrap_or_else(|_| fail(format!("environment variable {url_env} is not set")));
     let cfg = PgConfig::from_url(&url).unwrap_or_else(|e| fail(e));
 
-    let hooks = Hooks::default();
+    #[allow(unused_mut)]
+    let mut hooks = Hooks::default();
+    #[cfg(feature = "qualification")]
+    let harness_state = {
+        let s = orgtree_store_service::harness::HarnessState::new();
+        hooks.pause = Some(s.clone());
+        hooks.controls = Some(s.clone());
+        s
+    };
     let main_pool = Factory::new(cfg.clone(), "executor", hooks.clone());
     let reserved = Factory::new(cfg.clone(), "lookup", hooks.clone());
     let liveness_factory = Factory::new(cfg, "liveness", hooks.clone());
@@ -61,6 +69,16 @@ async fn main() {
     let listener = server::bind_loopback().await.unwrap_or_else(|e| fail(format!("bind: {e}")));
     let port = listener.local_addr().unwrap_or_else(|e| fail(e)).port();
     let token = Arc::new(server::new_token());
+    #[cfg(feature = "qualification")]
+    let (harness_listener, harness_token) = (
+        server::bind_loopback().await.unwrap_or_else(|e| fail(format!("bind harness: {e}"))),
+        Arc::new(server::new_token()),
+    );
+    #[cfg(feature = "qualification")]
+    let (harness_port, harness_token_field) =
+        (Some(harness_listener.local_addr().unwrap_or_else(|e| fail(e)).port()), Some((*harness_token).clone()));
+    #[cfg(not(feature = "qualification"))]
+    let (harness_port, harness_token_field): (Option<u16>, Option<String>) = (None, None);
     descriptor::write(
         &root.path,
         &Descriptor {
@@ -71,11 +89,23 @@ async fn main() {
             pid: std::process::id(),
             service_incarnation: service_incarnation.to_string(),
             qualification: orgtree_store::hooks::QUALIFICATION,
+            harness_port,
+            harness_token: harness_token_field,
         },
     )
     .unwrap_or_else(|e| fail(e));
     eprintln!("orgtree-store-service: serving on 127.0.0.1:{port}, incarnation {service_incarnation}");
 
+    #[cfg(feature = "qualification")]
+    {
+        use orgtree_store_service::handler;
+        let hs = serde_json::json!({
+            "type": "handshake", "protocol": orgtree_store_service::harness::PROTOCOL, "qualification": true,
+            "build_sha": option_env!("ORGTREE_BUILD_SHA").unwrap_or("unknown"),
+            "points": handler::points(), "controls": handler::CONTROLS, "declared": handler::declared(),
+        });
+        tokio::spawn(orgtree_store_service::harness::serve(harness_listener, harness_token, harness_state, hs));
+    }
     tokio::select! {
         r = server::serve(listener, token, handler) => { if let Err(e) = r { eprintln!("orgtree-store-service: listener failed: {e}"); } }
         _ = tokio::signal::ctrl_c() => {}

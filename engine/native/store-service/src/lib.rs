@@ -11,5 +11,7 @@
 pub mod descriptor;
 pub mod guard;
 pub mod handler;
+#[cfg(feature = "qualification")]
+pub mod harness;
 pub mod proto;
 pub mod server;

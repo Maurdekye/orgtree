@@ -27,6 +27,11 @@ pub struct Descriptor {
     pub pid: u32,
     pub service_incarnation: String,
     pub qualification: bool,
+    /// Qualification builds only: the harness endpoint and its per-run token.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness_port: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness_token: Option<String>,
 }
 
 fn current_user_sid() -> Option<String> {
