@@ -508,5 +508,109 @@ class Rehire(unittest.TestCase):
         self.assertEqual(self.view(self.slug), before)
 
 
+class Delete(unittest.TestCase):
+    """lifecycle_tx.delete: the legacy `Org.delete` on `_delete_plan`."""
+
+    def build(self, slug):
+        org = store.create_org(slug)
+        org.hire(ledger.USER, None, "luna", 6, "root")
+        org.hire(ledger.USER, "root", "luna", 2, "a")
+        org.hire(ledger.USER, "a", "luna", 0, "a1")
+        org.hire(ledger.USER, "root", "luna", 0, "b")
+        org.nodes["a1"]["cost_usd"] = 0.25
+        org.d.setdefault("watchdogs", []).append(
+            {"id": "w1", "name": "dog", "owner": "a1", "state": "armed"})
+        store.save_org(org)
+        with store.DOC_LOCK:
+            o = store.load_org(slug)
+            o.ask_user("a1", "still there?")
+            o.request_credits("a", 50, "more room")
+            o.work_create(ledger.USER, "an item", "why it exists", owner="a1")
+            store.save_org(o)
+
+    def setUp(self):
+        self.slug = "pg3a-dl-" + str(time.time_ns())
+        self.build(self.slug)
+
+    def tearDown(self):
+        store._POOL.close_all(self.slug)
+
+    def view(self, slug):
+        o = store.load_org(slug)
+        return (sorted(o.nodes), o.d.get("deleted_cost_usd"),
+                sorted(a["node"] for a in o.d.get("asks") or []),
+                sorted(r["node"] for r in o.d.get("credit_requests") or []),
+                [w["id"] for w in o.d.get("watchdogs") or []],
+                sorted(o.d.get("mail") or {}),
+                [e["op"] for e in o.d["events"]][-3:],
+                len((o.d.get("notices") or {}).get("b") or []),
+                [(i.get("owner") or {}).get("node") for i in o.d.get("work_items") or []])
+
+    def test_matches_the_legacy_method(self):
+        twin = "pg3a-dl-twin-" + str(time.time_ns())
+        self.build(twin)
+        with store.DOC_LOCK:
+            o = store.load_org(twin)
+            legacy = o.delete(ledger.USER, "a")
+            store.save_org(o)
+        mine = lifecycle_tx.delete(self.slug, ledger.USER, "a")
+        self.assertEqual(mine, legacy)
+        self.assertEqual(mine["deleted"], ["a", "a1"])
+        self.assertEqual(self.view(self.slug), self.view(twin))
+        o = store.load_org(self.slug)
+        self.assertEqual(o.d["deleted_cost_usd"], 0.25)
+        self.assertEqual(o.d.get("watchdogs") or [], [])
+        store._POOL.close_all(twin)
+
+    def test_plan_holds_the_subtree_and_shares_the_parent(self):
+        o = store.load_org(self.slug)
+        upd, share, sections, logs = lifecycle_tx._delete_plan(o, ledger.USER, "a")
+        self.assertEqual(upd, {"a", "a1"})
+        self.assertEqual(share, {"root"})
+        for s in ("asks", "credit_requests", "watchdogs", "audiences", "work_items",
+                  "mail", "notices", "deleted_cost_usd"):
+            self.assertIn(s, sections)
+        self.assertIn(("mail_log", "a1"), logs)
+        self.assertIn("op_receipts", logs)
+
+    def test_an_agent_may_not_delete_and_nothing_is_written(self):
+        before = self.view(self.slug)
+        with self.assertRaises(ledger.LedgerError):
+            lifecycle_tx.delete(self.slug, "root", "b")
+        self.assertEqual(self.view(self.slug), before)
+
+    def test_every_node_section_the_delete_writes_is_needed(self):
+        real = lifecycle_tx._delete_plan
+        refused = []
+        for drop in ("asks", "credit_requests", "watchdogs", "work_items",
+                     "deleted_cost_usd"):
+            def smaller(org, actor, nid, drop=drop):
+                u, s, secs, lg = real(org, actor, nid)
+                return u, s, tuple(x for x in secs if x != drop), lg
+            with patch.object(lifecycle_tx, "_delete_plan", smaller):
+                with self.assertRaises(orgtx.UnlockedWrite, msg=drop):
+                    lifecycle_tx.delete(self.slug, ledger.USER, "a")
+            refused.append(drop)
+            self.assertIn("a1", store.load_org(self.slug).nodes, drop)
+        self.assertEqual(len(refused), 5)
+
+    def test_a_stale_snapshot_widens_to_the_new_report(self):
+        # the first plan misses a1; the body re-derives the plan on the
+        # locked document and widens instead of popping an unlocked row
+        real = lifecycle_tx._delete_plan
+        calls = []
+
+        def stale(org, actor, nid):
+            u, s, secs, lg = real(org, actor, nid)
+            calls.append(1)
+            if len(calls) == 1:
+                u = u - {"a1"}
+            return u, s, secs, lg
+        with patch.object(lifecycle_tx, "_delete_plan", stale):
+            r = lifecycle_tx.delete(self.slug, ledger.USER, "a")
+        self.assertEqual(r["deleted"], ["a", "a1"])
+        self.assertGreaterEqual(len(calls), 3)          # plan, refused body, rerun
+
+
 if __name__ == "__main__":
     unittest.main()
