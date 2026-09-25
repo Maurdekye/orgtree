@@ -185,7 +185,7 @@ async fn the_fold_makes_one_digest_first_keeps_untyped_in_order_and_tombstones_m
     assert_eq!(text("SELECT kind FROM mailbox_messages WHERE state = 'pending' ORDER BY recv_ord LIMIT 1").await, "context.notice_digest");
     assert_eq!(uuid_of("SELECT original_message_id FROM mailbox_messages WHERE state = 'pending' ORDER BY recv_ord OFFSET 1 LIMIT 1").await, ids[1]);
     assert_eq!(count("SELECT count(*) FROM mailbox_messages WHERE state = 'folded'").await, 3);
-    assert_eq!(count("SELECT jsonb_array_length(digest->'groups') FROM mailbox_messages WHERE kind = 'context.notice_digest'").await, 2);
+    assert_eq!(count("SELECT jsonb_array_length(digest->'groups')::bigint FROM mailbox_messages WHERE kind = 'context.notice_digest'").await, 2);
     // a folded member redelivered is still deduped
     assert_eq!(receive::deliver(&ex, org(), mb(b()), ids[0]).await.unwrap(), Delivery::Done(Received::Duplicate));
 }
