@@ -13,6 +13,11 @@ path = "src/lib.rs"
 name = "pg-custodian"
 path = "src/main.rs"
 
+[features]
+# Builds WS1's unsafe controls (src/controls.rs). Never in a product build;
+# the name is the M1 contract's single qualification feature.
+qualification = []
+
 # Every dependency is listed with its version, licence and purpose in
 # DEPENDENCIES.md. Adding one here without a row there is a review finding.
 [dependencies]
