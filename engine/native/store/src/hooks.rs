@@ -40,6 +40,21 @@ pub enum EventKind<'a> {
     ControlExecuted { id: &'a str },
     Pause { point: &'a str },
     Lookup { answer: &'static str },
+    /// The rows of `trace.xact_stats` (qualification builds), emitted right
+    /// after that statement: the server-side relation set for this attempt.
+    XactStats { tables: &'a [XactTable] },
+}
+
+/// One row of `pg_stat_xact_user_tables` for the current transaction.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct XactTable {
+    pub relname: String,
+    pub seq_scan: i64,
+    /// NULL (no index) is reported as 0.
+    pub idx_scan: i64,
+    pub n_tup_ins: i64,
+    pub n_tup_upd: i64,
+    pub n_tup_del: i64,
 }
 
 #[derive(Clone, Debug)]

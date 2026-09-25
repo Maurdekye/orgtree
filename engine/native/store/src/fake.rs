@@ -330,6 +330,10 @@ impl Session for FakeSession {
         Some(10_000 + self.id as i32)
     }
 
+    fn backend_start(&self) -> Option<i64> {
+        Some(1_700_000_000_000_000 + self.id as i64)
+    }
+
     fn is_broken(&self) -> bool {
         self.broken
     }

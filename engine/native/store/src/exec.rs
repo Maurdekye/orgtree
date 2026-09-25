@@ -261,6 +261,44 @@ pub struct Tx<'a, S: Session> {
 
 impl<'a, S: Session> Tx<'a, S> {
     #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_internal(
+        sess: &'a mut S,
+        hooks: &'a Hooks,
+        family: &'a str,
+        verb: &'a str,
+        op: &'a OpIdentity,
+        op_tag: Option<&'a str>,
+        attempt: u32,
+        prev_attempt_now: Option<i64>,
+    ) -> Self {
+        Self::new(sess, hooks, family, verb, op, op_tag, attempt, prev_attempt_now)
+    }
+
+    pub(crate) async fn begin(&mut self, iso: Isolation) -> Result<(), DbError> {
+        let r = self.sess.begin(iso).await;
+        let pid = self.sess.backend_pid();
+        self.emit(EventKind::Begin { isolation: iso.name(), backend_pid: pid });
+        self.now = None;
+        r
+    }
+
+    pub(crate) async fn rollback_quiet(&mut self) {
+        if !self.sess.is_broken() {
+            let _ = self.sess.rollback().await;
+        }
+        self.effects.clear();
+        self.emit(EventKind::Rollback);
+    }
+
+    pub(crate) async fn commit_quiet(&mut self) -> Result<(), DbError> {
+        let r = self.sess.commit().await;
+        if r.is_ok() {
+            self.emit(EventKind::Commit { pre_commit_lsn: None });
+        }
+        r
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn new(
         sess: &'a mut S,
         hooks: &'a Hooks,
@@ -429,13 +467,22 @@ enum Step<T> {
 
 pub struct Executor<C: Connector> {
     pool: Pool<C>,
+    reserved: Pool<C>,
     cfg: ExecConfig,
     hooks: Hooks,
 }
 
 impl<C: Connector> Executor<C> {
-    pub fn new(connector: C, pool_size: usize, cfg: ExecConfig, hooks: Hooks) -> Self {
-        Executor { pool: Pool::new(connector, pool_size), cfg, hooks }
+    /// `connector` feeds the command pool; `reserved` a small separate pool
+    /// for receipt lookups, in-flight rows and recovery, so accepted work can
+    /// still be resolved when new work saturates the main pool (v6
+    /// §Scheduling).
+    pub fn new(connector: C, pool_size: usize, reserved: C, reserved_size: usize, cfg: ExecConfig, hooks: Hooks) -> Self {
+        Executor { pool: Pool::new(connector, pool_size), reserved: Pool::new(reserved, reserved_size), cfg, hooks }
+    }
+
+    pub fn reserved(&self) -> &Pool<C> {
+        &self.reserved
     }
 
     pub fn hooks(&self) -> &Hooks {
@@ -627,7 +674,30 @@ impl<C: Connector> Executor<C> {
         #[cfg(feature = "qualification")]
         {
             // Provisional server-side relation check (CONTRACT-M1 §5).
-            db!(tx.exec("trace.xact_stats", "SELECT relname, seq_scan, idx_scan, n_tup_ins, n_tup_upd, n_tup_del FROM pg_stat_xact_user_tables", &[]).await, false);
+            let rows = db!(
+                tx.exec(
+                    "trace.xact_stats",
+                    "SELECT relname::text, seq_scan, coalesce(idx_scan, 0), n_tup_ins, n_tup_upd, n_tup_del                      FROM pg_stat_xact_user_tables WHERE schemaname = current_schema()",
+                    &[],
+                )
+                .await,
+                false
+            );
+            let tables: Vec<crate::hooks::XactTable> = rows
+                .0
+                .iter()
+                .filter_map(|r| {
+                    Some(crate::hooks::XactTable {
+                        relname: r.first()?.as_text()?.to_string(),
+                        seq_scan: r.get(1)?.as_int().unwrap_or(0),
+                        idx_scan: r.get(2)?.as_int().unwrap_or(0),
+                        n_tup_ins: r.get(3)?.as_int().unwrap_or(0),
+                        n_tup_upd: r.get(4)?.as_int().unwrap_or(0),
+                        n_tup_del: r.get(5)?.as_int().unwrap_or(0),
+                    })
+                })
+                .collect();
+            tx.emit(EventKind::XactStats { tables: &tables });
         }
         #[cfg(feature = "qualification")]
         let pre_commit_lsn: Option<String> = {

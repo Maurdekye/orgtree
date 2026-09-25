@@ -51,6 +51,8 @@ pub trait Session: Send {
     /// Close the socket without COMMIT or ROLLBACK (harness `DropConn`).
     fn drop_connection(&mut self);
     fn backend_pid(&self) -> Option<i32>;
+    /// `backend_start`, microseconds since the epoch (pairs with the pid).
+    fn backend_start(&self) -> Option<i64>;
     /// A broken session is discarded, never returned to the pool.
     fn is_broken(&self) -> bool;
 }
