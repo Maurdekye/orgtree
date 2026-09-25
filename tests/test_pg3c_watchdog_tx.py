@@ -153,6 +153,8 @@ class WatchdogDoor(unittest.TestCase):
         self.enterContext(patch.object(supervisor, 'mail_spark'))
         self.enterContext(patch.object(api, 'mail_notify'))
         self.enterContext(patch.object(api, 'hub_changed'))
+        self.tokens = {n: agentauth.child_env(self.slug, n)['ORGTREE_AGENT_TOKEN']
+                       for n in ('boss', 'x')}
         # PG-0's first org_tx on an org heals with one plain save; do it now
         pgdoor.run(self.slug, pgdoor.TxSpec(), lambda h: None)
 
@@ -183,8 +185,11 @@ class WatchdogDoor(unittest.TestCase):
 
     def box(self, nid: str) -> list:
         d = self.durable()
-        return [m for m in (d.get('mail') or []) + (d.get('mail_log') or [])
-                if isinstance(m, dict) and m.get('to') == nid]
+        out = []
+        for sec in ('mail', 'mail_log'):
+            got = (d.get(sec) or {}).get(nid) or []
+            out += got if isinstance(got, list) else [got]
+        return out
 
     # ------------------------------------------------------------ DOC_LOCK
 
@@ -254,7 +259,7 @@ class WatchdogDoor(unittest.TestCase):
     # ---------------------------------------------------------------- tool
 
     def token(self, nid: str) -> str:
-        return agentauth.child_env(self.slug, nid)['ORGTREE_AGENT_TOKEN']
+        return self.tokens[nid]
 
     def call(self, actor: str, args: dict):
         c = TestClient(app, raise_server_exceptions=False)
@@ -264,7 +269,6 @@ class WatchdogDoor(unittest.TestCase):
                       headers={'X-Orgtree-Agent-Token': self.token(actor)})
 
     def test_tool_create_is_on_the_door_and_keeps_its_smoke_run(self) -> None:
-        tokx = self.token('x')  # noqa: F841  minted before DOC_LOCK is taken
         with HeldDocLock():
             box: dict = {}
             t, out = run_bg(lambda: self.call('x', {'action': 'create', 'name': 'w',
