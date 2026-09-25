@@ -19528,6 +19528,48 @@ def _node_write(slug: str, nid: str, *, whole_org: bool = False
         yield tx.org
 
 
+class _Replan(Exception):
+    """The agent's parent moved between planning a report transaction's rows
+    and locking them: roll back and plan again (`_report_plans`)."""
+
+
+def _report_plans(slug: str, nid: str, *, attempts: int = 3
+                  ) -> Iterator[dict[str, Any]]:
+    """PG-3e-A: row plans for a runtime report — system mail to the agent AND
+    to its superior (or the user's inbox), plus lifecycle rows (PG-3d's
+    `mailtx.send_rows`).
+
+    The superior is read lock-free from the cached snapshot, so it can move
+    before the locks are granted; `_check_plan` inside the transaction
+    raises `_Replan` then and the caller's loop tries the next plan. The
+    last plan names the superior as found at that moment again, so a move
+    storm only costs retries."""
+    for _ in range(attempts):
+        try:
+            n = store.cached_org(slug).nodes.get(nid) or {}
+            sup = str(n.get("parent") or "")
+        except Exception:                                # noqa: BLE001
+            sup = ""
+        # USER always: with no live superior these reports go to the user's
+        # inbox instead (`to_user_inbox`), inside the same transaction
+        rows = (mailtx.send_rows(nid, sup, USER) if sup
+                else mailtx.send_rows(nid, USER))
+        rows["_sup"] = sup
+        yield rows
+
+
+def _check_plan(org: Org, nid: str, plan: dict[str, Any]) -> None:
+    """Raise `_Replan` when the agent's parent is not the one `plan` locked."""
+    n = org.nodes.get(nid)
+    actual = str((n or {}).get("parent") or "")
+    if n is not None and actual != plan["_sup"]:
+        raise _Replan(actual)
+
+
+def _plan_rows(plan: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in plan.items() if not k.startswith("_")}
+
+
 def _admission_pred_locked(tx: orgtx.OrgTx, org: Org, nid: str) -> bool:
     """True when the row a cheap-compaction of `nid` would insert is locked."""
     gen = int(org.node(nid).get("generation") or 0)
@@ -23757,56 +23799,61 @@ def _turn_abandoned(slug: str, nid: str, door: str, err: str) -> bool:
     anyone was actually told — the caller logs the honest thing either way."""
     try:
         sup = ""
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            if nid not in org.nodes or org.node(nid)["state"] != "live":
-                return False
-            name = str(org.node(nid).get("name") or nid)
-            sup = str(org.node(nid).get("parent") or "")
-            op_id = lifecycle.identity("turn", str(org.node(nid).get(
-                "session_id") or nid))
-            lifecycle.record(
-                org.d, operation_id=op_id, kind="turn", state="failed",
-                at=now_iso(), node=nid, settlement="foreground-failed",
-                cleanup="complete", door=str(door), reason=str(err or ""))
-            # typed (family runtime_recovery): the node's own copy is the frozen
-            # rendering of runtime.turn_failed_terminal (test_events_producers §R)
-            org.append_system_mail(
-                nid, events.mint("runtime.turn_failed_terminal", _SYSTEM_ACTOR,
-                                 _session_ref(org, nid), door=door, err=err),
-                kind="message", sender="@system", relationship="the orgtree engine")
-            if sup and sup in org.nodes and org.nodes[sup]["state"] == "live":
-                org.append_system_mail(
-                    sup, events.mint("runtime.report_stalled", _SYSTEM_ACTOR,
-                                     _node_ref(org, nid), report=nid, report_name=name,
-                                     cause="terminal", audience="superior",
-                                     attempts=None, classified=None, door=door, err=err),
-                    kind="message", sender="@system", relationship="the orgtree engine")
-            else:
-                sup = ""
-                # ⚠ NOBODY UPSTREAM — so tell the USER, in the inbox they
-                # actually read. MEASURED 2026-08-21: without this a
-                # top-level failure put ZERO entries in `user_inbox`. The only
-                # traces were mail in the failing agent's own box and a
-                # turn_error_log row — both of which require already knowing
-                # to go and look at that node, which is the thing nobody does
-                # until they wonder why it has been quiet.
-                #
-                # This is the piece's own case at its worst. Every
-                # announcement terminates upward at a node with no superior,
-                # and a top-level coordinator IS that node — so the one agent
-                # the user actually watches was the only one that could not
-                # report its own death. `parent is None` and "the parent is
-                # archived" both land here and both mean the same thing:
-                # there is no agent left to tell.
-                uev = events.mint("runtime.report_stalled", _SYSTEM_ACTOR,
-                                  _node_ref(org, nid), report=nid, report_name=name,
-                                  cause="terminal", audience="user",
-                                  attempts=None, classified=None, door=door, err=err)
-                org.to_user_inbox({
-                    "id": uuid_hex8(), "from": SYSTEM, "kind": STOPPED_WORK_KIND,
-                    "at": now_iso(), "body": events.render_agent(uev)}, uev)
-            store.save_org(org)
+        for _plan in _report_plans(slug, nid):  # PG-3e-A
+            try:
+                with halt.txn(slug, **_plan_rows(_plan)) as _rp_tx:
+                    org = _rp_tx.org
+                    _check_plan(org, nid, _plan)
+                    if nid not in org.nodes or org.node(nid)["state"] != "live":
+                        return False
+                    name = str(org.node(nid).get("name") or nid)
+                    sup = str(org.node(nid).get("parent") or "")
+                    op_id = lifecycle.identity("turn", str(org.node(nid).get(
+                        "session_id") or nid))
+                    lifecycle.record(
+                        org.d, operation_id=op_id, kind="turn", state="failed",
+                        at=now_iso(), node=nid, settlement="foreground-failed",
+                        cleanup="complete", door=str(door), reason=str(err or ""))
+                    # typed (family runtime_recovery): the node's own copy is the frozen
+                    # rendering of runtime.turn_failed_terminal (test_events_producers §R)
+                    org.append_system_mail(
+                        nid, events.mint("runtime.turn_failed_terminal", _SYSTEM_ACTOR,
+                                         _session_ref(org, nid), door=door, err=err),
+                        kind="message", sender="@system", relationship="the orgtree engine")
+                    if sup and sup in org.nodes and org.nodes[sup]["state"] == "live":
+                        org.append_system_mail(
+                            sup, events.mint("runtime.report_stalled", _SYSTEM_ACTOR,
+                                             _node_ref(org, nid), report=nid, report_name=name,
+                                             cause="terminal", audience="superior",
+                                             attempts=None, classified=None, door=door, err=err),
+                            kind="message", sender="@system", relationship="the orgtree engine")
+                    else:
+                        sup = ""
+                        # ⚠ NOBODY UPSTREAM — so tell the USER, in the inbox they
+                        # actually read. MEASURED 2026-08-21: without this a
+                        # top-level failure put ZERO entries in `user_inbox`. The only
+                        # traces were mail in the failing agent's own box and a
+                        # turn_error_log row — both of which require already knowing
+                        # to go and look at that node, which is the thing nobody does
+                        # until they wonder why it has been quiet.
+                        #
+                        # This is the piece's own case at its worst. Every
+                        # announcement terminates upward at a node with no superior,
+                        # and a top-level coordinator IS that node — so the one agent
+                        # the user actually watches was the only one that could not
+                        # report its own death. `parent is None` and "the parent is
+                        # archived" both land here and both mean the same thing:
+                        # there is no agent left to tell.
+                        uev = events.mint("runtime.report_stalled", _SYSTEM_ACTOR,
+                                          _node_ref(org, nid), report=nid, report_name=name,
+                                          cause="terminal", audience="user",
+                                          attempts=None, classified=None, door=door, err=err)
+                        org.to_user_inbox({
+                            "id": uuid_hex8(), "from": SYSTEM, "kind": STOPPED_WORK_KIND,
+                            "at": now_iso(), "body": events.render_agent(uev)}, uev)
+            except _Replan:
+                continue
+            break
         mail_spark(slug, "@system", nid)
         if sup:
             mail_spark(slug, "@system", sup)
@@ -23923,46 +23970,51 @@ def _retry_exhausted(slug: str, nid: str, run: int, err: str,
     replace the real one."""
     try:
         sup = ""
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            if nid not in org.nodes or org.node(nid)["state"] != "live":
-                return
-            name = str(org.node(nid).get("name") or nid)
-            sup = str(org.node(nid).get("parent") or "")
-            # typed (family runtime_recovery): frozen renderings of
-            # runtime.turn_failed_repeated / runtime.report_stalled (test_events_producers §R)
-            org.append_system_mail(
-                nid, events.mint("runtime.turn_failed_repeated", _SYSTEM_ACTOR,
-                                 _session_ref(org, nid), attempts=int(run),
-                                 classified=kind, err=err),
-                kind="message", sender="@system", relationship="the orgtree engine")
-            if sup and sup in org.nodes and org.nodes[sup]["state"] == "live":
-                org.append_system_mail(
-                    sup, events.mint("runtime.report_stalled", _SYSTEM_ACTOR,
-                                     _node_ref(org, nid), report=nid, report_name=name,
-                                     cause="repeated", audience="superior",
-                                     attempts=int(run), classified=kind, door=None,
-                                     err=err),
-                    kind="message", sender="@system", relationship="the orgtree engine")
-            else:
-                sup = ""
-                # ⚠ SAME TOP-OF-TREE HOLE as `_turn_abandoned`, closed the
-                # same way. Milder here and deliberately still milder: this
-                # class is TRANSIENT, so the CLI works, and the agent below
-                # IS driven and can report upward itself. That is why this is
-                # belt-and-braces rather than the load-bearing notice it is
-                # over there — and why nothing about the drive changes.
-                # It is closed anyway because leaving ONE of two announce
-                # paths with a known hole is worse than either state: the
-                # next reader finds the fixed one and assumes this matches.
-                uev = events.mint("runtime.report_stalled", _SYSTEM_ACTOR,
-                                  _node_ref(org, nid), report=nid, report_name=name,
-                                  cause="repeated", audience="user",
-                                  attempts=int(run), classified=kind, door=None, err=err)
-                org.to_user_inbox({
-                    "id": uuid_hex8(), "from": SYSTEM, "kind": STOPPED_WORK_KIND,
-                    "at": now_iso(), "body": events.render_agent(uev)}, uev)
-            store.save_org(org)
+        for _plan in _report_plans(slug, nid):  # PG-3e-A
+            try:
+                with halt.txn(slug, **_plan_rows(_plan)) as _rp_tx:
+                    org = _rp_tx.org
+                    _check_plan(org, nid, _plan)
+                    if nid not in org.nodes or org.node(nid)["state"] != "live":
+                        return
+                    name = str(org.node(nid).get("name") or nid)
+                    sup = str(org.node(nid).get("parent") or "")
+                    # typed (family runtime_recovery): frozen renderings of
+                    # runtime.turn_failed_repeated / runtime.report_stalled (test_events_producers §R)
+                    org.append_system_mail(
+                        nid, events.mint("runtime.turn_failed_repeated", _SYSTEM_ACTOR,
+                                         _session_ref(org, nid), attempts=int(run),
+                                         classified=kind, err=err),
+                        kind="message", sender="@system", relationship="the orgtree engine")
+                    if sup and sup in org.nodes and org.nodes[sup]["state"] == "live":
+                        org.append_system_mail(
+                            sup, events.mint("runtime.report_stalled", _SYSTEM_ACTOR,
+                                             _node_ref(org, nid), report=nid, report_name=name,
+                                             cause="repeated", audience="superior",
+                                             attempts=int(run), classified=kind, door=None,
+                                             err=err),
+                            kind="message", sender="@system", relationship="the orgtree engine")
+                    else:
+                        sup = ""
+                        # ⚠ SAME TOP-OF-TREE HOLE as `_turn_abandoned`, closed the
+                        # same way. Milder here and deliberately still milder: this
+                        # class is TRANSIENT, so the CLI works, and the agent below
+                        # IS driven and can report upward itself. That is why this is
+                        # belt-and-braces rather than the load-bearing notice it is
+                        # over there — and why nothing about the drive changes.
+                        # It is closed anyway because leaving ONE of two announce
+                        # paths with a known hole is worse than either state: the
+                        # next reader finds the fixed one and assumes this matches.
+                        uev = events.mint("runtime.report_stalled", _SYSTEM_ACTOR,
+                                          _node_ref(org, nid), report=nid, report_name=name,
+                                          cause="repeated", audience="user",
+                                          attempts=int(run), classified=kind, door=None, err=err)
+                        org.to_user_inbox({
+                            "id": uuid_hex8(), "from": SYSTEM, "kind": STOPPED_WORK_KIND,
+                            "at": now_iso(), "body": events.render_agent(uev)}, uev)
+            except _Replan:
+                continue
+            break
         # ⚠ name who was ACTUALLY told. This said "agent and superior told"
         # unconditionally, which for a top-level node (no parent) and for one
         # whose superior is archived is simply false — and a diagnostic that
@@ -24127,43 +24179,47 @@ def _parked_announce(slug: str, nid: str, kind: str, lane: str) -> bool:
     headline, detail = _PARKED_KINDS[kind]
     try:
         sup = ""
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            if nid not in org.nodes or org.node(nid)["state"] != "live":
-                return False
-            n = org.node(nid)
-            fz = cast("dict[str, Any]", n.get("frozen") or {})
-            # the behaviour this message asserts, asked directly
-            if not fz or fz.get("until_ts"):
-                return False
-            run = int(n.get("parked_run") or 0) + 1
-            n["parked_run"] = run
-            name = str(n.get("name") or nid)
-            err = str(fz.get("error") or "")[:300]
-            if run != 1:
-                store.save_org(org)
-                print(f"[orgtree] {slug}/{nid}: parked ({kind}) on {lane} "
-                      f"— already announced this episode, staying quiet")
-                return False
-            sup = str(n.get("parent") or "")
-            # typed (family runtime_recovery): runtime.report_parked, one event
-            # per audience; the body is its frozen rendering (test_events_producers §R)
-            def _ev(audience: str) -> dict[str, Any]:
-                return events.mint("runtime.report_parked", _SYSTEM_ACTOR,
-                                   _node_ref(org, nid), report=nid, report_name=name,
-                                   audience=audience, headline=headline, detail=detail,
-                                   lane=lane, err=err or None)
-            if sup and sup in org.nodes and org.nodes[sup]["state"] == "live":
-                org.append_system_mail(sup, _ev("superior"), kind="message",
-                                       sender="@system",
-                                       relationship="the orgtree engine")
-            else:
-                sup = ""
-                uev = _ev("user")
-                org.to_user_inbox({
-                    "id": uuid_hex8(), "from": SYSTEM, "kind": STOPPED_WORK_KIND,
-                    "at": now_iso(), "body": events.render_agent(uev)}, uev)
-            store.save_org(org)
+        for _plan in _report_plans(slug, nid):  # PG-3e-A
+            try:
+                with halt.txn(slug, **_plan_rows(_plan)) as _rp_tx:
+                    org = _rp_tx.org
+                    _check_plan(org, nid, _plan)
+                    if nid not in org.nodes or org.node(nid)["state"] != "live":
+                        return False
+                    n = org.node(nid)
+                    fz = cast("dict[str, Any]", n.get("frozen") or {})
+                    # the behaviour this message asserts, asked directly
+                    if not fz or fz.get("until_ts"):
+                        return False
+                    run = int(n.get("parked_run") or 0) + 1
+                    n["parked_run"] = run
+                    name = str(n.get("name") or nid)
+                    err = str(fz.get("error") or "")[:300]
+                    if run != 1:
+                        print(f"[orgtree] {slug}/{nid}: parked ({kind}) on {lane} "
+                              f"— already announced this episode, staying quiet")
+                        return False
+                    sup = str(n.get("parent") or "")
+                    # typed (family runtime_recovery): runtime.report_parked, one event
+                    # per audience; the body is its frozen rendering (test_events_producers §R)
+                    def _ev(audience: str) -> dict[str, Any]:
+                        return events.mint("runtime.report_parked", _SYSTEM_ACTOR,
+                                           _node_ref(org, nid), report=nid, report_name=name,
+                                           audience=audience, headline=headline, detail=detail,
+                                           lane=lane, err=err or None)
+                    if sup and sup in org.nodes and org.nodes[sup]["state"] == "live":
+                        org.append_system_mail(sup, _ev("superior"), kind="message",
+                                               sender="@system",
+                                               relationship="the orgtree engine")
+                    else:
+                        sup = ""
+                        uev = _ev("user")
+                        org.to_user_inbox({
+                            "id": uuid_hex8(), "from": SYSTEM, "kind": STOPPED_WORK_KIND,
+                            "at": now_iso(), "body": events.render_agent(uev)}, uev)
+            except _Replan:
+                continue
+            break
         if sup:
             mail_spark(slug, "@system", sup)
             _wake_superior(
@@ -24266,57 +24322,61 @@ def _limit_announce(slug: str, nid: str, lane: str,
     try:
         told = False
         sup = ""
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            if nid not in org.nodes or org.node(nid)["state"] != "live":
-                return False
-            n = org.node(nid)
-            fz = cast("dict[str, Any]", n.get("frozen") or {})
-            if not fz.get("limit") or fz.get("untrusted") \
-                    or fz.get("cause") in ("auth", "balance"):
-                # …and a BALANCE refusal (OpenRouter 402): a declined
-                # request, not a wall — it is probed quietly like the net
-                # retry and announced by `_parked_announce` only once it
-                # runs up to its cap (2026-09-05)
-                return False
-            run = int(n.get("limit_run") or 0) + 1
-            n["limit_run"] = run
-            name = str(n.get("name") or nid)
-            err = str(fz.get("error") or "")[:300]
-            # ⚠ the count is advanced on EVERY freeze, the message only on the
-            # transition to 1. Bumping and announcing together would make the
-            # counter mean "alerts sent" rather than "consecutive walls", and
-            # the re-arm in `_after_turn` would then be clearing the wrong
-            # fact. Save the bump either way — a run that is not persisted
-            # suppresses nothing.
-            if run != 1:
-                store.save_org(org)
-                print(f"[orgtree] {slug}/{nid}: usage limit on {lane} "
-                      f"(wall {run} of this episode) — already announced, "
-                      f"staying quiet")
-                return False
-            sup = str(n.get("parent") or "")
-            # typed (family runtime_recovery): runtime.report_limited, one event
-            # per audience; the body is its frozen rendering (test_events_producers §R)
-            def _ev(audience: str) -> dict[str, Any]:
-                return events.mint("runtime.report_limited", _SYSTEM_ACTOR,
-                                   _node_ref(org, nid), report=nid, report_name=name,
-                                   audience=audience, lane=lane,
-                                   reset_at=(str(fz.get("until") or "") or None),
-                                   err=err or None)
-            if sup and sup in org.nodes and org.nodes[sup]["state"] == "live":
-                org.append_system_mail(sup, _ev("superior"), kind="message",
-                                       sender="@system",
-                                       relationship="the orgtree engine")
-                told = True
-            else:
-                sup = ""
-                uev = _ev("user")
-                org.to_user_inbox({
-                    "id": uuid_hex8(), "from": SYSTEM, "kind": STOPPED_WORK_KIND,
-                    "at": now_iso(), "body": events.render_agent(uev)}, uev)
-                told = True
-            store.save_org(org)
+        for _plan in _report_plans(slug, nid):  # PG-3e-A
+            try:
+                with halt.txn(slug, **_plan_rows(_plan)) as _rp_tx:
+                    org = _rp_tx.org
+                    _check_plan(org, nid, _plan)
+                    if nid not in org.nodes or org.node(nid)["state"] != "live":
+                        return False
+                    n = org.node(nid)
+                    fz = cast("dict[str, Any]", n.get("frozen") or {})
+                    if not fz.get("limit") or fz.get("untrusted") \
+                            or fz.get("cause") in ("auth", "balance"):
+                        # …and a BALANCE refusal (OpenRouter 402): a declined
+                        # request, not a wall — it is probed quietly like the net
+                        # retry and announced by `_parked_announce` only once it
+                        # runs up to its cap (2026-09-05)
+                        return False
+                    run = int(n.get("limit_run") or 0) + 1
+                    n["limit_run"] = run
+                    name = str(n.get("name") or nid)
+                    err = str(fz.get("error") or "")[:300]
+                    # ⚠ the count is advanced on EVERY freeze, the message only on the
+                    # transition to 1. Bumping and announcing together would make the
+                    # counter mean "alerts sent" rather than "consecutive walls", and
+                    # the re-arm in `_after_turn` would then be clearing the wrong
+                    # fact. Save the bump either way — a run that is not persisted
+                    # suppresses nothing.
+                    if run != 1:
+                        print(f"[orgtree] {slug}/{nid}: usage limit on {lane} "
+                              f"(wall {run} of this episode) — already announced, "
+                              f"staying quiet")
+                        return False
+                    sup = str(n.get("parent") or "")
+                    # typed (family runtime_recovery): runtime.report_limited, one event
+                    # per audience; the body is its frozen rendering (test_events_producers §R)
+                    def _ev(audience: str) -> dict[str, Any]:
+                        return events.mint("runtime.report_limited", _SYSTEM_ACTOR,
+                                           _node_ref(org, nid), report=nid, report_name=name,
+                                           audience=audience, lane=lane,
+                                           reset_at=(str(fz.get("until") or "") or None),
+                                           err=err or None)
+                    if sup and sup in org.nodes and org.nodes[sup]["state"] == "live":
+                        org.append_system_mail(sup, _ev("superior"), kind="message",
+                                               sender="@system",
+                                               relationship="the orgtree engine")
+                        told = True
+                    else:
+                        sup = ""
+                        uev = _ev("user")
+                        org.to_user_inbox({
+                            "id": uuid_hex8(), "from": SYSTEM, "kind": STOPPED_WORK_KIND,
+                            "at": now_iso(), "body": events.render_agent(uev)}, uev)
+                        told = True
+            except _Replan:
+                continue
+            break
         if sup:
             mail_spark(slug, "@system", sup)
             _wake_superior(
@@ -24408,24 +24468,29 @@ def _bg_orphaned(slug: str, nid: str,
         # renamed to `orgtree` would collide, and node_inbox's Sent folder
         # (which matches on `m["from"] == nid`) would show it every orphan
         # notice in the org as its own sent mail.
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            if nid not in org.nodes or org.node(nid)["state"] != "live":
-                return
-            ref = _session_ref(org, nid)
-            if sid:
-                ref["session_id"] = str(sid)
-            for tid, _desc, _outf in orphans:
-                lifecycle.record(
-                    org.d, operation_id=lifecycle.identity("task", tid),
-                    kind="task", state="orphaned", at=now_iso(),
-                    task_id=str(tid), owner=nid, settlement="process-dead",
-                    reason=str(why))
-            org.append_system_mail(
-                nid, events.mint("runtime.subagent_died", _SYSTEM_ACTOR, ref,
-                                 orphans=rows, count=len(orphans), reason=why),
-                kind="message", sender="@system", relationship="the orgtree engine")
-            store.save_org(org)
+        for _plan in _report_plans(slug, nid):  # PG-3e-A
+            try:
+                with halt.txn(slug, **_plan_rows(_plan)) as _rp_tx:
+                    org = _rp_tx.org
+                    _check_plan(org, nid, _plan)
+                    if nid not in org.nodes or org.node(nid)["state"] != "live":
+                        return
+                    ref = _session_ref(org, nid)
+                    if sid:
+                        ref["session_id"] = str(sid)
+                    for tid, _desc, _outf in orphans:
+                        lifecycle.record(
+                            org.d, operation_id=lifecycle.identity("task", tid),
+                            kind="task", state="orphaned", at=now_iso(),
+                            task_id=str(tid), owner=nid, settlement="process-dead",
+                            reason=str(why))
+                    org.append_system_mail(
+                        nid, events.mint("runtime.subagent_died", _SYSTEM_ACTOR, ref,
+                                         orphans=rows, count=len(orphans), reason=why),
+                        kind="message", sender="@system", relationship="the orgtree engine")
+            except _Replan:
+                continue
+            break
         print(f"[orgtree] {slug}/{nid}: {len(orphans)} background subagent(s) "
               f"orphaned — {why}")
         mail_spark(slug, "@system", nid)   # same hand the entry is signed with
@@ -24470,26 +24535,31 @@ def _bg_task_stopped(slug: str, nid: str, task_id: str, desc: str,
     going, or driving a fresh turn once this one actually finishes, the same
     proven path `_bg_orphaned` already relies on."""
     try:
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            if nid not in org.nodes or org.node(nid)["state"] != "live":
-                return
-            # typed (family runtime_recovery): runtime.background_task_stopped on a
-            # TaskRef; the body is its frozen rendering (test_events_producers §R)
-            lifecycle.record(
-                org.d, operation_id=lifecycle.identity("task", task_id),
-                kind="task", state="stopped", at=now_iso(),
-                task_id=str(task_id), owner=nid, settlement="cleanup-complete",
-                summary=(str(summary) if summary else None))
-            org.append_system_mail(
-                nid, events.mint("runtime.background_task_stopped", _SYSTEM_ACTOR,
-                                 {"kind": "task", "org": str(org.d.get("slug") or ""),
-                                  "id": str(task_id), "node": nid,
-                                  "description": str(desc)},
-                                 summary=(str(summary) if summary else None),
-                                 output_file=(str(output_file) if output_file else None)),
-                kind="message", sender="@system", relationship="the orgtree engine")
-            store.save_org(org)
+        for _plan in _report_plans(slug, nid):  # PG-3e-A
+            try:
+                with halt.txn(slug, **_plan_rows(_plan)) as _rp_tx:
+                    org = _rp_tx.org
+                    _check_plan(org, nid, _plan)
+                    if nid not in org.nodes or org.node(nid)["state"] != "live":
+                        return
+                    # typed (family runtime_recovery): runtime.background_task_stopped on a
+                    # TaskRef; the body is its frozen rendering (test_events_producers §R)
+                    lifecycle.record(
+                        org.d, operation_id=lifecycle.identity("task", task_id),
+                        kind="task", state="stopped", at=now_iso(),
+                        task_id=str(task_id), owner=nid, settlement="cleanup-complete",
+                        summary=(str(summary) if summary else None))
+                    org.append_system_mail(
+                        nid, events.mint("runtime.background_task_stopped", _SYSTEM_ACTOR,
+                                         {"kind": "task", "org": str(org.d.get("slug") or ""),
+                                          "id": str(task_id), "node": nid,
+                                          "description": str(desc)},
+                                         summary=(str(summary) if summary else None),
+                                         output_file=(str(output_file) if output_file else None)),
+                        kind="message", sender="@system", relationship="the orgtree engine")
+            except _Replan:
+                continue
+            break
         print(f"[orgtree] {slug}/{nid}: background task {task_id} stopped "
               f"(non-'completed' status) — mailed and driving")
         mail_spark(slug, "@system", nid)
