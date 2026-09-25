@@ -96,6 +96,7 @@ from . import orgtx
 from . import worktx
 from . import opreceipts
 from . import pgdoor
+from . import workdoor
 from . import reservations
 from . import ledger as ledger_mod
 from . import (accounts, antigravity_limits, appsettings, bridgeauth,
@@ -11270,6 +11271,13 @@ def _agent_door_tail(body: AgentCall, result: Any,
         ac(result, "attach_ref", _attach_ref, body.org, body.tool, result)
     ac(result, "hub_changed", hub_changed, body.org)
     return result
+
+
+# PG-3w: the docket's mutating actions run on the door (workdoor.py). The
+# legacy `orgtree_work` branch in the cycle below stays for pgdoor.enabled()
+# == False. `mail_notify` is rebound at startup, so it is looked up per call.
+workdoor.declare(_work_identity_ready, _work_mutate,
+                 lambda slug, actor, n: mail_notify(slug, actor, n))
 
 
 def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
