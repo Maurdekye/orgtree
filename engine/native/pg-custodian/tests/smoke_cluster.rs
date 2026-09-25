@@ -547,6 +547,24 @@ fn backup_under_concurrent_writes_restores_consistently_under_a_new_incarnation(
     assert!(r.applied_now.is_empty() && !r.store_incarnation_written, "{r:?}");
     cluster::stop(&bb, &b, false, false).unwrap();
     cluster::destroy(&bb, &b).unwrap();
+
+    // A manifest that does not describe the dump: restore refuses AFTER
+    // loading and never mints a new incarnation (the target must be destroyed).
+    let lying = work.join("backup-lying-manifest");
+    std::fs::create_dir_all(&lying).unwrap();
+    std::fs::copy(out.join(backup::DUMP_FILE), lying.join(backup::DUMP_FILE)).unwrap();
+    let mut m: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(out.join(backup::MANIFEST_FILE)).unwrap()).unwrap();
+    m["tables"]["public.ledger"]["rows"] = json!(in_backup + 1);
+    std::fs::write(lying.join(backup::MANIFEST_FILE), m.to_string()).unwrap();
+    let c_path = fresh_root("backup-dst2");
+    let cc = guard::init_root(&c_path, &env).unwrap();
+    let _cc = StopOnPanic::new(cc.path(), &b);
+    cluster::init(&cc, &b, &InitOptions::default()).unwrap();
+    let rt_c = cluster::start(&cc, &b, None).unwrap();
+    assert_eq!(backup::restore(&cc, &b, &lying).unwrap_err().code, "restore.content_mismatch");
+    assert_eq!(one(&b, &rt_c, "select incarnation::text from store_incarnation"), old_inc, "a refused restore must not mint an incarnation");
+    cluster::stop(&cc, &b, false, false).unwrap();
+    cluster::destroy(&cc, &b).unwrap();
     cluster::destroy(&a, &b).unwrap();
     std::fs::remove_dir_all(&work).unwrap();
     println!(
