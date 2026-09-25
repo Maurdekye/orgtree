@@ -56,9 +56,10 @@ pub struct ChainNode {
     pub parent: Option<Uuid>,
     pub edge_version: i64,
     pub scope_version: i64,
-    /// The node's current charter head version, if any (vector CONTENT: it is
-    /// not rechecked by admission, Q-CR r2 "Charter heads are not rechecked").
-    pub charter_version: Option<i64>,
+    /// Vector CONTENT (not rechecked by admission, Q-CR r2): S's ROLE
+    /// charter head version (S only) and the node's TEAM charter head version.
+    pub role_charter: Option<i64>,
+    pub team_charter: Option<i64>,
 }
 
 /// The captured vector (Q-CR r2 "The vector").
@@ -72,11 +73,12 @@ pub struct Vector {
 }
 
 pub const CAP_EPOCH_SQL: &str = "SELECT lifecycle, generation, halted FROM authority_epoch WHERE org_id = $1 AND principal_id = $2";
-pub const CAP_NODE_SQL: &str = "SELECT e.parent_id, e.version, s.version, h.current_version FROM topology_edges e \
+pub const CAP_NODE_SQL: &str = "SELECT e.parent_id, e.version, s.version, r.current_version, t.current_version FROM topology_edges e \
     JOIN scope_rows s ON s.org_id = e.org_id AND s.principal_id = e.principal_id \
-    LEFT JOIN charter_heads h ON h.org_id = e.org_id AND h.principal_id = e.principal_id \
+    LEFT JOIN charter_heads r ON r.org_id = e.org_id AND r.principal_id = e.principal_id AND r.charter_kind = 'role' \
+    LEFT JOIN charter_heads t ON t.org_id = e.org_id AND t.principal_id = e.principal_id AND t.charter_kind = 'team' \
     WHERE e.org_id = $1 AND e.principal_id = $2";
-pub const CAP_BODY_SQL: &str = "SELECT 1 FROM charter_versions WHERE org_id = $1 AND principal_id = $2 AND version = $3";
+pub const CAP_BODY_SQL: &str = "SELECT 1 FROM charter_versions WHERE org_id = $1 AND principal_id = $2 AND charter_kind = $3 AND version = $4";
 
 /// STAND-IN for WS4's `charter.capture`: the vector in ONE snapshot. A node
 /// whose charter head names a missing body fails closed (coordinator ruling
@@ -115,15 +117,19 @@ impl Read for Capture {
             }
             let r = tx.exec("capture.node", CAP_NODE_SQL, &[Val::Uuid(org), Val::Uuid(n)]).await?;
             let Some(row) = r.first() else { return Ok(Err(Refusal::new("incomplete_chain", "a chain node has no edge or scope row"))) };
+            let is_seat = n == self.seat;
             let node = ChainNode {
                 node: n,
                 parent: row.first().and_then(Val::as_uuid),
                 edge_version: row.get(1).and_then(Val::as_int).unwrap_or(0),
                 scope_version: row.get(2).and_then(Val::as_int).unwrap_or(0),
-                charter_version: row.get(3).and_then(Val::as_int),
+                // only S's role charter is in the vector; every node's team charter is
+                role_charter: if is_seat { row.get(3).and_then(Val::as_int) } else { None },
+                team_charter: row.get(4).and_then(Val::as_int),
             };
-            if let Some(cv) = node.charter_version {
-                let body = tx.exec("capture.body", CAP_BODY_SQL, &[Val::Uuid(org), Val::Uuid(n), Val::Int(cv)]).await?;
+            for (kind, v) in [("role", node.role_charter), ("team", node.team_charter)] {
+                let Some(cv) = v else { continue };
+                let body = tx.exec("capture.body", CAP_BODY_SQL, &[Val::Uuid(org), Val::Uuid(n), Val::text(kind), Val::Int(cv)]).await?;
                 if body.is_empty() && !controls::fire(&tx.scope(), "Q-CR3.skip_missing") {
                     return Ok(Err(Refusal::new("incomplete_charter", "a charter body in the vector is missing: the turn is not started")));
                 }
@@ -437,6 +443,9 @@ impl Command for ConfirmInput {
     }
     async fn may_disclose<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding, _o: &usize) -> Result<bool, CmdError> {
         Ok(true)
+    }
+    fn causal_refs(&self) -> Vec<String> {
+        vec![self.batch_id.to_string()]
     }
     async fn execute<S: Session>(&self, tx: &mut Tx<'_, S>, b: &Binding) -> Result<Decided<usize>, CmdError> {
         let org = b.op.org;

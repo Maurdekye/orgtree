@@ -201,7 +201,7 @@ impl TraceSink for Events {
             EventKind::Retry { reason, sqlstate, .. } => format!("retry:{reason}:{}", sqlstate.unwrap_or("-")),
             EventKind::Statement { label, sqlstate: Some(s), .. } => format!("stmt_err:{label}:{s}"),
             EventKind::Statement { label, sqlstate: None, .. } => format!("stmt:{label}:{key}"),
-            EventKind::Pause { point } if point.starts_with("runtime.turn.") => format!("mark:{point}"),
+            EventKind::Mark { name } => format!("mark:{name}"),
             EventKind::Begin { .. } => format!("begin:{}.{}:{key}", e.family, e.verb),
             EventKind::Rollback => format!("rollback:{}.{}:{key}", e.family, e.verb),
             EventKind::Commit { .. } => format!("commit:{}.{}:{key}", e.family, e.verb),
@@ -238,7 +238,7 @@ pub fn executor_with(script: Arc<Script>, controls: Vec<&'static str>) -> (Execu
         6,
         Factory::new(cfg, "lookup", h.clone()),
         2,
-        ExecConfig { max_attempts: 8, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5), lock_timeout_ms: Some(10_000), statement_timeout_ms: None, idle_in_transaction_timeout_ms: None },
+        ExecConfig { max_attempts: 8, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5), lock_timeout_ms: Some(10_000), ..ExecConfig::default() },
         h,
     );
     (ex, ev)

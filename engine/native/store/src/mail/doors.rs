@@ -130,6 +130,9 @@ impl Command for AgentSend {
         // the replay goes to the same immutable sender principal (E7 namespace)
         Ok(true)
     }
+    fn causal_refs(&self) -> Vec<String> {
+        vec![self.message_id.to_string()]
+    }
     async fn execute<S: Session>(&self, tx: &mut Tx<'_, S>, b: &Binding) -> Result<Decided<SendResult>, CmdError> {
         let org = b.op.org;
         let (sender, _) = Self::caller(b)?;

@@ -21,7 +21,14 @@ use crate::Tx;
 pub static MAIL_HUMAN: Family = Family { name: "mail.human", isolation: Isolation::ReadCommitted, retry_unique: &[] };
 pub static INBOX: Family = Family { name: "mail.inbox", isolation: Isolation::ReadCommitted, retry_unique: &[] };
 
-pub const CONTROLS: &[&str] = &["Q-HM3.effects_before_refusals", "Q-HM4.chain_unanchored", "Q-IB1.rewrite_unread_list", "Q-IB2.commit_empty_mark"];
+pub const CONTROLS: &[&str] = &[
+    "Q-HM2.client_op_unbound",
+    "Q-HM3.effects_before_refusals",
+    "Q-HM4.chain_unanchored",
+    "Q-HM4.chain_unanchored_only",
+    "Q-IB1.rewrite_unread_list",
+    "Q-IB2.commit_empty_mark",
+];
 
 pub const EDGE_SHARE_SQL: &str = "SELECT parent_id FROM topology_edges WHERE org_id = $1 AND principal_id = $2 FOR SHARE";
 pub const EDGE_READ_SQL: &str = "SELECT parent_id FROM topology_edges WHERE org_id = $1 AND principal_id = $2";
@@ -35,12 +42,11 @@ pub const COMMAND_INTENT_SQL: &str = "INSERT INTO runtime_command_intents (org_i
     VALUES ($1, $2, $3, $4, $5, $6)";
 pub const MARK_READ_SQL: &str = "UPDATE mailbox_messages SET state = 'read', read_at = $3 \
     WHERE org_id = $1 AND mailbox_id = $2 AND original_message_id = $4 AND read_at IS NULL AND state = 'pending' RETURNING 1";
-/// Q-IB1 unsafe control: legacy's section rewrite — read the whole unread
-/// list, then rewrite every row of it (marked or not) from that read.
-pub const UNREAD_LIST_SQL: &str = "SELECT original_message_id FROM mailbox_messages \
-    WHERE org_id = $1 AND mailbox_id = $2 AND state = 'pending'";
-pub const REWRITE_ROW_SQL: &str = "UPDATE mailbox_messages SET state = $4, read_at = $5 \
-    WHERE org_id = $1 AND mailbox_id = $2 AND original_message_id = $3";
+/// Q-IB1 unsafe control: legacy's section rewrite: read the whole unread
+/// list, delete it, and write it back from that read (marked rows as read).
+pub const UNREAD_LIST_SQL: &str = "SELECT original_message_id, fingerprint, received_at, class, kind, source_kind, source_id, pair_seq, sent_at, urgent     FROM mailbox_messages WHERE org_id = $1 AND mailbox_id = $2 AND state = 'pending'";
+pub const DELETE_UNREAD_SQL: &str = "DELETE FROM mailbox_messages WHERE org_id = $1 AND mailbox_id = $2 AND state = 'pending'";
+pub const REWRITE_ROW_SQL: &str = "INSERT INTO mailbox_messages     (org_id, mailbox_id, original_message_id, fingerprint, state, is_notice, received_at, read_at, class, kind, source_kind, source_id, pair_seq, sent_at, urgent)     VALUES ($1, $2, $3, $4, $5, false, $6, $7, $8, $9, $10, $11, $12, $13, $14)";
 
 const MAX_DEPTH: usize = 64;
 
@@ -48,7 +54,7 @@ const MAX_DEPTH: usize = 64;
 /// and return the strict ancestors below USER, nearest first. Under the Q-HM4
 /// control the edges are read without anchors.
 async fn anchored_ancestors<S: Session>(tx: &mut Tx<'_, S>, org: Uuid, node: Uuid) -> Result<Vec<Uuid>, CmdError> {
-    let unanchored = controls::fire(&tx.scope(), "Q-HM4.chain_unanchored");
+    let unanchored = controls::fire(&tx.scope(), "Q-HM4.chain_unanchored") || controls::fire(&tx.scope(), "Q-HM4.chain_unanchored_only");
     let mut out = Vec::new();
     let mut cur = node;
     loop {
@@ -116,12 +122,20 @@ impl Command for HumanSend {
     async fn may_disclose<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding, _o: &HumanSendResult) -> Result<bool, CmdError> {
         Ok(true)
     }
+    fn causal_refs(&self) -> Vec<String> {
+        vec![self.message_id.to_string()]
+    }
     async fn execute<S: Session>(&self, tx: &mut Tx<'_, S>, b: &Binding) -> Result<Decided<HumanSendResult>, CmdError> {
         let org = b.op.org;
         // step 3: the node's epoch row FOR NO KEY UPDATE from the start, since
         // this send may insert the first-contact grant (E1.1 step 5, N4).
         // Q-HM1's control takes it FOR SHARE (no lock before the grant read).
-        let lock = if controls::fire(&tx.scope(), "Q-HM1.no_lock_no_key") { RecipientLock::Unanchored } else { RecipientLock::Grant };
+        // Q-HM1's control: no lock on the node's epoch row before the grant
+        // read. Q-HM4's (compound, see anchored_ancestors) drops it too: with
+        // the row held exclusively (N4) a move of the node serializes with the
+        // send on it, so removing only the edge anchors is not a control.
+        let unlocked = controls::fire(&tx.scope(), "Q-HM1.no_lock_no_key") || controls::fire(&tx.scope(), "Q-HM4.chain_unanchored");
+        let lock = if unlocked { RecipientLock::Unanchored } else { RecipientLock::Grant };
         let rcpt = match sent::resolve_recipient(tx, org, self.node, lock).await {
             Ok(r) => r,
             Err(SendError::Refused(r)) => return Ok(Decided::Refused(r)),
@@ -319,13 +333,16 @@ impl Command for MarkRead {
         if controls::fire(&tx.scope(), "Q-IB1.rewrite_unread_list") {
             // Unsafe: legacy's section rewrite from one earlier read.
             let unread = tx.exec("inbox.unread_list", UNREAD_LIST_SQL, &[Val::Uuid(org), Val::Uuid(mailbox)]).await?;
-            let ids: Vec<Uuid> = unread.0.iter().filter_map(|r| r.first().and_then(Val::as_uuid)).collect();
-            for id in ids {
+            tx.pause("after_unread_list").await?;
+            tx.exec("inbox.delete_unread", DELETE_UNREAD_SQL, &[Val::Uuid(org), Val::Uuid(mailbox)]).await?;
+            for r in &unread.0 {
+                let Some(id) = r.first().and_then(Val::as_uuid) else { continue };
                 let read = self.ids.contains(&id);
+                let g = |i: usize| r.get(i).cloned().unwrap_or(Val::Null);
                 tx.exec(
                     "inbox.rewrite_row",
                     REWRITE_ROW_SQL,
-                    &[Val::Uuid(org), Val::Uuid(mailbox), Val::Uuid(id), Val::text(if read { "read" } else { "pending" }), if read { Val::Ts(now) } else { Val::Null }],
+                    &[Val::Uuid(org), Val::Uuid(mailbox), Val::Uuid(id), g(1), Val::text(if read { "read" } else { "pending" }), g(2), if read { Val::Ts(now) } else { Val::Null }, g(3), g(4), g(5), g(6), g(7), g(8), g(9)],
                 )
                 .await?;
                 marked += read as i64;
@@ -355,4 +372,21 @@ pub fn read_count(o: &Outcome<i64>) -> i64 {
         Outcome::Applied(n) | Outcome::Replayed(n) => *n,
         _ => 0,
     }
+}
+
+/// The human door's binding (E4/E-D4): the request's `client_op` is the
+/// operation key under the operator's namespace; without one the key is
+/// minted. The Q-HM2 unsafe control ignores `client_op` (legacy: stored,
+/// never read back), so a repeat posts again.
+pub fn human_binding(hooks: &crate::hooks::Hooks, org: Uuid, operator: Uuid, client_op: Option<&str>, fingerprint: &str) -> Binding {
+    use crate::exec::{KeyNamespace, OpIdentity, Principal};
+    let probe = OpIdentity::minted(org, fingerprint, "legacy-1");
+    let s = Scope { hooks, family: MAIL_HUMAN.name, verb: "send", op: Some(&probe), op_tag: None, attempt: 0 };
+    let op = match client_op {
+        Some(k) if !controls::fire(&s, "Q-HM2.client_op_unbound") => {
+            OpIdentity { org, ns: KeyNamespace::Operator { operator }, key: k.to_string(), fingerprint: fingerprint.to_string(), fingerprint_codec: "legacy-1", caller_keyed: true }
+        }
+        _ => probe,
+    };
+    Binding { principal: Principal::Operator { id: operator }, acting: None, op, db_incarnation: Uuid::nil(), op_tag: None }
 }

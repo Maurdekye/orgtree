@@ -182,6 +182,9 @@ impl Command for Receive {
     async fn may_disclose<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding, _o: &Received) -> Result<bool, CmdError> {
         Ok(true)
     }
+    fn causal_refs(&self) -> Vec<String> {
+        vec![self.message.to_string()]
+    }
     async fn execute<S: Session>(&self, tx: &mut Tx<'_, S>, _b: &Binding) -> Result<Decided<Received>, CmdError> {
         let org = self.org;
         let sent = read_sent(tx, org, self.message).await?;
@@ -431,6 +434,9 @@ impl Command for Retract {
     async fn may_disclose<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding, _o: &Retracted) -> Result<bool, CmdError> {
         Ok(true)
     }
+    fn causal_refs(&self) -> Vec<String> {
+        vec![self.message.to_string()]
+    }
     async fn execute<S: Session>(&self, tx: &mut Tx<'_, S>, _b: &Binding) -> Result<Decided<Retracted>, CmdError> {
         let (org, mailbox, message) = (self.org, self.mailbox, self.message);
         let mb = tx.exec("receive.mailbox", MAILBOX_SQL, &[Val::Uuid(org), Val::Uuid(mailbox)]).await?;
@@ -507,6 +513,9 @@ impl Command for Ack {
     }
     async fn may_disclose<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding, _o: &bool) -> Result<bool, CmdError> {
         Ok(true)
+    }
+    fn causal_refs(&self) -> Vec<String> {
+        vec![self.message.to_string()]
     }
     async fn execute<S: Session>(&self, tx: &mut Tx<'_, S>, _b: &Binding) -> Result<Decided<bool>, CmdError> {
         let now = tx.now().await?;
