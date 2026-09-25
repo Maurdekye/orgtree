@@ -103,6 +103,44 @@ class Rows:
                 "share_sections": sorted(self.share_sections - self.sections)}
 
 
+def _names(v: Any) -> list[str]:
+    if isinstance(v, str):
+        return [v] if v else []
+    if isinstance(v, (list, tuple)):
+        return [str(x) for x in cast("Iterable[Any]", v) if x]
+    return []
+
+
+def rows_for(action: str, a: dict[str, Any]) -> Rows:
+    """The rows an `orgtree_work` action is PREDICTED to write, from its
+    arguments alone (measured per action, breadcrumbs 16:25Z). A prediction,
+    not a promise: anything the ledger reaches beyond it is caught at commit
+    and widened by `run`, so a miss costs one re-run and never a wrong write."""
+    r = Rows()
+    if action == "create":
+        who = _names(a.get("owner")) + _names(a.get("participants"))
+        if who:
+            r.notify(*who)
+    elif action == "assign":
+        r.notify(*_names(a.get("owner")))
+    elif action == "participants":
+        r.notify(*_names(a.get("add")))
+    elif action == "update" and a.get("reviewer"):
+        r.notify(*_names(a.get("reviewer")))
+    elif action == "review_request":
+        r.notify()
+        r.sections.add("user_inbox")
+    elif action in ("archive", "supersede"):
+        r.logs.add("work_items_archive")
+    elif action == "delete":
+        r.notify()
+        r.sections.add("work_deleted_names")
+        r.logs.add("user_outbox")
+    if a.get("attention") is not None or a.get("attention_amend"):
+        r.sections.add("user_inbox")
+    return r
+
+
 def refused_rows(err: orgtx.UnlockedWrite) -> list[tuple[str, str]]:
     """The (kind, name) rows an UnlockedWrite names. Prefers a structured
     `rows` attribute when PG-0 provides one; otherwise reads the message."""
