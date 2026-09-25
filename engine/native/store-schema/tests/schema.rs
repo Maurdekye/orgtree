@@ -4,38 +4,60 @@ use std::collections::BTreeSet;
 
 use orgtree_store_schema::lint::{lint, Schema};
 use orgtree_store_schema::{
-    computed_manifest, schema, EXCLUDED, INSTALLATION_TABLES, MANIFEST, MIGRATIONS, PUBLISHED, RANGES,
-    RECEIPT_PUBLISHED_COLUMNS,
+    computed_manifest, pinned_manifest, range_schema, schema, EXCLUDED, INSTALLATION_TABLES, MIGRATIONS, PUBLISHED,
+    RANGES, RANGE_DEFS, RECEIPT_PUBLISHED_COLUMNS,
 };
 
-/// The table count the 0001-0007 files declare. A parser that silently finds
-/// nothing would make every lint below pass vacuously; this pins the work done.
-const EXPECTED_TABLES: usize = 39;
-
 #[test]
-fn migrations_are_ascending_named_and_in_the_ws2_range() {
-    let (_, lo, hi) = RANGES.iter().find(|r| r.0 == "WS2").copied().unwrap();
+fn every_migration_is_named_ascending_and_in_exactly_one_range() {
+    assert!(!RANGE_DEFS.is_empty() && RANGE_DEFS.len() == RANGES.len());
     let mut prev = 0;
     for m in MIGRATIONS {
-        assert!(m.version > prev, "{} not ascending", m.file);
-        assert!(m.version >= lo && m.version <= hi, "{} outside WS2 range", m.file);
+        assert!(m.version > prev, "{} not ascending (duplicate number?)", m.file);
         assert_eq!(m.file, format!("{:04}_{}.sql", m.version, m.name));
         assert!(!m.sql.trim().is_empty());
+        let owners: Vec<&str> = RANGE_DEFS.iter().filter(|r| r.contains(m.version)).map(|r| r.name).collect();
+        assert_eq!(owners.len(), 1, "{} is owned by {:?}: every migration needs exactly one range file", m.file, owners);
         prev = m.version;
     }
     // ranges do not overlap
-    for (i, a) in RANGES.iter().enumerate() {
-        for b in &RANGES[i + 1..] {
-            assert!(a.2 < b.1 || b.2 < a.1, "{} and {} overlap", a.0, b.0);
+    for (i, a) in RANGE_DEFS.iter().enumerate() {
+        for b in &RANGE_DEFS[i + 1..] {
+            assert!(a.last < b.first || b.last < a.first, "{} and {} overlap", a.name, b.name);
         }
     }
+    // the WS2 base is where it always was
+    let ws2 = RANGE_DEFS.iter().find(|r| r.name == "WS2").expect("the WS2 range file is missing");
+    assert_eq!((ws2.first, ws2.last), (1, 99));
+    assert!(ws2.migrations().count() >= 8);
 }
 
 #[test]
 fn landed_migrations_match_their_pinned_checksums() {
-    // Immutability: a landed migration's file never changes. A NEW migration
-    // adds a line (schema-manifest prints it); an edited one fails here.
-    assert_eq!(computed_manifest().replace('\r', ""), MANIFEST.replace('\r', ""));
+    // Immutability, per range: a landed migration's file never changes. A NEW
+    // migration adds a line to ITS range's .sha256 (`schema-manifest <range>`
+    // prints it); an edited one fails here.
+    for r in RANGE_DEFS {
+        assert_eq!(r.computed_manifest(), r.manifest.replace('\r', ""), "range {} ({})", r.name, r.file);
+    }
+    assert_eq!(computed_manifest(), pinned_manifest());
+}
+
+#[test]
+fn each_range_declares_exactly_the_tables_its_migrations_create() {
+    let mut total = 0;
+    for r in RANGE_DEFS {
+        let created: BTreeSet<String> = range_schema(r).tables.iter().map(|t| t.name.clone()).collect();
+        let declared: BTreeSet<String> = r.tables.iter().map(|t| t.to_string()).collect();
+        assert_eq!(declared.len(), r.tables.len(), "range {} declares a table twice", r.name);
+        assert_eq!(created, declared, "range {}: declared tables must equal the tables its DDL creates", r.name);
+        total += created.len();
+    }
+    // no table is created twice across ranges, and nothing is undeclared
+    let all = schema();
+    assert_eq!(all.tables.len(), total, "a table is created by two ranges or outside any range");
+    // non-vacuity: the parser found the WS2 base
+    assert!(total >= 39, "parsed only {total} tables: the check did not run");
 }
 
 #[test]
@@ -50,7 +72,7 @@ fn checksum_ignores_line_endings_only() {
 #[test]
 fn the_real_schema_parses_fully_and_passes_every_lint() {
     let s = schema();
-    assert_eq!(s.tables.len(), EXPECTED_TABLES, "tables parsed: {:?}", s.tables.iter().map(|t| &t.name).collect::<Vec<_>>());
+    assert!(s.tables.len() >= 39, "tables parsed: {:?}", s.tables.iter().map(|t| &t.name).collect::<Vec<_>>());
     for t in &s.tables {
         assert!(!t.columns.is_empty(), "{} parsed with no columns", t.name);
         assert!(!t.constraints.is_empty(), "{} parsed with no constraints", t.name);

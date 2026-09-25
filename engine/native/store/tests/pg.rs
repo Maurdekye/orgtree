@@ -291,7 +291,8 @@ async fn arrive(rx: &mut mpsc::UnboundedReceiver<()>) {
 #[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
 async fn schema_applies_and_grants_bite() {
     reset().await;
-    assert_eq!(admin_count("SELECT count(*) FROM pg_tables WHERE schemaname = 'public'").await, 39);
+    let declared: i64 = orgtree_store_schema::RANGE_DEFS.iter().map(|r| r.tables.len() as i64).sum();
+    assert_eq!(admin_count("SELECT count(*) FROM pg_tables WHERE schemaname = 'public'").await, declared, "every range's declared tables, and nothing else");
     let (rt, conn) = tokio_postgres::connect(&url("P03_PG_RUNTIME_URL"), tokio_postgres::NoTls).await.unwrap();
     tokio::spawn(async move {
         let _ = conn.await;
