@@ -373,9 +373,18 @@ def _lock_plan(tx: OrgTx, node_ids: Iterable[str] = ()) -> list[tuple[str, str, 
 def _disallowed(tx: OrgTx, changes: SaveChanges) -> tuple[tuple[str, str], ...]:
     """Rows the save wrote that the transaction did not lock for update."""
     bad: list[tuple[str, str]] = []
+    # an always-present row (the killswitch) that did not exist when this tx
+    # loaded is CREATED with its cleared value by the save itself — not a
+    # write by the body; popping a row that existed still needs the lock
+    loaded = getattr(tx.org.d, "_snap_doc", None) if tx.org is not None else None
+    created = {k for k in store.ALWAYS_ROWS
+               if loaded is not None and k not in loaded
+               and dict.get(tx.d, k) is None}      # still the cleared value
     for k in (*changes.doc_upserts, *changes.doc_deletes):
         if k in changes.containers_created and k in tx.share_sections:
             continue        # PG-3d: an empty split container, under an owner lock
+        if k in created:
+            continue        # PG-0b: an always-present row the save created, still cleared
         if k not in tx.lock_sections \
                 and store.split_section_of(k) not in tx.lock_sections:
             bad.append(("section", k))

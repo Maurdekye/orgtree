@@ -555,6 +555,20 @@ class PG0bFake(unittest.TestCase):
         self.assertIn('killswitch', d)
         self.assertIsNone(d['killswitch'], 'a popped latch is cleared, never left latched')
 
+    def test_unnamed_latch_of_a_missing_killswitch_is_refused(self) -> None:
+        org = store.load_org(self.slug)
+        dict.pop(org.d, 'killswitch', None)
+        store.save_org(org)                         # the row now exists, null
+        from orgtree import store as st
+        with st._POOL.acquire(self.slug) as conn:   # simulate an org from before the rule
+            conn.execute("DELETE FROM doc WHERE key='killswitch'")
+        with self.assertRaises(orgtx.UnlockedWrite):
+            with orgtx.org_tx(self.slug, nodes=['a']) as tx:
+                tx.d['killswitch'] = {'on': True}   # latched without naming it
+        with orgtx.org_tx(self.slug, nodes=['a']) as tx:   # the plain insert is fine
+            tx.d['nodes']['a']['name'] = 'z'
+        self.assertIsNone(store.load_org(self.slug).d['killswitch'])
+
     def test_absent_section_share_lock_blocks_the_writer(self) -> None:
         entered, release = threading.Event(), threading.Event()
 
