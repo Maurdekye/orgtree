@@ -19,6 +19,8 @@
 pub mod acl;
 pub mod backup;
 pub mod cluster;
+#[cfg(feature = "qualification")]
+pub mod controls;
 pub mod dev;
 pub mod error;
 pub mod guard;
