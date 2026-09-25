@@ -631,7 +631,6 @@ def _record_hub_name(addr: str, name: Any, parts: dict[str, dict[str, Any]],
     off the in-memory cache while every other doc stayed nameless, and the
     doc is what survives a restart. The parts snapshot carries each org's
     current entry, so the check is cheap (no doc load on the skip path)."""
-    from . import store
     if not name or not isinstance(name, str):
         return
     with _status_lock:
@@ -645,12 +644,12 @@ def _record_hub_name(addr: str, name: Any, parts: dict[str, dict[str, Any]],
         if mine is not None and mine.get("name") == name:
             continue
         try:
-            with store.DOC_LOCK:
-                org = store.load_org(slug)
-                for h in org.d.get("net_hubs") or []:
+            # PG-3f: the one net_hubs row, never DOC_LOCK
+            from . import orgtx
+            with orgtx.org_tx(slug, sections=["net_hubs"]) as tx:
+                for h in tx.d.get("net_hubs") or []:
                     if str(h.get("id")) == hid and h.get("name") != name:
                         h["name"] = name
-                        store.save_org(org)
                         break
             if mine is not None:
                 mine["name"] = name      # keep the snapshot honest this pass
@@ -679,15 +678,14 @@ def _clear_registration(slug: str, hub_id: str) -> None:
     Clearing the flag makes the register loop re-register on its next pass
     (idempotent: same secret → same fingerprint → the hub re-mints the
     identical address, first-write-wins satisfied by our own hash)."""
-    from . import store
+    # PG-3f: the one net_state row, never DOC_LOCK
+    from . import orgtx
     try:
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            cell = (org.d.get("net_state") or {}).get(hub_id)
+        with orgtx.org_tx(slug, sections=["net_state"]) as tx:
+            cell = (tx.d.get("net_state") or {}).get(hub_id)
             if cell and cell.get("registered_at"):
                 cell["registered_at"] = None
-                store.save_org(org)
-    except Exception:                                            # noqa: BLE001
+    except Exception:                                          # noqa: BLE001
         pass
 
 

@@ -2074,8 +2074,12 @@ def org_net(slug: str, request: Request) -> dict[str, Any]:
         # is an org that silently never joins while the panel says autoconnect
         # is on (researcher finding 2026-08-05). Mirrors the chatq precedent
         # (existing orgs register automatically; opt-out lives in settings).
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
+        # PG-3f: org_tx on the three net rows; kiosk is the decision input
+        from . import orgtx
+        with orgtx.org_tx(slug, sections=["net_identity", "net_hubs",
+                                          "net_autoconnect"],
+                          share_sections=["kiosk"]) as tx:
+            org = tx.org
             net.mint_identity(org)
             if "net_hubs" not in org.d:
                 addr = str(load_org_defaults().get("net_hub_address") or "") \
@@ -2083,19 +2087,18 @@ def org_net(slug: str, request: Request) -> dict[str, Any]:
                 org.d.setdefault("net_autoconnect", True)
                 org.d["net_hubs"] = net.hub_entries(
                     bool(org.d.get("net_autoconnect", True)), [], addr)
-            store.save_org(org)
     # V2-era docs may carry retired pairing fields — scrub once on reveal
     # (migration hygiene; the V1 shape has no per-hub credentials at all)
     legacy_connection_fields = {"peer_token", "peer_slug", "token"}
     if any(legacy_connection_fields.intersection(h) for h in (org.d.get("net_hubs") or [])
            if isinstance(h, dict)):
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
+        from . import orgtx
+        with orgtx.org_tx(slug, sections=["net_hubs"]) as tx:
+            org = tx.org
             for hub in org.d.get("net_hubs") or []:
                 if isinstance(hub, dict):
                     for field in legacy_connection_fields:
                         hub.pop(field, None)
-            store.save_org(org)
     return {"identity": org.d.get("net_identity"),
             "hubs": org.d.get("net_hubs") or [],
             "autoconnect": bool(org.d.get("net_autoconnect", True))}
@@ -13580,16 +13583,16 @@ class DiskResize(Body):
 
 
 def _disk_doc_update(slug: str, **kv: Any) -> None:
-    with store.DOC_LOCK:
-        o2 = store.load_org(slug)
-        d = dict(o2.d.get("disk") or {})
+    # PG-3f: one org_tx on the `disk` section alone, never DOC_LOCK
+    from . import orgtx
+    with orgtx.org_tx(slug, sections=["disk"]) as tx:
+        d = dict(tx.d.get("disk") or {})
         for k, v in kv.items():
             if v is None:
                 d.pop(k, None)
             else:
                 d[k] = v
-        o2.d["disk"] = d
-        store.save_org(o2)
+        tx.d["disk"] = d
 
 
 @app.post("/api/orgs/{slug}/disk/resize")
