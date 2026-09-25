@@ -28276,7 +28276,8 @@ class _HoldersMoved(Exception):
 
 def deliver_org_inbox(slug: str, peer: str, body: str,
                       attachments: list[str] | None = None,
-                      net_id: str | None = None) -> list[str]:
+                      net_id: str | None = None,
+                      op_key: str | None = None) -> list[str]:
     """Common inbound path for ALL outside mail (external chats, other orgs,
     and the mail hub): land it in the org inbox, then drive every recipient
     with the coordinate-and-speak-for-the-org framing. Returns the recipients.
@@ -28284,7 +28285,10 @@ def deliver_org_inbox(slug: str, peer: str, body: str,
     copied into EVERY recipient's uploads/ before the mail posts, so the
     envelope's [ATTACHED FILE] lines point at real files. `net_id` (F-06):
     the hub message id, stamped onto each MailEntry so _confirm_delivered can
-    report a true READ receipt."""
+    report a true READ receipt. `op_key` (PG-3d, plan decision 38): the
+    delivery commits under that receipt, so a retry with the same key (after
+    a crash between this commit and the sender's) replays the recorded
+    recipients instead of delivering a second copy."""
     by_node: dict[str, list[dict[str, Any]]] = {}
     missing_by_node: dict[str, list[str]] = {}
     if attachments:
@@ -28334,15 +28338,23 @@ def deliver_org_inbox(slug: str, peer: str, body: str,
     # the prediction re-checked under the locks; a holder set that moved in
     # between rolls back and predicts again.
     delivered: list[str] = []
+    receipt: dict[str, Any] = {}
+    if op_key is not None:
+        receipt = {"op_key": op_key, "fingerprint": hashlib.sha256(
+            f"{peer}\0{body}".encode("utf-8")).hexdigest()}
     for attempt in range(_INBOUND_ATTEMPTS):
         predicted = orgtx.org_read(slug).extern_recipients_preview()
         try:
-            with orgtx.org_tx(slug, **mailtx.inbound_rows(predicted)) as tx:
+            with orgtx.org_tx(slug, **mailtx.inbound_rows(predicted), **receipt) as tx:
+                if tx.replayed:
+                    delivered = list((tx.result or {}).get("delivered") or [])
+                    break
                 if tx.org.extern_recipients_preview() != predicted:
                     raise _HoldersMoved(predicted)
                 delivered = tx.org.post_external_mail(
                     peer, body, attachments_by_node=by_node or None,
                     net_id=net_id, missing_by_node=missing_by_node or None)
+                tx.result = {"delivered": delivered}
             break
         except _HoldersMoved:
             if attempt == _INBOUND_ATTEMPTS - 1:
@@ -28363,7 +28375,8 @@ def deliver_org_inbox(slug: str, peer: str, body: str,
     return delivered
 
 
-def interorg_send(src_slug: str, dst_slug: str, body: str) -> str | None:
+def interorg_send(src_slug: str, dst_slug: str, body: str,
+                  op_key: str | None = None) -> str | None:
     """Org → org mail, no chatq required (user spec): delivered straight into
     the destination org's inbox as an outside party. Returns an error string,
     or None on success. Kiosks are sealed in both directions (the ledger
@@ -28379,7 +28392,7 @@ def interorg_send(src_slug: str, dst_slug: str, body: str) -> str | None:
             return f"no organization named '{dst_slug}'"
     except Exception:                        # noqa: BLE001 — unknown slug
         return f"no organization named '{dst_slug}'"
-    deliver_org_inbox(dst_slug, f"@org:{src_slug}", body)
+    deliver_org_inbox(dst_slug, f"@org:{src_slug}", body, op_key=op_key)
     return None
 
 

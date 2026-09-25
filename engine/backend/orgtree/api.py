@@ -9086,6 +9086,9 @@ class OrgInboxSend(Body):
     to: str                                  # @org:/@net: (@ext:, @mcp: retired)
     body: str
     attachments: list[str] = []              # stage ids from /org_inbox/upload
+    # PG-3d (plan decision 38): a retry carrying the same key delivers to an
+    # @org: destination at most once and records the send at most once
+    op_key: str | None = None
 
 
 @app.post("/api/orgs/{slug}/org_inbox/upload")
@@ -9116,6 +9119,52 @@ async def org_inbox_upload(slug: str, request: Request,
     return {"id": sid, "name": safe, "bytes": len(data)}
 
 
+def _org_inbox_send_org(slug: str, dst: str, body: OrgInboxSend,
+                        paths: list[str], warnings: list[str]) -> str:
+    """The user's compose to another org (PG-3d, plan decision 38): the
+    DESTINATION commits first, under a receipt, and only then does the source
+    record the send, under its own. A crash between the two commits leaves
+    the mail delivered and the send unrecorded; a retry with the same
+    `op_key` replays the delivery (no second copy) and records the send once.
+    Refusals are decided before anything is written, on lock-free reads."""
+    to = f"@org:{dst}"
+    key = body.op_key or uuid.uuid4().hex
+    try:
+        src = orgtx.org_read(slug)
+    except LedgerError as e:
+        raise HTTPException(404, str(e))
+    if src.d.get("kiosk") is not None:
+        raise HTTPException(422, "a sealed kiosk org has no outside face")
+    try:
+        sealed = orgtx.org_read(dst).d.get("kiosk") is not None
+    except LedgerError:
+        sealed = True
+    try:
+        if sealed:
+            # same anti-enumeration answer as interorg_send
+            warnings.append(f"not delivered: no organization named {dst!r} "
+                            f"is reachable")
+        else:
+            supervisor.deliver_org_inbox(dst, f"@org:{slug}", body.body,
+                                         attachments=paths or None,
+                                         op_key=f"org-send:{slug}:{key}")
+        fp = hashlib.sha256(f"{to}\0{body.body}".encode("utf-8")).hexdigest()
+        with _entry_ledger_422(orgtx.org_tx(
+                slug, **mailtx.OUTSIDE_SEND_ROWS,
+                op_key=f"org-send-out:{slug}:{key}", fingerprint=fp), 404) as tx:
+            if tx.replayed:
+                return str((tx.result or {}).get("oid") or "")
+            oid = tx.org._org_inbox_log("out", to, body.body, by="user")
+            tx.result = {"oid": oid}
+        return oid
+    finally:
+        for p in paths:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+
+
 @app.post("/api/orgs/{slug}/org_inbox/send")
 def org_inbox_send(slug: str, body: OrgInboxSend,
                    request: Request) -> dict[str, Any]:
@@ -9140,6 +9189,11 @@ def org_inbox_send(slug: str, body: OrgInboxSend,
                                      f"re-upload and retry")
         paths.append(staged[1])
     warnings: list[str] = []
+    if to.startswith("@org:"):
+        oid = _org_inbox_send_org(slug, to[5:], body, paths, warnings)
+        mail_notify(slug, USER, "org_inbox")
+        hub_changed(slug)
+        return {"id": oid, "warnings": warnings}
     # PG-3d: the outbound org-inbox row and the hub spool, not DOC_LOCK
     with _entry_ledger_422(mailtx.org_of(slug, **mailtx.OUTSIDE_SEND_ROWS), 404) as org:
         if org.d.get("kiosk") is not None:
