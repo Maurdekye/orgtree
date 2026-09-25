@@ -66,6 +66,12 @@ class Cancelled(RuntimeError):
 # Set `_FENCE = False` once DOC_LOCK is gone.
 _FENCE = True
 KILLSWITCH = "killswitch"
+# The killswitch row ALWAYS EXISTS (plan decision 26: PG-0 creates/backfills
+# it), so a latch serializes on an exclusive lock of a real row rather than a
+# FOR SHARE of a missing one, which protects nothing. Release therefore
+# CLEARS it to this falsy value instead of deleting it; every reader tests
+# the latch by truthiness.
+KILLSWITCH_CLEAR: Any = None
 _EVENTS = "events"
 
 
@@ -1448,7 +1454,7 @@ def killswitch_release(slug: str, actor: str = USER) -> dict[str, Any]:
         rec = org.d.get(KILLSWITCH)
         if not rec:
             return {"released": False, "status": "the killswitch is not latched"}
-        org.d.pop(KILLSWITCH)
+        org.d[KILLSWITCH] = KILLSWITCH_CLEAR   # keep the row (decision 26)
         org._log("killswitch_release", actor,
                  {"latched_at": rec.get("at"), "latched_by": rec.get("by")}, [])
         held = [nid for nid, n in org.nodes.items()
