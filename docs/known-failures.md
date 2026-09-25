@@ -110,6 +110,22 @@ node tools/test-baseline.mjs compare --results my-run.json   # runs nothing
 
 ---
 
+## During PYPG: the P01 state-registry tests are declared failing
+
+The Python + PostgreSQL work (PYPG) changes `api.py`, `store.py` and `supervisor.py` in every package, and that moves
+the exact source spans and line-hashed witness ids that the P01 state registry pins
+(`docs/state-system/operation-contracts.json` and the `*-boundary.json` fixtures). Coordinator ruling (A),
+2026-09-25: until ONE re-anchor after the last PG-3x family lands, those 26 modules (`test_state_operation_contracts`,
+`test_state_operation_inventory`, `test_state_material_reads` and every `test_state_*_boundary`) are recorded in
+`docs/test-baseline.json` as pre-existing failures, so `compare` does not count them against a PYPG landing.
+
+These entries are DECLARED, not measured at the baseline's commit; each one's note says so. They cover only the
+binding failures ("stale source span", "source inventory binding is stale", a `KeyError` on a witness id). Any other
+assertion failing in those modules is still a regression, so read the message before you file it as known. The
+re-anchor, and the rewrite of the DOC_LOCK facts that `org_tx` makes false, are owned by p01-current-gap-opus55.
+
+---
+
 ## How old is it, and does that matter?
 
 **A baseline that does not say how old it is, is worse than none** — it looks
