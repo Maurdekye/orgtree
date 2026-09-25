@@ -11208,7 +11208,7 @@ def _op_ev_baseline(org: Org) -> int | None:
     dispatch materialised the section itself. PG-4: postgres is the same row
     backend, and counting here would materialise its whole events log on
     every operation."""
-    if not store.ROW_STORE:
+    if not store.row_store():
         return len(cast("list[Any]", org.d.get("events") or []))
     return None
 
@@ -14671,7 +14671,7 @@ def node_inbox(slug: str, nid: str, request: Request = cast(Request, None)) -> d
     # before anything is derived from it.
     try:
         tails = (store.read_mail_tails(slug, nid, keep=50)
-                 if store.ROW_STORE else None)
+                 if store.row_store() else None)
         org = (store.load_org_snapshot(slug, ())
                if tails is not None
                else store.load_org_snapshot(slug, ("mail_log", "user_mail_log")))

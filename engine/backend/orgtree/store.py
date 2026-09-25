@@ -4111,7 +4111,7 @@ def read_user_inbox(slug: str) -> dict[str, Any]:
     JSON remains the rollback reader. Pending mail is intentionally complete.
     PG-4: postgres runs the same statements through `PgConn`.
     """
-    if not ROW_STORE:
+    if not row_store():
         d = load_org(slug).d
         return {"pending": d.get("user_inbox", []),
                 "delivered": d.get("user_mail_log", [])[-50:],
@@ -4170,7 +4170,7 @@ def _bounded_read(slug: str, body: Callable[[sqlite3.Connection], Any]) -> Any:
     statements (`?` placeholders, `LIMIT -1`, `json_extract` from
     pg_migrations/0001); without this, every bounded reader silently fell
     back to materializing the whole document on postgres."""
-    if not ROW_STORE:
+    if not row_store():
         return None
     slug = _safe_slug(slug)
     _ensure_migrated(slug)
