@@ -200,16 +200,27 @@ class BlockedDocketReminderSweepTests(unittest.TestCase):
     never reached by the sweep would look green everywhere else in this file.
     """
 
+    _seq = 0
+
     def build(self, *tickets):
-        """`tickets` are (title, status) pairs, all owned by `worker`."""
-        org = ledger.Org.create("sweep-" + "-".join(s for _, s in tickets))
+        """`tickets` are (title, status) pairs, all owned by `worker`.
+
+        PG-3e-A: the org is a REAL one in this module's temporary data root.
+        The reservation the sweep ends in is a row transaction (`org_tx`),
+        which reads and writes the store itself rather than through a patched
+        `store.load_org`/`save_org`; the sweep's own reads stay patched to
+        this same document below."""
+        BlockedDocketReminderSweepTests._seq += 1
+        org = store.create_org(f"sweep-{self._seq}-"
+                               + "-".join(s for _, s in tickets))
         org.nodes["worker"] = {
             "state": "live", "parent": None, "generation": 1,
             "last_status": {"status": "working", "at": "1970-01-01T00:16:40Z"}}
         for title, status in tickets:
             org.work_create("worker", title, "test", owner="worker")
             org._work_active()[-1]["status"] = status
-        return org
+        store.save_org(org)
+        return store.load_org(org.d["slug"])
 
     def sweep(self, org, on):
         wake = mock.Mock(return_value={"accepted": True})
@@ -217,8 +228,6 @@ class BlockedDocketReminderSweepTests(unittest.TestCase):
              mock.patch.object(store, "cached_list",
                                return_value=[{"slug": org.d["slug"]}]), \
              mock.patch.object(store, "cached_org", return_value=org), \
-             mock.patch.object(store, "load_org", return_value=org), \
-             mock.patch.object(store, "save_org"), \
              mock.patch.object(supervisor, "state", return_value={}), \
              mock.patch.object(supervisor, "mail_spark"), \
              mock.patch.object(supervisor, "_auto_wake_gates_clear", return_value=True), \
