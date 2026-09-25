@@ -264,9 +264,11 @@ class Archive(unittest.TestCase):
                 sorted((r["node"], r["status"]) for r in o.d.get("credit_requests") or []),
                 [e["op"] for e in o.d["events"]][-6:])
 
-    def parity(self, op, actor, nid):
+    def parity(self, op, actor, nid, prep=None):
         twin = f"pg3a-ar-twin-{op}-" + str(time.time_ns())
         self.build(twin)
+        if prep is not None:
+            prep(twin)
         with store.DOC_LOCK:
             o = store.load_org(twin)
             legacy = getattr(o, op)(actor, nid)
@@ -318,13 +320,18 @@ class Archive(unittest.TestCase):
         # store._save_org runs reconcile_attention whenever `asks` was touched,
         # and it rewrites the attention fields of the work item the question
         # is attached to: a retire that moots it writes `work_items` too
-        with store.DOC_LOCK:
-            o = store.load_org(self.slug)
-            slug = o.work_create(ledger.USER, "a docket item", "why it exists",
-                                 owner="t")["slug"]
-            o.ask_user("t", "about the item", work_item=slug)
-            store.save_org(o)
-        self.parity("retire", ledger.USER, "t")
+        def prep(org_slug):
+            with store.DOC_LOCK:
+                o = store.load_org(org_slug)
+                made = o.work_create(ledger.USER, "a docket item", "why it exists",
+                                     owner="t")["slug"]
+                o.ask_user("t", "about the item", work_item=made)
+                store.save_org(o)
+            return made
+        slug = prep(self.slug)
+        self.assertTrue(next(i for i in store.load_org(self.slug).d["work_items"]
+                             if i["slug"] == slug)["notification_attention_active"])
+        self.parity("retire", ledger.USER, "t", prep)
         items = store.load_org(self.slug).d["work_items"]
         self.assertFalse(next(i for i in items if i["slug"] == slug)
                          ["notification_attention_active"])
