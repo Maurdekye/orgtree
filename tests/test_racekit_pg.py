@@ -18,6 +18,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import unittest
 
 ADMIN = os.environ.get('ORGTREE_TEST_PG_ADMIN_URL', '').strip()
@@ -110,6 +111,38 @@ class RaceKitPg(unittest.TestCase):
             race.join(a, b)
             race.expect_order('A.after_lock', 'B.after_commit', 'A.after_commit')
         self.assertEqual((self.n('a'), self.n('b')), (1, 1))
+
+    def test_a_table_lock_wait_is_not_a_row_lock_wait(self) -> None:
+        """Review f2a control: an actor stuck on a RELATION lock (here an
+        ACCESS EXCLUSIVE table lock held by another session) is waiting,
+        but not on a row lock; blocked() must refuse it."""
+        import psycopg
+        other = psycopg.connect(URL)
+        try:
+            oid = other.execute('SELECT org_id FROM public.orgs WHERE slug = %s',
+                                (self.slug,)).fetchone()[0]
+            other.execute(f'LOCK TABLE org_{int(oid)}.nodes IN ACCESS EXCLUSIVE MODE')
+            with racekit.Race(wait=1.0) as race:
+                a = race.actor('A', self.bump, 'a')
+                race.start(a)
+                seen = None
+                for _ in range(200):          # prove A really is stuck on the table lock
+                    if a.pg_pids:
+                        seen = other.execute('SELECT wait_event_type, wait_event FROM '
+                                             'pg_stat_activity WHERE pid = %s',
+                                             (a.pg_pids[-1],)).fetchone()
+                        if seen and seen[0] == 'Lock':
+                            break
+                    threading.Event().wait(0.01)
+                self.assertEqual(tuple(seen or ()), ('Lock', 'relation'),
+                                 'control did not run: A never waited on the table lock')
+                with self.assertRaisesRegex(racekit.RaceFailure, 'never seen waiting'):
+                    race.blocked(a)
+                other.commit()                # releases the table lock
+                race.join(a)
+        finally:
+            other.close()
+        self.assertEqual(self.n('a'), 1)
 
     def test_blocked_on_a_free_row_fails(self) -> None:
         with racekit.Race(wait=0.5) as race:
