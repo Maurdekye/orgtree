@@ -43,6 +43,7 @@ class FakeSink:
     def __init__(self, path: Path, *, fail_after: int | None = None, corrupt: bool = False, pause: Path | None = None) -> None:
         self.path, self.fail_after, self.corrupt, self.pause = path, fail_after, corrupt, pause
         self.corrupted = 0  # proves the corruption control actually fired
+        self.crashed_after: int | None = None
         conn = self._conn()
         for table, cols in pgimport.COLUMNS.items():
             conn.execute(f"CREATE TABLE IF NOT EXISTS pg_{table} (org TEXT NOT NULL, {', '.join(cols)})")
@@ -69,6 +70,7 @@ class FakeSink:
                 conn.execute(f"DELETE FROM pg_{table} WHERE org=?", (slug,))
                 for row in rows[table]:
                     if self.fail_after is not None and written >= self.fail_after:
+                        self.crashed_after = written  # proves the crash came mid-import
                         raise RuntimeError("injected crash inside the org's transaction")
                     if self.pause is not None and written == 1:
                         self.pause.write_text("paused")
@@ -327,8 +329,10 @@ class Importing(Base):
 
     def test_rt10_a_crash_inside_an_org_leaves_nothing_and_a_rerun_is_identical(self) -> None:
         self.populate()
+        crashing = self.sink(fail_after=3)
         with self.assertRaisesRegex(RuntimeError, "injected crash"):
-            pgimport.import_root(self.root, self.sink(fail_after=3))
+            pgimport.import_root(self.root, crashing)
+        self.assertEqual(crashing.crashed_after, 3, "three rows were inside the transaction when it crashed")
         self.assertIsNone(self.sink().recorded("acme"))
         self.assertEqual(self.sink().read_org("acme")["nodes"], [], "the half-written org rolled back")
         done = pgimport.import_root(self.root, self.sink())
