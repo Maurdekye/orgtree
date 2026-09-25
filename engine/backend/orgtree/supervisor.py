@@ -19297,25 +19297,35 @@ def _run_one_turn(slug: str, nid: str,
 #: do not serialise on each other.
 ADMISSION_GATE_SECTIONS: tuple[str, ...] = (
     "killswitch", "spend_frozen", "storage_blocked")
-#: Written by the turn-start drain (`_take_delivery_mail`, the notices pop,
-#: `_journal_drain`) and by an auto cheap-compaction's notices. These are
-#: whole-section rows today; PG-0/PG-3d's per-owner split narrows them.
+#: Written by the DRAIN transaction (`_take_delivery_mail`, the notices pop,
+#: `_journal_drain`). These are whole-section rows today; PG-0/PG-3d's
+#: per-owner split narrows them.
 ADMISSION_WRITE_SECTIONS: tuple[str, ...] = ("mail", "delivering", "notices")
-#: Append-only logs admission may add to (events and notice_log from a cheap
-#: compaction; mail_log from the drain).
-ADMISSION_LOGS: tuple[str, ...] = ("events", "notice_log", "mail_log")
+ADMISSION_LOGS: tuple[str, ...] = ("mail_log",)
+#: Written by the COMPACTION transaction: an auto cheap-compaction notifies
+#: the agent and its parent (the notices box and `notice_log`) and logs an
+#: event.
+ADMISSION_COMPACT_SECTIONS: tuple[str, ...] = ("notices",)
+ADMISSION_COMPACT_LOGS: tuple[str, ...] = ("events", "notice_log")
 
 
-def _admission_rows(slug: str, nid: str) -> dict[str, Any]:
-    """org_tx keyword arguments for turn admission of `nid`.
+def _admission_rows(slug: str, nid: str, *, compact: bool = False
+                    ) -> dict[str, Any]:
+    """org_tx keyword arguments for one of turn admission's two transactions.
 
-    Besides the agent's row it locks `nid@<generation>`, the row an auto
-    cheap-compaction inserts for the predecessor. The generation is read
-    lock-free from the cached snapshot; if it moved before the lock was
+    `compact=True` is the first (gates + cache forecast + auto
+    cheap-compaction): besides the agent's row it locks `nid@<generation>`,
+    the row a cheap-compaction inserts for the predecessor. The generation is
+    read lock-free from the cached snapshot; if it moved before the lock was
     granted, `_admission_pred_locked` is False inside the transaction and the
     compaction is skipped this turn (the same outcome as a raced lifecycle
     change refusing the swap), so the transaction never writes a row it did
-    not lock."""
+    not lock. The second (gates + drain) locks the agent's row and the
+    mailbox sections."""
+    share = list(ADMISSION_GATE_SECTIONS)
+    if not compact:
+        return {"nodes": [nid], "sections": list(ADMISSION_WRITE_SECTIONS),
+                "share_sections": share, "logs": list(ADMISSION_LOGS)}
     gen = 0
     try:
         n = store.cached_org(slug).nodes.get(nid)
@@ -19323,9 +19333,8 @@ def _admission_rows(slug: str, nid: str) -> dict[str, Any]:
     except Exception:                                    # noqa: BLE001
         pass
     return {"nodes": [nid, f"{nid}@{gen}"],
-            "sections": list(ADMISSION_WRITE_SECTIONS),
-            "share_sections": list(ADMISSION_GATE_SECTIONS),
-            "logs": list(ADMISSION_LOGS)}
+            "sections": list(ADMISSION_COMPACT_SECTIONS),
+            "share_sections": share, "logs": list(ADMISSION_COMPACT_LOGS)}
 
 
 def _admission_pred_locked(tx: orgtx.OrgTx, org: Org, nid: str) -> bool:
@@ -19347,6 +19356,50 @@ def _halt_check_locked(org: Org, nid: str) -> None:
         raise halt.Cancelled("the org killswitch is latched — explicit release "
                              "is required")
 
+
+def _admission_gates(slug: str, org: Org, nid: str) -> None:
+    """The turn-admission gates, decided on `org` as LOCKED by the caller's
+    org_tx (the agent row FOR UPDATE, the gate sections FOR SHARE). Both
+    admission transactions in `_run_one_turn_recorded` run them, so a halt,
+    freeze or remote-control change that commits between the two is still
+    refused before any mail is drained."""
+    _deployment_org_gate(org)
+    if org.node(nid)["state"] != "live":
+        raise RuntimeError(f"{nid} is not live")
+    if org.d.get("spend_frozen"):
+        raise RuntimeError("kiosk spend limit reached — frozen "
+                           "until the limit is raised (admin side)")
+    if org.d.get("storage_blocked") and sbx.on_disk(slug):
+        # disk-org soft cap (user verdict): the last 10% is the
+        # journaling reserve — new turns wait it out
+        raise RuntimeError(
+            "org disk past its 90% soft cap — turns are paused "
+            "until usage drops under 85% (delete files, use the "
+            "recovery browser, or grow the disk)")
+    if org.node(nid).get("limit_locked"):
+        raise RuntimeError(
+            "halted: weekly Fable usage limit exhausted — waiting for the "
+            "limit to reset or the user to intervene")
+    _halt_check_locked(org, nid)
+    if org.node(nid).get("frozen"):
+        # `send_message` refuses to drive a frozen node, but the
+        # QUEUE is drained by the previous turn's own follow-up,
+        # which never re-checked: a node that froze mid-queue kept
+        # launching one doomed CLI per queued message against a
+        # live usage limit. ▶ resume (and auto_resume) clear
+        # `frozen` under DOC_LOCK before they start anything, so
+        # this never blocks a legitimate resume. Nothing has been
+        # drained yet at this point — the mail stays boxed.
+        raise RuntimeError(
+            "frozen by a usage limit — waiting for ▶ resume "
+            "(or auto-resume) before running anything")
+    if org.node(nid).get("remote_controlled"):
+        # FR-01: same double-gate as frozen — the queue drains
+        # through the previous turn's follow-up too
+        raise RuntimeError(
+            "under remote control (the user is driving this "
+            "session from another device) — mail waits until "
+            "release")
 
 def _run_one_turn_recorded(slug: str, nid: str,
                            text: str | dict[str, Any], *,
@@ -19679,66 +19732,31 @@ def _run_one_turn_recorded(slug: str, nid: str,
                       f"a turn slot (MAX_CONCURRENT={MAX_CONCURRENT}, shared "
                       f"across every org on this instance) — this is the "
                       f"machine-wide cap being contended, not this node")
-            # PG-3e-A: THE point of no return, as ONE row transaction (decision 2/5 on
-            # pg-3e-a-runtime-admission-and-turns-onto-org-tx). The agent's node row is
-            # locked FOR UPDATE first, the org gate sections FOR SHARE (so a killswitch
-            # latch orders against this admission without admissions serialising
-            # org-wide), then the mailbox sections the drain writes. Everything below
-            # commits once, at the end of this block: the two intermediate saves the
-            # DOC_LOCK version made are gone, and a raise rolls the whole admission back.
-            with orgtx.org_tx(slug, **_admission_rows(slug, nid)) as _adm_tx:
-                org = _adm_tx.org
-                _deployment_org_gate(org)
-                if org.node(nid)["state"] != "live":
-                    raise RuntimeError(f"{nid} is not live")
-                if org.d.get("spend_frozen"):
-                    raise RuntimeError("kiosk spend limit reached — frozen "
-                                       "until the limit is raised (admin side)")
-                if org.d.get("storage_blocked") and sbx.on_disk(slug):
-                    # disk-org soft cap (user verdict): the last 10% is the
-                    # journaling reserve — new turns wait it out
-                    raise RuntimeError(
-                        "org disk past its 90% soft cap — turns are paused "
-                        "until usage drops under 85% (delete files, use the "
-                        "recovery browser, or grow the disk)")
-                if org.node(nid).get("limit_locked"):
-                    raise RuntimeError(
-                        "halted: weekly Fable usage limit exhausted — waiting for the "
-                        "limit to reset or the user to intervene")
-                _halt_check_locked(org, nid)
-                if org.node(nid).get("frozen"):
-                    # `send_message` refuses to drive a frozen node, but the
-                    # QUEUE is drained by the previous turn's own follow-up,
-                    # which never re-checked: a node that froze mid-queue kept
-                    # launching one doomed CLI per queued message against a
-                    # live usage limit. ▶ resume (and auto_resume) clear
-                    # `frozen` under DOC_LOCK before they start anything, so
-                    # this never blocks a legitimate resume. Nothing has been
-                    # drained yet at this point — the mail stays boxed.
-                    raise RuntimeError(
-                        "frozen by a usage limit — waiting for ▶ resume "
-                        "(or auto-resume) before running anything")
-                if org.node(nid).get("remote_controlled"):
-                    # FR-01: same double-gate as frozen — the queue drains
-                    # through the previous turn's follow-up too
-                    raise RuntimeError(
-                        "under remote control (the user is driving this "
-                        "session from another device) — mail waits until "
-                        "release")
-                # NOT locked fable nodes under a fable_lock (e.g. rehired anyway) are
-                # allowed to TRY — the real limit rejects them naturally (user ruling:
-                # the gate is a suggestion, reality is the enforcement)
-                # drain notices + mail atomically — the №27 envelope, delivered at
-                # the turn boundary (§7.4); nothing wakes anyone, nothing arrives twice
-                # a slash command skips the drain entirely: the "/" must be
-                # the first character the CLI sees, and the mail stays boxed
-                # for the next normal turn (user-approved 2026-07-31)
-                # Cache-protective cheap compaction lives at this ONE common
-                # ordinary-turn admission boundary, before notices or mail are
-                # drained. User, mail, checkup, recovery and provider-redrive
-                # carriers therefore share the same exact-once gate. Commands
-                # deliberately skip it because they launch no prompt turn.
-                if not is_cmd:
+            # PG-3e-A: THE point of no return, as TWO row transactions (decisions
+            # 2, 5 and 9 on pg-3e-a-runtime-admission-and-turns-onto-org-tx). Each
+            # locks the agent's node row FOR UPDATE and the org gate sections FOR
+            # SHARE (so a killswitch latch orders against admission while
+            # admissions do not serialise org-wide) and runs the SAME gates on
+            # what it locked. The first commits an auto cheap-compaction on its
+            # own, exactly as the DOC_LOCK version saved it before the drain, so a
+            # failed drain never undoes it; the second drains the mailbox.
+            if not is_cmd:
+                with orgtx.org_tx(slug, **_admission_rows(slug, nid, compact=True)) as _cmp_tx:
+                    org = _cmp_tx.org
+                    _admission_gates(slug, org, nid)
+                    # NOT locked fable nodes under a fable_lock (e.g. rehired anyway) are
+                    # allowed to TRY — the real limit rejects them naturally (user ruling:
+                    # the gate is a suggestion, reality is the enforcement)
+                    # drain notices + mail atomically — the №27 envelope, delivered at
+                    # the turn boundary (§7.4); nothing wakes anyone, nothing arrives twice
+                    # a slash command skips the drain entirely: the "/" must be
+                    # the first character the CLI sees, and the mail stays boxed
+                    # for the next normal turn (user-approved 2026-07-31)
+                    # Cache-protective cheap compaction lives at this ONE common
+                    # ordinary-turn admission boundary, before notices or mail are
+                    # drained. User, mail, checkup, recovery and provider-redrive
+                    # carriers therefore share the same exact-once gate. Commands
+                    # deliberately skip it because they launch no prompt turn.
                     try:
                         _tier0 = str(org.node(nid).get("model") or "")
                         _provider0 = providers.provider_of(_tier0)
@@ -19768,7 +19786,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     else:
                         _cfg0 = _auto_cheap_cfg(org, nid)
                         if (_cfg0 is not None
-                                and _admission_pred_locked(_adm_tx, org, nid)
+                                and _admission_pred_locked(_cmp_tx, org, nid)
                                 and _auto_cheap_ready(
                                     org.node(nid), _cfg0, _forecast0,
                                     org.d.get("models"))):
@@ -19820,6 +19838,9 @@ def _run_one_turn_recorded(slug: str, nid: str,
                         # its own save before the drain): a restart sees both
                         # or neither, so it still cannot resurrect stale
                         # evidence.
+            with orgtx.org_tx(slug, **_admission_rows(slug, nid)) as _adm_tx:
+                org = _adm_tx.org
+                _admission_gates(slug, org, nid)
                 mail = ([] if is_cmd or toks else
                         _take_delivery_mail(org, nid, carrier_mail_ids))
                 pending = (None if is_cmd or toks
