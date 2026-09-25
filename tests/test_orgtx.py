@@ -29,7 +29,7 @@ data.mkdir()
 home = Path(_temp.name) / 'home'
 home.mkdir()
 os.environ.update(ORGTREE_DATA=str(data), HOME=str(home), USERPROFILE=str(home),
-                  ORGTREE_STORE='sqlite')
+                  ORGTREE_STORE='sqlite', ORGTREE_ROW_CAS='1')
 os.environ.pop('ORGTREE_ORGTX_TEST_HOOKS', None)
 
 import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
@@ -152,6 +152,17 @@ class OrgTxBasics(unittest.TestCase):
         out = orgtx.org_tx_call(self.slug, lambda t: calls.append(1) or 'x',
                                 nodes=['a'], op_key='k1', fingerprint='f')
         self.assertEqual((out, calls), ({'n': 1}, []))
+
+    def test_legacy_save_cannot_overwrite_an_org_tx_commit(self) -> None:
+        legacy = store.load_org(self.slug)
+        with orgtx.org_tx(self.slug, nodes=['a']) as tx:
+            tx.d['nodes']['a']['name'] = 'from-tx'
+        legacy.d['nodes']['a']['name'] = 'from-legacy'
+        legacy.d['nodes']['b']['name'] = 'also-legacy'
+        with self.assertRaises(store.StaleWrite):
+            store.save_org(legacy)
+        self.assertEqual(_node(self.slug, 'a')['name'], 'from-tx')
+        self.assertEqual(_node(self.slug, 'b')['name'], 'b')
 
     def test_org_read_never_saves(self) -> None:
         org = orgtx.org_read(self.slug, sections=['events'])

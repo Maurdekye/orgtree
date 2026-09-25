@@ -59,7 +59,8 @@ THE INTERFACE (stable; this is what the PG-3x family packages code against):
     holds no lock and nothing written to it is ever saved.
 
 TEST HOOKS (PG-5): `set_pause_hook(fn)` installs `fn(point, tx)` called at
-`before_lock`, `after_lock` and `before_commit`. Refused unless
+`before_lock`, `after_lock`, `before_commit` and `after_commit` (raising at
+`after_commit` models a connection lost after the commit). Refused unless
 `ORGTREE_ORGTX_TEST_HOOKS=1` is in the environment.
 
 BACKENDS. `SeamBackend` (the default until `ORGTREE_STORE=postgres` lands) is
@@ -81,6 +82,7 @@ and `NOTIFY org_rev, '<slug>:<revision>'` in the same transaction.
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import random
 import threading
@@ -98,7 +100,10 @@ T = TypeVar("T")
 #: A log name: a list/dict log section, or (dict-log section, owner).
 LogName = str | tuple[str, str]
 
-PAUSE_POINTS: tuple[str, ...] = ("before_lock", "after_lock", "before_commit")
+#: `after_commit` runs once the COMMIT has succeeded: raising there is how a
+#: test models a connection lost after the server committed (RT6).
+PAUSE_POINTS: tuple[str, ...] = ("before_lock", "after_lock", "before_commit",
+                                 "after_commit")
 
 DEFAULT_LOCK_TIMEOUT_S = float(os.environ.get("ORGTREE_ORGTX_LOCK_TIMEOUT_S", "10") or 10)
 DEFAULT_RETRIES = 5
@@ -382,8 +387,135 @@ class SeamBackend:
             changes = got[0] if got else SaveChanges()
             tx.revision = self.revision(tx.slug)
             tx.committed = Committed(tx.slug, tx.revision, changes, tx.op_key)
+            _pause("after_commit", tx)
         finally:
             self.locks.release_all(owner)
+
+    def read(self, slug: str, sections: tuple[str, ...]) -> Org:
+        return store.load_org_snapshot(slug, sections)
+
+
+_PG_RETRY = {"40001": SerializationFailure, "40P01": DeadlockDetected}
+
+
+def _pg_error(e: BaseException) -> BaseException:
+    """Map a PostgreSQL failure (raw psycopg, or store's sqlite3-shaped
+    re-raise carrying `.sqlstate`) onto this module's errors."""
+    state = str(getattr(e, "sqlstate", "") or "")
+    if state in _PG_RETRY:
+        return _PG_RETRY[state](f"{state}: {e}")
+    if state == "55P03":
+        return LockTimeout(f"{state}: {e}")
+    return e
+
+
+class PgBackend:
+    """org_tx on PostgreSQL: one connection per transaction, pinned so the
+    seam's load and save run inside it (pgstore module docstring).
+
+    Each named row takes a transaction advisory lock keyed on (org, row) —
+    exclusive or shared — which covers a row that does not exist yet (a
+    node being created), then `SELECT … FOR UPDATE / FOR SHARE` on the row
+    itself, so a legacy seam save's UPDATE of it waits too. PostgreSQL's
+    own detector reports deadlocks (40P01) and `lock_timeout` bounds waits
+    (55P03 → LockTimeout)."""
+
+    @contextlib.contextmanager
+    def transaction(self, tx: OrgTx, lock_timeout: float) -> Iterator[None]:
+        from . import pgstore
+        import sqlite3
+        try:
+            conn = pgstore.open_conn(tx.slug, store._db_path(tx.slug))  # pyright: ignore[reportPrivateUsage]
+        except sqlite3.OperationalError:
+            from .ledger import LedgerError
+            raise LedgerError(f"no such org: {tx.slug!r}") from None
+        raw = conn.raw
+        loc = store._orgtx_local                   # pyright: ignore[reportPrivateUsage]
+        try:
+            _pause("before_lock", tx)
+            try:
+                raw.execute(f"SET lock_timeout = '{max(1, int(lock_timeout * 1000))}ms'")
+                raw.execute("BEGIN")
+                order: list[tuple[str, str, str, bool]] = []
+                for name in sorted(tx.lock_sections | tx.share_sections):
+                    order.append(("section", name,
+                                  "SELECT 1 FROM doc WHERE key = %s",
+                                  name in tx.lock_sections))
+                for name in sorted(tx.lock_nodes | tx.share_nodes):
+                    order.append(("node", name, "SELECT 1 FROM nodes WHERE id = %s",
+                                  name in tx.lock_nodes))
+                for lg in sorted((x for x in tx.logs if not isinstance(x, str)),
+                                 key=lambda x: "\0".join(x)):
+                    order.append(("log", "\0".join(lg),
+                                  "SELECT 1 FROM log_d WHERE sect = %s AND owner = %s",
+                                  True))
+                for kind, name, sel, exclusive in order:
+                    fn = "pg_advisory_xact_lock" if exclusive else "pg_advisory_xact_lock_shared"
+                    raw.execute(f"SELECT {fn}(%s, hashtext(%s))",
+                                (conn.org_id, f"{kind}:{name}"))
+                    args = tuple(name.split("\0")) if kind == "log" else (name,)
+                    raw.execute(sel + (" FOR UPDATE" if exclusive else " FOR SHARE"), args)
+            except Exception as e:
+                raise _pg_error(e) from e
+            _pause("after_lock", tx)
+            if tx.op_key is not None:
+                row = raw.execute("SELECT fingerprint, result FROM public.receipts "
+                                  "WHERE org_id = %s AND op_key = %s",
+                                  (conn.org_id, tx.op_key)).fetchone()
+                if row is not None:
+                    if row[0] != tx.fingerprint:
+                        raise ReceiptConflict(
+                            f"op_key {tx.op_key!r} was used with another fingerprint")
+                    tx.replayed = True
+                    tx.result = None if row[1] is None else json.loads(row[1])
+            conn.pinned = True
+            loc.pinned = conn
+            try:
+                tx.org = store._load_sqlite_org(tx.slug)   # pyright: ignore[reportPrivateUsage]
+                yield
+                if tx.replayed:
+                    raw.execute("ROLLBACK")
+                    tx.revision = pgstore.revision(conn)
+                    return
+                _pause("before_commit", tx)
+                got: list[SaveChanges] = []
+
+                def guard(changes: SaveChanges) -> None:
+                    bad = _allowed(tx, changes)
+                    if bad:
+                        raise UnlockedWrite(
+                            f"org_tx on {tx.slug!r} wrote rows it did not lock: "
+                            f"{', '.join(bad)} (name them in nodes=/sections=/logs=; "
+                            "a save that touches asks or work_items also rewrites "
+                            "work_items)")
+                    if tx.op_key is not None:
+                        raw.execute("INSERT INTO public.receipts(org_id, op_key, "
+                                    "fingerprint, result) VALUES (%s, %s, %s, %s)",
+                                    (conn.org_id, tx.op_key, tx.fingerprint,
+                                     json.dumps(tx.result)))
+                    conn.commit_armed = True
+
+                loc.guard, loc.on_commit = guard, got.append
+                try:
+                    store.save_org(tx.org)
+                except Exception as e:
+                    raise _pg_error(e) from e
+                finally:
+                    loc.guard = loc.on_commit = None
+            finally:
+                loc.pinned = None
+                conn.pinned = False
+            changes = got[0] if got else SaveChanges()
+            tx.revision = (conn.last_revision if conn.last_revision is not None
+                           else pgstore.revision(conn))
+            tx.committed = Committed(tx.slug, tx.revision, changes, tx.op_key)
+            _pause("after_commit", tx)
+        finally:
+            with contextlib.suppress(Exception):
+                if conn.in_transaction:
+                    raw.execute("ROLLBACK")
+            with contextlib.suppress(Exception):
+                conn.close()
 
     def read(self, slug: str, sections: tuple[str, ...]) -> Org:
         return store.load_org_snapshot(slug, sections)
@@ -397,7 +529,7 @@ def backend() -> Backend:
     global _backend
     with _backend_lock:
         if _backend is None:
-            _backend = SeamBackend()
+            _backend = PgBackend() if store.STORE_BACKEND == "postgres" else SeamBackend()
         return _backend
 
 

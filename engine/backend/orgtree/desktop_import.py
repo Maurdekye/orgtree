@@ -84,14 +84,18 @@ never as a failed copy that the UI should blindly retry.
     _on_imported = on_imported
 
 
-def _store() -> Any:
+def _store(*, writes_orgs: bool = True) -> Any:
+    """`writes_orgs=False` is for callers that only need the bound data root
+    (desktop_native's transcript inventory): the SQLite-only refusal is about
+    writing imported org databases, and must not break a model switch on
+    another backend (PG-0)."""
     explicit = os.environ.get("ORGTREE_DATA", "")
     if not explicit or not Path(explicit).is_absolute():
         raise ImportRefused("An explicit absolute V2 ORGTREE_DATA is required", 503)
     from . import store
     if Path(store.DATA_ROOT).resolve() != Path(explicit).resolve():
         raise ImportRefused("Store is bound to a different data root", 503)
-    if store.STORE_BACKEND != "sqlite":
+    if writes_orgs and store.STORE_BACKEND != "sqlite":
         raise ImportRefused("V2 copy import requires the SQLite backend", 503)
     return store
 
