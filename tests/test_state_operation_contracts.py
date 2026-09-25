@@ -43,12 +43,14 @@ class ContractCoverage(unittest.TestCase):
         self.assertGreater(result["summary"]["storage"]["pending"], 0)
         # THE one registry-wide tripwire (review of S3 candidate 1): every candidate
         # that maps a witness or adds a contract moves these numbers here, and only here.
-        self.assertEqual(result["contracts"], 61)
+        self.assertEqual(result["contracts"], 75)
         self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
-                          result["summary"]["storage"]["mapped"]), (48, 70, 0))
+                          result["summary"]["storage"]["mapped"]), (49, 93, 0))
         # 571 -> 590 (P01 F1): 19 entries and 19 dispatch witnesses mapped, 57 new open dimension occurrences
         # (conflicts, wire and instrumentation on each of the 19 lifecycle contracts), as the Q1 ruling expects
-        self.assertEqual(len(result["pending"]), 590)
+        # 590 -> 608 (P01 F1b): the operator door and 23 of its branches mapped, 42 new open dimension
+        # occurrences (variant-conflicts, wire and variant-instrumentation on each of 14 contracts)
+        self.assertEqual(len(result["pending"]), 608)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -297,8 +299,9 @@ class ContractCoverage(unittest.TestCase):
 
     W5_SYMBOLS = {"_work_mutate_action": 25, "_work_read_call": 6, "_work_expected_rev_route": 1,
                   "_work_refuse_unused": 1, "Org._work_status_at": 3, "_attach_ref": 1}
-    # P01 F1 mapped _op_post_expected and coverage's rehire branch (their tools are contracted)
-    W6_SYMBOLS = {"org_op": 5, "_org_op_locked": 12, "_apply": 6}
+    # P01 F1 mapped _op_post_expected and coverage's rehire branch, and P01 F1b every org_op, _org_op_locked
+    # and operator-preview _apply branch, so no W6 row is left pending
+    W6_SYMBOLS: dict[str, int] = {}
 
     def test_w5_w6_docket_and_operator_branches_name_their_owner(self):
         rows = {r["id"]: r for r in self.document["dispatch"]}
@@ -395,7 +398,7 @@ class ContractCoverage(unittest.TestCase):
         found = {}
         for s in self.source["dispatch_selectors"]:
             r = rows[contracts.witness_id("dispatch", s)]
-            if "(P01 F1" in r["reason"] and r["disposition"] == "mapped":
+            if "(P01 F1, rule 1)" in r["reason"] and r["disposition"] == "mapped":
                 found[s["source"]["symbol"]] = found.get(s["source"]["symbol"], 0) + 1
                 with self.subTest(line=s["source"]["line"]):
                     for c in r["contracts"]:
@@ -406,6 +409,21 @@ class ContractCoverage(unittest.TestCase):
                     and "orgtree_list_tiers" in s["values"]]
         self.assertEqual(shared["disposition"], "pending")
         self.assertIn("catalogue.list-tiers", shared["reason"])
+
+    # P01 F1b: the operator door's branches and the preview simulations only the operator preview reaches
+    F1B_MAPPED = {"org_op": 5, "_org_op_locked": 12, "_apply": 6}
+
+    def test_f1b_maps_the_operator_door_and_its_branches(self):
+        rows = {r["id"]: r for r in self.document["dispatch"]}
+        found = {}
+        for s in self.source["dispatch_selectors"]:
+            r = rows[contracts.witness_id("dispatch", s)]
+            if "(P01 F1b" in r["reason"]:
+                self.assertEqual(r["disposition"], "mapped")
+                found[s["source"]["symbol"]] = found.get(s["source"]["symbol"], 0) + 1
+        self.assertEqual(found, self.F1B_MAPPED)
+        [door] = [r for r in self.document["entries"] if r["id"].startswith("58c040d3")]
+        self.assertEqual((door["disposition"], len(door["contracts"])), ("mapped", 16))
 
     def test_contacts_is_specified_only_with_agent_level_mail_locality(self):
         # S2b ruling R1: org-store locality is not mail locality. contacts became

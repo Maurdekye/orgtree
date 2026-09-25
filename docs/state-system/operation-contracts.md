@@ -119,13 +119,13 @@ runtime probes remain unresolved. Material reads add two cards and two selectors
 diagnostics add two cards and two selectors. Preview adds one card, twelve
 simulation selectors and the shared three-tool diagnostic/preview branch.
 
-Current totals are 61 contracts, 48 mapped registrations and 70 mapped
-dispatch witnesses. **590 obligations remain**: 267 registrations, 150 dispatch
-witnesses, 14 storage candidates and 159 unresolved dimension occurrences.
+Current totals are 75 contracts, 49 mapped registrations and 93 mapped
+dispatch witnesses. **608 obligations remain**: 266 registrations, 127 dispatch
+witnesses, 14 storage candidates and 201 unresolved dimension occurrences.
 From P01 F1 on, progress is reported as three numbers (coordinator ruling Q1, decision 1 on
 p01-f1-contracts-for-the-org-lifecycle-and-catal): **entries contracted 19/194** (of the concrete http,
-websocket and tool entries that were on the generic reason), **159 open dimension occurrences** and
-**590 total pending**. Total pending RISES while the 194 are contracted, to about 790-1000 when all
+websocket and tool entries that were on the generic reason; F1b contracts none of them, since the
+operator door had its own reason), **201 open dimension occurrences** and **608 total pending**. Total pending RISES while the 194 are contracted, to about 790-1000 when all
 twelve families have landed, and that rise is expected: each new contract closes its entry but opens
 its own conflicts, wire and instrumentation dimensions until P03, the native conversion and P02 answer
 them.
@@ -357,6 +357,16 @@ records seven legacy defects, among them that retire and dissolve interrupt the 
 call can still be refused, and that a move to the node's current parent answers before any authority
 check (tracked on backlogged retire-and-dissolve-interrupt-the-target-s-runni and
 lifecycle-tool-receipts-and-admission-keyed-rena).
+608 is eighteen more than that 590, and the rise is expected (P01 F1b). F1b contracts the operator ops
+door's remaining operations (rename, retire, rescind, cheap_compact, rehire, dissolve, delete,
+switch_model, promote, demote, move, reseed, revoke_dir) and its preview: fourteen contracts on the one
+door, which is now mapped, with 23 of its branches. They reuse the operator-ops facets (coordinator
+ruling Q5), except conflicts and instrumentation: the existing operator-ops.conflicts closes on design
+schedules that cover hire and reallocate only, and operator-ops.instrumentation is specified from P02
+rows that do not cover these operations, so the variants have their own unresolved
+`operator-ops.variant-conflicts` and `operator-ops.variant-instrumentation`. `tests/test_state_operator_
+variants_boundary.py` pins the facts against `docs/state-system/operator-variants-boundary.json`. The
+preview simulation's `move_batch` branch is mapped although no door admits that operation name.
 
 Of the 41 open dimension occurrences on the sixteen legacy-family contracts, 25 (9 facets) cannot be closed at P01
 from the evidence that exists. (This sentence said 53 and 37 (17 facets) until the

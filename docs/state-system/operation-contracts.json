@@ -6682,7 +6682,8 @@
       "status": "specified",
       "facts": [
         "POST /api/orgs/{slug}/ops is an operator route behind the desktop TokenGate (engine/launch.py, outside the pinned set): an agent credential is refused 401 (pinned). The operator acts as `actor`, which defaults to the user; naming an agent as `actor` makes the ledger apply THAT agent's authority and rules — an agent-actor hire needs the no-defaults fields and an agent-actor reallocation is downward-only (pinned). Kiosk visitors reach the same handler through the public gateway (/k/<token>/api/orgs/{slug}/ops, which does not deny it): a visitor hire and reallocation run with the visitor's `actor` as sent (default the user), raise_ceiling is not honoured and the ceiling bridge is stripped, the kiosk ceiling clamps the new seat, and a visitor preview is refused 403 (pinned).",
-        "operator.hire: the user hires at the top level (no `parent`) or under any live parent; `above` inserts the new seat above an existing report of `parent` ('insert-superior: <x> does not report to <p>' otherwise), with check_placement's rules. The provider gate runs first (machine state, patched off by the boundary tests). operator.reallocate: the user may move any node's grant, drawn up the parent chain as for credits.reallocate; a top-level target is bounded by the top-level grant cap."
+        "operator.hire: the user hires at the top level (no `parent`) or under any live parent; `above` inserts the new seat above an existing report of `parent` ('insert-superior: <x> does not report to <p>' otherwise), with check_placement's rules. The provider gate runs first (machine state, patched off by the boundary tests). operator.reallocate: the user may move any node's grant, drawn up the parent chain as for credits.reallocate; a top-level target is bounded by the top-level grant cap.",
+        "The F1b variants (operator.rename through operator.revoke-dir, and operator.preview) share the route's door and actor rule: an agent credential is refused 401, and naming an agent as `actor` applies that agent's authority (an agent-actor rename or retire outside its subtree is refused 'X has no authority over Y'; an agent-actor retire of itself with live reports is refused). rescind and delete are user-only in the ledger ('only the user may rescind …', 'only the user may delete agents …'), and a promotion to the top level is user-only ('only the user promotes agents to top level …'). A preview's actor, when not the user, must be a live node. Pinned by tests/test_state_operator_variants_boundary.py against docs/state-system/operator-variants-boundary.json."
       ],
       "source_refs": [
         {
@@ -6726,6 +6727,18 @@
           "start": 6168,
           "end": 6199,
           "sha256": "fe96a0a33eeee5405eca38ef0df005e12729b642a91d7d5c76610b4b5cd24588"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14585,
+          "end": 14808,
+          "sha256": "1ef2df1ffd621e60c206a5bf40156cc6d72ccc99f9e88f03b571e4ab05d818a3"
         }
       ],
       "open_questions": []
@@ -6735,7 +6748,8 @@
       "status": "specified",
       "facts": [
         "operator.hire: tier and name are required ('hire needs tier and name'); `preview` is refused for hire (\"preview does not support operator operation 'hire'\", 422, nothing written — the selector admits it and the refusal is part of this contract). A user hire takes defaults for omitted scope (the org's at the top level, the parent's below) and clamps explicit scope to the parent leniently, with warnings; with `above`, any add_dirs, tools, org_visibility or permission_mode sent are replaced by the anchor's and a warning names them (result scope_from_anchor). effort, prefer_reserve and account_fallback are applied with the hire in the same save; the ledger's own hire predicates (known tier, whole grant, credits on the chain, depth and child caps) apply. A repeated hire with the same name seats a second agent under a suffixed id. Pinned.",
-        "operator.reallocate: delta is required ('reallocate needs delta') and is a float on the wire; the resulting grant is rounded up to a whole credit (+0.5 moves a whole credit); Org.reallocate's rules apply as for credits.reallocate ('<node> has only N unused; the rest is committed'). `preview: true` is a DIFFERENT, read-only operation (statepreview.preview answers {operation, applied: false, …} and writes nothing): the selector excludes it with all[equals(op, reallocate), not(truthy_text(preview))]. Pinned."
+        "operator.reallocate: delta is required ('reallocate needs delta') and is a float on the wire; the resulting grant is rounded up to a whole credit (+0.5 moves a whole credit); Org.reallocate's rules apply as for credits.reallocate ('<node> has only N unused; the rest is committed'). `preview: true` is a DIFFERENT, read-only operation (statepreview.preview answers {operation, applied: false, …} and writes nothing): the selector excludes it with all[equals(op, reallocate), not(truthy_text(preview))]. Pinned.",
+        "F1b variants: 'rename needs node and name', 'switch_model needs tier', 'demote needs new_parent', 'revoke_dir needs dir', 'unknown op …', and cheap_compact of a node that is not live ('… replaces a LIVE agent's session'); a preview of hire, rename, cheap_compact or rehire is refused ('preview does not support operator operation …'). From source: cheap_compact with if_idle refuses a busy node 409, and a reseed of an archived node is refused ('… rehire it instead'). Pinned by tests/test_state_operator_variants_boundary.py against docs/state-system/operator-variants-boundary.json, except the two source clauses."
       ],
       "source_refs": [
         {
@@ -6779,6 +6793,18 @@
           "start": 6168,
           "end": 6199,
           "sha256": "fe96a0a33eeee5405eca38ef0df005e12729b642a91d7d5c76610b4b5cd24588"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14585,
+          "end": 14808,
+          "sha256": "1ef2df1ffd621e60c206a5bf40156cc6d72ccc99f9e88f03b571e4ab05d818a3"
         }
       ],
       "open_questions": []
@@ -6787,7 +6813,8 @@
       "dimension": "writes",
       "status": "specified",
       "facts": [
-        "Measured with the committed document read cold. operator.hire writes the new node, a hire event and lifecycle.hired notices (nodes, events, notices, notice_log — the acting user is never the parent, so the parent is always told); `above` re-parents the anchor under the new seat in the same save. operator.reallocate writes the target's grant (and inflated grants up the chain) with its event and grant_changed notices (nodes, events, notices, notice_log). One load/mutate/save under DOC_LOCK; a refusal writes nothing. Pinned."
+        "Measured with the committed document read cold. operator.hire writes the new node, a hire event and lifecycle.hired notices (nodes, events, notices, notice_log — the acting user is never the parent, so the parent is always told); `above` re-parents the anchor under the new seat in the same save. operator.reallocate writes the target's grant (and inflated grants up the chain) with its event and grant_changed notices (nodes, events, notices, notice_log). One load/mutate/save under DOC_LOCK; a refusal writes nothing. Pinned.",
+        "F1b variants, measured with the committed document read cold: rename writes nodes, events and the renamed seat's notices; retire writes nodes, events and lifecycle.retired to the parent; rescind writes the retire plus a rescind event, claws the stake back from the parent's grant and tells the parent (lifecycle.rescinded); cheap_compact writes the bearer row, the fresh session and notices to the seat and its parent; rehire writes nodes, events and lifecycle.rehired to the seat and its parent; dissolve writes lifecycle.dissolved to the parent and peers; delete removes the subtree's records, rewrites the swept lists (asks, scope_requests, watchdogs) and tells the parent (lifecycle.deleted); switch_model writes lifecycle.model_switched to the node and its parent; promote, demote and move write lifecycle.moved to the old and new parent or peers and the node; reseed of an unrecoverable node writes a lost-generation bearer row nid@gen and lifecycle.reseeded to the seat and its parent; revoke_dir writes nodes and events only. reseed of a live node and every preview write nothing; every refusal writes nothing. Pinned by tests/test_state_operator_variants_boundary.py against docs/state-system/operator-variants-boundary.json."
       ],
       "source_refs": [
         {
@@ -6831,6 +6858,18 @@
           "start": 6168,
           "end": 6199,
           "sha256": "fe96a0a33eeee5405eca38ef0df005e12729b642a91d7d5c76610b4b5cd24588"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14585,
+          "end": 14808,
+          "sha256": "1ef2df1ffd621e60c206a5bf40156cc6d72ccc99f9e88f03b571e4ab05d818a3"
         }
       ],
       "open_questions": []
@@ -6839,7 +6878,8 @@
       "dimension": "receipt",
       "status": "specified",
       "facts": [
-        "The operator ops door files no operation receipt and takes no op key: a lost response cannot be replayed, and a retried hire creates another seat (pinned: the second seat gets a suffixed id)."
+        "The operator ops door files no operation receipt and takes no op key: a lost response cannot be replayed, and a retried hire creates another seat (pinned: the second seat gets a suffixed id).",
+        "The F1b variants, like hire and reallocate, file no operation receipt and take no operation key. Pinned by tests/test_state_operator_variants_boundary.py against docs/state-system/operator-variants-boundary.json."
       ],
       "source_refs": [
         {
@@ -6853,6 +6893,18 @@
           "start": 14585,
           "end": 14596,
           "sha256": "c34723e0dd4d036b64883bb013cf49be21444ef6df058fa698d3776da01dfe7a"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14585,
+          "end": 14808,
+          "sha256": "1ef2df1ffd621e60c206a5bf40156cc6d72ccc99f9e88f03b571e4ab05d818a3"
         }
       ],
       "open_questions": []
@@ -6861,7 +6913,8 @@
       "dimension": "effects",
       "status": "specified",
       "facts": [
-        "Both operations end with one hub_changed and drive nobody: an operator hire has no kickoff (org_op drives only a rehire's waiting mail), and nothing sparks mail_notify. The preview variant broadcasts nothing. Pinned with spies."
+        "Both operations end with one hub_changed and drive nobody: an operator hire has no kickoff (org_op drives only a rehire's waiting mail), and nothing sparks mail_notify. The preview variant broadcasts nothing. Pinned with spies.",
+        "F1b variants: operator rename reaps (supervisor.remote_reap), broadcasts hub_changed and notifies 'renamed' — unlike the agent door's rename, which does neither of the first two; retire, dissolve and rescind interrupt the target before the lock (interrupt_before_archive), and the agent door's recorded defect holds here too: an agent-actor rescind and an agent-actor self-retire with live reports are refused after the interrupt; retire, dissolve, delete, rescind and cheap_compact reap after the save; delete takes NO pre-archive interrupt and calls supervisor.forget(slug, deleted), which drops the deleted seats' runtime state and removes their scratch directories (source); cheap_compact copies the transcript; a rehire whose seat has waiting mail drives it once with 'Mail above arrived while you were archived …' (mail_ping, ping_reason 'rehire_waited'), a different wording and reason from the agent door's. Every accepted operation ends with one hub_changed, reseed's no-op included; a preview broadcasts nothing. Pinned by tests/test_state_operator_variants_boundary.py against docs/state-system/operator-variants-boundary.json, except forget's file removal."
       ],
       "source_refs": [
         {
@@ -6875,6 +6928,18 @@
           "start": 14797,
           "end": 14808,
           "sha256": "a6b9da4a256b1b38f22ca42456c969fa8a2353f76589ef9c50ee42e2177f5102"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14585,
+          "end": 14808,
+          "sha256": "1ef2df1ffd621e60c206a5bf40156cc6d72ccc99f9e88f03b571e4ab05d818a3"
         }
       ],
       "open_questions": []
@@ -6885,7 +6950,8 @@
       "facts": [
         "Source read set: the org loaded under DOC_LOCK through load_org, which inside the lock is served the per-org resident document (store._load_org's resident fast path; a fresh parse only on a miss or a dirty repeat hand-out), the parent chain's free amounts and grants, tier prices and ceilings, the org's scope defaults and the anchor's scope for `above`; the harness choice for an OpenRouter tier is a provider read made before DOC_LOCK (new_hire_harness).",
         "Observed by the P02 per-operation probe (tools/p02_operation_contacts.py; docs/state-system/p02-operation-contacts.md) (synthetic data, v3 ebad321) for every class the clause names, cold and warm, answering both questions above, as the operator (@user) on the desktop token: hire at the top level, under a parent (:under) and above an anchor (:above); reallocate up, :down and :top-level; plus a fractional delta, the refusals and a locality control. Cold, every class reads doc, log_d, log_l, meta and nodes of the org's own store; warm, only meta and nodes. No row makes an unknown contact or touches another org's store. Not exercised: the OpenRouter harness choice (new_hire_harness, a provider read), because the fixture hires haiku and the provider gate is stubbed, and the kiosk visitor path to this door; the clause names neither.",
-        "The refusals write nothing to the org's store: a hire with no name, an unknown tier, an above-hire whose anchor does not report to the named parent, a reallocation with no delta, one below the committed floor, and a named agent actor with no authority over its superior (422); the agent credential is refused 401 before any census attempt. Asserted by tests/test_state_p02_contact_facets.py."
+        "The refusals write nothing to the org's store: a hire with no name, an unknown tier, an above-hire whose anchor does not report to the named parent, a reallocation with no delta, one below the committed floor, and a named agent actor with no authority over its superior (422); the agent credential is refused 401 before any census attempt. Asserted by tests/test_state_p02_contact_facets.py.",
+        "F1b variants, from source: each operation loads the org under DOC_LOCK in _org_op_locked; retire, dissolve and rescind load it once more before the lock for their authority pre-guard, and rename loads it in supervisor.rename_node. switch_model reads the provider gate, the account rule (check_switch_account) and the live busy state; cheap_compact with if_idle reads the live busy state; a preview loads the org under DOC_LOCK and simulates the operation on a detached copy (statepreview.preview), never saving. These reads are not observed by P02 (operator-ops.variant-instrumentation)."
       ],
       "source_refs": [
         {
@@ -6917,6 +6983,18 @@
           "start": 4752,
           "end": 4884,
           "sha256": "ad1d8b46c4b9657c577282a81206c6abd83c0405b038476ab770696e4e4afc49"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14585,
+          "end": 14808,
+          "sha256": "1ef2df1ffd621e60c206a5bf40156cc6d72ccc99f9e88f03b571e4ab05d818a3"
         }
       ],
       "open_questions": []
@@ -6952,7 +7030,8 @@
       "dimension": "wire",
       "status": "unresolved",
       "facts": [
-        "Result shapes are fixtured in docs/state-system/operator-ops-boundary.json and compared by tests/test_state_operator_ops_boundary.py: hire {node, warnings} plus inserted_above, reports_to, grant, spliced (and scope_from_anchor) for `above`; reallocate {grant, warnings}; the refused preview+hire and the preview reallocate {operation, applied, result, before, …}."
+        "Result shapes are fixtured in docs/state-system/operator-ops-boundary.json and compared by tests/test_state_operator_ops_boundary.py: hire {node, warnings} plus inserted_above, reports_to, grant, spliced (and scope_from_anchor) for `above`; reallocate {grant, warnings}; the refused preview+hire and the preview reallocate {operation, applied, result, before, …}.",
+        "The F1b variants' shapes are fixtured in docs/state-system/operator-variants-boundary.json (result keys, changed sections and notices per operation, and the preview's result keys)."
       ],
       "source_refs": [
         {
@@ -6972,6 +7051,18 @@
           "start": 14467,
           "end": 14510,
           "sha256": "226509a28e1f7880f87974e136317ac9eb9ab3a4c811192a7a0560f89d5bbfb0"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14585,
+          "end": 14808,
+          "sha256": "1ef2df1ffd621e60c206a5bf40156cc6d72ccc99f9e88f03b571e4ab05d818a3"
         }
       ],
       "open_questions": [
@@ -8387,6 +8478,68 @@
       "open_questions": [
         "Observe every lifecycle operation with the P02 per-operation probe: actual contacts per outcome, cold and warm, refusals and keyed replays included, and the org-level locality of each.",
         "Owner: P02 (p02-contacts-opus55; coordinator ruling Q6 on p01-f1-contracts-for-the-org-lifecycle-and-catal: probed after this family lands). Closes with: a loss-accounted P02 record per lifecycle row. Not coverable at P01 from available evidence: P01 does not run the P02 probe, and no P02 record covers this family yet."
+      ]
+    },
+    "operator-ops.variant-conflicts": {
+      "dimension": "conflicts",
+      "status": "unresolved",
+      "facts": [
+        "Each F1b operation is one whole-document write cycle under DOC_LOCK in _org_op_locked; outside it sit the pre-archive interrupt of retire, dissolve and rescind (before the lock), rename's filesystem moves (before its own save) and delete's scratch removal (after the save)."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14585,
+          "end": 14808,
+          "sha256": "1ef2df1ffd621e60c206a5bf40156cc6d72ccc99f9e88f03b571e4ab05d818a3"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14536,
+          "end": 14544,
+          "sha256": "58d11ceb33aef9aeb84a6c701b502c0d03eda9083ee1acb44946d8edf984d5df"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 3894,
+          "end": 4017,
+          "sha256": "db45c5be3f775efe7605af77e2b00f5ba6f4302705b69efd3573dd2da5014e58"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 33313,
+          "end": 33333,
+          "sha256": "f8021fef1c3ef06699c351e87cccab713ec03c9f40f51cf865d0a2068034e509"
+        }
+      ],
+      "open_questions": [
+        "Implement and qualify native transactions for the operator door's remaining operations (rename, retire, rescind, cheap_compact, rehire, dissolve, delete, switch_model, promote, demote, move, reseed, revoke_dir) and its preview, including where the pre-archive interrupt and delete's file removal belong.",
+        "Owner: P03 (native design and qualification), with P05 for the refusal fixtures. Closes with: a native design for these operations qualified by concurrent operator operations on one subtree and by a refusal after the interrupt. Not coverable at P01 from available evidence: no native build exists, and the operator door's design schedules cited on operator-ops.conflicts cover hire and reallocate only."
+      ]
+    },
+    "operator-ops.variant-instrumentation": {
+      "dimension": "instrumentation",
+      "status": "unresolved",
+      "facts": [
+        "The access middleware labels the route; nothing identifies the operation beyond the body. No P02 per-operation record covers the F1b variants."
+      ],
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        }
+      ],
+      "open_questions": [
+        "Observe every F1b operator operation and the preview with the P02 per-operation probe: actual contacts per outcome, cold and warm, refusals included, and the org-level locality of each.",
+        "Owner: P02 (p02-contacts-opus55; coordinator ruling Q6 on p01-f1-contracts-for-the-org-lifecycle-and-catal: probed after this family lands). Closes with: a loss-accounted P02 record per variant row. Not coverable at P01 from available evidence: P01 does not run the P02 probe, and no P02 record covers these variants yet."
       ]
     }
   },
@@ -11992,6 +12145,1061 @@
         }
       ],
       "domain_mode": "write"
+    },
+    "operator.rename": {
+      "entry_ids": [
+        "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "equals": {
+          "key": "op",
+          "value": "rename"
+        }
+      },
+      "dimensions": {
+        "authority": [
+          "operator-ops.authority"
+        ],
+        "reads": [
+          "operator-ops.reads"
+        ],
+        "writes": [
+          "operator-ops.writes"
+        ],
+        "predicates": [
+          "operator-ops.predicates"
+        ],
+        "conflicts": [
+          "operator-ops.variant-conflicts"
+        ],
+        "wire": [
+          "operator-ops.wire"
+        ],
+        "receipt": [
+          "operator-ops.receipt"
+        ],
+        "effects": [
+          "operator-ops.effects"
+        ],
+        "instrumentation": [
+          "operator-ops.variant-instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14585,
+          "end": 14808,
+          "sha256": "1ef2df1ffd621e60c206a5bf40156cc6d72ccc99f9e88f03b571e4ab05d818a3"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14517,
+          "end": 14527,
+          "sha256": "798b5ac51963c1c3f2ff0cc74784da00068ea22a5838238c6feb1fb85dae4fbc"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 3894,
+          "end": 4017,
+          "sha256": "db45c5be3f775efe7605af77e2b00f5ba6f4302705b69efd3573dd2da5014e58"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "operator.retire": {
+      "entry_ids": [
+        "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "all": [
+          {
+            "equals": {
+              "key": "op",
+              "value": "retire"
+            }
+          },
+          {
+            "not": {
+              "truthy_text": "preview"
+            }
+          }
+        ]
+      },
+      "dimensions": {
+        "authority": [
+          "operator-ops.authority"
+        ],
+        "reads": [
+          "operator-ops.reads"
+        ],
+        "writes": [
+          "operator-ops.writes"
+        ],
+        "predicates": [
+          "operator-ops.predicates"
+        ],
+        "conflicts": [
+          "operator-ops.variant-conflicts"
+        ],
+        "wire": [
+          "operator-ops.wire"
+        ],
+        "receipt": [
+          "operator-ops.receipt"
+        ],
+        "effects": [
+          "operator-ops.effects"
+        ],
+        "instrumentation": [
+          "operator-ops.variant-instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14585,
+          "end": 14808,
+          "sha256": "1ef2df1ffd621e60c206a5bf40156cc6d72ccc99f9e88f03b571e4ab05d818a3"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14536,
+          "end": 14544,
+          "sha256": "58d11ceb33aef9aeb84a6c701b502c0d03eda9083ee1acb44946d8edf984d5df"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 4950,
+          "end": 4997,
+          "sha256": "82aa2a6f33d66b0c051e93f98ec3ad6f65d2c956554e550867ee5574f35f4f76"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "operator.rescind": {
+      "entry_ids": [
+        "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "all": [
+          {
+            "equals": {
+              "key": "op",
+              "value": "rescind"
+            }
+          },
+          {
+            "not": {
+              "truthy_text": "preview"
+            }
+          }
+        ]
+      },
+      "dimensions": {
+        "authority": [
+          "operator-ops.authority"
+        ],
+        "reads": [
+          "operator-ops.reads"
+        ],
+        "writes": [
+          "operator-ops.writes"
+        ],
+        "predicates": [
+          "operator-ops.predicates"
+        ],
+        "conflicts": [
+          "operator-ops.variant-conflicts"
+        ],
+        "wire": [
+          "operator-ops.wire"
+        ],
+        "receipt": [
+          "operator-ops.receipt"
+        ],
+        "effects": [
+          "operator-ops.effects"
+        ],
+        "instrumentation": [
+          "operator-ops.variant-instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14585,
+          "end": 14808,
+          "sha256": "1ef2df1ffd621e60c206a5bf40156cc6d72ccc99f9e88f03b571e4ab05d818a3"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14536,
+          "end": 14544,
+          "sha256": "58d11ceb33aef9aeb84a6c701b502c0d03eda9083ee1acb44946d8edf984d5df"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5000,
+          "end": 5078,
+          "sha256": "39ac000fcf85302aa8825d5d6e1bef5f2a693dd74c4d0268f89c29b17f7666a4"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "operator.cheap-compact": {
+      "entry_ids": [
+        "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "equals": {
+          "key": "op",
+          "value": "cheap_compact"
+        }
+      },
+      "dimensions": {
+        "authority": [
+          "operator-ops.authority"
+        ],
+        "reads": [
+          "operator-ops.reads"
+        ],
+        "writes": [
+          "operator-ops.writes"
+        ],
+        "predicates": [
+          "operator-ops.predicates"
+        ],
+        "conflicts": [
+          "operator-ops.variant-conflicts"
+        ],
+        "wire": [
+          "operator-ops.wire"
+        ],
+        "receipt": [
+          "operator-ops.receipt"
+        ],
+        "effects": [
+          "operator-ops.effects"
+        ],
+        "instrumentation": [
+          "operator-ops.variant-instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14585,
+          "end": 14808,
+          "sha256": "1ef2df1ffd621e60c206a5bf40156cc6d72ccc99f9e88f03b571e4ab05d818a3"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5245,
+          "end": 5327,
+          "sha256": "f495153dfc32fcea96009363a901be01860c98277f88544fed8e3277e19662a2"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "operator.rehire": {
+      "entry_ids": [
+        "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "equals": {
+          "key": "op",
+          "value": "rehire"
+        }
+      },
+      "dimensions": {
+        "authority": [
+          "operator-ops.authority"
+        ],
+        "reads": [
+          "operator-ops.reads"
+        ],
+        "writes": [
+          "operator-ops.writes"
+        ],
+        "predicates": [
+          "operator-ops.predicates"
+        ],
+        "conflicts": [
+          "operator-ops.variant-conflicts"
+        ],
+        "wire": [
+          "operator-ops.wire"
+        ],
+        "receipt": [
+          "operator-ops.receipt"
+        ],
+        "effects": [
+          "operator-ops.effects"
+        ],
+        "instrumentation": [
+          "operator-ops.variant-instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14585,
+          "end": 14808,
+          "sha256": "1ef2df1ffd621e60c206a5bf40156cc6d72ccc99f9e88f03b571e4ab05d818a3"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5330,
+          "end": 5588,
+          "sha256": "4efcfb5f9298374d0a3a146d96d9b8eb47235e5be894a4d940f2f7d95272af7e"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14567,
+          "end": 14573,
+          "sha256": "35f3d5a05cecea3c308db382b21b4712a3549a347f1c595c30f08a7192f2be5e"
+        }
+      ],
+      "domain_mode": "conditional_write"
+    },
+    "operator.dissolve": {
+      "entry_ids": [
+        "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "all": [
+          {
+            "equals": {
+              "key": "op",
+              "value": "dissolve"
+            }
+          },
+          {
+            "not": {
+              "truthy_text": "preview"
+            }
+          }
+        ]
+      },
+      "dimensions": {
+        "authority": [
+          "operator-ops.authority"
+        ],
+        "reads": [
+          "operator-ops.reads"
+        ],
+        "writes": [
+          "operator-ops.writes"
+        ],
+        "predicates": [
+          "operator-ops.predicates"
+        ],
+        "conflicts": [
+          "operator-ops.variant-conflicts"
+        ],
+        "wire": [
+          "operator-ops.wire"
+        ],
+        "receipt": [
+          "operator-ops.receipt"
+        ],
+        "effects": [
+          "operator-ops.effects"
+        ],
+        "instrumentation": [
+          "operator-ops.variant-instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14585,
+          "end": 14808,
+          "sha256": "1ef2df1ffd621e60c206a5bf40156cc6d72ccc99f9e88f03b571e4ab05d818a3"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14536,
+          "end": 14544,
+          "sha256": "58d11ceb33aef9aeb84a6c701b502c0d03eda9083ee1acb44946d8edf984d5df"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5617,
+          "end": 5647,
+          "sha256": "66d901ad6e98372ead29068f704bc809843c023ce5e84b4090bd1931a9f63f4c"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "operator.delete": {
+      "entry_ids": [
+        "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "all": [
+          {
+            "equals": {
+              "key": "op",
+              "value": "delete"
+            }
+          },
+          {
+            "not": {
+              "truthy_text": "preview"
+            }
+          }
+        ]
+      },
+      "dimensions": {
+        "authority": [
+          "operator-ops.authority"
+        ],
+        "reads": [
+          "operator-ops.reads"
+        ],
+        "writes": [
+          "operator-ops.writes"
+        ],
+        "predicates": [
+          "operator-ops.predicates"
+        ],
+        "conflicts": [
+          "operator-ops.variant-conflicts"
+        ],
+        "wire": [
+          "operator-ops.wire"
+        ],
+        "receipt": [
+          "operator-ops.receipt"
+        ],
+        "effects": [
+          "operator-ops.effects"
+        ],
+        "instrumentation": [
+          "operator-ops.variant-instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14585,
+          "end": 14808,
+          "sha256": "1ef2df1ffd621e60c206a5bf40156cc6d72ccc99f9e88f03b571e4ab05d818a3"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5660,
+          "end": 5747,
+          "sha256": "b554a1bea0797ef4c02a90652b2e64fdc20a3a0bd1b5f9e5dbc6bd64d22b563f"
+        },
+        {
+          "path": "engine/backend/orgtree/supervisor.py",
+          "start": 33313,
+          "end": 33333,
+          "sha256": "f8021fef1c3ef06699c351e87cccab713ec03c9f40f51cf865d0a2068034e509"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "operator.switch-model": {
+      "entry_ids": [
+        "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "all": [
+          {
+            "equals": {
+              "key": "op",
+              "value": "switch_model"
+            }
+          },
+          {
+            "not": {
+              "truthy_text": "preview"
+            }
+          }
+        ]
+      },
+      "dimensions": {
+        "authority": [
+          "operator-ops.authority"
+        ],
+        "reads": [
+          "operator-ops.reads"
+        ],
+        "writes": [
+          "operator-ops.writes"
+        ],
+        "predicates": [
+          "operator-ops.predicates"
+        ],
+        "conflicts": [
+          "operator-ops.variant-conflicts"
+        ],
+        "wire": [
+          "operator-ops.wire"
+        ],
+        "receipt": [
+          "operator-ops.receipt"
+        ],
+        "effects": [
+          "operator-ops.effects"
+        ],
+        "instrumentation": [
+          "operator-ops.variant-instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14585,
+          "end": 14808,
+          "sha256": "1ef2df1ffd621e60c206a5bf40156cc6d72ccc99f9e88f03b571e4ab05d818a3"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 5800,
+          "end": 6125,
+          "sha256": "c27697c81f4c248ed773edc3a4de5a3e7ed5a0d6c060fe51a8c014601f7d9cee"
+        }
+      ],
+      "domain_mode": "conditional_write"
+    },
+    "operator.promote": {
+      "entry_ids": [
+        "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "all": [
+          {
+            "equals": {
+              "key": "op",
+              "value": "promote"
+            }
+          },
+          {
+            "not": {
+              "truthy_text": "preview"
+            }
+          }
+        ]
+      },
+      "dimensions": {
+        "authority": [
+          "operator-ops.authority"
+        ],
+        "reads": [
+          "operator-ops.reads"
+        ],
+        "writes": [
+          "operator-ops.writes"
+        ],
+        "predicates": [
+          "operator-ops.predicates"
+        ],
+        "conflicts": [
+          "operator-ops.variant-conflicts"
+        ],
+        "wire": [
+          "operator-ops.wire"
+        ],
+        "receipt": [
+          "operator-ops.receipt"
+        ],
+        "effects": [
+          "operator-ops.effects"
+        ],
+        "instrumentation": [
+          "operator-ops.variant-instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14585,
+          "end": 14808,
+          "sha256": "1ef2df1ffd621e60c206a5bf40156cc6d72ccc99f9e88f03b571e4ab05d818a3"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6232,
+          "end": 6251,
+          "sha256": "279c0d9546d3e8ee0734a4763eb73560491187dbec423ab5cc2126195534b027"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "operator.demote": {
+      "entry_ids": [
+        "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "all": [
+          {
+            "equals": {
+              "key": "op",
+              "value": "demote"
+            }
+          },
+          {
+            "not": {
+              "truthy_text": "preview"
+            }
+          }
+        ]
+      },
+      "dimensions": {
+        "authority": [
+          "operator-ops.authority"
+        ],
+        "reads": [
+          "operator-ops.reads"
+        ],
+        "writes": [
+          "operator-ops.writes"
+        ],
+        "predicates": [
+          "operator-ops.predicates"
+        ],
+        "conflicts": [
+          "operator-ops.variant-conflicts"
+        ],
+        "wire": [
+          "operator-ops.wire"
+        ],
+        "receipt": [
+          "operator-ops.receipt"
+        ],
+        "effects": [
+          "operator-ops.effects"
+        ],
+        "instrumentation": [
+          "operator-ops.variant-instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14585,
+          "end": 14808,
+          "sha256": "1ef2df1ffd621e60c206a5bf40156cc6d72ccc99f9e88f03b571e4ab05d818a3"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6253,
+          "end": 6257,
+          "sha256": "27dad3c6b737674c13795715d8093220d29e18016ac628118a6e40720dd52643"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "operator.move": {
+      "entry_ids": [
+        "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "all": [
+          {
+            "equals": {
+              "key": "op",
+              "value": "move"
+            }
+          },
+          {
+            "not": {
+              "truthy_text": "preview"
+            }
+          }
+        ]
+      },
+      "dimensions": {
+        "authority": [
+          "operator-ops.authority"
+        ],
+        "reads": [
+          "operator-ops.reads"
+        ],
+        "writes": [
+          "operator-ops.writes"
+        ],
+        "predicates": [
+          "operator-ops.predicates"
+        ],
+        "conflicts": [
+          "operator-ops.variant-conflicts"
+        ],
+        "wire": [
+          "operator-ops.wire"
+        ],
+        "receipt": [
+          "operator-ops.receipt"
+        ],
+        "effects": [
+          "operator-ops.effects"
+        ],
+        "instrumentation": [
+          "operator-ops.variant-instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14585,
+          "end": 14808,
+          "sha256": "1ef2df1ffd621e60c206a5bf40156cc6d72ccc99f9e88f03b571e4ab05d818a3"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 6259,
+          "end": 6282,
+          "sha256": "4c69c5e5d1aa404c0e8ee8c1b5447b64367376eb6ff5a2afb6d90edb2af1eb1b"
+        }
+      ],
+      "domain_mode": "conditional_write"
+    },
+    "operator.reseed": {
+      "entry_ids": [
+        "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "all": [
+          {
+            "equals": {
+              "key": "op",
+              "value": "reseed"
+            }
+          },
+          {
+            "not": {
+              "truthy_text": "preview"
+            }
+          }
+        ]
+      },
+      "dimensions": {
+        "authority": [
+          "operator-ops.authority"
+        ],
+        "reads": [
+          "operator-ops.reads"
+        ],
+        "writes": [
+          "operator-ops.writes"
+        ],
+        "predicates": [
+          "operator-ops.predicates"
+        ],
+        "conflicts": [
+          "operator-ops.variant-conflicts"
+        ],
+        "wire": [
+          "operator-ops.wire"
+        ],
+        "receipt": [
+          "operator-ops.receipt"
+        ],
+        "effects": [
+          "operator-ops.effects"
+        ],
+        "instrumentation": [
+          "operator-ops.variant-instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14585,
+          "end": 14808,
+          "sha256": "1ef2df1ffd621e60c206a5bf40156cc6d72ccc99f9e88f03b571e4ab05d818a3"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 11410,
+          "end": 11526,
+          "sha256": "4485c341dbc81fb36da750e2b8ade491321f5bb32c61b71536edcc55d90dae59"
+        }
+      ],
+      "domain_mode": "conditional_write"
+    },
+    "operator.revoke-dir": {
+      "entry_ids": [
+        "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "all": [
+          {
+            "equals": {
+              "key": "op",
+              "value": "revoke_dir"
+            }
+          },
+          {
+            "not": {
+              "truthy_text": "preview"
+            }
+          }
+        ]
+      },
+      "dimensions": {
+        "authority": [
+          "operator-ops.authority"
+        ],
+        "reads": [
+          "operator-ops.reads"
+        ],
+        "writes": [
+          "operator-ops.writes"
+        ],
+        "predicates": [
+          "operator-ops.predicates"
+        ],
+        "conflicts": [
+          "operator-ops.variant-conflicts"
+        ],
+        "wire": [
+          "operator-ops.wire"
+        ],
+        "receipt": [
+          "operator-ops.receipt"
+        ],
+        "effects": [
+          "operator-ops.effects"
+        ],
+        "instrumentation": [
+          "operator-ops.variant-instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14585,
+          "end": 14808,
+          "sha256": "1ef2df1ffd621e60c206a5bf40156cc6d72ccc99f9e88f03b571e4ab05d818a3"
+        },
+        {
+          "path": "engine/backend/orgtree/ledger.py",
+          "start": 7296,
+          "end": 7306,
+          "sha256": "2fc918aa8f11432cf4da848c22c63fdcaefbacb9c71f3f97d52058326d700c36"
+        }
+      ],
+      "domain_mode": "write"
+    },
+    "operator.preview": {
+      "entry_ids": [
+        "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5"
+      ],
+      "tools": [],
+      "action": null,
+      "action_normalization": "identity",
+      "when": {
+        "all": [
+          {
+            "truthy_text": "preview"
+          },
+          {
+            "not": {
+              "equals": {
+                "key": "op",
+                "value": "hire"
+              }
+            }
+          },
+          {
+            "not": {
+              "equals": {
+                "key": "op",
+                "value": "rename"
+              }
+            }
+          },
+          {
+            "not": {
+              "equals": {
+                "key": "op",
+                "value": "cheap_compact"
+              }
+            }
+          },
+          {
+            "not": {
+              "equals": {
+                "key": "op",
+                "value": "rehire"
+              }
+            }
+          }
+        ]
+      },
+      "dimensions": {
+        "authority": [
+          "operator-ops.authority"
+        ],
+        "reads": [
+          "operator-ops.reads"
+        ],
+        "writes": [
+          "operator-ops.writes"
+        ],
+        "predicates": [
+          "operator-ops.predicates"
+        ],
+        "conflicts": [
+          "operator-ops.variant-conflicts"
+        ],
+        "wire": [
+          "operator-ops.wire"
+        ],
+        "receipt": [
+          "operator-ops.receipt"
+        ],
+        "effects": [
+          "operator-ops.effects"
+        ],
+        "instrumentation": [
+          "operator-ops.variant-instrumentation"
+        ]
+      },
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14468,
+          "end": 14511,
+          "sha256": "2fd52011f52a9e48a04ad7288f5f47e461ef0873b49a582ba984fd3cdc4bdf72"
+        },
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 279,
+          "end": 295,
+          "sha256": "a431e52f84f88174e778c24fee83e534935a186313f0eb2cb71876307d40ee2b"
+        },
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 224,
+          "end": 276,
+          "sha256": "2301bc478d5b39bc35db0fd4a707ebc2dbaa24afda378c2fa49aef3db17d19b5"
+        }
+      ],
+      "domain_mode": "read"
     }
   },
   "wire_cases": [
@@ -12808,6 +14016,152 @@
       },
       "contract": "lifecycle.repair-rename",
       "domain_mode": "write"
+    },
+    {
+      "name": "operator-rename:operator.rename",
+      "entry_id": "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5",
+      "args": {
+        "op": "rename",
+        "node": "leaf",
+        "name": "x"
+      },
+      "contract": "operator.rename",
+      "domain_mode": "write"
+    },
+    {
+      "name": "operator-retire:operator.retire",
+      "entry_id": "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5",
+      "args": {
+        "op": "retire",
+        "node": "leaf"
+      },
+      "contract": "operator.retire",
+      "domain_mode": "write"
+    },
+    {
+      "name": "operator-rescind:operator.rescind",
+      "entry_id": "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5",
+      "args": {
+        "op": "rescind",
+        "node": "leaf"
+      },
+      "contract": "operator.rescind",
+      "domain_mode": "write"
+    },
+    {
+      "name": "operator-cheap_compact:operator.cheap-compact",
+      "entry_id": "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5",
+      "args": {
+        "op": "cheap_compact",
+        "node": "leaf"
+      },
+      "contract": "operator.cheap-compact",
+      "domain_mode": "write"
+    },
+    {
+      "name": "operator-rehire:operator.rehire",
+      "entry_id": "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5",
+      "args": {
+        "op": "rehire",
+        "node": "leaf"
+      },
+      "contract": "operator.rehire",
+      "domain_mode": "conditional_write"
+    },
+    {
+      "name": "operator-dissolve:operator.dissolve",
+      "entry_id": "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5",
+      "args": {
+        "op": "dissolve",
+        "node": "leaf"
+      },
+      "contract": "operator.dissolve",
+      "domain_mode": "write"
+    },
+    {
+      "name": "operator-delete:operator.delete",
+      "entry_id": "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5",
+      "args": {
+        "op": "delete",
+        "node": "leaf"
+      },
+      "contract": "operator.delete",
+      "domain_mode": "write"
+    },
+    {
+      "name": "operator-switch_model:operator.switch-model",
+      "entry_id": "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5",
+      "args": {
+        "op": "switch_model",
+        "node": "leaf",
+        "tier": "sonnet"
+      },
+      "contract": "operator.switch-model",
+      "domain_mode": "conditional_write"
+    },
+    {
+      "name": "operator-promote:operator.promote",
+      "entry_id": "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5",
+      "args": {
+        "op": "promote",
+        "node": "leaf"
+      },
+      "contract": "operator.promote",
+      "domain_mode": "write"
+    },
+    {
+      "name": "operator-demote:operator.demote",
+      "entry_id": "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5",
+      "args": {
+        "op": "demote",
+        "node": "sib",
+        "new_parent": "mid"
+      },
+      "contract": "operator.demote",
+      "domain_mode": "write"
+    },
+    {
+      "name": "operator-move:operator.move",
+      "entry_id": "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5",
+      "args": {
+        "op": "move",
+        "node": "leaf",
+        "new_parent": "sib"
+      },
+      "contract": "operator.move",
+      "domain_mode": "conditional_write"
+    },
+    {
+      "name": "operator-reseed:operator.reseed",
+      "entry_id": "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5",
+      "args": {
+        "op": "reseed",
+        "node": "leaf"
+      },
+      "contract": "operator.reseed",
+      "domain_mode": "conditional_write"
+    },
+    {
+      "name": "operator-revoke_dir:operator.revoke-dir",
+      "entry_id": "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5",
+      "args": {
+        "op": "revoke_dir",
+        "node": "mid",
+        "dir": "d"
+      },
+      "contract": "operator.revoke-dir",
+      "domain_mode": "write"
+    },
+    {
+      "name": "operator-preview:operator.preview",
+      "entry_id": "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5",
+      "args": {
+        "op": "retire",
+        "node": "leaf",
+        "preview": true
+      },
+      "contract": "operator.preview",
+      "domain_mode": "read"
     }
   ],
   "limits": [
@@ -14174,10 +15528,40 @@
     },
     {
       "id": "58c040d3bb6ff7e4b8456d7caa779d9f5db0c8e52d13499aeb4dff974b6060e5",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Operator ops route: `op` hire and reallocate are contracted (operator.hire, operator.reallocate, S3 candidate 6b); rename, retire, rescind, cheap_compact, rehire, dissolve, delete, switch_model, promote, demote, move, reseed, revoke_dir and every preview are uncontracted, so the route stays pending. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "operator.cheap-compact",
+        "operator.delete",
+        "operator.demote",
+        "operator.dissolve",
+        "operator.hire",
+        "operator.move",
+        "operator.preview",
+        "operator.promote",
+        "operator.reallocate",
+        "operator.rehire",
+        "operator.rename",
+        "operator.rescind",
+        "operator.reseed",
+        "operator.retire",
+        "operator.revoke-dir",
+        "operator.switch-model"
+      ],
+      "reason": "POST /api/orgs/{slug}/ops: the operator ops door. Every `op` it dispatches is contracted (operator.hire and operator.reallocate in S3, the rest and the preview in P01 F1b).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14465,
+          "end": 14582,
+          "sha256": "1867b9de1eaf72536652d371b2f4eed2e48750069cdf6b27b9b907d5e0338a83"
+        },
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14585,
+          "end": 14808,
+          "sha256": "1ef2df1ffd621e60c206a5bf40156cc6d72ccc99f9e88f03b571e4ab05d818a3"
+        }
+      ]
     },
     {
       "id": "b61122af213f6f6bf04fea60baac9d211f915b416bd78f296985b0f00d41bd58",
@@ -17057,31 +18441,71 @@
     },
     {
       "id": "a3b59ae683f581e5498d4ad7bdae004fd0aa18e50fbdc8d61d4262eb01863fae",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W6): the operator ops route's switch_model branch (api.org_op); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "operator.preview"
+      ],
+      "reason": "org_op's switch_model gate inside the preview branch, reached only by operator.preview (P01 F1b).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14493,
+          "end": 14493,
+          "sha256": "988c125ebac9213b4f69e84930c4a0d2b563454fe63cb1a75234ec6d0952db07"
+        }
+      ]
     },
     {
       "id": "a9a577ed105a04cb90a432934373ff1c374faebd70d6c4c38c0a16ddfdde5d11",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W6): the operator ops route's rename branch (api.org_op); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "operator.rename"
+      ],
+      "reason": "The operator ops door's rename branch (api.org_op), every operation it admits contracted (P01 F1b, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14517,
+          "end": 14517,
+          "sha256": "f69e7f0426e1e954d3ee7f06123e4cd0bff638e9ca139a5082ceb29799611a61"
+        }
+      ]
     },
     {
       "id": "6da13d1d9f5cc6631527a25c577c300cb4ccfd9ae2f7d99b6cbb2e1b5017131e",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W6): the operator ops route's retire, dissolve and rescind branch (api.org_op); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "operator.dissolve",
+        "operator.rescind",
+        "operator.retire"
+      ],
+      "reason": "The operator ops door's retire and dissolve and rescind branch (api.org_op), every operation it admits contracted (P01 F1b, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14536,
+          "end": 14536,
+          "sha256": "4215e28d77bf57f9025103dde5519b627ebc103e09b134f206da1e2060f59514"
+        }
+      ]
     },
     {
       "id": "e5019a836aa33163ffe1b50b3dfcb3f802098c208f8adfa90fdabc2cb965a268",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W6): the operator ops route's branch for anything but dissolve (api.org_op); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "operator.dissolve",
+        "operator.rescind",
+        "operator.retire"
+      ],
+      "reason": "org_op's allow_self test inside the retire, dissolve and rescind pre-guard, reached by those three contracted operations (P01 F1b, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14540,
+          "end": 14540,
+          "sha256": "91abc10026011c3c37f3b81135c01d082d43808400ed51b891dec2464078c6c2"
+        }
+      ]
     },
     {
       "id": "7f54e43038e80f8401b044a8e294e3222be3bc9416072a0218851a1921db075d",
@@ -17101,10 +18525,23 @@
     },
     {
       "id": "4fc178c11e8a669e97e92330464d73f73dc50a4e275706c6fd9ecfc76446ccf5",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W6): the operator ops route's retire, dissolve, delete, rescind and cheap_compact branch (api.org_op); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "operator.cheap-compact",
+        "operator.delete",
+        "operator.dissolve",
+        "operator.rescind",
+        "operator.retire"
+      ],
+      "reason": "The operator ops door's retire and dissolve and delete and rescind and cheap_compact branch (api.org_op), every operation it admits contracted (P01 F1b, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14559,
+          "end": 14559,
+          "sha256": "9c9a989bc9526ea05dabe9e2e22e37206a0cff4ed1752b8f96e8e4c41171698b"
+        }
+      ]
     },
     {
       "id": "5f1a8bab50cdb912618e380361f4d5876fe7e3201542c07abe7538380873eb0a",
@@ -17124,45 +18561,99 @@
     },
     {
       "id": "3bd5ecdfa6b95a5da9dadcceb21809f108ad0368f0234cf325c1f088f88d428b",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W6): the operator ops route's retire branch (api._org_op_locked); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "operator.retire"
+      ],
+      "reason": "The operator ops door's retire branch (api._org_op_locked), every operation it admits contracted (P01 F1b, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14697,
+          "end": 14697,
+          "sha256": "1cf9c5d4b426a726776340ff369dcf5e87b29c1c96f9e3fd95ff31cd69c7b1e2"
+        }
+      ]
     },
     {
       "id": "3f92a09a2251f2ea1bb7f2b288f0f747f65cd4629b66924658feeddabdf3f0a4",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W6): the operator ops route's rescind branch (api._org_op_locked); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "operator.rescind"
+      ],
+      "reason": "The operator ops door's rescind branch (api._org_op_locked), every operation it admits contracted (P01 F1b, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14699,
+          "end": 14699,
+          "sha256": "66ce269743f1de2fd1f2b22621c69a350b6645f3e90c3d84436018162190ae1c"
+        }
+      ]
     },
     {
       "id": "35b3fa2af5310cd6c8564dab07d3f7b2130875f8022e5d5f4cd407046897327d",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W6): the operator ops route's cheap_compact branch (api._org_op_locked); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "operator.cheap-compact"
+      ],
+      "reason": "The operator ops door's cheap_compact branch (api._org_op_locked), every operation it admits contracted (P01 F1b, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14704,
+          "end": 14704,
+          "sha256": "98e66118953f861a5d573299a0c95aaaa6d3c4d2a63f44b2ee3e877dcc4b0591"
+        }
+      ]
     },
     {
       "id": "5cfd72a333956086e401dc039ac5c9838b3f0a964229301b06de780cc0ccf9be",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W6): the operator ops route's rehire branch (api._org_op_locked); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "operator.rehire"
+      ],
+      "reason": "The operator ops door's rehire branch (api._org_op_locked), every operation it admits contracted (P01 F1b, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14724,
+          "end": 14724,
+          "sha256": "10e56710b8fa61fb7852a92b2ea6ab9d3c4d5d9b0befe8028afeeabbcf5d44df"
+        }
+      ]
     },
     {
       "id": "8351f85e420ce097437802ac97aea088018bbc976b0758368f6f3845e938e4fb",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W6): the operator ops route's dissolve branch (api._org_op_locked); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "operator.dissolve"
+      ],
+      "reason": "The operator ops door's dissolve branch (api._org_op_locked), every operation it admits contracted (P01 F1b, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14740,
+          "end": 14740,
+          "sha256": "3de3fd1e13eb7f9f520279d673b203572fc687988d319025162bb741857b9f1e"
+        }
+      ]
     },
     {
       "id": "ff2db95246db4d3e33fe74883b7a5a9ee86e86416c9c7537a1183542a4c33cf8",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W6): the operator ops route's delete branch (api._org_op_locked); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "operator.delete"
+      ],
+      "reason": "The operator ops door's delete branch (api._org_op_locked), every operation it admits contracted (P01 F1b, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14742,
+          "end": 14742,
+          "sha256": "bc17d2bfd2a3d00555e4e65ddc5bf8bd81a07b48ee57dca2df6c837ea6ab9272"
+        }
+      ]
     },
     {
       "id": "2ff7dc9311b4d03896f17c7589ec37facb16e4e8c739008b65eb535b50a70483",
@@ -17182,45 +18673,99 @@
     },
     {
       "id": "682c530f50b1896dc75327c4b117b774d08ea2a9fe88109529222c29a3f163ad",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W6): the operator ops route's switch_model branch (api._org_op_locked); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: the runtime (P08).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "operator.switch-model"
+      ],
+      "reason": "The operator ops door's switch_model branch (api._org_op_locked), every operation it admits contracted (P01 F1b, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14749,
+          "end": 14749,
+          "sha256": "8e7ca55d51598f9b485c37c0690811b54bd65c9295e72bfc2d5fd4ede6d085a7"
+        }
+      ]
     },
     {
       "id": "e510048dad524e64160ad12bf0e20adece934f33fa0d139f0176f16ddb6c67e1",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W6): the operator ops route's promote branch (api._org_op_locked); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "operator.promote"
+      ],
+      "reason": "The operator ops door's promote branch (api._org_op_locked), every operation it admits contracted (P01 F1b, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14783,
+          "end": 14783,
+          "sha256": "a415d4122baad2294dc1a0695fc6d693e3d8649982c55c3dbb3ca5eb83963fc9"
+        }
+      ]
     },
     {
       "id": "4ffdbb90ab03288c0c9e66817bfa0f6efaf6c174c6516fae27c8f60ca136c5ed",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W6): the operator ops route's demote branch (api._org_op_locked); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "operator.demote"
+      ],
+      "reason": "The operator ops door's demote branch (api._org_op_locked), every operation it admits contracted (P01 F1b, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14785,
+          "end": 14785,
+          "sha256": "0f09839ebe287e20a8d999ebdeb95ae94f5a7dbe009f6cad75d5ffe392d33c9c"
+        }
+      ]
     },
     {
       "id": "08094805714f1f9aed6330add717ee8fd3eb35a3c2eba486c52b552950426418",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W6): the operator ops route's move branch (api._org_op_locked); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "operator.move"
+      ],
+      "reason": "The operator ops door's move branch (api._org_op_locked), every operation it admits contracted (P01 F1b, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14789,
+          "end": 14789,
+          "sha256": "aac79226e80629afb34cc29db849bc6ec1cd680805bb3986459d3e38336a30ef"
+        }
+      ]
     },
     {
       "id": "9741730ce355d6cbb0ed0d7b31b792a44dd73f69cc426103826766e8364df7d7",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W6): the operator ops route's reseed branch (api._org_op_locked); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "operator.reseed"
+      ],
+      "reason": "The operator ops door's reseed branch (api._org_op_locked), every operation it admits contracted (P01 F1b, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14791,
+          "end": 14791,
+          "sha256": "4cff0a4e91c83a013f55a01b8d4ce7f1eca5f2e9050942cd6c2263a065de485b"
+        }
+      ]
     },
     {
       "id": "b9b2d0e9dac4bf30bfee0b8d0a930cc88a14d5a98d37c42dc1ddafc5a5a54832",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W6): the operator ops route's revoke_dir branch (api._org_op_locked); only hire and reallocate are contracted (operator.hire, operator.reallocate), and the other operator operations change org state with no contract. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "operator.revoke-dir"
+      ],
+      "reason": "The operator ops door's revoke_dir branch (api._org_op_locked), every operation it admits contracted (P01 F1b, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/api.py",
+          "start": 14793,
+          "end": 14793,
+          "sha256": "336f6cbf48f487e83d53f287aad75e67b84e2a6a05f83f179b6854304d1214d7"
+        }
+      ]
     },
     {
       "id": "b07f7c84d90501c93280583285a1220a063a7ae2b9e396c380773f6601af4f19",
@@ -17912,10 +19457,20 @@
     },
     {
       "id": "2d642810bb69f6b539b39319719c8be007197e65fbf0e397620cf8b822686570",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W6): the state preview's simulation of move_batch (statepreview._apply), which applies that operator operation to a preview clone. The branch is shared by the contracted preview.agent and the operator route's uncontracted previews, so under the shared-selector rule it stays pending. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "operator.preview",
+        "preview.agent"
+      ],
+      "reason": "statepreview._apply's move_batch branch: neither preview door admits the operation name move_batch (the agent door's _AGENT_PREVIEW_OPS and the operator door's preview set both refuse it), so no door reaches this branch; both callers of _apply are contracted (P01 F1b, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 234,
+          "end": 234,
+          "sha256": "07937c3187074e6f2af5d58936f681138f559216d49f1805f9132ae4130f0162"
+        }
+      ]
     },
     {
       "id": "43ef3a07637300487eff6ed3e4b61bf2bca0ae8b34a0f82f17bb0fa3015c02b3",
@@ -17999,38 +19554,83 @@
     },
     {
       "id": "7c1876f6c6a451e5a9f6e1d716e4bad698113ac23ce7749d8c13b661ee5ca6fe",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W6): the state preview's simulation of delete (statepreview._apply), which applies that operator operation to a preview clone. The branch is shared by the contracted preview.agent and the operator route's uncontracted previews, so under the shared-selector rule it stays pending. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "operator.preview"
+      ],
+      "reason": "statepreview._apply's delete simulation, reached only by the operator door's preview (the agent preview does not admit delete), now contracted (P01 F1b, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 253,
+          "end": 253,
+          "sha256": "dc77e04b3628414e830e4cd8d3c6f57bc23fe3e0d9ae1d56769d93323501a556"
+        }
+      ]
     },
     {
       "id": "4e20508f63ee2ab9059b5e42f9ef06021c55631e8bb457edfdef2506c84dc077",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W6): the state preview's simulation of rescind (statepreview._apply), which applies that operator operation to a preview clone. The branch is shared by the contracted preview.agent and the operator route's uncontracted previews, so under the shared-selector rule it stays pending. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "operator.preview"
+      ],
+      "reason": "statepreview._apply's rescind simulation, reached only by the operator door's preview (the agent preview does not admit rescind), now contracted (P01 F1b, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 255,
+          "end": 255,
+          "sha256": "81c49c0505eeee86b01b37826fb40e04830054f2b773f1b9e8526eea8bc2569d"
+        }
+      ]
     },
     {
       "id": "52faf8fa66886f6cf9086aa172e63fb23a68c9ceea8fe8bccb7130e3ea0c0832",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W6): the state preview's simulation of promote (statepreview._apply), which applies that operator operation to a preview clone. The branch is shared by the contracted preview.agent and the operator route's uncontracted previews, so under the shared-selector rule it stays pending. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "operator.preview"
+      ],
+      "reason": "statepreview._apply's promote simulation, reached only by the operator door's preview (the agent preview does not admit promote), now contracted (P01 F1b, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 257,
+          "end": 257,
+          "sha256": "a5ca5c2152d73c2bfca901a7d20a0936662cc72e012aced477aba8a9a21734a9"
+        }
+      ]
     },
     {
       "id": "2c8451c45960fd187312365ffd6a7271f0e1069d905962933035837a905792ac",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W6): the state preview's simulation of demote (statepreview._apply), which applies that operator operation to a preview clone. The branch is shared by the contracted preview.agent and the operator route's uncontracted previews, so under the shared-selector rule it stays pending. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "operator.preview"
+      ],
+      "reason": "statepreview._apply's demote simulation, reached only by the operator door's preview (the agent preview does not admit demote), now contracted (P01 F1b, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 259,
+          "end": 259,
+          "sha256": "3c20cd9fe6986ada2d49590381dea084e1d7929f90dc3d1b53d4c593b91703a3"
+        }
+      ]
     },
     {
       "id": "8fbf08193efb9e314d2229aa7d15003fd5238b7174d3cdd4702a579a2a214e3b",
-      "disposition": "pending",
-      "contracts": [],
-      "reason": "Stays pending (P01 W6): the state preview's simulation of reseed (statepreview._apply), which applies that operator operation to a preview clone. The branch is shared by the contracted preview.agent and the operator route's uncontracted previews, so under the shared-selector rule it stays pending. Owner: P01, once the org lifecycle operations join the contracted surface (outside the accepted surface today).",
-      "source_refs": []
+      "disposition": "mapped",
+      "contracts": [
+        "operator.preview"
+      ],
+      "reason": "statepreview._apply's reseed simulation, reached only by the operator door's preview (the agent preview does not admit reseed), now contracted (P01 F1b, rule 1).",
+      "source_refs": [
+        {
+          "path": "engine/backend/orgtree/statepreview.py",
+          "start": 261,
+          "end": 261,
+          "sha256": "4ebf6cdcd5bbf397f519acce0977c82e4fd26700d946f873fc965956b5a1936b"
+        }
+      ]
     },
     {
       "id": "8652b2107caf73367b18b5bbdf7aa219409576d2e77ceeca3a5208f2981fea4a",

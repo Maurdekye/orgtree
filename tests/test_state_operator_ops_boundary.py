@@ -79,10 +79,10 @@ class BoundaryBinding(unittest.TestCase):
             self.assertEqual(registry['facets']['operator-ops.' + name]['status'], 'unresolved', name)
         for name in ('reads', 'instrumentation'):
             self.assertEqual(registry['facets']['operator-ops.' + name]['status'], 'specified', name)
-        # the route stays pending: its other ops are uncontracted
+        # P01 F1b contracted every other op and the preview, so the door is mapped now
         row = ops_entry(registry)
-        self.assertEqual((row['disposition'], row['contracts']), ('pending', []))
-        self.assertIn('rename', row['reason'])
+        self.assertEqual(row['disposition'], 'mapped')
+        self.assertLessEqual(NAMES, set(row['contracts']))
 
     def test_stale_incomplete_or_elevated_fixture_refuses(self):
         for edit in [lambda d: d['contracts'].pop('operator.reallocate'), lambda d: d.update(covered=True),
@@ -100,7 +100,9 @@ class BoundaryBinding(unittest.TestCase):
         cases = [({'op': 'hire'}, ['operator.hire']), ({'op': 'hire', 'preview': True}, ['operator.hire']),
                  ({'op': 'reallocate', 'delta': 1}, ['operator.reallocate']),
                  ({'op': 'reallocate', 'preview': False}, ['operator.reallocate']),
-                 ({'op': 'reallocate', 'preview': True}, []), ({'op': 'retire'}, []), ({}, [])]
+                 # P01 F1b: a reallocate preview is operator.preview, a retire is operator.retire
+                 ({'op': 'reallocate', 'preview': True}, ['operator.preview']),
+                 ({'op': 'retire'}, ['operator.retire']), ({}, [])]
         for args, want in cases:
             with self.subTest(args=args):
                 self.assertEqual(contracts.select(registry, ops, args), want)
@@ -110,7 +112,8 @@ class BoundaryBinding(unittest.TestCase):
         registry = copy.deepcopy(contracts.load(ROOT / 'docs/state-system/operation-contracts.json'))
         registry['contracts']['operator.reallocate']['when'] = {'equals': {'key': 'op', 'value': 'reallocate'}}
         ops = ops_entry(registry)['id']
-        self.assertEqual(contracts.select(registry, ops, {'op': 'reallocate', 'preview': True}), ['operator.reallocate'])
+        self.assertEqual(contracts.select(registry, ops, {'op': 'reallocate', 'preview': True}),
+                         ['operator.reallocate', 'operator.preview'])
 
 
 class OperatorOpsBoundary(unittest.TestCase):

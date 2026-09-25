@@ -1,0 +1,375 @@
+{
+  "schema": "orgtree.operator-variants-boundary/v1",
+  "source_contract_sha256": "b9ed7b894e5754d40fd86d1b833d941e31b8b89b3ec7611a300262f7b8584e46",
+  "qualification": {
+    "runtime_census": false,
+    "conversion_authorized": false
+  },
+  "contracts": {
+    "operator.cheap-compact": "POST /api/orgs/{slug}/ops op=cheap_compact",
+    "operator.delete": "POST /api/orgs/{slug}/ops op=delete",
+    "operator.demote": "POST /api/orgs/{slug}/ops op=demote",
+    "operator.dissolve": "POST /api/orgs/{slug}/ops op=dissolve",
+    "operator.move": "POST /api/orgs/{slug}/ops op=move",
+    "operator.preview": "POST /api/orgs/{slug}/ops op=* preview",
+    "operator.promote": "POST /api/orgs/{slug}/ops op=promote",
+    "operator.rehire": "POST /api/orgs/{slug}/ops op=rehire",
+    "operator.rename": "POST /api/orgs/{slug}/ops op=rename",
+    "operator.rescind": "POST /api/orgs/{slug}/ops op=rescind",
+    "operator.reseed": "POST /api/orgs/{slug}/ops op=reseed",
+    "operator.retire": "POST /api/orgs/{slug}/ops op=retire",
+    "operator.revoke-dir": "POST /api/orgs/{slug}/ops op=revoke_dir",
+    "operator.switch-model": "POST /api/orgs/{slug}/ops op=switch_model"
+  },
+  "results": {
+    "operator.cheap-compact": [
+      "bearer",
+      "node",
+      "old_session",
+      "warnings"
+    ],
+    "operator.delete": [
+      "deleted",
+      "warnings"
+    ],
+    "operator.demote": [
+      "warnings"
+    ],
+    "operator.dissolve": [
+      "freed",
+      "nodes",
+      "warnings"
+    ],
+    "operator.move": [
+      "warnings"
+    ],
+    "operator.preview": [
+      "after",
+      "applied",
+      "before",
+      "changes",
+      "operation",
+      "result"
+    ],
+    "operator.promote": [
+      "warnings"
+    ],
+    "operator.rehire": [
+      "cost",
+      "warnings"
+    ],
+    "operator.rename": [
+      "node",
+      "renamed",
+      "warnings",
+      "was"
+    ],
+    "operator.rescind": [
+      "clawed",
+      "freed",
+      "warnings"
+    ],
+    "operator.reseed": [
+      "predecessor",
+      "warnings"
+    ],
+    "operator.retire": [
+      "freed",
+      "warnings"
+    ],
+    "operator.revoke-dir": [
+      "removed_from",
+      "warnings"
+    ],
+    "operator.switch-model": [
+      "freed",
+      "model",
+      "queued",
+      "seat",
+      "warnings"
+    ]
+  },
+  "sections": {
+    "operator.cheap-compact": [
+      "events",
+      "nodes",
+      "notice_log",
+      "notices"
+    ],
+    "operator.delete": [
+      "asks",
+      "events",
+      "nodes",
+      "notice_log",
+      "notices",
+      "scope_requests",
+      "watchdogs"
+    ],
+    "operator.demote": [
+      "events",
+      "nodes",
+      "notice_log",
+      "notices"
+    ],
+    "operator.dissolve": [
+      "events",
+      "nodes",
+      "notice_log",
+      "notices"
+    ],
+    "operator.move": [
+      "events",
+      "nodes",
+      "notice_log",
+      "notices"
+    ],
+    "operator.preview": [],
+    "operator.promote": [
+      "events",
+      "nodes",
+      "notice_log",
+      "notices"
+    ],
+    "operator.rehire": [
+      "events",
+      "nodes",
+      "notice_log",
+      "notices"
+    ],
+    "operator.rename": [
+      "events",
+      "nodes",
+      "notice_log",
+      "notices"
+    ],
+    "operator.rescind": [
+      "events",
+      "nodes",
+      "notice_log",
+      "notices"
+    ],
+    "operator.reseed": [
+      "events",
+      "nodes",
+      "notice_log",
+      "notices"
+    ],
+    "operator.retire": [
+      "events",
+      "nodes",
+      "notice_log",
+      "notices"
+    ],
+    "operator.revoke-dir": [
+      "events",
+      "nodes"
+    ],
+    "operator.switch-model": [
+      "events",
+      "nodes",
+      "notice_log",
+      "notices"
+    ]
+  },
+  "told": {
+    "operator.cheap-compact": {
+      "mid": [
+        [
+          "context.notice_digest",
+          null
+        ],
+        [
+          "lifecycle.cheap_compacted",
+          "self"
+        ]
+      ],
+      "top": [
+        [
+          "lifecycle.cheap_compacted",
+          "report"
+        ]
+      ]
+    },
+    "operator.delete": {
+      "mid": [
+        [
+          "lifecycle.deleted",
+          "report"
+        ]
+      ]
+    },
+    "operator.demote": {
+      "mid": [
+        [
+          "lifecycle.moved",
+          "old_peer"
+        ],
+        [
+          "lifecycle.moved",
+          "new_parent"
+        ]
+      ],
+      "top": [
+        [
+          "lifecycle.moved",
+          "old_parent"
+        ]
+      ],
+      "leaf": [
+        [
+          "lifecycle.moved",
+          "new_peer"
+        ]
+      ],
+      "sib": [
+        [
+          "lifecycle.moved",
+          "self"
+        ]
+      ]
+    },
+    "operator.dissolve": {
+      "top": [
+        [
+          "lifecycle.dissolved",
+          "report"
+        ]
+      ],
+      "sib": [
+        [
+          "lifecycle.dissolved",
+          "peer"
+        ]
+      ]
+    },
+    "operator.move": {
+      "mid": [
+        [
+          "lifecycle.moved",
+          "old_parent"
+        ]
+      ],
+      "sib": [
+        [
+          "lifecycle.moved",
+          "new_parent"
+        ]
+      ],
+      "leaf": [
+        [
+          "lifecycle.moved",
+          "self"
+        ]
+      ]
+    },
+    "operator.preview": {},
+    "operator.promote": {
+      "mid": [
+        [
+          "lifecycle.moved",
+          "old_parent"
+        ]
+      ],
+      "top": [
+        [
+          "lifecycle.moved",
+          "new_peer"
+        ]
+      ],
+      "top2": [
+        [
+          "lifecycle.moved",
+          "new_peer"
+        ]
+      ],
+      "leaf": [
+        [
+          "lifecycle.moved",
+          "self"
+        ]
+      ]
+    },
+    "operator.rehire": {
+      "mid": [
+        [
+          "lifecycle.rehired",
+          "report"
+        ]
+      ],
+      "leaf": [
+        [
+          "lifecycle.rehired",
+          "self"
+        ]
+      ]
+    },
+    "operator.rename": {
+      "leafy": [
+        [
+          "lifecycle.renamed",
+          null
+        ]
+      ]
+    },
+    "operator.rescind": {
+      "mid": [
+        [
+          "lifecycle.retired",
+          "report"
+        ],
+        [
+          "lifecycle.rescinded",
+          null
+        ]
+      ]
+    },
+    "operator.reseed": {
+      "mid": [
+        [
+          "context.notice_digest",
+          null
+        ],
+        [
+          "lifecycle.reseeded",
+          "self"
+        ]
+      ],
+      "top": [
+        [
+          "lifecycle.reseeded",
+          "report"
+        ]
+      ]
+    },
+    "operator.retire": {
+      "mid": [
+        [
+          "lifecycle.retired",
+          "report"
+        ]
+      ]
+    },
+    "operator.revoke-dir": {},
+    "operator.switch-model": {
+      "mid": [
+        [
+          "lifecycle.model_switched",
+          "report"
+        ]
+      ],
+      "leaf": [
+        [
+          "lifecycle.model_switched",
+          "self"
+        ]
+      ]
+    }
+  },
+  "legacy_defects": [
+    "retire, dissolve and rescind interrupt the target before the lock; an agent-actor rescind and an agent-actor self-retire with live reports are refused after that interrupt",
+    "delete takes no pre-archive interrupt: a running turn of a deleted seat is not stopped before its records and scratch directory go",
+    "the operator door's rename reaps and broadcasts hub_changed, the agent door's rename does neither",
+    "a rehire's waiting-mail drive uses a different wording and ping_reason on the two doors"
+  ],
+  "scope": "Legacy boundary of the operator ops door's remaining operations and its preview (P01 F1b) on disposable SQLite. The provider gate, turn delivery, the pre-archive interrupt, the remote reap, the transcript copy, forget and the broadcasts are spies; the door, the ledger, the preview, save and reload are real. Legacy conformance evidence only: not a runtime census, not PostgreSQL or Rust qualification."
+}
