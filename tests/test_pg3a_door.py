@@ -369,5 +369,80 @@ class Door(unittest.TestCase):
                 opened = self.attempts("boss", "orgtree_rehire", args)
                 self.assertEqual(len(opened), 1, (name, opened))
 
+    def test_rehire_audience_grants_commit_in_one_attempt(self):
+        # review f3: Org.audience_grant resolves an open request
+        # (audience_requests) and, for the user's ear, writes the user inbox
+        # and its log. Each form must be declared, not healed by a widen.
+        def pending(org):
+            org.d["audience_requests"].append({"from": "x", "target": "boss"})
+        cases = [("user", ["user"], None),
+                 ("pending request", ["boss"], pending)]
+        for name, aud, seed in cases:
+            with self.subTest(name):
+                self.tearDown()
+                self.setUp()
+                self.archive("x")
+                if seed:
+                    org = store.load_org(self.slug)
+                    seed(org)
+                    store.save_org(org)
+                opened = self.attempts("boss", "orgtree_rehire",
+                                       {"node": "x", "audiences": aud})
+                self.assertEqual(len(opened), 1, (name, opened))
+                o = store.load_org(self.slug)
+                self.assertEqual(o.d["audience_requests"], [])
+                self.assertEqual(o.nodes["x"]["state"], "live")
+
+    def test_a_rehire_account_rebind_commits_in_one_attempt(self):
+        # a provider-crossing rebind (luna seat, account changed, a session
+        # that ran) archives the session in place (folded notices, the
+        # docket reconcile) in the generic door step. Its rows are
+        # supervisor._ASSIGN_*, declared whole: a retired seat's asks and
+        # requests were already mooted by the retire, so those rows are not
+        # written here today and only the plan pins them.
+        spec = lifecycle_door.rehire_rows(store.load_org(self.slug), "boss",
+                                          {"node": "x", "account": "primary"})
+        self.assertLessEqual(set(supervisor._ASSIGN_SECTIONS),
+                             set(spec.sections))
+        self.assertLessEqual(set(supervisor._ASSIGN_SHARE),
+                             set(spec.sections) | set(spec.share_sections))
+        self.assertLessEqual(set(supervisor._ASSIGN_LOGS), set(spec.logs))
+        self.archive("x")
+        org = store.load_org(self.slug)
+        org.nodes["x"]["account"] = "old-review-account"
+        org.nodes["x"]["session_unrun"] = False
+        store.save_org(org)
+        exported = []
+        with patch.object(supervisor, "export_predecessor_transcript",
+                          lambda *a, **k: exported.append(k.get("reason"))):
+            opened = self.attempts("boss", "orgtree_rehire",
+                                   {"node": "x", "account": "primary"})
+        self.assertEqual(len(opened), 1, opened)
+        self.assertEqual(exported, ["account_assign"])   # the crossing ran
+        o = store.load_org(self.slug)
+        self.assertEqual(o.nodes["x"]["state"], "live")
+        self.assertIsNone(o.nodes["x"].get("account"))
+
+    def test_an_account_refusal_after_a_rename_says_the_rename_stands(self):
+        # review f4: the account binding runs in the generic door step AFTER
+        # the family body; its refusal must carry the same rename warning
+        # as the cycle's, once
+        self.archive("x")
+        args = {"node": "x", "name": "xx", "account": "primary"}
+        with patch.object(supervisor, "assign_account",
+                          side_effect=ValueError("binding refused")):
+            with self.assertRaises(HTTPException) as door:
+                self.call(self.slug, "boss", "orgtree_rehire", dict(args))
+            with patch.object(pgdoor, "enabled", lambda: False):
+                with self.assertRaises(HTTPException) as cyc:
+                    self.call(self.twin, "boss", "orgtree_rehire", dict(args))
+        self.assertIn("The RENAME already happened", door.exception.detail)
+        self.assertEqual(door.exception.detail.count("RENAME"), 1)
+        self.assertEqual(door.exception.detail, cyc.exception.detail)
+        o = store.load_org(self.slug)
+        self.assertEqual(o.nodes["xx"]["state"], "archived")
+        self.assertNotIn("x", o.nodes)
+
+
 if __name__ == "__main__":
     unittest.main()

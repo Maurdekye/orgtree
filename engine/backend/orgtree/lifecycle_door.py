@@ -197,6 +197,9 @@ REHIRE_SECTIONS = tuple(sorted(set(lt.SPECS["rehire"].sections)
                                | {"mail", "audiences", "lifecycle", "work_items"}))
 REHIRE_SHARE = tuple(lt.SPECS["rehire"].share_sections)
 REHIRE_LOGS = tuple(sorted(set(lt.SPECS["rehire"].logs) | {"mail_log"}))
+# added when `audiences` rides the call (Org.audience_grant's rows)
+REHIRE_AUDIENCE_SECTIONS = ("audience_requests", "user_inbox")
+REHIRE_AUDIENCE_LOGS = ("user_mail_log",)
 # the scope fields `_seat_finish` applies on a rehire: api._SEAT_SCOPE_REHIRE
 # (api cannot be imported here; tests/test_pg3a_door.py pins the equality)
 _REHIRE_SCOPE = ("permission_mode", "effort", "team_charter", "prefer_reserve",
@@ -217,6 +220,22 @@ def rehire_rows(org: Any, actor: str, a: dict[str, Any]) -> pgdoor.TxSpec:
         share |= s2
         sections |= set(sec)
         ssecs |= set(ssec)
+    logs = set(REHIRE_LOGS)
+    if a.get("audiences"):
+        # Org.audience_grant, per target: resolves an open request
+        # (audience_requests) and, for the user's ear, writes the user inbox
+        # and its log (review f3). Declared for every target form: the
+        # resolution of a target is itself a decision on the locked doc.
+        sections |= set(REHIRE_AUDIENCE_SECTIONS)
+        logs |= set(REHIRE_AUDIENCE_LOGS)
+    if a.get("account") is not None:
+        # the generic door's account step (supervisor.assign_account, doc
+        # held): its own declared rows, which a provider-crossing rebind
+        # writes (moot asks, folded notices, the docket reconcile)
+        from . import supervisor
+        sections |= set(supervisor._ASSIGN_SECTIONS)
+        ssecs |= set(supervisor._ASSIGN_SHARE)
+        logs |= set(supervisor._ASSIGN_LOGS)
     dest = str(a.get("target") or "")
     htype = str(a.get("hire_type") or "subordinate")
     if dest or htype != "subordinate":
@@ -233,7 +252,7 @@ def rehire_rows(org: Any, actor: str, a: dict[str, Any]) -> pgdoor.TxSpec:
                          sections=tuple(sorted(sections)),
                          share_nodes=tuple(sorted(share - upd)),
                          share_sections=tuple(sorted(ssecs - sections)),
-                         logs=REHIRE_LOGS)
+                         logs=tuple(sorted(logs)))
 
 
 def _rehire_spec(snap: Any, call: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
@@ -252,7 +271,10 @@ def rename_stands(e: LedgerError, renamed_to: "str | None") -> LedgerError:
     """A rehire refused AFTER its pre-lock rename committed (the rename
     cannot share the rehire's transaction): the refusal must say the rename
     stands and name the id to retry against, word for word as the DOC_LOCK
-    cycle does. Also used by orgtree_staff's rehire mode (WS3a)."""
+    cycle does. Applied ONCE, by api._agent_door's refusal handler, to any
+    refusal of a door call whose pre carries `renamed_to` (the rehire body,
+    the kiosk cap, the account binding alike) - so a family body must NOT
+    wrap it again (orgtree_staff's rehire mode included)."""
     if not renamed_to:
         return e
     return LedgerError(
@@ -278,10 +300,6 @@ def rehire_body(tx: pgdoor.AgentTx) -> Any:
         result = api._rehire_seat(tx.org, tx.call.org, tx.node, a, drive,
                                   renamed_to,
                                   list(tx.pre.get("rename_warnings") or []))
-    except LedgerError as e:
-        if not renamed_to:
-            raise
-        raise rename_stands(e, renamed_to) from e
     finally:
         tx.org._work_defer_archive = False
     tx.after.drive.extend(drive)

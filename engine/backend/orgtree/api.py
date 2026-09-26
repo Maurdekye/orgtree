@@ -11826,7 +11826,12 @@ def _agent_door(body: AgentCall, a: dict[str, Any],
                                      file=_op_file, after=after, pre=pre,
                                      on_commit=witness)
     except LedgerError as e:
-        raise HTTPException(422, str(e))
+        # a rehire's rename committed BEFORE the door, in its own
+        # transaction: ANY refusal after it (the family body, the kiosk cap,
+        # the account binding) must say so and name the id to retry against,
+        # exactly as the cycle's handler does (review f4)
+        raise HTTPException(422, str(lifecycle_door.rename_stands(
+            e, pre.get("renamed_to"))))
     if after.replayed:
         # a replayed key: nothing ran and nothing committed, so NOTHING of
         # the post-commit tail runs either (the cycle returns it the same way)
