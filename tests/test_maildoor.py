@@ -195,6 +195,67 @@ class NoticeDoor(unittest.TestCase):
         self.assertEqual([t for t, wake, _ in self.sent if wake], ['sub'])
         self.assertEqual(len(self.sections), 1, 'the request needed a widen')
 
+    # -- orgtree_message ----------------------------------------------------
+    def test_message_to_an_agent_on_the_door(self):
+        r = self.tool(maildoor.MESSAGE, 'boss', to='sub', body='hi sub')
+        box = store.load_org(self.slug).d['mail'].get('sub') or []
+        self.assertEqual([m.get('body') for m in box if m.get('kind') == 'message'],
+                         ['hi sub'])
+        self.assertEqual(len(self.sections), 1, 'the message needed a widen')
+        self.assertIn('mail\x1fsub', self.sections[-1])
+        self.assertNotIn('mail', self.sections[-1])
+        self.assertNotIn('mail\x1fpeer', self.sections[-1])
+        self.assertEqual(self.notified.count('sub'), 1)
+        self.assertEqual(self.sent, [('sub', True, 'agent_mail')])
+        self.assertEqual(r.get('delivery'), 'note')
+
+    def test_message_attachment_to_the_user_is_copied_once_even_on_a_widen(self):
+        scratch = supervisor.scratch_dir(self.slug, 'boss')
+        os.makedirs(scratch, exist_ok=True)
+        with open(os.path.join(scratch, 'report.txt'), 'w') as f:
+            f.write('the report')
+        with patch.object(maildoor, '_resolve_on_snapshot', lambda *a, **k: []):
+            self.tool(maildoor.MESSAGE, 'boss', to='user', body='see attached',
+                      attachments=['report.txt'])
+        self.assertGreaterEqual(len(self.sections), 2, 'no widen happened')
+        outbox = os.path.join(scratch, 'outbox')
+        copies = [n for n in os.listdir(outbox) if n.startswith('report')]
+        self.assertEqual(copies, ['report.txt'], 'the attachment was copied per attempt')
+        inbox = store.load_org(self.slug).d.get('user_inbox') or []
+        mine = [m for m in inbox if m.get('body') == 'see attached']
+        self.assertEqual(len(mine), 1)
+        self.assertEqual([x.get('name') for x in mine[0].get('attachments') or []],
+                         ['report.txt'])
+
+    def test_message_kind_notice_is_refused_and_writes_nothing(self):
+        before = store.load_org(self.slug).d.get('mail')
+        with self.assertRaises(HTTPException) as cm:
+            self.tool(maildoor.MESSAGE, 'boss', to='sub', body='x', kind='notice')
+        self.assertEqual(cm.exception.status_code, 422)
+        self.assertEqual(store.load_org(self.slug).d.get('mail'), before)
+        self.assertEqual(self.sent, [])
+
+    def test_message_does_not_wait_on_doc_lock(self):
+        fence = orgtx.TRANSITION_FENCE
+        orgtx.TRANSITION_FENCE = False
+        done, err = threading.Event(), []
+
+        def go():
+            try:
+                self.tool(maildoor.MESSAGE, 'boss', to='sub', body='no lock')
+            except BaseException as e:                       # noqa: BLE001
+                err.append(e)
+            done.set()
+        try:
+            with store.DOC_LOCK:
+                th = threading.Thread(target=go)
+                th.start()
+                self.assertTrue(done.wait(10), 'the message waited on DOC_LOCK')
+            th.join(5)
+        finally:
+            orgtx.TRANSITION_FENCE = fence
+        self.assertEqual(err, [])
+
     def test_door_off_keeps_the_legacy_cycle(self):
         with patch.dict(os.environ, {'ORGTREE_PGDOOR': '0'}):
             self.assertFalse(pgdoor.routed(maildoor.NOTICE, {}))
