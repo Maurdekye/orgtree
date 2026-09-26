@@ -56,15 +56,18 @@ THE INTERFACE (stable; this is what the PG-3x family packages code against):
     after the body has run surfaces as `Retryable`; `org_tx_call(slug, fn,
     ...)` re-runs the whole body for you, so prefer it when the body is
     pure (no side effects outside the transaction).
-  * `whole=True` (plan decision 23; reconcile and other STARTUP/SWEEP code
-    only): `nodes=ALL`, then every doc section row and every (dict-log,
-    owner) row that exists, all FOR UPDATE, and the body may write
-    anything, new sections and nodes included. Name nothing else beside it.
-    It excludes every org_tx that names a node or an existing row. It does
-    NOT exclude a list-log append (appends take no row lock) or an org_tx
-    that creates a section which did not exist when the rows were listed.
-    On PostgreSQL it takes one advisory lock per row, so it is not for
-    request paths.
+  * `whole=True` (plan decision 23; reconcile and other sweep code): the
+    ORG pseudo-row EXCLUSIVE. Every org_tx takes it shared first, so a
+    whole transaction excludes every other org_tx on the org, list-log
+    appends and new rows included. Its node and doc rows are then locked
+    FOR UPDATE in bulk (one lock-table entry in all); `lock_nodes`,
+    `lock_sections` and `logs` list what exists; the body may write
+    anything, new nodes and sections included. Name nothing else beside
+    it. It does not exclude an unconverted DOC_LOCK save: the transition
+    fence does (fence off on PostgreSQL, the row compare-and-set refuses
+    the loser). On the SQLite fake the in-process row locks are not FIFO,
+    so under steady traffic with the fence off it can wait its lock
+    timeout out.
   * Nesting: an `org_tx` on the same org inside another on the same thread
     raises `NestedTx` (it would wait on its own locks).
   * DOC_LOCK: `org_tx` never takes or waits on DOC_LOCK. Unconverted code may
@@ -228,9 +231,9 @@ class OrgTx:
     #: slugs whose save hooks store deferred; org_tx fires them after COMMIT
     #: with every lock released (lead decision 14)
     deferred_hooks: list[str] = field(default_factory=lambda: [])
-    #: whole=True (plan decision 23): nodes=ALL plus every doc section row and
-    #: every (dict-log, owner) row that exists, FOR UPDATE, and any write
-    #: allowed. `lock_sections` / `logs` hold what was resolved under the lock
+    #: whole=True (plan decision 23): the org pseudo-row EXCLUSIVE, then
+    #: every node and doc row that exists, and any write allowed.
+    #: `lock_nodes` / `lock_sections` / `logs` hold what was listed under it
     whole: bool = False
 
     @property
@@ -366,14 +369,22 @@ class Backend(Protocol):
 #: exclusive for nodes=ALL, so an ALL sweep excludes node creations by other
 #: org_tx calls (a legacy seam save can still insert a node; review N8)
 _ALL_NODES_KEY = "*"
+#: S8 (p01 review): the ORG pseudo-row, taken FIRST by every org_tx — shared
+#: by all, exclusive only by whole=True, which it therefore excludes from
+#: the whole org (list-log appends and new rows included) with one lock.
+#: It is never named in a TxSpec and no family's plan names it.
+_ORG_KEY = "*"
 
 
 def _lock_plan(tx: OrgTx, node_ids: Iterable[str] = ()) -> list[tuple[str, str, bool]]:
     """THE lock order, one for both backends and every family (agreed with
-    PG-3a/PG-3b): the node pseudo-row, then NODE rows in ascending id, then
-    SECTIONS in ascending key, then (dict-log, owner) rows. Each entry is
-    (kind, name, exclusive). `node_ids` are the resolved ids for ALL."""
-    plan: list[tuple[str, str, bool]] = []
+    PG-3a/PG-3b): the org pseudo-row, the node pseudo-row, then NODE rows in
+    ascending id, then SECTIONS in ascending key, then (dict-log, owner)
+    rows. Each entry is (kind, name, exclusive). `node_ids` are the
+    resolved ids for ALL. A whole=True plan is the org pseudo-row alone."""
+    plan: list[tuple[str, str, bool]] = [("org", _ORG_KEY, tx.whole)]
+    if tx.whole:
+        return plan
     nodes = sorted(set(node_ids) | tx.lock_nodes | tx.share_nodes) if not tx.all_nodes \
         else sorted(set(node_ids))
     if tx.all_nodes or nodes:
@@ -539,15 +550,19 @@ class SeamBackend:
                 _pause("before_lock", tx)
             for tx in order:
                 ids: list[str] = []
+                self.locks.acquire(owner, (tx.slug, "org", _ORG_KEY), tx.whole, lock_timeout)
                 if tx.all_nodes:
-                    self.locks.acquire(owner, (tx.slug, "node", _ALL_NODES_KEY), True,
-                                       lock_timeout)
+                    if not tx.whole:
+                        self.locks.acquire(owner, (tx.slug, "node", _ALL_NODES_KEY), True,
+                                           lock_timeout)
                     probe = store._load_sqlite_org(tx.slug)   # pyright: ignore[reportPrivateUsage]
                     ids = list(dict.keys(cast("dict[str, Any]", probe.d.get("nodes") or {})))
                     tx.lock_nodes = frozenset(ids)
                     if tx.whole:
                         _whole_rows(tx, *_sqlite_rows(tx.slug))
                 for kind, name, exclusive in _lock_plan(tx, ids):
+                    if kind == "org":
+                        continue                       # taken above
                     self.locks.acquire(owner, (tx.slug, kind, name), exclusive, lock_timeout)
             for tx in order:
                 _pause("after_lock", tx)
@@ -773,21 +788,29 @@ class PgBackend:
                     conn = conns[tx.slug]
                     conn.use()
                     ids: list[str] = []
+                    raw.execute("SELECT pg_advisory_xact_lock" + ("" if tx.whole else "_shared")
+                                + "(%s, hashtext(%s))", (conn.org_id, f"org:{_ORG_KEY}"))
                     if tx.all_nodes:
-                        raw.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))",
-                                    (conn.org_id, f"node:{_ALL_NODES_KEY}"))
+                        if not tx.whole:
+                            raw.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))",
+                                        (conn.org_id, f"node:{_ALL_NODES_KEY}"))
+                        # the pseudo-rows exclude every other org_tx's node
+                        # locks, so the rows take ONE bulk FOR UPDATE (stored
+                        # on the tuples) instead of an advisory lock each: a
+                        # lock-table entry per node overflows the server's
+                        # shared lock table on a large org (S8 capacity)
                         ids = [str(r[0]) for r in raw.execute(
-                            "SELECT id FROM nodes ORDER BY id").fetchall()]
+                            "SELECT id FROM nodes ORDER BY id FOR UPDATE").fetchall()]
                         tx.lock_nodes = frozenset(ids)
                         if tx.whole:
                             _whole_rows(
                                 tx, [str(r[0]) for r in raw.execute(
-                                    "SELECT key FROM doc").fetchall()],
+                                    "SELECT key FROM doc ORDER BY key FOR UPDATE").fetchall()],
                                 [(str(r[0]), str(r[1])) for r in raw.execute(
                                     "SELECT DISTINCT sect, owner FROM log_d").fetchall()])
                     for kind, name, exclusive in _lock_plan(tx, ids):
-                        if tx.all_nodes and kind == "node" and name == _ALL_NODES_KEY:
-                            continue                   # taken above
+                        if kind == "org" or (tx.all_nodes and kind == "node"):
+                            continue                   # taken above, in bulk
                         fn = ("pg_advisory_xact_lock" if exclusive
                               else "pg_advisory_xact_lock_shared")
                         raw.execute(f"SELECT {fn}(%s, hashtext(%s))",
