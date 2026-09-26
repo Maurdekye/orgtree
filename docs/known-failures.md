@@ -133,6 +133,12 @@ of the `test_state_operation_contracts` messages are CONTENT rather than span dr
 (`orgtx.py`, `pgstore.py`, the postgres branches in `store.py`), which the inventory has no rows for yet. Those
 rows are added in the same p01 re-anchor, from facts PG-0 supplies.
 
+**Still stale, 2026-09-26 (measured at v3 `c880c7d`: contracts 9 failures + 13 errors, inventory 1 failure):** the
+registry has been stale since PG-0, and the one re-anchor waits until PG-3c, the work items and PG-3e-A have landed
+(coordinator decision 2026-09-26 09:06Z; re-hashing the changed spans without re-reading them is ruled out). The
+W1-W8, S2k, launch and middleware pins in `test_state_operation_contracts` now name a site by (file, function,
+ordinal) rather than by line, so those checks no longer fail on line drift alone.
+
 ---
 
 ## How old is it, and does that matter?

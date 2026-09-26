@@ -18,6 +18,21 @@ sys.path.insert(0, str(ROOT / "tools"))
 import state_operation_contracts as contracts
 
 
+def site_names(sites):
+    """[(site, (file, function, ordinal))] for inventoried sites. The W1-W8, S2k, launch and middleware pins name a site
+    by its function and its index among that function's sites of the same inventory list (ordered by line) instead of
+    by its line, so an edit elsewhere in the file does not move them. Module-level sites share the function
+    '<module>', so only a new module-level site above a pinned one renumbers it."""
+    groups = {}
+    for s in sites:
+        groups.setdefault((s["source"]["path"], s["source"]["symbol"]), []).append(s)
+    out = []
+    for (path, symbol), same in groups.items():
+        same.sort(key=lambda s: (s["source"]["line"], s["source"].get("end_line", 0), json.dumps(s, sort_keys=True)))
+        out += [(s, (path.rsplit("/", 1)[1], symbol, n)) for n, s in enumerate(same)]
+    return out
+
+
 class ContractCoverage(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -156,19 +171,23 @@ class ContractCoverage(unittest.TestCase):
     # W1-W8 (coordinator-approved plan 2026-09-24 21:57Z; the rules are decision 1 on the W1 item): map only when
     # every operation reaching a witness has a contract, exclude only what source reading shows is not an org-state
     # operation, otherwise stay pending with a reason that names the owner
-    W1_EXCLUDED = {("api.py", 124), ("api.py", 126), ("api.py", 14636), ("api.py", 14637), ("api.py", 14640),
-                   ("api.py", 903), ("api.py", 930), ("api.py", 1567), ("disk.py", 226), ("sandbox.py", 891),
-                   ("sandbox.py", 1031), ("sandbox.py", 1040), ("turnread.py", 44)}
+    W1_EXCLUDED = {("api.py", "<module>", 1), ("api.py", "<module>", 2), ("api.py", "<module>", 6),
+                   ("api.py", "<module>", 7), ("api.py", "<module>", 8), ("api.py", "_validation_error", 0),
+                   ("api.py", "_unhandled_error", 0), ("api.py", "_cancel_startup", 0), ("disk.py", "create", 0),
+                   ("sandbox.py", "ensure_container", 0), ("sandbox.py", "try_apply_pending_resize", 0),
+                   ("sandbox.py", "try_apply_pending_resize", 1), ("turnread.py", "<module>", 0)}
     # the 4 stderr pumps feed the failure path, which can freeze a node (W1 review fix)
-    W1_PENDING = {("api.py", 1396), ("antigravityrun.py", 760), ("codexrun.py", 587), ("warmpool.py", 344),
-                  ("antigravityrun.py", 762), ("codexrun.py", 589), ("warmpool.py", 346), ("warmpool.py", 667)}
+    W1_PENDING = {("api.py", "_wire_notify", 0), ("antigravityrun.py", "AntigravityTurn.launch", 0),
+                  ("codexrun.py", "AppServerClient.__init__", 0), ("warmpool.py", "WarmProc.__init__", 0),
+                  ("antigravityrun.py", "AntigravityTurn.launch", 1), ("codexrun.py", "AppServerClient.__init__", 1),
+                  ("warmpool.py", "WarmProc.__init__", 1), ("warmpool.py", "ColdStderr.__init__", 0)}
 
     def test_w1_plumbing_registrations_are_triaged(self):
-        registrations = {r["site_id"]: r["source"] for r in self.source["registrations"]}
+        names = {r["site_id"]: n for r, n in site_names(self.source["registrations"])}
         rows = {r["id"]: r for r in self.document["entries"]}
 
         def at(i):
-            return (registrations[i]["path"].rsplit("/", 1)[1], registrations[i]["line"])
+            return names[i]
         excluded = {at(i) for i, r in rows.items() if r["disposition"] == "excluded"}
         self.assertEqual(excluded & (self.W1_EXCLUDED | self.W1_PENDING), self.W1_EXCLUDED)
         for i, r in rows.items():
@@ -182,40 +201,42 @@ class ContractCoverage(unittest.TestCase):
 
     # the client-process branches call inventoried routes (coordinator ruling, decision 2 on the W8 item)
     # (the four externtool.py client branches left with the external-chat server, retired by user ruling)
-    W8_EXCLUDED = {("mcptool.py", 2111), ("mcptool.py", 2113), ("mcptool.py", 2315)}
+    W8_EXCLUDED = {("mcptool.py", "_desktop_relaunch_catalogue", 0), ("mcptool.py", "_desktop_relaunch_catalogue", 1),
+                   ("mcptool.py", "call_api", 0)}
     # P01 F2 mapped the twelve warmpool process-control rows (the process route is contracted)
     # P01 F8 mapped the four gitworkspace.py branches (only the contracted git workspace routes reach them)
-    W8_PENDING = ({("desktop_recovery.py", n) for n in (97, 99, 118, 120, 122, 124, 125)}
-                  | {("toolwait.py", 88)})    # P01 F6 mapped supervisor.py 35326 and 35351, the transcript cards
+    W8_PENDING = ({("desktop_recovery.py", "resolve_import", n) for n in range(7)}
+                  | {("toolwait.py", "tool_name", 0)})    # P01 F6 mapped the two supervisor.py transcript card branches
     # the EXACT route each client-process exclusion calls (W8 review finding f1: 'a route' is not 'the route')
-    W8_CLIENT_ROUTES = {("mcptool.py", 2315): ("api.py", 11008, "/api/agent")}
+    W8_CLIENT_ROUTES = {("mcptool.py", "call_api", 0): (("api.py", "_agent_call_route", 0), "/api/agent")}
 
     def test_w8_machine_client_and_presentation_dispatch_is_triaged(self):
         # W1-W8 rules (decision 1 on the W1 item) with rule 2 as sharpened (decision 2 there); an HTTP-client
         # branch is excluded only when the route it calls is itself inventoried (coordinator ruling, W8 decision 2)
-        selectors = {contracts.witness_id("dispatch", r): r["source"] for r in self.source["dispatch_selectors"]}
+        names = {contracts.witness_id("dispatch", r): n for r, n in site_names(self.source["dispatch_selectors"])}
         rows = {r["id"]: r for r in self.document["dispatch"]}
 
         def at(i):
-            return (selectors[i]["path"].rsplit("/", 1)[1], selectors[i]["line"])
+            return names[i]
         self.assertEqual({at(i) for i, r in rows.items() if r["disposition"] == "excluded"}
                          & (self.W8_EXCLUDED | self.W8_PENDING), self.W8_EXCLUDED)
         self.assertEqual(len(self.W8_PENDING), 8)
         # the ruling's condition: a client-process exclusion must cite the inventoried route it calls, and no other
-        routes = {(r["source"]["path"].rsplit("/", 1)[1], r["source"]["line"]): r["selectors"]
-                  for r in self.source["registrations"] if r["kind"] == "http"}
+        routes = {n: r for r, n in site_names(self.source["registrations"]) if r["kind"] == "http"}
+        route_at = {(n[0], r["source"]["line"]): n for n, r in routes.items()}
         seen = set()
         for i, r in rows.items():
             if at(i) in self.W8_EXCLUDED:
                 with self.subTest(site=at(i)):
                     self.assertTrue(r["reason"].startswith("Not ") and r["reason"].endswith(" P01 W8."), r["reason"])
-                    self.assertEqual(at(i) == ("mcptool.py", 2315), at(i) in self.W8_CLIENT_ROUTES)
+                    self.assertEqual(at(i) == ("mcptool.py", "call_api", 0), at(i) in self.W8_CLIENT_ROUTES)
                     if at(i) in self.W8_CLIENT_ROUTES:
-                        file, line, url = self.W8_CLIENT_ROUTES[at(i)]
-                        self.assertEqual(routes.get((file, line)), [url])
-                        cited = {(ref["path"].rsplit("/", 1)[1], n) for ref in r["source_refs"]
-                                 for n in range(ref["start"], ref["end"] + 1)} & set(routes)
-                        self.assertEqual(cited, {(file, line)}, r["source_refs"])
+                        route, url = self.W8_CLIENT_ROUTES[at(i)]
+                        self.assertEqual(routes[route]["selectors"] if route in routes else None, [url])
+                        cited = {route_at[(ref["path"].rsplit("/", 1)[1], n)] for ref in r["source_refs"]
+                                 for n in range(ref["start"], ref["end"] + 1)
+                                 if (ref["path"].rsplit("/", 1)[1], n) in route_at}
+                        self.assertEqual(cited, {route}, r["source_refs"])
             if at(i) in self.W8_PENDING:
                 seen.add(at(i))
                 with self.subTest(site=at(i)):
@@ -225,21 +246,29 @@ class ContractCoverage(unittest.TestCase):
         self.assertEqual(seen, self.W8_PENDING)
 
     # antigravity_status fills the provider-status cache the hire gate and the turn launcher read (W2 review fix)
-    W2_EXCLUDED: set[tuple[str, int]] = set()
-    W2_PENDING = ({("codexrun.py", n) for n in (742, 1346, 1742, 1746)} | {("providers.py", 1434)}
-                  | {("gitworkspace.py", n) for n in (808, 809, 810, 820, 932, 933, 1230)}
-                  | {("net.py", 1387), ("net.py", 1389), ("sandbox.py", 1195)}
-                  | {("supervisor.py", n) for n in (192, 6417, 6567, 17366, 17480, 17790, 17936, 18872, 18986, 20246, 31539)}
-                  | {("warmpool.py", n) for n in (1446, 2249, 2809, 2948)})
-    S2K_EXCLUDED = {("antigravity_provenance.py", 325), ("antigravity_provenance.py", 328), ("api.py", 1340),
-                    ("liveness.py", 228)}
+    W2_EXCLUDED: set[tuple[str, str, int]] = set()
+    W2_PENDING = ({("codexrun.py", f, 0) for f in ("AppServerClient._admit", "CodexTurn.__init__",
+                                                   "CodexTurn.steer._late", "CodexTurn.steer")}
+                  | {("providers.py", "providers_payload", 0)}
+                  | {("gitworkspace.py", "snapshot", n) for n in range(6)}
+                  | {("gitworkspace.py", "FetchScheduler.request", 0)}
+                  | {("net.py", "start_net_client", 0), ("net.py", "start_net_client", 1), ("sandbox.py", "warm", 0)}
+                  | {("supervisor.py", f, 0) for f in (
+                      "workspace_usage_cached", "_spawn_reset_refresh", "start_usage_warm_loop",
+                      "_codex_leg_attempt._on_event", "_codex_leg_attempt", "_codex_leg_attempt._steer_pump",
+                      "_antigravity_leg", "_run_one_turn_recorded._start_cold_mcp_pump", "start_cred_watcher")}
+                  | {("supervisor.py", "_codex_leg_attempt", 1), ("supervisor.py", "_antigravity_leg", 1)}
+                  | {("warmpool.py", f, 0) for f in ("_release_process_control", "_codex_prewarm_events._on_event",
+                                                     "_prewarm_node.run", "start_warm_pool")})
+    S2K_EXCLUDED = {("antigravity_provenance.py", "_Read.__init__", 0), ("antigravity_provenance.py", "_Read.__init__", 1),
+                    ("api.py", "_share_url", 0), ("liveness.py", "_observe_port", 0)}
 
     def test_w2_provider_and_machine_workers_are_triaged(self):
-        registrations = {r["site_id"]: r["source"] for r in self.source["registrations"]}
+        names = {r["site_id"]: n for r, n in site_names(self.source["registrations"])}
         rows = {r["id"]: r for r in self.document["entries"]}
 
         def at(i):
-            return (registrations[i]["path"].rsplit("/", 1)[1], registrations[i]["line"])
+            return names[i]
         mine = self.W2_EXCLUDED | self.W2_PENDING
         self.assertEqual(len(mine), 30)
         self.assertEqual({at(i) for i, r in rows.items() if r["disposition"] == "excluded"} & mine, self.W2_EXCLUDED)
@@ -259,19 +288,20 @@ class ContractCoverage(unittest.TestCase):
 
     # p01-inventory-misses-the-production-routes-mount: the launcher's router include and server task, and the
     # guardian and service-host startup readers
-    LAUNCH_EXCLUDED = {("launch.py", 339), ("launch.py", 407), ("process_lifetime.py", 57),
-                       ("service_host.py", 465)}
+    LAUNCH_EXCLUDED = {("launch.py", "load_app", 0), ("launch.py", "main.serve", 0),
+                       ("process_lifetime.py", "arm_process_lifetime", 0), ("service_host.py", "main", 0)}
 
     # p01-inventory-misses-middleware-add-middleware-c: middleware installed by a call, not a decorator
-    MIDDLEWARE_EXCLUDED = {("api.py", 679), ("api.py", 683), ("p03_door.py", 219)}
-    MIDDLEWARE_PENDING = {("api.py", 121), ("api.py", 680)}
+    MIDDLEWARE_EXCLUDED = {("api.py", "<module>", 3), ("api.py", "<module>", 5), ("p03_door.py", "install", 0)}
+    MIDDLEWARE_PENDING = {("api.py", "<module>", 0), ("api.py", "<module>", 4)}
 
     def test_middleware_registrations_are_triaged(self):
         registrations = {r["site_id"]: r for r in self.source["registrations"]}
+        names = {r["site_id"]: n for r, n in site_names(self.source["registrations"])}
         rows = {r["id"]: r for r in self.document["entries"]}
 
         def at(i):
-            return (registrations[i]["source"]["path"].rsplit("/", 1)[1], registrations[i]["source"]["line"])
+            return names[i]
         found = {at(i): (registrations[i], r) for i, r in rows.items()
                  if at(i) in self.MIDDLEWARE_EXCLUDED | self.MIDDLEWARE_PENDING}
         self.assertEqual(set(found), self.MIDDLEWARE_EXCLUDED | self.MIDDLEWARE_PENDING)
@@ -286,7 +316,7 @@ class ContractCoverage(unittest.TestCase):
                     self.assertEqual(r["disposition"], "excluded")
                     self.assertTrue(r["reason"].startswith("Not "), r["reason"])
                     self.assertIn(item, r["reason"])
-        door = found[("p03_door.py", 219)][0]
+        door = found[("p03_door.py", "install", 0)][0]
         self.assertEqual((door["kind"], door["method"], door["form"], door["target"]),
                          ("hook", "middleware", "direct_call", "_Router(root)"))
         # the door row is excluded only while the door is inert: once SLICE_TOOLS names a verb, _Router is a second
@@ -299,34 +329,40 @@ class ContractCoverage(unittest.TestCase):
 
     def test_every_excluded_witness_belongs_to_a_reviewed_triage_step(self):
         # no exclusion outside S2k (storage) and W1/W2/W3/W8 (their review records hold the source reading)
-        def where(source):
-            return (source["path"].rsplit("/", 1)[1], source["line"])
-        groups = {"entries": ({r["site_id"]: r["source"] for r in self.source["registrations"]},
+        groups = {"entries": ({r["site_id"]: n for r, n in site_names(self.source["registrations"])},
                               self.W1_EXCLUDED | self.W2_EXCLUDED | self.W3_EXCLUDED | self.LAUNCH_EXCLUDED
                               | self.MIDDLEWARE_EXCLUDED),
-                  "dispatch": ({contracts.witness_id("dispatch", r): r["source"]
-                                for r in self.source["dispatch_selectors"]}, self.W8_EXCLUDED),
-                  "storage": ({contracts.witness_id("storage", r): r["source"]
-                               for r in self.source["connection_sites"]}, self.S2K_EXCLUDED)}
+                  "dispatch": ({contracts.witness_id("dispatch", r): n
+                                for r, n in site_names(self.source["dispatch_selectors"])}, self.W8_EXCLUDED),
+                  "storage": ({contracts.witness_id("storage", r): n
+                               for r, n in site_names(self.source["connection_sites"])}, self.S2K_EXCLUDED)}
         for group, (sites, reviewed) in groups.items():
             with self.subTest(group=group):
-                excluded = {where(sites[r["id"]]) for r in self.document[group] if r["disposition"] == "excluded"}
+                excluded = {sites[r["id"]] for r in self.document[group] if r["disposition"] == "excluded"}
                 self.assertEqual(excluded, reviewed)
 
-    W3_EXCLUDED = {("startup.py", 52)}
+    W3_EXCLUDED = {("startup.py", "Recovery.cancel", 0)}
     # (the external-chat handle sweeper, supervisor.start_extern_sweeper, left with the retirement's second stage)
-    W3_PENDING = ({("api.py", 5622), ("api.py", 6013), ("assistant_messages.py", 193), ("desktop_import_jobs.py", 270),
-                   ("desktop_maintenance.py", 159), ("halt.py", 827), ("halt.py", 1006), ("maildrain.py", 359),
-                   ("staffcache.py", 230), ("startup.py", 45), ("toolwait.py", 239), ("toolwait.py", 327),
-                   ("transcript_ingest.py", 101)}
-                  | {("supervisor.py", n) for n in (13820, 14016, 14094, 14737, 20457, 27609, 27736, 27779, 28212, 28889, 30063, 30211, 31360, 32379, 32962, 33125, 33186)})
+    W3_PENDING = ({("api.py", "node_message", 1), ("api.py", "node_compact", 1),
+                   ("assistant_messages.py", "TextBatcher.add", 0), ("desktop_import_jobs.py", "start", 0),
+                   ("desktop_maintenance.py", "_arm_hold_expiry", 0), ("halt.py", "_start_settler", 0),
+                   ("halt.py", "resume_pending", 0), ("maildrain.py", "start", 0), ("staffcache.py", "_spawn_refresh", 0),
+                   ("startup.py", "Recovery.start", 0), ("toolwait.py", "invoke", 0), ("toolwait.py", "start", 0),
+                   ("transcript_ingest.py", "start", 0)}
+                  | {("supervisor.py", f, 0) for f in (
+                      "_launch_working_cache_read", "start_working_cache_keeper", "_arm_deploy_window",
+                      "_start_turn_worker", "_run_one_turn_recorded", "maybe_storage_check", "immediate_command",
+                      "start_storage_watchdog", "resume_frozen", "start_auto_resume_loop", "_fire_prime",
+                      "start_prime_restart_engine", "start_steer_late_watchdog", "wd_smoke", "_wd_cmd_submit",
+                      "_wd_ensure_stream", "start_watchdog_engine")})
 
     def test_w3_org_state_workers_are_triaged(self):
         registrations = {r["site_id"]: r for r in self.source["registrations"]}
+        names = {r["site_id"]: n for r, n in site_names(self.source["registrations"])}
         rows = {r["id"]: r for r in self.document["entries"]}
 
         def at(i):
-            return (registrations[i]["source"]["path"].rsplit("/", 1)[1], registrations[i]["source"]["line"])
+            return names[i]
         mine = self.W3_EXCLUDED | self.W3_PENDING
         self.assertEqual(len(mine), 31)     # 32 until the handle sweeper left (retirement stage 2)
         seen = set()
