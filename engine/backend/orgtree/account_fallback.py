@@ -460,8 +460,14 @@ def candidates(org: Any) -> dict[str, dict[str, Any]]:
     return plans
 
 
-def apply(org: Any, nid: str, plan: dict[str, Any]) -> bool:
-    """Called only within resume_frozen's DOC_LOCK transaction; no remote IO."""
+def apply(org: Any, nid: str, plan: dict[str, Any], *,
+          exports: list[tuple[str, str, str]] | None = None) -> bool:
+    """Called only within resume_frozen's transaction; no remote IO.
+
+    `exports` (S7 L2, WS3b decision 6): when given, a provider-crossing
+    rebind's transcript export is NOT run here, under the row locks — its
+    (nid, archived session, reason) is appended for the caller to run with
+    `supervisor.export_after_commit` once its transaction has committed."""
     from . import supervisor
     n = org.node(nid)
     if (identity(n) != plan["node"] or not eligible(org, nid)
@@ -483,6 +489,10 @@ def apply(org: Any, nid: str, plan: dict[str, Any]) -> bool:
     # allow_frozen: this IS the recovery path for a usage-limit freeze, so it
     # opts past the bare-rebind refusal; resume_frozen pops the freeze in the
     # same save window right after this returns.
-    supervisor.assign_account(org.d["slug"], nid, row["id"], actor="@system",
-                              org=org, via="limit_fallback", allow_frozen=True)
+    out = supervisor.assign_account(org.d["slug"], nid, row["id"], actor="@system",
+                                    org=org, via="limit_fallback", allow_frozen=True,
+                                    export=exports is None)
+    old_sid = out.pop("_export_old_sid", None)
+    if old_sid and exports is not None:
+        exports.append((nid, str(old_sid), "account_assign"))
     return True

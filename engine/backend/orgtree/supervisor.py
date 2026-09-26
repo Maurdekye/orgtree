@@ -20152,7 +20152,8 @@ def _fable_limit_escalate(slug: str, nid: str, err_blob: str,
               f"retries it): {e!r}", flush=True)
 
 
-def _resume_rows(slug: str, pick: set[str] | None) -> dict[str, Any]:
+def _resume_rows(slug: str, pick: set[str] | None, *,
+                 fallback: bool = False) -> dict[str, Any]:
     """PG-3e-A: the rows a `resume_frozen` sweep may write, planned from the
     cached snapshot: each candidate node (the `only` set, or every node that
     is frozen now) and the `nid@<generation>` row a cheap-first compaction
@@ -20167,12 +20168,26 @@ def _resume_rows(slug: str, pick: set[str] | None) -> dict[str, Any]:
             if (pick is not None and nid not in pick) or (
                     pick is None and not n.get("frozen")):
                 continue
-            nodes += [nid, f"{nid}@{int(n.get('generation') or 0)}"]
+            gen = int(n.get('generation') or 0)
+            nodes += [nid, f"{nid}@{gen}"]
+            if fallback:
+                # S7 L2: a fallback rebind that crosses providers archives
+                # into nid@<gen>, so a cheap-first compaction after it in the
+                # same pass inserts nid@<gen+1>
+                nodes.append(f"{nid}@{gen + 1}")
     except Exception:                                    # noqa: BLE001
         nodes = list(pick or ())
-    return {"nodes": nodes, "sections": ["notices"],
-            "share_sections": list(ADMISSION_GATE_SECTIONS),
-            "logs": ["events", "notice_log"]}
+    if not fallback:
+        return {"nodes": nodes, "sections": ["notices"],
+                "share_sections": list(ADMISSION_GATE_SECTIONS),
+                "logs": ["events", "notice_log"]}
+    # ... and what `assign_account` writes beside the seat (`_assign_tx`'s
+    # rows: mooted asks/credit/scope requests, folded notices, the docket
+    # reconcile's work_items; kiosk and sandbox read FOR SHARE)
+    return {"nodes": nodes,
+            "sections": sorted({"notices", *_ASSIGN_SECTIONS}),
+            "share_sections": sorted({*ADMISSION_GATE_SECTIONS, *_ASSIGN_SHARE}),
+            "logs": sorted({"events", "notice_log", *_ASSIGN_LOGS})}
 
 
 def _admission_pred_locked(tx: orgtx.OrgTx, org: Org, nid: str) -> bool:
@@ -29198,15 +29213,17 @@ def resume_frozen(slug: str, only: Iterable[str] | None = None,
     resumed: list[tuple[str, list[str], list[str], bool, str, str, str,
                         int, str, dict[str, str]]] = []
     # PG-3e-A: one halt transaction over the planned candidate rows
-    # (`_resume_rows`); an account-fallback sweep calls PG-3e-B's
-    # `account_fallback.apply`, whose writes reach far beyond those rows, so
-    # it keeps the whole-document path.
-    _resume_plan = _resume_rows(slug, pick)
+    # (`_resume_rows`). S7 L2: an account-fallback sweep runs in the SAME
+    # kind of transaction (it was DOC_LOCK + a whole load/save): its planned
+    # rows add what `account_fallback.apply`'s rebind writes (`_resume_rows`
+    # with `fallback=True`). Every transcript export — the rebind's and a
+    # cheap-first compaction's — runs after the commit, never under the row
+    # locks (WS3b decision 6, lead decision 41).
+    _resume_plan = _resume_rows(slug, pick, fallback=account_fallbacks is not None)
     _resume_locked = frozenset(_resume_plan["nodes"])
-    _resume_cm = (_whole_org(slug) if account_fallbacks is not None
-                  else halt.txn(slug, **_resume_plan))
-    with _resume_cm as _resume_tx:
-        org = _resume_tx if isinstance(_resume_tx, Org) else _resume_tx.org
+    _resume_exports: list[tuple[str, str, str]] = []
+    with halt.txn(slug, **_resume_plan) as _resume_tx:
+        org = _resume_tx.org
         inventory = NativeInventory()
         if org.d.get("killswitch"):
             # ▶ and the auto-resume timer both come through here. While the
@@ -29222,7 +29239,7 @@ def resume_frozen(slug: str, only: Iterable[str] | None = None,
         for nid, n in list(org.nodes.items()):
             if pick is not None and nid not in pick:
                 continue
-            if account_fallbacks is None and nid not in _resume_locked:
+            if nid not in _resume_locked:
                 continue  # froze after the plan: the next resume takes it
             if _native_context_hold(org, nid, inventory=inventory):
                 continue  # Preserve frozen replay; this button cannot clear native context holds.
@@ -29249,7 +29266,14 @@ def resume_frozen(slug: str, only: Iterable[str] | None = None,
             if account_fallbacks is not None:
                 from . import account_fallback
                 plan = account_fallbacks.get(nid)
-                if plan is None or not account_fallback.apply(org, nid, plan):
+                # the rebind archives into nid@<gen> (and a cheap-first
+                # compaction after it into nid@<gen+1>): both were planned
+                # for the generation the snapshot showed; a split landing
+                # since leaves the node for the next pass, unwritten
+                if (plan is None
+                        or f"{nid}@{int(n.get('generation') or 0)}" not in _resume_locked
+                        or not account_fallback.apply(org, nid, plan,
+                                                      exports=_resume_exports)):
                     continue
             _limit_resume = bool(fz.get("limit"))
             _frozen_at = str(fz.get("at") or "")
@@ -29265,10 +29289,10 @@ def resume_frozen(slug: str, only: Iterable[str] | None = None,
                     if transcript_path(n["session_id"],
                                        _transcript_root(org, nid)) is not None:
                         r0 = org.cheap_compact(SYSTEM, nid)
-                        export_predecessor_transcript(
-                            org, nid,
-                            old_sid=str(r0.get("old_session") or ""),
-                            reason="cheap_compact")
+                        # S7 L2: the copy after the commit (below)
+                        _resume_exports.append(
+                            (nid, str(r0.get("old_session") or ""),
+                             "cheap_compact"))
                 except LedgerError:
                     pass          # an optimization, never a gate (D-114)
             # ⚠ BEFORE the pop, because the pass is earned by what THIS freeze
@@ -29292,6 +29316,19 @@ def resume_frozen(slug: str, only: Iterable[str] | None = None,
                             _frozen_at, _frozen_sid,
                             str(org.node(nid).get("model") or ""),
                             _ridx, _rpayload, dict(fz.get("halt_sources") or {})))
+    # committed: the transcript exports now, in the order they were made (a
+    # rebind's archive before a compaction's), off every row lock. A failed
+    # copy is reported, never raised — the resume stands (as the inline copy
+    # it replaces returned None on OSError).
+    for _xnid, _xsid, _xwhy in _resume_exports:
+        if not _xsid:
+            continue
+        try:
+            export_after_commit(slug, org, _xnid, _xsid, _xwhy)
+        except Exception as e:                               # noqa: BLE001
+            print(f"[orgtree] {slug}/{_xnid}: {_xwhy} transcript export "
+                  f"failed after the resume committed ({type(e).__name__}: {e})",
+                  flush=True)
     for (nid, texts, views, limit_resume, frozen_at, frozen_sid, tier,
          retry_idx, retry_payload, halt_sources) in resumed:
         if not texts:
