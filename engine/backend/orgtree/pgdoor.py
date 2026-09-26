@@ -710,7 +710,7 @@ def op_tx(slug: str, op: str, body: Any, a: dict[str, Any],
     After the commit — never on a rollback, a widened re-run or a retry —
     the committed attempt's `after.then` callables run with the result, each
     through `after_commit` (a failure is a warning, the op stands), and then
-    `on_commit(org)`."""
+    `on_commit(org)`. `after.drive` is refused: nothing here wakes it."""
     # an op's request body does not carry its org: a before-step finds it
     # here, as `org_slug` (the key staffdoor's operator calls already pass)
     a = {**a, "org_slug": a.get("org_slug") or slug}
@@ -721,8 +721,17 @@ def op_tx(slug: str, op: str, body: Any, a: dict[str, Any],
     def step(h: Any, held: TxSpec) -> Any:
         aft = After()               # fresh per attempt
         last[:] = [aft]
-        return fn(OpTx(org=h.org, op=op, body=body, args=a, spec=held, tx=h,
-                       slug=slug, pre=dict(pre), after=aft))
+        result = fn(OpTx(org=h.org, op=op, body=body, args=a, spec=held, tx=h,
+                         slug=slug, pre=dict(pre), after=aft))
+        if aft.drive:
+            # the operator door has no drive step (only the agent door's tail
+            # wakes `after.drive`), so a queued wake-up would be lost after
+            # the commit. Refused HERE, inside the transaction, so nothing
+            # commits: an op that wakes an agent returns it in its result.
+            raise RuntimeError(
+                f"pgdoor.op_tx: op {op!r} queued after.drive {aft.drive!r}, "
+                f"which the operator door never wakes")
+        return result
 
     h, result = _run(slug, base, step)
     for then in last[0].then:
