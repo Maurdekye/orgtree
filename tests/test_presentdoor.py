@@ -119,12 +119,13 @@ class PresentDoor(unittest.TestCase):
         with self.widen_once(presentdoor.PRESENT):
             r = self.tool(presentdoor.PRESENT, 'boss', title='M', path='mock.html')
         self.assertGreaterEqual(len(self.sections), 2, 'no widen happened')
-        self.assertEqual(self.outbox(scratch), ['mock.html'],
-                         'the mockup was copied per attempt')
+        # present-by-path bundles each copy in its own outbox/presentation-*/
+        copies = self.outbox(scratch)
+        self.assertEqual(len(copies), 1, f'the mockup was copied per attempt: {copies}')
         docs = self.docs()
         self.assertEqual(len(docs), 1)
-        self.assertEqual((docs[0].get('format'), docs[0].get('file')),
-                         ('html', 'outbox/mock.html'))
+        self.assertEqual(docs[0].get('format'), 'html')
+        self.assertEqual(docs[0].get('file'), f'outbox/{copies[0]}/mock.html')
         self.assertEqual(r.get('format'), 'html')
 
     def test_present_refused_after_the_copy_names_the_copy(self):
@@ -135,7 +136,9 @@ class PresentDoor(unittest.TestCase):
                 self.tool(presentdoor.PRESENT, 'boss', title='M', path='mock.html')
         self.assertEqual(cm.exception.status_code, 422)
         self.assertIn('refused for the test', str(cm.exception.detail))
-        self.assertIn('outbox/mock.html', str(cm.exception.detail))
+        copies = self.outbox(scratch)
+        self.assertEqual(len(copies), 1)
+        self.assertIn(f'outbox/{copies[0]}/mock.html', str(cm.exception.detail))
         self.assertEqual(self.docs(), [])
 
     def test_present_gate_refusal_copies_nothing(self):
