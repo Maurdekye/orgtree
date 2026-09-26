@@ -45,7 +45,7 @@ except ImportError:
 
 #: Decision 35's list, written out here so a name dropped from the module's
 #: tuple fails this test rather than silently leaking.
-REQUIRED = ("ORGTREE_STORE", "ORGTREE_PG_CONNINFO", "ORGTREE_PG_URL", "PGHOST", "PGPORT",
+REQUIRED = ("ORGTREE_STORE", "ORGTREE_PG_CONNINFO", "ORGTREE_PG_URL", "ORGTREE_PG_BOOTSTRAP", "PGHOST", "PGPORT",
             "PGDATABASE", "PGUSER", "PGPASSWORD", "PGPASSFILE", "PGSERVICE")
 LIVE_CONNINFO = ("host=127.0.0.1 port=59999 dbname=orgtree user=orgtree_runtime "
                  "passfile='C:\\\\LIVE\\\\pg\\\\cluster\\\\secrets\\\\pgpass.conf' require_auth=scram-sha-256")

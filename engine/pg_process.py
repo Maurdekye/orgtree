@@ -20,7 +20,12 @@ otherwise ``<root>/store-backend.json`` (written only by the PG-2 cutover);
 otherwise SQLite. So without a cutover record the engine starts on SQLite
 exactly as before and this module does nothing. When the file chooses
 postgres the bracket also sets ``ORGTREE_STORE=postgres`` for the engine, so
-the store cannot disagree. A cutover record that does not parse, or names a
+the store cannot disagree. FRESH INSTALLS (the packaged 3.0.0-alpha.0
+desktop, which alone sets ``ORGTREE_PG_BOOTSTRAP=1``): a root with no org
+store yet is bound and recorded as postgres before the choice is made, so it
+never starts on SQLite; a root that already holds orgs is left exactly as it
+is until the PG-2 cutover, and a root in between refuses (see
+``bootstrap_fresh_root``). A cutover record that does not parse, or names a
 backend we do not know, REFUSES rather than guessing. Once postgres is chosen,
 ``ORGTREE_PG_CUSTODIAN`` must name an existing absolute executable (no PATH
 lookup, no fallback) and the data root must pass the checks below, or the
@@ -85,6 +90,9 @@ import time
 from typing import Any, Callable, Mapping, MutableMapping
 
 STORE_ENV = "ORGTREE_STORE"
+#: Set to "1" by the PACKAGED desktop only: a fresh root starts on PostgreSQL.
+BOOTSTRAP_ENV = "ORGTREE_PG_BOOTSTRAP"
+BOOTSTRAP_VIA = "fresh-bootstrap"
 CUSTODIAN_ENV = "ORGTREE_PG_CUSTODIAN"
 CONNINFO_ENV = "ORGTREE_PG_CONNINFO"
 MARKER_FILE = "orgtree-p03-prototype-root.json"
@@ -439,6 +447,93 @@ def record_refusal(reason: str, root: Path) -> bool:
         return False
 
 
+# ---------------------------------------------------------------- fresh-root bootstrap
+
+#: What an org store left in ``orgs/`` looks like (the SQLite store, its WAL
+#: files, a legacy JSON org, an interrupted JSON->SQLite migration, and the
+#: store's own rollback copies of migrated JSON).
+_SOURCE_SUFFIXES = (".db", ".db-wal", ".db-shm", ".json", ".db.migrating")
+
+
+def _is_source(name: str) -> bool:
+    return name.endswith(_SOURCE_SUFFIXES) or ".json.premigration" in name
+
+
+def classify_for_bootstrap(root: Path) -> tuple[str, list[str]]:
+    """``("existing", sources)``: ``orgs/`` holds an org store; it keeps its
+    backend. ``("fresh", [])``: no ``orgs/`` entries at all, no ``pg/`` and no
+    ``pre-postgres/``. ``("ambiguous", found)``: neither -- an empty folder
+    or any other entry in ``orgs/``, a PostgreSQL marker, or a database or
+    cutover folder with no record choosing it. A leftover product binding
+    (a bootstrap that stopped between binding and the record) is ours and
+    does not count."""
+    orgs = root / "orgs"
+    found: list[str] = []
+    if orgs.is_dir():
+        entries = sorted(orgs.iterdir(), key=lambda p: p.name)
+        sources = [f"orgs/{p.name}" for p in entries if p.is_file() and _is_source(p.name)]
+        if sources:
+            return "existing", sources
+        found += [f"orgs/{p.name}" + ("/" if p.is_dir() else "") for p in entries]
+    elif orgs.exists():
+        found.append("orgs (not a folder)")
+    for name in ("pg", "pre-postgres"):
+        if (root / name).exists():
+            found.append(f"{name}/")
+    return ("ambiguous", found) if found else ("fresh", [])
+
+
+def bootstrap_wanted(root: Path, env: Mapping[str, str]) -> bool:
+    """Only with ``ORGTREE_PG_BOOTSTRAP=1``, no ``ORGTREE_STORE`` and no
+    cutover record. Any value other than 1, 0 or empty refuses (a typo must
+    not silently decide which store a new install gets)."""
+    flag = env.get(BOOTSTRAP_ENV, "").strip()
+    if flag in ("", "0"):
+        return False
+    if flag != "1":
+        raise BracketError(f"{BOOTSTRAP_ENV}={flag!r}: only 1 (or 0, or unset) is understood")
+    if env.get(STORE_ENV, "").strip() or _unc_or_device(root):
+        return False
+    return read_cutover(root) is None
+
+
+def bootstrap_fresh_root(root: Path, env: Mapping[str, str], progress: Progress | None = None) -> str:
+    """A FRESH root becomes a postgres root before the engine chooses: the
+    custodian binds it (product mode, which re-checks every location rule in
+    Rust), then ``store-backend.json`` records postgres. The record is written
+    LAST, so a crash before it leaves only the binding, which is ours and is
+    re-used; after it, every launch is the ordinary postgres path (init,
+    start and migrate are idempotent). An EXISTING root is untouched; an
+    AMBIGUOUS one refuses. Returns the classification."""
+    kind, found = classify_for_bootstrap(root)
+    if kind == "existing":
+        return kind
+    if kind == "ambiguous":
+        raise BracketError(
+            f"{BOOTSTRAP_ENV}=1, but {root} is neither a fresh root nor an existing org store: it has no org "
+            f"database and no {CUTOVER_FILE}, yet holds {', '.join(found)}. Refusing to choose a store. "
+            f"If nothing there is needed, remove it; if it is a stopped PG-2 cutover, finish or roll it back.")
+    _refuse_overlap(root, product_deny_locations(env))
+    custodian = _executable(env, CUSTODIAN_ENV)
+    step = progress or (lambda _phase: None)
+    step("database-bind")
+    workdir = root / "host-logs" / f"bootstrap-{time.strftime('%Y%m%dT%H%M%S')}-{os.getpid()}"
+    workdir.mkdir(parents=True, exist_ok=True)
+    child_env = {k: v for k, v in env.items() if k not in ("ORGTREE_V2_TOKEN", CONNINFO_ENV)}
+    bound = _run_custodian(custodian, ["bind-product", "--root", str(root)], child_env, STATUS_TIMEOUT, workdir)
+    if not bound.get("ok"):
+        raise BracketError(f"pg-custodian bind-product refused: {bound.get('code')}: {bound.get('message')}")
+    record = {"schema": CUTOVER_SCHEMA, "backend": "postgres", "via": BOOTSTRAP_VIA,
+              "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+              "rollback": f"no org existed when this root was created; to start over on SQLite, stop the app "
+                          f"and delete this file, {PRODUCT_FILE} and pg/ (every org made since is lost)"}
+    target = root / CUTOVER_FILE
+    tmp = root / f"{CUTOVER_FILE}.{os.getpid()}.tmp"
+    tmp.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, target)
+    return kind
+
+
 # ---------------------------------------------------------------- the bracket
 
 class ManagedPostgres:
@@ -485,6 +580,8 @@ def start_for_engine(root: Path, env: MutableMapping[str, str], migrator: Migrat
     record chose postgres, ``ORGTREE_STORE``) in ``env``. Raises BracketError
     (after writing the event-log line) when the engine must not start."""
     try:
+        if bootstrap_wanted(root, env):
+            bootstrap_fresh_root(root, env, progress)
         if not wanted(env, root):
             env.pop(CONNINFO_ENV, None)  # never a stale connection from a parent
             return None
