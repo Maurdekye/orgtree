@@ -25,6 +25,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -93,6 +94,21 @@ class ScopeRequestVsAudienceGrant(unittest.TestCase):
             org=self.slug, node='boss', tool='orgtree_audience',
             args={'action': 'grant', 'from': 'worker', 'target': 'user'}), REQUEST)
 
+    def _watch_keys(self):
+        """The last row key each thread ASKED the lock manager for: when an
+        actor is proven blocked, this is the row it is waiting on."""
+        locks = orgtx.backend().locks
+        orig = locks.acquire
+        self.asked = {}
+
+        def acquire(owner, key, exclusive, timeout):
+            self.asked[threading.current_thread().ident] = (key, exclusive)
+            return orig(owner, key, exclusive, timeout)
+        return patch.object(locks, 'acquire', acquire)
+
+    def _waited_on(self, actor):
+        return self.asked.get(actor.thread.ident)
+
     def _state(self):
         org = store.load_org(self.slug)
         filed = [r for r in org.d.get('scope_requests') or [] if r.get('node') == 'worker']
@@ -101,19 +117,20 @@ class ScopeRequestVsAudienceGrant(unittest.TestCase):
         return org._has_audience('worker', U), filed, mailed
 
     def test_a_grant_that_commits_first_makes_the_request_file(self):
-        with racekit.Race(wait=STEP_S, pair='converted') as race:
+        with racekit.Race(wait=STEP_S, pair='converted') as race, self._watch_keys():
             g = race.actor('G', self._grant)
             r = race.actor('R', self._request)
             gg = race.hold(g, 'before_commit')     # G holds audiences FOR UPDATE
             race.start(g)
             race.reached(gg)
             race.start(r)
-            on = race.blocked(r)                   # R waits on the audiences row
+            race.blocked(r)
+            on = self._waited_on(r)                   # R waits on the audiences row
             race.release(gg)
             race.join(g, r)
             race.expect_order('G.before_commit', 'R.blocked', 'G.after_commit',
                               'R.after_lock', 'R.after_commit')
-        self.assertIn('audiences', on, f'blocked on {on}, not the audiences row')
+        self.assertIn('audiences', str(on), f'blocked on {on}, not the audiences row')
         self.assertNotIn('routed', r.result, r.result)
         self.assertIn('requested', r.result, r.result)
         audience, filed, mailed = self._state()
@@ -122,19 +139,20 @@ class ScopeRequestVsAudienceGrant(unittest.TestCase):
         self.assertEqual(mailed, [])
 
     def test_a_request_that_commits_first_routes_and_the_grant_waits(self):
-        with racekit.Race(wait=STEP_S, pair='converted') as race:
+        with racekit.Race(wait=STEP_S, pair='converted') as race, self._watch_keys():
             r = race.actor('R', self._request)
             g = race.actor('G', self._grant)
             gr = race.hold(r, 'before_commit')     # R holds audiences FOR SHARE
             race.start(r)
             race.reached(gr)
             race.start(g)
-            on = race.blocked(g)                   # G waits to write the row
+            race.blocked(g)
+            on = self._waited_on(g)                   # G waits to write the row
             race.release(gr)
             race.join(r, g)
             race.expect_order('R.before_commit', 'G.blocked', 'R.after_commit',
                               'G.after_lock', 'G.after_commit')
-        self.assertIn('audiences', on, f'blocked on {on}, not the audiences row')
+        self.assertIn('audiences', str(on), f'blocked on {on}, not the audiences row')
         self.assertEqual(r.result.get('routed'), 'boss', r.result)
         audience, filed, mailed = self._state()
         self.assertTrue(audience)                  # granted, after the request
