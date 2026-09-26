@@ -148,10 +148,11 @@ test('§1 stable accessible tabs navigate by key without swapping identity',
       // v3 (settled layout): General leads and is where the panel opens — the
       // startup choice plus the version and repository link the removed
       // sidebar used to carry. Default org settings closes the strip, having
-      // absorbed the standalone window that sidebar opened.
+      // absorbed the standalone window that sidebar opened. Developer (the
+      // engine debug view, 2026-09-26) comes last.
       assert.deepEqual([...tabs].map((b) => b.textContent?.trim()),
         ['General', 'Providers', 'Runtime', 'Mail hub', 'Display', 'Import',
-          'Default org settings'])
+          'Default org settings', 'Developer'])
       assert.equal(tabs[4]!.querySelector('.app-settings-scope'), null,
         'Display has no device-label pill while retaining its tab identity')
       assert.equal(tabs[0]!.getAttribute('aria-selected'), 'true')
@@ -169,10 +170,15 @@ test('§1 stable accessible tabs navigate by key without swapping identity',
           key: 'End', bubbles: true,
         }))
       })
-      assert.equal(tabs[6]!.getAttribute('aria-selected'), 'true')
-      assert.equal(document.activeElement, tabs[6])
-      const last = view.el.querySelector('#app-settings-panel-defaults')!
+      assert.equal(tabs[7]!.getAttribute('aria-selected'), 'true')
+      assert.equal(document.activeElement, tabs[7])
+      const last = view.el.querySelector('#app-settings-panel-developer')!
       assert.equal(last.hasAttribute('hidden'), false)
+      // the engine debug view's toggle lives here, and is off by default
+      const dbg = last.querySelector<HTMLInputElement>(
+        'input[role="switch"][aria-label="show the engine debug view"]')
+      assert.ok(dbg, 'Developer has no engine debug toggle')
+      assert.equal(dbg!.checked, false)
     } finally { await view.unmount(); delete g.fetch }
   })
 

@@ -106,6 +106,7 @@ import type {
   ToastUndo, TreeFrozen, TreeNode, TreePayload, UsageLimit, UsagePayload, UsagePeek,
 } from './types'
 import type { JumpReq, MailRow, ProviderPresence } from './canvas/shared'
+import { EngineDebugPanel, setEngineDebugOn, useEngineDebug } from './canvas/enginedebug'
 
 const USER = '@user'       // typed actor sentinels — a node may be NAMED user/system
 const SYSTEM = '@system'
@@ -336,6 +337,8 @@ export default function App() {
   useEffect(() => { setDeskDpi(deskDpi()) }, [])
   const identity = useWindowIdentity()
   const v3 = nativeWindows()
+  // Developer › engine debug view (App settings); off unless turned on
+  const engineDebug = useEngineDebug()
   // Native identity owns the organization from the first render. A fresh
   // Homepage/Create window must not fetch or route to another window's last
   // organization while waiting for an effect to reconcile its identity.
@@ -1140,6 +1143,8 @@ export default function App() {
   return (
     <CurrentOrg.Provider value={slug}><AgentNavProvider><ObjectMenuBoundary className="app" toast={toast}>
       <RestartNotice />
+      {/* Developer › engine debug view: off by default; while off nothing polls */}
+      {!BASE && engineDebug && <EngineDebugPanel onClose={() => setEngineDebugOn(false)} />}
       {orgTransitionPrompt}
       {/* ------------------------------------------------- the v3 four views
           Homepage and Create are WINDOWS, not states of one window: which of

@@ -1027,18 +1027,56 @@ export const sweepLegacy = (slug: string): Promise<SweepResult> =>
 export const diskFileUrl = (slug: string, path: string): string =>
   u(`/api/orgs/${slug}/disk/file?path=${encodeURIComponent(path)}`)
 
+/* This window's id on the org websocket (`?win=`), so the engine can count one
+   window's reconnects across its sockets for the Developer › engine debug
+   view. Per window, kept across reloads in sessionStorage; purely a label. */
+export const WINDOW_ID: string = (() => {
+  const fresh = (): string => Math.random().toString(36).slice(2, 10)
+  try {
+    const have = sessionStorage.getItem('orgtree-window-id')
+    if (have) return have
+    const id = fresh()
+    sessionStorage.setItem('orgtree-window-id', id)
+    return id
+  } catch { return fresh() }
+})()
+
 export function openWs(
   slug: string,
   onChanged: (ev: MessageEvent) => void,
   onClose?: () => void,
 ): WebSocket {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-  const ws = new WebSocket(`${proto}://${location.host}${BASE}/api/orgs/${slug}/ws`)
+  const ws = new WebSocket(
+    `${proto}://${location.host}${BASE}/api/orgs/${slug}/ws?win=${encodeURIComponent(WINDOW_ID)}`)
   ws.onmessage = onChanged
   const ping = setInterval(() => { if (ws.readyState === 1) ws.send('ping') }, 25000)
   ws.onclose = () => { clearInterval(ping); onClose?.() }
   return ws
 }
+
+/* Developer › engine debug view: one cheap read of counters the engine keeps
+   (api.py `engine_stats`), polled about once a second while the view is on. */
+export interface EngineSocketStats {
+  org: string; window: string; public: boolean
+  pending: number; pending_bytes: number; sent: number; sent_bytes: number
+  age_s: number; window_connects: number; window_drops: number
+}
+export interface EngineStats {
+  at: number; pid: number
+  memory: { private_bytes: number | null; rss_bytes: number | null }
+  websockets: {
+    queue_max: number; send_timeout_s: number
+    drops: Record<string, number>
+    sockets: EngineSocketStats[]
+  }
+  work_list: {
+    full_200: number; not_modified_304: number; bytes_200: number; window_s: number
+    cached_bodies: number; cached_bytes: number; cache_idle_s: number
+  }
+}
+export const getEngineStats = (): Promise<EngineStats> =>
+  req('/api/diagnostics/engine-stats', undefined, 5000)
 
 export const documentDownloadUrl = (slug: string, id: string): string =>
   u(`/api/orgs/${encodeURIComponent(slug)}/documents/${encodeURIComponent(id)}/download`)

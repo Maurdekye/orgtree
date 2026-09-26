@@ -38,6 +38,7 @@ import type { StartView } from './shared'
 import { AutorenewIcon } from '../icons'
 import { AboutSection, StartupWindowsSetting, useAppVersion } from '../shell/general'
 import { DefaultsForm } from '../shell/defaults'
+import { EngineDebugToggle } from './enginedebug'
 
 // small local copies of the usage-modal label helpers (App.tsx owns the
 // originals beside UsageModal; importing them here would cycle App ↔ panel)
@@ -210,7 +211,7 @@ export function UsageBars({ u }: { u: AccountUsage }) {
 }
 
 type AppSettingsTab = 'general' | 'providers' | 'runtime' | 'mailhub'
-  | 'display' | 'import' | 'defaults'
+  | 'display' | 'import' | 'defaults' | 'developer'
 const APP_TABS: SettingsTab<AppSettingsTab>[] = [
   // General is FIRST and is where the panel opens (the settled v3 layout):
   // the startup choice and what is actually running. The v3 shell removes the
@@ -232,6 +233,8 @@ const APP_TABS: SettingsTab<AppSettingsTab>[] = [
   // settings. The standalone window still exists and still opens; this is the
   // same fields (shell/defaults.tsx), not a copy.
   { id: 'defaults', label: 'Default org settings' },
+  // tools for looking inside the running engine; nothing here changes behaviour
+  { id: 'developer', label: 'Developer' },
 ]
 
 function DeskTextSize() {
@@ -665,6 +668,9 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
     <SettingsTabPanel id="defaults" idBase="app-settings" active={tab === 'defaults'}>
       <div className="dim modalpin-subtitle">applied to every NEW organization</div>
       <DefaultsForm toast={toast} onDone={close} />
+    </SettingsTabPanel>
+    <SettingsTabPanel id="developer" idBase="app-settings" active={tab === 'developer'}>
+      <SetGroup title="Debug"><EngineDebugToggle /></SetGroup>
     </SettingsTabPanel>
   </PinFrame>{addAccount && <AddAccountDialog key={addAccount} provider={addAccount} onAdded={registry.reload} close={() => setAddAccount(null)} />}</>
 }

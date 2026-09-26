@@ -1633,15 +1633,39 @@ def _abort_socket(ws: WebSocket) -> bool:
     return False
 
 
+#: window ids remembered for the debug view's reconnect counts (oldest forgotten)
+_WS_WINDOWS_MAX = 64
+
+
+def _ws_window_id(ws: WebSocket) -> str:
+    """The renderer's per-window id (`?win=`), so reconnects of one window can
+    be counted across its sockets; sanitized, and "-" when absent."""
+    try:
+        raw = str(ws.query_params.get("win") or "")[:64]
+    except Exception:
+        raw = ""
+    return re.sub(r"[^A-Za-z0-9_.:-]", "", raw) or "-"
+
+
 class _Outbox:
-    """One socket's pending frames and the task that writes them, in order."""
+    """One socket's pending frames and the task that writes them, in order.
+    Frames are pre-encoded text, so their byte size is known for free."""
 
-    __slots__ = ("frames", "ready", "task")
+    __slots__ = ("frames", "ready", "task", "bytes", "sent", "sent_bytes",
+                 "win", "slug", "joined")
 
-    def __init__(self) -> None:
-        self.frames: collections.deque[dict[str, Any]] = collections.deque()
+    def __init__(self, slug: str = "", win: str = "-") -> None:
+        #: (encoded text, its UTF-8 size in bytes)
+        self.frames: collections.deque[tuple[str, int]] = collections.deque()
         self.ready = asyncio.Event()
         self.task: asyncio.Task[None] | None = None
+        #: encoded size of the frames still queued
+        self.bytes = 0
+        self.sent = 0
+        self.sent_bytes = 0
+        self.win = win
+        self.slug = slug
+        self.joined = time.time()
 
 
 class Hub:
@@ -1657,10 +1681,22 @@ class Hub:
         self._boxes: dict[WebSocket, _Outbox] = {}
         #: sockets dropped for not reading, by reason — diagnostics and tests
         self.drops: dict[str, int] = {"overflow": 0, "stuck": 0, "abort_failed": 0}
+        #: per renderer window (`?win=`): connects and drops, for the debug view
+        self.windows: collections.OrderedDict[str, dict[str, Any]] = collections.OrderedDict()
+
+    def _window(self, win: str) -> dict[str, Any]:
+        rec = self.windows.get(win)
+        if rec is None:
+            rec = self.windows[win] = {"connects": 0, "drops": 0}
+            while len(self.windows) > _WS_WINDOWS_MAX:
+                self.windows.popitem(last=False)
+        self.windows.move_to_end(win)
+        return rec
 
     async def join(self, slug: str, ws: WebSocket, *, public: bool = False) -> None:
         await ws.accept()
-        box = _Outbox()
+        box = _Outbox(slug, _ws_window_id(ws))
+        self._window(box.win)["connects"] += 1
         self._boxes[ws] = box
         box.task = asyncio.get_running_loop().create_task(self._writer(slug, ws, box))
         self.rooms.setdefault(slug, set()).add(ws)
@@ -1673,6 +1709,7 @@ class Hub:
         box = self._boxes.pop(ws, None)
         if box is not None:
             box.frames.clear()
+            box.bytes = 0
             task = box.task
             if task is not None and not task.done():
                 try:
@@ -1691,6 +1728,9 @@ class Hub:
         """Give up on a socket that is not reading: forget it, free its queue,
         and abort its connection so the window reconnects and refetches."""
         self.drops[reason] = self.drops.get(reason, 0) + 1
+        box = self._boxes.get(ws)
+        if box is not None:
+            self._window(box.win)["drops"] += 1
         self.leave(slug, ws)
         try:
             aborted = _abort_socket(ws)
@@ -1709,9 +1749,11 @@ class Hub:
             while not box.frames:
                 box.ready.clear()
                 await box.ready.wait()
-            frame = box.frames.popleft()
+            frame, size = box.frames.popleft()
+            box.bytes -= size
             try:
-                await asyncio.wait_for(ws.send_json(frame), _WS_SEND_TIMEOUT)
+                # == ws.send_json(payload): the same compact, non-ASCII-escaped text
+                await asyncio.wait_for(ws.send_text(frame), _WS_SEND_TIMEOUT)
             except asyncio.TimeoutError:
                 self._drop(slug, ws, "stuck")
                 return
@@ -1720,6 +1762,23 @@ class Hub:
             except Exception:
                 self.leave(slug, ws)
                 return
+            box.sent += 1
+            box.sent_bytes += size
+
+    def stats(self) -> list[dict[str, Any]]:
+        """One row per open socket, for the debug view (cheap: no encoding)."""
+        now = time.time()
+        rows: list[dict[str, Any]] = []
+        for ws, box in list(self._boxes.items()):
+            win = self.windows.get(box.win) or {"connects": 0, "drops": 0}
+            rows.append({"org": box.slug, "window": box.win,
+                         "public": ws in self.public,
+                         "pending": len(box.frames), "pending_bytes": box.bytes,
+                         "sent": box.sent, "sent_bytes": box.sent_bytes,
+                         "age_s": round(now - box.joined, 1),
+                         "window_connects": win["connects"],
+                         "window_drops": win["drops"]})
+        return rows
 
     async def _send(self, slug: str, payload: dict[str, Any]) -> None:
         """Queue `payload` for every socket in the room; never waits on one."""
@@ -1743,14 +1802,28 @@ class Hub:
                 return result
             admin_payload = row_payload(admin_payload, False)
             public_payload = row_payload(public_payload, True)
-        for ws in list(self.rooms.get(slug, set())):
+        room = list(self.rooms.get(slug, set()))
+        if not room:
+            return
+        # encoded ONCE per broadcast, exactly as starlette's send_json would
+        encoded: dict[bool, tuple[str, int]] = {}
+
+        def text(public: bool) -> tuple[str, int]:
+            if public not in encoded:
+                t = json.dumps(public_payload if public else admin_payload,
+                               separators=(",", ":"), ensure_ascii=False)
+                encoded[public] = (t, len(t.encode("utf-8")))
+            return encoded[public]
+        for ws in room:
             box = self._boxes.get(ws)
             if box is None:
                 continue
             if len(box.frames) >= _WS_QUEUE_MAX:
                 self._drop(slug, ws, "overflow")
                 continue
-            box.frames.append(public_payload if ws in self.public else admin_payload)
+            frame = text(ws in self.public)
+            box.frames.append(frame)
+            box.bytes += frame[1]
             box.ready.set()
 
     async def changed(self, slug: str) -> None:
@@ -7091,6 +7164,46 @@ _work_list_build_locks: dict[tuple[str, int, int, int], threading.Lock] = {}
 _work_list_sweeper: threading.Timer | None = None
 
 
+class _PollStats:
+    """Docket-list answers over the last minute, in one-second buckets, for
+    the debug view: how many were full 200s, how many 304s, and the 200 bytes."""
+
+    WINDOW_S = 60
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        #: [second, n200, n304, bytes200], oldest first
+        self._buckets: collections.deque[list[int]] = collections.deque()
+
+    def record(self, status: int, nbytes: int = 0) -> None:
+        sec = int(time.time())
+        with self._lock:
+            if not self._buckets or self._buckets[-1][0] != sec:
+                self._buckets.append([sec, 0, 0, 0])
+                self._trim(sec)
+            b = self._buckets[-1]
+            if status == 304:
+                b[2] += 1
+            else:
+                b[1] += 1
+                b[3] += nbytes
+
+    def _trim(self, sec: int) -> None:
+        while self._buckets and self._buckets[0][0] <= sec - self.WINDOW_S:
+            self._buckets.popleft()
+
+    def last_minute(self) -> dict[str, int]:
+        with self._lock:
+            self._trim(int(time.time()))
+            n200 = sum(b[1] for b in self._buckets)
+            n304 = sum(b[2] for b in self._buckets)
+            by = sum(b[3] for b in self._buckets)
+        return {"full_200": n200, "not_modified_304": n304, "bytes_200": by}
+
+
+_work_list_polls = _PollStats()
+
+
 def _work_list_etag(seq: int, key: tuple[str, int, int, int]) -> str:
     parts = (seq, key[1:], int(time.time() // _WORK_STALE_BUCKET_S))
     return '"w' + hashlib.sha1(repr(parts).encode()).hexdigest()[:20] + '"'
@@ -7165,6 +7278,7 @@ def work_items_list(slug: str, archived: int = 0,
     seq = store.org_seq(slug)
     etag = _work_list_etag(seq, key)
     if request.headers.get("if-none-match") == etag:
+        _work_list_polls.record(304)
         return Response(status_code=304, headers={"ETag": etag})
     with _work_list_cache_lock:
         hit = _work_list_cache.get(key)
@@ -7187,8 +7301,53 @@ def work_items_list(slug: str, archived: int = 0,
                     _work_list_cache[key] = hit
                     _work_list_arm_sweeper_locked()
     hit.used = time.monotonic()
+    _work_list_polls.record(200, len(hit.body))
     return Response(content=hit.body, media_type="application/json",
                     headers={"ETag": hit.etag})
+
+
+# ── the engine debug view (mem-leak-probe, 2026-09-26) ──────────────────────
+# Polled about once a second by the desktop's Developer › engine debug view,
+# and only while that toggle is on. Everything here is a read of counters the
+# engine already keeps: no org is loaded, nothing is encoded per frame.
+_engine_proc: Any = None
+
+
+def _engine_memory() -> dict[str, int | None]:
+    global _engine_proc
+    try:
+        import psutil
+        if _engine_proc is None:
+            _engine_proc = psutil.Process()
+        mi = _engine_proc.memory_info()
+    except Exception:
+        return {"private_bytes": None, "rss_bytes": None}
+    # `private` is Windows' private bytes (commit charge); elsewhere absent
+    return {"private_bytes": getattr(mi, "private", None), "rss_bytes": mi.rss}
+
+
+@app.get("/api/diagnostics/engine-stats", dependencies=[Depends(_profile_operator_only)])
+async def engine_stats() -> dict[str, Any]:
+    with _work_list_cache_lock:
+        cached = [(k[0], len(v.body)) for k, v in _work_list_cache.items()]
+    return {
+        "at": time.time(),
+        "pid": os.getpid(),
+        "memory": _engine_memory(),
+        "websockets": {
+            "queue_max": _WS_QUEUE_MAX,
+            "send_timeout_s": _WS_SEND_TIMEOUT,
+            "drops": dict(hub.drops),
+            "sockets": hub.stats(),
+        },
+        "work_list": {
+            **_work_list_polls.last_minute(),
+            "window_s": _PollStats.WINDOW_S,
+            "cached_bodies": len(cached),
+            "cached_bytes": sum(n for _, n in cached),
+            "cache_idle_s": _WORK_CACHE_IDLE_S,
+        },
+    }
 
 
 @app.get("/api/orgs/{slug}/work-items/{wid}")

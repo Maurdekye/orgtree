@@ -7771,3 +7771,27 @@ main:has(> .orgbar.native-header) > .error {
    No transform/contain (fixed modals retain viewport coordinates), and no
    pointer-events inheritance or covering area to intercept canvas clicks. */
 .pin-layer { position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 16; isolation: isolate; }
+
+/* Developer > engine debug view (enginedebug.tsx): a small fixed panel of raw
+   numbers; off unless turned on in App settings > Developer */
+.edbg-panel {
+  position: fixed; right: 12px; bottom: 12px; z-index: 89;
+  width: 520px; max-height: 70vh; overflow: auto;
+  padding: 8px 10px; border-radius: 6px;
+  background: var(--panel, #1e2127); color: var(--ink, #d7dae0);
+  border: 1px solid var(--line, #3a3f4b); box-shadow: 0 4px 16px rgba(0, 0, 0, .4);
+  font-size: 11.5px; font-variant-numeric: tabular-nums;
+}
+.edbg-head { display: flex; align-items: baseline; gap: 6px; }
+.edbg-close { margin-left: auto; }
+.edbg-panel h4 { margin: 8px 0 3px; font-size: 11px; text-transform: uppercase; opacity: .7; }
+.edbg-metric { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.edbg-name { min-width: 130px; }
+.edbg-value { min-width: 70px; font-weight: 600; }
+.edbg-spark { color: var(--accent, #61afef); }
+.edbg-row { display: flex; gap: 16px; }
+.edbg-table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+.edbg-table th, .edbg-table td { padding: 1px 4px; text-align: right; white-space: nowrap; }
+.edbg-table th:first-child, .edbg-table td:first-child,
+.edbg-table th:nth-child(2), .edbg-table td:nth-child(2) { text-align: left; }
+.edbg-self td { color: var(--accent, #61afef); }
