@@ -188,6 +188,37 @@ def child(args) -> int:
                 "running_leaf": leaf.most_common(top), "running_path": path.most_common(top),
                 "waiting_leaf": waiting.most_common(top)}
 
+    @api.app.get("/scale/threadcpu")
+    def _scale_threadcpu(seconds: float = 10.0, top: int = 12) -> dict:
+        """CPU seconds per OS thread over `seconds` (psutil), each named and
+        with a few stack samples, so a busy thread is told apart from a sleeping
+        one (the stack sampler above cannot: time.sleep has no Python frame)."""
+        import collections
+        import traceback
+        import psutil
+        proc = psutil.Process()
+        def snap():
+            return {t.id: t.user_time + t.system_time for t in proc.threads()}
+        by_native = {t.native_id: t for t in threading.enumerate()}
+        a = snap()
+        frames: dict = collections.defaultdict(collections.Counter)
+        end = time.time() + min(seconds, 60)
+        while time.time() < end:
+            cur = sys._current_frames()
+            for nid, t in by_native.items():
+                f = cur.get(t.ident)
+                if f is not None:
+                    st = traceback.extract_stack(f)[-5:]
+                    frames[nid][" > ".join(f"{os.path.basename(x.filename)}:{x.name}:{x.lineno}" for x in st)] += 1
+            time.sleep(0.05)
+        b = snap()
+        rows = sorted(((b[k] - a.get(k, 0.0), k) for k in b), reverse=True)[:top]
+        return {"seconds": seconds, "process_cpu_s": sum(b.values()) - sum(a.values()),
+                "threads": [{"native_id": k, "cpu_s": round(d, 3),
+                             "name": by_native[k].name if k in by_native else None,
+                             "stacks": frames[k].most_common(3) if k in frames else []}
+                            for d, k in rows]}
+
     import uvicorn
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=args.port, lifespan="on",
                                            access_log=False, log_level="warning",
