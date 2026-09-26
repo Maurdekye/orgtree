@@ -101,6 +101,8 @@ from . import opreceipts
 from . import pgdoor
 from . import workdoor
 from . import rcdoor  # PG-3c: credits/reservations/status on row transactions
+# PG-3a's door declarations: importing registers them with pgdoor
+from . import lifecycle_door
 from . import reservations
 from . import ledger as ledger_mod
 from . import (accounts, antigravity_limits, appsettings, bridgeauth,
@@ -13070,37 +13072,9 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             elif body.tool == "orgtree_move":
                 _batch = a.get("moves")
                 if _batch:
-                    # D-224 ③: several moves as one transaction — the whole
-                    # list rides this handler's load-mutate-save window, and
-                    # the ledger restores its own doc on a mid-batch refusal
-                    if not isinstance(_batch, list):
-                        raise LedgerError("`moves` must be a list of "
-                                          "{node, new_parent}")
-                    # …and so must every ELEMENT (redteam 2026-09-02): the
-                    # list check alone let `["abc"]`, `[5]`, `[True]` reach
-                    # `.get` on a str/int/bool → AttributeError → a 500 out of
-                    # the gateway an agent is holding a tool result open on.
-                    # An LLM writes ["a","b"] for this shape readily; D-169's
-                    # rule is that a bad argument 422s with a reason.
-                    _mv: list[tuple[str, str | None]] = []
-                    for i, m in enumerate(cast("list[Any]", _batch)):
-                        if not isinstance(m, dict):
-                            raise LedgerError(
-                                f"moves[{i}] must be an object "
-                                f"{{node, new_parent}}, not "
-                                f"{type(cast('object', m)).__name__}")
-                        _m = cast("dict[str, Any]", m)
-                        if "new_parent" not in _m:
-                            # the schema marks it required, and its absence
-                            # silently meant THE TOP LEVEL — a promotion the
-                            # caller never typed (and one only the user may
-                            # make). Say so instead of guessing.
-                            raise LedgerError(
-                                f"moves[{i}] has no `new_parent` — name the "
-                                f'new superior, or pass "" for the top level '
-                                f"(user only)")
-                        _mv.append((str(_m.get("node") or ""),
-                                    _m.get("new_parent") or None))
+                    # D-224 ③: several moves as one transaction; the
+                    # argument checks are shared with the door
+                    _mv = lifecycle_door.parse_moves(_batch)
                     result = org.move_batch(body.node, _mv)
                 else:
                     result = org.move(body.node, a.get("node", ""),
