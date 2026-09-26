@@ -123,6 +123,12 @@ class OverlappingReservations(unittest.TestCase):
     n = 0
 
     def setUp(self) -> None:
+        # a converted-vs-converted race runs with PG-0b's transition fence OFF
+        # (plan decision 19; racekit refuses it on): with the fence on, every
+        # org_tx queues on DOC_LOCK first and never reaches the row locks
+        # these tests are about
+        self.addCleanup(setattr, orgtx, 'TRANSITION_FENCE', orgtx.TRANSITION_FENCE)
+        orgtx.TRANSITION_FENCE = False
         orgtx.use_backend(orgtx.SeamBackend())
         pgdoor.use_org_tx(None)   # PG-0's orgtx.org_tx, pgdoor's own retry/widen rules
         OverlappingReservations.n += 1
