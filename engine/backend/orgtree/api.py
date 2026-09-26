@@ -13057,9 +13057,10 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                     drive.append(str(routed))
             # PG-3c (lead decision 18.8): the kiosk cap reads EVERY live node
             # (Org.audit), which no row lock covers. Tools proven unable to
-            # change top-level holdings skip it (rcdoor.KIOSK_EXEMPT; proof:
-            # tests/test_pg3c_kiosk_exempt.py); everything else keeps it.
-            if body.tool not in rcdoor.KIOSK_EXEMPT:
+            # change top-level holdings skip it (pgdoor.KIOSK_EXEMPT, the ONE
+            # list the door reads too, filled by pgdoor.declare(kiosk_exempt=);
+            # proof: tests/test_pg3c_kiosk_exempt.py); everything else keeps it.
+            if body.tool not in pgdoor.KIOSK_EXEMPT:
                 _kiosk_cap_check(org)
             selection = result.pop("_account_selection", None)
             if selection is not None:
