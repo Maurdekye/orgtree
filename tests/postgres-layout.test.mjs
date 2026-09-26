@@ -50,3 +50,8 @@ test('wrong pin, qualification feature, and truncated manifest refuse', t => {
   manifest.custodian.features = []; delete manifest.files['pg-custodian.exe']; save()
   assert.throws(() => assertPostgresRuntime(engine), /incomplete/)
 })
+
+test('source packaging rejects a custodian without the current native source inventory', t => {
+  const { engine } = payload(t)
+  assert.throws(() => assertPostgresRuntime(engine, { sourceRoot: path.resolve(import.meta.dirname, '..') }), /source list changed/)
+})

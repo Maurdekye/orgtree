@@ -56,6 +56,23 @@ class ArchiveControls(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "regular file"):
                 provision.extract_runtime(archive, folder / "out")
 
+    def test_wrong_archive_pin_refuses_before_compiling_or_writing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            with self.assertRaisesRegex(ValueError, "size/SHA-256"):
+                provision.assemble(self.archive(Path(temp)))
+
+    def test_archive_symlink_refuses(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            archive = folder / "linked.zip"
+            with zipfile.ZipFile(archive, "w") as out:
+                entry = zipfile.ZipInfo("pgsql/bin/postgres.exe")
+                entry.create_system = 3
+                entry.external_attr = 0o120777 << 16
+                out.writestr(entry, "../elsewhere")
+            with self.assertRaisesRegex(ValueError, "linked"):
+                provision.extract_runtime(archive, folder / "out")
+
 
 if __name__ == "__main__":
     unittest.main()
