@@ -26,6 +26,7 @@ import os
 from pathlib import Path
 import tempfile
 import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -96,7 +97,9 @@ class LockFreeLedger(unittest.TestCase):
             t.join(10)
         self.assertEqual(errors, [])
         rows = [r for r in _rows(self.slug) if r['operation_id'] == 'op:1']
-        self.assertEqual(sum(r['count'] for r in rows), 3, rows)   # 1 committed + 2
+        # p01 (1): two concurrent records of the same (operation, state) are
+        # two new rows, and no write is lost
+        self.assertEqual([r['count'] for r in rows], [1, 1, 1], rows)
 
     def test_a_repeat_inside_one_transaction_still_coalesces(self) -> None:
         with orgtx.org_tx(self.slug, logs=['lifecycle']) as tx:
@@ -148,9 +151,37 @@ class LockFreeLedger(unittest.TestCase):
         with orgtx.org_tx(self.slug, logs=['lifecycle']) as tx:
             for i in range(lifecycle.MAX_RECORDS + 1):
                 _rec(tx.d, f'bulk:{i}')
-        # that tx's own appends made it due; the prune ran after its commit
-        self.assertLessEqual(len(_rows(self.slug)), lifecycle.MAX_RECORDS)
+        # that tx's own appends made it due; after its commit the pruner
+        # THREAD (not the committing one) pruned it
+        self.assertTrue(lifecycle.idle.wait(10), 'the pruner thread never went idle')
         self.assertEqual(len(_rows(self.slug)), lifecycle.PRUNE_TO)
+        self.assertEqual(lifecycle._worker.name, 'lifecycle-pruner')
+
+    def test_a_commit_never_waits_for_a_prune(self) -> None:
+        # p01 (3): the prune runs off the request path. Hold a prune open on
+        # PRUNE_LOCK, make the org due, and time an ordinary commit
+        at_commit, go = threading.Event(), threading.Event()
+
+        def hold(point: str, tx: orgtx.OrgTx) -> None:
+            if point == 'before_commit' and lifecycle.PRUNE_LOCK in tx.lock_sections \
+                    and not at_commit.is_set():
+                at_commit.set()
+                go.wait(10)
+        orgtx.set_pause_hook(hold)
+        t = threading.Thread(target=lambda: lifecycle.prune(self.slug))
+        t.start()
+        try:
+            self.assertTrue(at_commit.wait(10))
+            lifecycle._due.add(self.slug)
+            t0 = time.monotonic()
+            with orgtx.org_tx(self.slug, logs=['lifecycle']) as tx:
+                _rec(tx.d, 'quick')
+            self.assertLess(time.monotonic() - t0, 1.0)
+        finally:
+            go.set()
+            t.join(10)
+            orgtx.set_pause_hook(None)
+        self.assertTrue(lifecycle.idle.wait(15))
 
     def test_the_plain_dict_path_is_unchanged(self) -> None:
         doc: dict = {}

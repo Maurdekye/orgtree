@@ -8,6 +8,7 @@ correlation without turning status polling into an unbounded append log.
 
 from __future__ import annotations
 
+import queue
 import threading
 import uuid
 from typing import Any, Mapping
@@ -37,13 +38,19 @@ _STICKY_STATES = frozenset({"delay_reported"})
 #: the pruner's own row: a doc key no writer uses, locked FOR UPDATE only by
 #: `prune`, so two pruners serialize while appends take no lock at all
 PRUNE_LOCK = "lifecycle_prune"
-#: row-store appends by THIS process per org before a prune is due; the prune
-#: runs after the next org_tx on that org commits (a commit listener)
+#: row-store appends by THIS process per org before a prune is due. A due
+#: org is handed to ONE background pruner thread after the next org_tx on it
+#: commits (a commit listener), so no request ever waits on a prune (p01)
 PRUNE_EVERY = 64
 _due_lock = threading.Lock()
 _appended: dict[str, int] = {}
 _due: set[str] = set()
 _listening = False
+_queue: "queue.SimpleQueue[str]" = queue.SimpleQueue()
+_worker: threading.Thread | None = None
+#: set whenever the pruner thread has nothing queued or in hand (tests)
+idle = threading.Event()
+idle.set()
 
 
 def identity(kind: str, value: Any) -> str:
@@ -89,18 +96,36 @@ def _note_append(slug: str) -> None:
 
 
 def _after_commit(committed: Any) -> None:
-    """orgtx commit listener: run a due prune once the org's tx committed
-    (locks released). A failure leaves it due for the next commit."""
+    """orgtx commit listener: hand a due org to the pruner thread. Never
+    prunes here — this runs on the committing (request) thread."""
+    global _worker
     slug = committed.slug
     with _due_lock:
         if slug not in _due:
             return
         _due.discard(slug)
-    try:
-        prune(slug)
-    except Exception:                                      # noqa: BLE001
-        with _due_lock:
-            _due.add(slug)
+        idle.clear()
+        _queue.put(slug)
+        if _worker is None or not _worker.is_alive():
+            _worker = threading.Thread(target=_prune_worker, name="lifecycle-pruner",
+                                       daemon=True)
+            _worker.start()
+
+
+def _prune_worker() -> None:
+    """The one pruner thread. A failed prune (a lock timeout, a deleted org)
+    leaves the org due for the next commit on it."""
+    while True:
+        slug = _queue.get()
+        try:
+            prune(slug)
+        except Exception:                                  # noqa: BLE001
+            with _due_lock:
+                _due.add(slug)
+        finally:
+            with _due_lock:
+                if _queue.empty():
+                    idle.set()
 
 
 def prune(slug: str) -> int:
