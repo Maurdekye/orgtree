@@ -911,12 +911,62 @@ class DeleteOrgExclusiveOnPostgres(unittest.TestCase):
         with self.assertRaises(LedgerError):
             orgtx.org_read(self.slug)
         # p01 review B1: the writer read the marker BEFORE queueing, and the
-        # schema rows outlive the delete, so only the post-lock marker
-        # re-check keeps it from committing into the deleted org
+        # schema rows outlive the delete. (Here the load's marker-exists check
+        # refuses too; the re-created-slug test below needs the re-check.)
         with psycopg.connect(os.environ['ORGTREE_PG_URL'], autocommit=True) as c:
             rows = c.execute(f'SELECT * FROM org_{int(org_id)}.nodes').fetchall()
         self.assertTrue(rows, 'the schema rows were expected to remain (row-leak item)')
         self.assertNotIn('resurrected', repr(rows), 'the queued tx wrote into the deleted org')
+
+    def test_slug_recreated_before_a_queued_tx_gets_the_lock(self) -> None:
+        """p01 review B1, second case. Deleted-only is also refused by the
+        load's own marker-exists check; this one is not: the slug is
+        re-created (a NEW org_id, a new marker) while the writer still waits
+        on the OLD org_id's lock. Without the post-lock marker re-check the
+        writer commits into the old org's orphaned rows."""
+        from unittest.mock import patch
+
+        from orgtree import reply_events
+        from orgtree.ledger import LedgerError
+        in_delete, go = threading.Event(), threading.Event()
+        name = f'pgdx-{self._testMethodName}'[:60]
+        old_id = pgstore.read_marker(store._db_path(self.slug))
+        real_ensure, real_clear = store._ensure_migrated, reply_events.clear_org
+
+        def slow_ensure(slug: str) -> None:
+            if threading.current_thread().name == 'deleter':
+                in_delete.set()
+                self.assertTrue(go.wait(10))
+            return real_ensure(slug)
+
+        def clear_then_recreate(slug: str) -> None:
+            real_clear(slug)
+            if threading.current_thread().name == 'deleter':
+                self.assertEqual(_fresh_org(name), self.slug)   # still inside org_exclusive
+
+        def write() -> None:
+            with orgtx.org_tx(self.slug, nodes=['a'], lock_timeout=10) as tx:
+                tx.d['nodes']['a']['name'] = 'resurrected'
+
+        with patch.object(store, '_ensure_migrated', slow_ensure), \
+                patch.object(reply_events, 'clear_org', clear_then_recreate):
+            d = self._thread(lambda: store.delete_org(self.slug), name='deleter')
+            self.assertTrue(in_delete.wait(10))
+            w = self._thread(write)
+            time.sleep(0.5)                     # the writer holds old_id, waits on its lock
+            self.assertTrue(w.is_alive(), 'the writer did not wait for the delete')
+            go.set()
+            d.join(10)
+            w.join(15)
+        new_id = pgstore.read_marker(store._db_path(self.slug))
+        self.assertNotEqual(new_id, old_id)
+        self.assertEqual(len(self.errors), 1, self.errors)
+        self.assertIsInstance(self.errors[0], LedgerError)
+        self.assertIn('no such org', str(self.errors[0]))
+        with psycopg.connect(os.environ['ORGTREE_PG_URL'], autocommit=True) as c:
+            old_rows = c.execute(f'SELECT * FROM org_{int(old_id)}.nodes').fetchall()
+        self.assertNotIn('resurrected', repr(old_rows), 'the queued tx wrote into the old org')
+        self.assertEqual(_node(self.slug, 'a')['name'], 'a')
 
 
 if __name__ == '__main__':
