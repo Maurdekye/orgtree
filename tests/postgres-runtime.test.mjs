@@ -22,12 +22,19 @@ test('enabled payload resolves both executable locations without changing storag
   const directory = path.join(scratch, 'install with spaces', 'engine')
   const bin = path.join(directory, 'postgresql', 'bin')
   fs.mkdirSync(bin, { recursive: true })
-  for (const file of ['postgres.exe', 'pg_ctl.exe', 'initdb.exe']) fs.writeFileSync(path.join(bin, file), '')
+  const tools = ['postgres.exe', 'pg_ctl.exe', 'initdb.exe', 'psql.exe', 'pg_controldata.exe']
+  for (const file of tools) fs.writeFileSync(path.join(bin, file), '')
   const custodian = path.join(directory, 'pg-custodian.exe')
   fs.writeFileSync(custodian, '')
   assert.deepEqual(postgresRuntimeEnvironment(directory, true), {
     ORGTREE_PG_CUSTODIAN: custodian, ORGTREE_P03_PG_BIN: bin,
   })
+  for (const file of tools) {
+    fs.unlinkSync(path.join(bin, file))
+    assert.throws(() => postgresRuntimeEnvironment(directory, true),
+      error => error.message.endsWith(path.join(bin, file)))
+    fs.writeFileSync(path.join(bin, file), '')
+  }
   fs.unlinkSync(path.join(bin, 'initdb.exe'))
   assert.throws(() => postgresRuntimeEnvironment(directory, true), /initdb\.exe/)
   // A directory bearing an executable's name is not a packaged executable.

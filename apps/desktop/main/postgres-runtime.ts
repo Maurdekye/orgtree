@@ -9,7 +9,9 @@ export function postgresRuntimeEnvironment(directory: string, enabled = false): 
   if (!path.isAbsolute(directory)) throw new Error('Packaged PostgreSQL requires an absolute engine directory')
   const custodian = path.join(directory, 'pg-custodian.exe')
   const bin = path.join(directory, 'postgresql', 'bin')
-  for (const file of [custodian, ...['postgres.exe', 'pg_ctl.exe', 'initdb.exe'].map(name => path.join(bin, name))]) {
+  // Keep this aligned with PgBin::locate in pg-custodian/src/cluster.rs.
+  const tools = ['postgres.exe', 'pg_ctl.exe', 'initdb.exe', 'psql.exe', 'pg_controldata.exe']
+  for (const file of [custodian, ...tools.map(name => path.join(bin, name))]) {
     if (!fs.statSync(file, { throwIfNoEntry: false })?.isFile()) {
       throw new Error(`Packaged PostgreSQL executable is missing: ${file}`)
     }
