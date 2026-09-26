@@ -126,6 +126,18 @@ SPECS: dict[str, Spec] = {
     "swap_seats": Spec(sections=("audiences", "notices"),
                        logs=("events", "notice_log"),
                        notes="nodes/share_nodes = _swap_rows(org, actor, a, b)"),
+    # S4 (fence-off): `Org.reorder`, the operator's cosmetic sibling order.
+    # Node rows from `_reorder_rows`: the node and EVERY sibling (archived
+    # included) FOR UPDATE — the full reindex writes each one's ui_order; the
+    # parent (its child list is decided on), the ancestors (authority) and the
+    # actor FOR SHARE. No sections, no logs: reorder is deliberately unlogged.
+    "reorder": Spec(notes="nodes/share_nodes = _reorder_rows(org, actor, nid)"),
+    # S4 (fence-off): the operator's dissolve-all, every live top-level root in
+    # ONE transaction (all or nothing, as the legacy single save was). Node rows
+    # are the union of `_archive_rows` over the roots; sections and logs are
+    # dissolve's.
+    "dissolve_all": Spec(sections=_ARCHIVE_SECTIONS, logs=("events", "notice_log"),
+                         notes="nodes/share_nodes = _dissolve_all_rows(org, actor)"),
 }
 
 
@@ -161,6 +173,12 @@ def _plan_gap(tx, upd, share, sections=(), share_sections=(), logs=()) -> None:
 
 
 MAX_WIDEN = 3
+
+
+class WidenExhausted(LedgerError):
+    """The lock set kept growing past MAX_WIDEN: nothing was applied. A
+    LedgerError, so every existing caller still refuses on it; the operator's
+    HTTP routes answer 409 (a conflict worth retrying) rather than 422."""
 
 
 def _anc(org, nid: str | None) -> set[str]:
@@ -234,7 +252,7 @@ def _run(op: str, slug: str, rows: Callable[[Any], tuple[set[str], set[str]]],
         except Widen as w:
             upd |= w.nodes
             share |= w.share_nodes
-    raise LedgerError(f"{op}: the lock set kept growing after {MAX_WIDEN} "
+    raise WidenExhausted(f"{op}: the lock set kept growing after {MAX_WIDEN} "
                       "widenings — nothing was applied; retry")
 
 
@@ -473,7 +491,7 @@ def delete(slug: str, actor: str, nid: str) -> dict[str, Any]:
             sections = tuple(sorted(set(sections) | w.sections))
             logs = tuple(sorted(set(logs) | w.logs,
                                 key=lambda x: (isinstance(x, tuple), str(x))))
-    raise LedgerError(f"delete: the lock set kept growing after {MAX_WIDEN} "
+    raise WidenExhausted(f"delete: the lock set kept growing after {MAX_WIDEN} "
                       "widenings — nothing was applied; retry")
 
 
@@ -564,6 +582,18 @@ def set_scope_body(tx, actor: str, nid: str, kw: dict[str, Any],
 def set_scope(slug: str, actor: str, nid: str, may_raise: bool = True,
               **kw: Any) -> dict[str, Any]:
     """Standalone runner for `Org.set_scope` (the `node_scope` route's body)."""
+    return set_scope_observed(slug, actor, nid, kw, may_raise)[0]
+
+
+def set_scope_observed(slug: str, actor: str, nid: str, kw: dict[str, Any],
+                       may_raise: bool = True,
+                       before: Callable[[Any], Any] | None = None
+                       ) -> tuple[dict[str, Any], Any, Any]:
+    """`set_scope`, plus what a caller must read around the write: `before`
+    runs on the LOCKED document just before it (the route's effort level),
+    and the committed private `tx.org` comes back for reads after the commit
+    (the live-effort delivery). Returns (result, before's value or None, the
+    committed document)."""
     upd, share, sections, share_sections, logs = _scope_plan(
         store.cached_org(slug), actor, nid, kw, may_raise)
     for _ in range(MAX_WIDEN + 1):
@@ -571,14 +601,88 @@ def set_scope(slug: str, actor: str, nid: str, may_raise: bool = True,
             with halt.txn(slug, nodes=upd, share_nodes=share - upd,
                           sections=sections, share_sections=share_sections,
                           logs=logs) as tx:
-                return set_scope_body(tx, actor, nid, kw, may_raise)
+                seen = None
+                if before is not None:
+                    _plan_gap(tx, *_scope_plan(tx.org, actor, nid, kw, may_raise))
+                    seen = before(tx.org)
+                return set_scope_body(tx, actor, nid, kw, may_raise), seen, tx.org
         except Widen as w:
             upd |= w.nodes
             share |= w.share_nodes
             sections = tuple(sorted(set(sections) | w.sections))
             share_sections = tuple(sorted(set(share_sections) | w.share_sections))
-    raise LedgerError(f"set_scope: the lock set kept growing after {MAX_WIDEN} "
+    raise WidenExhausted(f"set_scope: the lock set kept growing after {MAX_WIDEN} "
                       "widenings — nothing was applied; retry")
+
+
+# ---------------------------------------------------------------- reorder
+# SPECS["reorder"]. At the top level there is no parent row: a concurrent
+# top-level hire can add a root this reindex does not number. The hire and
+# the reorder write disjoint rows, so nothing is lost, and a root that exists
+# when the locked document is read widens the plan and reruns. ui_order has
+# no org effect (the ledger's docstring) and the legacy DOC_LOCK ordered it
+# only against saves, so the race is accepted — with no max_top_grant lock: a
+# top-level hire holds that only FOR SHARE, which would serialise nothing
+# (S4 item decisions 1-2).
+
+
+def _reorder_rows(org, actor: str, nid: str) -> tuple[set[str], set[str]]:
+    n = org.nodes.get(nid)
+    if n is None:
+        return {nid}, set()
+    parent = n["parent"]
+    upd = {nid, *org.children(parent, live_only=False)}
+    share = _anc(org, nid)
+    if parent is not None and parent in org.nodes:
+        share.add(parent)
+    if actor in org.nodes:
+        share.add(actor)
+    return upd, share - upd
+
+
+def reorder_body(org, held_nodes, held_share, actor: str, nid: str,
+                 before: str | None, after: str | None) -> dict[str, Any]:
+    _need(org, lambda o: _reorder_rows(o, actor, nid), held_nodes, held_share)
+    return org.reorder(actor, nid, before=before, after=after)
+
+
+def reorder(slug: str, actor: str, nid: str, before: str | None = None,
+            after: str | None = None) -> dict[str, Any]:
+    return _run("reorder", slug, lambda o: _reorder_rows(o, actor, nid),
+                lambda org, hn, hs: reorder_body(org, hn, hs, actor, nid,
+                                                 before, after))
+
+
+# ---------------------------------------------------------------- dissolve all
+# SPECS["dissolve_all"]. The roots are `children(None)` — live only, the
+# legacy route's rule — re-derived on the locked document, so a root added in
+# between widens and reruns. Like the legacy route, and unlike the agent
+# door's dissolve, no turn is interrupted first.
+
+
+def _dissolve_all_rows(org, actor: str) -> tuple[set[str], set[str]]:
+    upd: set[str] = set()
+    share: set[str] = set()
+    for root in org.children(None):
+        u, sh = _archive_rows(org, actor, root)
+        upd |= u
+        share |= sh
+    return upd, share - upd
+
+
+def dissolve_all_body(org, held_nodes, held_share, actor: str) -> dict[str, int]:
+    _need(org, lambda o: _dissolve_all_rows(o, actor), held_nodes, held_share)
+    freed = nodes = 0
+    for root in list(org.children(None)):
+        r = org.dissolve(actor, root)
+        freed += r["freed"]
+        nodes += len(r["nodes"])
+    return {"freed": freed, "nodes": nodes}
+
+
+def dissolve_all(slug: str, actor: str) -> dict[str, int]:
+    return _run("dissolve_all", slug, lambda o: _dissolve_all_rows(o, actor),
+                lambda org, hn, hs: dissolve_all_body(org, hn, hs, actor))
 
 
 # ---------------------------------------------------------------- move batch
@@ -801,24 +905,51 @@ def _repair_plan(org, actor: str, rename_at: str
             ("documents", "events", "work_items_archive"))
 
 
-def repair_rename_body(tx, actor: str, rename_at: str, **kw: Any) -> dict[str, Any]:
-    upd, share, secs, logs = _repair_plan(tx.org, actor, rename_at)
+def _repair_plan_with(org, actor: str, rename_at: str,
+                      extra_sections: tuple[str, ...],
+                      extra_nodes: Callable[[Any], set[str]] | None
+                      ) -> tuple[set[str], set[str], tuple[str, ...], tuple[Any, ...]]:
+    """`_repair_plan` with a caller's extra rows ADDED, never replacing it."""
+    upd, share, secs, logs = _repair_plan(org, actor, rename_at)
+    if extra_nodes is not None:
+        upd = upd | extra_nodes(org)
+    return upd, share - upd, tuple(sorted(set(secs) | set(extra_sections))), logs
+
+
+def repair_rename_body(tx, actor: str, rename_at: str, *,
+                       extra_sections: tuple[str, ...] = (),
+                       extra_nodes: Callable[[Any], set[str]] | None = None,
+                       pre: Callable[[Any], Any] | None = None,
+                       **kw: Any) -> dict[str, Any]:
+    """`pre(org)` runs on the locked document before the repair, inside the
+    same transaction (the operator route's work-identity conversion), over
+    the extra rows the caller declares."""
+    upd, share, secs, logs = _repair_plan_with(tx.org, actor, rename_at,
+                                               extra_sections, extra_nodes)
     _plan_gap(tx, upd, share, secs, (), logs)
+    if pre is not None:
+        pre(tx.org)
     return tx.org.repair_rename_identity(actor, rename_at, **kw)
 
 
-def repair_rename_identity(slug: str, actor: str, rename_at: str,
+def repair_rename_identity(slug: str, actor: str, rename_at: str, *,
+                           extra_sections: tuple[str, ...] = (),
+                           extra_nodes: Callable[[Any], set[str]] | None = None,
+                           pre: Callable[[Any], Any] | None = None,
                            **kw: Any) -> dict[str, Any]:
-    upd, share, sections, logs = _repair_plan(store.cached_org(slug), actor, rename_at)
+    upd, share, sections, logs = _repair_plan_with(
+        store.cached_org(slug), actor, rename_at, extra_sections, extra_nodes)
     for _ in range(MAX_WIDEN + 1):
         try:
             with halt.txn(slug, nodes=upd, share_nodes=share - upd,
                           sections=sections, logs=logs) as tx:
-                return repair_rename_body(tx, actor, rename_at, **kw)
+                return repair_rename_body(tx, actor, rename_at,
+                                          extra_sections=extra_sections,
+                                          extra_nodes=extra_nodes, pre=pre, **kw)
         except Widen as w:
             upd |= w.nodes
             share |= w.share_nodes
             sections = tuple(sorted(set(sections) | w.sections))
             logs = tuple(sorted(set(logs) | w.logs, key=str))
-    raise LedgerError(f"repair_rename_identity: the lock set kept growing after "
+    raise WidenExhausted(f"repair_rename_identity: the lock set kept growing after "
                       f"{MAX_WIDEN} widenings — nothing was applied; retry")
