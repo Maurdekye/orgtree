@@ -78,7 +78,7 @@ class OrgTxOnJson(unittest.TestCase):
         self.assertEqual(out, {'ok': True, 'node': 'a'})
         d = store.load_org(self.slug).d
         self.assertFalse(any(x.get('id') == 'd1' for x in d.get('documents') or []))
-        self.assertIn('present_dismissed', [e.get('kind') for e in d.get('events') or []])
+        self.assertIn('present_dismissed', [e.get('op') for e in d.get('events') or []])
         self.assertEqual(len(seen), 1)
         self.assertFalse(seen[0].changes_known)
 
