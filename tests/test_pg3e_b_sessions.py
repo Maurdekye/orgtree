@@ -683,7 +683,8 @@ class InvariantSweepCommitsTheHealedRow(unittest.TestCase):
             committed.append(self._raw_node("worker"))
             return out
 
-        with patch.object(store, "pre_save_hooks", hooks),                 patch.object(supervisor, "_computed_tx", spy):
+        with patch.object(store, "pre_save_hooks", hooks), \
+                patch.object(supervisor, "_computed_tx", spy):
             supervisor._invariant_sweep_org(self.slug)
         self.assertEqual(len(committed), 1, "the sweep's transaction never ran")
         fz = committed[0]["frozen"]
