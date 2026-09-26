@@ -145,14 +145,20 @@ def child(args) -> int:
                             "assistant_reset": bool(f.get("reset"))})
         return {"ok": True, "frames": len(frames)}
 
+    _tok: dict = {}
+
     @api.app.get("/scale/tokens")
     def _scale_tokens() -> dict:
         # agent tokens are HMACs under a per-process key, so only this process
         # can mint them; load.py then calls /api/agent exactly as an agent does
-        from orgtree import agentauth
-        org = store.load_org(slug)
-        return {nid: agentauth.child_env(slug, nid)["ORGTREE_AGENT_TOKEN"]
-                for nid, n in org.nodes.items() if n.get("state") == "live"}
+        # memoized: child_env reads the whole org per node (O(N) full reads),
+        # which under tracemalloc outlasts the loader's timeout
+        if "tokens" not in _tok:
+            from orgtree import agentauth
+            org = store.load_org(slug)
+            _tok["tokens"] = {nid: agentauth.child_env(slug, nid)["ORGTREE_AGENT_TOKEN"]
+                              for nid, n in org.nodes.items() if n.get("state") == "live"}
+        return _tok["tokens"]
 
     @api.app.get("/scale/stacks")
     def _scale_stacks(seconds: float = 20.0, interval_ms: float = 10.0, top: int = 40) -> dict:
