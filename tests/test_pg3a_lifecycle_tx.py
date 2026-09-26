@@ -6,6 +6,15 @@ one and the commit is refused with UnlockedWrite, writing nothing), and the
 writer blocks a concurrent writer of its node row.
 
 Run:  python tools/run-python-verification.py tests/test_pg3a_lifecycle_tx.py
+
+POSTGRESQL MODE (opt-in). With ORGTREE_TEST_PG_ADMIN_URL set to a DISPOSABLE
+server's superuser URL (a P03 dev cluster: `devdb env --agent <you>` sets
+P03_PG_ADMIN_URL) and ORGTREE_TEST_PYDEPS naming a folder holding psycopg,
+the whole module runs with ORGTREE_STORE=postgres on a fresh database
+`orgtree_pg3a_t<pid>` (migrated here, dropped at the end), so every lock plan
+and every UnlockedWrite control is exercised by PG-0's PostgreSQL backend
+instead of the in-process fake. Without the URL it runs on the fake, as the
+rest of the suite does. `PG_MODE` says which one ran; it is printed.
 """
 import os
 from pathlib import Path
@@ -15,14 +24,44 @@ import threading
 import time
 import unittest
 from unittest.mock import patch
+from urllib.parse import urlsplit, urlunsplit
 
 _root = tempfile.TemporaryDirectory(prefix="orgtree-pg3a-", ignore_cleanup_errors=True)
 os.environ["ORGTREE_DATA"] = _root.name
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine/backend"))
 
+PG_ADMIN = os.environ.get("ORGTREE_TEST_PG_ADMIN_URL", "").strip()
+PG_MODE = bool(PG_ADMIN)
+PG_DB = f"orgtree_pg3a_t{os.getpid()}"
+if PG_MODE:
+    if os.environ.get("ORGTREE_TEST_PYDEPS", "").strip():
+        sys.path.insert(0, os.environ["ORGTREE_TEST_PYDEPS"].strip())
+    import psycopg
+    with psycopg.connect(PG_ADMIN, autocommit=True) as _c:
+        _c.execute(f"DROP DATABASE IF EXISTS {PG_DB}")
+        _c.execute(f"CREATE DATABASE {PG_DB}")
+    _p = urlsplit(PG_ADMIN)
+    os.environ["ORGTREE_PG_URL"] = urlunsplit((_p.scheme, _p.netloc, "/" + PG_DB,
+                                               _p.query, _p.fragment))
+    os.environ.pop("ORGTREE_PG_CONNINFO", None)
+    os.environ["ORGTREE_STORE"] = "postgres"
+
 import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
 
 from orgtree import halt, ledger, lifecycle_tx, orgtx, store  # noqa: E402
+
+if PG_MODE:
+    from orgtree import pgstore  # noqa: E402
+    pgstore.migrate(os.environ["ORGTREE_PG_URL"])
+    assert store.STORE_BACKEND == "postgres", store.STORE_BACKEND
+print(f"PG_MODE={PG_MODE} STORE_BACKEND={store.STORE_BACKEND}", file=sys.stderr)
+
+
+def tearDownModule() -> None:
+    if PG_MODE:
+        import psycopg as _pg
+        with _pg.connect(PG_ADMIN, autocommit=True) as c:
+            c.execute(f"DROP DATABASE IF EXISTS {PG_DB} WITH (FORCE)")
 
 
 class MarkUnrecoverable(unittest.TestCase):
