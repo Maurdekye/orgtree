@@ -35,9 +35,7 @@ orgtx.TRANSITION_FENCE = False
 #: ops the DOC_LOCK cycle still runs, and who owes each one's door body
 #: (lead decisions 40/41 and the 13:22Z ruling on the scale parent). Remove
 #: an entry in the same change that declares the op.
-LEGACY_OPS = {
-    "switch_model": "WS3b, decision 40",
-}
+LEGACY_OPS: dict[str, str] = {}
 
 U = ledger.USER
 T = {'bash': False, 'web': False, 'edit': False, 'subagents': False, 'mcp': []}
@@ -77,7 +75,8 @@ class OpsInventory(unittest.TestCase):
         self.assertEqual(sorted(o for o in ops if pgdoor.declared(o)),
                          ['cheap_compact', 'delete', 'demote', 'dissolve',
                           'hire', 'move', 'promote', 'reallocate', 'rehire',
-                          'rescind', 'reseed', 'retire', 'revoke_dir'])
+                          'rescind', 'reseed', 'retire', 'revoke_dir',
+                          'switch_model'])
 
 
 def _org() -> str:
