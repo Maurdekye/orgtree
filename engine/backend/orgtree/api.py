@@ -42,7 +42,7 @@ from urllib.parse import urlsplit
 # typing wave: Any/Response types must be RUNTIME imports — FastAPI evaluates
 # endpoint annotation strings (PEP 563) at decoration time. Helper-only types
 # stay under TYPE_CHECKING so the runtime import graph is unchanged.
-from typing import TYPE_CHECKING, Any, Final, Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Final, Literal, NoReturn, TypeVar, cast
 
 # ⚠ BEFORE ANY orgtree MODULE IS IMPORTED, so nothing can print ahead of it.
 #
@@ -101,6 +101,7 @@ from . import worktx
 from . import opreceipts
 from . import pgdoor
 from . import workdoor
+from . import runtimedoor
 from . import rcdoor  # PG-3c: credits/reservations/status on row transactions
 # PG-3a's door declarations: importing registers them with pgdoor
 from . import lifecycle_door
@@ -12067,6 +12068,18 @@ def _agent_door_tail(body: AgentCall, result: Any,
 # == False. `mail_notify` is rebound at startup, so it is looked up per call.
 workdoor.declare(_work_identity_ready, _work_mutate,
                  lambda slug, actor, n: mail_notify(slug, actor, n))
+
+
+def _runtime_refuse(status: int, message: str) -> NoReturn:
+    raise HTTPException(status, message)
+
+
+# S6 (fence-off plan): the runtime tools (interrupt, unstick, restart_wake,
+# self/prime restart and relaunch) run on the door (runtimedoor.py); their
+# legacy branches in the cycle below stay for pgdoor.enabled() == False.
+runtimedoor.declare(_runtime_refuse,
+                    lambda: os.environ.get('ORGTREE_DESKTOP_MANAGED') == '1',
+                    _arg_opt_int)
 
 
 def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
