@@ -157,8 +157,91 @@ class Writers:
         def clear_ok(d):
             return d['net_state']['h1']['registered_at'] is None
 
+        # --- the mail transport (PG-3f leftovers): one queued outbound entry
+        # on hub h1 and its org-inbox out row
+        def spool(**extra):
+            e = {'id': 'e1', 'to': 'peer-abc123', 'body': 'b', 'at': 't',
+                 'oid': 'o1', 'tries': 0, **extra}
+            return dict(net_hubs=[{'id': 'h1', 'address': 'http://x'},
+                                  {'id': 'h2', 'address': 'http://y'}],
+                        net_spool={'h1': [e]},
+                        org_inbox=[{'id': 'o1', 'dir': 'out', 'net_id': 'e1',
+                                    'state': 'queued', 'at': 't'}])
+
+        def out_row(d):
+            return next(r for r in d['org_inbox'] if r.get('net_id') == 'e1')
+
+        def done_w(slug):
+            net._spool_done(slug, 'h1', 'e1')
+
+        def done_ok(d):
+            return not d['net_spool'].get('h1') and out_row(d)['state'] == 'sent'
+
+        def bump_w(slug):
+            net._bump_try(slug, 'h1', 'e1', 'HTTP 500')
+
+        def bump_ok(d):
+            e = d['net_spool']['h1'][0]
+            return (e['tries'] == 1 and e['last_err'] == 'HTTP 500'
+                    and out_row(d)['tries'] == 1)
+
+        def skip_w(slug):
+            net._stamp_skip(slug, 'h1', 'hub unreachable')
+
+        def skip_ok(d):
+            return (d['net_spool']['h1'][0]['last_err'] == 'hub unreachable'
+                    and out_row(d)['last_err'] == 'hub unreachable')
+
+        def refile_w(slug):
+            with net._status_lock:
+                net._rosters['http://y'] = [{'slug': 'peer-abc123'}]
+            return net._refile_known_elsewhere(
+                slug, 'h1', 'e1', 'peer-abc123',
+                [{'id': 'h1', 'address': 'http://x'},
+                 {'id': 'h2', 'address': 'http://y'}])
+
+        def refile_ok(d):
+            return (not d['net_spool'].get('h1')
+                    and d['net_spool']['h2'][0]['refiled'] == 1)
+
+        def receipts_w(slug):
+            net._apply_receipts(slug, [{'id': 'e1', 'state': 'delivered'}])
+
+        def receipts_ok(d):
+            return out_row(d)['state'] == 'delivered'
+
+        gone = str(Path(_temp.name) / 'never-there.txt')
+
+        def vanished_w(slug):
+            e = dict(_doc(slug)['net_spool']['h1'][0])
+            return net._ship_attachments(slug, 'h1', 'http://x', {}, e)
+
+        def vanished_ok(d):
+            e = d['net_spool']['h1'][0]
+            return e['attachments'] == [] and 'vanished' in e['last_err']
+
+        def inbound_w(slug):
+            from unittest import mock
+            from orgtree import supervisor
+            with mock.patch.object(supervisor, 'deliver_org_inbox',
+                                   return_value=['n']):
+                return net._deliver_inbound(slug, 'h1',
+                                            [{'id': 'm1', 'from': 'peer',
+                                              'body': 'hi'}], 'http://x')
+
+        def inbound_ok(d):
+            return 'm1' in d['net_state']['h1']['seen_ids']
+
         ident = {'secret': 's' * 32, 'fingerprint': 'f', 'slug': 'x', 'minted_at': 't'}
         return [
+            ('spool-done', spool(), done_w, 'net_spool', done_ok),
+            ('bump-try', spool(), bump_w, 'net_spool', bump_ok),
+            ('stamp-skip', spool(), skip_w, 'net_spool', skip_ok),
+            ('refile', spool(), refile_w, 'net_spool', refile_ok),
+            ('receipts', spool(), receipts_w, 'net_spool', receipts_ok),
+            ('attachment-vanished', spool(attachments=[gone]), vanished_w,
+             'net_spool', vanished_ok),
+            ('inbound-seen', {}, inbound_w, 'net_state', inbound_ok),
             ('disk', dict(disk={'pending_size_mb': 9000, 'keep': 1}),
              disk_w, 'disk', disk_ok),
             ('net-backfill', {}, backfill_w, 'net_hubs', backfill_ok),
@@ -408,6 +491,84 @@ class DesktopRecovery(unittest.TestCase):
         self.assertNotIn((slug, 'w'), rec._dispatching)
         self.assertEqual(_doc(slug)['desktop_import']['recovery_attempts']['w']['attempt'],
                          row['attempt'], 'the failed transaction wrote')
+
+
+class InboundDelivery(unittest.TestCase):
+    def test_delivery_carries_a_per_message_op_key_and_a_seen_id_is_skipped(self) -> None:
+        # a crash between the delivery and the seen record replays that
+        # delivery's receipt instead of posting a second copy
+        from unittest import mock
+        from orgtree import supervisor
+        slug = _fresh_org()
+        msg = [{'id': 'm7', 'from': 'peer', 'body': 'hi'}]
+        with mock.patch.object(supervisor, 'deliver_org_inbox',
+                               return_value=['n']) as dlv:
+            self.assertEqual(net._deliver_inbound(slug, 'h1', msg), ['m7'])
+            self.assertEqual(dlv.call_count, 1)
+            self.assertEqual(dlv.call_args.kwargs.get('op_key'), 'net:h1:m7')
+            # seen now: acked again, never delivered again
+            self.assertEqual(net._deliver_inbound(slug, 'h1', msg), ['m7'])
+            self.assertEqual(dlv.call_count, 1)
+
+
+class OrgsCreate(unittest.TestCase):
+    """orgs_create: the org is born whole in create_org's ONE save."""
+
+    def setUp(self) -> None:
+        self._defaults = data / 'defaults.json'
+        self._defaults.write_text('{"default_top_grant": 7, '
+                                  '"net_hub_address": "http://127.0.0.1:9"}',
+                                  encoding='utf-8')
+        self.addCleanup(self._defaults.unlink)
+
+    def _create(self, body):
+        """Run orgs_create while another thread holds DOC_LOCK; count saves."""
+        from unittest import mock
+        real = store.save_org
+        saved: list = []
+
+        def counting(org, *a, **kw):
+            saved.append(dict(org.d))
+            return real(org, *a, **kw)
+        with mock.patch.object(store, 'save_org', counting):
+            with _Held(lambda: store.DOC_LOCK):
+                done, out, _t = _run(lambda: api.orgs_create(body), FREE_S)
+                self.assertTrue(done, 'orgs_create waited on DOC_LOCK')
+        return out[0], saved
+
+    def test_a_normal_org_is_born_with_defaults_and_identity_in_one_save(self) -> None:
+        out, saved = self._create(api.OrgCreate(name='born whole'))
+        self.assertFalse(isinstance(out, BaseException), out)
+        self.assertEqual(len(saved), 1, 'more than the one creating save')
+        first = saved[0]
+        self.assertEqual(first['default_top_grant'], 7)
+        self.assertNotIn('net_hub_address', first)
+        self.assertTrue(first['net_identity'].get('secret'))
+        self.assertIsInstance(first['net_hubs'], list)
+        self.assertIs(first['net_autoconnect'], True)
+        d = _doc(out['slug'])
+        self.assertEqual(d['net_identity'], first['net_identity'])
+        self.assertEqual(d['default_top_grant'], 7)
+
+    def test_a_kiosk_is_born_a_kiosk_in_one_save(self) -> None:
+        out, saved = self._create(api.OrgCreate(
+            name='born kiosk', kiosk=api.KioskSpec(sandbox=False)))
+        self.assertFalse(isinstance(out, BaseException), out)
+        self.assertEqual(len(saved), 1, 'more than the one creating save')
+        self.assertTrue(saved[0]['kiosk']['enabled'])
+        self.assertTrue(saved[0]['kiosk']['max_scope'])
+        self.assertEqual(saved[0]['default_top_grant'], 0)
+        self.assertNotIn('net_identity', saved[0])
+
+    def test_a_refused_kiosk_ceiling_leaves_no_org(self) -> None:
+        from fastapi import HTTPException
+        out, saved = self._create(api.OrgCreate(
+            name='bad kiosk', kiosk=api.KioskSpec(
+                sandbox=False, max_scope={'org_visibility': 'bogus'})))
+        self.assertIsInstance(out, HTTPException)
+        self.assertEqual(out.status_code, 422, out.detail)
+        self.assertEqual(saved, [], 'a refused create saved something')
+        self.assertNotIn('bad-kiosk', [o['slug'] for o in store.list_orgs()])
 
 
 ALL_TOOLS = {'bash': True, 'web': True, 'edit': True, 'subagents': True, 'mcp': ['*']}
