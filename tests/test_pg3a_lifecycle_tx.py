@@ -929,5 +929,78 @@ class MoveBatch(unittest.TestCase):
         self.assertEqual(store.load_org(self.slug).node("a1")["parent"], "a")
 
 
+class Promote(unittest.TestCase):
+    """lifecycle_tx.subjugate / promote_subtree on `_promote_rows`."""
+
+    def build(self, slug):
+        org = store.create_org(slug)
+        org.hire(ledger.USER, None, "luna", 9, "root")
+        org.hire(ledger.USER, "root", "luna", 6, "a")
+        org.hire(ledger.USER, "a", "luna", 0, "x")
+        org.hire(ledger.USER, "a", "luna", 4, "m")
+        org.hire(ledger.USER, "m", "luna", 2, "t")
+        org.hire(ledger.USER, "t", "luna", 0, "t1")
+        store.save_org(org)
+
+    def setUp(self):
+        self.slug = "pg3a-pr-" + str(time.time_ns())
+        self.build(self.slug)
+
+    def tearDown(self):
+        store._POOL.close_all(self.slug)
+
+    def view(self, slug):
+        o = store.load_org(slug)
+        return ({k: (v["parent"], v["grant"], v["scope"].get("tools")) for k, v in o.nodes.items()},
+                sorted((k, len(v)) for k, v in (o.d.get("notices") or {}).items()),
+                [e["op"] for e in o.d["events"]][-2:])
+
+    def parity(self, op, actor, nid, target):
+        twin = "pg3a-pr-twin-" + str(time.time_ns())
+        self.build(twin)
+        with store.DOC_LOCK:
+            o = store.load_org(twin)
+            legacy = getattr(o, op)(actor, nid, target)
+            store.save_org(o)
+        mine = getattr(lifecycle_tx, op)(self.slug, actor, nid, target)
+        self.assertEqual(mine, legacy)
+        self.assertEqual(self.view(self.slug), self.view(twin))
+        store._POOL.close_all(twin)
+        return mine
+
+    def test_self_subjugation_promotes_the_target_with_its_team(self):
+        self.parity("subjugate", "a", "a", "t")
+        o = store.load_org(self.slug)
+        self.assertEqual((o.node("t")["parent"], o.node("a")["parent"],
+                          o.node("t1")["parent"], o.node("m")["parent"]),
+                         ("root", "t", "t", "a"))
+
+    def test_promote_subtree_by_the_user(self):
+        self.parity("promote_subtree", ledger.USER, "a", "t")
+
+    def test_plan_holds_both_legs(self):
+        o = store.load_org(self.slug)
+        upd, share = lifecycle_tx._promote_rows(o, "a", "a", "t")
+        self.assertTrue({"a", "t", "t1", "m", "x", "root"} <= upd, upd)
+
+    def test_the_second_leg_rows_are_needed(self):
+        # leg 1's rows only: leg 2 (a and its remainder under t) is unlocked
+        o = store.load_org(self.slug)
+        u, s = lifecycle_tx._move_rows(o, "a", "t", "root")
+        spec = lifecycle_tx.SPECS["move"]
+        with self.assertRaises(orgtx.UnlockedWrite):
+            with halt.txn(self.slug, nodes=u, share_nodes=s - u,
+                          sections=spec.sections, share_sections=spec.share_sections,
+                          logs=spec.logs) as tx:
+                tx.org.subjugate("a", "a", "t")
+        self.assertEqual(store.load_org(self.slug).node("t")["parent"], "m")
+
+    def test_a_refused_promotion_writes_nothing(self):
+        before = self.view(self.slug)
+        with self.assertRaises(ledger.LedgerError):
+            lifecycle_tx.subjugate(self.slug, "a", "a", "root")   # not a descendant
+        self.assertEqual(self.view(self.slug), before)
+
+
 if __name__ == "__main__":
     unittest.main()
