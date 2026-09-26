@@ -84,7 +84,9 @@ class ResidentAccumulator(unittest.TestCase):
         store._load_pinned, store._advance_resident = pin, adv
         try:
             with store.write_org(self.slug) as org:
-                org.d['mail']['a'].append({'id': 'legacy'})
+                # the SAME row the late commit wrote, as two evidence calls
+                # on one work item are
+                org.d['mail']['b'].append({'id': 'legacy'})
                 store.save_org(org)
         finally:
             store._load_pinned, store._advance_resident = orig_pin, orig_adv
@@ -94,8 +96,7 @@ class ResidentAccumulator(unittest.TestCase):
         with store.write_org(self.slug) as fresh:
             mail = {k: list(v) for k, v in fresh.d['mail'].items()}
         # the late commit survived the legacy cycle that ran on the resident
-        self.assertEqual(mail['b'], [{'id': 'm2'}, {'id': 'late'}])
-        self.assertEqual(mail['a'], [{'id': 'm1'}, {'id': 'legacy'}])
+        self.assertEqual(mail['b'], [{'id': 'm2'}, {'id': 'late'}, {'id': 'legacy'}])
 
     def test_resident_pin_does_not_starve_the_snapshot(self) -> None:
         _late_commit(self.slug)                     # published for the snapshot
