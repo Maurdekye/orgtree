@@ -1664,9 +1664,10 @@ class OperationContacts(unittest.TestCase):
             compact = one("lifecycle.compact", condition)
             self.assertEqual((compact["spies"], compact["harness"]["writes"]),
                              ({"manual_compact": 1}, 0))
-            # a read that takes the write lock and broadcasts, writing nothing
+            # fence-off S5: a lock-free read now, broadcasting nothing (it
+            # used to take the write lock and broadcast, writing nothing)
             listed = one("catalogue.list-orgs", condition)
-            self.assertEqual((listed["spies"], primary_written(listed)), ({"hub_changed": 1}, []))
+            self.assertEqual((listed["spies"], primary_written(listed)), ({}, []))
             everyone = one("lifecycle.dissolve-all", condition)
             self.assertEqual(set(everyone["agents"]["physical_written"]),
                              {f"da-{condition}-{n}" for n in ("top", "kid", "top2")})

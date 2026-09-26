@@ -135,6 +135,57 @@ class StaffingReads(unittest.TestCase):
         self.assertEqual(cm.exception.status_code, 422)
 
 
+OFFERED = {"providers": [
+    {"id": "openai", "hire_enabled": True, "tiers": [{"tier": "luna", "seat": .2}]}]}
+
+
+def _image(org) -> str:
+    """The shared document, as bytes a mutation would change."""
+    import json
+    return json.dumps({k: org.d[k] for k in sorted(org.d)}, sort_keys=True,
+                      default=repr)
+
+
+class SharedSnapshotUntouched(unittest.TestCase):
+    """The staffing reads now read `store.cached_org`, the SHARED snapshot
+    every lock-free reader is handed. With the real staffcache and the real
+    quickstaff rules, both reads must leave it byte-identical."""
+
+    def setUp(self):
+        staffcache.reset_for_tests()
+        self.addCleanup(staffcache.reset_for_tests)
+        for p in (patch.object(api, '_providers_payload', return_value=OFFERED),
+                  patch.object(staffcache, '_supported_efforts',
+                               return_value=['low', 'high'])):
+            p.start()
+            self.addCleanup(p.stop)
+        self.slug = _org()
+        org = store.load_org(self.slug)
+        self.wid = org.work_create('mid', 'Item', 'Problem. Fix.',
+                                   owner='kid')['created']
+        store.save_org(org)
+
+    def test_the_real_staffing_reads_leave_the_shared_snapshot_as_it_was(self):
+        shared = store.cached_org(self.slug)
+        before = _image(shared)
+        opts = api.staffing_options(self.slug)
+        prev = api.quick_staff_preview(self.slug, self.wid)
+        self.assertIsInstance(opts, dict)
+        self.assertIsInstance(prev, dict)
+        self.assertIs(store.cached_org(self.slug), shared)   # nothing saved
+        self.assertEqual(_image(shared), before)
+
+    def test_control_a_mutation_of_the_shared_snapshot_is_visible(self):
+        # the image above would see a write (or the test proves nothing)
+        shared = store.cached_org(self.slug)
+        before = _image(shared)
+        shared.node('kid')['charter'] = 'changed'
+        try:
+            self.assertNotEqual(_image(shared), before)
+        finally:
+            shared.node('kid')['charter'] = 'c'
+
+
 class OperatorPreview(unittest.TestCase):
     def test_org_op_preview_reads_without_doc_lock(self):
         slug = _org()
@@ -177,9 +228,10 @@ class ListOrgs(unittest.TestCase):
         org = store.load_org(self.slug)
         org.node('mid')['halt'] = {'at': 'x'}
         store.save_org(org)
+        # refused at the halt gate before any dispatch (409), as before
         with self.assertRaises(HTTPException) as cm:
             self.call()
-        self.assertEqual(cm.exception.status_code, 422)
+        self.assertEqual(cm.exception.status_code, 409)
         self.assertIn('agent is halted', str(cm.exception.detail))
 
     def test_a_latched_killswitch_still_refuses(self):
@@ -188,8 +240,21 @@ class ListOrgs(unittest.TestCase):
         store.save_org(org)
         with self.assertRaises(HTTPException) as cm:
             self.call()
-        self.assertEqual(cm.exception.status_code, 422)
+        self.assertEqual(cm.exception.status_code, 409)
         self.assertIn('killswitch is latched', str(cm.exception.detail))
+
+    def test_a_halt_landing_after_the_gate_is_still_refused(self):
+        # the gate passed, then the halt landed before the read: the cycle
+        # refused this under its lock (422), and so does the read block
+        from orgtree import supervisor
+        org = store.load_org(self.slug)
+        org.node('mid')['halt'] = {'at': 'x'}
+        store.save_org(org)
+        with patch.object(supervisor.halt, 'blocked', lambda *a, **k: None):
+            with self.assertRaises(HTTPException) as cm:
+                self.call()
+        self.assertEqual(cm.exception.status_code, 422)
+        self.assertIn('agent is halted', str(cm.exception.detail))
 
     def test_an_unknown_caller_is_still_refused(self):
         with self.assertRaises(HTTPException) as cm:
