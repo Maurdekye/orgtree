@@ -128,23 +128,38 @@ def child(args) -> int:
         # holders every dump_s seconds: startup memory is otherwise unattributable
         import tracemalloc
         import psutil
-        tracemalloc.start(int(os.environ.get("ORGTREE_SCALE_TRACE_FRAMES", "8")))
+        frames_n = int(os.environ.get("ORGTREE_SCALE_TRACE_FRAMES", "8"))
+        if frames_n:
+            tracemalloc.start(frames_n)
         dump_path = root / "metrics" / "trace-dump.jsonl"
 
         def _dumper() -> None:
             t0 = time.time()
             while True:
                 time.sleep(dump_s)
-                snap = tracemalloc.take_snapshot().filter_traces(
-                    [tracemalloc.Filter(False, tracemalloc.__file__)])
+                names = {t.ident: t.name for t in threading.enumerate()}
+                stacks = {}
+                for ident, fr in sys._current_frames().items():
+                    chain = []
+                    while fr is not None:
+                        fn = fr.f_code.co_filename
+                        if "orgtree" in fn and "tools" not in fn:
+                            chain.append(f"{os.path.basename(fn)}:{fr.f_code.co_name}:{fr.f_lineno}")
+                        fr = fr.f_back
+                    if chain:
+                        stacks[names.get(ident, str(ident))] = " < ".join(chain[:14])
                 rec = {"t": round(time.time() - t0, 1),
                        "private_mb": round(psutil.Process().memory_info().private / 2**20),
-                       "traced_mb": round(tracemalloc.get_traced_memory()[0] / 2**20),
-                       "by_line": [[str(st.traceback[0]), round(st.size / 2**20, 1), st.count]
-                                   for st in snap.statistics("lineno")[:15]],
-                       "by_tb": [[round(st.size / 2**20, 1), st.count,
-                                  [f"{os.path.basename(f.filename)}:{f.lineno}" for f in st.traceback]]
-                                 for st in snap.statistics("traceback")[:8]]}
+                       "stacks": stacks}
+                if frames_n:
+                    snap = tracemalloc.take_snapshot().filter_traces(
+                        [tracemalloc.Filter(False, tracemalloc.__file__)])
+                    rec["traced_mb"] = round(tracemalloc.get_traced_memory()[0] / 2**20)
+                    rec["by_line"] = [[str(st.traceback[0]), round(st.size / 2**20, 1), st.count]
+                                      for st in snap.statistics("lineno")[:15]]
+                    rec["by_tb"] = [[round(st.size / 2**20, 1), st.count,
+                                     [f"{os.path.basename(f.filename)}:{f.lineno}" for f in st.traceback]]
+                                    for st in snap.statistics("traceback")[:8]]
                 with open(dump_path, "a", encoding="utf-8") as f:
                     f.write(json.dumps(rec) + chr(10))
         threading.Thread(target=_dumper, name="scale-trace-dump", daemon=True).start()
