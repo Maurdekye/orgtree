@@ -120,6 +120,18 @@ class WorkListConditional(unittest.TestCase):
         self.assertEqual(again.status_code, 200)
         self.assertIn('first-item', again.text)
 
+    def test_serving_a_body_keeps_it_alive(self) -> None:
+        frozen = api.time.time()            # no clock-bucket turn between the two requests
+        with patch.object(api.time, 'time', lambda: frozen):
+            self.assertEqual(self.get().status_code, 200)
+            hit = api._work_list_cache[self._key()]
+            hit.used -= api._WORK_CACHE_IDLE_S + 1
+            served = self.get()             # another poller, no validator: served from cache
+        self.assertEqual(served.headers['etag'], hit.etag)
+        self.assertIs(api._work_list_cache.get(self._key()), hit, 'the body was rebuilt, not served')
+        api._work_list_sweep()
+        self.assertIn(self._key(), api._work_list_cache, 'a body just served was evicted as idle')
+
     def test_superseded_body_is_evicted_without_a_request(self) -> None:
         self.assertEqual(self.get().status_code, 200)
         self._add('second-item')           # the org seq moves on
