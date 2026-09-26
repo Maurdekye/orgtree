@@ -894,6 +894,7 @@ class DeleteOrgExclusiveOnPostgres(unittest.TestCase):
             with orgtx.org_tx(self.slug, nodes=['a'], lock_timeout=10) as tx:
                 tx.d['nodes']['a']['name'] = 'resurrected'
 
+        org_id = pgstore.read_marker(store._db_path(self.slug))
         with patch.object(store, '_ensure_migrated', slow_ensure):
             d = self._thread(lambda: store.delete_org(self.slug), name='deleter')
             self.assertTrue(in_delete.wait(10))
@@ -905,9 +906,17 @@ class DeleteOrgExclusiveOnPostgres(unittest.TestCase):
             w.join(15)
         self.assertEqual(len(self.errors), 1, self.errors)
         self.assertIsInstance(self.errors[0], LedgerError)
+        self.assertIn('no such org', str(self.errors[0]))
         self.assertNotIn(self.slug, [o['slug'] for o in store.list_orgs()])
         with self.assertRaises(LedgerError):
             orgtx.org_read(self.slug)
+        # p01 review B1: the writer read the marker BEFORE queueing, and the
+        # schema rows outlive the delete, so only the post-lock marker
+        # re-check keeps it from committing into the deleted org
+        with psycopg.connect(os.environ['ORGTREE_PG_URL'], autocommit=True) as c:
+            rows = c.execute(f'SELECT * FROM org_{int(org_id)}.nodes').fetchall()
+        self.assertTrue(rows, 'the schema rows were expected to remain (row-leak item)')
+        self.assertNotIn('resurrected', repr(rows), 'the queued tx wrote into the deleted org')
 
 
 if __name__ == '__main__':

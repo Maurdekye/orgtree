@@ -2266,6 +2266,8 @@ def orgs_delete(slug: str) -> dict[str, Any]:
         store.delete_org(slug)
     except LedgerError as e:
         raise HTTPException(404, str(e))
+    except orgtx.LockTimeout as e:     # S8: behind a long org_tx; nothing moved
+        raise HTTPException(409, f"the org is busy, try the delete again ({e})")
     # ⚠ AFTER the delete has succeeded, and it can NEVER fail one. A hub that
     # is down, slow or gone is an ordinary condition; an org that could not be
     # deleted because some unrelated machine was unreachable would be a worse

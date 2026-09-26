@@ -670,7 +670,9 @@ class SeamBackend:
     @contextlib.contextmanager
     def exclusive(self, slug: str, lock_timeout: float) -> Iterator[None]:
         """`org_exclusive` on the fake: the org pseudo-row EXCLUSIVE, alone.
-        On the JSON store DOC_LOCK (always taken there) is the whole lock."""
+        On the JSON store DOC_LOCK (always taken there) is the whole lock.
+        (Defensive: in production JSON runs JsonBackend, which has no
+        `exclusive`; this branch serves a test that installs the seam there.)"""
         if store.STORE_BACKEND == "json":
             yield
             return
@@ -855,6 +857,14 @@ class PgBackend:
                     ids: list[str] = []
                     raw.execute("SELECT pg_advisory_xact_lock" + ("" if tx.whole else "_shared")
                                 + "(%s, hashtext(%s))", (conn.org_id, f"org:{_ORG_KEY}"))
+                    # The marker was read BEFORE this lock. A delete_org
+                    # (org_exclusive) that held it meanwhile has renamed the
+                    # marker away but left the schema rows, so without this
+                    # re-check the tx would commit into a deleted org — or,
+                    # were the slug re-created, into the old org's orphaned
+                    # rows (p01 review B1).
+                    if pgstore.read_marker(store._db_path(tx.slug)) != conn.org_id:  # pyright: ignore[reportPrivateUsage]
+                        raise LedgerError(f"no such org: {tx.slug!r}")
                     if tx.all_nodes:
                         if not tx.whole:
                             raw.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))",
@@ -1000,6 +1010,10 @@ class PgBackend:
             try:
                 raw.execute("BEGIN")
                 raw.execute(f"SET LOCAL lock_timeout = '{max(1, int(lock_timeout * 1000))}ms'")
+                # DELIBERATELY no idle_in_transaction_session_timeout (unlike
+                # transaction_many): this transaction is idle for the whole
+                # file rename, and a server-side kill would drop the lock
+                # while the org's files are half moved (p01 review N1).
                 raw.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))",
                             (org_id, f"org:{_ORG_KEY}"))
             except Exception as e:
