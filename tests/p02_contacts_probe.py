@@ -56,4 +56,9 @@ def probe_output(tmp_parent: str | None = None) -> tuple[dict, str]:
             except OSError:
                 # another module of the same run published first; same tree, same probe
                 shutil.rmtree(staged, ignore_errors=True)
-        return _read(shared)
+        try:
+            return _read(shared)
+        except (OSError, ValueError):
+            # a partial or unreadable entry is never a verdict: run it here
+            _run_probe(Path(tmp) / "own")
+            return _read(Path(tmp) / "own")
