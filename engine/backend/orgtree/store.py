@@ -210,7 +210,12 @@ class _DocLockTripwire:
       * `save` — `save_org` with no org_tx open on this thread: a
         whole-document writer that never took DOC_LOCK at all.
     The fence-off gate is legacy_total == 0 and save_total == 0 WITH the
-    fence still on. A site is `file:function:line <- file:function:line`:
+    fence still on. These count EVENTS, not operations: one legacy cycle
+    outside an org_tx is counted twice (its acquire as legacy, its save as
+    save) — right for a zero gate, wrong read as an operation count.
+    EXEMPT sites (`EXEMPT`, each with its reason, pinned by a test so nothing
+    is exempted silently) are counted in their own `exempt` bucket, never
+    raise, and are not in `total`. A site is `file:function:line <- file:function:line`:
     the first frame outside the lock/save machinery and its caller (for a
     fence event, outside orgtx too, so it names who opened the org_tx).
     Armed to raise, a legacy or save event raises `DocLockTripped` before
@@ -221,7 +226,20 @@ class _DocLockTripwire:
     PostgreSQL and `off` otherwise. Tests arm it with `doc_lock_tripwire()`.
     The report is served by /api/diagnostics/state-access."""
 
-    KINDS = ("legacy", "fence", "save")
+    KINDS = ("legacy", "fence", "save", "exempt")
+    #: (file, function) of the first frame of a legacy/save event -> why it
+    #: is not a writer the fence-off gate has to convert (p01 review)
+    EXEMPT: dict[tuple[str, str], str] = {
+        ("store.py", "create_org"):
+            "a brand-new org has no concurrent writer: it is born whole in one "
+            "save (PG-3f), before any org_tx can name it",
+        ("store.py", "_ensure_migrated"):
+            "SQLite only (returns at once on PostgreSQL): the one-shot migration "
+            "of a .json restored after startup, under DOC_LOCK by design",
+    }
+    #: fence frames that are not the caller: halt's own wrappers around it
+    _FENCE_SKIP = frozenset({("orgtx.py", None), ("halt.py", "_fence"), ("halt.py", "txn"),
+                             ("halt.py", "_authorized")})
     _SKIP_FILES = frozenset({"contextlib.py", "threading.py"})
     #: the lock and save machinery, and the helpers that are not call sites
     _SKIP_FUNCS = frozenset({"acquire", "__enter__", "_acquire_restore", "write_org",
@@ -235,25 +253,33 @@ class _DocLockTripwire:
         #: set by `store.FENCE` around its acquisition
         self.tls = threading.local()
 
-    def _site(self, f: Any, kind: str) -> str:
+    def _site(self, f: Any, kind: str) -> tuple[str, tuple[str, str] | None]:
+        """(site string, (file, function) of its first frame)."""
         here = (__file__, profiling.__file__)
-        skip_files = self._SKIP_FILES | ({"orgtx.py"} if kind == "fence" else set())
         found: list[str] = []
+        first: tuple[str, str] | None = None
         while f is not None and len(found) < 2:
             co = f.f_code
             base = os.path.basename(co.co_filename)
-            if not (base in skip_files
-                    or (co.co_filename in here and co.co_name in self._SKIP_FUNCS)):
+            skip = (base in self._SKIP_FILES
+                    or (co.co_filename in here and co.co_name in self._SKIP_FUNCS)
+                    or (kind == "fence" and ((base, None) in self._FENCE_SKIP
+                                             or (base, co.co_name) in self._FENCE_SKIP)))
+            if not skip:
                 found.append(f"{base}:{co.co_name}:{f.f_lineno}")
+                if first is None:
+                    first = (base, co.co_name)
             f = f.f_back
-        return " <- ".join(found) or "?"
+        return " <- ".join(found) or "?", first
 
     def hit(self, frame: Any, kind: str) -> None:
-        site = self._site(frame, kind)
+        site, first = self._site(frame, kind)
+        if kind != "fence" and first in self.EXEMPT:
+            kind = "exempt"
         with self._mu:
             bucket = self.counts[kind]
             bucket[site] = bucket.get(site, 0) + 1
-        if self.mode == "raise" and kind != "fence":
+        if self.mode == "raise" and kind in ("legacy", "save"):
             raise DocLockTripped(kind, site)
 
     def report(self) -> dict[str, Any]:
@@ -261,10 +287,11 @@ class _DocLockTripwire:
             totals = {k: sum(v.values()) for k, v in self.counts.items()}
             return {"mode": self.mode, "armed_at": self.armed_at,
                     "legacy_total": totals["legacy"], "fence_total": totals["fence"],
-                    "save_total": totals["save"],
+                    "save_total": totals["save"], "exempt_total": totals["exempt"],
                     "total": totals["legacy"] + totals["save"],
                     "sites": {k: dict(sorted(v.items(), key=lambda kv: -kv[1]))
-                              for k, v in self.counts.items()}}
+                              for k, v in self.counts.items()},
+                    "exempt": {f"{f}:{fn}": why for (f, fn), why in self.EXEMPT.items()}}
 
 
 _TRIPWIRE = _DocLockTripwire()
@@ -290,16 +317,17 @@ def arm_doc_lock_tripwire_from_env() -> str:
 
 
 def doc_lock_tripwire_report() -> dict[str, Any]:
-    """{mode, armed_at, legacy_total, fence_total, save_total, total,
-    sites: {legacy|fence|save: {site: n}}}; `total` = legacy + save."""
+    """{mode, armed_at, legacy_total, fence_total, save_total, exempt_total,
+    total, sites: {legacy|fence|save|exempt: {site: n}}, exempt: {site: why}};
+    `total` = legacy + save (events, not operations)."""
     return _TRIPWIRE.report()
 
 
 @contextlib.contextmanager
 def doc_lock_tripwire(raising: bool = True) -> Iterator[dict[str, dict[str, int]]]:
     """For tests: arm the tripwire for the block (raising by default) and
-    yield its live counts, {legacy|fence|save: {site: n}}; the previous
-    state is restored after."""
+    yield its live counts, {legacy|fence|save|exempt: {site: n}}; the
+    previous state is restored after."""
     with _TRIPWIRE._mu:                             # pyright: ignore[reportPrivateUsage]
         saved = (_TRIPWIRE.mode, _TRIPWIRE.armed_at, _TRIPWIRE.counts)
     arm_doc_lock_tripwire("raise" if raising else "count")

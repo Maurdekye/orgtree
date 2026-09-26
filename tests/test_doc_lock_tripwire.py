@@ -191,8 +191,32 @@ class Tripwire(unittest.TestCase):
         with store.doc_lock_tripwire() as counts:
             with orgtx.org_tx(self.slug, nodes=['a']) as tx:
                 tx.d['nodes']['a']['name'] = 'a2'
-        self.assertEqual(counts, {'legacy': {}, 'fence': {}, 'save': {}})
+        self.assertEqual(counts, {'legacy': {}, 'fence': {}, 'save': {}, 'exempt': {}})
         self.assertEqual(store.load_org(self.slug).d['nodes']['a']['name'], 'a2')
+
+    def test_the_exempt_list_is_pinned(self) -> None:
+        # nothing is exempted silently: adding a site changes this test
+        self.assertEqual(set(store._TRIPWIRE.EXEMPT),
+                         {('store.py', 'create_org'), ('store.py', '_ensure_migrated')})
+        self.assertTrue(all(len(why) > 40 for why in store._TRIPWIRE.EXEMPT.values()))
+
+    def test_create_org_is_exempt_not_a_trip(self) -> None:
+        with store.doc_lock_tripwire() as counts:          # raise mode
+            store.create_org('tw-born-whole')
+        site, n = _only(counts['exempt'])
+        self.assertTrue(site.startswith('store.py:create_org:'), site)
+        self.assertEqual((counts['legacy'], counts['save']), ({}, {}))
+        rep = store.doc_lock_tripwire_report()
+        self.assertIn('store.py:create_org', rep['exempt'])
+
+    def test_halt_fence_names_the_caller(self) -> None:
+        from orgtree import halt
+        orgtx.TRANSITION_FENCE = True
+        with store.doc_lock_tripwire() as counts:
+            with halt.txn(self.slug, nodes=['a']) as tx:
+                tx.d['nodes']['a']['name'] = 'h'
+        site, _n = _only(counts['fence'])
+        self.assertTrue(site.startswith(f'{ME}:test_halt_fence_names_the_caller:'), site)
 
     def test_env_arming_defaults(self) -> None:
         self.assertEqual(store.arm_doc_lock_tripwire_from_env(), 'off')
@@ -223,6 +247,7 @@ class Tripwire(unittest.TestCase):
         rep = api.state_access_diagnostics()['doc_lock_tripwire']
         self.assertEqual((rep['mode'], rep['legacy_total'], rep['save_total'], rep['total']),
                          ('count', 1, 1, 2))
+        self.assertEqual(rep['exempt_total'], 0)
         self.assertTrue(next(iter(rep['sites']['legacy'])).startswith(f'{ME}:'))
 
 
