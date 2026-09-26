@@ -161,10 +161,14 @@ class Bench:
                 # connects, so this gives every site the stock class.
                 contacts.sidecar = lambda label: sqlite3.Connection
             self.census.set_enabled(name == "observed_on")
+            # transcript_records caches one connection per thread (slice C):
+            # close them so this arm's sidecar class is the one that connects
+            self.transcript_records._close_idle()
             yield
         finally:
             self.census.set_enabled(False)
             store._open_conn, contacts.note_checkout, contacts.sidecar = saved
+            self.transcript_records._close_idle()
 
     def _work(self, arm, workload, statements, thread_index):
         pool, slug = self.pools[arm], self.slugs[arm]
