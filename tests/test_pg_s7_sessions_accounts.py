@@ -531,8 +531,20 @@ class ResumeFrozenFallback(unittest.TestCase):
                   patch.object(supervisor, 'export_after_commit', self._export),
                   patch.object(supervisor, 'export_predecessor_transcript',
                                side_effect=AssertionError('copied under the locks'))]
+        # the REAL account_fallback.apply runs; only its provider-side checks
+        # (eligibility, the registry binding, marks, the capacity board) are
+        # stood in for — they are IO this test does not stage
+        from orgtree import account_fallback
+        self.p += [patch.object(account_fallback, 'eligible', return_value=True),
+                   patch.object(registry, 'validate_binding',
+                                return_value=self.acct),
+                   patch.object(account_fallback, 'marked', return_value=False),
+                   patch.object(account_fallback, 'capacity', return_value=True)]
         for x in self.p:
             x.start()
+        self.plans = {'worker': {
+            'node': account_fallback.identity(store.load_org(self.slug).node('worker')),
+            'at': time.time(), 'row': self.acct, 'board': {}, 'pool': 'pooled'}}
 
     def tearDown(self):
         for x in self.p:
@@ -543,24 +555,11 @@ class ResumeFrozenFallback(unittest.TestCase):
         self.exported.append((nid, reason, int(store.load_org(slug).node(nid)
                                                .get('generation') or 0)))
 
-    def _apply(self, org, nid, plan, *, exports=None):
-        # account_fallback.apply's effect (its plan checks are provider IO
-        # this test does not stage): the REAL rebind on the transaction's org
-        out = supervisor.assign_account(
-            org.d['slug'], nid, self.acct['id'], actor='@system', org=org,
-            via='limit_fallback', allow_frozen=True, export=exports is None)
-        sid = out.pop('_export_old_sid', None)
-        if sid and exports is not None:
-            exports.append((nid, str(sid), 'account_assign'))
-        return True
-
     def test_the_sweep_takes_no_doc_lock_and_exports_after_the_commit(self):
-        from orgtree import account_fallback
         lock = _CountingDocLock(store.DOC_LOCK)
-        with patch.object(store, 'DOC_LOCK', lock), \
-                patch.object(account_fallback, 'apply', self._apply):
+        with patch.object(store, 'DOC_LOCK', lock):
             got = supervisor.resume_frozen(self.slug, only=['worker'],
-                                           account_fallbacks={'worker': {}})
+                                           account_fallbacks=self.plans)
         self.assertEqual(got, ['worker'])
         self.assertEqual(lock.n, 0, f'DOC_LOCK taken {lock.n} times')
         n = store.load_org(self.slug).node('worker')
@@ -570,12 +569,11 @@ class ResumeFrozenFallback(unittest.TestCase):
 
     def test_a_rolled_back_sweep_exports_nothing(self):
         from orgtree import account_fallback
-        with patch.object(account_fallback, 'apply', self._apply), \
-                patch.object(supervisor, '_retry_replay',
-                             side_effect=RuntimeError('died after the rebind')):
+        with patch.object(supervisor, '_retry_replay',
+                          side_effect=RuntimeError('died after the rebind')):
             with self.assertRaises(RuntimeError):
                 supervisor.resume_frozen(self.slug, only=['worker'],
-                                         account_fallbacks={'worker': {}})
+                                         account_fallbacks=self.plans)
         n = store.load_org(self.slug).node('worker')
         self.assertIsNone(n.get('account'))
         self.assertIn('frozen', n)
@@ -591,10 +589,9 @@ class ResumeFrozenFallback(unittest.TestCase):
             rows['nodes'] = [x.split('@')[0] + f"@{int(x.split('@')[1]) + 5}"
                              if '@' in x else x for x in rows['nodes']]
             return rows
-        with patch.object(supervisor, '_resume_rows', stale_rows), \
-                patch.object(account_fallback, 'apply', self._apply):
+        with patch.object(supervisor, '_resume_rows', stale_rows):
             got = supervisor.resume_frozen(self.slug, only=['worker'],
-                                           account_fallbacks={'worker': {}})
+                                           account_fallbacks=self.plans)
         self.assertEqual(got, [])
         n = store.load_org(self.slug).node('worker')
         self.assertIsNone(n.get('account'))
