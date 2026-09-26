@@ -1336,6 +1336,9 @@ class SessionRoundTrips(unittest.TestCase):
         pgstore._point_at(raw, int(pgstore.read_marker(store.org_path(self.b))))   # a multi-org switch
         raw.execute('ROLLBACK')                          # ... undone by the server
         self.assertEqual(self._show(raw, 'search_path'), self._path(self.a))
+        pgstore._point_at(raw, int(pgstore.read_marker(store.org_path(self.b))))   # again, outside
+        self.assertEqual(self._show(raw, 'search_path'), self._path(self.b),
+                         'the rolled-back SET was trusted, so the real one was skipped')
         c.close()
         c = self._open(self.b)
         self.assertIs(c.raw, raw)
