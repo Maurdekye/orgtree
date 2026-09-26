@@ -105,11 +105,16 @@ class WorkReplyTx(unittest.TestCase):
     def test_control_without_the_mail_row_nothing_lands(self) -> None:
         real = rcdoor.work_reply_rows
 
+        def is_mail(x) -> bool:
+            # the whole `mail` row, or a per-owner ('mail', owner) row (PG-3d)
+            return x == 'mail' or (isinstance(x, tuple) and x[0] == 'mail')
+
         def under(nid):
             s = real(nid)
-            under.ran = True
+            dropped = [x for x in s.sections if is_mail(x)]
+            under.ran = bool(dropped)   # a control that dropped nothing proves nothing
             return pgdoor.TxSpec(nodes=s.nodes,
-                                 sections=tuple(x for x in s.sections if x != 'mail'),
+                                 sections=tuple(x for x in s.sections if not is_mail(x)),
                                  share_nodes=s.share_nodes, share_sections=s.share_sections,
                                  logs=s.logs)
 
@@ -120,7 +125,7 @@ class WorkReplyTx(unittest.TestCase):
         with patch.object(rcdoor, 'work_reply_rows', under):
             r = client.post(f'/api/orgs/{self.slug}/work-items/{self.wid}/reply',
                             headers=HEADERS, json={'body': 'must not land'})
-        self.assertTrue(under.ran, 'the under-declared control never ran')
+        self.assertTrue(under.ran, 'the under-declared control never ran (or dropped no mail row)')
         self.assertEqual(r.status_code, 500, r.text)
         self.assertIn('UnlockedWrite', r.text)
         self.assertEqual(self._landed('owner', 'must not land'), 0,
