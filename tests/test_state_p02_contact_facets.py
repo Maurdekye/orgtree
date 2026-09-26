@@ -534,7 +534,9 @@ class ContactFacets(unittest.TestCase):
                     renamed = "os.rename:data:org-db:own@orgtree.store:_save_json" in mut
                     self.assertEqual(renamed, contract == "mail.user-inbox-read")
                     self.assertEqual("file_write:data:org-db:temp" in j["contact_classes"], renamed)
-        for condition, reads in (("cold", self.FULL), ("warm", None)):
+        # warm reads the row tables too since PG-3d (1b93b0d) put the read mark on
+        # an org_tx that reads its declared rows in the transaction; still no write
+        for condition, reads in (("cold", self.FULL), ("warm", self.FULL)):
             r = self.exact("mail.user-inbox-read", "mail.user-inbox-read:nothing-read", condition)
             self.assertEqual((self.read(r), self.written(r)), (reads, []))
             j = self.exact("mail.user-inbox-read", "json:mail.user-inbox-read:nothing-read", condition)
