@@ -18,8 +18,8 @@ TWO TRANSACTIONS PER DOCKET WRITE (plan decision 13, p03-lead 2026-09-25):
 
 WHICH ROWS. A docket write always locks `work_items` and `asks` and appends to
 `events`. What else it touches depends on what the ledger decides while it
-runs: an assignment mails the new owner (the `mail` and `lifecycle` sections,
-the owner's node row, the `mail_log` log), a delete writes `user_outbox` and
+runs: an assignment mails the new owner (the `mail` section, the owner's
+node row, and a send's sections and logs from `mailtx`), a delete writes `user_outbox` and
 `work_deleted_names`, a review request writes `user_inbox`. Those notification
 writes were inside the same DOC_LOCK save, so they stay inside the same
 `org_tx` (§3 step 3, p01 do-not-split list) — they are NOT split out.
@@ -41,7 +41,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any, TypeVar, cast
 
-from . import orgtx
+from . import mailtx, orgtx, store
 from .ledger import Org
 
 T = TypeVar("T")
@@ -51,9 +51,16 @@ T = TypeVar("T")
 BASE_SECTIONS: tuple[str, ...] = ("work_items", "asks")
 #: `_log` appends to `events` on almost every docket write.
 BASE_LOGS: tuple[str, ...] = ("events",)
-#: Sections a notification (assignment, participant, review, delete) writes.
-NOTIFY_SECTIONS: tuple[str, ...] = ("mail", "lifecycle")
-NOTIFY_LOGS: tuple[str, ...] = ("mail_log",)
+#: Sections a notification (assignment, participant, review, delete) writes:
+#: a send's own (`mailtx.SEND_SECTIONS`, the single source), plus the WHOLE
+#: `mail` section. PG-3d stores `mail` one row per owner and `mailtx.send_rows`
+#: names `("mail", nid)`; the docket still locks the container because a
+#: recipient the arguments do not predict must be widened into, and pgdoor
+#: cannot yet widen an owner row (it passes `mailnid` back as a plain
+#: section name, which org_tx refuses). Narrow to `send_rows` once it can.
+NOTIFY_SECTIONS: tuple[str, ...] = ("mail", *mailtx.SEND_SECTIONS)
+#: `lifecycle` is a list log since PG-3d (decision 38), in `SEND_LOGS`.
+NOTIFY_LOGS: tuple[str, ...] = (*mailtx.SEND_LOGS, "mail_log")
 
 #: How many times `run` may widen the row set before giving up.
 MAX_WIDEN = 4
@@ -68,11 +75,11 @@ class WidenExhausted(orgtx.OrgTxError):
 @dataclass
 class Rows:
     """The rows one docket transaction names."""
-    sections: set[str] = field(default_factory=lambda: set(BASE_SECTIONS))
+    sections: set[Any] = field(default_factory=lambda: set(BASE_SECTIONS))
     nodes: set[str] = field(default_factory=lambda: set())
     logs: set[str] = field(default_factory=lambda: set(BASE_LOGS))
     share_nodes: set[str] = field(default_factory=lambda: set())
-    share_sections: set[str] = field(default_factory=lambda: set())
+    share_sections: set[Any] = field(default_factory=lambda: set())
 
     def notify(self, *nodes: str | None) -> Rows:
         """Name the rows a notification to `nodes` writes."""
@@ -85,6 +92,11 @@ class Rows:
         """Add refused rows; True when anything was actually new."""
         grew = False
         for kind, name in refused:
+            if kind == "section" and store.SPLIT_SEP in name:
+                # an owner row of a split section (PG-3d): org_tx names it
+                # `sectionowner` and takes it back as (section, owner)
+                sec, owner = name.split(store.SPLIT_SEP, 1)
+                name = (sec, owner)   # type: ignore[assignment]
             target = {"section": self.sections, "node": self.nodes,
                       "log": self.logs}[kind]
             if name not in target:
@@ -97,10 +109,17 @@ class Rows:
         return grew
 
     def kwargs(self) -> dict[str, Any]:
-        return {"sections": sorted(self.sections), "nodes": sorted(self.nodes),
-                "logs": sorted(self.logs),
+        return {"sections": sorted(self.sections, key=_rowkey),
+                "nodes": sorted(self.nodes),
+                "logs": sorted(self.logs, key=_rowkey),
                 "share_nodes": sorted(self.share_nodes - self.nodes),
-                "share_sections": sorted(self.share_sections - self.sections)}
+                "share_sections": sorted(self.share_sections - self.sections,
+                                         key=_rowkey)}
+
+
+def _rowkey(x: Any) -> str:
+    """Sort key for a row name that may be a (section, owner) pair."""
+    return x if isinstance(x, str) else store.SPLIT_SEP.join(x)
 
 
 def _names(v: Any) -> list[str]:

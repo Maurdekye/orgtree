@@ -40,12 +40,8 @@ def before(call: Any, _a: dict[str, Any]) -> None:
 
 def spec(_snapshot: Any, _call: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
     """The rows one `orgtree_work` call locks, from its arguments."""
-    r = worktx.rows_for(str(a.get("action") or ""), a)
-    return pgdoor.TxSpec(nodes=tuple(sorted(r.nodes)),
-                         sections=tuple(sorted(r.sections)),
-                         share_nodes=tuple(sorted(r.share_nodes)),
-                         share_sections=tuple(sorted(r.share_sections)),
-                         logs=tuple(sorted(r.logs)))
+    k = worktx.rows_for(str(a.get("action") or ""), a).kwargs()
+    return pgdoor.TxSpec(**{n: tuple(v) for n, v in k.items()})
 
 
 def body(identity_ready: Callable[[Any, str], Any],
