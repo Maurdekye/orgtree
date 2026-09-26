@@ -34,8 +34,10 @@ exactly what to do.
   one checksum over all of that. The same data always gives the same value, so
   matching values before and after the copy mean the copy is exact.
 - **Cutover record**: the file `<data folder>\store-backend.json`. When it
-  says `"backend": "postgres"`, Orgtree uses PostgreSQL. When it is absent,
-  Orgtree uses the old SQLite files.
+  says `"backend": "postgres"`, Orgtree uses PostgreSQL. When it is absent
+  and existing org files are present, Orgtree keeps using those files. A
+  packaged app initializes PostgreSQL only for a fresh data folder; ambiguous
+  leftovers cause startup to refuse instead of choosing a backend.
 - **Product binding**: the file `<data folder>\orgtree-product-root.json`,
   written by the `prepare` step. It tells pg-custodian that this data folder
   is Orgtree's real one and may be served.
