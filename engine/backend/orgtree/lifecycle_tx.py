@@ -626,3 +626,39 @@ def promote_subtree(slug: str, actor: str, nid: str, target: str) -> dict[str, A
     return _run("move", slug, lambda o: _promote_rows(o, actor, nid, target),
                 lambda org, hn, hs: promote_body(org, hn, hs, actor, nid, target,
                                                  "promote_subtree"))
+
+
+# ---------------------------------------------------------------- insert parent
+# D-224 ④ `Org.insert_parent(actor, nid, target)`: nid (target's direct
+# report) takes target's slot and target's WHOLE branch goes beneath it.
+#   nodes FOR UPDATE: target's subtree + stacks (it contains nid; both are
+#     re-parented, both grants rewritten, and `_sweep_dirs(nid)` clamps the
+#     whole branch), plus nid's own stack;
+#   nodes FOR SHARE: target's former parent (archived check, and the D-014
+#     top-grant check at top level; its committed stake is unchanged), every
+#     ancestor, and the actor;
+#   sections: move's own (audience sweep, notices; the caps decided on).
+
+
+def _insert_rows(org, actor: str, nid: str, target: str
+                 ) -> tuple[set[str], set[str]]:
+    upd = {nid, target}
+    for k in (nid, target):
+        if k in org.nodes:
+            upd |= set(org._taken_with(k))
+    share = set(_anc(org, target))                   # the parent is the first
+    if actor in org.nodes:
+        share.add(actor)
+    return upd, share - upd
+
+
+def insert_parent_body(org, held_nodes, held_share, actor: str, nid: str,
+                       target: str) -> dict[str, Any]:
+    """The door body: a pure function of the locked `org`."""
+    _need(org, lambda o: _insert_rows(o, actor, nid, target), held_nodes, held_share)
+    return org.insert_parent(actor, nid, target)
+
+
+def insert_parent(slug: str, actor: str, nid: str, target: str) -> dict[str, Any]:
+    return _run("move", slug, lambda o: _insert_rows(o, actor, nid, target),
+                lambda org, hn, hs: insert_parent_body(org, hn, hs, actor, nid, target))
