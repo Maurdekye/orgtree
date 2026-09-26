@@ -349,6 +349,43 @@ class OrgTxOnPostgres(unittest.TestCase):
                 n['swept'] = True
         self.assertTrue(all(_node(self.slug, x).get('swept') for x in ('a', 'b', 'c')))
 
+    def test_whole_holds_every_existing_row_and_writes_anything(self) -> None:
+        with orgtx.org_tx(self.slug, logs=[('mail_log', 'a')]) as tx:
+            tx.d.setdefault('mail_log', {})['a'] = [{'m': 1}]
+        e, r = threading.Event(), threading.Event()
+        t = self._hold(e, r, whole=True)
+        try:
+            for names in (dict(nodes=['b']), dict(nodes=['brand-new']),
+                          dict(sections=['killswitch']), dict(share_sections=['killswitch']),
+                          dict(logs=[('mail_log', 'a')])):
+                with self.subTest(names=names):
+                    self.assertEqual(self._try(**names), 'blocked')
+            self.assertEqual(self._try(logs=['events']), 'got')   # appends take no lock
+        finally:
+            r.set()
+            t.join()
+        e, r = threading.Event(), threading.Event()
+        t = self._hold(e, r, sections=['killswitch'])
+        try:
+            self.assertEqual(self._try(whole=True), 'blocked')
+        finally:
+            r.set()
+            t.join()
+        r0 = _rev(self.slug)
+        with orgtx.org_tx(self.slug, whole=True) as tx:
+            self.assertIn('killswitch', tx.lock_sections)
+            self.assertIn(('mail_log', 'a'), tx.logs)
+            tx.d['nodes']['a']['name'] = 'W'
+            tx.d['nodes']['d'] = {'id': 'd', 'name': 'd', 'parent': None, 'children': []}
+            tx.d['killswitch']['on'] = True
+            tx.d['brand_new'] = {'x': 1}
+            tx.d['mail_log']['a'][0]['m'] = 2
+        self.assertEqual(tx.revision, r0 + 1)
+        d = store.load_org(self.slug).d
+        self.assertEqual((d['nodes']['a']['name'], d['nodes']['d']['name'],
+                          d['killswitch']['on'], d['brand_new'], d['mail_log']['a']),
+                         ('W', 'd', True, {'x': 1}, [{'m': 2}]))
+
     def test_multi_org_is_one_atomic_transaction(self) -> None:
         other = _fresh_org(f'pg2-{self._testMethodName}'[:60])
         r0a, r0b = _rev(self.slug), _rev(other)
