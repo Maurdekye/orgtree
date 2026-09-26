@@ -135,6 +135,49 @@ class QuickStaffDoor(unittest.TestCase):
         self.assertIn('work_items_archive', seen[0].changes.log_sections)
         self.assertNotIn('work_items_archive', seen[-1].changes.log_sections)
 
+    def _drop_new_item(self, title):
+        org = store.load_org(self.slug)
+        old = org.work_create(self.owner, title, 'Broken. Repair it.')['slug']
+        org.work_update(self.owner, old, done_so_far=['x'], working_on_next=['y'],
+                        status='dropped',
+                        dropped_reason='Cancelled by the test; nothing to resume.')
+        self._save(org)
+        return old
+
+    def archived(self, slug):
+        return store.load_org(self.slug)._work_find(slug)[1]
+
+    def test_the_click_and_its_undo_defer_the_archive_move(self):
+        # the deferral alone: with both sweep steps stubbed out, an
+        # archive-eligible item survives the staffing AND its undo
+        old = self._drop_new_item('Old widget')
+        self.accept = False
+        sel = self.selection()
+        with patch.dict(pgdoor.BEFORE, {'quick_staff': lambda *a: None,
+                                        'quick_staff_undo': lambda *a: None}):
+            r = self.post(sel)
+        self.assertEqual(self.ticket()['status'], 'backlogged', r.text)
+        self.assertFalse(self.archived(old))
+
+    def test_the_undo_sweeps_first_too(self):
+        # an item becomes archive-eligible BETWEEN the staffing and its undo
+        # (the refused send runs between them): the undo's own sweep moves it
+        self.accept = False
+        sel = self.selection()
+        made = []
+
+        def refuse(slug, nid, *a, **k):
+            if not made:
+                made.append(self._drop_new_item('Dropped meanwhile'))
+            self.woken.append(nid)
+            return {'accepted': False, 'queued': 0}
+
+        with patch.object(api.supervisor, 'send_message', side_effect=refuse):
+            r = self.post(sel)
+        self.assertEqual(self.ticket()['status'], 'backlogged', r.text)
+        self.assertTrue(made, 'the refused send never ran')
+        self.assertTrue(self.archived(made[0]))
+
     def test_immediate_modes_one_run_one_commit_then_wake(self):
         for i, mode in enumerate(('under_assignee', 'top_level')):
             with self.subTest(mode=mode):

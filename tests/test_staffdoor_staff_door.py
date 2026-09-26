@@ -136,6 +136,21 @@ class StaffDoor(unittest.TestCase):
         self.assertIn('work_items_archive', seen[0].changes.log_sections)
         self.assertNotIn('work_items_archive', seen[-1].changes.log_sections)
 
+    def test_the_staff_call_defers_the_archive_move(self):
+        # the deferral alone: with the sweep step stubbed out, the call itself
+        # never archives an eligible item (nor widens into the archive)
+        org = store.load_org(self.slug)
+        old = org.work_create('mid', 'Old item 2', 'Problem. Fix.',
+                              owner='peer')['created']
+        org.work_update('peer', old, done_so_far=['x'], working_on_next=['y'],
+                        status='dropped',
+                        dropped_reason='Cancelled by the test; nothing to resume.')
+        store.save_org(org)
+        with patch.dict(pgdoor.BEFORE, {'orgtree_staff': lambda *a: None}):
+            self.staff(name='kid4', title='New thing', objective='Problem. Fix.')
+        self.assertFalse(store.load_org(self.slug)._work_find(old)[1])
+        self.assertEqual(len(self.runs), 1)
+
     def test_only_hire_mode_is_routed(self):
         self.assertTrue(pgdoor.routed('orgtree_staff', dict(SEAT)))
         self.assertFalse(pgdoor.routed('orgtree_staff',
