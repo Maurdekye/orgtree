@@ -1,0 +1,201 @@
+"""Fence-off S5, the pure reads: staffing_options, quick_staff_preview, the
+operator preview in org_op and orgtree_list_orgs read the committed document
+WITHOUT store.DOC_LOCK (FENCE-OFF-PLAN S5; docket item
+fence-off-s5-operator-door-plumbing-and-reads-of).
+
+What these prove, on PG-0's SeamBackend fake over a throwaway SQLite root:
+  * each read finishes while ANOTHER thread holds store.DOC_LOCK — the old
+    `with store.DOC_LOCK:` bodies (and orgtree_list_orgs' old seat inside the
+    agent_call write cycle) block there until the holder lets go, and the
+    test fails on that timeout;
+  * each read still answers what it answered before: it is handed the
+    committed document (staffing reads), previews the operation
+    (org_op preview), and lists the orgs — and list_orgs keeps the
+    refusals the write cycle gave it (a halted caller, a latched killswitch).
+
+Run:  python tools/run-python-verification.py tests/test_fence_s5_reads.py
+"""
+import os
+from pathlib import Path
+import tempfile
+import threading
+from types import SimpleNamespace
+import unittest
+from unittest.mock import patch
+
+_temp = tempfile.TemporaryDirectory(prefix='fence-s5-reads-', ignore_cleanup_errors=True)
+os.environ.update(ORGTREE_DATA=str(Path(_temp.name)), ORGTREE_STORE='sqlite',
+                  ORGTREE_STEER_HOOK='0')
+os.environ.pop('ORGTREE_DESKTOP_MANAGED', None)
+
+import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
+from fastapi import HTTPException  # noqa: E402
+from orgtree import api, ledger, net, quickstaff, staffcache, store  # noqa: E402
+
+U = ledger.USER
+T = {'bash': False, 'web': False, 'edit': False, 'subagents': False, 'mcp': []}
+REQUEST = SimpleNamespace(state=SimpleNamespace())
+#: how long a read may take when nothing it needs is held
+FREE_S = 5.0
+_N = [0]
+
+
+def _org() -> str:
+    _N[0] += 1
+    slug = f'fs5r{_N[0]}'
+    org = store.create_org(slug)
+    org.hire(U, None, 'luna', 20, 'root')
+    org.hire('root', 'root', 'luna', 5, 'mid', add_dirs=[], tools=T,
+             org_visibility='full', charter='c')
+    org.hire('mid', 'mid', 'luna', 0, 'kid', add_dirs=[], tools=T,
+             org_visibility='full', charter='c')
+    store.save_org(org)
+    return slug
+
+
+class _Held:
+    """Hold store.DOC_LOCK in another thread for the duration."""
+
+    def __enter__(self) -> '_Held':
+        self._in, self._out = threading.Event(), threading.Event()
+
+        def run() -> None:
+            with store.DOC_LOCK:
+                self._in.set()
+                self._out.wait(30)
+        self._t = threading.Thread(target=run, daemon=True)
+        self._t.start()
+        assert self._in.wait(10), 'holder never took DOC_LOCK'
+        return self
+
+    def __exit__(self, *a) -> None:
+        self._out.set()
+        self._t.join(10)
+
+
+def _run(fn, timeout: float = FREE_S):
+    """Run fn in a thread: (finished within timeout, [result | exception])."""
+    out: list = []
+
+    def go() -> None:
+        try:
+            out.append(fn())
+        except BaseException as e:                # noqa: BLE001
+            out.append(e)
+    t = threading.Thread(target=go, daemon=True)
+    t.start()
+    t.join(timeout)
+    return (not t.is_alive()), out
+
+
+class StaffingReads(unittest.TestCase):
+    def setUp(self):
+        self.slug = _org()
+        self.snap = object()
+        self.seen: list = []
+        self.p = [patch.object(staffcache, 'read', lambda: self.snap)]
+        for x in self.p:
+            x.start()
+
+    def tearDown(self):
+        for x in self.p:
+            x.stop()
+
+    def test_staffing_options_reads_without_doc_lock(self):
+        def availability(org, snap):
+            # handed the committed document and the snapshot read before it
+            self.seen.append((sorted(org.nodes), snap))
+            return {'ok': True}
+        with patch.object(quickstaff, 'availability', availability), _Held():
+            done, out = _run(lambda: api.staffing_options(self.slug))
+        self.assertTrue(done, 'staffing_options waited on DOC_LOCK')
+        self.assertEqual(out, [{'ok': True}])
+        self.assertEqual(self.seen, [(['kid', 'mid', 'root'], self.snap)])
+
+    def test_quick_staff_preview_reads_without_doc_lock(self):
+        org = store.load_org(self.slug)
+        wid = org.work_create('mid', 'Item', 'Problem. Fix.', owner='kid')['created']
+        store.save_org(org)
+
+        def preview(org, w, snap=None):
+            self.seen.append((w, org.work_identity_state(), snap))
+            return {'wid': w}
+        with patch.object(quickstaff, 'preview', preview), _Held():
+            done, out = _run(lambda: api.quick_staff_preview(self.slug, wid))
+        self.assertTrue(done, 'quick_staff_preview waited on DOC_LOCK')
+        self.assertEqual(out, [{'wid': wid}])
+        self.assertEqual(self.seen, [(wid, 'slug', self.snap)])
+
+    def test_a_ledger_refusal_is_still_a_422(self):
+        def preview(org, w, snap=None):
+            raise ledger.LedgerError('no such item')
+        with patch.object(quickstaff, 'preview', preview):
+            with self.assertRaises(HTTPException) as cm:
+                api.quick_staff_preview(self.slug, 'nope')
+        self.assertEqual(cm.exception.status_code, 422)
+
+
+class OperatorPreview(unittest.TestCase):
+    def test_org_op_preview_reads_without_doc_lock(self):
+        slug = _org()
+        with _Held():
+            done, out = _run(lambda: api.org_op(
+                slug, api.Op(op='retire', node='kid', preview=True), REQUEST))
+        self.assertTrue(done, 'the operator preview waited on DOC_LOCK')
+        self.assertIsInstance(out[0], dict, out)
+        # a preview: the tree is untouched
+        self.assertEqual(store.load_org(slug).node('kid').get('state'), 'live')
+
+
+class ListOrgs(unittest.TestCase):
+    def setUp(self):
+        self.slug = _org()
+        self.p = [patch.object(net, 'remote_peers', lambda: [])]
+        for x in self.p:
+            x.start()
+
+    def tearDown(self):
+        for x in self.p:
+            x.stop()
+
+    def call(self, node='mid'):
+        return api.agent_call(api.AgentCall(org=self.slug, node=node,
+                                            tool='orgtree_list_orgs', args={}),
+                              REQUEST)
+
+    def test_list_orgs_reads_without_doc_lock(self):
+        with _Held():
+            done, out = _run(self.call)
+        self.assertTrue(done, 'orgtree_list_orgs waited on DOC_LOCK')
+        self.assertIsInstance(out[0], dict, out)
+        mine = [o for o in out[0]['orgs'] if o.get('slug') == self.slug]
+        self.assertEqual(len(mine), 1, out[0])
+        self.assertTrue(mine[0]['you'])
+        self.assertEqual(mine[0]['transports'], ['org'])
+
+    def test_a_halted_caller_is_still_refused(self):
+        org = store.load_org(self.slug)
+        org.node('mid')['halt'] = {'at': 'x'}
+        store.save_org(org)
+        with self.assertRaises(HTTPException) as cm:
+            self.call()
+        self.assertEqual(cm.exception.status_code, 422)
+        self.assertIn('agent is halted', str(cm.exception.detail))
+
+    def test_a_latched_killswitch_still_refuses(self):
+        org = store.load_org(self.slug)
+        org.d['killswitch'] = {'at': 'x'}
+        store.save_org(org)
+        with self.assertRaises(HTTPException) as cm:
+            self.call()
+        self.assertEqual(cm.exception.status_code, 422)
+        self.assertIn('killswitch is latched', str(cm.exception.detail))
+
+    def test_an_unknown_caller_is_still_refused(self):
+        with self.assertRaises(HTTPException) as cm:
+            self.call(node='ghost')
+        self.assertIn(cm.exception.status_code, (403, 422))
+
+
+if __name__ == '__main__':
+    unittest.main()
