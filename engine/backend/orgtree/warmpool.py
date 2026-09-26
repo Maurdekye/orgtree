@@ -795,6 +795,60 @@ def _startup_rule(data: bytes) -> bool:
     return _RULE_PATHS_RE.search(frontmatter) is None
 
 
+# One instruction file's contribution to the native startup digest, keyed by
+# (abspath, memory, rule) and valid while its (st_mtime_ns, st_size) holds:
+# (sig, None) = a rule file that does not load at startup, else
+# (sig, (sha256 hex, [paths it imports])). The keeper recomputes every seat's
+# identity on every pass (scale-runtime stackprof: ~30% of samples were these
+# reads at 20 seats), and almost no file changes between passes. An edit
+# moves mtime_ns (and usually size), so a changed file is re-read and still
+# changes the identity hash on the next pass.
+_DIGEST_FILE_CACHE: dict[tuple[str, bool, bool],
+                         tuple[tuple[int, int],
+                               tuple[str, list[str]] | None]] = {}
+_DIGEST_FILE_CACHE_MAX = 8192
+
+
+def _digest_file(path: str, *, memory: bool, rule: bool
+                 ) -> tuple[str, list[str]] | None | bool:
+    """(sha256, imports) for `path`, None when a rule file is not a startup
+    rule, False when it cannot be read. Stat first; read only on a miss."""
+    try:
+        st = os.stat(path)
+    except (OSError, ValueError):
+        return False
+    sig = (st.st_mtime_ns, st.st_size)
+    ck = (path, memory, rule)
+    hit = _DIGEST_FILE_CACHE.get(ck)
+    if hit is not None and hit[0] == sig:
+        return hit[1]
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except (OSError, ValueError):
+        return False
+    if rule and not _startup_rule(data):
+        out: tuple[str, list[str]] | None = None
+    else:
+        if memory:
+            data = _memory_prefix(data)
+        imports: list[str] = []
+        text = data.decode("utf-8", "replace")
+        for match in _STARTUP_IMPORT_RE.finditer(text):
+            token = match.group(1).rstrip(".,;:!?)]}")
+            if not token:
+                continue
+            imports.append(
+                os.path.expanduser(token) if token.startswith("~")
+                else token if os.path.isabs(token)
+                else os.path.join(os.path.dirname(path), token))
+        out = (hashlib.sha256(data).hexdigest(), imports)
+    if len(_DIGEST_FILE_CACHE) >= _DIGEST_FILE_CACHE_MAX:
+        _DIGEST_FILE_CACHE.clear()
+    _DIGEST_FILE_CACHE[ck] = (sig, out)
+    return out
+
+
 def native_startup_context_digest(org: Any, nid: str) -> str:
     """Digest Claude's file-borne, once-per-session instruction inputs.
 
@@ -827,28 +881,15 @@ def native_startup_context_digest(org: Any, nid: str) -> str:
         key = os.path.normcase(os.path.realpath(path))
         if key in seen:
             return
-        try:
-            with open(path, "rb") as f:
-                data = f.read()
-        except (OSError, ValueError):
-            return
-        if rule and not _startup_rule(data):
+        got = _digest_file(path, memory=memory, rule=rule)
+        if got is False or got is None:
             return
         seen.add(key)
-        if memory:
-            data = _memory_prefix(data)
-        label = os.path.normcase(path)
-        manifest[label] = hashlib.sha256(data).hexdigest()
+        digest, imports = got
+        manifest[os.path.normcase(path)] = digest
         if depth >= 5:
             return
-        text = data.decode("utf-8", "replace")
-        for match in _STARTUP_IMPORT_RE.finditer(text):
-            token = match.group(1).rstrip(".,;:!?)]}")
-            if not token:
-                continue
-            imported = (os.path.expanduser(token) if token.startswith("~")
-                        else token if os.path.isabs(token)
-                        else os.path.join(os.path.dirname(path), token))
+        for imported in imports:
             add(imported, depth + 1)
 
     # Managed policy, then user instructions.
