@@ -56,9 +56,13 @@ is needed. On launch the desktop writes `%APPDATA%\Orgtree v2\engine-paths.json`
 with its actual installation and selected data paths. Launch the approved v3
 build once before doing this cutover; existing stores remain on their current
 backend. A genuinely fresh install already starts on PostgreSQL and does not
-need this migration. Trashed organizations in `DATA\deleted\` count as
+need this migration. Top-level org source files in `DATA\deleted\` count as
 existing data even when `DATA\orgs\` is empty: that installation stays on
-SQLite and requires this external cutover before selecting PostgreSQL.
+SQLite and requires this external cutover before selecting PostgreSQL. Source
+files end in `.db`, `.db-wal`, `.db-shm`, `.json` or `.db.migrating`, or contain
+`.json.premigration`; trash subfolders and other trash files do not count.
+The full ordered classification is in
+[the packaged-runtime guide](pypg-packaged-runtime.md).
 
 Open **PowerShell from the Start menu**, outside Orgtree, and run:
 

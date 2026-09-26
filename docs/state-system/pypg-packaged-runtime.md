@@ -61,6 +61,26 @@ including when `DATA/orgs/` is empty; they never trigger fresh initialization.
 Development can opt into executable locations with
 `ORGTREE_DESKTOP_PACKAGED_PG=1`; that does **not** enable fresh-root bootstrap.
 
+PG-1 considers bootstrap only with `ORGTREE_PG_BOOTSTRAP=1`, an unset or
+empty `ORGTREE_STORE`, a non-UNC/non-device root, and no `store-backend.json`
+of any kind. Its classification is ordered:
+
+1. Any top-level file in `orgs/` or `deleted/` ending in `.db`, `.db-wal`,
+   `.db-shm`, `.json`, or `.db.migrating`, or containing `.json.premigration`,
+   makes this an existing store. `orgs/` is checked first; a source in either
+   directory wins over stray files. Nothing is written and the current backend
+   remains selected.
+2. Otherwise, any entry in `orgs/`, an `orgs` path that is not a directory,
+   or the presence of `pg/` or `pre-postgres/` is ambiguous. Startup refuses
+   and reports what it found.
+3. Otherwise the root is fresh: bind the product root, atomically write the
+   PostgreSQL backend record, then use the normal PostgreSQL startup path.
+
+Other root entries (including settings, locks, logs and a leftover product
+binding or its temporary file), subdirectories of `deleted/`, and non-org
+files in `deleted/` do not affect this classification. An existing backend
+record, including an explicit SQLite record, prevents bootstrap entirely.
+
 On every packaged launch the desktop records its selected installation/data
 paths in `<userData>/engine-paths.json`. It contains no credentials or
 connection string. The external cutover runbook uses this descriptor and the
