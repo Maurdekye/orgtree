@@ -176,10 +176,9 @@ class HireDoor(unittest.TestCase):
         self.assertEqual(r.get('review_items'), [wid])
         self.assertEqual(len(self.runs), 1)
 
-    def test_a_docket_writing_hire_sweeps_the_archive_first(self):
-        # PG-3w decision 13, as staff / quick staff take it: the archive move
-        # is its OWN org_tx before the hire, and the hire defers the move,
-        # so it never writes (or widens into) the archive
+    def seed_expired(self):
+        """An item to assign, and a DROPPED one the next docket write that
+        does not defer would move into the archive."""
         def expired(o):
             # the drop is the LAST docket write here: any later one would
             # already sweep the dropped item inline
@@ -193,6 +192,13 @@ class HireDoor(unittest.TestCase):
             return old, wid
         old, wid = self.seed(expired)
         self.assertFalse(store.load_org(self.slug)._work_find(old)[1])
+        return old, wid
+
+    def test_a_docket_writing_hire_sweeps_the_archive_first(self):
+        # PG-3w decision 13, as staff / quick staff take it: the archive move
+        # is its OWN org_tx before the hire, and the hire defers the move,
+        # so it never writes (or widens into) the archive
+        old, wid = self.seed_expired()
         _r, seen = self.committed(
             lambda: self.hire('mid', name='kid', work_item=wid))
         self.assertTrue(store.load_org(self.slug)._work_find(old)[1])
@@ -200,6 +206,17 @@ class HireDoor(unittest.TestCase):
         self.assertEqual(len(seen), 2, seen)          # the sweep, then the hire
         self.assertIn('work_items_archive', seen[0].changes.log_sections)
         self.assertNotIn('work_items_archive', seen[-1].changes.log_sections)
+
+    def test_the_hire_itself_defers_the_archive_move(self):
+        # the sweep stubbed out, so the expired item is still there when the
+        # hire writes the docket: the hire leaves it (deferred) rather than
+        # moving it inline and widening into the archive
+        old, wid = self.seed_expired()
+        with patch.dict(pgdoor.BEFORE, {'orgtree_hire': lambda call, a: None}):
+            self.hire('mid', name='kid', work_item=wid)
+        self.assertFalse(store.load_org(self.slug)._work_find(old)[1])
+        self.assertEqual(len(self.runs), 1)
+        self.assertEqual(self.owner(wid), 'kid')
 
     def test_a_plain_hire_takes_no_sweep_transaction(self):
         _r, seen = self.committed(lambda: self.hire('mid', name='kid'))
