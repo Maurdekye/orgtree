@@ -39,20 +39,36 @@ export const browserZone = (): string => {
  *  same functions the screen uses, rather than through a parallel copy that
  *  could agree with itself while disagreeing with the app. */
 let override: string | null = null
-export const setDisplayZone = (tz: string | null): void => { override = tz }
+let zoneKnown = false
+let resolvedZone: string | undefined
+const formatters = new Map<string, Intl.DateTimeFormat>()
+let formatterZone: string | undefined
+export const setDisplayZone = (tz: string | null): void => {
+  override = tz
+  zoneKnown = false
+  formatters.clear()
+}
 
 /** The zone every formatter below resolves against.
  *
  *  An override the browser cannot load is dropped, not honoured. `undefined`
  *  hands `Intl` its own default — the browser's local zone. Still local. */
 export const displayZone = (): string | undefined => {
+  if (zoneKnown) return resolvedZone
+  zoneKnown = true
+  resolvedZone = undefined
+  // Resolve the browser zone once per synchronous render, not once per row.
+  // Recheck on the next job so changing the system zone does not leave a
+  // long-lived renderer formatting against the zone it started in.
+  if (override === null) queueMicrotask(() => { zoneKnown = false })
   const tz = override ?? browserZone()
   if (!tz) return undefined
+  if (override === null) return (resolvedZone = tz)
   try {
     // does this browser actually know the zone? constructing is the only
     // honest test — a name check would accept "Mars/Olympus" and throw later
     new Intl.DateTimeFormat('en-US', { timeZone: tz }).format(0)
-    return tz
+    return (resolvedZone = tz)
   } catch {
     return undefined
   }
@@ -76,8 +92,19 @@ const parse = (at: string | number | null | undefined): Date | null => {
 
 type Parts = Record<string, string>
 const partsOf = (d: Date, opts: Intl.DateTimeFormatOptions): Parts => {
-  const fmt = new Intl.DateTimeFormat('en-US',
-    { ...opts, timeZone: displayZone() })
+  const zone = displayZone()
+  if (zone !== formatterZone) {
+    formatters.clear()
+    formatterZone = zone
+  }
+  // Only this module's fixed format shapes enter the cache. Retain one
+  // zone's formatters, not a growing history of zones or formatted dates.
+  const key = JSON.stringify(opts)
+  let fmt = formatters.get(key)
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat('en-US', { ...opts, timeZone: zone })
+    formatters.set(key, fmt)
+  }
   const out: Parts = {}
   for (const p of fmt.formatToParts(d)) out[p.type] = p.value
   return out

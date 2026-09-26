@@ -44,6 +44,47 @@ const AFTER_DST = '2026-03-27T00:30:00Z'
 
 test.afterEach(() => { setDisplayZone(null) })
 
+test('reuses formatters across a long list of timestamps', () => {
+  const Original = Intl.DateTimeFormat
+  let builds = 0
+  Intl.DateTimeFormat = new Proxy(Original, {
+    apply(target, receiver, args) { builds++; return Reflect.apply(target, receiver, args) },
+    construct(target, args) { builds++; return Reflect.construct(target, args) },
+  })
+  try {
+    setDisplayZone(null)
+    const formats = [fmtStamp, fmtShort, fmtFull, fmtClock, fmtDay, fmtHm, fmtMonth, fmtWhen]
+    const expected = formats.map(format => format(INSTANT))
+    const warmBuilds = builds
+    assert.ok(warmBuilds > 0, 'the constructor counter must observe real work')
+    for (let row = 0; row < 1000; row++) {
+      assert.deepEqual(formats.map(format => format(INSTANT)), expected)
+    }
+    assert.equal(builds, warmBuilds, 'warm rows must not construct more formatters')
+  } finally { Intl.DateTimeFormat = Original }
+})
+
+test('refreshes a changed browser zone on the next job', async () => {
+  const Original = Intl.DateTimeFormat
+  let browser = JERUSALEM
+  Intl.DateTimeFormat = new Proxy(Original, {
+    apply(target, receiver, args) {
+      return args.length ? Reflect.apply(target, receiver, args)
+        : new Original('en-US', { timeZone: browser })
+    },
+  })
+  try {
+    setDisplayZone(null)
+    assert.equal(fmtStamp(INSTANT), '2026-09-05 04:11')
+    browser = NEW_YORK
+    await Promise.resolve()
+    assert.equal(fmtStamp(INSTANT), '2026-09-04 21:11')
+    browser = KOLKATA
+    await Promise.resolve()
+    assert.equal(fmtStamp(INSTANT), '2026-09-05 06:41')
+  } finally { Intl.DateTimeFormat = Original }
+})
+
 // ⚠ THE INERTNESS GATE. jsdom runs on node's own ICU. A build with only
 // English-locale data still knows these zones, but a `--with-intl=none` node
 // would not — and then every check below would pass vacuously by formatting
