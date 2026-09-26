@@ -36,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
 
-from orgtree import store, ledger, orgtx, supervisor as sup, maildrain  # noqa: E402
+from orgtree import store, ledger, mailtx, orgtx, supervisor as sup, maildrain  # noqa: E402
 import racekit  # noqa: E402
 
 assert Path(store.DATA_ROOT).resolve() == Path(_root.name).resolve()
@@ -84,11 +84,9 @@ class Base(unittest.TestCase):
 
     def post(self, text='one'):
         """Committed mail and its drain demand, as a send leaves them."""
-        with orgtx.org_tx(self.slug, nodes=['worker'],
-                          sections=[('mail', 'worker')],
-                          logs=[('mail_log', 'worker'), 'events']) as tx:
-            m = tx.org.post_mail(ledger.USER, 'worker', text, kind='message')
-            maildrain.request(tx.org, 'worker')
+        with mailtx.org_of(self.slug, **mailtx.send_rows('worker')) as o:
+            m = o.post_mail(ledger.USER, 'worker', text, kind='message')
+            maildrain.request(o, 'worker')
         return m
 
     def tracked(self):
