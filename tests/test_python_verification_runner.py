@@ -313,6 +313,44 @@ if __name__ == '__main__':
         self.assertNotEqual(result.stdout, "")
         self.assertIn(result.phase, {"pass", "execution_failure"})
 
+    def execute_cached(self, path: str, pycache: Path):
+        interpreter = runner.select_interpreter(ROOT, os.environ.get("ORGTREE_V2_PYTHON") or os.sys.executable)
+        run_root, _ = runner.make_data_root(ROOT, str(self.data))
+        return runner.run_modules([path], repo_root=ROOT, interpreter=interpreter, data_root=run_root,
+                                  pycache_dir=pycache)
+
+    def test_pycache_dir_keeps_bytecode_out_of_the_sources_and_recompiles_an_edit(self):
+        pycache = self.fixture / "pycache"
+        helper = self.module("cached_helper.py", "VALUE = 'first'\n")
+        path = self.module("uses_helper.py",
+                           "from cached_helper import VALUE\nprint('VALUE=' + VALUE)\n")
+        [result] = self.execute_cached(path, pycache)
+        self.assertEqual(result.phase, "pass", result.stderr)
+        self.assertIn("VALUE=first", result.stdout)
+        cached = list(pycache.rglob("cached_helper.*.pyc"))
+        self.assertEqual(len(cached), 1, "the imported helper is compiled into the prefix tree")
+        self.assertFalse(list(self.fixture.glob("__pycache__")), "nothing is written beside the sources")
+        # An edit of a different size must be recompiled, never served stale.
+        Path(helper).write_text("VALUE = 'second, and longer'\n", encoding="utf-8")
+        [result] = self.execute_cached(path, pycache)
+        self.assertEqual(result.phase, "pass", result.stderr)
+        self.assertIn("VALUE=second, and longer", result.stdout)
+
+    def test_without_a_pycache_dir_nothing_is_compiled_to_disk(self):
+        self.module("plain_helper.py", "VALUE = 1\n")
+        [result] = self.execute(self.module("uses_plain.py", "from plain_helper import VALUE\n"))
+        self.assertEqual(result.phase, "pass", result.stderr)
+        self.assertFalse(list(self.fixture.rglob("*.pyc")))
+
+    def test_pycache_dir_is_refused_inside_the_checkout_and_off_means_none(self):
+        self.assertIsNone(runner.pycache_root(ROOT, "off"))
+        self.assertIsNone(runner.pycache_root(ROOT, None))
+        with self.assertRaisesRegex(ValueError, "outside the checkout"):
+            runner.pycache_root(ROOT, str(ROOT / "build" / "pycache"))
+        with self.assertRaisesRegex(ValueError, "outside the checkout"):
+            runner.pycache_root(ROOT, str(ROOT.parent))
+        self.assertEqual(runner.pycache_root(ROOT, str(self.fixture / "p")), runner._canonical(self.fixture / "p"))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
