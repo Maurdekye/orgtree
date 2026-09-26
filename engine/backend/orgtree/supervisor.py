@@ -31089,15 +31089,23 @@ def claim_steer(slug: str, nid: str, tool_use_id: str,
         idle = not st.get("steer") and _steer_attempts_clear(st)
     if idle:
         return None, []
+    writes: list[str] = []
+    ok = False
     try:
-        return _claim_steer_gated(slug, nid, tool_use_id, transcript_path)
+        result = _claim_steer_gated(slug, nid, tool_use_id, transcript_path, _writes=writes)
+        ok = True
+        return result
     finally:
-        _steer_attempt_written(st)
+        # after the gate's transaction has returned; a claim that chose
+        # nothing wrote no attempt, anything else (or a raise) may have
+        if writes or not ok:
+            _steer_attempt_written(st)
 
 
 @halt.delivery(lambda: (None, []))
 def _claim_steer_gated(slug: str, nid: str, tool_use_id: str,
-                       transcript_path: str = "") -> tuple[str | None, list[Any]]:
+                       transcript_path: str = "",
+                       _writes: list[str] | None = None) -> tuple[str | None, list[Any]]:
     """The hook's fetch, D1-safe: hand out everything offerable under a lease
     and a durable attempt record, commit nothing. Returns (delivery_id, texts);
     (None, []) when nothing is offerable or the claim could not be made
@@ -31136,6 +31144,8 @@ def _claim_steer_gated(slug: str, nid: str, tool_use_id: str,
             chosen.append(c)
         if not chosen:
             return None, []
+    if _writes is not None:
+        _writes.append(did)            # an attempt write may follow: see claim_steer
     out, views, toks = _steer_parts(chosen)
     unconfirmable = False
     try:
