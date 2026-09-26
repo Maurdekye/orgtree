@@ -6808,9 +6808,10 @@ def staffing_options(slug: str) -> dict[str, Any]:
     # one returns at once, and neither must ever happen with DOC_LOCK held.
     snap = staffcache.read()
     try:
-        # fence-off S5: the committed document, lock-free — this route only
-        # reads, and a read never queues behind the write lock
-        org = orgtx.org_read(slug)
+        # fence-off S5: the shared snapshot (`org_seq`-guarded, lock-free),
+        # which a warm read serves from memory as the resident under
+        # DOC_LOCK did. Read-only by contract: availability never writes it.
+        org = store.cached_org(slug)
         return quickstaff.availability(org, snap)
     except LedgerError as e:
         raise HTTPException(422, str(e)) from e
@@ -6842,11 +6843,15 @@ def quick_staff_preview(slug: str, wid: str) -> dict[str, Any]:
     # while the network was slow.
     snap = staffcache.read()
     try:
-        # fence-off S5: the committed document, lock-free. A document still
-        # on the old work identity is converted IN THIS COPY only (never
-        # saved here), exactly as the unsaved load under DOC_LOCK was.
-        org = orgtx.org_read(slug)
-        _work_identity_ready(org, slug)
+        # fence-off S5: the shared snapshot (`org_seq`-guarded, lock-free),
+        # read-only by contract. A document still on the old work identity
+        # is converted in a PRIVATE copy instead (never saved here, exactly
+        # as the unsaved load under DOC_LOCK was): the shared one must never
+        # be migrated in place.
+        org = store.cached_org(slug)
+        if org.work_identity_state() != "slug":
+            org = orgtx.org_read(slug)
+            _work_identity_ready(org, slug)
         return quickstaff.preview(org, wid, snap=snap)
     except LedgerError as e:
         raise HTTPException(422, str(e)) from e
