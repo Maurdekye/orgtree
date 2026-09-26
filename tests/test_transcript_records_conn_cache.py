@@ -146,6 +146,44 @@ class ConnectionCacheTests(unittest.TestCase):
             leave.set()
             thread.join(30)
 
+    def test_deleting_a_data_root_closes_the_idle_connections_to_it(self):
+        """A test's tearDown deletes its temporary data root while the cached
+        connections are still open; on Windows that failed until the
+        deletion closed them first."""
+        old_root = store.DATA_ROOT
+        cached, leave = [], threading.Event()
+
+        def worker():
+            with records.database() as conn:
+                cached.append(conn)
+            leave.wait(30)
+        new_root = tempfile.mkdtemp(dir=fixture.name)
+        thread = threading.Thread(target=worker)
+        store.DATA_ROOT = new_root
+        try:
+            with records.database() as mine:
+                pass
+            thread.start()
+            for _ in range(300):
+                if cached:
+                    break
+                threading.Event().wait(0.1)
+            self.assertEqual(len(cached), 1, "the worker did not cache a connection")
+            self.assertFalse(closed(mine))
+            import shutil
+            shutil.rmtree(new_root)  # raised PermissionError on Windows before the hook
+            self.assertFalse(os.path.exists(new_root))
+            self.assertTrue(closed(mine))
+            self.assertTrue(closed(cached[0]))
+            with records.database() as reopened:  # the next call opens afresh
+                self.assertIsNot(reopened, mine)
+        finally:
+            leave.set()
+            thread.join(30)
+            store.DATA_ROOT = old_root
+            with records.database():
+                pass
+
     def test_each_thread_has_its_own_connection_and_it_closes_with_the_thread(self):
         with records.database() as mine:
             pass

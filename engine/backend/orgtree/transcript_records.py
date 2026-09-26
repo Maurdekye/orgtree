@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import sys
 import threading
 import uuid
 import weakref
@@ -36,11 +37,12 @@ _spool_state = threading.local()
 #: this thread's reusable connection (slice C, scale qualification): opening
 #: one per call cost ~1.2 ms of connect + PRAGMA on every reply-stream event
 _conn_state = threading.local()
-#: every thread's cached connection, so a DATA_ROOT change and interpreter
-#: exit can close the idle ones (Windows cannot delete an open database file)
+#: every thread's cached connection, so a DATA_ROOT change, a deletion of
+#: its folder and interpreter exit can close the idle ones (Windows cannot
+#: delete a database file that any connection holds open)
 _held_all = weakref.WeakSet()
 #: guards `_Held.busy` and `_Held.conn` between the owning thread and a sweep
-_held_lock = threading.Lock()
+_held_lock = threading.RLock()
 
 
 class _Held:
@@ -49,6 +51,7 @@ class _Held:
 
     def __init__(self, key, conn):
         self.key, self.conn, self.busy = key, conn, False
+        self.norm = os.path.normcase(os.path.abspath(key))
 
     def close(self):
         conn, self.conn = self.conn, None
@@ -59,15 +62,43 @@ class _Held:
     __del__ = close
 
 
-def _close_idle(keep=None):
-    """Close every thread's idle cached connection to a path other than `keep`."""
+def _close_idle(match=lambda key: True):
+    """Close every thread's idle cached connection whose path `match`es."""
     with _held_lock:
         for held in list(_held_all):
-            if not held.busy and held.key != keep:
+            if not held.busy and match(held.key):
                 held.close()
 
 
 atexit.register(_close_idle)
+
+#: audit events that delete or move a path. Before one of them touches a
+#: cached database, or a folder holding it, the idle connections to it are
+#: closed, so a caller deleting a data root (a test's temporary directory)
+#: sees what it saw when every call closed its own connection.
+_DELETES = frozenset({"shutil.rmtree", "os.remove", "os.rename", "os.rmdir"})
+
+
+def _audit(event, args):
+    if event not in _DELETES or not _held_all:
+        return
+    try:
+        paths = args[:2] if event == "os.rename" else args[:1]
+        targets = [os.path.normcase(os.path.abspath(os.fspath(a))) for a in paths]
+        # the file itself, its -wal/-shm companions, or a folder above it
+        hits = [held for held in list(_held_all)
+                if any(held.norm.startswith(t + os.sep) or t.startswith(held.norm)
+                       for t in targets)]
+    except Exception:
+        return
+    if hits:
+        with _held_lock:
+            for held in hits:
+                if not held.busy:
+                    held.close()
+
+
+sys.addaudithook(_audit)
 
 
 @contextlib.contextmanager
@@ -98,7 +129,7 @@ def database():
             with _held_lock:
                 held.close()
             if held.key != key:
-                _close_idle(keep=key)
+                _close_idle(lambda other: other != key)
     if conn is None:
         path.parent.mkdir(parents=True, exist_ok=True)
         # check_same_thread=False only so a sweep or `_Held.__del__` can close
