@@ -72,8 +72,11 @@ class WorkDoor(unittest.TestCase):
                   patch.object(store, 'write_org', _explode)]
         for x in self.p:
             x.start()
-        orgtx.set_pause_hook(lambda p, tx: self.locked.append(
-            set(tx.lock_nodes)) if p == 'after_lock' else None)
+        self.sections = []
+        orgtx.set_pause_hook(lambda p, tx: (
+            self.locked.append(set(tx.lock_nodes)),
+            self.sections.append(set(tx.lock_sections)))
+            if p == 'after_lock' else None)
 
     def tearDown(self):
         orgtx.set_pause_hook(None)
@@ -109,6 +112,12 @@ class WorkDoor(unittest.TestCase):
         self.assertEqual(sum(1 for m in box if self.wid in str(m)), 1)
         self.assertEqual(self.notified.count('sub'), 1)
         self.assertEqual([t for t, wake in self.sent if wake], ['sub'])
+
+    def test_assign_on_the_door_locks_only_the_new_owners_mail_box(self):
+        self.call('boss', action='assign', slug=self.wid, owner='sub')
+        self.assertIn('mail\x1fsub', self.sections[-1])
+        self.assertNotIn('mail', self.sections[-1],
+                         "the door call locked every agent's mail")
 
     def test_new_participant_is_noticed_not_driven(self):
         self.call('boss', action='participants', slug=self.wid, add=['peer'])
