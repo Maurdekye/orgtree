@@ -382,16 +382,17 @@ def pop_pending_carrier(st, slug: str, nid: str,
                         toks: Iterable[str] = ()) -> tuple[Any, Any]:
     """Remove the consumed worker's slot: (carrier, the id recorded with it).
 
-    Which slot: this thread's own (`_SLOT`); else — a caller on ANOTHER
-    thread, where the ContextVar is empty (a mail-drain recovery, a tool
-    hook, an HTTP handler; review by p03-ws3b) — the slot whose carrier holds
-    one of the confirmed journal `toks`; else the only slot when there is
-    exactly one. Ambiguous (several slots, none matching) spends NOTHING and
+    Which slot: the one whose carrier holds one of the confirmed journal
+    `toks` (exact, from any thread — a mail-drain recovery, a tool hook, an
+    HTTP handler, where the ContextVar is empty; review by p03-ws3b); else
+    this thread's own (`_SLOT`); else the only slot when there is exactly
+    one. Ambiguous (several slots, none matching) spends NOTHING and
     says so: an unspent carrier can at worst be replayed by a halt, a wrongly
     spent one is lost. Caller holds `_state_lock`."""
-    tok = _slot_token(slug, nid)
-    if tok is None:
-        tok = _slot_by_tokens(st, toks)
+    # the confirmed journal tokens name the carrier exactly, so they win
+    # even over this thread's own slot (review N3); then the own slot; then
+    # the only slot
+    tok = _slot_by_tokens(st, toks)
     if tok is None:
         tok = _own_slot(st, slug, nid)
     if tok is None:

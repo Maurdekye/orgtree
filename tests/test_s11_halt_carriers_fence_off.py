@@ -85,6 +85,69 @@ class FenceOffGuard(_base.AgentHaltTests):
         self._consume_on_a_fresh_thread(["tok-a"])
         self.assertEqual(self._pending_texts(), ["b"])
 
+    def test_a_delivery_confirmed_off_the_turn_thread_spends_its_carrier(self):
+        """Review B1: the PRODUCTION path — `_confirm_delivered` (what
+        maildrain.recover and the tool hooks call) on a fresh thread must hand
+        its tokens to `halt.consumed`, so exactly the confirmed carrier is
+        spent and the other worker's is kept."""
+        self._two_slots()
+        t = threading.Thread(target=sup._confirm_delivered,
+                             args=(self.slug, self.nid, ["tok-b"]))
+        t.start()
+        t.join(5)
+        self.assertEqual(self._pending_texts(), ["a"])
+
+    def test_the_confirmed_tokens_beat_the_threads_own_slot(self):
+        """Review N3: on a worker thread whose own slot does NOT hold the
+        confirmed tokens, the slot that does is the one spent."""
+        seen = {}
+        b_in, b_go = threading.Event(), threading.Event()
+
+        @halt.worker
+        def _run_turn(slug, nid, carrier):
+            if carrier["text"] == "b":
+                b_in.set()
+                b_go.wait(5)
+                return
+            halt.consumed(slug, nid, ["tok-b"])
+            seen["after"] = self._pending_texts()
+
+        t = threading.Thread(target=_run_turn, args=(
+            self.slug, self.nid, {"text": "b", "toks": ["tok-b"]}))
+        t.start()
+        self.assertTrue(b_in.wait(5))
+        _run_turn(self.slug, self.nid, {"text": "a", "toks": ["tok-a"]})
+        b_go.set()
+        t.join(5)
+        self.assertEqual(seen["after"], ["a"])
+
+    def test_two_turns_in_a_row_on_one_thread_leave_nothing_behind(self):
+        """Review N2: a worker resets its `_SLOT` entry when it ends, so the
+        next turn on the SAME thread owns a fresh slot (and drops it on exit)
+        instead of mistaking itself for a nested worker. With another worker
+        still running, a stale entry would outlive both turns."""
+        b_in, b_go = threading.Event(), threading.Event()
+        seen = {}
+
+        @halt.worker
+        def _run_turn(slug, nid, carrier):
+            if carrier["text"] == "b":
+                b_in.set()
+                b_go.wait(5)
+                with sup._state_lock:
+                    seen["during"] = sorted(
+                        c["text"] for c in halt.pending_carriers(self.st))
+
+        t = threading.Thread(target=_run_turn,
+                             args=(self.slug, self.nid, {"text": "b"}))
+        t.start()
+        self.assertTrue(b_in.wait(5))
+        _run_turn(self.slug, self.nid, {"text": "a1"})
+        _run_turn(self.slug, self.nid, {"text": "a2"})
+        b_go.set()
+        t.join(5)
+        self.assertEqual(seen["during"], ["b"])
+
     def test_an_ambiguous_ack_off_the_turn_thread_spends_nothing(self):
         self._two_slots()
         self._consume_on_a_fresh_thread([])
