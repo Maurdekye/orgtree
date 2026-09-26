@@ -4908,6 +4908,15 @@ class Probe:
                 status, reason = "instrumented", "primary store (census db fields)"
             elif key in sidecars:
                 status, reason = "instrumented", f"sidecar '{sidecars[key]}' (census db.secondary)"
+            elif name in ("pgstore.py", "pgfeed.py") or site["factory"].startswith(
+                    ("psycopg.", "pgstore.", "_psycopg()")):
+                # the PostgreSQL backend's own connections (PYPG): the census
+                # observes the SQLite stores only (census_contacts docstring),
+                # and this probe runs the SQLite profile, where none is reached
+                status = "uninstrumented"
+                reason = ("PostgreSQL backend connection (PYPG); the census observes "
+                          "the SQLite stores only and this probe runs the SQLite "
+                          "profile, where it is not reached")
             else:
                 status = "uninstrumented"
                 reason = reasons.get(name, "not listed by census_contacts")

@@ -377,7 +377,9 @@ class OperationContacts(unittest.TestCase):
 
     def test_every_connection_site_is_classified_with_a_reason(self):
         sites = self.doc["connection_sites"]
-        self.assertEqual(len(sites), 18)
+        # 25 since the P01 inventory re-anchor after PYPG (987d163): the 7 new
+        # rows are the PostgreSQL backend's connections, named as such below
+        self.assertEqual(len(sites), 25)
         self.assertEqual(sum(s["status"] == "instrumented" for s in sites), 7)
         for s in sites:
             self.assertIn(s["status"], ("instrumented", "uninstrumented"))
@@ -390,6 +392,15 @@ class OperationContacts(unittest.TestCase):
         for s in hub:
             self.assertEqual(s["status"], "uninstrumented")
             self.assertIn("mail hub store", s["reason"])
+        # the PostgreSQL backend's connections: pgstore (5), pgfeed's LISTEN
+        # connection, and store.claim_data_root's postgres-profile migrate
+        pg = [s for s in sites if "PostgreSQL backend connection" in s["reason"]]
+        self.assertEqual(sorted((s["path"].rsplit("/", 1)[-1], s["symbol"]) for s in pg),
+                         [("pgfeed.py", "psycopg_conn._P.__init__"),
+                          ("pgstore.py", "_checkout"), ("pgstore.py", "backfill_always_rows"),
+                          ("pgstore.py", "connect"), ("pgstore.py", "migrate"),
+                          ("pgstore.py", "retire_unmarked"), ("store.py", "claim_data_root")])
+        self.assertTrue(all(s["status"] == "uninstrumented" for s in pg))
 
     def test_r5_residuals_are_reproduced_and_attributed(self):
         res = self.doc["residuals"]
