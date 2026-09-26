@@ -14934,7 +14934,9 @@ def drive_unfrozen_by_switch(slug: str, nids: Iterable[str]) -> None:
             print(f"[orgtree] {slug}/{t}: unfrozen-by-switch wake failed")
 
 
-def _apply_pending_account_locked(o2: Org, slug: str, nid: str) -> dict[str, Any]:
+def _apply_pending_account_locked(o2: Org, slug: str, nid: str,
+                                  exports: list[tuple[str, str]] | None = None
+                                  ) -> dict[str, Any]:
     """Consume `nid`'s queued account rebind at the turn boundary, on the doc
     the caller holds under DOC_LOCK (the caller saves). Returns
     ``{"changed": bool, "auth_thaw": bool, "unpark": bool}``; the wake flags
@@ -15044,7 +15046,13 @@ def _apply_pending_account_locked(o2: Org, slug: str, nid: str) -> dict[str, Any
         return out
     previous = str(node.get("account") or "")
     try:
-        _reb = finish_switch_binding(o2, slug, nid, _aa, _by)
+        # `exports` (S6, a row-transaction caller): the transcript copy is
+        # the caller's, after its commit (export_after_commit)
+        _reb = finish_switch_binding(o2, slug, nid, _aa, _by,
+                                     **({"export": False} if exports is not None
+                                        else {}))
+        if exports is not None and _reb.get("export_old_sid"):
+            exports.append((str(_reb["export_old_sid"]), "switch_model"))
     except Exception as _e:  # boundary must never break turn bookkeeping
         reason = str(_e)
         _drop(reason,
@@ -15074,7 +15082,8 @@ def _apply_pending_account_locked(o2: Org, slug: str, nid: str) -> dict[str, Any
 
 def _apply_pending_switch_locked(o2: Org, slug: str, nid: str,
                                  wake: list[str] | None = None,
-                                 account_wake: list[tuple[str, str]] | None = None) -> bool:
+                                 account_wake: list[tuple[str, str]] | None = None,
+                                 exports: list[tuple[str, str]] | None = None) -> bool:
     """D-234: apply the model switch queued behind `nid`'s turn, on the doc
     the caller already holds under DOC_LOCK (the caller saves). True when the
     doc changed. The transcript copy a crossing owes the successor rides the
@@ -15098,7 +15107,7 @@ def _apply_pending_switch_locked(o2: Org, slug: str, nid: str,
     # queued switch are composed BY REQUEST ORDER inside the helper — with a
     # switch queued, the winning account rides that switch's atomic finish
     # below instead of rebinding twice.
-    _acct = _apply_pending_account_locked(o2, slug, nid)
+    _acct = _apply_pending_account_locked(o2, slug, nid, exports)
     if _acct["changed"]:
         changed = True
     if account_wake is not None:
@@ -15167,7 +15176,11 @@ def _apply_pending_switch_locked(o2: Org, slug: str, nid: str,
     if not r.get("dropped"):
         _pre_binding = str(o2.node(nid).get("account") or "")
         _fsb = finish_switch_binding(o2, slug, nid, _p_acct,
-                                     str(_pend.get("by") or "USER"))
+                                     str(_pend.get("by") or "USER"),
+                                     **({"export": False} if exports is not None
+                                        else {}))
+        if exports is not None and _fsb.get("export_old_sid"):
+            exports.append((str(_fsb["export_old_sid"]), "switch_model"))
         if _fsb.get("unparked"):
             # near-unreachable (a queued switch means the node was BUSY, and a
             # parked node runs no turns), but the park is cleared in-doc and
@@ -15204,14 +15217,59 @@ def _apply_pending_switch_locked(o2: Org, slug: str, nid: str,
                      f"thawed in the same transaction; it wakes once the "
                      f"boundary saves."])
     if r.get("old_session"):
-        export_predecessor_transcript(o2, nid,
-                                      old_sid=cast(str, r["old_session"]),
-                                      reason="switch_model")
+        if exports is not None:
+            # S6: a file effect, the caller's after its commit
+            exports.append((cast(str, r["old_session"]), "switch_model"))
+        else:
+            export_predecessor_transcript(o2, nid,
+                                          old_sid=cast(str, r["old_session"]),
+                                          reason="switch_model")
     print(f"[orgtree] {slug}/{nid}: queued model switch "
           + (f"DROPPED — {r['dropped']}" if r.get("dropped")
              else f"applied → {r.get('model')}"
                   + (f" (bearer {r['bearer']})" if r.get("bearer") else "")))
     return True
+
+
+def _apply_queued_switch(slug: str, nid: str, wake: list[str],
+                         account_wake: list[tuple[str, str]]) -> bool:
+    """S6: apply the model switch / account rebind queued behind `nid`'s
+    turn (`_apply_pending_switch_locked`) on ONE row transaction over
+    `switch_rows`, never DOC_LOCK; then, after the commit, the transcript
+    copies the crossing owes (`export_after_commit`, a failure logged). The
+    wake lists are refilled on every attempt, so a widened re-run leaves no
+    duplicate. Returns whether the seat now holds a never-run pardon."""
+    from . import pgdoor
+    snap = store.cached_org(slug)
+    n = snap.nodes.get(nid) or {}
+    psw = n.get("pending_switch") if isinstance(n.get("pending_switch"), dict) else {}
+    pac = n.get("pending_account") if isinstance(n.get("pending_account"), dict) else {}
+    actor = str((psw or {}).get("by") or (pac or {}).get("by") or USER)
+    rebind = bool(pac) or bool((psw or {}).get("account"))
+    exports: list[tuple[str, str]] = []
+
+    def apply(h: Any) -> tuple[Org, bool]:
+        wake.clear()
+        account_wake.clear()
+        exports.clear()
+        o2 = h.org
+        _apply_pending_switch_locked(o2, slug, nid, wake=wake,
+                                     account_wake=account_wake,
+                                     exports=exports)
+        # the switch may mint a successor session and re-arm its pardon:
+        # read it off the document the switch ran on
+        return o2, (nid in o2.nodes and "session_unrun" in o2.node(nid))
+
+    committed, pardon = pgdoor.run(
+        slug, switch_rows(snap, actor, nid, rebind=rebind), apply)
+    for old_sid, why in exports:
+        try:
+            export_after_commit(slug, committed, nid, old_sid, why)
+        except Exception as e:                               # noqa: BLE001
+            print(f"[orgtree] {slug}/{nid}: queued switch's transcript copy "
+                  f"failed after the commit (the switch stands): {e!r}",
+                  flush=True)
+    return pardon
 
 
 def _limit_probe_worker(
@@ -19939,25 +19997,57 @@ def _envelope_rows(nid: str) -> dict[str, Any]:
 
 
 @contextlib.contextmanager
-def _node_write(slug: str, nid: str, *, whole_org: bool = False
-                ) -> Iterator[Org]:
-    """PG-3e-A: a turn-path write to the agent's own row, yielding the Org.
-
-    Ordinarily one halt transaction on `nid`'s row (it commits when the block
-    ends). `whole_org=True` is the legacy whole-document path — DOC_LOCK, a
-    load and one save at the end — kept for the rare branches whose writes
-    cannot be bounded to named rows (the org-wide Fable escalation, which
-    touches every fable node and may dissolve subtrees). That is allowed
-    during the transition: unconverted code may hold DOC_LOCK, and org_tx
-    never waits on it."""
-    if whole_org:
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            yield org
-            store.save_org(org)
-        return
+def _node_write(slug: str, nid: str) -> Iterator[Org]:
+    """PG-3e-A: a turn-path write to the agent's own row, yielding the Org:
+    one halt transaction on `nid`'s row (it commits when the block ends).
+    Its old `whole_org=True` DOC_LOCK path is gone (S6): the Fable escalation
+    and the queued switch each have their own row transaction now."""
     with halt.txn(slug, nodes=[nid]) as tx:
         yield tx.org
+
+
+def switch_rows(org: Org, actor: str, nid: str, *, rebind: bool) -> Any:
+    """S6 (with p03-ws3b's S3 switch_model door): the rows a model switch of
+    `nid` requested by `actor` writes — ONE spec for the immediate door and
+    the queued switch applied at the turn boundary
+    (`_apply_pending_switch_locked`), planned from `org` (a snapshot is fine:
+    `pgdoor` widens on a refused write).
+
+      * `lifecycle_tx._switch_rows`: the seat, its `nid@gen` bearer and every
+        ancestor (an upgrade's credit chain) FOR UPDATE; the actor FOR SHARE;
+      * `lifecycle_tx.SPECS['switch_model']`'s shared settings and logs, with
+        `notices` narrowed to the rows actually told (the seat, its parent,
+        the requester — a dropped queued switch tells the requester and the
+        parent) instead of the whole container, plus `asks` (a crossing moots
+        the seat's open asks);
+      * `rebind` (an account rides the switch, or a queued rebind): the
+        in-place split rows (`lifecycle_tx._split_rows`) and
+        `assign_account`'s own sections (`_ASSIGN_*`), as
+        `lifecycle_door.retool_rows` composes them."""
+    from . import lifecycle_tx as lt
+    from . import pgdoor
+    upd, share = lt._switch_rows(org, actor, nid)
+    upd, share = set(upd), set(share)
+    spec = lt.SPECS["switch_model"]
+    n = org.nodes.get(nid) or {}
+    told = {nid, *([str(n["parent"])] if n.get("parent") else []),
+            *([actor] if actor in org.nodes else [])}
+    secs: set[Any] = {("notices", x) for x in told} | {"asks"}
+    ssecs: set[str] = set(spec.share_sections)
+    logs: set[Any] = set(spec.logs)
+    if rebind:
+        u, s2 = lt._split_rows(org, actor, nid)
+        upd |= set(u)
+        share |= set(s2)
+        secs |= {s for s in _ASSIGN_SECTIONS if s != "notices"}
+        ssecs |= set(_ASSIGN_SHARE)
+        logs |= set(_ASSIGN_LOGS)
+    return pgdoor.TxSpec(
+        nodes=tuple(sorted(upd)),
+        sections=tuple(sorted(secs, key=str)),
+        share_nodes=tuple(sorted(share - upd)),
+        share_sections=tuple(sorted(ssecs)),
+        logs=tuple(sorted(logs, key=str)))
 
 
 class _Replan(Exception):
@@ -24137,11 +24227,10 @@ def _run_one_turn_recorded(slug: str, nid: str,
             # row. A switch queued during the turn (`pending_switch` /
             # `pending_account`) touches far more than that row (the credit
             # chain, notices, asks, a new `nid@gen` — decision 6), so it is
-            # applied in a SECOND pass on the whole-document path
-            # (`_node_write(whole_org=True)`, legitimate during the
-            # transition) rather than inside the one-row transaction, where
-            # its writes would be refused and take the marker pop down with
-            # them.
+            # applied in a SECOND transaction over `switch_rows`
+            # (`_apply_queued_switch`, S6) rather than inside the one-row
+            # transaction, where its writes would be refused and take the
+            # marker pop down with them.
             _switch_queued = False
             with _node_write(slug, nid) as o2:
                 # ⚠ THE POPPED MARKER IS KEPT, NOT DISCARDED. It used to be
@@ -24173,14 +24262,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 pardon_pending = (nid in o2.nodes
                                   and "session_unrun" in o2.node(nid))
             if _switch_queued:
-                with _node_write(slug, nid, whole_org=True) as o2:
-                    _apply_pending_switch_locked(o2, slug, nid,
-                                                 wake=_switch_wake,
-                                                 account_wake=_account_wake)
-                    # the switch may mint a successor session and re-arm its
-                    # pardon: re-read it off the document the switch ran on
-                    pardon_pending = (nid in o2.nodes
-                                      and "session_unrun" in o2.node(nid))
+                pardon_pending = _apply_queued_switch(
+                    slug, nid, _switch_wake, _account_wake)
         except Exception:                                    # noqa: BLE001
             pass
         if _switch_wake:
