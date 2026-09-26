@@ -103,6 +103,95 @@ def notice_body(notify: Notify, steer: Steer, note: Note
     return run
 
 
+# ----------------------------------------------- orgtree_ask / withdraw_ask
+
+ASK = "orgtree_ask"
+WITHDRAW_ASK = "orgtree_withdraw_ask"
+
+
+def ask_spec(snapshot: Any, call: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
+    """An ask parks a card in `asks` (and, attached to a docket item, checks
+    `work_items`); an agent without a user audience has it ROUTED to its
+    superior as question mail instead — so the superior's send rows are
+    locked up front (the door drives `routed` after the commit)."""
+    parent = None
+    try:
+        parent = (snapshot.nodes.get(str(call.node)) or {}).get("parent")
+    except Exception:                                        # noqa: BLE001
+        pass
+    rows = mailtx.merge(mailtx.send_rows(str(parent)) if parent else {},
+                        sections=["asks"] + (["work_items"] if a.get("work_item") else []),
+                        logs=["events"])
+    return pgdoor.TxSpec(**{k: tuple(v) for k, v in rows.items()})
+
+
+def ask_body(t: pgdoor.AgentTx) -> dict[str, Any]:
+    """The legacy `orgtree_ask` branch, verbatim, on the locked document."""
+    a = t.args
+    return t.org.ask_user(t.node, a.get("question") or "",
+                          options=a.get("options"),
+                          multi=bool(a.get("multi")),
+                          header=a.get("header"),
+                          questions=a.get("questions"),
+                          work_item=(str(a["work_item"]) if a.get("work_item") else None))
+
+
+#: withdrawing clears the caller's open ask and its scope / credit requests
+WITHDRAW_SPEC = pgdoor.TxSpec(sections=("asks", "credit_requests", "scope_requests"),
+                              logs=("events",))
+
+
+def withdraw_body(t: pgdoor.AgentTx) -> dict[str, Any]:
+    return t.org.withdraw_ask(t.node)
+
+
+# ------------------------------------------------------------ orgtree_audience
+
+AUDIENCE = "orgtree_audience"
+
+
+def audience_spec(snapshot: Any, call: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
+    """Audience actions write the audience tables and the decision mail /
+    notices to the parties named in the arguments (resolved in the body; a
+    party the snapshot misses is widened in)."""
+    parties = [str(a.get(k) or "") for k in ("target", "from", "grantee")]
+    who: list[str] = []
+    for p in parties:
+        if p:
+            who += _resolve_on_snapshot(snapshot, p)
+    rows = mailtx.merge(mailtx.audience_rows(who[0]) if who else {},
+                        *(mailtx.send_rows(w) for w in who[1:]),
+                        sections=["audiences", "audience_requests"],
+                        logs=["events"])
+    return pgdoor.TxSpec(**{k: tuple(v) for k, v in rows.items()})
+
+
+def audience_body(t: pgdoor.AgentTx) -> dict[str, Any]:
+    """The legacy `orgtree_audience` branch on the locked document; the
+    agents it names to wake are driven after the commit."""
+    a, org, me = t.args, t.org, t.node
+    action = a.get("action", "")
+    if action == "request":
+        result = org.request_audience(me, a.get("target", ""), a.get("reason", ""))
+    elif action == "forward":
+        result = org.audience_forward(me, a.get("from", ""), a.get("target", ""))
+    elif action == "grant":
+        result = org.audience_grant(me, a.get("from", ""), a.get("target") or None)
+    elif action == "deny":
+        result = org.audience_deny(me, a.get("from", ""), a.get("target", "") or me)
+    elif action == "revoke":
+        result = org.audience_revoke(me, a.get("grantee", ""))
+    else:
+        raise LedgerError("action must be request|forward|grant|deny|revoke")
+    for n in result.pop("drive", []):
+        if n not in t.after.drive:
+            t.after.drive.append(n)
+    return result
+
+
 def declare(notify: Notify, steer: Steer, note: Note) -> None:
     """Register the mail tools on the door (api calls this once at import)."""
     pgdoor.declare(NOTICE, notice_spec, body=notice_body(notify, steer, note))
+    pgdoor.declare(ASK, ask_spec, body=ask_body)
+    pgdoor.declare(WITHDRAW_ASK, WITHDRAW_SPEC, body=withdraw_body)
+    pgdoor.declare(AUDIENCE, audience_spec, body=audience_body)
