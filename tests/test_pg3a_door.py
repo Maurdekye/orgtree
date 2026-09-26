@@ -229,5 +229,52 @@ class Door(unittest.TestCase):
         self.assertEqual(len(attempts), 1, [sorted(k["sections"]) for k in attempts])
         self.assertIn("audiences", attempts[0]["sections"])
 
+    def attempts(self, node, tool, args):
+        """How many org_tx transactions the door opened for one call."""
+        real, opened = pgdoor._org_tx, []
+
+        def counting():
+            tx = real()
+
+            def opener(*a, **k):
+                opened.append(sorted(map(str, k.get("sections") or ())))
+                return tx(*a, **k)
+            return opener
+        with patch.object(pgdoor, "_org_tx", counting):
+            self.call(self.slug, node, tool, args)
+        return opened
+
+    def grant(self, grantee, grantor):
+        org = store.load_org(self.slug)
+        org.d.setdefault("audiences", []).append(
+            {"grantee": grantee, "grantor": grantor})
+        store.save_org(org)
+
+    def test_every_door_tool_commits_in_one_attempt(self):
+        # lead decision 40: auto-widen hides an incomplete spec, so each
+        # converted tool must commit on its FIRST transaction. Each case
+        # writes the sections its spec declares (an audience the change
+        # revokes, a parent's notice) so a missing one would force a re-run.
+        cases = [
+            ("batch", "boss", "orgtree_move",
+             {"moves": [{"node": "x", "new_parent": "b"},
+                        {"node": "b1", "new_parent": "a"}]}, ("x1", "a")),
+            ("swap", "boss", "orgtree_swap", {"a": "a", "b": "b"}, ("x", "a")),
+            ("self_subjugate", "x", "orgtree_self_subjugate",
+             {"target": "x1"}, None),
+            ("retire", "boss", "orgtree_retire", {"node": "x"}, None),
+            ("dissolve", "boss", "orgtree_dissolve", {"node": "b"}, None),
+        ]
+        for name, node, tool, args, aud in cases:
+            with self.subTest(name):
+                self.tearDown()
+                self.setUp()
+                if aud:
+                    self.grant(*aud)
+                with patch.object(supervisor, "interrupt_before_archive",
+                                  lambda slug, org, nid: []):
+                    opened = self.attempts(node, tool, args)
+                self.assertEqual(len(opened), 1, (name, opened))
+
 if __name__ == "__main__":
     unittest.main()
