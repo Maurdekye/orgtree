@@ -134,9 +134,30 @@ class Widen(Exception):
     held: roll back, add them and run again (WS3a's `pgdoor.Widen` contract;
     translated to it when the body runs on the door)."""
 
-    def __init__(self, nodes=(), share_nodes=()):
-        super().__init__(f"widen: nodes={sorted(nodes)} share={sorted(share_nodes)}")
+    def __init__(self, nodes=(), share_nodes=(), sections=(), share_sections=(),
+                 logs=()):
+        super().__init__(f"widen: nodes={sorted(nodes)} share={sorted(share_nodes)}"
+                         f" sections={sorted(sections)} logs={sorted(map(str, logs))}")
         self.nodes, self.share_nodes = set(nodes), set(share_nodes)
+        self.sections, self.share_sections = set(sections), set(share_sections)
+        self.logs = set(logs)
+
+
+def _plan_gap(tx, upd, share, sections=(), share_sections=(), logs=()) -> None:
+    """Raise Widen for every row a plan RE-DERIVED on the locked document
+    needs and `tx` does not hold — nodes, sections and (dict-log, owner) rows
+    alike (a delete that widens to a new doomed node also needs that node's
+    mail_log row; widening the nodes alone would only turn the rerun into an
+    UnlockedWrite)."""
+    held_n = set(tx.lock_nodes)
+    held_s = set(tx.lock_sections)
+    miss_u = set(upd) - held_n
+    miss_s = set(share) - held_n - set(tx.share_nodes)
+    miss_sec = set(sections) - held_s
+    miss_ssec = set(share_sections) - held_s - set(tx.share_sections)
+    miss_log = set(logs) - set(tx.logs)
+    if miss_u or miss_s or miss_sec or miss_ssec or miss_log:
+        raise Widen(miss_u, miss_s, miss_sec, miss_ssec, miss_log)
 
 
 MAX_WIDEN = 3
@@ -344,17 +365,16 @@ def rename_tx(slug: str, plan) -> Iterator[Any]:
 
 def widen_plan(plan, w: "Widen"):
     upd, share, sections, logs = plan
-    return upd | w.nodes, share | w.share_nodes, sections, logs
+    return (upd | w.nodes, share | w.share_nodes,
+            tuple(sorted(set(sections) | w.sections)),
+            tuple(sorted(set(logs) | w.logs, key=lambda x: (isinstance(x, tuple), str(x)))))
 
 
 def check_rename_rows(tx, actor: str, nid: str, new_name: str) -> None:
     """Re-derive the rename's rows on the LOCKED document; Widen if the
     snapshot missed any (a hire under the node, a new generation)."""
-    upd, share, _s, _l = _rename_plan(tx.org, actor, nid, new_name)
-    miss_u = upd - set(tx.lock_nodes)
-    miss_s = share - set(tx.lock_nodes) - set(tx.share_nodes)
-    if miss_u or miss_s:
-        raise Widen(miss_u, miss_s)
+    upd, share, secs, logs = _rename_plan(tx.org, actor, nid, new_name)
+    _plan_gap(tx, upd, share, secs, (), logs)
 
 
 def _rehire_rows(org, actor: str, nid: str) -> tuple[set[str], set[str]]:
@@ -434,11 +454,8 @@ def delete_body(tx, actor: str, nid: str) -> dict[str, Any]:
     """The door body: re-derive the plan on the LOCKED document (Widen on a
     gap — a hire under the subtree, a new generation), then the legacy
     method."""
-    upd, share, _s, _l = _delete_plan(tx.org, actor, nid)
-    miss_u = upd - set(tx.lock_nodes)
-    miss_s = share - set(tx.lock_nodes) - set(tx.share_nodes)
-    if miss_u or miss_s:
-        raise Widen(miss_u, miss_s)
+    upd, share, secs, logs = _delete_plan(tx.org, actor, nid)
+    _plan_gap(tx, upd, share, secs, (), logs)
     return tx.org.delete(actor, nid)
 
 
@@ -453,6 +470,9 @@ def delete(slug: str, actor: str, nid: str) -> dict[str, Any]:
         except Widen as w:
             upd |= w.nodes
             share |= w.share_nodes
+            sections = tuple(sorted(set(sections) | w.sections))
+            logs = tuple(sorted(set(logs) | w.logs,
+                                key=lambda x: (isinstance(x, tuple), str(x))))
     raise LedgerError(f"delete: the lock set kept growing after {MAX_WIDEN} "
                       "widenings — nothing was applied; retry")
 
@@ -533,11 +553,8 @@ def set_scope_body(tx, actor: str, nid: str, kw: dict[str, Any],
     """The door body. `may_raise` is the route's permission to raise the
     kiosk ceiling (not a public slug); whether it IS raised is decided here on
     the locked kiosk row, exactly as `node_scope` did on its loaded document."""
-    upd, share, _s, _ss, _l = _scope_plan(tx.org, actor, nid, kw, may_raise)
-    miss_u = upd - set(tx.lock_nodes)
-    miss_s = share - set(tx.lock_nodes) - set(tx.share_nodes)
-    if miss_u or miss_s:
-        raise Widen(miss_u, miss_s)
+    upd, share, secs, ssecs, logs = _scope_plan(tx.org, actor, nid, kw, may_raise)
+    _plan_gap(tx, upd, share, secs, ssecs, logs)
     org = tx.org
     rc = may_raise and (bool((org.d.get("kiosk") or {}).get("auto_raise"))
                         or bool(kw.get("raise_ceiling")))
@@ -558,6 +575,8 @@ def set_scope(slug: str, actor: str, nid: str, may_raise: bool = True,
         except Widen as w:
             upd |= w.nodes
             share |= w.share_nodes
+            sections = tuple(sorted(set(sections) | w.sections))
+            share_sections = tuple(sorted(set(share_sections) | w.share_sections))
     raise LedgerError(f"set_scope: the lock set kept growing after {MAX_WIDEN} "
                       "widenings — nothing was applied; retry")
 
@@ -783,11 +802,8 @@ def _repair_plan(org, actor: str, rename_at: str
 
 
 def repair_rename_body(tx, actor: str, rename_at: str, **kw: Any) -> dict[str, Any]:
-    upd, share, _s, _l = _repair_plan(tx.org, actor, rename_at)
-    miss_u = upd - set(tx.lock_nodes)
-    miss_s = share - set(tx.lock_nodes) - set(tx.share_nodes)
-    if miss_u or miss_s:
-        raise Widen(miss_u, miss_s)
+    upd, share, secs, logs = _repair_plan(tx.org, actor, rename_at)
+    _plan_gap(tx, upd, share, secs, (), logs)
     return tx.org.repair_rename_identity(actor, rename_at, **kw)
 
 
@@ -802,5 +818,7 @@ def repair_rename_identity(slug: str, actor: str, rename_at: str,
         except Widen as w:
             upd |= w.nodes
             share |= w.share_nodes
+            sections = tuple(sorted(set(sections) | w.sections))
+            logs = tuple(sorted(set(logs) | w.logs, key=str))
     raise LedgerError(f"repair_rename_identity: the lock set kept growing after "
                       f"{MAX_WIDEN} widenings — nothing was applied; retry")
