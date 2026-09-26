@@ -33,8 +33,18 @@ Removing 1, 2, or both leaves RT3 green (expected survivors). What RT3 is
 shown to catch: a cap check that lets the count reach cap+1, and the row
 locks switched off entirely (nothing orders the hires). When PG-3d splits
 `mail`/`notices` per owner, guard 3 goes away and "remove 1 and 2" must
-flip to caught; operator (user) hires have no caller row, so for them guard
-1 is the one that matters — extend RT3 to them when operator hire converts.
+flip to caught.
+
+THE OPERATOR ARM (`RT3OperatorHires`, review f1/f2 of 3ebb57b): the
+operator's hire (`POST /ops` op="hire") has NO caller row, so guard 2 does
+not exist for it. Measured (one op hire under `mid`): it writes only the
+PARENT's own notice row `notices\x1fmid`, the new node's row and the event/
+notice logs — `mid`'s node row is not updated. The arm takes guard 3 out
+of the race the way PG-3c's RT1 takes out `notices`: the org-wide sections
+dropped from the registered spec, and the notice itself stubbed (so there is
+no unlocked write for the door to widen into). What is left ordering two
+operator hires is guard 1 alone — the destination's row FOR UPDATE — and
+the arm is shown to FAIL when `hire_rows` drops it (mutant Ms1).
 
 Runs on the fake (SeamBackend). The PostgreSQL arm is racekit's
 `disposable_pg()` + ORGTREE_STORE=postgres, not armed here.
@@ -145,6 +155,46 @@ class RT3StaffingAtTheCap(unittest.TestCase):
         kids = self.kids()
         self.assertEqual(len(kids), CAP)
         self.assertEqual([k for k in kids if k.startswith('twin')], ['twin'])
+
+
+#: the org-wide single-row sections every hire declares (guard 3)
+ORG_WIDE = ('notices', 'mail', 'audiences', 'lifecycle')
+
+
+class RT3OperatorHires(RT3StaffingAtTheCap):
+    """The same race for two OPERATOR hires under `mid` at max_children-1,
+    with guard 3 neutralised (module docstring): only the destination's row
+    lock orders them."""
+
+    def setUp(self):
+        super().setUp()
+        self.assertTrue(pgdoor.routed('hire'))
+        real = pgdoor.LOCKS['hire']
+
+        def spec(snapshot, body, a):
+            s = real(snapshot, body, a)
+            return pgdoor.TxSpec(nodes=s.nodes, share_nodes=s.share_nodes,
+                                 sections=tuple(x for x in s.sections
+                                                if x not in ORG_WIDE),
+                                 share_sections=s.share_sections, logs=s.logs)
+
+        more = [patch.dict(pgdoor.LOCKS, {'hire': spec}),
+                patch.object(ledger.Org, '_notify_ev',
+                             lambda self, nids, ev: None)]
+        for x in more:
+            x.start()
+        self.p += more
+        # the neutralised spec still holds the destination (the guard under
+        # test) and none of the org-wide rows
+        held = spec(store.load_org(self.slug),
+                    SimpleNamespace(parent='mid', above=None, actor=U,
+                                    name='z'), {})
+        self.assertIn('mid', held.nodes)
+        self.assertFalse(set(held.sections) & set(ORG_WIDE))
+
+    def hire(self, name):
+        return api.org_op(self.slug, api.Op(op='hire', tier='luna',
+                                            parent='mid', name=name), REQUEST)
 
 
 if __name__ == '__main__':
