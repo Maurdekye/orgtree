@@ -289,6 +289,19 @@ class Seam(unittest.TestCase):
         self.assertEqual(_node(slug, 'b')['name'], 'Kept')
         self.assertEqual(self._claim_sweep(), [], 'a second claim changes nothing')
 
+    def test_the_real_claim_revives_a_restored_org(self) -> None:
+        # the wiring in store.claim_data_root, not just the pgstore helpers:
+        # drop this process's claim so the next claim runs its PG sweep again
+        slug = _fresh_org('del-claim')
+        org_id = pgstore.read_marker(store.org_path(slug))
+        store.delete_org(slug)
+        os.replace(self._trash_marker(slug), store.org_path(slug))
+        os.close(store._owner_fd)
+        store._owner_fd = None
+        store.claim_data_root()
+        self.assertEqual(self._pg('SELECT slug, deleted_at FROM orgs WHERE org_id = %s', org_id),
+                         [(slug, None)])
+
     def test_restore_an_older_org_after_its_name_was_reused(self) -> None:
         slug = _fresh_org('del-old')
         org = store.load_org(slug)
