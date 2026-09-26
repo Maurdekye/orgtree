@@ -99,6 +99,18 @@ SPECS: dict[str, Spec] = {
     # ancestor chain (authority) and the actor FOR SHARE. The caps are not
     # read (the shape is unchanged, so they hold by construction). Written
     # sections: the audience sweep (+ the retained audience) and notices.
+    # Lineage splits (`_archive_session_in_place`, and reseed's own copy of
+    # it). Node rows from `_split_rows`: the seat and the new bearer
+    # `nid@gen` FOR UPDATE; the ancestors (authority, the parent's notice),
+    # the actor and — for a lost bearer — its successor FOR SHARE. Written:
+    # notices (fold + notify). cheap_compact decides on the open request
+    # queues it reports as inherited (never mooted: user ruling 2026-09-16).
+    "cheap_compact": Spec(sections=("notices",),
+                          share_sections=("asks", "credit_requests", "scope_requests"),
+                          logs=("events", "notice_log"),
+                          notes="nodes/share_nodes = _split_rows(org, actor, nid)"),
+    "reseed": Spec(sections=("notices",), logs=("events", "notice_log"),
+                   notes="nodes/share_nodes = _split_rows(org, actor, nid)"),
     "swap_seats": Spec(sections=("audiences", "notices"),
                        logs=("events", "notice_log"),
                        notes="nodes/share_nodes = _swap_rows(org, actor, a, b)"),
@@ -662,3 +674,37 @@ def insert_parent_body(org, held_nodes, held_share, actor: str, nid: str,
 def insert_parent(slug: str, actor: str, nid: str, target: str) -> dict[str, Any]:
     return _run("move", slug, lambda o: _insert_rows(o, actor, nid, target),
                 lambda org, hn, hs: insert_parent_body(org, hn, hs, actor, nid, target))
+
+
+# ---------------------------------------------------------------- lineage splits
+
+
+def _split_rows(org, actor: str, nid: str) -> tuple[set[str], set[str]]:
+    """(FOR UPDATE, FOR SHARE) node rows of `cheap_compact` / `reseed`."""
+    n = org.nodes.get(nid)
+    if n is None:
+        return {nid}, set()
+    upd = {nid, f"{nid}@{n.get('generation', 0)}"}
+    share = set(_anc(org, nid))
+    if actor in org.nodes:
+        share.add(actor)
+    succ = n.get("successor")
+    if succ and succ in org.nodes:
+        share.add(succ)
+    return upd, share - upd
+
+
+def _split_op(op: str):
+    def body(org, held_nodes, held_share, actor: str, nid: str, *args) -> dict[str, Any]:
+        _need(org, lambda o: _split_rows(o, actor, nid), held_nodes, held_share)
+        return getattr(org, op)(actor, nid, *args)
+
+    def run(slug: str, actor: str, nid: str, *args) -> dict[str, Any]:
+        return _run(op, slug, lambda o: _split_rows(o, actor, nid),
+                    lambda org, hn, hs: body(org, hn, hs, actor, nid, *args))
+    body.__name__, run.__name__ = f"{op}_body", op
+    return body, run
+
+
+cheap_compact_body, cheap_compact = _split_op("cheap_compact")
+reseed_body, reseed = _split_op("reseed")          # reseed(slug, actor, nid, new_session_id)
