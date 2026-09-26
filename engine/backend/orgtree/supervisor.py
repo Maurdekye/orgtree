@@ -31525,16 +31525,56 @@ def _supersede_steer_attempts(org: Org, nid: str, new_did: str, toks: Iterable[s
             atts[k]["resolved"] = "superseded"
 
 
+# THE IDLE FAST PATH (v3 scale gate). The claude hook fetches after EVERY tool
+# call, and almost always finds nothing; each fetch still read the whole org
+# and opened a halt transaction just to learn that (130 / 267 ms per fetch at
+# 1000 / 2000 agents). Two facts decide "nothing to do":
+#   1. no RAM carrier: `st["steer"]` is the only source `_claim_steer_tx`
+#      offers from, so an empty list IS the "no pending mail" flag (read
+#      directly, never mirrored, so it cannot drift);
+#   2. no OPEN attempt in the durable `steer_attempts`: tracked here as a
+#      generation, `steer_att_gen`, and the generation a scan last PROVED had
+#      none open, `steer_att_clear`. Absent (a fresh process, a new seat) means
+#      unproven, so the first scan always does the full read.
+# Ordering, so an attempt can never be skipped: the one writer of an open
+# attempt (`_claim_steer_tx`) bumps the generation AFTER its halt gate's
+# transaction has returned (committed or not); a scan reads the generation
+# BEFORE its read and records "clear" only if the generation has not moved
+# since. A read that could not see a commit therefore always races a bump
+# that voids its verdict.
+
+def _steer_attempts_clear(st: dict[str, Any]) -> bool:
+    """Proven no open attempt at the current generation. Under state lock."""
+    return "steer_att_clear" in st and st["steer_att_clear"] == st.get("steer_att_gen", 0)
+
+
+def _steer_attempt_written(st: dict[str, Any]) -> None:
+    """An attempt write has returned: any earlier "clear" verdict is void."""
+    with _state_lock:
+        st["steer_att_gen"] = int(st.get("steer_att_gen", 0)) + 1
+
+
 def claim_steer(slug: str, nid: str, tool_use_id: str,
                 transcript_path: str = "") -> tuple[str | None, list[Any]]:
     """See `_claim_steer_tx`. PG-3e-A: the halt gate's transaction commits
     AFTER the body returns, so contract step 3 (a claim that is not durable
     releases its RAM claims and returns nothing) is enforced HERE, around
-    the gate, where a failed commit surfaces."""
+    the gate, where a failed commit surfaces.
+
+    Idle fast path: no RAM carrier and no open attempt means nothing to offer
+    and nothing to record, so no read and no transaction at all."""
+    st = state(slug, nid)
+    with _state_lock:
+        idle = not st.get("steer") and _steer_attempts_clear(st)
+    if idle:
+        return None, []
     scan_steer_records(slug, nid)           # positive-only: a record may have landed
     held: dict[str, Any] = {}
+    ok = False
     try:
-        return _claim_steer_tx(slug, nid, tool_use_id, transcript_path, held)
+        result = _claim_steer_tx(slug, nid, tool_use_id, transcript_path, held)
+        ok = True
+        return result
     except Exception:                                        # noqa: BLE001
         did = held.get("did")
         with _state_lock:
@@ -31542,6 +31582,11 @@ def claim_steer(slug: str, nid: str, tool_use_id: str,
                 if c.get("claim", {}).get("delivery_id") == did:
                     c["claim"] = None
         return None, []
+    finally:
+        # after the gate's transaction has returned: a claim that chose no
+        # carrier wrote no attempt; one that chose (or raised) may have
+        if held.get("chosen") or not ok:
+            _steer_attempt_written(st)
 
 
 @halt.delivery(lambda: (None, []),
@@ -31892,6 +31937,14 @@ def scan_steer_records(slug: str, nid: str) -> dict[str, int]:
     at reconcile. Best-effort and cheap: reads from the claim-time offset."""
     st = state(slug, nid)
     out: dict[str, int] = {}
+    # idle fast path (see `_steer_attempts_clear`): proven no open attempt
+    # and none written since -> nothing to read. The generation is taken
+    # BEFORE the read below, so a verdict recorded from that read is void if
+    # an attempt was written meanwhile.
+    with _state_lock:
+        if _steer_attempts_clear(st):
+            return out
+        gen = st.get("steer_att_gen", 0)
     # PG-3e-A: the halt gate guards only the WRITE (`_scan_steer_commit`),
     # so the transcript read below holds no row lock. This lock-free
     # pre-gate keeps a halted agent's scan a no-op, as the gate around the
@@ -31910,6 +31963,9 @@ def scan_steer_records(slug: str, nid: str) -> dict[str, int]:
         atts = (org.d.get("steer_attempts") or {}).get(nid) or {}
         pending = {k: a for k, a in atts.items() if _attempt_open(a)}
         if not pending:
+            with _state_lock:               # this read saw no open attempt
+                if st.get("steer_att_gen", 0) == gen:
+                    st["steer_att_clear"] = gen
             return out
         # the file is read OUTSIDE DOC_LOCK, from a per-attempt cursor kept in
         # RAM (a restart rereads from the claim-time offset once)
