@@ -10076,12 +10076,14 @@ def _fold_back_locked(org: Org, nid: str, *,
             frozenset(b.get("tok") for b in left))
 
 
-#: For a caller that ALREADY holds `DOC_LOCK` and hands in its own document.
-#: `store.DOC_LOCK` is an RLock in some builds and a plain Lock in others, and
-#: re-entering it must not be what this depends on.
-@contextlib.contextmanager
-def _already_locked() -> Iterator[None]:
-    yield
+class _ManualAnswer(Exception):
+    """Carries a manual-inbox answer (a refusal, a replay) OUT of the row
+    transaction it was decided in, so the transaction rolls back and nothing
+    it touched is saved — the DOC_LOCK path's early `return` before any save."""
+
+    def __init__(self, answer: dict[str, Any]) -> None:
+        super().__init__(answer.get("error") or "answered")
+        self.answer = answer
 
 
 def inspect_mail_ownership(slug: str, nid: str):
@@ -10109,30 +10111,42 @@ def _reclaim_blocked(org: Org, nid: str) -> bool:
         or _native_context_hold(org, nid))
 
 
-def reclaim_orphans(slug: str, nid: str, *, org: Org | None = None,
+def reclaim_orphans(slug: str, nid: str, *,
                     pump_toks: Any = (), now: float | None = None,
                     only_toks: Iterable[str] | None = None,
                     mutate: Callable[[Org], None] | None = None,
                     share_sections: Iterable[str] = (),
+                    before: Callable[[Org], Iterable[str] | None] | None = None,
+                    extra_rows: dict[str, list[Any]] | None = None,
                     ) -> dict[str, Any]:
-    """Fold eligible batches and related recovery state in one document save.
+    """Fold eligible batches and related recovery state in ONE row
+    transaction (`mailtx.reclaim_rows(nid)`).
 
-    Caller-supplied documents require DOC_LOCK and must be discarded on error.
     The brief state lock covers evidence selection and the fold, never a save.
     A receipt in that same transaction resolves a response lost after commit;
     failed reads or contradictory state retain the intent and token fence.
-    `share_sections` adds org-level sections the transaction holds FOR SHARE
-    (the row path only), so a gate `_reclaim_blocked` reads on the locked Org
-    cannot change before the commit.
+    `share_sections` adds org-level sections the transaction holds FOR SHARE,
+    so a gate `_reclaim_blocked` reads on the locked Org cannot change before
+    the commit; `extra_rows` adds the rows `before`/`mutate` write beyond the
+    reclaim's own. `before(org)` runs FIRST on the locked Org — before the
+    gate — and may raise to abort (nothing is saved) or return the tokens
+    the fold is restricted to, decided on that locked Org.
+
+    fence-off S2: the caller-document branch (`org=`, a document loaded under
+    DOC_LOCK and saved here) is gone; its last caller, `manual_fetch`, uses
+    `before` instead.
     """
     st = state(slug, nid)
     out: dict[str, Any] = {"folded": frozenset(), "refused": {},
                           "eligible": frozenset(), "saved": False,
                           "outcome": "unchanged", "resolved": {}}
+    only = [only_toks]
+
     def fold(org: Org) -> dict[str, Any] | None:
         """Select, fence and fold on `org`; returns the receipt (None when
         nothing folded). Saves nothing."""
         receipt = None
+        only_toks = only[0]
         with _state_lock:
             out["resolved"] = mailruntime.resolve_reclaims(org, st, nid=nid)
             _retry_mail_publications(st)
@@ -10177,46 +10191,33 @@ def reclaim_orphans(slug: str, nid: str, *, org: Org | None = None,
         out["saved"] = True
 
     receipt: dict[str, Any] | None = None
-    if org is None:
-        # PG-3d: a row transaction on that node's row, the pending boxes, the
-        # delivery journal and notices, not DOC_LOCK
-        try:
-            rows = mailtx.merge(mailtx.reclaim_rows(nid),
-                                share_sections=list(share_sections))
-            with orgtx.org_tx(slug, **rows) as tx:
-                if _reclaim_blocked(tx.org, nid):
-                    raise mailtx.NothingToCommit
-                receipt = fold(tx.org)
-                if mutate is not None:
-                    mutate(tx.org)
-                if receipt is None and mutate is None:
-                    raise mailtx.NothingToCommit
-            out["saved"] = True
-            out["outcome"] = "committed"
-        except mailtx.NothingToCommit:
-            return out
-        except orgtx.UnlockedWrite:
+    # PG-3d: a row transaction on that node's row, the pending boxes, the
+    # delivery journal and notices, not DOC_LOCK
+    try:
+        rows = mailtx.merge(mailtx.reclaim_rows(nid), extra_rows or {},
+                            share_sections=list(share_sections))
+        with orgtx.org_tx(slug, **rows) as tx:
+            if before is not None:
+                toks = before(tx.org)
+                if toks is not None:
+                    only[0] = set(toks)
+            if _reclaim_blocked(tx.org, nid):
+                raise mailtx.NothingToCommit
+            receipt = fold(tx.org)
+            if mutate is not None:
+                mutate(tx.org)
+            if receipt is None and mutate is None:
+                raise mailtx.NothingToCommit
+        out["saved"] = True
+        out["outcome"] = "committed"
+    except mailtx.NothingToCommit:
+        return out
+    except orgtx.UnlockedWrite:
+        raise
+    except Exception:
+        if receipt is None:
             raise
-        except Exception:
-            if receipt is None:
-                raise
-            resolve_unknown(receipt, lambda: orgtx.org_read(slug))
-    else:
-        with _already_locked():
-            if _reclaim_blocked(org, nid):
-                return out
-            receipt = fold(org)
-            try:
-                if mutate is not None:
-                    mutate(org)
-                if receipt is not None or mutate is not None:
-                    store.save_org(org)
-                    out["saved"] = True
-                    out["outcome"] = "committed"
-            except Exception:
-                if receipt is None:
-                    raise
-                resolve_unknown(receipt, lambda: store.load_org(slug))
+        resolve_unknown(receipt, lambda: orgtx.org_read(slug))
     if receipt is not None and out["saved"]:
         with _state_lock:
             mailruntime.note_reclaimed(st, receipt["before"])
@@ -10328,7 +10329,7 @@ def _manual_admit(org: Org, slug: str, nid: str, generation: int, op_key: str,
                   replay: Callable[[dict[str, Any]], dict[str, Any]]
                   ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     """Receipt admission for a keyed fetch or chunk, inside the call's own
-    DOC_LOCK and before anything moves or is served: the same
+    row transaction and before anything moves or is served: the same
     `opreceipts.admit` every keyed verb uses. Returns (answer, None) when the
     call must not run — `replay(receipt row)` for a repeated key, or a
     refusal — else (None, admission context)."""
@@ -10384,107 +10385,130 @@ def manual_fetch(slug: str, nid: str, generation: int, message_ids: Any, *,
     wanted = set(ids)
     result: dict[str, Any] = {}
     op_args: dict[str, Any] = {"action": "fetch", "message_ids": message_ids}
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
+    # fence-off S2: ONE row transaction (reclaim_orphans' row branch), not
+    # DOC_LOCK. Identity, key admission, the gate and custody are decided in
+    # `_prepare` on the LOCKED Org, the fold, the drain and the receipt are
+    # written in the same transaction, and a refusal or a replay leaves it by
+    # `_ManualAnswer` so nothing is saved.
+    ctx: dict[str, Any] = {}
+    def _prepare(org: Org) -> list[str]:
         refused = _manual_identity_refusal(org, nid, generation)
         if refused is not None:
-            return refused
-        keyed = None
+            raise _ManualAnswer(refused)
         if op_key:
             answer, keyed = _manual_admit(
                 org, slug, nid, generation, op_key, op_epoch, op_args,
                 replay=lambda row: _fetch_replay(org, nid, row))
             if answer is not None:
-                return answer
+                raise _ManualAnswer(answer)
+            ctx["keyed"], ctx["op_id"] = keyed, opreceipts.new_id()
         if _reclaim_blocked(org, nid):
-            return inbox.refusal("mailbox_unavailable", "this mailbox cannot be "
-                                 "read now: the agent is halted, frozen or held")
+            raise _ManualAnswer(inbox.refusal(
+                "mailbox_unavailable", "this mailbox cannot be read now: "
+                "the agent is halted, frozen or held"))
         with _state_lock:
             live = mailruntime.live_attempt(mailruntime.runtime_facts(st))
             ident = mailruntime.manual_identity(st, live) if live else None
         node = org.nodes[nid]
         if (ident is None or ident["mailbox"] != node.get("mailbox_id")
                 or ident["generation"] != generation):
-            return inbox.refusal("custody_unproven", "a manual fetch needs this "
-                                 "agent's own running turn")
-        candidates = [b["tok"] for b in (org.d.get("delivering") or {}).get(nid) or []
-                      if isinstance(b, dict) and isinstance(b.get("tok"), str)
-                      and any(isinstance(m, dict) and m.get("id") in wanted
-                              for m in b.get("mail") or [])]
+            raise _ManualAnswer(inbox.refusal(
+                "custody_unproven", "a manual fetch needs this agent's own "
+                "running turn"))
+        ctx["live"], ctx["ident"] = live, ident
+        return [b["tok"] for b in (org.d.get("delivering") or {}).get(nid) or []
+                if isinstance(b, dict) and isinstance(b.get("tok"), str)
+                and any(isinstance(m, dict) and m.get("id") in wanted
+                        for m in b.get("mail") or [])]
 
-        def _drain(o: Org) -> None:
+    def _drain(o: Org) -> None:
+        live, ident = ctx["live"], ctx["ident"]
+        keyed, op_id = ctx.get("keyed"), ctx.get("op_id")
+        with _state_lock:
+            facts = mailruntime.runtime_facts(st)
+        if mailruntime.live_attempt(facts) != live:
+            raise RuntimeError("the fetching attempt ended mid-transaction")
+        states, _ = mailruntime.self_view(o, nid, facts, now=t_now)
+        boxed = [m for m in (o.d.get("mail") or {}).get(nid) or []
+                 if isinstance(m, dict) and isinstance(m.get("id"), str)]
+        box = {m["id"]: m for m in boxed}
+        # an id boxed twice names no single message: take neither copy
+        twice = {i for i in box if sum(m["id"] == i for m in boxed) > 1}
+        box = {i: (m if i not in twice else {**m, "body": None})
+               for i, m in box.items()}
+        moved: dict[str, dict[str, Any]] = {}
+        for b in (o.d.get("delivering") or {}).get(nid) or []:
+            if not isinstance(b, dict):
+                continue
+            manual = b.get("manual") if isinstance(b.get("manual"), dict) else {}
+            for m in b.get("mail") or []:
+                mid = m.get("id") if isinstance(m, dict) else None
+                if mid in wanted and mid not in box and mid not in moved:
+                    moved[mid] = {"message_id": mid,
+                                  "state": states.get(b.get("tok"), "unavailable"),
+                                  **({"delivery_id": manual["delivery_id"]}
+                                     if manual.get("delivery_id") else {})}
+        take, deferred, unsupported = inbox.fit_budget(
+            [i for i in ids if i in box], box)
+        result.update(delivery_id=None, fetched=[],
+                      already_moved=[moved[i] for i in ids if i in moved],
+                      deferred_ids=deferred, unsupported_ids=unsupported,
+                      not_found=[i for i in ids if i not in box and i not in moved])
+        if take:
+            mail = _take_delivery_mail(o, nid, take)
+            tok = _journal_drain(o, nid, mail, None, via="turn",
+                                 mode=mailruntime.CUSTODY_MANUAL_FETCH)
+            row = next(b for b in o.d["delivering"][nid] if b.get("tok") == tok)
+            did = "mf-" + os.urandom(8).hex()
+            row["manual"] = inbox.manual_record(
+                ident, engine=mailruntime.ENGINE_INSTANCE, delivery_id=did, mail=mail,
+                seat=o.nodes[nid].get("seat_id"))
+            _manual_attempts(o, nid)[did] = inbox.attempt_record(
+                row["manual"], tok=tok, at=now_iso(), op_key=op_key or None,
+                op_id=op_id)
+            _trim_manual_attempts(o, nid)
             with _state_lock:
-                facts = mailruntime.runtime_facts(st)
-            if mailruntime.live_attempt(facts) != live:
-                raise RuntimeError("the fetching attempt ended mid-transaction")
-            states, _ = mailruntime.self_view(o, nid, facts, now=t_now)
-            boxed = [m for m in (o.d.get("mail") or {}).get(nid) or []
-                     if isinstance(m, dict) and isinstance(m.get("id"), str)]
-            box = {m["id"]: m for m in boxed}
-            # an id boxed twice names no single message: take neither copy
-            twice = {i for i in box if sum(m["id"] == i for m in boxed) > 1}
-            box = {i: (m if i not in twice else {**m, "body": None})
-                   for i, m in box.items()}
-            moved: dict[str, dict[str, Any]] = {}
-            for b in (o.d.get("delivering") or {}).get(nid) or []:
-                if not isinstance(b, dict):
-                    continue
-                manual = b.get("manual") if isinstance(b.get("manual"), dict) else {}
-                for m in b.get("mail") or []:
-                    mid = m.get("id") if isinstance(m, dict) else None
-                    if mid in wanted and mid not in box and mid not in moved:
-                        moved[mid] = {"message_id": mid,
-                                      "state": states.get(b.get("tok"), "unavailable"),
-                                      **({"delivery_id": manual["delivery_id"]}
-                                         if manual.get("delivery_id") else {})}
-            take, deferred, unsupported = inbox.fit_budget(
-                [i for i in ids if i in box], box)
-            result.update(delivery_id=None, fetched=[],
-                          already_moved=[moved[i] for i in ids if i in moved],
-                          deferred_ids=deferred, unsupported_ids=unsupported,
-                          not_found=[i for i in ids if i not in box and i not in moved])
-            if take:
-                mail = _take_delivery_mail(o, nid, take)
-                tok = _journal_drain(o, nid, mail, None, via="turn",
-                                     mode=mailruntime.CUSTODY_MANUAL_FETCH)
-                row = next(b for b in o.d["delivering"][nid] if b.get("tok") == tok)
-                did = "mf-" + os.urandom(8).hex()
-                row["manual"] = inbox.manual_record(
-                    ident, engine=mailruntime.ENGINE_INSTANCE, delivery_id=did, mail=mail,
-                    seat=o.nodes[nid].get("seat_id"))
-                _manual_attempts(o, nid)[did] = inbox.attempt_record(
-                    row["manual"], tok=tok, at=now_iso(), op_key=op_key or None,
-                    op_id=op_id)
-                _trim_manual_attempts(o, nid)
-                with _state_lock:
-                    mailruntime.hold_manual(st, ident, [tok])
-                result.update(delivery_id=did, fetched=[
-                    inbox.fetched_item(m, row["manual"]["plan"][m["id"]], did) for m in mail])
-            result.update(inbox.fetch_counts(result))
-            if keyed is not None:
-                # the LAST write before the one save: the receipt exists iff
-                # the drain it describes committed
-                opreceipts.append(cast("dict[str, Any]", o.d), opreceipts.row(
-                    op_id=cast("str", op_id), node=nid, generation=generation,
-                    key=op_key, mint_ms=keyed["mint_ms"], tool=inbox.TOOL,
-                    args=op_args, cls=opreceipts.TX, outcome="applied",
-                    at=now_iso(), result={"ok": True, **result, **inbox.disclosure()}))
+                mailruntime.hold_manual(st, ident, [tok])
+            result.update(delivery_id=did, fetched=[
+                inbox.fetched_item(m, row["manual"]["plan"][m["id"]], did) for m in mail])
+        result.update(inbox.fetch_counts(result))
+        if keyed is not None:
+            # the LAST write before the one save: the receipt exists iff
+            # the drain it describes committed
+            opreceipts.append(cast("dict[str, Any]", o.d), opreceipts.row(
+                op_id=cast("str", op_id), node=nid, generation=generation,
+                key=op_key, mint_ms=keyed["mint_ms"], tool=inbox.TOOL,
+                args=op_args, cls=opreceipts.TX, outcome="applied",
+                at=now_iso(), result={"ok": True, **result, **inbox.disclosure()}))
+            ctx["seq"] = opreceipts.seq(cast("dict[str, Any]", o.d))
 
-        op_id = opreceipts.new_id() if keyed is not None else None
-        try:
-            out = reclaim_orphans(slug, nid, org=org, now=t_now,
-                                  only_toks=candidates, mutate=_drain)
-        except Exception as exc:                             # noqa: BLE001
-            return inbox.refusal(
-                "fetch_outcome_unknown", "the fetch could not be saved; if it was, "
-                "list shows it as fetched_unconfirmed and it returns to your "
-                f"mailbox when this turn ends ({type(exc).__name__})",
-                **inbox.disclosure())
-        if keyed is not None and out["saved"]:
-            # still under DOC_LOCK and only after the save: the rewind check
-            # must see the receipt this process committed (opreceipts.witness)
-            opreceipts.witness(store.DATA_ROOT, slug,
-                               opreceipts.seq(cast("dict[str, Any]", org.d)))
+    # the manual attempt log it writes; the receipt log and its META row
+    # (seq, the rewind check's counter) only when a key rides the call;
+    # the gate sections FOR SHARE, as the drain's reclaim holds them
+    extra: dict[str, list[Any]] = {"sections": ["manual_attempts"]}
+    if op_key:
+        extra = mailtx.merge(extra, sections=[opreceipts.META],
+                             logs=[opreceipts.SECTION])
+    try:
+        out = reclaim_orphans(slug, nid, now=t_now, mutate=_drain,
+                              before=_prepare, extra_rows=extra,
+                              share_sections=maildrain.GATE_SECTIONS)
+    except _ManualAnswer as a:
+        return a.answer
+    except Exception as exc:                             # noqa: BLE001
+        return inbox.refusal(
+            "fetch_outcome_unknown", "the fetch could not be saved; if it was, "
+            "list shows it as fetched_unconfirmed and it returns to your "
+            f"mailbox when this turn ends ({type(exc).__name__})",
+            **inbox.disclosure())
+    if ctx.get("keyed") is not None and out["saved"]:
+        # AFTER the commit, as every door does (pgdoor's on_commit, plan
+        # decision 27 F2; lead C5): witness only RAISES this process's
+        # seen seq (a max), so running it after the commit can never call
+        # this document a rewind; a DOC_LOCK no longer orders it before
+        # another keyed call's custody read, which reads the committed
+        # seq itself and advances the same max.
+        opreceipts.witness(store.DATA_ROOT, slug, ctx["seq"])
     if not out["saved"]:
         return inbox.refusal("mailbox_unavailable", "this mailbox cannot be read now")
     return {"ok": True, **result, "reclaimed_batches": len(out["folded"]),
@@ -10585,65 +10609,100 @@ def manual_fetch_chunk(slug: str, nid: str, generation: int, delivery_id: Any,
     digests, never its bytes. A repeated key replays the same bytes
     (`_chunk_replay`). If the save's outcome is uncertain nothing is served
     (decision42 D2) and a lookup settles the key. Confirms nothing: binding
-    each call to trusted provider evidence is P08's."""
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
+    each call to trusted provider evidence is P08's.
+
+    fence-off S2: no DOC_LOCK. Unkeyed, a lock-free coherent read
+    (`org_read`). Keyed, ONE row transaction: the node row and its delivery
+    journal FOR SHARE (identity and the served bytes are decided on them),
+    `manual_attempts`, the receipt log and its META row; an answer decided
+    before anything applied leaves by `_ManualAnswer` and saves nothing."""
+    if not op_key:
+        org = orgtx.org_read(slug)
         refused = _manual_identity_refusal(org, nid, generation)
         if refused is not None:
             return refused
         if not isinstance(delivery_id, str) or not isinstance(message_id, str):
             return inbox.refusal("bad_arguments", "delivery_id and message_id are required")
-        if not op_key:
-            return _chunk_answer(org, nid, generation, delivery_id, message_id, chunk_index)
-        if isinstance(chunk_index, bool) or not isinstance(chunk_index, int) or chunk_index < 0:
-            return inbox.refusal("chunk_out_of_range", "no such chunk in this delivery")
-        args: dict[str, Any] = {"action": "chunk", "delivery_id": delivery_id,
-                                "message_id": message_id, "chunk_index": chunk_index}
-        answer, keyed = _manual_admit(
-            org, slug, nid, generation, op_key, op_epoch, args,
-            replay=lambda row: _chunk_replay(org, nid, generation, row))
-        if answer is not None:
-            return answer
-        answer = _chunk_answer(org, nid, generation, delivery_id, message_id, chunk_index)
-        if not answer.get("ok"):
-            return answer              # refused before anything applied: no receipt
-        op_id = opreceipts.new_id()
-        # P08b: the answer names its own receipt, exactly as a replay of it
-        # does — the one-time nonce a runtime echo must repeat to be evidence
-        # (decision44). The receipt keeps scalars only and never this field.
-        answer = {**answer, "op_id": op_id}
-        if answer.get("content") is not None:
-            atts = _manual_attempts(org, nid)
-            att = atts.get(delivery_id)
-            if not isinstance(att, dict):
-                # a delivery journaled before P06a has no attempt: build it
-                # from the row that is still there, so the call has a home
-                row = next(b for b in org.d["delivering"][nid]
-                           if isinstance(b, dict) and isinstance(b.get("manual"), dict)
-                           and b["manual"].get("delivery_id") == delivery_id)
-                att = atts[delivery_id] = inbox.attempt_record(
-                    row["manual"], tok=row["tok"], at=now_iso(), op_key=None, op_id=None)
-            call = inbox.chunk_call_record(answer, op_key=op_key, op_id=op_id, at=now_iso())
-            if not _record_chunk_call(att, call):
-                return inbox.refusal(
-                    "chunk_call_limit", "this delivery has recorded as many chunk "
-                    "reads as it may hold; nothing was served. Repeat an earlier "
-                    "key to read a chunk again", **inbox.disclosure())
-        opreceipts.append(cast("dict[str, Any]", org.d), opreceipts.row(
-            op_id=op_id, node=nid, generation=generation, key=op_key,
-            mint_ms=cast("dict[str, int]", keyed)["mint_ms"], tool=inbox.TOOL,
-            args=args, cls=opreceipts.TX, outcome="applied", at=now_iso(),
-            result=answer))
-        try:
-            store.save_org(org)
-        except Exception as exc:                             # noqa: BLE001
-            return inbox.refusal(
-                "chunk_outcome_unknown", "this chunk read could not be saved, so "
-                "nothing is served; repeat it with the same key, which replays "
-                f"it if it was recorded ({type(exc).__name__})", **inbox.disclosure())
-        opreceipts.witness(store.DATA_ROOT, slug,
-                           opreceipts.seq(cast("dict[str, Any]", org.d)))
-        return answer
+        return _chunk_answer(org, nid, generation, delivery_id, message_id, chunk_index)
+    done: dict[str, Any] = {}
+    try:
+        with orgtx.org_tx(slug, share_nodes=[nid],
+                          share_sections=[("delivering", nid), ("mail", nid)],
+                          sections=["manual_attempts", opreceipts.META],
+                          logs=[opreceipts.SECTION]) as tx:
+            done["answer"] = _chunk_keyed(tx.org, slug, nid, generation, delivery_id,
+                                          message_id, chunk_index, op_key, op_epoch)
+            done["seq"] = opreceipts.seq(cast("dict[str, Any]", tx.org.d))
+    except _ManualAnswer as a:
+        return a.answer
+    except orgtx.UnlockedWrite:
+        raise
+    except Exception as exc:                                 # noqa: BLE001
+        if "answer" not in done:
+            raise                  # the body failed: a bug, not an outcome
+        return inbox.refusal(
+            "chunk_outcome_unknown", "this chunk read could not be saved, so "
+            "nothing is served; repeat it with the same key, which replays "
+            f"it if it was recorded ({type(exc).__name__})", **inbox.disclosure())
+    # after the commit, as every door does (see manual_fetch; lead C5)
+    opreceipts.witness(store.DATA_ROOT, slug, done["seq"])
+    return done["answer"]
+
+
+def _chunk_keyed(org: Org, slug: str, nid: str, generation: int, delivery_id: Any,
+                 message_id: Any, chunk_index: Any, op_key: str, op_epoch: str
+                 ) -> dict[str, Any]:
+    """The keyed chunk read on the LOCKED Org: admission, the answer, the
+    attempt's call record and the receipt. Every refusal before anything
+    applied raises `_ManualAnswer`, so the transaction saves nothing."""
+    refused = _manual_identity_refusal(org, nid, generation)
+    if refused is not None:
+        raise _ManualAnswer(refused)
+    if not isinstance(delivery_id, str) or not isinstance(message_id, str):
+        raise _ManualAnswer(inbox.refusal(
+            "bad_arguments", "delivery_id and message_id are required"))
+    if isinstance(chunk_index, bool) or not isinstance(chunk_index, int) or chunk_index < 0:
+        raise _ManualAnswer(inbox.refusal(
+            "chunk_out_of_range", "no such chunk in this delivery"))
+    args: dict[str, Any] = {"action": "chunk", "delivery_id": delivery_id,
+                            "message_id": message_id, "chunk_index": chunk_index}
+    answer, keyed = _manual_admit(
+        org, slug, nid, generation, op_key, op_epoch, args,
+        replay=lambda row: _chunk_replay(org, nid, generation, row))
+    if answer is not None:
+        raise _ManualAnswer(answer)
+    answer = _chunk_answer(org, nid, generation, delivery_id, message_id, chunk_index)
+    if not answer.get("ok"):
+        # refused before anything applied: no receipt
+        raise _ManualAnswer(answer)
+    op_id = opreceipts.new_id()
+    # P08b: the answer names its own receipt, exactly as a replay of it
+    # does — the one-time nonce a runtime echo must repeat to be evidence
+    # (decision44). The receipt keeps scalars only and never this field.
+    answer = {**answer, "op_id": op_id}
+    if answer.get("content") is not None:
+        atts = _manual_attempts(org, nid)
+        att = atts.get(delivery_id)
+        if not isinstance(att, dict):
+            # a delivery journaled before P06a has no attempt: build it
+            # from the row that is still there, so the call has a home
+            row = next(b for b in org.d["delivering"][nid]
+                       if isinstance(b, dict) and isinstance(b.get("manual"), dict)
+                       and b["manual"].get("delivery_id") == delivery_id)
+            att = atts[delivery_id] = inbox.attempt_record(
+                row["manual"], tok=row["tok"], at=now_iso(), op_key=None, op_id=None)
+        call = inbox.chunk_call_record(answer, op_key=op_key, op_id=op_id, at=now_iso())
+        if not _record_chunk_call(att, call):
+            raise _ManualAnswer(inbox.refusal(
+                "chunk_call_limit", "this delivery has recorded as many chunk "
+                "reads as it may hold; nothing was served. Repeat an earlier "
+                "key to read a chunk again", **inbox.disclosure()))
+    opreceipts.append(cast("dict[str, Any]", org.d), opreceipts.row(
+        op_id=op_id, node=nid, generation=generation, key=op_key,
+        mint_ms=cast("dict[str, int]", keyed)["mint_ms"], tool=inbox.TOOL,
+        args=args, cls=opreceipts.TX, outcome="applied", at=now_iso(),
+        result=answer))
+    return answer
 
 
 # ------------------------------ Codex original keys (P08a; door still CLOSED)
