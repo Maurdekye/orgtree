@@ -9312,28 +9312,77 @@ class BatchResolve(Body):
 
 
 @app.post("/api/orgs/{slug}/nodes/{nid}/batch")
+def _batch_rows(org: Org, nid: str) -> pgdoor.TxSpec:
+    """The rows `Org.resolve_batch` + the composed answer mail write for
+    `nid`'s open batch, derived from `org`: the three request tables (asks
+    also rewrites work_items — the docket reconcile), the answer mail to
+    `nid`; for a pending CREDIT request the operator decision's rows
+    (`rcdoor.decide_rows`: the approval's chain and funding settings); for a
+    pending SCOPE request `set_scope(USER, nid, <capabilities>)`'s plan
+    (`lifecycle_tx._scope_plan`, the ceiling not raised — resolve_batch
+    never raises it). Derived once from a lock-free read to open the
+    transaction and AGAIN from the locked Org inside it (`rcdoor.hold`), so
+    a batch that changed in between widens and re-runs, never guesses."""
+    from . import lifecycle_tx
+    send = mailtx.send_rows(nid)
+    parts = [pgdoor.TxSpec(nodes=tuple(send.get("nodes", ())),
+                           sections=(*send.get("sections", ()), "asks", "work_items",
+                                     "credit_requests", "scope_requests"),
+                           logs=(*send.get("logs", ()), "events", "notice_log"))]
+    cr = next((r for r in org.d.get("credit_requests", [])
+               if r["node"] == nid and r["status"] == "pending"), None)
+    if cr is not None:
+        parts.append(rcdoor.decide_rows(org, cr["id"]))
+    sr = next((r for r in org.d.get("scope_requests", [])
+               if r["node"] == nid and r["status"] == "pending"), None)
+    if sr is not None and nid in org.nodes:
+        # any capability field makes the plan the capability-grant one; the
+        # superset is taken whatever the per-item decisions turn out to be
+        upd, share, secs, ssecs, logs = lifecycle_tx._scope_plan(
+            org, USER, nid, {"add_dirs": []}, False)
+        parts.append(pgdoor.TxSpec(nodes=tuple(sorted(upd)),
+                                   share_nodes=tuple(sorted(share)),
+                                   sections=secs, share_sections=ssecs, logs=logs))
+    return rcdoor.union(*parts)
+
+
 def batch_resolve(slug: str, nid: str, body: BatchResolve) -> dict[str, Any]:
     """FR-14: resolve a node's whole request batch — question answers, the
     credit decision and per-item scope grants — in one submit, one lock, one
-    composed answer mail. The desk card and the inbox card both land here."""
-    with _entry_ledger_422(store.write_org(slug)) as org:
-        try:
-            r = org.resolve_batch(nid, body.revs, answers=body.answers,
-                                  credits=body.credits, scope=body.scope)
-            _kiosk_cap_check(org)
-            posted = org.post_mail(USER, r["node"], "", ev=r["ev"])
-            drive = not posted.get("deferred")
-            # message-visibility invariant: see ask_answer — the composed
-            # batch answer is ONE mail; whichever resolved record node_ask
-            # lingers must carry its id
-            comps = r.get("resolved") or {}
-            org.bind_answer_mail(str(posted.get("id") or ""),
-                                 ask=comps.get("ask"),
-                                 credits=comps.get("credits"),
-                                 scope=comps.get("scope"))
-        except LedgerError as e:
-            raise HTTPException(422, str(e))
-        store.save_org(org)
+    composed answer mail. The desk card and the inbox card both land here.
+
+    fence-off S2: ONE door transaction (never split: the answers, the credit
+    decision, the scope grant and the composed mail commit together or not
+    at all) on `_batch_rows`, not store.write_org. The rows are re-derived
+    from the locked batch; a batch that grew since the lock-free read widens
+    and re-runs (pgdoor, up to MAX_WIDEN), and only a lock set that keeps
+    growing past that bound is refused, with 409 (lead C3)."""
+    st: dict[str, Any] = {}
+
+    def _resolve(h: Any) -> None:
+        org = h.org
+        rcdoor.hold(slug, _batch_rows(org, nid))
+        r = org.resolve_batch(nid, body.revs, answers=body.answers,
+                              credits=body.credits, scope=body.scope)
+        _kiosk_cap_check(org)
+        posted = org.post_mail(USER, r["node"], "", ev=r["ev"])
+        # message-visibility invariant: see ask_answer — the composed
+        # batch answer is ONE mail; whichever resolved record node_ask
+        # lingers must carry its id
+        comps = r.get("resolved") or {}
+        org.bind_answer_mail(str(posted.get("id") or ""),
+                             ask=comps.get("ask"),
+                             credits=comps.get("credits"),
+                             scope=comps.get("scope"))
+        st["r"], st["drive"] = r, not posted.get("deferred")
+
+    try:
+        rcdoor.run_op(slug, _batch_rows(orgtx.org_read(slug), nid), _resolve)
+    except LedgerError as e:
+        if str(e).startswith("pgdoor: the lock set kept growing"):
+            raise HTTPException(409, str(e))
+        raise HTTPException(422, str(e))
+    r, drive = st["r"], st["drive"]
     if drive:
         mail_notify(slug, USER, r["node"])
         supervisor.send_message(
