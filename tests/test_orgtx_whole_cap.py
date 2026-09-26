@@ -12,7 +12,9 @@ On the SeamBackend over a throwaway SQLite root, fence off:
   * a slot wait longer than the lock timeout is a LockTimeout that leaves
     nothing behind: the next org_tx on this thread runs normally;
   * a nested org_tx on ANOTHER org from inside a body at cap 1 does not wait
-    for a second slot.
+    for a second slot;
+  * an `orgtx.uncapped` function runs while the cap is full, and the
+    operator's controls (halt, unhalt, killswitch latch/release) are uncapped.
 
 Run:  python tools/run-python-verification.py tests/test_orgtx_whole_cap.py
 """
@@ -154,6 +156,31 @@ class WholeCap(unittest.TestCase):
                 inner.d['nodes']['n0']['name'] = 'inner'
         self.assertEqual(store.load_org(other).d['nodes']['n0']['name'], 'inner')
         self.assertEqual(store.load_org(self.slug).d['nodes']['n0']['name'], 'outer')
+
+    def test_an_uncapped_control_runs_while_the_cap_is_full(self) -> None:
+        orgtx.MAX_CONCURRENT = 1
+        inside, release, errors, ts = self._park(1)
+
+        @orgtx.uncapped
+        def control() -> None:
+            with orgtx.org_tx(self.slug, nodes=['n5'], lock_timeout=1) as tx:
+                tx.d['nodes']['n5']['name'] = 'control'
+        try:
+            self._settle(inside, 1)
+            control()                           # a LockTimeout here = queued
+        finally:
+            release.set()
+            for t in ts:
+                t.join(30)
+        self.assertEqual(errors, [])
+        self.assertEqual(store.load_org(self.slug).d['nodes']['n5']['name'], 'control')
+
+    def test_the_operator_controls_are_uncapped(self) -> None:
+        from orgtree import halt
+        marker = orgtx.uncapped(lambda: None).__code__
+        for fn in (halt.halt, halt.unhalt, halt.killswitch_latch, halt.killswitch_release):
+            with self.subTest(fn.__name__):
+                self.assertIs(fn.__code__, marker, f'{fn.__name__} queues behind the cap')
 
 
 if __name__ == '__main__':

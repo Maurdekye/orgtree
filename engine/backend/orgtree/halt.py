@@ -1131,6 +1131,7 @@ def blocking(slug: str, nid: str, st=None) -> list[str]:
     return list(dict.fromkeys(reasons))
 
 
+@orgtx.uncapped
 def halt(slug: str, nid: str, actor: str = USER, *, timeout=None) -> dict[str, Any]:
     key = (slug, nid)
     with _reg:
@@ -1452,6 +1453,7 @@ def recover(org) -> bool:
     return changed
 
 
+@orgtx.uncapped
 def unhalt(slug: str, nid: str, actor: str = USER) -> dict[str, Any]:
     from . import supervisor as sup, warmpool
 
@@ -1574,6 +1576,7 @@ def restore_carriers(org, nid: str, current) -> None:
         set_pending_carrier(st, org.d["slug"], nid, current)
 
 
+@orgtx.uncapped
 def killswitch_latch(slug: str, actor: str = USER) -> dict[str, Any]:
     """⏹ latch the persistent org-level killswitch state, then stop every
     current turn (user redesign 2026-09-13 — the button used to be
@@ -1627,6 +1630,7 @@ def killswitch_latch(slug: str, actor: str = USER) -> dict[str, Any]:
             "interrupted": sweep["interrupted"], "watchdogs_paused": paused}
 
 
+@orgtx.uncapped
 def killswitch_release(slug: str, actor: str = USER) -> dict[str, Any]:
     """Clear ONLY the org-level latch. Individual halts were never touched
     and so survive exactly as they stand; nothing is restarted, resumed or

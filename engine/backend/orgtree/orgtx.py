@@ -102,6 +102,7 @@ and `NOTIFY org_rev, '<slug>:<revision>'` in the same transaction.
 from __future__ import annotations
 
 import contextlib
+import functools
 import json
 import os
 import random
@@ -1283,11 +1284,25 @@ def _slots() -> "threading.BoundedSemaphore | None":
         return _slot_sem[1]
 
 
+def uncapped(fn: Callable[..., T]) -> Callable[..., T]:
+    """Run `fn`'s org_txs outside the memory cap. For the operator's
+    controls only (halt, unhalt, killswitch latch/release): stopping a
+    runaway agent must never queue behind the transactions it is stopping."""
+    @functools.wraps(fn)
+    def run(*a: Any, **k: Any) -> T:
+        _open.uncapped = getattr(_open, "uncapped", 0) + 1
+        try:
+            return fn(*a, **k)
+        finally:
+            _open.uncapped -= 1
+    return run
+
+
 def _slot_acquire(timeout: float) -> "threading.BoundedSemaphore | None":
     """Take this thread's whole-org slot; None when none was taken (no cap,
-    or this thread already holds one)."""
+    this thread already holds one, or it runs an `uncapped` control)."""
     depth = getattr(_open, "slot_depth", 0)
-    if depth:
+    if depth or getattr(_open, "uncapped", 0):
         _open.slot_depth = depth + 1
         return None
     sem = _slots()
