@@ -5840,7 +5840,14 @@ def node_message(slug: str, nid: str, body: Message,
     # the user reached, not about whether a copy was filed.
     if stripped.startswith("/") \
             and re.fullmatch(r"/[A-Za-z?][\w-]*", stripped.split()[0]):
-        with _entry_ledger_422(store.write_org(slug), 404) as org:
+        # fence-off S2: ONE row transaction on the rows the command's direct
+        # user contact writes — `user_deep_reach`'s notices to the superior
+        # chain and the user audience (mailtx.send_rows locks the `notices`
+        # container and `audiences`, which cover every superior's row) —
+        # not store.write_org. The node and killswitch reads that decide the
+        # refusals are inside it, as before.
+        halted_send = False
+        with _entry_ledger_422(mailtx.org_of(slug, **mailtx.send_rows(nid)), 404) as org:
             try:
                 n = org.node(nid)
             except LedgerError as e:
@@ -5864,13 +5871,14 @@ def node_message(slug: str, nid: str, body: Message,
                              "the org killswitch is latched — release it "
                              "before compacting")
                 org.user_deep_reach(nid, stripped[:160], kind="command")
-                store.save_org(org)
-                return supervisor.send_message(slug, nid, stripped, command=True)
-            if n.get("frozen"):
+                # the send runs AFTER the commit (below), never inside the
+                # row transaction: it opens its own admission transaction
+                halted_send = True
+            elif n.get("frozen"):
                 raise HTTPException(
                     409, "frozen (usage limit) — a session command would be "
                          "dropped, not queued; ▶ resume the org first")
-            if n.get("remote_controlled"):
+            elif n.get("remote_controlled"):
                 # FR-01 (redteam): the remote park queues MAIL, but a command
                 # has no mailbox behind it — success here would be a lie
                 raise HTTPException(
@@ -5884,8 +5892,20 @@ def node_message(slug: str, nid: str, body: Message,
             # the validity checks and before any of the three command paths
             # below, so all of them get it from one place — the branch has
             # several returns and per-return calls would rot apart.
-            org.user_deep_reach(nid, stripped[:160], kind="command")
-            store.save_org(org)
+            if not halted_send:
+                org.user_deep_reach(nid, stripped[:160], kind="command")
+        if halted_send:
+            # A halted node retains the command (send_message's halt queue).
+            # CHANGED FAILURE BEHAVIOUR (fence-off S2, p01 d / lead C2): the
+            # deep-reach notices above are COMMITTED before this send, where
+            # the old single write_org hold discarded them when the send
+            # raised. A failed send is reported, not retried: the user sees
+            # it, and the chain was truthfully told the user spoke.
+            try:
+                return supervisor.send_message(slug, nid, stripped, command=True)
+            except Exception as e:                         # noqa: BLE001
+                return {"accepted": False, "command": True,
+                        "warnings": [f"the command was not delivered: {e}"]}
         if stripped.split()[0] == "/compact":
             # review C4: one word, one meaning. The hinted /compact used to
             # compact the CLI session IN PLACE — same desk, same word as the
