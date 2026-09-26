@@ -172,7 +172,11 @@ class LongToolTests(unittest.TestCase):
 
     def test_halt_preserves_result_without_rearming_delivery(self):
         toolwait.invoke(self.body, self.caller, self.long_staff, wait_s=.01)
-        with patch.object(halt, 'blocked', return_value='halt'):
+        # PG-3r: publication decides halt suspension from its own transaction's
+        # rows (halt._gate_blocked); the lock-free halt.blocked is still patched
+        # for the rest of the delivery path
+        with patch.object(halt, 'blocked', return_value='halt'), \
+                patch.object(halt, '_gate_blocked', return_value='halt'):
             self.finish()
         self.assertFalse(maildrain.pending(store.load_org(self.slug), 'worker'))
         self.assertEqual(self.calls, 1)
