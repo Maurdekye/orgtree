@@ -134,7 +134,90 @@ def connect(conninfo: str | None = None) -> Any:
     explicit, as store.py's are). Never, from an agent, the live cluster."""
     target = conninfo or url()
     refuse_live_cluster(target)
-    return _psycopg().connect(target, autocommit=True)
+    raw = _psycopg().connect(target, autocommit=True, cursor_factory=_tracking_cursor())
+    raw._ot_dirty = False         # see "Session state" below
+    raw._ot_path = None
+    raw._ot_own = False
+    return raw
+
+
+# ----------------------------------------------------------------- session state
+#
+# S-B (pg-per-call-cost): a pooled connection used to pay two round trips per
+# checkout, `SET search_path` on the way out and `RESET ALL` on the way back.
+# Now each connection remembers which org its search_path names (`_ot_path`)
+# and whether anything changed a session setting since the last reset
+# (`_ot_dirty`). Every statement goes through `_tracking_cursor`, so a
+# session-level SET/RESET/DISCARD or set_config() from ANY caller marks the
+# connection dirty, and `_release` then still runs RESET ALL: review B3's
+# guarantee (nothing a checkout SETs reaches the next one) holds without the
+# unconditional reset. SET LOCAL and SET TRANSACTION end with their
+# transaction and do not mark it. The search_path this module sets itself is
+# not "dirty": every checkout re-points it (`_point_at`) before any use.
+
+#: a statement that can change a session setting: SET (not LOCAL/TRANSACTION),
+#: RESET or DISCARD at the start of a statement, or set_config() anywhere
+_SESSION_SQL = re.compile(
+    r"(?:^|;)\s*(?:SET\b(?!\s+(?:LOCAL|TRANSACTION)\b)|RESET\b|DISCARD\b)|\bset_config\s*\(",
+    re.IGNORECASE)
+_TRACKING_CURSOR: Any = None
+
+
+def _note_statement(raw: Any, query: Any) -> None:
+    if getattr(raw, "_ot_own", False):
+        return
+    text = query if isinstance(query, str) else (
+        query.decode("utf-8", "replace") if isinstance(query, bytes) else None)
+    if text is None or _SESSION_SQL.search(text):   # unknown text counts as a change
+        raw._ot_dirty = True
+        raw._ot_path = None
+
+
+def _tracking_cursor() -> Any:
+    global _TRACKING_CURSOR
+    if _TRACKING_CURSOR is None:
+        psycopg = _psycopg()
+
+        class _TrackingCursor(psycopg.Cursor):   # type: ignore[misc,name-defined]
+            def execute(self, query: Any, params: Any = None, **kw: Any) -> Any:
+                _note_statement(self.connection, query)
+                try:
+                    return super().execute(query, params, **kw)
+                except BaseException:
+                    self.connection._ot_path = None   # state unknown after a failure
+                    raise
+
+            def executemany(self, query: Any, params_seq: Any, **kw: Any) -> Any:
+                _note_statement(self.connection, query)
+                try:
+                    return super().executemany(query, params_seq, **kw)
+                except BaseException:
+                    self.connection._ot_path = None
+                    raise
+
+        _TRACKING_CURSOR = _TrackingCursor
+    return _TRACKING_CURSOR
+
+
+def _own(raw: Any, sql: str) -> None:
+    """Run one of this module's own session statements without marking it."""
+    raw._ot_own = True
+    try:
+        raw.execute(sql)
+    finally:
+        raw._ot_own = False
+
+
+def _point_at(raw: Any, org_id: int) -> None:
+    """Make `raw`'s search_path name org_id's schema, skipping the round trip
+    when it already does. The org is remembered only when the SET ran outside
+    a transaction: inside one, a ROLLBACK would undo it."""
+    if getattr(raw, "_ot_path", None) == org_id:
+        return
+    raw._ot_path = None
+    _own(raw, f"SET search_path TO org_{int(org_id)}, public")
+    idle = raw.info.transaction_status == _psycopg().pq.TransactionStatus.IDLE
+    raw._ot_path = org_id if idle else None
 
 
 # ----------------------------------------------------------------- migrations
@@ -332,7 +415,7 @@ class PgConn:
         """Point the shared connection's search_path at this org's schema."""
         h = self.path_holder
         if h is not None and h[0] != self.org_id:
-            self.raw.execute(f"SET search_path TO org_{int(self.org_id)}, public")
+            _point_at(self.raw, self.org_id)
             h[0] = self.org_id
 
     @property
@@ -374,8 +457,26 @@ class PgConn:
         return _Cursor(rows if not st.returning else [], n, last)
 
     def executemany(self, sql: str, seq: Iterable[Sequence[Any]]) -> _Cursor:
-        for params in seq:
-            self.execute(sql, params)
+        """One batched psycopg executemany (S-B), not a round trip per row."""
+        rows = [tuple(p) for p in seq]
+        st = translate(sql)
+        if st.kind != "sql":
+            for params in rows:
+                self.execute(sql, params)
+            return _EMPTY
+        if not rows:
+            return _EMPTY
+        try:
+            self.use()
+            with self.raw.cursor() as cur:
+                cur.executemany(st.sql, rows)
+                n = cur.rowcount if cur.rowcount is not None else -1
+        except Exception as e:
+            if isinstance(e, _psycopg().Error):
+                raise _as_sqlite_error(e) from e
+            raise
+        if n > 0 and not st.sql.lstrip().upper().startswith("SELECT"):
+            self.total_changes += n
         return _EMPTY
 
     def executescript(self, script: str) -> None:
@@ -399,8 +500,9 @@ class PgConn:
 
 # ----------------------------------------------------------------- orgs
 
-#: idle server connections shared by every org (search_path is set on each
-#: checkout). Bounded: beyond it a released connection is closed.
+#: idle server connections shared by every org (each checkout points the
+#: search_path at its org, skipping the SET when it already does — see
+#: "Session state"). Bounded: beyond it a released connection is closed.
 _IDLE_CAP = int(os.environ.get("ORGTREE_PG_POOL_IDLE", "8") or 8)
 _idle: list[tuple[str, Any]] = []
 _idle_lock = threading.Lock()
@@ -421,11 +523,15 @@ def _release(raw: Any) -> None:
     pq = _psycopg().pq
     clean = (not raw.closed
              and raw.info.transaction_status == pq.TransactionStatus.IDLE)
-    if clean:
+    if clean and getattr(raw, "_ot_dirty", True):
         try:
             # every session setting, not just search_path: nothing a checkout
-            # SET may reach the next one (review B3)
-            raw.execute("RESET ALL")
+            # SET may reach the next one (review B3). Only when something did
+            # SET one (see "Session state"); the next checkout re-points the
+            # search_path itself.
+            raw._ot_path = None
+            _own(raw, "RESET ALL")
+            raw._ot_dirty = False
         except Exception:                                   # noqa: BLE001
             clean = False
     if clean:
@@ -646,7 +752,7 @@ def open_conn(slug: str, marker: str, *, create: bool = False) -> PgConn:
                     if again:
                         raw.execute("ROLLBACK")
                 if not again:
-                    raw.execute(f"SET search_path TO org_{int(org_id)}, public")
+                    _point_at(raw, org_id)
                     conn = PgConn(raw, slug, org_id)
             except BaseException:
                 lk.release()
@@ -664,7 +770,7 @@ def open_conn(slug: str, marker: str, *, create: bool = False) -> PgConn:
             conn.create_lock = lk
             return conn
         refuse_duplicate(slug, org_id)
-        raw.execute(f"SET search_path TO org_{int(org_id)}, public")
+        _point_at(raw, org_id)
         return PgConn(raw, slug, org_id)
     except BaseException:
         _release(raw)

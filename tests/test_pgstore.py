@@ -26,11 +26,13 @@ Run:  python tools/run-python-verification.py tests/test_pgstore.py
 import os
 from pathlib import Path
 import shutil
+import sqlite3
 import sys
 import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 from urllib.parse import urlsplit, urlunsplit
 
 ADMIN = os.environ.get('ORGTREE_TEST_PG_ADMIN_URL', '').strip()
@@ -1237,6 +1239,136 @@ class HealExclusiveOnPostgres(unittest.TestCase):
         finally:
             store.arm_doc_lock_tripwire('off')
         self.assertIn('_migrations', store.load_org(self.slug).d)
+
+
+@unittest.skipUnless(ADMIN, 'ORGTREE_TEST_PG_ADMIN_URL not set: NOT RUN')
+class SessionRoundTrips(unittest.TestCase):
+    """S-B (pg-per-call-cost): a pooled checkout skips `SET search_path` when
+    the connection already names that org and `RESET ALL` when nothing SET a
+    session setting; review B3's guarantee still holds for any session SET;
+    PgConn.executemany is one batched call."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        store.claim_data_root()
+        cls.a = _fresh_org('sess-a')
+        cls.b = _fresh_org('sess-b')
+
+    def setUp(self) -> None:
+        pgstore.close_idle()
+        self.own: list[str] = []
+        real = pgstore._own
+
+        def spy(raw, sql):
+            self.own.append(sql.split()[0] + (' ' + sql.split()[1] if sql.startswith('SET') else ''))
+            return real(raw, sql)
+        p = patch.object(pgstore, '_own', spy)
+        p.start()
+        self.addCleanup(p.stop)
+        self.addCleanup(pgstore.close_idle)
+
+    def _open(self, slug: str) -> pgstore.PgConn:
+        return pgstore.open_conn(slug, store.org_path(slug))
+
+    def _org_id(self, slug: str) -> int:
+        return int(pgstore.read_marker(store.org_path(slug)))
+
+    @staticmethod
+    def _show(raw, name: str) -> str:
+        return str(raw.execute(f'SHOW {name}').fetchone()[0])
+
+    def test_same_org_again_skips_both_round_trips(self) -> None:
+        c = self._open(self.a)
+        raw = c.raw
+        c.close()
+        self.own.clear()
+        c = self._open(self.a)
+        self.assertIs(c.raw, raw, 'the idle pool handed out another connection')
+        self.assertEqual(c.execute('SELECT count(*) FROM doc').fetchone()[0] > 0, True)
+        c.close()
+        self.assertEqual(self.own, [], 'a same-org checkout still ran SET search_path or RESET ALL')
+
+    def test_another_org_repoints_the_search_path(self) -> None:
+        c = self._open(self.a)
+        raw = c.raw
+        c.close()
+        c = self._open(self.b)
+        self.assertIs(c.raw, raw)
+        self.assertEqual(self._show(raw, 'search_path'), f'org_{self._org_id(self.b)}, public')
+        c.close()
+        self.assertEqual(self.own, ['SET search_path', 'SET search_path'])
+
+    def test_b3_a_session_set_never_reaches_the_next_checkout(self) -> None:
+        for stmt, name, value in (("SET lock_timeout = '123ms'", 'lock_timeout', '123ms'),
+                                  ("set statement_timeout to 4567", 'statement_timeout', '4567ms'),
+                                  ("SELECT set_config('lock_timeout', '77ms', false)", 'lock_timeout', '77ms'),
+                                  ("SET SESSION idle_in_transaction_session_timeout = 8910",
+                                   'idle_in_transaction_session_timeout', '8910ms')):
+            with self.subTest(stmt=stmt):
+                c = self._open(self.a)
+                raw = c.raw
+                default = self._show(raw, name)
+                raw.execute(stmt)
+                self.assertEqual(self._show(raw, name), value)
+                c.close()
+                self.assertEqual(self.own[-1], 'RESET', f'{stmt!r} was not reset on release')
+                c = self._open(self.a)
+                self.assertIs(c.raw, raw)
+                self.assertEqual(self._show(raw, name), default, f'{stmt!r} leaked')
+                self.assertEqual(self._show(raw, 'search_path'), f'org_{self._org_id(self.a)}, public')
+                c.close()
+
+    def test_set_local_needs_no_reset(self) -> None:
+        c = self._open(self.a)
+        raw = c.raw
+        raw.execute('BEGIN')
+        raw.execute("SET LOCAL lock_timeout = '321ms'")
+        raw.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ')
+        raw.execute('COMMIT')
+        self.own.clear()
+        c.close()
+        self.assertEqual(self.own, [])
+        c = self._open(self.a)
+        self.assertNotEqual(self._show(c.raw, 'lock_timeout'), '321ms')
+        c.close()
+
+    def test_a_path_set_inside_a_rolled_back_transaction_is_not_trusted(self) -> None:
+        c = self._open(self.a)
+        raw = c.raw
+        raw.execute('BEGIN')
+        pgstore._point_at(raw, self._org_id(self.b))     # a multi-org switch
+        raw.execute('ROLLBACK')                          # ... undone by the server
+        self.assertEqual(self._show(raw, 'search_path'), f'org_{self._org_id(self.a)}, public')
+        c.close()
+        c = self._open(self.b)
+        self.assertIs(c.raw, raw)
+        self.assertEqual(self._show(raw, 'search_path'), f'org_{self._org_id(self.b)}, public')
+        c.close()
+
+    def test_a_failed_statement_forgets_the_path(self) -> None:
+        c = self._open(self.a)
+        raw = c.raw
+        with self.assertRaises(sqlite3.OperationalError):
+            c.execute('SELECT * FROM no_such_table')
+        self.assertIsNone(raw._ot_path)
+        c.close()
+
+    def test_executemany_is_one_batched_call(self) -> None:
+        c = self._open(self.a)
+        try:
+            before = c.total_changes
+            with patch.object(pgstore.PgConn, 'execute', side_effect=AssertionError('one execute per row')):
+                c.executemany('INSERT INTO meta(key, val) VALUES (?, ?)',
+                              [(f'sb-{i}', 'v') for i in range(3)])
+            self.assertEqual(c.total_changes - before, 3)
+            self.assertEqual(c.execute("SELECT count(*) FROM meta WHERE key LIKE 'sb-%'").fetchone()[0], 3)
+            with self.assertRaises(sqlite3.IntegrityError):
+                c.executemany('INSERT INTO meta(key, val) VALUES (?, ?)', [('sb-0', 'dup')])
+            c.executemany('INSERT INTO meta(key, val) VALUES (?, ?)', [])      # no rows, no call
+            self.assertEqual(c.total_changes - before, 3)
+        finally:
+            c.execute("DELETE FROM meta WHERE key LIKE 'sb-%'")
+            c.close()
 
 
 if __name__ == '__main__':
