@@ -122,11 +122,22 @@ def txn(slug: str, *, nodes: Iterable[str] = (), sections: Iterable[str] = (),
     error and raises, rather than silently writing unlocked rows). Work
     registered with `_after` runs only once the outermost transaction has
     COMMITTED; work registered with `_on_abort` only if it did not."""
+    # Coverage is judged on the row names org_tx itself locks: a
+    # `(split section, owner)` pair is the owner's row (`section\x1fowner`)
+    # plus its container FOR SHARE (`orgtx._section_names`). Comparing the raw
+    # pair against the enclosing transaction's encoded names would refuse
+    # every join that names a per-owner mail row.
     want = (frozenset(nodes), frozenset(sections), frozenset(share_nodes),
             frozenset(share_sections), frozenset(logs))
+    lock_rows, lock_parents = orgtx._section_names(  # pyright: ignore[reportPrivateUsage]
+        want[1], "sections")
+    share_rows, share_parents = orgtx._section_names(  # pyright: ignore[reportPrivateUsage]
+        want[3], "share_sections")
+    cover = (want[0], lock_rows, want[2],
+             (share_rows | share_parents | lock_parents) - lock_rows, want[4])
     outer = _current.get()
     if outer is not None and outer.tx.slug == slug:
-        missing = _covers(outer.tx, *want)
+        missing = _covers(outer.tx, *cover)
         if missing:
             raise orgtx.OrgTxError(
                 "halt: the enclosing transaction does not lock "
@@ -139,7 +150,7 @@ def txn(slug: str, *, nodes: Iterable[str] = (), sections: Iterable[str] = (),
         # door, an operator op): join it the same way. Its commit is not
         # ours to see, so `_after` work runs when THIS block ends and
         # `_on_abort` work when it raises — the closest this caller can get.
-        missing = _covers(foreign, *want)
+        missing = _covers(foreign, *cover)
         if missing:
             raise orgtx.OrgTxError(
                 "halt: the enclosing transaction does not lock "
