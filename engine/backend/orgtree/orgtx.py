@@ -278,7 +278,13 @@ class RowLocks:
     One owner token per transaction. A request that would complete a cycle
     in the wait-for graph raises `DeadlockDetected` in the requester (the
     victim), like PostgreSQL's detector; a wait past the timeout raises
-    `LockTimeout`. A shared holder may upgrade to exclusive."""
+    `LockTimeout`. A shared holder may upgrade to exclusive.
+
+    WRITER PREFERENCE (S8, p01): once an exclusive request is waiting on a
+    key, a NEW shared request for it (one whose owner does not already hold
+    the key) waits behind it, as PostgreSQL's lock queue does. Without it a
+    steady stream of overlapping shared takers — every org_tx takes the org
+    pseudo-row shared — starves a waiting whole=True until its timeout."""
 
     def __init__(self) -> None:
         self._cv = threading.Condition(threading.Lock())
@@ -286,6 +292,8 @@ class RowLocks:
         self._s: dict[RowKey, set[object]] = {}
         self._held: dict[object, set[RowKey]] = {}
         self._waits: dict[object, set[object]] = {}
+        #: owners waiting for an EXCLUSIVE grant, per key (writer preference)
+        self._xwait: dict[RowKey, set[object]] = {}
 
     def _blockers(self, owner: object, key: RowKey, exclusive: bool) -> set[object]:
         out: set[object] = set()
@@ -294,7 +302,17 @@ class RowLocks:
             out.add(x)
         if exclusive:
             out |= {o for o in self._s.get(key, set()) if o is not owner}
+        elif x is not owner and owner not in self._s.get(key, set()):
+            out |= {o for o in self._xwait.get(key, set()) if o is not owner}
         return out
+
+    def _unqueue(self, owner: object, key: RowKey) -> None:
+        w = self._xwait.get(key)
+        if w is not None:
+            w.discard(owner)
+            if not w:
+                del self._xwait[key]
+            self._cv.notify_all()          # shared waiters queued behind it may go
 
     def _cycle(self, start: object) -> bool:
         seen: set[int] = set()
@@ -318,6 +336,8 @@ class RowLocks:
                 if not blockers:
                     self._waits.pop(owner, None)
                     if exclusive:
+                        self._unqueue(owner, key)
+                    if exclusive:
                         self._x[key] = owner
                     elif self._x.get(key) is not owner:
                         self._s.setdefault(key, set()).add(owner)
@@ -326,11 +346,17 @@ class RowLocks:
                 self._waits[owner] = blockers
                 if self._cycle(owner):
                     self._waits.pop(owner, None)
+                    if exclusive:
+                        self._unqueue(owner, key)
                     raise DeadlockDetected(f"deadlock on {key!r}")
                 left = deadline - time.monotonic()
                 if left <= 0:
                     self._waits.pop(owner, None)
+                    if exclusive:
+                        self._unqueue(owner, key)
                     raise LockTimeout(f"lock on {key!r} not granted in {timeout}s")
+                if exclusive:
+                    self._xwait.setdefault(key, set()).add(owner)
                 self._cv.wait(left)
 
     def release_all(self, owner: object) -> None:
