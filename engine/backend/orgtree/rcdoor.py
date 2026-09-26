@@ -237,14 +237,16 @@ def watchdog_spec(snapshot: Any, body: Any, a: dict[str, Any]
 def require(held: pgdoor.TxSpec, need: pgdoor.TxSpec) -> None:
     """Call FIRST in a body, with the rows re-derived from the LOCKED
     document: if the tree moved since the snapshot and a row is missing,
-    `Widen` so the door re-runs with it. Nothing has been written yet."""
-    miss = {k: tuple(x for x in getattr(need, k) if x not in getattr(held, k)
-                     and not (k.startswith("share_")
-                              and x in getattr(held, k[6:])))
-            for k in ("nodes", "sections", "share_nodes", "share_sections",
-                      "logs")}
-    if any(miss.values()):
-        raise pgdoor.Widen(**{k: v for k, v in miss.items() if v})
+    `Widen` so the door re-runs with it. Nothing has been written yet.
+
+    Coverage is the door's own rule (`TxSpec.covers`, the one `pgdoor.join`
+    applies): a shared row is covered by either lock, a (section, owner) row
+    by its whole section, a (log, owner) by its log."""
+    miss = held.covers(need)
+    if not miss.empty():
+        raise pgdoor.Widen(nodes=miss.nodes, sections=miss.sections,
+                           share_nodes=miss.share_nodes,
+                           share_sections=miss.share_sections, logs=miss.logs)
 
 
 # ------------------------------------------------------ the door bodies
