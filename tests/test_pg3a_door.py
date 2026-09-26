@@ -37,7 +37,8 @@ from orgtree import (api, ledger, lifecycle_door, lifecycle_tx, orgtx,  # noqa: 
 
 REQUEST = SimpleNamespace(state=SimpleNamespace())
 U = ledger.USER
-TOOLS = ("orgtree_move", "orgtree_swap", "orgtree_self_subjugate")
+TOOLS = ("orgtree_move", "orgtree_swap", "orgtree_self_subjugate",
+         "orgtree_retire", "orgtree_dissolve")
 _N = [0]
 
 
@@ -131,6 +132,27 @@ class Door(unittest.TestCase):
         self.assertEqual(self.strip(mine), self.strip(legacy))
         self.assertEqual(self.view(self.slug), self.view(self.twin))
         self.assertEqual(store.load_org(self.slug).nodes["x"]["parent"], "x1")
+
+    def test_retire_matches_the_cycle_and_carries_the_archive_warnings(self):
+        # the turn interrupt runs in agent_call BEFORE the door (no lock
+        # held); its warnings must reach the result on both paths
+        with patch.object(supervisor, "interrupt_before_archive",
+                          lambda slug, org, nid: ["still settling: x1"]):
+            mine, legacy = self.both("boss", "orgtree_retire", {"node": "x"})
+        self.assertEqual(self.strip(mine), self.strip(legacy))
+        self.assertIn("still settling: x1", mine.get("warnings") or [])
+        self.assertEqual(self.view(self.slug), self.view(self.twin))
+        self.assertEqual(store.load_org(self.slug).nodes["x"]["state"],
+                         store.load_org(self.twin).nodes["x"]["state"])
+        self.assertNotEqual(store.load_org(self.slug).nodes["x"]["state"], "live")
+
+    def test_dissolve_matches_the_cycle(self):
+        with patch.object(supervisor, "interrupt_before_archive",
+                          lambda slug, org, nid: []):
+            mine, legacy = self.both("boss", "orgtree_dissolve", {"node": "x"})
+        self.assertEqual(self.strip(mine), self.strip(legacy))
+        self.assertEqual(self.view(self.slug), self.view(self.twin))
+        self.assertNotEqual(store.load_org(self.slug).nodes["x1"]["state"], "live")
 
     def test_a_stale_snapshot_widens_and_moves_the_whole_subtree(self):
         # the spec is computed from a snapshot taken BEFORE x2 was hired
