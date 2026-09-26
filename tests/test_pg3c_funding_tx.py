@@ -103,7 +103,9 @@ class Rendezvous:
             self.inside -= 1
 
 
-class LastCredit(unittest.TestCase):
+class _Payer(unittest.TestCase):
+    """The fixture both races share: `p` under `boss` with children c1 and
+    c2, cost bubbling off, and free(p) holding exactly one spend of `d`."""
     n = 0
 
     def setUp(self) -> None:
@@ -115,8 +117,8 @@ class LastCredit(unittest.TestCase):
         orgtx.TRANSITION_FENCE = False
         orgtx.use_backend(orgtx.SeamBackend())
         pgdoor.use_org_tx(None)   # PG-0's orgtx.org_tx, pgdoor's own retry/widen rules
-        LastCredit.n += 1
-        self.slug = f'pg3cfund{LastCredit.n}'
+        _Payer.n += 1
+        self.slug = f'pg3cfund{_Payer.n}'
         org = store.create_org(self.slug)
         org.d['cascade_alloc'] = False
         org.hire(ledger.USER, None, 'haiku', 8, 'boss')
@@ -140,6 +142,8 @@ class LastCredit(unittest.TestCase):
     def tearDown(self) -> None:
         orgtx.set_pause_hook(None)
 
+
+class LastCredit(_Payer):
     ACTOR = {'c1': 'boss', 'c2': 'p'}
 
     def _spend(self, target: str, spec_fn, out: dict) -> None:
@@ -252,6 +256,94 @@ class LastCredit(unittest.TestCase):
         self.assertGreater(org.node('p')['grant'], before, 'the raise must have bubbled through p')
         self.assertGreaterEqual(org.free('p'), 0)
         self.assertGreaterEqual(org.free('boss'), 0)
+
+
+class NoCallerRow(_Payer):
+    """Review finding f1: RT1 cannot tell whether the PAYER's row is held FOR
+    UPDATE, because its second spender is the payer itself and the door
+    always locks the caller's own row. On today's code every reachable pair
+    of funding writers shares such a lock: the agent's caller row (every
+    actor is p or an ancestor of p, so it sits on the other spender's chain),
+    or the `credit_requests` row (two operator decisions). The payer's lock
+    is the ONLY guard for a funding writer with NO caller row. That is an
+    operator reallocate once it moves onto `rcdoor.reallocate_rows`
+    (`org_op` still runs on DOC_LOCK). This arm is that shape: two row
+    transactions on the declaration alone (actor USER, no caller row, no
+    `credit_requests`), each raising a different child of `p`, with cost
+    bubbling off so only `p` may pay.
+
+      * one raise commits, the other is refused, free(p) >= 0, and the second
+        transaction was SEEN parked on a row lock while the first held its
+        rows;
+      * CONTROL (the chain held FOR SHARE, the reviewer's mutant Mm2): both
+        read free(p) before either commits, and p is overspent."""
+
+    def _spend(self, target: str, spec_fn, out: dict) -> None:
+        def fn(h):
+            rcdoor.hold(self.slug, spec_fn(h.org, ledger.USER, target))
+            return h.org.reallocate(ledger.USER, target, self.d)
+
+        try:
+            out[target] = rcdoor.run_op(
+                self.slug, spec_fn(orgtx.org_read(self.slug), ledger.USER, target), fn)
+        except LedgerError as e:
+            out[target] = e
+
+    def _race(self, spec_fn) -> tuple[dict, Rendezvous]:
+        # the org-wide notices row out of the race, as in RT1's default mode:
+        # it would serialise the two raises by accident
+        def no_notices(org, actor, nid):
+            s = spec_fn(org, actor, nid)
+            return pgdoor.TxSpec(nodes=s.nodes,
+                                 sections=tuple(x for x in s.sections if x != 'notices'),
+                                 share_nodes=s.share_nodes,
+                                 share_sections=s.share_sections, logs=s.logs)
+
+        rv = Rendezvous()
+        orgtx.set_pause_hook(rv)
+        out: dict = {}
+        ts = [threading.Thread(target=self._spend, args=(t, no_notices, out))
+              for t in ('c1', 'c2')]
+        with patch.object(ledger.Org, '_notify_ev', lambda self, nids, ev: None):
+            for t in ts:
+                t.start()
+            for t in ts:
+                t.join(30)
+        orgtx.set_pause_hook(None)
+        self.assertFalse(any(t.is_alive() for t in ts), 'a raise hung')
+        self.assertGreaterEqual(rv.arrived, 1, 'no raise reached its commit')
+        return out, rv
+
+    def test_without_a_caller_row_the_payer_lock_alone_serialises(self) -> None:
+        out, rv = self._race(rcdoor.reallocate_rows)
+        self.assertFalse(rv.met, 'both raises read free(p) before either committed: '
+                                 'the payer was not held FOR UPDATE')
+        self.assertTrue(rv.parked_seen, 'the second raise was never seen WAITING on a row '
+                                        'lock: the race was not forced')
+        wins = [k for k, v in out.items() if not isinstance(v, BaseException)]
+        losses = [k for k, v in out.items() if isinstance(v, LedgerError)]
+        self.assertEqual((len(wins), len(losses)), (1, 1), out)
+        org = store.load_org(self.slug)
+        self.assertGreaterEqual(org.free('p'), 0)
+        self.assertEqual(org.node(wins[0])['grant'], self.d)
+        self.assertEqual(org.node(losses[0])['grant'], 0)
+
+    def test_control_the_chain_held_for_share_overspends(self) -> None:
+        def share(org, actor, nid):
+            s = rcdoor.reallocate_rows(org, actor, nid)
+            share.ran = 'p' in s.nodes      # the control really demoted the payer
+            return pgdoor.TxSpec(nodes=(), sections=s.sections,
+                                 share_nodes=tuple(s.nodes) + tuple(s.share_nodes),
+                                 share_sections=s.share_sections, logs=s.logs)
+
+        share.ran = False
+        out, rv = self._race(share)
+        self.assertTrue(share.ran, 'the control declaration never held the payer')
+        self.assertTrue(rv.met, 'CONTROL DID NOT INTERLEAVE: both raises must read the same state')
+        self.assertFalse(any(isinstance(v, BaseException) for v in out.values()),
+                         f'control: both raises commit with the payer only FOR SHARE: {out}')
+        self.assertLess(store.load_org(self.slug).free('p'), 0,
+                        'CONTROL FAILED AS DESIGNED: expected p overspent')
 
 
 class StaleSnapshot(unittest.TestCase):
