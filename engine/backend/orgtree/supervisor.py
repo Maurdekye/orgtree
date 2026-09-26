@@ -9925,12 +9925,13 @@ def inspect_mail_ownership(slug: str, nid: str):
     This inspection allocates no identity and writes no document. Admission
     gates remain separate from custody; they can prevent a permitted fold.
     """
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
-        st = state(slug, nid)
-        with _state_lock:
-            facts = mailruntime.runtime_facts(st)
-        return mailruntime.classify(org, nid, facts, now=time.time(), pump_toks=())[0]
+    # fence-off S2: a lock-free coherent read (org_read), not DOC_LOCK — it
+    # writes nothing, so it needs no lock at all
+    org = orgtx.org_read(slug)
+    st = state(slug, nid)
+    with _state_lock:
+        facts = mailruntime.runtime_facts(st)
+    return mailruntime.classify(org, nid, facts, now=time.time(), pump_toks=())[0]
 
 
 def _reclaim_blocked(org: Org, nid: str) -> bool:
@@ -9947,6 +9948,7 @@ def reclaim_orphans(slug: str, nid: str, *, org: Org | None = None,
                     pump_toks: Any = (), now: float | None = None,
                     only_toks: Iterable[str] | None = None,
                     mutate: Callable[[Org], None] | None = None,
+                    share_sections: Iterable[str] = (),
                     ) -> dict[str, Any]:
     """Fold eligible batches and related recovery state in one document save.
 
@@ -9954,6 +9956,9 @@ def reclaim_orphans(slug: str, nid: str, *, org: Org | None = None,
     The brief state lock covers evidence selection and the fold, never a save.
     A receipt in that same transaction resolves a response lost after commit;
     failed reads or contradictory state retain the intent and token fence.
+    `share_sections` adds org-level sections the transaction holds FOR SHARE
+    (the row path only), so a gate `_reclaim_blocked` reads on the locked Org
+    cannot change before the commit.
     """
     st = state(slug, nid)
     out: dict[str, Any] = {"folded": frozenset(), "refused": {},
@@ -10011,7 +10016,9 @@ def reclaim_orphans(slug: str, nid: str, *, org: Org | None = None,
         # PG-3d: a row transaction on that node's row, the pending boxes, the
         # delivery journal and notices, not DOC_LOCK
         try:
-            with orgtx.org_tx(slug, **mailtx.reclaim_rows(nid)) as tx:
+            rows = mailtx.merge(mailtx.reclaim_rows(nid),
+                                share_sections=list(share_sections))
+            with orgtx.org_tx(slug, **rows) as tx:
                 if _reclaim_blocked(tx.org, nid):
                     raise mailtx.NothingToCommit
                 receipt = fold(tx.org)
