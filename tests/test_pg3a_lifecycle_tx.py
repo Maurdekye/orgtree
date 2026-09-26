@@ -1305,6 +1305,13 @@ class RenameRepair(unittest.TestCase):
         self.assertEqual(share, {"peer-renamed"})
         self.assertEqual(secs, ("work_items",))
 
+    def test_the_work_items_row_is_needed(self):
+        with self.assertRaises(orgtx.UnlockedWrite):
+            with halt.txn(self.slug, nodes=["peer-agent"], share_nodes=["peer-renamed"],
+                          logs=("documents", "events", "work_items_archive")) as tx:
+                tx.org.repair_rename_identity(ledger.USER, self.at, work_items=[self.item])
+        self.assertEqual(self.view(self.slug)[0], [(self.item, "peer-agent")])
+
     def test_an_unknown_rename_writes_nothing(self):
         before = self.view(self.slug)
         with self.assertRaises(ledger.LedgerError):
