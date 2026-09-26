@@ -24,6 +24,11 @@ in `lifecycle_tx`:
                             composite (rehire, scope, audiences, docket
                             assignment, kickoff, placement). The pre-lock
                             rename's outcome arrives in `pre`.
+    orgtree_switch_model    `supervisor.switch_rows` — the cycle's switch
+                            branch (provider gate, account rule, busy
+                            queueing, the rebind); transcript copies and
+                            wake-ups after the commit. Also the operator's
+                            `switch_model` op.
 
 Each spec is computed from the door's UNLOCKED snapshot, so it can be stale.
 The body re-derives the plan on the LOCKED document (`lifecycle_tx._need`)
@@ -432,8 +437,8 @@ pgdoor.declare("orgtree_cheap_compact", _spec("cheap_compact", _split_rows),
 # snapshot; each body re-derives it on the locked document (`_need` /
 # `_plan_gap`, a gap widens). Anything that is file or process work runs
 # after the commit through `OpTx.after` (lock plan S3-LOCK-PLAN.md §4,
-# p01-reviewed 2026-09-26 14:38Z). `switch_model` waits for
-# `supervisor.switch_rows` (pg-supervisor-a, C2-A).
+# p01-reviewed 2026-09-26 14:38Z). `switch_model` is declared with the
+# agent tool, at the end of this module.
 
 
 def _op_spec(op: str, rows: Callable[[Any, str, Any], "tuple[set[str], set[str]]"]):
@@ -623,3 +628,107 @@ def _revoke_dir_op(tx: pgdoor.OpTx, actor: str, nid: str) -> Any:
 
 
 pgdoor.declare("revoke_dir", _revoke_dir_spec, body=_op_body(_revoke_dir_op))
+
+
+# ================================================================ switch model
+# `orgtree_switch_model` (agent) and the `switch_model` op on
+# `supervisor.switch_rows` (pg-supervisor-a, S6 C2-A) — the same rows as the
+# queued switch applied at the turn boundary. The provider gate and the
+# account rule run on the locked document, as the cycle ran them under
+# DOC_LOCK; the busy flag (D-234: a mid-turn seat QUEUES the switch) is the
+# in-memory runtime, read on every attempt. An account riding the switch is
+# bound in this transaction (`finish_switch_binding(export=False)`). After
+# the commit: the transcript copies a crossing owes, generation ordered (a
+# failure is a warning), and the account-unpark wake.
+
+
+def switch_spec(org: Any, actor: str, nid: str,
+                account: "str | None") -> pgdoor.TxSpec:
+    from . import supervisor
+    return supervisor.switch_rows(org, actor, nid, rebind=bool(account))
+
+
+def switch_body(org: Any, slug: str, held: pgdoor.TxSpec, after: pgdoor.After,
+                actor: str, nid: str, tier: str,
+                account: "str | None") -> dict[str, Any]:
+    """The cycle's switch_model branch on the locked rows (a gap in the
+    re-derived plan widens first); file IO and wake-ups go to `after`."""
+    from . import api, supervisor
+    need = held.covers(switch_spec(org, actor, nid, account))
+    if not need.empty():
+        raise pgdoor.Widen(nodes=need.nodes, sections=need.sections,
+                           share_nodes=need.share_nodes,
+                           share_sections=need.share_sections, logs=need.logs)
+    api.provider_hire_gate(org, tier)
+    try:
+        supervisor.check_switch_account(org, slug, nid, tier, account)
+    except ValueError as e:
+        raise LedgerError(str(e)) from None
+    result = org.switch_model(
+        actor, nid, tier, account=account,
+        busy=bool(nid and supervisor.state(slug, nid)["busy"]))
+    exports: list[str] = []
+    if not result.get("queued") and not result.get("cancelled"):
+        fsb = supervisor.finish_switch_binding(org, slug, nid, account, actor,
+                                               export=False)
+        if fsb.get("export_old_sid"):
+            exports.append(str(fsb["export_old_sid"]))
+        if fsb.get("unparked"):
+            def account_unpark(res: Any) -> None:
+                supervisor.drive_account_unpark(slug, nid)
+            after.then.append(account_unpark)
+    if result.get("old_session"):
+        exports.append(str(result["old_session"]))
+    for sid in exports:
+        def export(res: Any, _sid: str = sid) -> None:
+            supervisor.export_after_commit(slug, org, nid, _sid,
+                                           "switch_model")
+        after.then.append(export)
+    return result
+
+
+def _switch_account(a: dict[str, Any]) -> "str | None":
+    return str(a.get("account") or "") or None
+
+
+def _switch_tool_spec(snap: Any, call: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
+    return switch_spec(snap, call.node, str(a.get("node") or ""),
+                       _switch_account(a))
+
+
+def _switch_tool(tx: pgdoor.AgentTx) -> Any:
+    from . import supervisor
+    slug, nid = tx.call.org, str(tx.args.get("node") or "")
+    result = switch_body(tx.org, slug, tx.spec, tx.after, tx.node, nid,
+                         str(tx.args.get("tier") or ""),
+                         _switch_account(tx.args))
+    # a crossing that cleared a stale provider freeze leaves the seat live
+    # but idle: wake it with the accurate message (the cycle's tail step)
+    stale = [str(x) for x in result.pop("resume_stale_freeze", [])]
+    if stale:
+        def unfrozen_by_switch(res: Any) -> None:
+            supervisor.drive_unfrozen_by_switch(slug, stale)
+        tx.after.then.append(unfrozen_by_switch)
+    return result
+
+
+pgdoor.declare("orgtree_switch_model", _switch_tool_spec, body=_switch_tool)
+
+
+def _switch_op_spec(snap: Any, body: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
+    return switch_spec(snap, str(body.actor), str(body.node or ""),
+                       str(getattr(body, "account", "") or "") or None)
+
+
+def _switch_op(tx: pgdoor.OpTx) -> Any:
+    b = tx.body
+    if b.tier is None:
+        raise LedgerError("switch_model needs tier")
+    # `resume_stale_freeze` stays in the result: org_op's shared tail wakes
+    # those seats for every op
+    return switch_body(tx.org, tx.slug, tx.spec, tx.after, str(b.actor),
+                       str(b.node or ""), b.tier,
+                       str(getattr(b, "account", "") or "") or None)
+
+
+pgdoor.declare("switch_model", _switch_op_spec, body=_switch_op)
