@@ -101,6 +101,41 @@ class Participants(unittest.TestCase):
         self.assertTrue(store.load_org('np-new').d.get('net_identity', {}).get('secret'))
 
 
+class NetSection(unittest.TestCase):
+    """net._net_section: the spool / seen-ring / hub-of reads take one doc
+    row, with the same value the whole-document read gives."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        org = store.create_org('ns-a')
+        org.hire(USER, None, 'haiku', 1, 'top')
+        org.d['net_spool'] = {'hub-1': [{'to': 'q', 'body': 'b',
+                                         'last_err': 'e1'}]}
+        org.d['net_state'] = {'hub-1': {'seen_ids': ['m1', 'm2']},
+                              'hub-2': {'seen_ids': ['m3']}}
+        store.save_org(org)
+
+    def test_same_value_as_the_whole_document_read(self) -> None:
+        d = orgtx.org_read('ns-a').d
+        with patch.object(orgtx, 'org_read', boom), \
+                patch.object(store, 'load_org', boom):
+            for key in ('net_spool', 'net_state', 'net_absent'):
+                self.assertEqual(net._net_section('ns-a', key), d.get(key), key)
+
+    def test_no_row_answer_falls_back_to_org_read(self) -> None:
+        with patch.object(store, 'read_doc_sections', fallback):
+            self.assertEqual(net._net_section('ns-a', 'net_state'),
+                             orgtx.org_read('ns-a').d.get('net_state'))
+
+    def test_callers_take_no_whole_org_read(self) -> None:
+        with patch.object(orgtx, 'org_read', boom), \
+                patch.object(store, 'load_org', boom):
+            self.assertEqual(net._read_hub_of('ns-a', 'm3'), 'hub-2')
+            self.assertIsNone(net._read_hub_of('ns-a', 'nope'))
+            # steady state: the spool already carries this error -> no write
+            net._stamp_skip('ns-a', 'hub-1', 'e1')
+
+
 class ReadDocSections(unittest.TestCase):
     def test_stored_values_for_present_keys_only(self) -> None:
         org = store.load_org('np-a')
