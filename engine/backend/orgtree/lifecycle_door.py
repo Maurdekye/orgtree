@@ -14,6 +14,9 @@ in `lifecycle_tx`:
     orgtree_dissolve        (`supervisor.interrupt_before_archive`) already
                             runs in `agent_call` BEFORE the door, with no
                             lock held; its warnings arrive in `pre`.
+    orgtree_retool          `retool_rows` — `api._retool_seat` (set_scope,
+                            and an account rebind through the door's
+                            `_account_selection`); live effort after commit
     orgtree_rehire          `rehire_rows` — the whole `api._rehire_seat`
                             composite (rehire, scope, audiences, docket
                             assignment, kickoff, placement). The pre-lock
@@ -306,6 +309,65 @@ def rehire_body(tx: pgdoor.AgentTx) -> Any:
     return result
 
 
+# ---------------------------------------------------------------- retool
+# `api._retool_seat`: `Org.set_scope` on the target (rows = `_scope_plan`;
+# an agent never raises the kiosk ceiling, so `may_raise` is False), and —
+# when `account` rides the call — the door's generic `_account_selection`
+# step, `supervisor.assign_account` in THIS transaction. A rebind that owes a
+# session boundary splits the seat in place: the new bearer `nid@gen`, the
+# mooted asks and the folded notices. The live-effort send runs after commit
+# (decision 40 (4)).
+
+RETOOL_FIELDS = ("add_dirs", "tools", "org_visibility", "permission_mode",
+                 "charter", "team_charter", "effort", "prefer_reserve",
+                 "account_fallback", "clear_account_fallback")
+
+
+def retool_rows(org: Any, actor: str, a: dict[str, Any]) -> pgdoor.TxSpec:
+    nid = str(a.get("node") or "")
+    kw = {f: a.get(f) for f in RETOOL_FIELDS if a.get(f) is not None}
+    upd, share, secs, ssecs, logs = lt._scope_plan(org, actor, nid, kw, False)
+    secs, logs = set(secs), set(logs)
+    if a.get("account") is not None and nid in org.nodes:
+        u, s2 = lt._split_rows(org, actor, nid)
+        upd |= u
+        share |= s2
+        secs |= {"asks", "notices"}
+        logs |= {"events", "notice_log"}
+    return pgdoor.TxSpec(nodes=tuple(sorted(upd)), sections=tuple(sorted(secs)),
+                         share_nodes=tuple(sorted(share - upd)),
+                         share_sections=tuple(sorted(set(ssecs) - secs)),
+                         logs=tuple(sorted(logs, key=str)))
+
+
+def _retool_spec(snap: Any, call: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
+    return retool_rows(snap, call.node, a)
+
+
+def retool_body(tx: pgdoor.AgentTx) -> Any:
+    """`orgtree_retool` on the door: exactly `api._retool_seat` on the locked
+    rows (a gap in the re-derived plan widens first)."""
+    from . import api, supervisor
+    need = tx.spec.covers(retool_rows(tx.org, tx.node, tx.args))
+    if not need.empty():
+        raise pgdoor.Widen(nodes=need.nodes, sections=need.sections,
+                           share_nodes=need.share_nodes,
+                           share_sections=need.share_sections, logs=need.logs)
+    result, effort = api._retool_seat(tx.org, tx.call.org, tx.node, tx.args)
+    if effort is not None:
+        target, before = effort
+        org = tx.org
+
+        def effort_delivery(res: Any) -> None:
+            # the level is committed now, so a running Claude turn may be
+            # sent it (the cycle's `effort_live` tail)
+            if isinstance(res, dict):
+                res["effort_delivery"] = supervisor.send_live_effort(
+                    org, target, previous=before)
+        tx.after.then.append(effort_delivery)
+    return result
+
+
 pgdoor.declare("orgtree_move", _spec("move", _move_rows), _door_body(_move))
 pgdoor.declare("orgtree_swap", _spec("swap_seats", _swap_rows),
                _door_body(_swap))
@@ -317,3 +379,4 @@ pgdoor.declare("orgtree_dissolve", _spec("dissolve", _archive_rows),
                _door_body(_archive(lt.dissolve_body)))
 pgdoor.declare("orgtree_rehire", _rehire_spec, body=rehire_body,
                before=_sweep_first)
+pgdoor.declare("orgtree_retool", _retool_spec, body=retool_body)

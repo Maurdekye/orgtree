@@ -11002,6 +11002,88 @@ def _rehire_seat(org: Org, slug: str, actor: str, a: dict[str, Any],
     return result
 
 
+def _retool_seat(org: Org, slug: str, actor: str, a: dict[str, Any]
+                 ) -> tuple[dict[str, Any], tuple[str, str | None] | None]:
+    """`orgtree_retool`, lifted out of the dispatch whole (like `_rehire_seat`)
+    so the DOC_LOCK cycle and PG-3a's door run the same code. Returns the
+    result and, when the call set `effort`, `(node, level before)` for the
+    live-effort send that runs after the save."""
+    # effort joins retool (ceiling spec §6): a cost dial, so a
+    # superior may set it on REPORTS — never on itself (set_scope's
+    # authority check refuses self). raise_ceiling is deliberately
+    # NOT plumbed: an agent can never raise a kiosk ceiling.
+    #
+    # THE PROVIDER ACCOUNT JOINS RETOOL TOO (user decision
+    # 2026-09-12: "the agent hire / rehire / retool tools should be
+    # able to decide which account to hire on"). This is the surface
+    # for an agent that is ALREADY LIVE — the hire fields choose an
+    # account at the moment a seat is created, and until now nothing
+    # agent-facing could move one afterwards.
+    #
+    # ⚠ CHECKED HERE, WRITTEN BELOW, and the split is the point.
+    # The CHECKS come first so a refusal names the rule the caller
+    # actually broke: `set_scope` would otherwise answer a
+    # self-rebind with "a self-retool sets team_charter only", which
+    # reads as "pass team_charter too" when the real answer is that
+    # an agent never chooses its own billing. The WRITE comes after
+    # set_scope, because `assign_account` notifies outside the
+    # document lock and a scope refusal arriving afterwards would
+    # have announced an account change this transaction discarded.
+    #
+    # ⚠ AND THE AUTHORITY IS NOT retool's. The scope fields are
+    # governed by set_scope's ancestor check; billing is governed by
+    # the stricter rule `orgtree_account_assign` already enforces —
+    # strictly DOWNWARD, never on yourself, because an agent
+    # choosing which account it bills is the one thing neither its
+    # superiors nor the user ever delegated.
+    _rt_acct: str | None = None
+    _rt_target = str(a.get("node") or "")
+    if a.get("account") is not None:
+        if _rt_target == actor:
+            raise HTTPException(
+                403, "you cannot choose your own account — a "
+                     "node's billing is its supervisors' and the "
+                     "user's decision, never its own (a "
+                     "self-retool carries team_charter only)")
+        if not org.is_ancestor(actor, _rt_target):
+            raise HTTPException(
+                403, f"you can only rebind accounts of your "
+                     f"subordinates ({_rt_target!r} is not one)")
+        _rt_acct = str(a.get("account") or "").strip()
+        try:
+            registry.validate_selection(
+                slug, str(org.node(_rt_target).get("model") or ""),
+                _rt_acct)
+        except ValueError as e:
+            raise LedgerError(str(e)) from e
+    rdirs, dwarns = supervisor.sandbox_dirs_to_host(
+        org, a.get("add_dirs"))
+    effort_before: str | None = None
+    if a.get("effort") is not None:
+        effort_before = org.effective_effort(_rt_target)
+    result = org.set_scope(actor, a.get("node", ""),
+                           add_dirs=rdirs,
+                           tools=a.get("tools"),
+                           org_visibility=a.get("org_visibility"),
+                           # D-102: capped at the actor's own by
+                           # set_scope's strict parent clamp —
+                           # nobody grants above themselves
+                           permission_mode=a.get("permission_mode"),
+                           charter=a.get("charter"),
+                           team_charter=a.get("team_charter"),
+                           effort=a.get("effort"),
+                           prefer_reserve=a.get("prefer_reserve"),
+                           account_fallback=a.get("account_fallback"),
+                           clear_account_fallback=bool(a.get("clear_account_fallback")))
+    if dwarns:
+        result.setdefault("warnings", []).extend(dwarns)
+    effort = ((_rt_target, effort_before)
+              if a.get("effort") is not None else None)
+    if _rt_acct is not None:
+        result["_account_selection"] = (_rt_target, _rt_acct, "retool")
+    return result, effort
+
+
 def _staff_mode(a: dict[str, Any]) -> str:
     """hire or rehire, decided ONCE and read everywhere — the pre-lock rename
     step and the dispatch must agree about which one this call is.
@@ -13062,78 +13144,9 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 except (RuntimeError, ValueError) as e:
                     raise HTTPException(422, str(e))
             elif body.tool == "orgtree_retool":
-                # effort joins retool (ceiling spec §6): a cost dial, so a
-                # superior may set it on REPORTS — never on itself (set_scope's
-                # authority check refuses self). raise_ceiling is deliberately
-                # NOT plumbed: an agent can never raise a kiosk ceiling.
-                #
-                # THE PROVIDER ACCOUNT JOINS RETOOL TOO (user decision
-                # 2026-09-12: "the agent hire / rehire / retool tools should be
-                # able to decide which account to hire on"). This is the surface
-                # for an agent that is ALREADY LIVE — the hire fields choose an
-                # account at the moment a seat is created, and until now nothing
-                # agent-facing could move one afterwards.
-                #
-                # ⚠ CHECKED HERE, WRITTEN BELOW, and the split is the point.
-                # The CHECKS come first so a refusal names the rule the caller
-                # actually broke: `set_scope` would otherwise answer a
-                # self-rebind with "a self-retool sets team_charter only", which
-                # reads as "pass team_charter too" when the real answer is that
-                # an agent never chooses its own billing. The WRITE comes after
-                # set_scope, because `assign_account` notifies outside the
-                # document lock and a scope refusal arriving afterwards would
-                # have announced an account change this transaction discarded.
-                #
-                # ⚠ AND THE AUTHORITY IS NOT retool's. The scope fields are
-                # governed by set_scope's ancestor check; billing is governed by
-                # the stricter rule `orgtree_account_assign` already enforces —
-                # strictly DOWNWARD, never on yourself, because an agent
-                # choosing which account it bills is the one thing neither its
-                # superiors nor the user ever delegated.
-                _rt_acct: str | None = None
-                _rt_target = str(a.get("node") or "")
-                if a.get("account") is not None:
-                    if _rt_target == body.node:
-                        raise HTTPException(
-                            403, "you cannot choose your own account — a "
-                                 "node's billing is its supervisors' and the "
-                                 "user's decision, never its own (a "
-                                 "self-retool carries team_charter only)")
-                    if not org.is_ancestor(body.node, _rt_target):
-                        raise HTTPException(
-                            403, f"you can only rebind accounts of your "
-                                 f"subordinates ({_rt_target!r} is not one)")
-                    _rt_acct = str(a.get("account") or "").strip()
-                    try:
-                        registry.validate_selection(
-                            body.org, str(org.node(_rt_target).get("model") or ""),
-                            _rt_acct)
-                    except ValueError as e:
-                        raise LedgerError(str(e)) from e
-                rdirs, dwarns = supervisor.sandbox_dirs_to_host(
-                    org, a.get("add_dirs"))
-                if a.get("effort") is not None:
-                    effort_before = org.effective_effort(_rt_target)
-                result = org.set_scope(body.node, a.get("node", ""),
-                                       add_dirs=rdirs,
-                                       tools=a.get("tools"),
-                                       org_visibility=a.get("org_visibility"),
-                                       # D-102: capped at the actor's own by
-                                       # set_scope's strict parent clamp —
-                                       # nobody grants above themselves
-                                       permission_mode=a.get("permission_mode"),
-                                       charter=a.get("charter"),
-                                       team_charter=a.get("team_charter"),
-                                       effort=a.get("effort"),
-                                       prefer_reserve=a.get("prefer_reserve"),
-                                       account_fallback=a.get("account_fallback"),
-                                       clear_account_fallback=bool(a.get("clear_account_fallback")))
-                if dwarns:
-                    result.setdefault("warnings", []).extend(dwarns)
-                if a.get("effort") is not None:
-                    effort_live = _rt_target
-                if _rt_acct is not None:
-                    result["_account_selection"] = (_rt_target, _rt_acct, "retool")
+                result, _rt_effort = _retool_seat(org, body.org, body.node, a)
+                if _rt_effort is not None:
+                    effort_live, effort_before = _rt_effort
             elif body.tool == "orgtree_retire":
                 result = org.retire(body.node, a.get("node"))  # type: ignore[arg-type]  # node() 422s on None
                 if _archive_warnings:
