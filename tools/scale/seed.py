@@ -175,7 +175,9 @@ def parent(args) -> int:
     cmd = [args.python or sys.executable, "-I", "-B", str(Path(__file__).resolve()), "--child",
            "--root", str(root), "--agents", str(args.agents), "--slug", args.slug,
            "--archived-per-live", str(args.archived_per_live), "--transcript-kb",
-           str(args.transcript_kb), "--seed", str(args.seed)]
+           str(args.transcript_kb), "--seed", str(args.seed),
+           "--active-items", str(args.active_items),
+           "--archived-items-per-live", str(args.archived_items_per_live)]
     t0 = time.time()
     r = subprocess.run(cmd, cwd=REPO, env=child_env(root, pg_url), text=True,
                        encoding="utf-8", errors="replace")
@@ -280,11 +282,17 @@ def child(args) -> int:
         sessions[nid] = sid
     t_nodes = time.time()
 
-    # --- docket: ~4 active items per live agent (live: 100 / 24) -----------
+    # --- docket: live ratio is ~4 active items per live agent (100 / 24), but
+    # the product caps the ACTIVE docket at 200 per org (ledger.work_create), so
+    # seed min(4N, 180) active items round-robin over live agents; the rest of
+    # the history goes into work_items_archive rows below (2 per live agent).
     items = 0
     statuses = ["backlogged"] * 53 + ["blocked"] * 31 + ["in_progress"] * 11 + ["open"] * 5
-    for idx, nid in enumerate(live):
-        for k in range(4 if idx % 6 else 5):
+    n_active = min(4 * N, args.active_items)
+    template = None
+    owners = [live[i % len(live)] for i in range(n_active)]
+    for k, nid in enumerate(owners):
+        if True:
             st = rng.choice(statuses)
             kw = {"blocked_reason": "waiting on a synthetic dependency"} if st == "blocked" else {}
             it = org.work_create(nid, title=f"{nid} task {k}: {text(rng, 40)}",
@@ -292,7 +300,11 @@ def child(args) -> int:
                                  done_so_far=[text(rng, 120)], working_on_next=[text(rng, 120)],
                                  status=st, **kw)
             target = quantile_draw(rng, PROFILE["work_item_bytes"])
-            w = org.d["work_items"][it["slug"]] if isinstance(org.d.get("work_items"), dict) else None
+            want = it.get("slug") or it.get("created")
+            w = next((x for x in reversed(org.d.get("work_items") or [])
+                      if isinstance(x, dict) and x.get("slug") == want), None)
+            if w is None:
+                raise RuntimeError("seeded work item not found in org.d['work_items']")
             if w is not None:
                 have = len(json.dumps(w))
                 while have < target:
@@ -300,6 +312,8 @@ def child(args) -> int:
                           "note": text(rng, min(4000, target - have + 50))}
                     w.setdefault("evidence", []).append(ev)
                     have += len(json.dumps(ev))
+            if template is None and w is not None:
+                template = json.loads(json.dumps(w))
             items += 1
     t_work = time.time()
 
@@ -370,6 +384,20 @@ def child(args) -> int:
                                               "text": text(rng, quantile_draw(rng, PROFILE["steer_attempts_bytes"]))}])
                         cp.write_row(("steer_attempts", nid, iso(t), v)); rows_d += 1; bytes_d += len(v)
             with cur.copy(f'COPY "{schema}".log_l (sect, at, val) FROM STDIN') as cp:
+                archived_items = 0
+                for j in range(int(N * args.archived_items_per_live)):
+                    nid = live[j % len(live)]
+                    it = json.loads(json.dumps(template))
+                    t = now - rng.random() * 86400 * 30
+                    it.update(slug=f"archived-{j}-{uuid.UUID(int=rng.getrandbits(128)).hex[:8]}",
+                              title=f"{nid} archived {j}: {text(rng, 40)}", status="done",
+                              owner={"node": nid, "generation": 0}, archived_at=iso(t),
+                              updated_at=iso(t))
+                    target = quantile_draw(rng, PROFILE["work_item_bytes"])
+                    it["evidence"] = [{"at": iso(t), "by": nid, "op": "evidence",
+                                       "note": text(rng, max(0, target - 3000))}]
+                    cp.write_row(("work_items_archive", iso(t), json.dumps(it))); rows_l += 1
+                    archived_items += 1
                 for nid in live:
                     for k in range(PROFILE["events_per_live"]):
                         t = now - rng.random() * 86400 * 7
@@ -413,7 +441,8 @@ def child(args) -> int:
     t_tr = time.time()
 
     summary = {"live": len(live), "coordinators": len(coords), "leads": len(leads),
-               "archived": len(archived), "work_items": items, "watchdogs": wds,
+               "archived": len(archived), "work_items": items,
+               "work_items_archived": archived_items, "watchdogs": wds,
                "reservations": len(res), "log_d_rows": rows_d, "log_d_bytes": bytes_d,
                "log_l_rows": rows_l, "transcripts": len(sessions), "transcript_bytes": tbytes,
                "phase_s": {"hire": round(t_hire - t_start, 1), "retire": round(t_retire - t_hire, 1),
@@ -437,6 +466,8 @@ def main(argv=None) -> int:
     p.add_argument("--slug", default="scale")
     p.add_argument("--archived-per-live", type=float, default=1.0)
     p.add_argument("--transcript-kb", type=int, default=256)
+    p.add_argument("--active-items", type=int, default=180, help="active docket items (product cap 200)")
+    p.add_argument("--archived-items-per-live", type=float, default=2.0)
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--admin-url", default=None)
     p.add_argument("--python", default=None, help="interpreter for the child (default: this one)")

@@ -249,7 +249,12 @@ def main(argv=None) -> int:
                     stop.wait(d)
                 me = rng.choice(live)
                 w, tool, build = rng.choices(MIX, weights=weights)[0]
-                pool.submit(one_call, nxt, me, tool, build(me, ctx))
+                targs = build(me, ctx)
+                if targs.get("slug") == "none":
+                    # this agent owns no active item (the docket is capped at
+                    # 200 per org): it reports status instead
+                    tool, targs = "orgtree_status", {"status": "working", "summary": ctx.text(80)}
+                pool.submit(one_call, nxt, me, tool, targs)
                 i += 1
 
     # ---------------- 2. UI windows + 3. screen feed -----------------------
