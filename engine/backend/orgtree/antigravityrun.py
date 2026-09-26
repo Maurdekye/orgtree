@@ -96,6 +96,12 @@ from . import providers, antigravity_provenance
 #: (handed to the CLI as `--print-timeout` too); this bounds only startup.
 INIT_TIMEOUT: Final = 120.0
 
+#: how long `wait()` and `close()` wait for a stream reader to reach EOF once
+#: the process is gone. A grandchild holding the pipe keeps it from ever
+#: getting there, so this is a bound, not an expectation. Not Final: tests
+#: that hold the pipe on purpose lower it rather than wait it out.
+READER_JOIN_TIMEOUT: float = 5.0
+
 #: normalized turn statuses — the same vocabulary codexrun exports, so the
 #: supervisor's policy layer never learns a provider's raw strings.
 STATUS_COMPLETED: Final = "completed"
@@ -915,7 +921,7 @@ class AntigravityTurn:
                 break
             time.sleep(0.05)
         if self._reader is not None and self.proc.poll() is not None:
-            self._reader.join(timeout=5)
+            self._reader.join(timeout=READER_JOIN_TIMEOUT)
         with self._lock:
             result = self._result
             events = list(self.events)
@@ -1044,7 +1050,7 @@ class AntigravityTurn:
         kill_tree(self.proc)
         for reader in (self._reader, self._err_reader):
             if reader is not None and reader is not threading.current_thread():
-                reader.join(timeout=5)
+                reader.join(timeout=READER_JOIN_TIMEOUT)
         if self.proc is not None and self.proc.poll() is not None:
             for pipe in (self.proc.stdin, self.proc.stdout, self.proc.stderr):
                 if pipe is not None:
