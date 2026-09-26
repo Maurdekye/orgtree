@@ -187,6 +187,31 @@ class AgentTxTest(unittest.TestCase):
         return pgdoor.agent_tx(body or Body(), {}, kw.pop('fn', self._body_fn), **kw)
 
     # ---------------------------------------------------------------- rows
+    def test_per_owner_mail_sections_sort_beside_named_sections(self):
+        # PG-3d's per-owner mail split: mailtx.send_rows names ("mail", owner)
+        # tuples beside plain section names. The door's canonical sort must
+        # take both, on the declared spec AND on a widening (was a TypeError,
+        # an HTTP 500 on every mail-sending door call).
+        pgdoor.declare('orgtree_mailer', pgdoor.TxSpec(
+            nodes=(P,), sections=('work_items', ('mail', P)),
+            share_sections=(('mail', W), 'kiosk')))
+        tries = []
+
+        def fn(tx):
+            tries.append(1)
+            if len(tries) == 1:
+                raise pgdoor.Widen(sections=[('mail', 'x')])
+            return self._body_fn(tx)
+
+        self.call(Body(tool='orgtree_mailer'), fn=fn)
+        self.assertEqual((len(tries), self.ran, self.n()), (2, 1, 1))
+        first, last = self.fs.specs[0], self.fs.specs[-1]
+        self.assertIn(('mail', P), first[1])
+        self.assertIn('work_items', first[1])
+        self.assertEqual(set(first[3]) & {('mail', W), 'kiosk'},
+                         {('mail', W), 'kiosk'})
+        self.assertIn(('mail', 'x'), last[1])
+
     def test_rows_caller_first_killswitch_shared_receipts_when_keyed(self):
         r = pgdoor.agent_spec(Body(op_key='k'), {}, pgdoor.TxSpec(
             nodes=(P, W, P), sections=('tiers',), share_nodes=(W, 'x')))
