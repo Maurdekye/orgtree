@@ -82,6 +82,14 @@ from . import orgtx
 # changed) never call store.save_org, so polling is what catches them;
 # org-borne changes arrive faster via the save-hook poke.
 WARM_POLL = float(os.environ.get("ORGTREE_WARM_POLL", "20"))
+#: how often the keeper runs a FULL pass (every org, every live node re-hashed,
+#: files and accounts re-read). Saves still get a scoped pass within the poke
+#: debounce, and turn admission re-hashes the seat it is about to use, so this
+#: only bounds how late a change NO save announces (an edited CLAUDE.md, a
+#: re-pointed account, a crashed parked process) is pre-warmed. It was every
+#: WARM_POLL (20 s); at ~700+ live agents a full pass took longer than that
+#: (scale-runtime, 2026-09-26).
+WARM_FULL_EVERY = float(os.environ.get("ORGTREE_WARM_FULL_EVERY", "60"))
 # cascade pacing: one team_charter edit can dirty a whole subtree at once, and
 # this machine already has port contention — at most this many spawns run
 # concurrently; the rest queue behind the gate, still "immediate" per agent.
@@ -2627,6 +2635,45 @@ _dirty_lock = threading.Lock()
 _dirty: set[str] = set()
 _dirty_all = [False]
 
+# ── scoped-pass skipping ────────────────────────────────────────────────────
+# `(slug, nid) -> (input fingerprint, identity hash)` as of the keeper's last
+# identity_snapshot of that seat. A SCOPED pass (a save poke) re-hashes a seat
+# only when its fingerprint moved; a FULL pass re-hashes every seat and
+# refreshes the map. The fingerprint covers what the identity reads out of
+# the org document (identity_prompt's own contract, D-181): the seat's whole
+# node row, its ancestors' `team_charter`, and the org-level sections — minus
+# the logs, mailboxes and the docket, which move on almost every save and are
+# not identity inputs. What it cannot see (files on disk, the accounts
+# registry, the CLI version) is the full pass's job. A wrong skip costs only a
+# late pre-warm: turn admission re-hashes the seat before it uses a parked
+# process and respawns on a mismatch.
+_seen: dict[tuple[str, str], tuple[str, str]] = {}
+_FP_SKIP: frozenset[str] = frozenset(
+    set(store.LIST_LOGS) | set(store.DICT_LOGS) | set(store.KEYED_DICT_LOGS)
+    | set(store.SPLIT_SECTIONS)
+    | {"nodes", "work_items", "lifecycle", "watchdogs", "watchdog_tombs",
+       "watchdog_history", "reservations", "credit_requests"})
+
+
+def _org_fingerprint(org: Any) -> str:
+    """The org-level identity inputs, hashed. Reads only the sections the
+    document already holds (`dict.keys`, not `org.d.keys()`, which would
+    materialise every lazy log section to answer)."""
+    d = org.d
+    doc = {k: dict.__getitem__(d, k) for k in sorted(dict.keys(d))
+           if k not in _FP_SKIP}
+    return hashlib.sha256(json.dumps(doc, sort_keys=True, default=str)
+                          .encode("utf-8", "replace")).hexdigest()
+
+
+def _seat_fingerprint(org: Any, nid: str, org_fp: str) -> str:
+    chain = [(a, org.nodes[a].get("team_charter"))
+             for a in org.ancestors(nid) if a in org.nodes]
+    h = hashlib.sha256(org_fp.encode("ascii"))
+    h.update(json.dumps([org.node(nid), chain], sort_keys=True, default=str)
+             .encode("utf-8", "replace"))
+    return h.hexdigest()
+
 
 def poke(slug: str | None = None) -> None:
     """Wake the keeper now — called from store.save_hooks (any org change may
@@ -2653,6 +2700,39 @@ def _busy(slug: str, nid: str) -> bool:
     with sup._state_lock:
         ent = sup._state.get((slug, nid)) or {}
         return bool(ent.get("busy") or ent.get("proc_control"))
+
+
+def _unchanged(org: Any, slug: str, nid: str, org_fp: str,
+               current: str | None) -> bool:
+    """True when this seat's inputs match the last hash the keeper took of
+    it AND that hash is the process's own — the re-hash can be skipped."""
+    if not org_fp or current is None:
+        return False
+    prev = _seen.get((slug, nid))
+    if prev is None or prev[1] != current:
+        return False
+    try:
+        return prev[0] == _seat_fingerprint(org, nid, org_fp)
+    except Exception:                               # noqa: BLE001
+        return False
+
+
+def _snapshot_seen(org: Any, slug: str, nid: str,
+                   org_fp: str) -> tuple[str, dict[str, str]]:
+    """identity_snapshot, remembering (fingerprint, hash) for later scoped
+    passes. The fingerprint is taken BEFORE the hash, so an input that moves
+    in between leaves a stale fingerprint that forces the next re-hash rather
+    than a fresh one that hides it."""
+    try:
+        fp = _seat_fingerprint(org, nid, org_fp) if org_fp else ""
+    except Exception:                               # noqa: BLE001
+        fp = ""
+    h, parts = identity_snapshot(org, nid)
+    if fp:
+        _seen[(slug, nid)] = (fp, h)
+    else:
+        _seen.pop((slug, nid), None)
+    return h, parts
 
 
 def _keeper_pass(slugs: set[str] | None = None) -> None:
@@ -2700,6 +2780,11 @@ def _keeper_pass(slugs: set[str] | None = None) -> None:
                     kill_node(slug, nid, "org-deleted")
             continue
         live = {k for k, n in org.nodes.items() if n.get("state") == "live"}
+        scoped = slugs is not None
+        try:
+            org_fp = _org_fingerprint(org)
+        except Exception:                           # noqa: BLE001
+            org_fp = ""                              # never skip on doubt
         # reap processes whose seat is gone or no longer eligible — retire
         # and dissolve do not touch process state anywhere else (measured
         # gap: supervisor leaves st["proc"] and _state intact on archive)
@@ -2728,9 +2813,12 @@ def _keeper_pass(slugs: set[str] | None = None) -> None:
                             slug, nid, live=True, relaunch=True,
                             reason=_relaunch_text(_why or "not-eligible"),
                             owner=serving)
+                    elif scoped and _unchanged(org, slug, nid, org_fp,
+                                               serving.hash):
+                        pass
                     else:
                         try:
-                            h, parts = identity_snapshot(org, nid)
+                            h, parts = _snapshot_seen(org, slug, nid, org_fp)
                             if h != serving.hash:
                                 fields = identity_change_fields(
                                     serving.hash, serving.ident_components,
@@ -2766,8 +2854,11 @@ def _keeper_pass(slugs: set[str] | None = None) -> None:
                 # exit owner, and share the once-only guard with the EOF pump.
                 _journal_exit_once(wp, "crash")
                 wp = None
+            if (scoped and wp is not None
+                    and _unchanged(org, slug, nid, org_fp, wp.hash)):
+                continue                             # nothing it reads moved
             try:
-                h, next_components = identity_snapshot(org, nid)
+                h, next_components = _snapshot_seen(org, slug, nid, org_fp)
             except Exception:                       # noqa: BLE001
                 continue
             if wp is not None and wp.hash == h:
@@ -2917,14 +3008,14 @@ def _keeper() -> None:
             want_all = _dirty_all[0]
             _dirty_all[0] = False
         try:
-            if (not poked or want_all or not dirty
-                    or time.time() - last_full >= WARM_POLL):
-                # timeout tick, an unscoped poke, or the periodic backstop —
-                # a stream of scoped pokes must not starve full reconciles
+            if want_all or time.time() - last_full >= WARM_FULL_EVERY:
+                # an unscoped poke, or the periodic backstop (WARM_FULL_EVERY)
+                # — a stream of scoped pokes must not starve full reconciles
                 last_full = time.time()
                 _keeper_pass()
-            else:
+            elif dirty:
                 _keeper_pass(dirty)
+            # else: a quiet WARM_POLL tick between full passes — nothing to do
         except Exception as e:                      # noqa: BLE001
             print(f"[orgtree] warmpool keeper pass failed: "
                   f"{type(e).__name__}: {e}")
