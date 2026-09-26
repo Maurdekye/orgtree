@@ -238,6 +238,14 @@ def op_hire_body(tx: pgdoor.OpTx) -> Any:
 
 pgdoor.declare("hire", op_hire_spec, body=op_hire_body)
 
+# The operator's reallocate (fence-off S5; p03-lead ruling 2026-09-26 13:22Z
+# (a)): funding (rcdoor) supplies its rows and body — the agent tool's
+# reallocate rows with the op's actor — and the /ops route declares it here,
+# with its other operator ops.
+from . import rcdoor  # noqa: E402  (no cycle: rcdoor never imports staffdoor)
+pgdoor.declare("reallocate", rcdoor.op_reallocate_spec,
+               body=rcdoor.op_reallocate_body)
+
 
 # ------------------------------------------- orgtree_staff (hire mode only)
 
