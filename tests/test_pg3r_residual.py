@@ -314,6 +314,101 @@ class MailDepositSites(unittest.TestCase):
         self.assertFalse(after.d.get('tool_result_receipts'))
         self.assertFalse(any(r['id'] == 'pg3r-1' for r in toolwait.records()))
 
+    def test_a_death_between_the_post_and_its_checkpoint_does_not_post_twice(self):
+        # review f2 (a): the receipt marker is what keeps the post exactly-once
+        # across the gap between tx1's COMMIT and the durable checkpoint. A
+        # BaseException stands in for the process dying there: it escapes
+        # _publish's `except Exception`, so the durable row is left unpublished.
+        import time
+        from orgtree import maildrain, supervisor, toolwait
+
+        class Died(BaseException):
+            pass
+
+        slug, worker = self._hired_org('Toolwait Death Org')
+        row = dict(id='pg3r-death', org=slug, node='worker', seat=worker['seat_id'], tool='orgtree_staff',
+                   at=time.time(), state='completed', result={'node': 'x'}, yielded=True)
+        toolwait._save(row)
+        real_save = toolwait._save
+        calls = []
+
+        def dies_once(r):
+            calls.append(dict(r))
+            if len(calls) == 1:
+                raise Died()
+            return real_save(r)
+
+        try:
+            with patch.object(supervisor, 'send_message', return_value={'accepted': True}):
+                with patch.object(toolwait, '_save', side_effect=dies_once):
+                    with self.assertRaises(Died):
+                        toolwait._publish(dict(row))
+                durable = next(r for r in toolwait.records() if r['id'] == 'pg3r-death')
+                self.assertFalse(durable.get('published'), 'the death left the durable row unpublished')
+                self.assertIn('pg3r-death', store.load_org(slug).d.get('tool_result_receipts') or {})
+                toolwait._publish(dict(durable))
+        finally:
+            maildrain._forget(slug, 'worker')
+        after = store.load_org(slug)
+        box = after.d.get('mail', {}).get('worker', [])
+        self.assertEqual(len([m for m in box if 'ORGTREE TOOL RESULT pg3r-death' in m.get('body', '')]), 1)
+        self.assertFalse(after.d.get('tool_result_receipts'))
+        self.assertFalse(any(r['id'] == 'pg3r-death' for r in toolwait.records()))
+
+    def test_a_recipient_that_moves_before_the_lock_gets_nothing_and_retries(self):
+        # review f2 (b): the recipient is picked lock-free and re-checked under
+        # its row lock; when they disagree nothing is posted and the row retries
+        import time
+        from orgtree import maildrain, supervisor, toolwait
+        slug, worker = self._hired_org('Toolwait Moved Org')
+        row = dict(id='pg3r-moved', org=slug, node='worker', seat=worker['seat_id'], tool='orgtree_staff',
+                   at=time.time(), state='completed', result={'node': 'x'}, yielded=True)
+        toolwait._save(row)
+        picks = iter(['worker', None])   # the lock-free pick, then the locked re-check
+        try:
+            with patch.object(supervisor, 'send_message', return_value={'accepted': True}) as drive, \
+                    patch.object(toolwait, '_destination', side_effect=lambda org, r: next(picks)):
+                toolwait._publish(dict(row))
+        finally:
+            maildrain._forget(slug, 'worker')
+        drive.assert_not_called()
+        after = store.load_org(slug)
+        box = after.d.get('mail', {}).get('worker', [])
+        self.assertFalse([m for m in box if 'ORGTREE TOOL RESULT pg3r-moved' in m.get('body', '')])
+        self.assertFalse(after.d.get('tool_result_receipts'))
+        durable = next(r for r in toolwait.records() if r['id'] == 'pg3r-moved')
+        self.assertEqual(durable['publish_failures'], 1)
+        self.assertFalse(durable.get('published'))
+        self.assertIn('moved', durable['last_publish_error'])
+
+    def test_a_node_archived_after_the_lock_free_read_gets_no_restart_notice(self):
+        # review f2 (c): the notice pass decides from a lock-free read and
+        # re-checks each node live under its row lock
+        from orgtree import restart_wake
+        slug, _ = self._hired_org('Restart Archived Org')
+        before = orgtx.org_read(slug)
+        org = store.load_org(slug)
+        org.node('worker')['state'] = 'archived'
+        store.save_org(org)
+        real_read = orgtx.org_read
+        restart_wake._reset_boot_build_info_for_tests({
+            'commit': 'b' * 40, 'commit_short': 'b' * 7, 'branch': None, 'dirty': False,
+            'backend_pid': 4343, 'started_at': '2026-09-26T04:00:00Z', 'provenance': 'packaged',
+            'version': '3.0.0-alpha.0'})
+        restart_wake._reset_startup_done_for_tests()
+        try:
+            with patch('builtins.print'), \
+                    patch.object(orgtx, 'org_read',
+                                 side_effect=lambda s, **k: before if s == slug else real_read(s, **k)):
+                out = restart_wake.on_backend_startup()
+        finally:
+            restart_wake._reset_boot_build_info_for_tests()
+            restart_wake._reset_startup_done_for_tests()
+        self.assertEqual(before.node('worker')['state'], 'live', 'the stale read still saw the node live')
+        self.assertNotIn({'org': slug, 'node': 'worker'}, out['notified'])
+        box = store.load_org(slug).d.get('mail', {}).get('worker', [])
+        self.assertFalse([m for m in box if m.get('restart_notice')])
+
     def test_restart_notice_pass_deposits_in_one_transaction_per_org(self):
         from orgtree import restart_wake
         slug, _ = self._hired_org('Restart Notice Org')
