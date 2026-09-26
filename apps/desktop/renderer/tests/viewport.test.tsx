@@ -82,11 +82,13 @@ test('large graph keeps its unmeasured preview bounded and reveals remaining car
     const count = () => view.el.querySelectorAll('.sq:not(.user)').length
     assert.equal(viewport.dataset.culling, 'unmeasured')
     assert.ok(count() > 0 && count() <= 32, `initial preview is bounded: ${count()}`)
+    assert.equal(view.el.querySelector('.sq[data-copy-agent-name="node-119"]'), null, 'late card was actually omitted')
     assert.ok(view.el.querySelector('.sq.user'), 'user credit controls remain available')
     viewport.getBoundingClientRect = () => ({ x: -100000, y: -100000, width: 200000, height: 200000,
       top: -100000, left: -100000, right: 100000, bottom: 100000, toJSON: () => ({}) })
     await inAct(async () => { fireResize(viewport) })
     assert.equal(viewport.dataset.culling, 'active')
-    assert.equal(count(), roots.length, 'all real cards can mount after the viewport is measured')
+    assert.ok(count() > 32 && count() <= roots.length, 'measurement releases the startup limit')
+    assert.ok(view.el.querySelector('.sq[data-copy-agent-name="node-119"]'), 'previously omitted card appears inside the measured viewport')
   } finally { await view.unmount(); resetConvos(); localStorage.clear(); setCrowdPilesOn(true) }
 })
