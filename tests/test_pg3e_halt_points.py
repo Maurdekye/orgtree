@@ -3,10 +3,13 @@
 Review of 853cbd0 (native-design-review): four halt-ordering claims survived
 their mutants in every halt-sensitive module. Each test here fails on one:
 
-  * M1, decision 9: a halt that commits BETWEEN admission's two
-    transactions is refused by the second (the drain), before any mail
-    leaves the box. The halt is committed from the drain's own row planning,
-    which runs after tx1 committed and before tx2 opens.
+  * M1, decision 9: a halt or a FREEZE that commits BETWEEN admission's two
+    transactions is refused by the second (the drain) before any mail is
+    drained. It is committed from the drain's own row planning, which runs
+    after tx1 committed and before tx2 opens. The freeze case is the one that
+    kills the mutant: for a halt, `ledger.Org.take_mail` itself returns
+    nothing (a second guard), so the gate's own re-check is only observable
+    for what the take does not check (frozen, remote control, killswitch).
   * M4, decision 2: `_run_turn`'s per-carrier re-check. A halt that commits
     during one carrier keeps the next carrier (retained whole in the
     halt queue) and never runs it.
@@ -96,7 +99,7 @@ class _Org(unittest.TestCase):
 class HaltBetweenAdmissionTransactions(_Org):
     """M1: tx2 re-runs the gates on its own locked rows."""
 
-    def run_with_halt_between(self, halt_between: bool) -> int:
+    def run_with_halt_between(self, halt_between, freeze: bool = False) -> int:
         real = sup._admission_rows
         fired = []
 
@@ -106,12 +109,35 @@ class HaltBetweenAdmissionTransactions(_Org):
                 fired.append(True)
                 if halt_between:
                     commit_halting(slug, nid)
+                if freeze:
+                    with halt.txn(slug, nodes=[nid]) as tx:
+                        tx.org.node(nid)["frozen"] = {
+                            "at": ledger.now(), "limit": True,
+                            "until": "fixture"}
             return real(slug, nid, compact=compact)
-        with patch.object(sup, '_admission_rows', side_effect=rows):
-            try:
-                sup._run_one_turn_recorded(self.slug, 'worker', 'go')
-            except Exception:                                # noqa: BLE001
-                pass
+        self.error = None
+        commits: list = []
+        orgtx.commit_listeners.append(commits.append)
+        try:
+            with patch.object(sup, '_admission_rows', side_effect=rows):
+                try:
+                    sup._run_one_turn_recorded(self.slug, 'worker', 'go')
+                except Exception as exc:                     # noqa: BLE001
+                    self.error = exc
+        finally:
+            orgtx.commit_listeners.remove(commits.append)
+        # every commit that wrote the agent's delivery journal: a drain. A
+        # drain later folded back by some other refusal leaves the box
+        # looking untouched, so the box alone cannot tell (decision 9 says
+        # no mail is drained at all)
+        self.drains = [c for c in commits if c.slug == self.slug and any(
+            str(k).startswith('delivering')
+            for k in [*c.changes.doc_upserts, *c.changes.doc_deletes])]
+        if halt_between:
+            # the halt really committed (the control is not a hook that
+            # failed and aborted admission for some other reason)
+            self.assertTrue(store.load_org(self.slug).node('worker').get('halt'),
+                            f'the halt never committed: {self.error!r}')
         return len(fired)
 
     def test_control_without_a_halt_the_drain_runs(self):
@@ -119,13 +145,26 @@ class HaltBetweenAdmissionTransactions(_Org):
                          'the hook between the transactions never fired')
         self.assertEqual(self.reached, 1, 'the turn never got past the drain')
         self.assertNotIn(self.mail_id, self.box())
+        self.assertEqual(len(self.drains), 1, 'the drain commit was not observed')
 
     def test_a_halt_committed_between_tx1_and_tx2_refuses_the_drain(self):
         self.assertEqual(self.run_with_halt_between(True), 1,
                          'the hook between the transactions never fired')
+        self.assertEqual(self.drains, [],
+                         'a drain committed after the halt had committed')
         self.assertEqual(self.reached, 0,
                          'the drain ran on an agent whose halt had committed')
         self.assertIn(self.mail_id, self.box(), 'mail left the box of a halted agent')
+        self.assertEqual(self.journal(), [])
+
+    def test_a_freeze_committed_between_tx1_and_tx2_refuses_the_drain(self):
+        self.assertEqual(self.run_with_halt_between(False, freeze=True), 1,
+                         'the hook between the transactions never fired')
+        self.assertTrue(store.load_org(self.slug).node('worker').get('frozen'),
+                        f'the freeze never committed: {self.error!r}')
+        self.assertEqual(self.drains, [],
+                         'a drain committed after the freeze had committed')
+        self.assertIn(self.mail_id, self.box(), 'mail left the box of a frozen agent')
         self.assertEqual(self.journal(), [])
 
 
