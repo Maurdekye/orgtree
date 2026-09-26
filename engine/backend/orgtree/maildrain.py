@@ -125,18 +125,19 @@ def discard(org, nid: str, ids) -> None:
         org.node(nid).pop('mail_drain', None)
 
 
-#: The org-level sections `_gated` reads. The reclaim transaction holds them
-#: FOR SHARE, so the gate it re-evaluates on the locked Org holds until commit.
+#: The org-level sections the gate reads. The reclaim transaction holds them
+#: FOR SHARE, so the gate it re-decides on the locked Org holds until commit.
 GATE_SECTIONS = ('killswitch', 'spend_frozen', 'storage_blocked')
 
 
 def _gated(org, nid: str, slug: str) -> bool:
     """The durable admission gate for one seat (the drain's own retry
-    deadline aside). Read once on a lock-free snapshot to decide whether to
-    try at all, and AGAIN inside the reclaim transaction, on the locked Org,
-    before any admission (fence-off S2, p01's review condition (b)): the
-    DOC_LOCK this replaced kept a freeze or spend write from committing
-    between the gate read and the thread start."""
+    deadline aside), read on the lock-free snapshot to decide whether to try
+    at all. It is decided AGAIN inside the reclaim transaction, on the locked
+    Org (`supervisor._reclaim_blocked`, which covers every term here), before
+    any admission (fence-off S2, p01's review condition b): the DOC_LOCK
+    this replaced kept a freeze or spend write from committing between the
+    gate read and the thread start."""
     from . import supervisor as sup
     n = org.nodes.get(nid)
     return bool(n is None or n['state'] != 'live' or n.get('halt')
@@ -251,15 +252,10 @@ def recover(slug: str, nid: str) -> bool:
     outcome: dict = {}
 
     def _settle(o) -> None:
+        # Runs only once `reclaim_orphans` has re-decided the gate on the
+        # LOCKED Org (`_reclaim_blocked`, a superset of `_gated`), so a seat
+        # refused there never reaches this and is never admitted.
         outcome['settled'] = True
-        # The gate again, on the LOCKED Org: this transaction holds the
-        # node row FOR UPDATE and GATE_SECTIONS FOR SHARE, so a freeze or
-        # a spend stop cannot commit between this answer and the commit.
-        # (reclaim_orphans's `_reclaim_blocked` refuses first for most of
-        # these; this is the drain's own statement of its gate.)
-        if _gated(o, nid, slug):
-            outcome['gated'] = True
-            return
         box = (o.d.get('mail') or {}).get(nid) or []
         outstanding = {str(m.get('id')) for m in box}
         journals = (o.d.get('delivering') or {}).get(nid) or []
@@ -286,7 +282,9 @@ def recover(slug: str, nid: str) -> bool:
     # `now` comes from THIS module's clock so the drain hysteresis can
     # be exercised by the suite the same way the rest of the gate is.
     # fence-off S2: the row branch (no `org=`) — ONE org_tx on the
-    # seat's reclaim rows plus the gate sections FOR SHARE.
+    # seat's reclaim rows (its node row FOR UPDATE) plus GATE_SECTIONS FOR
+    # SHARE, so the gate `_reclaim_blocked` re-decides on the locked Org
+    # cannot change before the commit (p01's review condition b).
     try:
         sup.reclaim_orphans(slug, nid, pump_toks=(),
                             now=time.time(), mutate=_settle,
@@ -300,9 +298,10 @@ def recover(slug: str, nid: str) -> bool:
         # absent-evidence mistake this whole protocol refuses.
         print(f'[orgtree] {slug}/{nid}: mail reclaim will retry: {exc}')
         return False
-    if not outcome.get('settled') or outcome.get('gated'):
-        # refused on the locked Org: the gate holds. Nothing was settled
-        # and nothing is admitted; the seat stays tracked for the retry.
+    if not outcome.get('settled'):
+        # refused on the locked Org: a gate closed since the lock-free read.
+        # Nothing was settled and nothing is admitted, and the seat stays
+        # tracked, exactly as a refusal at the first gate leaves it.
         return False
     remaining = outcome.get('remaining') or []
     if not remaining:
