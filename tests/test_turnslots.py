@@ -225,7 +225,9 @@ class FairSlotsBehaviour(unittest.TestCase):
 
         def worker(org):
             for _ in range(20):
-                slots.acquire(org)
+                # a 30 s safety net: a lost wake-up would stall past the
+                # deadline below instead of being papered over by a re-poll
+                slots.acquire(org, max_wait=30)
                 with lock:
                     live[0] += 1; peak[0] = max(peak[0], live[0])
                 time.sleep(0.0005)
@@ -239,9 +241,10 @@ class FairSlotsBehaviour(unittest.TestCase):
                    for i in range(24)]
         for th in threads:
             th.start()
+        deadline = time.monotonic() + 15
         for th in threads:
-            th.join(60)
-        self.assertEqual(done[0], 24, "every worker finished: no waiter was stranded")
+            th.join(max(0.0, deadline - time.monotonic()))
+        self.assertEqual(done[0], 24, "every worker finished promptly: no waiter was stranded")
         self.assertLessEqual(peak[0], 3)
         self.assertGreater(peak[0], 1, "positive control: there was real concurrency")
         self.assertEqual(slots.snapshot()["held"], 0)
