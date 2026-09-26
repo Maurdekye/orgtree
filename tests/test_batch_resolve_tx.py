@@ -55,7 +55,7 @@ class BatchTx(unittest.TestCase):
         self.dir = tempfile.mkdtemp(dir=_root.name)
         org = store.create_org(self.slug)
         org.hire(ledger.USER, None, 'haiku', 20, 'top')
-        org.hire(ledger.USER, 'top', 'haiku', 2, 'mid')
+        org.hire(ledger.USER, 'top', 'haiku', 2, 'mid')   # the chain under the requester
         store.save_org(org)
         fence = orgtx.TRANSITION_FENCE
         orgtx.TRANSITION_FENCE = False
@@ -70,11 +70,11 @@ class BatchTx(unittest.TestCase):
         with store.DOC_LOCK:
             org = store.load_org(self.slug)
             if ask:
-                org.ask_user('mid', 'Proceed?', options=[{'label': 'yes'}, {'label': 'no'}])
+                org.ask_user('top', 'Proceed?', options=[{'label': 'yes'}, {'label': 'no'}])
             if credit:
-                org.request_credits('mid', 5, 'need more')
+                org.request_credits('top', 30, 'need more')
             if scope:
-                org.request_scope('mid', [{'kind': 'dir', 'path': self.dir, 'mode': 'ro'}],
+                org.request_scope('top', [{'kind': 'dir', 'path': self.dir, 'mode': 'ro'}],
                                   'need the folder')
             store.save_org(org)
 
@@ -85,7 +85,7 @@ class BatchTx(unittest.TestCase):
                                   ('credits', 'credit_requests', 'pending'),
                                   ('scope', 'scope_requests', 'pending')):
             row = next((r for r in org.d.get(table, [])
-                        if r['node'] == 'mid' and r['status'] == open_), None)
+                        if r['node'] == 'top' and r['status'] == open_), None)
             if row is not None:
                 out[key] = row.get('rev') or 1
         return out
@@ -93,21 +93,21 @@ class BatchTx(unittest.TestCase):
     def body(self, revs):
         return api.BatchResolve(revs=revs,
                                 answers=['yes'] if 'ask' in revs else None,
-                                credits={'granted': 5} if 'credits' in revs else None,
+                                credits={'granted': 30} if 'credits' in revs else None,
                                 scope=['approve'] if 'scope' in revs else None)
 
     def state(self):
         org = orgtx.org_read(self.slug)
-        return ({r['status'] for r in org.d.get('asks', []) if r['node'] == 'mid'},
-                {r['status'] for r in org.d.get('credit_requests', []) if r['node'] == 'mid'},
-                {r['status'] for r in org.d.get('scope_requests', []) if r['node'] == 'mid'},
-                [d['path'] for d in org.node('mid')['scope']['add_dirs']])
+        return ({r['status'] for r in org.d.get('asks', []) if r['node'] == 'top'},
+                {r['status'] for r in org.d.get('credit_requests', []) if r['node'] == 'top'},
+                {r['status'] for r in org.d.get('scope_requests', []) if r['node'] == 'top'},
+                [d['path'] for d in org.node('top')['scope']['add_dirs']])
 
     def test_a_full_batch_resolves_without_doc_lock(self):
         self.file()
         with patch.object(store, 'DOC_LOCK', _NoDocLock()):
-            r = api.batch_resolve(self.slug, 'mid', self.body(self.revs()))
-        self.assertEqual(r, {'resolved': 'mid'})
+            r = api.batch_resolve(self.slug, 'top', self.body(self.revs()))
+        self.assertEqual(r, {'resolved': 'top'})
         asks, credits, scopes, dirs = self.state()
         self.assertNotIn('open', asks)
         self.assertNotIn('pending', credits)
@@ -137,7 +137,7 @@ class BatchTx(unittest.TestCase):
             return rows(org, nid)
         with patch.object(orgtx, 'org_read', side_effect=read), \
                 patch.object(api, '_batch_rows', side_effect=counted):
-            api.batch_resolve(self.slug, 'mid', self.body(revs))
+            api.batch_resolve(self.slug, 'top', self.body(revs))
         self.assertEqual(seen[0], False, 'the transaction was not opened from the stale read')
         self.assertGreaterEqual(len(seen), 3, f'no widening re-run happened: {seen}')
         asks, credits, scopes, dirs = self.state()
@@ -159,7 +159,7 @@ class BatchTx(unittest.TestCase):
         with patch.object(orgtx, 'org_read', side_effect=read), \
                 patch.object(pgdoor, 'MAX_WIDEN', 0):
             with self.assertRaises(api.HTTPException) as e:
-                api.batch_resolve(self.slug, 'mid', self.body(revs))
+                api.batch_resolve(self.slug, 'top', self.body(revs))
         self.assertEqual(e.exception.status_code, 409, e.exception.detail)
         self.assertEqual(self.state(), before, 'a refused batch applied something')
         supervisor.send_message.assert_not_called()
