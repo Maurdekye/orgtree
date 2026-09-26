@@ -381,6 +381,32 @@ class MailDepositSites(unittest.TestCase):
         self.assertFalse(durable.get('published'))
         self.assertIn('moved', durable['last_publish_error'])
 
+    def test_the_halt_suspension_is_decided_from_the_transactions_own_rows(self):
+        # review nit: the recipient is durably halted, but the lock-free
+        # pre-gate (halt.blocked) says runnable, as a stale snapshot would.
+        # Publication must still suspend the drain demand it just created,
+        # because it decides from the seat row it holds (halt._gate_blocked).
+        import time
+        from orgtree import halt, maildrain, supervisor, toolwait
+        slug, worker = self._hired_org('Toolwait Halted Org')
+        org = store.load_org(slug)
+        org.node('worker')['halt'] = {'at': '2026-09-26T00:00:00Z'}
+        store.save_org(org)
+        row = dict(id='pg3r-halted', org=slug, node='worker', seat=worker['seat_id'], tool='orgtree_staff',
+                   at=time.time(), state='completed', result={'node': 'x'}, yielded=True)
+        toolwait._save(row)
+        try:
+            with patch.object(supervisor, 'send_message', return_value={'accepted': True}), \
+                    patch.object(halt, 'blocked', return_value=None):
+                toolwait._publish(dict(row))
+        finally:
+            maildrain._forget(slug, 'worker')
+        after = store.load_org(slug)
+        box = after.d.get('mail', {}).get('worker', [])
+        self.assertEqual(len([m for m in box if 'ORGTREE TOOL RESULT pg3r-halted' in m.get('body', '')]), 1)
+        self.assertTrue((after.node('worker').get('mail_drain') or {}).get('suspended'),
+                        'a halted recipient keeps its result but gets no re-armed delivery')
+
     def test_a_node_archived_after_the_lock_free_read_gets_no_restart_notice(self):
         # review f2 (c): the notice pass decides from a lock-free read and
         # re-checks each node live under its row lock
