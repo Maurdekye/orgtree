@@ -12364,9 +12364,11 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
         except LedgerError as e:
             raise HTTPException(422, str(e))
     if body.tool in ("orgtree_halt", "orgtree_unhalt"):
-        # Halt must wait OUTSIDE DOC_LOCK: the target's cleanup owns that
-        # same lock. These idempotent lifecycle operations own their saves;
-        # the receipt honestly names this PRE-transaction coverage.
+        # Halt must wait OUTSIDE any lock the target's cleanup needs. These
+        # idempotent lifecycle operations own their transactions (halt.txn);
+        # the receipt honestly names this PRE-transaction coverage, and is
+        # admitted on a lock-free read and filed in its own row transaction
+        # (S3, fence-off) — never DOC_LOCK.
         #
         # BATCHED ADMISSION (2026-09-19, approved tier-1 scope): `nodes` takes
         # a LIST and the whole group is one call — authority for every target
@@ -12387,13 +12389,17 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                            if raw_nodes else [str(a.get("node") or "")])
                 if not targets:
                     raise LedgerError("halt/unhalt needs a node or a nodes list")
-                with store.DOC_LOCK:
-                    org = store.load_org(body.org)
-                    for target in targets:
-                        org._require_authority(body.node, target)
-                    rcpt = _op_admit(org, body, a)
-                    if rcpt is not None and "replay" in rcpt:
-                        return cast("dict[str, Any]", rcpt["replay"])
+                # S3 (fence-off): admission on a lock-free coherent read
+                # (meta + receipt log), as S7's PRE windows. The authority
+                # check here is only a pre-check, as it was under DOC_LOCK,
+                # which was released before the halt: halt()/unhalt() re-run
+                # it on the LOCKED chain (halt._authorized).
+                org = orgtx.org_read(body.org, sections=[opreceipts.SECTION])
+                for target in targets:
+                    org._require_authority(body.node, target)
+                rcpt = _op_admit(org, body, a)
+                if rcpt is not None and "replay" in rcpt:
+                    return cast("dict[str, Any]", rcpt["replay"])
                 halting = body.tool == "orgtree_halt"
                 if halting and len(targets) > 1:
                     for target in targets:
@@ -12414,13 +12420,15 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                           else {"batch": len(targets), "nodes": per_node})
             except LedgerError as e:
                 raise HTTPException(422, str(e)) from e
-            with store.DOC_LOCK:
-                org = store.load_org(body.org)
-                if rcpt is not None:
-                    _op_file(org, body, a, rcpt, result)
-                    store.save_org(org)
-                    opreceipts.witness(store.DATA_ROOT, body.org,
-                                      opreceipts.seq(cast("dict[str, Any]", org.d)))
+            if rcpt is not None:
+                # S3: the receipt in its own row transaction (was DOC_LOCK +
+                # a whole load/save): the META row and the receipt log. Still
+                # PRE coverage: the halt committed in halt.txn before this.
+                with orgtx.org_tx(body.org, sections=[opreceipts.META],
+                                  logs=[opreceipts.SECTION]) as _h_tx:
+                    _op_file(_h_tx.org, body, a, rcpt, result)
+                opreceipts.witness(store.DATA_ROOT, body.org,
+                                   opreceipts.seq(cast("dict[str, Any]", _h_tx.org.d)))
             return result
     if body.tool == "orgtree_account_mark":
         # MANUAL CAPACITY-MARK CLEARING (user item
