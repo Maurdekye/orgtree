@@ -417,6 +417,25 @@ def make_data_root(repo_root: Path, requested: str | None) -> tuple[Path, bool]:
     return run_root, True
 
 
+def pycache_root(repo_root: Path, requested: str | None) -> Path | None:
+    """The bytecode cache for ``-X pycache_prefix``, or None for ``-B``.
+
+    Held to the data root's rules: outside the checkout (the child still
+    writes nothing beside the sources) and clear of every protected root.
+    Shared across runs and checkouts on purpose -- the prefix tree mirrors
+    each source's absolute path, so two worktrees never share an entry.
+    """
+    if not requested or requested.strip().lower() == "off":
+        return None
+    base = _canonical(Path(requested))
+    if any(_is_within(base, protected) or _is_within(protected, base) for protected in _protected_roots()):
+        raise ValueError(f"pycache dir overlaps a protected production root: {base}")
+    if _is_within(base, repo_root) or _is_within(repo_root, base):
+        raise ValueError(f"pycache dir must be outside the checkout: {base}")
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+
 def _module_name(path: Path, repo_root: Path) -> str:
     try:
         return path.relative_to(repo_root).as_posix()
@@ -609,7 +628,18 @@ def run_modules(
     import_root_paths: Sequence[Path] | None = None,
     baseline: set[str] | None = None,
     timeout: float = 300.0,
+    pycache_dir: Path | None = None,
 ) -> list[ModuleResult]:
+    """Run each module in a fresh interpreter with a fresh data root.
+
+    ``pycache_dir`` None (the default) runs the child with ``-B``: nothing is
+    compiled to disk, so every module recompiles every source it imports. A
+    directory runs it with ``-X pycache_prefix`` instead: bytecode is written
+    to and read from a mirror tree under that directory, never beside the
+    sources, and each entry is still validated against its source's mtime and
+    size, so an edited file is recompiled. Measured 2026-09-26: this takes
+    1.5-4 s of startup off every module that imports the engine.
+    """
     configured_roots = [Path(item).resolve() for item in (import_root_paths or import_roots(repo_root))]
     baseline = baseline or set()
     results: list[ModuleResult] = []
@@ -657,7 +687,9 @@ def run_modules(
         started = time.monotonic()
         try:
             completed = subprocess.run(
-                [interpreter.path, "-I", "-B", "-c", _child_script()],
+                [interpreter.path, "-I",
+                 *(["-X", f"pycache_prefix={pycache_dir}"] if pycache_dir else ["-B"]),
+                 "-c", _child_script()],
                 cwd=str(repo_root),
                 env=env,
                 capture_output=True,
@@ -775,19 +807,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--json-output", help="also write the complete receipt to this path")
     parser.add_argument("--timeout", type=float, default=300.0)
     parser.add_argument("--keep-data", action="store_true", help="retain the run parent for inspection")
+    parser.add_argument("--pycache-dir", default=str(Path(tempfile.gettempdir()) / "orgtree-verify-pycache"),
+                        help="reusable bytecode cache OUTSIDE the checkout (-X pycache_prefix); 'off' = -B, compile every run")
     args = parser.parse_args(argv)
 
     repo_root = _canonical(Path(args.repo_root))
     interpreter = select_interpreter(repo_root, args.python_path)
+    pycache_dir = pycache_root(repo_root, args.pycache_dir)
     run_root, temporary = make_data_root(repo_root, args.data_root)
     roots = import_roots(repo_root)
     baseline = _baseline_ids(args.baseline)
     try:
-        results = run_modules(args.modules, repo_root=repo_root, interpreter=interpreter, data_root=run_root, import_root_paths=roots, baseline=baseline, timeout=args.timeout)
+        results = run_modules(args.modules, repo_root=repo_root, interpreter=interpreter, data_root=run_root, import_root_paths=roots, baseline=baseline, timeout=args.timeout, pycache_dir=pycache_dir)
         cleanup_errors: list[str] = []
         if temporary and not args.keep_data:
             cleanup_errors = _cleanup(run_root)
         receipt = _receipt(repo_root, interpreter, run_root, roots, results, baseline, cleanup_errors)
+        receipt["pycache_dir"] = str(pycache_dir) if pycache_dir else None
         if cleanup_errors:
             receipt["summary"]["unexpected_failures"].extend(f"run:cleanup_error:{error}" for error in cleanup_errors)
         print(json.dumps(receipt, indent=2, sort_keys=True))
