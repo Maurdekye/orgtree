@@ -6,6 +6,7 @@ deletes an earlier incarnation. Each ingestion position commits with its rows.
 """
 from __future__ import annotations
 
+import atexit
 import contextlib
 import datetime as dt
 import hashlib
@@ -14,6 +15,7 @@ import os
 import sqlite3
 import threading
 import uuid
+import weakref
 from pathlib import Path
 
 from . import census_contacts
@@ -31,60 +33,106 @@ _spool_lock = threading.Lock()
 #: reentrancy guard: replay itself calls ingest(), which drains the spool —
 #: without this a drain would deadlock on its own non-reentrant lock
 _spool_state = threading.local()
-_database_state = threading.local()
+#: this thread's reusable connection (slice C, scale qualification): opening
+#: one per call cost ~1.2 ms of connect + PRAGMA on every reply-stream event
+_conn_state = threading.local()
+#: every thread's cached connection, so a DATA_ROOT change and interpreter
+#: exit can close the idle ones (Windows cannot delete an open database file)
+_held_all = weakref.WeakSet()
+#: guards `_Held.busy` and `_Held.conn` between the owning thread and a sweep
+_held_lock = threading.Lock()
 
 
-@contextlib.contextmanager
-def reuse_database():
-    """Keep one connection on this worker thread, never an open transaction.
+class _Held:
+    """One thread's cached connection to one database file. Closed when it
+    is replaced, discarded, swept while idle, or collected with its thread."""
 
-    Opt-in only: ordinary callers still get independent short-lived connections.
-    Each database() block retains its own commit/rollback boundary. Nested blocks
-    use a separate connection, just as they do outside this scope.
-    """
-    if getattr(_database_state, 'session', None) is not None:
-        yield
-        return
-    session = {'path': None, 'conn': None, 'borrowed': False}
-    _database_state.session = session
-    try:
-        yield
-    finally:
-        _database_state.session = None
-        if session['conn'] is not None:
-            session['conn'].close()
+    def __init__(self, key, conn):
+        self.key, self.conn, self.busy = key, conn, False
+
+    def close(self):
+        conn, self.conn = self.conn, None
+        if conn is not None:
+            with contextlib.suppress(Exception):
+                conn.close()
+
+    __del__ = close
+
+
+def _close_idle(keep=None):
+    """Close every thread's idle cached connection to a path other than `keep`."""
+    with _held_lock:
+        for held in list(_held_all):
+            if not held.busy and held.key != keep:
+                held.close()
+
+
+atexit.register(_close_idle)
 
 
 @contextlib.contextmanager
 def database():
+    """A connection to the transcript-records database inside `with conn:`
+    (commit on success, rollback on error), exactly as a fresh connection.
+
+    Each thread reuses one connection per database path. A nested call on
+    the same thread, while the cached one is in use, gets a fresh connection
+    of its own, so an inner `with` never commits the outer one's work. Any
+    exception, or a transaction still open after the `with`, closes the
+    cached connection and the next call opens a new one. A change of
+    `store.DATA_ROOT` changes the path: the calling thread replaces its
+    connection and every thread's idle connection to another path is closed."""
     from . import store
     path = Path(store.DATA_ROOT) / "transcript-records.sqlite3"
-    session = getattr(_database_state, 'session', None)
-    reuse = session is not None and not session['borrowed']
-    if reuse:
-        if session['path'] != path:
-            if session['conn'] is not None:
-                session['conn'].close()
-            session.update(path=path, conn=None)
-        if session['conn'] is None:
-            session['conn'] = _open_database(path)
-        conn = session['conn']
-        session['borrowed'] = True
-    else:
-        conn = _open_database(path)
+    key = str(path)
+    held = getattr(_conn_state, "held", None)
+    if held is not None and held.busy:
+        conn = _open(path)
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
+        return
+    with _held_lock:
+        if held is not None and held.key == key and held.conn is not None:
+            held.busy = True
+            conn = held.conn
+        else:
+            conn = None
+    if conn is None:
+        if held is not None:
+            _conn_state.held = None
+            with _held_lock:
+                held.close()
+            if held.key != key:
+                _close_idle(keep=key)
+        conn = _open(path)
+        held = _Held(key, conn)
+        held.busy = True
+        with _held_lock:
+            _held_all.add(held)
+        _conn_state.held = held
     try:
         with conn:
             yield conn
+        if conn.in_transaction:
+            with _held_lock:
+                held.close()
+    except BaseException:
+        with _held_lock:
+            held.close()
+        raise
     finally:
-        if reuse:
-            session['borrowed'] = False
-        else:
-            conn.close()
+        held.busy = False
 
 
-def _open_database(path):
+def _open(path):
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path, timeout=30, factory=census_contacts.sidecar("transcript_records"))
+    # check_same_thread=False only so `_Held` can close it from whichever
+    # thread collects it; it is only ever used by the thread that cached it.
+    conn = sqlite3.connect(path, timeout=30, check_same_thread=False,
+                           factory=census_contacts.sidecar("transcript_records"))
     try:
         conn.execute("PRAGMA synchronous=FULL")
         with _schema_lock:
@@ -138,10 +186,10 @@ def _open_database(path):
             scope TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(scope,id)) WITHOUT ROWID;
                 """)
                 _initialized.add(str(path))
-        return conn
     except BaseException:
         conn.close()
         raise
+    return conn
 
 
 def _signature(stream, stats):
