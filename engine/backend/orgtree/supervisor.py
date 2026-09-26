@@ -19498,10 +19498,13 @@ def _run_one_turn(slug: str, nid: str,
 ADMISSION_GATE_SECTIONS: tuple[str, ...] = (
     "killswitch", "spend_frozen", "storage_blocked")
 #: Written by the DRAIN transaction (`_take_delivery_mail`, the notices pop,
-#: `_journal_drain`). These are whole-section rows today; PG-0/PG-3d's
-#: per-owner split narrows them.
-ADMISSION_WRITE_SECTIONS: tuple[str, ...] = ("mail", "delivering", "notices")
-ADMISSION_LOGS: tuple[str, ...] = ("mail_log",)
+#: `_journal_drain`): the agent's OWN per-owner rows of the split sections
+#: (PG-3d: `mail`, `delivering`, `notices` are one row per owner) and its
+#: `mail_log`. Naming the bare section would lock every owner's row FOR
+#: UPDATE and serialise every admission in the org on the mailbox.
+def _admission_write_rows(nid: str) -> dict[str, list[Any]]:
+    return {"sections": [("mail", nid), ("delivering", nid), ("notices", nid)],
+            "logs": [("mail_log", nid)]}
 #: Written by the COMPACTION transaction: an auto cheap-compaction notifies
 #: the agent and its parent (the notices box and `notice_log`) and logs an
 #: event.
@@ -19528,10 +19531,11 @@ def _admission_rows(slug: str, nid: str, *, compact: bool = False
         # the node, delivering, mail_transitions, mail, notices), widened by
         # any section this module names on top of it.
         rows = mailtx.reclaim_rows(nid)
+        own = _admission_write_rows(nid)
         sections = list(dict.fromkeys(
-            [*rows.get("sections", ()), *ADMISSION_WRITE_SECTIONS]))
+            [*rows.get("sections", ()), *own["sections"]]))
         return {"nodes": [nid], "sections": sections,
-                "share_sections": share, "logs": list(ADMISSION_LOGS)}
+                "share_sections": share, "logs": own["logs"]}
     gen = 0
     try:
         n = store.cached_org(slug).nodes.get(nid)
@@ -19546,16 +19550,17 @@ def _admission_rows(slug: str, nid: str, *, compact: bool = False
 def _envelope_rows(nid: str) -> dict[str, Any]:
     """PG-3e-A: the rows `_envelope`'s drain writes — the agent's row, the
     drain sections (PG-3d's `mailtx.reclaim_rows` plus
-    `ADMISSION_WRITE_SECTIONS`) and `mail_log` — with the killswitch FOR
+    `_admission_write_rows`) and the agent's `mail_log` — with the killswitch FOR
     SHARE for the locked halt decision. `_admit_message`'s gate declares
     exactly these so the envelope joins it. `reply_incarnation`: composing a
     quoted user reply may mint the org's reply-identity id on THIS
     transaction (`reply_events.incarnation` inside an open org_tx)."""
+    own = _admission_write_rows(nid)
     sections = list(dict.fromkeys(
         [*mailtx.reclaim_rows(nid).get("sections", ()),
-         *ADMISSION_WRITE_SECTIONS, "reply_incarnation"]))
+         *own["sections"], "reply_incarnation"]))
     return {"nodes": [nid], "sections": sections,
-            "share_sections": [halt.KILLSWITCH], "logs": list(ADMISSION_LOGS)}
+            "share_sections": [halt.KILLSWITCH], "logs": own["logs"]}
 
 
 @contextlib.contextmanager
@@ -20263,7 +20268,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
             # (org-wide today) is locked only when this turn carries journal
             # tokens, the one case `record_input` writes it.
             with halt.txn(slug, nodes=[nid],
-                          sections=["delivering"] if toks else []) as _inf_tx:
+                          sections=[("delivering", nid)] if toks else []) as _inf_tx:
                 o2 = _inf_tx.org
                 if nid in o2.nodes:
                     # The F-04 wake-void is RETIRED (user ruling 2026-08-06):
@@ -21851,7 +21856,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                 # this process.
                                 with halt.txn(
                                         slug, nodes=[nid],
-                                        sections=["delivering"] if ntoks else [],
+                                        sections=[("delivering", nid)] if ntoks else [],
                                         share_sections=[halt.KILLSWITCH]
                                         ) as _bnd_tx:
                                     o2 = _bnd_tx.org
@@ -31024,7 +31029,7 @@ def _note_steer_attempt(slug: str, nid: str, toks: Iterable[str],
 
 
 @halt.delivery(lambda: False,
-               rows=lambda slug, nid, *_a, **_k: {"sections": ["delivering"]})
+               rows=lambda slug, nid, *_a, **_k: {"sections": [("delivering", nid)]})
 def _note_steer_attempt_tx(slug: str, nid: str, toks: Iterable[str],
                            outcome: str, reason: str = "") -> bool:
     """Mark the DURABLE delivering batches behind a steer with the attempt's
@@ -31466,7 +31471,7 @@ def claim_steer(slug: str, nid: str, tool_use_id: str,
 
 @halt.delivery(lambda: (None, []),
                rows=lambda slug, nid, *_a, **_k: {
-                   "sections": ["delivering"],
+                   "sections": [("delivering", nid)],
                    "logs": [("steer_attempts", nid)]})
 def _claim_steer_tx(slug: str, nid: str, tool_use_id: str,
                     transcript_path: str, held: dict[str, Any]
@@ -31582,7 +31587,7 @@ def transcript_path_for_node(org: Org, nid: str) -> str | None:
 
 @halt.delivery(lambda: {"status": "halted"},
                rows=lambda slug, nid, *_a, **_k: {
-                   "sections": ["delivering"],
+                   "sections": [("delivering", nid)],
                    "logs": [("steer_attempts", nid)]})
 def ack_steer(slug: str, nid: str, delivery_id: str, tool_use_id: str) -> dict[str, Any]:
     """The hook's receipt. Validated in order — issued, owner matches, not
@@ -31774,7 +31779,7 @@ def _steer_record_rows(nid: str) -> dict[str, Any]:
     rows (the agent's row — its `halt_queue` —, `delivering`,
     `mail_transitions`), the pending `mail` box a reclaim edits, and the
     agent's `steered_log` and `steer_attempts`."""
-    return mailtx.merge(mailtx.confirm_rows(nid), sections=["mail"],
+    return mailtx.merge(mailtx.confirm_rows(nid), sections=[("mail", nid)],
                         logs=[("steered_log", nid), ("steer_attempts", nid)])
 
 

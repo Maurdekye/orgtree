@@ -107,14 +107,21 @@ class DrainTxTests(unittest.TestCase):
         def without_mail(slug, nid, *, compact=False):
             rows = real(slug, nid, compact=compact)
             if not compact:
-                rows['sections'] = [s for s in rows['sections'] if s != 'mail']
-                self.stripped += 1
+                # PG-3d names the box per owner, ('mail', nid); strip either
+                # spelling, and count only a strip that removed something
+                kept = [s for s in rows['sections']
+                        if s != 'mail' and not (isinstance(s, tuple)
+                                                and s[0] == 'mail')]
+                if len(kept) < len(rows['sections']):
+                    self.stripped += 1
+                rows['sections'] = kept
             return rows
         self.stripped = 0
         with patch.object(sup, '_admission_rows', side_effect=without_mail):
             self.admit()
         self.assertEqual(self.stripped, 1, 'the drain transaction never asked '
-                                           'for its rows: the control did not run')
+                                           'for a mailbox row: the control '
+                                           'did not run')
         self.assertEqual(self.reached, 0,
                          'the drain committed without locking `mail`')
         org = store.load_org(self.slug)
