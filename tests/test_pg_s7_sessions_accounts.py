@@ -328,7 +328,9 @@ class ReconcileOneWholeTransaction(unittest.TestCase):
         self.kills = []
         self.p = [patch.object(supervisor, '_condemnable', return_value=False),
                   patch.object(supervisor, '_reconcile_kill', self._kill),
-                  patch.object(supervisor, 'send_message', return_value={})]
+                  patch.object(supervisor, 'send_message', return_value={}),
+                  # the switch itself is not under test: a no-op apply
+                  patch.object(supervisor, '_apply_pending_switch_locked')]
         for x in self.p:
             x.start()
 
@@ -385,7 +387,7 @@ class ReconcileOneWholeTransaction(unittest.TestCase):
             seen.append(kw)
             return real(slug, fn, **kw)
 
-        with patch.object(orgtx, 'org_tx_call', spy),                 patch.object(supervisor, '_apply_pending_switch_locked'):
+        with patch.object(orgtx, 'org_tx_call', spy):
             supervisor.reconcile(self.slug)
         self.assertEqual(seen, [{'whole': True}])
 
