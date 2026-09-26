@@ -112,6 +112,30 @@ class StaffDoor(unittest.TestCase):
         self.assertEqual(len(self.runs), 1)
         self.assertEqual(owner(self.item(self.existing)), 'kid2')
 
+    def test_the_archive_move_is_its_own_transaction_first(self):
+        # PG-3w decision 13: a docket write sweeps the archive in its OWN
+        # org_tx before the action, and the action runs with the move
+        # deferred, so it never writes (or widens into) the archive
+        org = store.load_org(self.slug)
+        old = org.work_create('mid', 'Old item', 'Problem. Fix.',
+                              owner='peer')['created']
+        org.work_update('peer', old, done_so_far=['x'], working_on_next=['y'],
+                        status='dropped',
+                        dropped_reason='Cancelled by the test; nothing to resume.')
+        store.save_org(org)
+        self.assertFalse(store.load_org(self.slug)._work_find(old)[1])
+        seen = []
+        orgtx.commit_listeners.append(seen.append)
+        try:
+            self.staff(name='kid3', title='New thing', objective='Problem. Fix.')
+        finally:
+            orgtx.commit_listeners.remove(seen.append)
+        self.assertTrue(store.load_org(self.slug)._work_find(old)[1])
+        self.assertEqual(len(self.runs), 1)          # no widening re-run
+        self.assertEqual(len(seen), 2, seen)         # the sweep, then the call
+        self.assertIn('work_items_archive', seen[0].changes.log_sections)
+        self.assertNotIn('work_items_archive', seen[-1].changes.log_sections)
+
     def test_only_hire_mode_is_routed(self):
         self.assertTrue(pgdoor.routed('orgtree_staff', dict(SEAT)))
         self.assertFalse(pgdoor.routed('orgtree_staff',
