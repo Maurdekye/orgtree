@@ -6837,9 +6837,10 @@ def staffing_options(slug: str) -> dict[str, Any]:
     # one returns at once, and neither must ever happen with DOC_LOCK held.
     snap = staffcache.read()
     try:
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            return quickstaff.availability(org, snap)
+        # fence-off S5: the committed document, lock-free — this route only
+        # reads, and a read never queues behind the write lock
+        org = orgtx.org_read(slug)
+        return quickstaff.availability(org, snap)
     except LedgerError as e:
         raise HTTPException(422, str(e)) from e
 
@@ -6870,10 +6871,12 @@ def quick_staff_preview(slug: str, wid: str) -> dict[str, Any]:
     # while the network was slow.
     snap = staffcache.read()
     try:
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            _work_identity_ready(org, slug)
-            return quickstaff.preview(org, wid, snap=snap)
+        # fence-off S5: the committed document, lock-free. A document still
+        # on the old work identity is converted IN THIS COPY only (never
+        # saved here), exactly as the unsaved load under DOC_LOCK was.
+        org = orgtx.org_read(slug)
+        _work_identity_ready(org, slug)
+        return quickstaff.preview(org, wid, snap=snap)
     except LedgerError as e:
         raise HTTPException(422, str(e)) from e
 
@@ -11953,6 +11956,36 @@ def _agent_identity(body: AgentCall, request: Request, *, durable: bool = False)
     return dict(caller)
 
 
+def _list_orgs_payload(body: AgentCall) -> dict[str, Any]:
+    """`orgtree_list_orgs`: the local orgs (kiosks hidden) and the hub's
+    remote peers. A READ (fence-off S5): it once ran inside the agent_call
+    write cycle for no reason but history."""
+    # №43 (user-approved): the @org: channel was advertised but
+    # undiscoverable from inside — agents had no org listing.
+    # F-06 (§6 presence): remote peers from the hub roster ride
+    # the same listing, addressed @net:<slug>, with online /
+    # last_seen so an agent can route around a dark peer.
+    # Transport sets (user spec 2026-08-05): every entry names
+    # WHICH transports resolve it, derived from the same data
+    # the bare-name resolver consults — the list and the send
+    # agree by construction.
+    locs = [o for o in store.list_orgs() if not o.get("kiosk")]
+    local_net = {str(o.get("net_slug")): o["slug"]
+                 for o in locs if o.get("net_slug")}
+    peers = net.remote_peers()
+    roster = {str(p.get("slug") or "")[5:] for p in peers}
+    for p in peers:
+        s = str(p.get("slug") or "")[5:]
+        p["transports"] = (["org", "net"] if s in local_net
+                           else ["net"])
+    return {"orgs": [
+        {"slug": o["slug"], "name": o.get("name", o["slug"]),
+         "you": o["slug"] == body.org,
+         "transports": ["org"] + (
+             ["net"] if o.get("net_slug") in roster else [])}
+        for o in locs] + peers}
+
+
 def _agent_door(body: AgentCall, a: dict[str, Any],
                 pre: dict[str, Any]) -> Any:
     """Run a DECLARED tool on the row-transaction door (pgdoor.agent_tx):
@@ -12290,7 +12323,7 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             raise HTTPException(422, str(e))
     if body.tool in ("orgtree_read_transcript", "orgtree_read_scratch",
                      "orgtree_chart", "orgtree_send_file",
-                     "orgtree_list_tiers"):
+                     "orgtree_list_tiers", "orgtree_list_orgs"):
         try:
             # read-shaped tools, and the block says so at every branch below:
             # the shared snapshot rather than a private parse of the whole
@@ -12299,6 +12332,17 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             # `store.cached_org` holds. It is `org_seq`-guarded, not time-based.
             org = store.cached_org(body.org)
             org.node(body.node)
+            if body.tool == "orgtree_list_orgs":
+                # fence-off S5: off the write cycle, with the two refusals
+                # the cycle gave it (same words)
+                if org.node(body.node).get("halt"):
+                    raise LedgerError("agent is halted — tools cannot "
+                                      "execute until unhalt")
+                if org.d.get("killswitch"):
+                    raise LedgerError("the org killswitch is latched — tools "
+                                      "cannot execute until the user "
+                                      "releases it")
+                return _list_orgs_payload(body)
             if body.tool == "orgtree_list_tiers":
                 # Provider discovery may probe a CLI or API behind its own
                 # short cache. Keep that I/O outside the global document lock.
@@ -13326,31 +13370,6 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             elif body.tool == "orgtree_self_subjugate":
                 result = org.subjugate(body.node, body.node,
                                        a.get("target", ""))
-            elif body.tool == "orgtree_list_orgs":
-                # №43 (user-approved): the @org: channel was advertised but
-                # undiscoverable from inside — agents had no org listing.
-                # F-06 (§6 presence): remote peers from the hub roster ride
-                # the same listing, addressed @net:<slug>, with online /
-                # last_seen so an agent can route around a dark peer.
-                # Transport sets (user spec 2026-08-05): every entry names
-                # WHICH transports resolve it, derived from the same data
-                # the bare-name resolver consults — the list and the send
-                # agree by construction.
-                locs = [o for o in store.list_orgs() if not o.get("kiosk")]
-                local_net = {str(o.get("net_slug")): o["slug"]
-                             for o in locs if o.get("net_slug")}
-                peers = net.remote_peers()
-                roster = {str(p.get("slug") or "")[5:] for p in peers}
-                for p in peers:
-                    s = str(p.get("slug") or "")[5:]
-                    p["transports"] = (["org", "net"] if s in local_net
-                                       else ["net"])
-                result = {"orgs": [
-                    {"slug": o["slug"], "name": o.get("name", o["slug"]),
-                     "you": o["slug"] == body.org,
-                     "transports": ["org"] + (
-                         ["net"] if o.get("net_slug") in roster else [])}
-                    for o in locs] + peers}
             elif body.tool == "orgtree_dissolve":
                 result = org.dissolve(body.node, a.get("node"))  # type: ignore[arg-type]  # node() 422s on None
                 if _archive_warnings:
@@ -15240,31 +15259,32 @@ def org_op(slug: str, body: Op, request: Request) -> dict[str, Any]:
             raise HTTPException(
                 422, f"preview does not support operator operation {body.op!r}")
         try:
-            with store.DOC_LOCK:
-                org = store.load_org(slug)
-                actor = USER if pub else body.actor
-                if actor != USER:
-                    org.node(actor)
-                    org._require_live(actor)
-                args = body.model_dump(exclude={"op", "actor", "preview"},
-                                       exclude_none=True)
-                switch_busy = False
-                if body.op == "switch_model":
-                    if body.tier is None:
-                        raise LedgerError("switch_model needs tier")
-                    provider_hire_gate(org, body.tier)
-                    account = str(body.account or "") or None
-                    try:
-                        supervisor.check_switch_account(
-                            org, slug, str(body.node or ""), body.tier,
-                            account)
-                    except ValueError as e:
-                        raise HTTPException(422, str(e)) from None
-                    switch_busy = bool(
-                        body.node and supervisor.state(slug, body.node).get("busy"))
-                return statepreview.preview(
-                    org, actor, body.op, args, include_archived=True,
-                    switch_busy=switch_busy)
+            # fence-off S5: a preview only reads — the committed document,
+            # lock-free, never the write lock
+            org = orgtx.org_read(slug)
+            actor = USER if pub else body.actor
+            if actor != USER:
+                org.node(actor)
+                org._require_live(actor)
+            args = body.model_dump(exclude={"op", "actor", "preview"},
+                                   exclude_none=True)
+            switch_busy = False
+            if body.op == "switch_model":
+                if body.tier is None:
+                    raise LedgerError("switch_model needs tier")
+                provider_hire_gate(org, body.tier)
+                account = str(body.account or "") or None
+                try:
+                    supervisor.check_switch_account(
+                        org, slug, str(body.node or ""), body.tier,
+                        account)
+                except ValueError as e:
+                    raise HTTPException(422, str(e)) from None
+                switch_busy = bool(
+                    body.node and supervisor.state(slug, body.node).get("busy"))
+            return statepreview.preview(
+                org, actor, body.op, args, include_archived=True,
+                switch_busy=switch_busy)
         except LedgerError as e:
             raise HTTPException(422, str(e))
     # Visitor delete is deliberately OPEN (user ruling 2026-08-01, twice
