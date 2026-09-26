@@ -102,7 +102,11 @@ def _covers(tx: orgtx.OrgTx, nodes: frozenset[str], sections: frozenset[str],
             share_nodes: frozenset[str], share_sections: frozenset[str],
             logs: frozenset[Any]) -> list[str]:
     missing = [f"node {n!r}" for n in nodes - tx.lock_nodes]
-    missing += [f"section {s!r}" for s in sections - tx.lock_sections]
+    # an owner row (`section\x1fowner`) is also covered when the enclosing
+    # transaction holds its whole split container FOR UPDATE — the same rule
+    # org_tx's own write check applies (store.split_section_of)
+    missing += [f"section {s!r}" for s in sections - tx.lock_sections
+                if store.split_section_of(s) not in tx.lock_sections]
     missing += [f"shared node {n!r}" for n in
                 share_nodes - tx.lock_nodes - tx.share_nodes]
     missing += [f"shared section {s!r}" for s in
