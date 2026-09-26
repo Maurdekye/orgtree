@@ -29573,6 +29573,28 @@ def _invariant_sweep_org(slug: str) -> None:
                         f"state. Rehire {sup!r} (which rehires the chain), "
                         f"or move {name} to a live superior."))
 
+    def _new_orphan(o: Org) -> bool:
+        """A live node under a non-live parent, not yet announced."""
+        for nid, n in o.nodes.items():
+            sup = str(n.get("parent") or "")
+            if (n.get("state") == "live" and sup and sup in o.nodes
+                    and o.nodes[sup]["state"] != "live"
+                    and (slug, nid, "orphan") not in _invariant_announced):
+                return True
+        return False
+
+    # scale: gate on the shared snapshot. Almost every pass finds nothing,
+    # and `_computed_tx`'s lock-free pre-read is a WHOLE-ORG load (~26 MB
+    # decoded at N=100) once per org every 30 s. Everything this pass acts
+    # on reaches the snapshot through a save (which bumps the seq); the one
+    # live input, `_pid_provably_dead`, is evaluated here as well. Anything
+    # found takes the old path, which re-reads and re-checks under the lock.
+    try:
+        snap = store.cached_org(slug)
+    except Exception:                                        # noqa: BLE001
+        snap = None
+    if snap is not None and not _repairs(snap) and not _new_orphan(snap):
+        return
     try:
         # one org_tx over exactly the rows the pass repairs (usually none),
         # recomputed under the locks — never the whole node table every 30 s
