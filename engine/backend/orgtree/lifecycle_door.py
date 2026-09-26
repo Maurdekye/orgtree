@@ -189,17 +189,18 @@ def _archive(op_body: Callable[..., Any]):
 # union of each part's plan. The sections are PG-3b's hire sections (the
 # seat half is the same code) plus rehire's own and the docket:
 #   REHIRE_SECTIONS  lifecycle_tx.SPECS["rehire"] (fable_lock, notices,
-#                    watchdogs) + mail, audiences, lifecycle + work_items;
+#                    watchdogs) + mail, audiences + work_items;
 #   REHIRE_SHARE     SPECS["rehire"]'s settings = PG-3b's HIRE_SETTINGS less
 #                    fable_lock, which rehire WRITES (agreed with WS3a
 #                    2026-09-26; their staffdoor test pins the equality);
-#   REHIRE_LOGS      events, notice_log, mail_log.
+#   REHIRE_LOGS      events, notice_log, mail_log, lifecycle (a list log:
+#                    S8, decision 38).
 # `orgtree_staff`'s rehire mode starts from `rehire_rows` (WS3a's staffdoor).
 
 REHIRE_SECTIONS = tuple(sorted(set(lt.SPECS["rehire"].sections)
-                               | {"mail", "audiences", "lifecycle", "work_items"}))
+                               | {"mail", "audiences", "work_items"}))
 REHIRE_SHARE = tuple(lt.SPECS["rehire"].share_sections)
-REHIRE_LOGS = tuple(sorted(set(lt.SPECS["rehire"].logs) | {"mail_log"}))
+REHIRE_LOGS = tuple(sorted(set(lt.SPECS["rehire"].logs) | {"mail_log", "lifecycle"}))
 # added when `audiences` rides the call (Org.audience_grant's rows)
 REHIRE_AUDIENCE_SECTIONS = ("audience_requests", "user_inbox")
 REHIRE_AUDIENCE_LOGS = ("user_mail_log",)
