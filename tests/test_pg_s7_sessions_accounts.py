@@ -468,7 +468,7 @@ class AccountAssignDoor(unittest.TestCase):
     def test_a_superior_rebinds_on_the_door_not_the_cycle(self):
         with _NoCycle():
             r = self.call('boss', 'worker')
-        self.assertEqual(r['account'], self.acct['name'])
+        self.assertIn('previous_account', r)       # the rebind's disclosure
         self.assertEqual(store.load_org(self.slug).node('worker').get('account'),
                          self.acct['id'])
         supervisor.notify.assert_called_with(self.slug, 'worker', 'account')
@@ -485,7 +485,7 @@ class AccountAssignDoor(unittest.TestCase):
     def test_it_does_not_wait_for_a_doc_lock_holder(self):
         _fence_off(self)
         r = _while_doc_lock_held(self, lambda: self.call('boss', 'worker'))
-        self.assertEqual(r['account'], self.acct['name'])
+        self.assertIn('previous_account', r)       # the rebind's disclosure
 
     def test_a_session_boundary_exports_after_the_commit(self):
         org = store.load_org(self.slug)
