@@ -409,15 +409,11 @@
       ],
       "born": null,
       "files": {
-        "added": [
-          "deleted/{slug}-kb2-{ts}.db"
-        ],
+        "added": [],
         "removed": [],
         "changed": []
       },
-      "spies": {
-        "unregister_org": 1
-      }
+      "spies": {}
     },
     "create_kiosk_small_disk_std": {
       "status": 422,

@@ -623,11 +623,11 @@ class OrgAdminBoundary(unittest.TestCase):
         self.assertEqual((n['net_autoconnect'], [h['address'] for h in n['net_hubs']]), (False, ['10.1.1.1']))
         k = got['create_kiosk_std'][2]['born_doc']
         self.assertEqual((k['default_top_grant'], k['net_identity'], k['net_hubs']), (0, None, None))
-        # the kiosk whose ceiling cannot be normalized is unwound: its store renamed away, nothing left behind
-        unwound = got['create_kiosk_bad_scope_std'][0]
-        self.assertEqual((unwound['status'], unwound['orgs'], unwound['spies']), (422, [0, 0], {'unregister_org': 1}))
-        self.assertEqual(len(unwound['files']['added']), 1)
-        self.assertTrue(unwound['files']['added'][0].startswith('deleted/'))
+        # the kiosk whose ceiling cannot be normalized is refused BEFORE its one creating save (PG-3f: the org is
+        # born whole in create_org's prepare hook): no store is written, so nothing is renamed away or unregistered
+        refused = got['create_kiosk_bad_scope_std'][0]
+        self.assertEqual((refused['status'], refused['orgs'], refused['spies']), (422, [0, 0], {}))
+        self.assertEqual(refused['files'], {'added': [], 'removed': [], 'changed': []})
         for name in ('create_kiosk', 'create_sandbox'):
             self.assertTrue(got[name][0]['detail'].startswith('Not available in desktop MVP: '))
 
