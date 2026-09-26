@@ -545,7 +545,7 @@ class BracketTests(unittest.TestCase):
         return {str(p.relative_to(root)): (p.read_bytes() if p.is_file() else None) for p in sorted(root.rglob("*"))}
 
     def test_a_fresh_root_is_bound_recorded_and_started_on_postgres(self) -> None:
-        root, env = self.fresh()
+        root, env = self.fresh(ORGTREE_V2_TOKEN="desktop-secret")
         (root / "app-settings.json").write_text("{}")  # root-level files are not an org store
         (root / "orgs").mkdir()  # an EMPTY orgs/ is fresh
         owned = bracket.start_for_engine(root, env, self.migrator)
