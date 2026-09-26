@@ -102,6 +102,11 @@ class KioskExempt(unittest.TestCase):
 
     def test_every_exempt_tool_leaves_the_cap_inputs_untouched(self) -> None:
         self.assertEqual(set(CALLS), set(rcdoor.KIOSK_EXEMPT), 'every exempt tool needs a proof call')
+        # the list the door AND the cycle read is pgdoor's; rcdoor declares
+        # into it — they must be the same set, or the proof covers the wrong one
+        from orgtree import pgdoor
+        self.assertEqual({t for t in pgdoor.KIOSK_EXEMPT if t in rcdoor.TOOLS},
+                         set(rcdoor.KIOSK_EXEMPT))
         for tool, (actor, args) in CALLS.items():
             with self.subTest(tool=tool):
                 before = self.durable()
