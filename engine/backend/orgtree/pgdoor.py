@@ -33,7 +33,13 @@ check lives inside `_gate` and `_gate` is only ever called on the locked
 document. The killswitch works the same way with a shared lock: every tool
 call holds the row FOR SHARE, the latch takes it FOR UPDATE, so a latch waits
 for in-flight tools and every later tool sees it — without making every tool
-in the org queue behind every other one on a single row.
+in the org queue behind every other one on a single row. This needs the row
+to EXIST (plan decision 26 D2): PG-0b's `store.ALWAYS_ROWS` keeps it present,
+null when released. An org_tx latch would wait regardless (org_tx's advisory
+lock covers an absent row), but a legacy whole-document save of it would
+not — on PostgreSQL its UPDATE waits on the FOR SHARE only because the row
+is there; on the SQLite seam it is the transition fence's DOC_LOCK that
+holds it back. tests/test_pgdoor_killswitch.py proves each.
 
 LOCK ORDER (org-wide rule, agreed with WS3b 2026-09-25). Node rows in
 ascending id order, then section rows in ascending name order; nothing locks
@@ -71,6 +77,17 @@ commits, so a post-commit step (wake, notice, hub broadcast, a family's
 `after.then`) that raises must never turn it into an error: run each such
 step through `after_commit`, which logs the failure and appends
 `{"step", "error"}` to `result["warnings"]`.
+
+A MISSED WITNESS (review N1; inferred from code, not probed). `on_commit`
+(`opreceipts.witness`) is one of those steps, so its failure is a warning
+too. It cannot cause a false rewind: witness only RAISES the process's seen
+seq for the org (a max), so missing it leaves that seq lower, never higher.
+What it loses is detection: until the next custody read of the org (every
+keyed call makes one before admission), a restore of the document to the
+state just BEFORE this commit would not be recognised as a rewind — the gap
+witness exists to close (its docstring, Astra's 2026-09-05 counterexample).
+witness is an in-memory max under a lock and is not expected to raise; the
+warning makes a failure visible instead of silent.
 """
 from __future__ import annotations
 
@@ -272,7 +289,10 @@ def declare(name: str, spec: "TxSpec | SpecFn",
     `when(args)`: route only the calls it accepts (orgtree_staff's hire mode
     is PG-3b's, its rehire mode PG-3a's); a call it refuses keeps the
     DOC_LOCK cycle. `before(call, args)`: the pre-transaction step (module
-    docstring, BEFORE THE TRANSACTION).
+    docstring, BEFORE THE TRANSACTION). `agent_tx` and `op_tx` run it
+    THEMSELVES, once per call, not only the `agent_call` hook — so a family
+    that calls `agent_tx`/`op_tx` directly gets it too, and must not also
+    run it by hand.
     `kiosk_exempt` (lead decision 18.8): the tool is PROVEN unable to move
     top-level holdings, so the door skips the kiosk credit-cap check for it —
     the family carries the proof. Re-declaring a name with a DIFFERENT spec
