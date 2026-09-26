@@ -75,7 +75,7 @@ export function clearNodeMetadata(org: string): void {
 
 /** The desk owns this subscription, so a badge update cannot invalidate the
  * chart's topology, layout or sibling cards. Portals use the same store. */
-export function useNodeMetadata<T extends Pick<TreeNode, 'id' | 'generation'>>(org: string, node: T): T {
+export function useNodeMetadata<T extends { id: string; generation?: number }>(org: string, node: T): T {
   const subscribe = useCallback((fn: () => void) => {
     const key = keyOf(org, node.id)
     const set = listeners.get(key) ?? new Set<() => void>()
