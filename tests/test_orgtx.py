@@ -417,7 +417,6 @@ class OrgTxConcurrency(unittest.TestCase):
         from orgtree import lifecycle
         with orgtx.org_tx(self.slug, logs=['lifecycle']) as tx:
             lifecycle.record(tx.d, operation_id='op', kind='k', state='s', at='t0')
-        self.assertIn(('serial', 'lifecycle', True), orgtx._lock_plan(tx))
         entered = threading.Event()
         errs: list[BaseException] = []
 
@@ -442,6 +441,7 @@ class OrgTxConcurrency(unittest.TestCase):
         self.assertEqual(errs, [])
         rows = [r for r in store.load_org(self.slug).d['lifecycle'] if r['operation_id'] == 'op']
         self.assertEqual([r['count'] for r in rows], [3])
+        self.assertIn(('serial', 'lifecycle', True), orgtx._lock_plan(tx))
 
     def test_multi_org_locks_and_commits_both(self) -> None:
         other = _fresh_org(f'cc2-{self._testMethodName}')
