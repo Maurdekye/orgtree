@@ -36,6 +36,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -119,6 +120,15 @@ def populate(root: Path) -> None:
     doc = fixtures.sample_doc("Acme")
     doc["events"] += [{"at": f"2026-09-25T11:00:{i:02d}Z", "kind": "tick", "i": i} for i in range(40)]
     fixtures.write_db(root / "orgs" / "acme.db", doc)
+    # the 2.1.x engine's legacy shape: the lifecycle ledger as ONE doc row
+    conn = sqlite3.connect(root / "orgs" / "acme.db")
+    try:
+        conn.execute("DELETE FROM log_l WHERE sect='lifecycle'")
+        conn.execute("INSERT INTO doc(key, val) VALUES ('lifecycle', ?)",
+                     (json.dumps([{"at": "2026-09-25T10:00:02Z", "kind": "send", "node": "n1"}]),))
+        conn.commit()
+    finally:
+        conn.close()
     (root / "orgs" / "beta.json").write_text(json.dumps(fixtures.sample_doc("Beta")), encoding="utf-8")
 
 
@@ -206,6 +216,9 @@ class Drills(unittest.TestCase):
             self.assertTrue(Path(loaded["store_file"]).resolve().is_relative_to(REPO), loaded["store_file"])
             self.assertEqual(loaded["orgs"]["acme"], reference["orgs"]["acme"],
                              "the engine on PostgreSQL loads exactly what SQLite loaded")
+            self.assertEqual(json.loads(loaded["orgs"]["acme"])["lifecycle"],
+                             [{"at": "2026-09-25T10:00:02Z", "kind": "send", "node": "n1"}],
+                             "the legacy lifecycle doc row survives the import")
             self.assertEqual(json.loads(loaded["orgs"]["beta"])["name"], "Beta")
             conn = engine_env[bracket.CONNINFO_ENV]
             org_id = json.loads((root / "orgs" / "acme.pg").read_text(encoding="utf-8"))["org_id"]
