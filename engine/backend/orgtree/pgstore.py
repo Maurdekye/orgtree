@@ -156,11 +156,24 @@ def connect(conninfo: str | None = None) -> Any:
 # not "dirty": every checkout re-points it (`_point_at`) before any use.
 
 #: a statement that can change a session setting: SET (not LOCAL/TRANSACTION),
-#: RESET or DISCARD at the start of a statement, or set_config() anywhere
+#: RESET or DISCARD at the start of a statement, or set_config() anywhere.
+#: This runs on every statement, so the common case stays cheap: an anchored
+#: match that fails at the first letters of SELECT/INSERT/UPDATE, and the full
+#: search only when the text holds a `;` (a second statement) or `config`.
+_SESSION_START = re.compile(r"\s*(?:SET\b(?!\s+(?:LOCAL|TRANSACTION)\b)|RESET\b|DISCARD\b)",
+                            re.IGNORECASE)
 _SESSION_SQL = re.compile(
     r"(?:^|;)\s*(?:SET\b(?!\s+(?:LOCAL|TRANSACTION)\b)|RESET\b|DISCARD\b)|\bset_config\s*\(",
     re.IGNORECASE)
 _TRACKING_CURSOR: Any = None
+
+
+def _changes_session(text: str) -> bool:
+    if _SESSION_START.match(text):
+        return True
+    if ";" in text or "onfig" in text or "ONFIG" in text:
+        return _SESSION_SQL.search(text) is not None
+    return False
 
 
 def _note_statement(raw: Any, query: Any) -> None:
@@ -168,7 +181,7 @@ def _note_statement(raw: Any, query: Any) -> None:
         return
     text = query if isinstance(query, str) else (
         query.decode("utf-8", "replace") if isinstance(query, bytes) else None)
-    if text is None or _SESSION_SQL.search(text):   # unknown text counts as a change
+    if text is None or _changes_session(text):     # unknown text counts as a change
         raw._ot_dirty = True
         raw._ot_path = None
 
