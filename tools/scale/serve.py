@@ -151,6 +151,19 @@ def child(args) -> int:
                 rec = {"t": round(time.time() - t0, 1),
                        "private_mb": round(psutil.Process().memory_info().private / 2**20),
                        "stacks": stacks}
+                if os.environ.get("ORGTREE_SCALE_TRACE_ORGS"):
+                    # live whole-org objects: distinct pinned versions of the document
+                    import gc
+                    want = {"Org", "LazyDoc", "OrgTx"}
+                    cnt: dict = {}
+                    ids = set()
+                    for o in gc.get_objects():
+                        tn = type(o).__name__
+                        if tn in want:
+                            cnt[tn] = cnt.get(tn, 0) + 1
+                            if tn == "LazyDoc":
+                                ids.add(id(o))
+                    rec["orgs"] = cnt
                 if frames_n:
                     snap = tracemalloc.take_snapshot().filter_traces(
                         [tracemalloc.Filter(False, tracemalloc.__file__)])
