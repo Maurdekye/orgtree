@@ -829,6 +829,7 @@ class PgBackend:
             org_id = pgstore.read_marker(store._db_path(tx.slug))  # pyright: ignore[reportPrivateUsage]
             if org_id is None:
                 raise LedgerError(f"no such org: {tx.slug!r}")
+            pgstore.refuse_duplicate(tx.slug, org_id)   # a copied marker shares a schema
             conns[tx.slug] = org_id
         order = sorted(txs, key=lambda t: conns[t.slug])
         raw = pgstore._checkout()                  # pyright: ignore[reportPrivateUsage]

@@ -63,7 +63,8 @@ class MigrationDrift(RuntimeError):
 
 class DuplicateMarker(RuntimeError):
     """Two markers in orgs/ name the same org_id: two orgs would write one
-    schema and corrupt each other. Refuses startup."""
+    schema and corrupt each other. Refuses opening THOSE orgs (refuse_duplicate),
+    never the whole start."""
 
 
 def url() -> str:
@@ -539,8 +540,11 @@ def retire_unmarked(orgs_dir: str) -> list[str]:
 def retire_deleted(org_id: int) -> None:
     """delete_org, once the marker is in the trash: retire the org's registry
     row now, not at the next claim. Rows and schema are kept, so the trash
-    marker (which names the org_id) can bring them back."""
+    marker (which names the org_id) can bring them back. Bounded: it runs
+    under the org's exclusive lock, so it must not wait long on public.orgs;
+    the caller logs a failure and retire_unmarked finishes the job."""
     with connect() as c:
+        c.execute("SET LOCAL lock_timeout = '5s'")
         c.execute("UPDATE public.orgs SET slug = slug || '@deleted-' || org_id, "
                   "deleted_at = now() WHERE org_id = %s AND deleted_at IS NULL", (org_id,))
 
@@ -549,9 +553,16 @@ def revive_marked(orgs_dir: str) -> list[str]:
     """At claim, after retire_unmarked: a marker in orgs/ whose org_id row is
     retired was put back from the trash (the restore). Make the row live again
     under the marker's file name. After retire_unmarked no live row can hold
-    that name with another org_id, since `<slug>.pg` names this one. Two
-    markers naming one org_id refuse (DuplicateMarker). A marker whose row is
-    missing is left alone; opening it fails loudly as before."""
+    that name with another org_id, since `<slug>.pg` names this one. A marker
+    whose row is missing is left alone; opening it fails loudly as before.
+
+    Two or more markers naming ONE org_id (a manual copy: copying `<slug>.db`
+    was a working clone on SQLite) would write one schema and corrupt each
+    other. They are neither revived nor opened (refuse_duplicate); every other
+    org starts normally — refusing the whole claim would take the engine down
+    for all orgs, with the reason on a stderr the desktop discards (review
+    p01-current-gap-opus55). A copy made while the engine runs is not seen
+    until the next start, as before this check existed."""
     names: dict[int, list[str]] = {}
     if os.path.isdir(orgs_dir):
         for name in sorted(os.listdir(orgs_dir)):
@@ -560,20 +571,53 @@ def revive_marked(orgs_dir: str) -> list[str]:
             org_id = read_marker(os.path.join(orgs_dir, name))
             if org_id is not None:
                 names.setdefault(org_id, []).append(name[:-len(MARKER_EXT)])
-    dup = {i: s for i, s in names.items() if len(s) > 1}
-    if dup:
-        raise DuplicateMarker(
-            "these markers in orgs/ name the same PostgreSQL org, so they would share "
-            "one set of rows: " + "; ".join(f"org_id {i}: {', '.join(s)}" for i, s in sorted(dup.items()))
-            + ". Move all but one of each back to the trash.")
+    with _duplicates_lock:
+        _duplicates.clear()
+        for org_id, slugs in names.items():
+            if len(slugs) > 1:
+                _duplicates.update((s, (org_id, orgs_dir)) for s in slugs)
     out: list[str] = []
     with connect() as c:
-        for org_id, (slug,) in sorted(names.items()):
+        for org_id, slugs in sorted(names.items()):
+            if len(slugs) > 1:
+                continue
+            slug = slugs[0]
             cur = c.execute("UPDATE public.orgs SET slug = %s, deleted_at = NULL "
                             "WHERE org_id = %s AND deleted_at IS NOT NULL", (slug, org_id))
             if cur.rowcount:
                 out.append(slug)
     return out
+
+
+#: slug -> (org_id, orgs_dir) for markers that share an org_id with another
+#: marker, found at claim by revive_marked
+_duplicates: dict[str, tuple[int, str]] = {}
+_duplicates_lock = threading.Lock()
+
+
+def refuse_duplicate(slug: str, org_id: int) -> None:
+    """Raise DuplicateMarker if `slug`'s marker shares `org_id` with another
+    marker still in orgs/. Once the others are gone (moved to the trash, or
+    deleted in the app — delete_org does not call this), the slug is cleared
+    and opens normally."""
+    with _duplicates_lock:
+        entry = _duplicates.get(slug)
+    if entry is None or entry[0] != org_id:
+        return
+    _, orgs_dir = entry
+    with _duplicates_lock:
+        peers = [s for s, (i, _) in _duplicates.items() if i == org_id and s != slug]
+    others = [s for s in peers
+              if read_marker(os.path.join(orgs_dir, f"{s}{MARKER_EXT}")) == org_id]
+    if not others:
+        with _duplicates_lock:
+            _duplicates.pop(slug, None)
+        return
+    raise DuplicateMarker(
+        f"org {slug!r} is refused: its marker {slug}{MARKER_EXT} names the same PostgreSQL "
+        f"org (org_id {org_id}) as {', '.join(s + MARKER_EXT for s in others)} in {orgs_dir}, so "
+        "they would share one set of rows. Move all but one of them back to the trash "
+        "(or delete all but one in the app); the one left then opens.")
 
 
 def open_conn(slug: str, marker: str, *, create: bool = False) -> PgConn:
@@ -613,6 +657,7 @@ def open_conn(slug: str, marker: str, *, create: bool = False) -> PgConn:
             conn.creating = marker
             conn.create_lock = lk
             return conn
+        refuse_duplicate(slug, org_id)
         raw.execute(f"SET search_path TO org_{int(org_id)}, public")
         return PgConn(raw, slug, org_id)
     except BaseException:

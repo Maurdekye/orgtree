@@ -329,15 +329,36 @@ class Seam(unittest.TestCase):
         self.assertEqual(self._pg('SELECT deleted_at IS NOT NULL FROM orgs WHERE org_id = %s', second),
                          [(True,)])
 
-    def test_two_markers_for_one_org_refuse(self) -> None:
+    def _reclaim(self) -> None:
+        os.close(store._owner_fd)
+        store._owner_fd = None
+        store.claim_data_root()
+
+    def test_two_markers_for_one_org_refuse_only_that_pair(self) -> None:
+        # review p01-current-gap-opus55 (a): a copied marker must not take the
+        # whole engine down; only the pair refuses, and clears once resolved
         slug = _fresh_org('del-dup')
+        other = _fresh_org('del-dup-other')
         twin = store.org_path('del-dup-twin')
         shutil.copyfile(store.org_path(slug), twin)
         try:
+            self._reclaim()                                   # startup completes
+            for s in (slug, other, 'del-dup-twin'):
+                store._invalidate_snapshot(s)                 # as after a restart
+            self.assertEqual(_node(other, 'a')['name'], 'a', 'other orgs open')
+            for s, peer in ((slug, 'del-dup-twin'), ('del-dup-twin', slug)):
+                with self.assertRaises(pgstore.DuplicateMarker) as cm:
+                    store.load_org(s)
+                self.assertIn(peer + pgstore.MARKER_EXT, str(cm.exception))
+                self.assertIn('back to the trash', str(cm.exception))
             with self.assertRaises(pgstore.DuplicateMarker):
-                pgstore.revive_marked(os.path.join(str(data), 'orgs'))
+                with orgtx.org_tx(slug, nodes=['a']) as tx:
+                    tx.d['nodes']['a']['name'] = 'shared'
         finally:
             os.remove(twin)
+        self.assertEqual(_node(slug, 'a')['name'], 'a', 'the one left opens, untouched')
+        self._reclaim()
+        self.assertEqual(pgstore._duplicates, {})
 
     def test_a_failed_retire_does_not_fail_the_delete(self) -> None:
         from unittest.mock import patch
