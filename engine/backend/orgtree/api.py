@@ -1582,6 +1582,67 @@ FRONTEND_DIST = os.path.normpath(os.environ.get("ORGTREE_V2_UI_DIR") or
 
 
 # ------------------------------------------------------------------ websocket
+# ── the per-socket outbox (mem-leak-probe, 2026-09-26) ───────────────────────
+#
+# Every frame used to be written by its own `_send` coroutine awaiting
+# `ws.send_json` directly. A window that stops reading (a renderer busy parsing
+# a large payload, or hung white) blocks uvicorn's send on flow control, and
+# every later frame for that window then waited in engine memory with its whole
+# payload — nothing capped, dropped or coalesced them. Measured 2026-09-25 with
+# this class on uvicorn: +1 MB/s at 100 frames/s against a non-reading client,
+# flat against a reading one; the live engine grew by GB per hour.
+#
+# Now each socket owns a bounded queue drained by ONE writer task, so `_send`
+# only enqueues and never waits on a slow window. A socket that fills its queue,
+# or whose single write stalls past `_WS_SEND_TIMEOUT`, is dropped: its
+# connection is ABORTED (a close frame could not pass a stalled socket either),
+# the renderer's `onclose` reconnects after 1.5 s, and a fresh connection resets
+# the sync bookkeeping and refetches the tree — so a dropped window loses no
+# state, only the frames it was not reading anyway.
+#: frames one socket may have queued before it is judged stuck and dropped
+_WS_QUEUE_MAX = 256
+#: seconds one frame may take to write before the socket is judged stuck
+_WS_SEND_TIMEOUT = 15.0
+
+
+def _abort_socket(ws: WebSocket) -> bool:
+    """Abort the TCP connection under `ws` without writing anything.
+
+    Starlette exposes no transport, so this follows the ASGI `send` callable —
+    through any middleware closures — to the server protocol object that owns
+    one (uvicorn's websocket protocols keep it as `.transport`). Returns False
+    when none is reachable; the caller then falls back to a timed close."""
+    stack: list[Any] = [getattr(ws, "_send", None)]
+    seen: set[int] = set()
+    while stack and len(seen) < 64:
+        obj = stack.pop()
+        if obj is None or id(obj) in seen:
+            continue
+        seen.add(id(obj))
+        owner = getattr(obj, "__self__", None)
+        transport = getattr(owner, "transport", None)
+        if transport is not None and callable(getattr(transport, "abort", None)):
+            transport.abort()
+            return True
+        for cell in getattr(obj, "__closure__", None) or ():
+            try:
+                stack.append(cell.cell_contents)
+            except ValueError:
+                pass
+    return False
+
+
+class _Outbox:
+    """One socket's pending frames and the task that writes them, in order."""
+
+    __slots__ = ("frames", "ready", "task")
+
+    def __init__(self) -> None:
+        self.frames: collections.deque[dict[str, Any]] = collections.deque()
+        self.ready = asyncio.Event()
+        self.task: asyncio.Task[None] | None = None
+
+
 class Hub:
     """Per-org 'something changed' fanout. Payloads are deliberately dumb — the UI
     refetches the tree; the ledger stays the single source of truth."""
@@ -1592,9 +1653,15 @@ class Hub:
         # payload carrying typed segments is projected for them (design §6) —
         # the room is shared, the projection is not
         self.public: set[WebSocket] = set()
+        self._boxes: dict[WebSocket, _Outbox] = {}
+        #: sockets dropped for not reading, by reason — diagnostics and tests
+        self.drops: dict[str, int] = {"overflow": 0, "stuck": 0, "abort_failed": 0}
 
     async def join(self, slug: str, ws: WebSocket, *, public: bool = False) -> None:
         await ws.accept()
+        box = _Outbox()
+        self._boxes[ws] = box
+        box.task = asyncio.get_running_loop().create_task(self._writer(slug, ws, box))
         self.rooms.setdefault(slug, set()).add(ws)
         if public:
             self.public.add(ws)
@@ -1602,9 +1669,59 @@ class Hub:
     def leave(self, slug: str, ws: WebSocket) -> None:
         self.rooms.get(slug, set()).discard(ws)
         self.public.discard(ws)
+        box = self._boxes.pop(ws, None)
+        if box is not None:
+            box.frames.clear()
+            task = box.task
+            if task is not None and not task.done():
+                try:
+                    current = asyncio.current_task()
+                except RuntimeError:
+                    current = None
+                if task is not current:
+                    task.cancel()
+
+    def pending(self, ws: WebSocket) -> int:
+        """Frames queued for `ws` and not yet written (0 once it has left)."""
+        box = self._boxes.get(ws)
+        return len(box.frames) if box is not None else 0
+
+    def _drop(self, slug: str, ws: WebSocket, reason: str) -> None:
+        """Give up on a socket that is not reading: forget it, free its queue,
+        and abort its connection so the window reconnects and refetches."""
+        self.drops[reason] = self.drops.get(reason, 0) + 1
+        self.leave(slug, ws)
+        try:
+            aborted = _abort_socket(ws)
+        except Exception:
+            aborted = False
+        if not aborted:
+            self.drops["abort_failed"] += 1
+
+            async def _close() -> None:
+                with contextlib.suppress(Exception):
+                    await asyncio.wait_for(ws.close(code=1013), _WS_SEND_TIMEOUT)
+            asyncio.get_running_loop().create_task(_close())
+
+    async def _writer(self, slug: str, ws: WebSocket, box: _Outbox) -> None:
+        while True:
+            while not box.frames:
+                box.ready.clear()
+                await box.ready.wait()
+            frame = box.frames.popleft()
+            try:
+                await asyncio.wait_for(ws.send_json(frame), _WS_SEND_TIMEOUT)
+            except asyncio.TimeoutError:
+                self._drop(slug, ws, "stuck")
+                return
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self.leave(slug, ws)
+                return
 
     async def _send(self, slug: str, payload: dict[str, Any]) -> None:
-        dead: list[WebSocket] = []
+        """Queue `payload` for every socket in the room; never waits on one."""
         raw_segments = payload.get("segments_raw")
         admin_payload = payload
         public_payload = payload
@@ -1625,13 +1742,15 @@ class Hub:
                 return result
             admin_payload = row_payload(admin_payload, False)
             public_payload = row_payload(public_payload, True)
-        for ws in self.rooms.get(slug, set()):
-            try:
-                await ws.send_json(public_payload if ws in self.public else admin_payload)
-            except Exception:
-                dead.append(ws)
-        for ws in dead:
-            self.leave(slug, ws)
+        for ws in list(self.rooms.get(slug, set())):
+            box = self._boxes.get(ws)
+            if box is None:
+                continue
+            if len(box.frames) >= _WS_QUEUE_MAX:
+                self._drop(slug, ws, "overflow")
+                continue
+            box.frames.append(public_payload if ws in self.public else admin_payload)
+            box.ready.set()
 
     async def changed(self, slug: str) -> None:
         await self._send(slug, {"type": "changed", "org": slug,
@@ -14738,6 +14857,9 @@ async def org_ws(ws: WebSocket, slug: str) -> None:
         while True:
             await ws.receive_text()   # client pings keep it alive; content ignored
     except WebSocketDisconnect:
+        pass
+    finally:
+        # also on an aborted or otherwise failed socket, not only a clean close
         hub.leave(slug, ws)
 
 
