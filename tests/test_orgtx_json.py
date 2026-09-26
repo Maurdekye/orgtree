@@ -10,7 +10,8 @@ What these prove, over a throwaway JSON data root:
   * a write to a row the transaction did not declare commits (declarations
     are ignored) and the published Committed says its changes are unknown;
   * the body runs holding DOC_LOCK even with the transition fence off;
-  * an exception in the body writes nothing;
+  * an exception in the body writes nothing, and so does a body that
+    changed nothing (no file rewrite, no revision bump);
   * an op_key replays within the process (body discarded) and a different
     fingerprint is refused; org_tx_call returns the stored result;
   * org_read hands back a private copy: writing to it saves nothing.
@@ -142,6 +143,26 @@ class OrgTxOnJson(unittest.TestCase):
         with self.assertRaises(orgtx.ReceiptConflict):
             with orgtx.org_tx(self.slug, op_key='k1', fingerprint='other'):
                 pass
+
+    def test_a_no_op_body_writes_nothing(self) -> None:
+        path = store.org_path(self.slug)
+        r0 = orgtx._json_fallback().revision(self.slug)
+        with patch.object(store, '_save_json', wraps=store._save_json) as save:
+            with orgtx.org_tx(self.slug, nodes=['a']) as tx:
+                _ = tx.d['nodes']['a']['name']            # read only
+        self.assertEqual(save.call_count, 0, 'a no-op body rewrote the org file')
+        self.assertTrue(os.path.exists(path))
+        self.assertEqual(tx.revision, r0)
+        self.assertIsNotNone(tx.committed)
+        self.assertTrue(tx.committed.changes_known)
+        self.assertTrue(tx.committed.changes.is_empty())
+        # a real change after it still saves
+        with patch.object(store, '_save_json', wraps=store._save_json) as save:
+            with orgtx.org_tx(self.slug, nodes=['a']) as tx:
+                tx.d['nodes']['a']['name'] = 'B'
+        self.assertEqual(save.call_count, 1)
+        self.assertEqual(tx.revision, r0 + 1)
+        self.assertEqual(store.load_org(self.slug).d['nodes']['a']['name'], 'B')
 
     def test_org_read_is_a_private_copy(self) -> None:
         view = orgtx.org_read(self.slug, sections=['events'])

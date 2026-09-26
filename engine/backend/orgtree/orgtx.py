@@ -571,7 +571,8 @@ class JsonBackend:
       * receipts are BEST-EFFORT: kept in this process's memory, so a replay
         is recognised only until the engine restarts;
       * `Committed.changes` is empty and `changes_known` is False (the store
-        publishes the save as unknown; readers full-reload);
+        publishes the save as unknown; readers full-reload) — except that a
+        body which changed nothing saves nothing and publishes no change;
       * a multi-org transaction saves the orgs one after another (slug order),
         not atomically."""
 
@@ -604,6 +605,7 @@ class JsonBackend:
                         tx.result = hit[1]
                 tx.org = store.load_org(tx.slug)
             _refuse_mixed_replay(order)
+            before = {tx.slug: _json_image(tx.org) for tx in order}
             yield
             if any(tx.replayed for tx in order):
                 for tx in order:
@@ -613,22 +615,41 @@ class JsonBackend:
                 _pause("before_commit", tx)
             loc = store._orgtx_local                   # pyright: ignore[reportPrivateUsage]
             for tx in order:
-                loc.defer_hooks = tx.deferred_hooks
-                try:
-                    store.save_org(tx.org)
-                finally:
-                    loc.defer_hooks = None
-                self.revisions[tx.slug] = self.revision(tx.slug) + 1
+                # a body that left the document as it found it writes nothing,
+                # as the legacy cycle did and as the row store does: no file
+                # rewrite, no publish, and (as SeamBackend) no revision bump
+                # unless a receipt is being recorded
+                unchanged = before[tx.slug] is not None and _json_image(tx.org) == before[tx.slug]
+                if not unchanged:
+                    loc.defer_hooks = tx.deferred_hooks
+                    try:
+                        store.save_org(tx.org)
+                    finally:
+                        loc.defer_hooks = None
+                if not unchanged or tx.op_key is not None:
+                    self.revisions[tx.slug] = self.revision(tx.slug) + 1
                 if tx.op_key is not None:
                     self.receipts[(tx.slug, tx.op_key)] = (tx.fingerprint, tx.result)
                 tx.revision = self.revision(tx.slug)
                 tx.committed = Committed(tx.slug, tx.revision, SaveChanges(), tx.op_key,
-                                         changes_known=False)
+                                         changes_known=unchanged)
             for tx in order:
                 _pause("after_commit", tx)
 
     def read(self, slug: str, sections: tuple[str, ...]) -> Org:
         return store.load_org(slug)            # a fresh whole-document parse
+
+
+def _json_image(org: Org | None) -> str | None:
+    """The whole document as canonical JSON, to tell a no-op body from a
+    write. None (treated as changed) when it cannot be serialised — the save
+    then raises exactly as it always did."""
+    if org is None:
+        return None
+    try:
+        return json.dumps(org.d, sort_keys=True, separators=(",", ":"))
+    except (TypeError, ValueError):
+        return None
 
 
 _json_backend: JsonBackend | None = None
