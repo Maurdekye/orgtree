@@ -576,3 +576,53 @@ def move_batch(slug: str, actor: str, moves: list[tuple[str, str | None]]
     mv = [(str(n or ""), (p or None)) for n, p in moves]
     return _run("move", slug, lambda o: _move_batch_rows(o, actor, mv),
                 lambda org, hn, hs: move_batch_body(org, hn, hs, actor, mv))
+
+
+# ------------------------------------------------- subjugate / promote_subtree
+# D-232 `Org.promote_subtree` (and `subjugate`, which is it plus a hint): the
+# target rises into nid's slot with its team, then nid descends beneath it —
+# exactly two internal `_move`s, authority already checked, after a seat
+# policy step that rewrites only the two agents' scopes. Rows: the union of
+# the two legs' `_move_rows`, the second computed on the tree the first
+# leaves (replayed on a private copy with `_authorized=True`, as the ledger
+# does: the public `move` would refuse a self-subjugation's first leg and
+# the replay would stop before the second). Sections are move's own.
+
+
+def _promote_rows(org, actor: str, nid: str, target: str
+                  ) -> tuple[set[str], set[str]]:
+    import copy as _copy
+    n, t = org.nodes.get(nid), org.nodes.get(target)
+    if n is None or t is None:
+        return {nid, target} & set(org.nodes) or {nid}, set()
+    p_a = n["parent"]
+    upd, share = _move_rows(org, actor, target, p_a)
+    sim = type(org)(_copy.deepcopy(org.d))
+    try:
+        sim._move("promote", actor, target, p_a, _authorized=True, _quiet=True)
+    except LedgerError:
+        return upd | {nid}, share - upd - {nid}       # the verb refuses
+    u2, s2 = _move_rows(sim, actor, nid, target)
+    upd |= u2 | {nid, target}
+    share |= s2
+    if actor in org.nodes:
+        share.add(actor)
+    return upd, share - upd
+
+
+def promote_body(org, held_nodes, held_share, actor: str, nid: str, target: str,
+                 op: str = "subjugate") -> dict[str, Any]:
+    """The door body: a pure function of the locked `org`."""
+    _need(org, lambda o: _promote_rows(o, actor, nid, target), held_nodes, held_share)
+    return getattr(org, op)(actor, nid, target)
+
+
+def subjugate(slug: str, actor: str, nid: str, target: str) -> dict[str, Any]:
+    return _run("move", slug, lambda o: _promote_rows(o, actor, nid, target),
+                lambda org, hn, hs: promote_body(org, hn, hs, actor, nid, target))
+
+
+def promote_subtree(slug: str, actor: str, nid: str, target: str) -> dict[str, Any]:
+    return _run("move", slug, lambda o: _promote_rows(o, actor, nid, target),
+                lambda org, hn, hs: promote_body(org, hn, hs, actor, nid, target,
+                                                 "promote_subtree"))
