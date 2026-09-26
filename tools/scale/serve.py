@@ -78,7 +78,10 @@ def parent(args) -> int:
     update_descriptor(root, {"origin": None, "token": token, "serve": {"state": "starting",
                              "port": port, "spawned_at": time.time(), "fence": args.fence,
                              "env": extra}})
-    cmd = [args.python or sys.executable, "-I", "-B", str(Path(__file__).resolve()), "--child",
+    # -X tracemalloc=N traces from the first allocation, so memory taken
+    # during startup/recovery is attributable (PYTHONTRACEMALLOC is ignored under -I)
+    trace = ["-X", f"tracemalloc={args.tracemalloc}"] if args.tracemalloc else []
+    cmd = [args.python or sys.executable, "-I", "-B", *trace, str(Path(__file__).resolve()), "--child",
            "--root", str(root), "--port", str(port)]
     log = open(root / "metrics" / "serve.log", "a", encoding="utf-8")
     proc = subprocess.Popen(cmd, cwd=REPO, env=env, stdout=log, stderr=subprocess.STDOUT)
@@ -354,6 +357,7 @@ def main(argv=None) -> int:
     p.add_argument("--port", type=int, default=0)
     p.add_argument("--python", default=None)
     p.add_argument("--fence", default=None, help="ORGTREE_ORGTX_FENCE for the engine (default: as built)")
+    p.add_argument("--tracemalloc", type=int, default=0, help="trace allocations from process start with N frames")
     p.add_argument("--env", action="append", help="KEY=VALUE for the engine env (repeatable; recorded in the descriptor)")
     p.add_argument("--child", action="store_true")
     args = p.parse_args(argv)
