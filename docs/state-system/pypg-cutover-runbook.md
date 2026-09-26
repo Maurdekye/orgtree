@@ -56,7 +56,9 @@ is needed. On launch the desktop writes `%APPDATA%\Orgtree v2\engine-paths.json`
 with its actual installation and selected data paths. Launch the approved v3
 build once before doing this cutover; existing stores remain on their current
 backend. A genuinely fresh install already starts on PostgreSQL and does not
-need this migration.
+need this migration. Trashed organizations in `DATA\deleted\` count as
+existing data even when `DATA\orgs\` is empty: that installation stays on
+SQLite and requires this external cutover before selecting PostgreSQL.
 
 Open **PowerShell from the Start menu**, outside Orgtree, and run:
 

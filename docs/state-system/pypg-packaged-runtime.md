@@ -56,7 +56,9 @@ is committed to Git.
 The desktop always sets `ORGTREE_PG_CUSTODIAN`, `ORGTREE_P03_PG_BIN` and
 `ORGTREE_PG_BOOTSTRAP=1` for a packaged launch. PG-1 owns backend selection,
 fresh-root classification, product binding, cluster lifecycle and connection
-details. Development can opt into executable locations with
+details. Trashed organizations in `DATA/deleted/` count as existing data,
+including when `DATA/orgs/` is empty; they never trigger fresh initialization.
+Development can opt into executable locations with
 `ORGTREE_DESKTOP_PACKAGED_PG=1`; that does **not** enable fresh-root bootstrap.
 
 On every packaged launch the desktop records its selected installation/data
