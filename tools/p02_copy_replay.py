@@ -795,6 +795,13 @@ def child_env(pinned: dict[str, Any], protected: list[str], run: Path, data: Pat
     return env
 
 
+def _tail(log: Path, lines: int = 25) -> list[str]:
+    try:
+        return log.read_text(encoding="utf-8", errors="replace").splitlines()[-lines:]
+    except OSError as exc:
+        return [f"(log unreadable: {exc})"]
+
+
 def _child(python: Path, sub: str, argv: list[str], env: dict[str, str], log: Path,
            timeout: float) -> tuple[int, dict[str, Any] | None]:
     cmd = [str(python), "-I", "-B", "-X", "utf8", str(Path(__file__).resolve()), sub, *argv]
@@ -1383,7 +1390,11 @@ def cmd_gate(args: argparse.Namespace) -> int:
             moved = sum(c.get("retries", 0) + c.get("skipped", 0) for c in busy_classes.values())
             busy_attempts.append({"exit": busy_code, "classes": busy_classes, "moved": moved,
                                   "refused_total": (busy or {}).get("refused_total"),
-                                  "writer": writer_out.strip().splitlines()[-1:]})
+                                  "writer": writer_out.strip().splitlines()[-1:],
+                                  # a snapshot that died emits no summary; its log is
+                                  # the only record of why, and the run folder is temporary
+                                  "log_tail": [] if busy_code == 0 else _tail(
+                                      run / "logs" / f"snapshot-busy-{n_try}.log")})
             if moved:
                 break
         checks["copy_busy"] = {"attempts": busy_attempts,
