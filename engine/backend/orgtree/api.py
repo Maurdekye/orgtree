@@ -102,6 +102,7 @@ from . import opreceipts
 from . import pgdoor
 from . import workdoor
 from . import runtimedoor
+from . import maildoor  # S1: the agent mail tools on the door
 from . import rcdoor  # PG-3c: credits/reservations/status on row transactions
 # PG-3a's door declarations: importing registers them with pgdoor
 from . import lifecycle_door
@@ -12185,6 +12186,13 @@ def _agent_door_tail(body: AgentCall, result: Any,
 # == False. `mail_notify` is rebound at startup, so it is looked up per call.
 workdoor.declare(_work_identity_ready, _work_mutate,
                  lambda slug, actor, n: mail_notify(slug, actor, n))
+
+# S1 (fence-off): the agent mail tools run on the door (maildoor.py); the
+# legacy branches in the cycle below stay for pgdoor.enabled() == False.
+# Every api/supervisor callable is looked up per call (rebound at startup).
+maildoor.declare(lambda slug, actor, n: mail_notify(slug, actor, n),
+                 lambda *a, **k: supervisor.send_message(*a, **k),
+                 lambda *a, **k: supervisor.delivery_note(*a, **k))
 
 
 def _runtime_refuse(status: int, message: str) -> NoReturn:
