@@ -197,10 +197,8 @@ class OrgTxBasics(unittest.TestCase):
             self.assertLessEqual({'killswitch', 'settings_x'}, set(tx.lock_sections))
             self.assertIn(('mail_log', 'a'), tx.logs)
             self.assertLessEqual(set(store.LAZY_SECTIONS), set(tx.logs))
-            plan = orgtx._lock_plan(tx, sorted(tx.lock_nodes))
-            self.assertIn(('section', 'killswitch', True), plan)
-            self.assertIn(('log', json.dumps(['mail_log', 'a']), True), plan)
-            self.assertTrue(all(x for _, _, x in plan))
+            # the org pseudo-row, exclusive, is the whole plan
+            self.assertEqual(orgtx._lock_plan(tx, sorted(tx.lock_nodes)), [('org', '*', True)])
             tx.d['nodes']['a']['name'] = 'A'
             tx.d['nodes']['d'] = {'id': 'd', 'name': 'd', 'parent': None, 'children': []}
             tx.d['killswitch']['on'] = True
@@ -237,9 +235,9 @@ class OrgTxBasics(unittest.TestCase):
             plan = orgtx._lock_plan(tx)
         self.assertIsNone(orgtx.current_tx(self.slug))
         self.assertEqual([(k, n) for k, n, _ in plan],
-                         [('node', '*'), ('node', 'a'), ('node', 'b'),
+                         [('org', '*'), ('node', '*'), ('node', 'a'), ('node', 'b'),
                           ('section', 'killswitch'), ('section', 'settings_x')])
-        self.assertEqual([x for _, _, x in plan], [False, True, True, True, False])
+        self.assertEqual([x for _, _, x in plan], [False, False, True, True, True, False])
 
     def test_save_hooks_fire_after_commit_outside_locks(self) -> None:
         seen: list[str] = []
@@ -355,15 +353,16 @@ class OrgTxConcurrency(unittest.TestCase):
         entered, release = threading.Event(), threading.Event()
         t = self._hold(entered, release, whole=True)
         try:
+            # every org_tx takes the org pseudo-row shared, so a whole tx also
+            # excludes the rows it could not list: a list-log append, a new
+            # section, a split owner row created for a new node (p01 review)
             for names in (dict(nodes=['b']), dict(nodes=['brand-new']),
                           dict(sections=['killswitch']), dict(share_sections=['settings_x']),
-                          dict(logs=[('mail_log', 'a')])):
+                          dict(logs=[('mail_log', 'a')]), dict(logs=['events']),
+                          dict(sections=['not_there_yet']),
+                          dict(sections=[('mail', 'brand-new')])):
                 with self.subTest(names=names):
                     self.assertEqual(self._try(0.2, **names), 'blocked')
-            # the documented limits: a list-log append takes no row lock, and a
-            # section that did not exist when the rows were listed is not held
-            self.assertEqual(self._try(0.2, logs=['events']), 'got')
-            self.assertEqual(self._try(0.2, sections=['not_there_yet']), 'got')
         finally:
             release.set()
             t.join()
@@ -371,7 +370,7 @@ class OrgTxConcurrency(unittest.TestCase):
 
     def test_whole_waits_for_a_row_holder(self) -> None:
         for names in (dict(sections=['settings_x']), dict(share_sections=['killswitch']),
-                      dict(nodes=['c'])):
+                      dict(nodes=['c']), dict(logs=['events'])):
             with self.subTest(names=names):
                 entered, release = threading.Event(), threading.Event()
                 t = self._hold(entered, release, **names)

@@ -357,10 +357,11 @@ class OrgTxOnPostgres(unittest.TestCase):
         try:
             for names in (dict(nodes=['b']), dict(nodes=['brand-new']),
                           dict(sections=['killswitch']), dict(share_sections=['killswitch']),
-                          dict(logs=[('mail_log', 'a')])):
+                          dict(logs=[('mail_log', 'a')]), dict(logs=['events']),
+                          dict(sections=['not_there_yet']),
+                          dict(sections=[('mail', 'brand-new')])):
                 with self.subTest(names=names):
                     self.assertEqual(self._try(**names), 'blocked')
-            self.assertEqual(self._try(logs=['events']), 'got')   # appends take no lock
         finally:
             r.set()
             t.join()
