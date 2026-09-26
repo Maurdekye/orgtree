@@ -437,8 +437,9 @@ def runtime_facts(st: Mapping[str, Any]) -> dict[str, Any]:
                               + carriers(st.get("halt_aux_carriers", []))),
             "handoffs": carriers(st.get("mail_handoffs", [])),
             "publication_wait": carriers(st.get("mail_publication_wait", [])),
-            "pending_worker": carriers([st["halt_pending_carrier"]])
-                if "halt_pending_carrier" in st else [],
+            # S11: one pending carrier per turn worker
+            "pending_worker": carriers(list(
+                (st.get("halt_pending_carriers") or {}).values())),
             "legacy_attempt": _token_membership(st.get("mail_attempt_tokens", ())),
             "attempt": copy.deepcopy(st.get("lifecycle_operation_id")),
             "busy": bool(st.get("busy")), "waiting": bool(st.get("waiting")),

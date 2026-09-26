@@ -15217,7 +15217,9 @@ def _run_turn(slug: str, nid: str, text: str | dict[str, Any]) -> None:
     st = state(slug, nid)
     with _state_lock:
         st["turn_activity"] = False
-        st["halt_carrier_id"] = text.get("_halt_id") if isinstance(text, dict) else None
+        # S11: this worker's own slot (halt.worker registered it)
+        halt.set_pending_id(st, slug, nid,
+                            text.get("_halt_id") if isinstance(text, dict) else None)
     # Everything here precedes provider input. A carrier may already contain
     # journaled mail and authored text, so failure/cancellation retains it whole.
     try:
@@ -21457,7 +21459,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     except json.JSONDecodeError:
                         continue
                     last_ev[0] = time.monotonic()      # the CLI is alive
-                    if (pend_toks or st.get("halt_pending_carrier")) and ev.get("type") != "system" \
+                    if (pend_toks or halt.has_pending_carrier(st, slug, nid)) and ev.get("type") != "system" \
                             and not (ev.get("type") == "result"
                                      and ev.get("is_error")):
                         # ⚠ an ERROR result is not proof of consumption. C1's
@@ -22194,9 +22196,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                 if nxt is None:
                                     break  # Every queued carrier is held for resolution.
                                 boundary_drained += 1
-                                st["halt_pending_carrier"] = (nxt if isinstance(nxt, dict)
-                                                               else {"text": nxt})
-                                st["halt_carrier_id"] = st["halt_pending_carrier"].get("_halt_id")
+                                # S11: this worker's own pending slot
+                                halt.set_pending_carrier(st, slug, nid, nxt)
                                 st["responding"] = True
                                 st["boundary_at"] = time.time()  # D-236
                                 st["boundary_polls"] = 0

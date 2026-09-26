@@ -692,7 +692,8 @@ class AgentHaltTests(unittest.TestCase):
         self.mail("the original mail")
         text, tok, _ = sup._envelope(self.slug, self.nid, "handle this mail")
         source = {"text": text, "toks": [tok], "view": "the original view"}
-        self.st["halt_pending_carrier"] = source
+        with sup._state_lock:           # S11: the pending slot is per worker
+            halt.set_pending_carrier(self.st, self.slug, self.nid, source)
         with store.DOC_LOCK:
             org = self.org()
             frozen = {"limit": True, "resume_texts": ["truncated freeze prose"]}

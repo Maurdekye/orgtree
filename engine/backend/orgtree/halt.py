@@ -287,6 +287,93 @@ _halt_states: dict[tuple[str, str], list[dict]] = {}
 _halters: dict[tuple[str, str], int] = {}
 _reg = threading.Condition(threading.RLock())
 _changed = _reg   # the old name; waiters/notifiers elsewhere keep working
+
+# ------------------------------------------- per-worker pending carriers (S11)
+# The carrier a turn worker has handed to its provider but not yet seen
+# consumed. It used to be ONE slot per runtime (`st["halt_pending_carrier"]`),
+# which was safe only while the transition fence admitted one turn worker at
+# a time: with the fence off, workers admitted side by side on one agent
+# overwrote each other's carrier and a halt retained only the last
+# (test_s11_halt_carriers_fence_off, 7/20 before this). Now each turn worker
+# owns its own slot, keyed by a token it holds in `_SLOT` for the length of
+# its body; `st["halt_pending_carriers"]` maps token → carrier and
+# `st["halt_carrier_ids"]` token → the carrier's `_halt_id` at the time it was
+# set. A turn worker nested on the same thread for the same agent (`_run_turn`
+# → `_run_one_turn`) REUSES the outer token, which is exactly the old
+# one-slot-per-thread behaviour. Everything that makes carriers durable
+# (`_capture`, the settle poll, the mail census) reads ALL slots; everything a
+# turn does to its own input (set, consume, link a freeze) touches only its
+# own. Every access is under `supervisor._state_lock`, like the old slot.
+_SLOT: "contextvars.ContextVar[dict[tuple[str, str], object] | None]" = \
+    contextvars.ContextVar("halt_pending_slot", default=None)
+
+
+def _slot_token(slug: str, nid: str) -> object | None:
+    held = _SLOT.get()
+    return held.get((slug, nid)) if held else None
+
+
+def _own_slot(st, slug: str, nid: str) -> object | None:
+    """This thread's token for the agent, or — outside any turn worker — the
+    ONLY pending slot when there is exactly one (a single-worker caller keeps
+    working as before); None when that is ambiguous. Caller holds
+    `_state_lock`."""
+    tok = _slot_token(slug, nid)
+    if tok is not None:
+        return tok
+    slots = st.get("halt_pending_carriers") or {}
+    return next(iter(slots)) if len(slots) == 1 else None
+
+
+def pending_carrier(st, slug: str, nid: str):
+    """This worker's pending carrier, or None. Caller holds `_state_lock`."""
+    tok = _own_slot(st, slug, nid)
+    return (st.get("halt_pending_carriers") or {}).get(tok) if tok is not None else None
+
+
+def set_pending_carrier(st, slug: str, nid: str, carrier) -> dict:
+    """Make `carrier` this worker's pending carrier (a bare text is wrapped)
+    and return the dict stored. Caller holds `_state_lock`."""
+    c = carrier if isinstance(carrier, dict) else {"text": carrier}
+    tok = _own_slot(st, slug, nid)
+    if tok is None:
+        tok = object()
+    st.setdefault("halt_pending_carriers", {})[tok] = c
+    st.setdefault("halt_carrier_ids", {})[tok] = c.get("_halt_id")
+    return c
+
+
+def has_pending_carrier(st, slug: str, nid: str) -> bool:
+    """Does this worker still hold an unconsumed carrier? Takes
+    `_state_lock` itself (a lock-free peek from the stream loop)."""
+    from . import supervisor as sup
+    with sup._state_lock:
+        return bool(pending_carrier(st, slug, nid))
+
+
+def set_pending_id(st, slug: str, nid: str, ident: Any) -> None:
+    """Record the `_halt_id` of this worker's carrier. Caller holds
+    `_state_lock`."""
+    tok = _own_slot(st, slug, nid)
+    if tok is not None:
+        st.setdefault("halt_carrier_ids", {})[tok] = ident
+
+
+def pop_pending_carrier(st, slug: str, nid: str) -> tuple[Any, Any]:
+    """Remove this worker's slot: (carrier, the id recorded with it). Caller
+    holds `_state_lock`."""
+    tok = _own_slot(st, slug, nid)
+    if tok is None:
+        return None, None
+    c = (st.get("halt_pending_carriers") or {}).pop(tok, None)
+    ident = (st.get("halt_carrier_ids") or {}).pop(tok, None)
+    return c, ident
+
+
+def pending_carriers(st) -> list:
+    """Every worker's pending carrier. Caller holds `_state_lock`."""
+    return [c for c in (st.get("halt_pending_carriers") or {}).values()
+            if c is not None]
 SETTLE_TIMEOUT = 20.0  # leave room inside the agent tool transport's 30s timeout
 
 # ---------------------------------------------------- the durable settler
@@ -445,7 +532,7 @@ def link_freeze_replay(slug: str, nid: str, frozen) -> None:
     from . import supervisor as sup
     st = sup.state(slug, nid)
     with sup._state_lock:
-        pending = st.get("halt_pending_carrier")
+        pending = pending_carrier(st, slug, nid)
         if pending is not None and frozen.get("resume_texts"):
             ident = pending.setdefault("_halt_id", uuid.uuid4().hex)
             frozen.setdefault("halt_sources", {})[str(len(frozen["resume_texts"]) - 1)] = ident
@@ -483,9 +570,8 @@ def _capture(org, nid: str, st, *, force: bool = False) -> None:
         queued.extend(st.get("mail_publication_wait") or [])
         for entry in st.get("steer_limbo") or []:
             queued.extend(entry.get("carriers") or [])
-        pending = st.get("halt_pending_carrier")
-        if pending is not None:
-            queued.insert(0, pending)
+        # every worker's unconfirmed input, ahead of the queues (S11)
+        queued[:0] = pending_carriers(st)
     changed = retain(org, nid, queued)
 
     def stash() -> None:
@@ -629,9 +715,11 @@ def admission(fn=None, *, rows=None):
     return guarded
 
 
-def _unregister(slug: str, nid: str, st, *, gated: bool) -> None:
-    """Under `_reg`: drop one registration of `st`; the last one out clears
-    the pending carrier (and, when gated, the busy flags)."""
+def _unregister(slug: str, nid: str, st, *, gated: bool,
+                slot: object | None = None) -> None:
+    """Under `_reg`: drop one registration of `st` and the pending-carrier
+    `slot` it owned (S11); the last one out clears every slot (and, when
+    gated, the busy flags)."""
     from . import supervisor as sup
     key = (slug, nid)
     owners = _worker_states.get(key, [])
@@ -641,12 +729,18 @@ def _unregister(slug: str, nid: str, st, *, gated: bool) -> None:
             break
     if not owners:
         _worker_states.pop(key, None)
+    if slot is not None:
+        with sup._state_lock:
+            (st.get("halt_pending_carriers") or {}).pop(slot, None)
+            (st.get("halt_carrier_ids") or {}).pop(slot, None)
     count = _workers.get(key, 1) - 1
     if count:
         _workers[key] = count
     else:
         _workers.pop(key, None)
-        st.pop("halt_pending_carrier", None)
+        with sup._state_lock:
+            st.pop("halt_pending_carriers", None)
+            st.pop("halt_carrier_ids", None)
         if gated:
             runtimes = _states(slug, nid, st)
             with sup._state_lock:
@@ -674,16 +768,15 @@ def worker(fn):
         key = (slug, nid)
         st = sup.state(slug, nid)
         turn = fn.__name__ in ("_run_turn", "_run_one_turn") and bool(args)
-        # ⚠ UNDER THE FENCE, like the DOC_LOCK section this replaced. The
-        # ordering proof above needs no lock, but `halt_pending_carrier` is
-        # ONE slot per runtime: two turn workers admitted side by side on one
-        # agent overwrite each other's unconfirmed carrier, and only the last
-        # is retained when the halt lands. Lock-free admission let all six
-        # direct workers of test_halt_racing_send_and_manual_drive_... in
-        # before the halt and lost five of their carriers (4/20 passes, base
-        # 20/20). Removing the fence therefore needs per-worker pending
-        # carriers first (supervisor rewrites the slot mid-turn too), and
-        # that test is the guard.
+        # UNDER THE FENCE, like the DOC_LOCK section this replaced, while the
+        # fence is on. The ordering proof above needs no lock, and since S11
+        # neither do the pending carriers: each turn worker owns its own slot
+        # (the per-worker carriers block above), so workers admitted side by
+        # side on one agent no longer overwrite each other's unconfirmed
+        # carrier. test_s11_halt_carriers_fence_off runs the guard
+        # (test_halt_racing_send_and_manual_drive_...) with the fence off.
+        slot: object | None = None      # the slot this worker OWNS
+        held = _SLOT.get() or {}
         with _fence():
             with _reg:
                 _workers[key] = _workers.get(key, 0) + 1
@@ -694,12 +787,18 @@ def worker(fn):
                 # commits from here on waits for this worker, whose finally
                 # captures this carrier if it was not spent
                 c = args[0] if isinstance(args[0], dict) else {"text": str(args[0])}
+                # a turn worker nested on this thread (`_run_turn` →
+                # `_run_one_turn`) reuses the outer worker's slot
+                tok = held.get(key)
+                if tok is None:
+                    tok = slot = object()
                 with sup._state_lock:
-                    old = st.get("halt_pending_carrier")
+                    slots = st.setdefault("halt_pending_carriers", {})
+                    old = slots.get(tok)
                     if old and old.get("text") == c.get("text") and not isinstance(args[0], dict):
                         c = old
-                    st["halt_pending_carrier"] = c
-                    st["halt_carrier_id"] = c.get("_halt_id")
+                    slots[tok] = c
+                    st.setdefault("halt_carrier_ids", {})[tok] = c.get("_halt_id")
         if refused:
             # Not admitted. The pending slot may hold a running worker's
             # carrier that no capture has reached yet, so a refused worker
@@ -714,9 +813,12 @@ def worker(fn):
                 with _reg:
                     _unregister(slug, nid, st, gated=True)
             return None
+        reset = _SLOT.set({**held, key: slot}) if slot is not None else None
         try:
             return fn(slug, nid, *args, **kwargs)
         finally:
+            if reset is not None:
+                _SLOT.reset(reset)
             gated = False
             try:
                 gated = bool(_node(slug, nid) and blocked(slug, nid))
@@ -725,7 +827,7 @@ def worker(fn):
                         _capture(tx.org, nid, st)
             finally:
                 with _reg:
-                    _unregister(slug, nid, st, gated=gated)
+                    _unregister(slug, nid, st, gated=gated, slot=slot)
     return guarded
 
 
@@ -778,9 +880,8 @@ def consumed(slug: str, nid: str) -> None:
         return
     st = sup.state(slug, nid)
     with sup._state_lock:
-        c = st.pop("halt_pending_carrier", None)
-        ident = (c or {}).get("_halt_id") or st.pop("halt_carrier_id", None)
-        st.pop("halt_carrier_id", None)
+        c, recorded = pop_pending_carrier(st, slug, nid)
+        ident = (c or {}).get("_halt_id") or recorded
     if not ident or not n.get("halt_queue"):
         return
     with txn(slug, nodes=[nid]) as tx:
@@ -1256,7 +1357,7 @@ def _pending_carriers(slug: str, nid: str, st) -> bool:
         if (st.get("queue") or st.get("steer")
                 or st.get("halt_steering_carriers")
                 or st.get("halt_aux_carriers")
-                or st.get("halt_pending_carrier") is not None):
+                or pending_carriers(st)):
             return True
         for entry in st.get("steer_limbo") or []:
             if entry.get("carriers"):
@@ -1405,9 +1506,7 @@ def restore_carriers(org, nid: str, current) -> None:
             ids.add(current.get("_halt_id"))
         st["queue"].extend(copy.deepcopy(c) for c in org.node(nid).get("halt_queue") or []
                            if c.get("_halt_id") not in ids)
-        st["halt_pending_carrier"] = (current if isinstance(current, dict)
-                                      else {"text": current})
-        st["halt_carrier_id"] = st["halt_pending_carrier"].get("_halt_id")
+        set_pending_carrier(st, org.d["slug"], nid, current)
 
 
 def killswitch_latch(slug: str, actor: str = USER) -> dict[str, Any]:
