@@ -301,6 +301,69 @@ class AgentTxTest(unittest.TestCase):
         with self.assertRaisesRegex(LedgerError, 'no lock declaration'):
             pgdoor.op_tx(SLUG, 'hire', None, {}, unhalt)
 
+    # ------------------------------------------- op_tx after-commit (S3)
+    def _op_with_after(self, fail_first=0, widen_first=False, refuse=False,
+                       then_raises=False):
+        """An op whose body registers an after-commit callable on EVERY
+        attempt; returns (result, calls, order)."""
+        class Serial(Exception):
+            pass
+
+        pgdoor.use_org_tx(self.fs.org_tx, lambda e: isinstance(e, Serial))
+        pgdoor.declare('op_after', pgdoor.TxSpec(nodes=(W,)))
+        tries, calls, order = [], [], []
+
+        def body(tx):
+            tries.append(1)
+            tx.org.node(W)['n'] += 1
+
+            def then(res, _attempt=len(tries)):
+                order.append('then')
+                calls.append((_attempt, res))
+                if then_raises:
+                    raise OSError('disk full')
+            tx.after.then.append(then)
+            if refuse:
+                raise LedgerError('refused')
+            if len(tries) <= fail_first:
+                raise Serial()
+            if widen_first and 'extra' not in self.fs.specs[-1][0]:
+                raise pgdoor.Widen(nodes=['extra'])
+            return {'ok': True, 'attempt': len(tries)}
+
+        self.fs.nodes['extra'] = {'id': 'extra'}
+        self._calls = calls
+        r = pgdoor.op_tx(SLUG, 'op_after', None, {}, body,
+                         on_commit=lambda org: order.append('on_commit'))
+        return r, calls, order
+
+    def test_op_tx_after_runs_once_for_the_committed_attempt_after_retries(self):
+        r, calls, order = self._op_with_after(fail_first=2)
+        self.assertEqual(r['attempt'], 3)
+        self.assertEqual(calls, [(3, r)])       # only the committed attempt's
+        self.assertEqual(order, ['then', 'on_commit'])
+        self.assertEqual(self.n(), 1)
+
+    def test_op_tx_after_runs_once_after_a_widened_rerun(self):
+        r, calls, _ = self._op_with_after(widen_first=True)
+        self.assertEqual(calls, [(2, r)])
+        self.assertEqual(self.fs.commits, 1)
+
+    def test_op_tx_after_never_runs_on_a_rollback(self):
+        with self.assertRaisesRegex(LedgerError, 'refused'):
+            self._op_with_after(refuse=True)
+        self.assertEqual(self._calls, [])
+        self.assertEqual(self.fs.commits, 0)
+        self.assertEqual(self.n(), 0)
+
+    def test_op_tx_after_failure_is_a_warning_and_the_op_stands(self):
+        r, calls, order = self._op_with_after(then_raises=True)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(self.fs.commits, 1)
+        self.assertEqual([w['step'] for w in r.get('warnings') or []],
+                         ['then:then'])
+        self.assertEqual(order, ['then', 'on_commit'])
+
     # ------------------------------------------------------- the halt rule
     def test_halted_refuses_and_runs_nothing(self):
         self.fs.nodes[W]['halt'] = True

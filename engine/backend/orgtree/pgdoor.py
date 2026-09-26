@@ -681,7 +681,11 @@ class OpTx:
     """What an operator-op body receives: the locked document, the op and
     its request body, the rows held, the open handle, the org's slug, and
     `pre` — values the route computed BEFORE the transaction (provider reads
-    and the like never happen inside it)."""
+    and the like never happen inside it) — and `after`, which the body fills
+    with callables to run with the result once the commit has succeeded
+    (file IO such as a transcript copy, process cleanup), exactly as
+    `AgentTx.after`. A fresh `After` per attempt: a rolled-back or widened
+    attempt leaves nothing behind."""
     org: Any
     op: str
     body: Any
@@ -690,6 +694,7 @@ class OpTx:
     tx: Any = None
     slug: str = ""
     pre: dict[str, Any] = field(default_factory=dict)
+    after: After = field(default_factory=After)
 
 
 def op_tx(slug: str, op: str, body: Any, a: dict[str, Any],
@@ -700,13 +705,26 @@ def op_tx(slug: str, op: str, body: Any, a: dict[str, Any],
     row transaction. No caller node row, no halt gate and no receipts: the
     operator is the user, `org_op` never had that prologue, and the user must
     be able to act on a halted agent or a latched org (that is how they are
-    released). The target rows come from `LOCKS[op]`."""
+    released). The target rows come from `LOCKS[op]`.
+
+    After the commit — never on a rollback, a widened re-run or a retry —
+    the committed attempt's `after.then` callables run with the result, each
+    through `after_commit` (a failure is a warning, the op stands), and then
+    `on_commit(org)`."""
     pre = _before(op, slug, body, a, pre)
     base = spec if spec is not None else _resolve(op, slug, body, a)
-    h, result = _run(slug, base,
-                     lambda h, held: fn(OpTx(org=h.org, op=op, body=body,
-                                             args=a, spec=held, tx=h,
-                                             slug=slug, pre=dict(pre))))
+    last: list[After] = []
+
+    def step(h: Any, held: TxSpec) -> Any:
+        aft = After()               # fresh per attempt
+        last[:] = [aft]
+        return fn(OpTx(org=h.org, op=op, body=body, args=a, spec=held, tx=h,
+                       slug=slug, pre=dict(pre), after=aft))
+
+    h, result = _run(slug, base, step)
+    for then in last[0].then:
+        after_commit(result, "then:" + str(getattr(then, "__name__", "then")),
+                     then, result)
     if on_commit is not None:
         after_commit(result, "on_commit", on_commit, h.org)
     return result
