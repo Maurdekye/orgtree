@@ -238,9 +238,10 @@ def child(args) -> int:
                             for d, k in rows]}
 
     @api.app.get("/scale/profile")
-    def _scale_profile(target: str, top: int = 30) -> dict:
+    def _scale_profile(target: str, top: int = 30, args: str = "[]", kwargs: str = "{}") -> dict:
         """cProfile ONE call of a zero-argument engine function named
-        `module.func` (e.g. supervisor._abandoned_docket_recovery_pass).
+        `module.func` (e.g. supervisor._abandoned_docket_recovery_pass), with
+        optional JSON `args` (list) and `kwargs` (object).
         Throwaway roots only: the call has its real side effects."""
         import cProfile
         import importlib
@@ -252,7 +253,7 @@ def child(args) -> int:
         t0 = time.perf_counter(); c0 = time.process_time()
         pr.enable()
         try:
-            f()
+            f(*json.loads(args), **json.loads(kwargs))
         finally:
             pr.disable()
         wall = time.perf_counter() - t0
