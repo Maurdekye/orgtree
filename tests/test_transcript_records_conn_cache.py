@@ -159,7 +159,9 @@ class ConnectionCacheTests(unittest.TestCase):
             leave.wait(30)
         new_root = tempfile.mkdtemp(dir=fixture.name)
         thread = threading.Thread(target=worker)
-        store.DATA_ROOT = new_root
+        # the store may hold the long spelling while the deleter holds the
+        # temp folder's 8.3 short one (C:\Users\NCOLA_~1 on this machine)
+        store.DATA_ROOT = os.path.realpath(new_root)
         try:
             with records.database() as mine:
                 pass
