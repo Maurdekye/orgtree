@@ -95,7 +95,9 @@ class ContractCoverage(unittest.TestCase):
         # admission layers (RecoveryBarrier, FrozenAdminBoundary) stay pending
         # 744 -> 752 (P01 F9): 6 entries and 4 storage witnesses mapped, 18 new open dimension occurrences
         # (conflicts, wire and instrumentation on each of 6 desktop-import contracts)
-        self.assertEqual(len(result["pending"]), 752)
+        # 752 -> 784 (P01 re-anchor after PYPG): 32 new pending rows for the sites PYPG, PG-4 and the change-feed
+        # queue added (12 registrations, 13 dispatch branches, 7 PostgreSQL connection sites)
+        self.assertEqual(len(result["pending"]), 784)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
 
     # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
@@ -153,7 +155,9 @@ class ContractCoverage(unittest.TestCase):
                          + ["desktop_import.py:_write_candidate", "filedelivery.py:snapshot", "reply_events.py:count"])
         # 11 from S2k, plus the 3 mail hub store migration connections the launch.py item's wider scan found, less
         # the two P01 F4 mapped, less the four P01 F9 mapped
-        self.assertEqual(len(by["pending"]), 8)
+        # 8 -> 15 (P01 re-anchor after PYPG): the seven PostgreSQL connection sites (pgstore x5, pgfeed,
+        # store.claim_data_root) stay pending
+        self.assertEqual(len(by["pending"]), 15)
         self.assertEqual(by["pending"].count("mailhub_runtime.py:MailhubRuntime._migrate_store"), 3)
         # the org store and every census-observed sidecar stay pending, each with its S2k reason
         self.assertLessEqual({"store.py:_open_conn", "toolwait.py:_db", "reply_events.py:_connect",
@@ -642,7 +646,7 @@ class ContractCoverage(unittest.TestCase):
         # a shared selector still pending (the transcript docket button: orgtree_work is not contracted); the
         # shared read block S3 candidate 1 used here is mapped since P01 F4
         document = copy.deepcopy(self.document)
-        row = next(r for r in document["dispatch"] if r["id"].startswith("c5c737b3"))
+        row = next(r for r in document["dispatch"] if r["id"].startswith("419fcdf4"))
         self.assertEqual(row["disposition"], "pending")
         site = next(s["source"] for s in self.source["dispatch_selectors"]
                     if contracts.witness_id("dispatch", s) == row["id"])
@@ -859,11 +863,11 @@ class ContractCoverage(unittest.TestCase):
         document = copy.deepcopy(self.document)
         # credit_request_action's approve branch is mapped (P01 F3 contracted the inbox batch submit);
         # were that entry still pending, the mapped helper witness would be early
-        row = next(r for r in document["dispatch"] if r["id"].startswith("0042c85a"))
+        row = next(r for r in document["dispatch"] if r["id"].startswith("11d67edb"))
         self.assertEqual(row["disposition"], "mapped")
         batch = next(r for r in document["entries"] if r["id"].startswith("16833d38"))
         batch.update(disposition="pending", contracts=[], source_refs=[], reason="(control) not contracted")
-        both = {r["id"] for r in document["dispatch"] if r["id"].startswith(("0042c85a", "dc6832d2"))}
+        both = {r["id"] for r in document["dispatch"] if r["id"].startswith(("11d67edb", "04bb7a04"))}
         self.assertEqual(len(both), 2)
         self.assertEqual(self.early_helper_witnesses(document), both)
 

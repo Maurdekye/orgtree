@@ -354,17 +354,25 @@ def b():
         # 335 -> 334: the retirement's second stage removes the external-chat handle sweeper's worker
         # 334 -> 339: p01-inventory-misses-middleware-add-middleware-c sees api.py's four add_middleware calls and
         # p03_door's app.middleware("http")(_Router(root))
-        self.assertEqual(summary["registration_sites"], 339)
-        self.assertEqual(summary["registration_kinds"]["task"], 13)
+        # 339 -> 351 (P01 re-anchor after PYPG): the change feed's two Hub tasks (Hub.join's writer, Hub._drop's
+        # close), the revision feed's shutdown hook and listener thread (PG-4), the docket list cache's sweeper
+        # timer and GET /api/diagnostics/engine-stats, and six unresolved tool entries for rcdoor.TOOLS (PG-3c's
+        # door tool tuple); unresolved_tool_refs 0 -> 2 since the last anchor is recorded here, not
+        # triaged
+        self.assertEqual(summary["registration_sites"], 351)
+        self.assertEqual(summary["registration_kinds"]["task"], 15)
         self.assertEqual((summary["registration_kinds"]["tool"], summary["registration_kinds"]["tool_verb"],
-                          summary["unresolved_tool_refs"]), (47, 7, 0))
+                          summary["unresolved_tool_refs"]), (53, 7, 2))
         # 225 -> 226: P02-A1 adds one `body.tool == "orgtree_operation_census"`
         # branch in api.agent_call, routing the agent read door.
         # 226 -> 227: the same item adds the `orgtree_account_mark` branch.
         # 227 -> 223: the external-chat retirement removes externtool.py's four tool branches
-        self.assertEqual(summary["dispatch_selector_sites"], 223)
+        # 223 -> 236 (P01 re-anchor after PYPG): worktx.rows_for's seven action branches, rcdoor's five, and
+        # api._agent_door_tail's remote-control reap
+        self.assertEqual(summary["dispatch_selector_sites"], 236)
         # 15 -> 18: engine/mailhub_runtime.py's hub store migration opens three connections
-        self.assertEqual(summary["connection_sites"], 18)
+        # 18 -> 25 (P01 re-anchor after PYPG): pgstore's five connects, pgfeed's listener, store.claim_data_root
+        self.assertEqual(summary["connection_sites"], 25)
         self.assertEqual([(r["source"]["path"], r["source"]["symbol"], r["target"])
                           for r in baseline["registrations"]
                           if r.get("mechanism") == "asyncio.to_thread"],
