@@ -346,6 +346,57 @@ class NoticeDoor(unittest.TestCase):
             with self.assertRaises(AssertionError):
                 self.call('boss', to='sub', body='legacy')
 
+    # ---- S-C (pg-per-call-cost): fewer org loads per mail send
+
+    def test_sc_message_before_step_reads_the_shared_snapshot(self):
+        import traceback
+        real, fresh = orgtx.org_read, []
+
+        def spy(slug, **k):
+            if any(f.name == '_message_door_before'
+                   for f in traceback.extract_stack()):
+                fresh.append(slug)
+            return real(slug, **k)
+        with patch.object(orgtx, 'org_read', spy):
+            self.tool(maildoor.MESSAGE, 'boss', to='sub', body='snap')
+        box = store.load_org(self.slug).d['mail'].get('sub') or []
+        self.assertEqual([m.get('body') for m in box if m.get('kind') == 'message'],
+                         ['snap'])
+        self.assertEqual(fresh, [], 'the before-step made a fresh org_read')
+
+    def test_sc_a_hub_recipient_the_before_step_did_not_check_is_refused(self):
+        org = store.load_org(self.slug)
+        org.d['net_hubs'] = [{'id': 'h1', 'enabled': True}]
+        store.save_org(org)
+        probed = []
+        real = ledger.Org._resolve_recipient
+
+        def resolve(org_self, to, **k):
+            if to == 'moving' and not getattr(org_self, '_shared_snapshot', False):
+                return '@net:faraway'           # the locked document moved it
+            return real(org_self, 'sub' if to == 'moving' else to, **k)
+        with patch.object(ledger.Org, '_resolve_recipient', resolve),                 patch.object(api, '_require_net_peer', lambda t: probed.append(t)):
+            with self.assertRaises(HTTPException) as cm:
+                self.tool(maildoor.MESSAGE, 'boss', to='moving', body='x')
+        self.assertEqual(cm.exception.status_code, 422)
+        self.assertIn('changed while the send', str(cm.exception.detail))
+        self.assertEqual(probed, [], 'the before-step saw a hub address after all')
+        self.assertEqual(self.sent, [])
+
+    def test_sc_no_org_answers_from_the_file_without_a_snapshot(self):
+        from orgtree import halt
+        with patch.object(store, 'cached_org',
+                          side_effect=AssertionError('snapshot rebuilt')):
+            self.assertFalse(halt._no_org(self.slug))
+        self.assertTrue(halt._no_org('never-created-org'))
+        self.assertTrue(halt._no_org('..'))
+
+    def test_sc_no_org_for_a_deleted_org(self):
+        from orgtree import halt
+        store._POOL.close_all(self.slug)
+        store.delete_org(self.slug)
+        self.assertTrue(halt._no_org(self.slug))
+
 
 if __name__ == '__main__':
     unittest.main()
