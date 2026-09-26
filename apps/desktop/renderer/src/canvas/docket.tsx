@@ -22,7 +22,8 @@
 // `questions` array (wire contract v3) is only used to know WHICH asks to
 // look up and for the "who is asking" header — never to answer directly.
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useDocketWindow } from './docketwindow'
 import { usePendingAttention } from '../pending-attention'
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import Select from '@mui/material/Select'
@@ -392,6 +393,7 @@ export function DocketToolbarButton({ summary, onClick, label }: {
 /** the owner-less group's heading — named explicitly rather than left as a
  *  silent remainder at the bottom of the list (user 2026-09-05) */
 export const UNASSIGNED = 'Unassigned'
+const EMPTY_ITEMS: WorkItem[] = []
 
 export interface Section {
   key: string
@@ -796,11 +798,11 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
 
   const facts = useMemo(() => buildNodeFacts(tree?.roots), [tree?.roots])
 
-  const active = data?.items ?? []
+  const active = data?.items ?? EMPTY_ITEMS
   // while a toggle's first fetch is in flight the cached group keeps showing,
   // so the list grows once and never blinks
-  const archived = showArchived ? (data?.archived ?? archivedCache) : []
-  const backlog = showBacklog ? (data?.backlogged ?? backlogCache) : []
+  const archived = showArchived ? (data?.archived ?? archivedCache) : EMPTY_ITEMS
+  const backlog = showBacklog ? (data?.backlogged ?? backlogCache) : EMPTY_ITEMS
   const archivedCount = data?.counts?.archived ?? archivedCache.length
   const backlogCount = data?.counts?.backlogged ?? backlogCache.length
 
@@ -855,6 +857,10 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
   const setSelId = useCallback((id: string | null) => {
     setMissedJump(null)
     setSel(id ? { slug, id } : null)
+  }, [slug])
+  const pickRow = useCallback((id: string) => {
+    setMissedJump(null)
+    setSel(previous => previous?.slug === slug && previous.id === id ? null : { slug, id })
   }, [slug])
   // ⚠ ORDER IS THE POINT. The CURRENT response is written LAST, so it wins over
   // anything held from an earlier one. Written the other way round — caches
@@ -941,6 +947,10 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
   }, [slug, data, allKnown, facts, onOpenMail])
   const [flash, setFlash] = useState<string | null>(null)
   const rows = useRef(new Map<string, HTMLDivElement>())
+  const captureRow = useCallback((id: string, el: HTMLDivElement | null) => {
+    if (el) rows.current.set(id, el)
+    else rows.current.delete(id)
+  }, [])
   // COLLAPSE IS OPT-IN. Everything starts expanded, because a docket that
   // hides work by default is worse than one that is long; the arrow is how
   // you make it shorter. Per-panel, not persisted — it is a reading posture,
@@ -1061,7 +1071,7 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
     onJumpHandled?.()
   }, [jumpTo, jumpSeq, data, allKnown, goToItem, onJumpHandled])
 
-  const onDismiss = (item: WorkItem) => {
+  const onDismiss = useCallback((item: WorkItem) => {
     if (!item.manual_attention) return
     dismissWorkItemAttention(slug, item.slug, item.manual_attention.set_rev)
       .then(() => {
@@ -1071,10 +1081,16 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
       // 409 (stale set_rev / already cleared) surfaces as an ordinary thrown
       // Error via req() — never a silent no-op or override
       .catch((e: Error) => toast([`error: ${e.message}`]))
-  }
+  }, [slug, toast])
 
   const pickGroup = (m: DocketGroupMode) => { setGroupMode(m); writeGroupMode(m) }
   const pickSort = (m: DocketSortMode) => { setSortMode(m); writeSortMode(m) }
+  const windowSections = useMemo(() => sections.map(section => ({ ...section,
+    rows: nestRows(section.items, searching ? NO_FOLD : collapsed),
+    folded: Boolean(section.heading && !searching && collapsedCategories.has(section.key)),
+  })), [sections, searching, collapsed, collapsedCategories])
+  const rowWindow = useDocketWindow(windowSections, flash)
+  const ageTick = Math.floor(Date.now() / 60_000)
 
   /** The FIRST ROW ACTUALLY ON SCREEN — what Enter in the search box opens.
    *
@@ -1241,8 +1257,9 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
                 : <div className="dim pad">no work items yet</div>
               : (
                 <div className="mailer">
-                  <div className="mailer-list">
-                    {sections.map((s) => {
+                  <div className="mailer-list" ref={rowWindow.ref} onScroll={rowWindow.onScroll}>
+                    {rowWindow.before > 0 && <div aria-hidden="true" style={{ height: rowWindow.before }} />}
+                    {rowWindow.windows.map((s) => {
                       // ⚠ A SEARCH RENDERS THROUGH BOTH FOLDS, WITHOUT CLEARING
                       // EITHER. A query that finds a row and then refuses to
                       // show it because a heading or an ancestor happens to be
@@ -1261,7 +1278,7 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
                         <div key={s.key}
                           className={'docket-section' + (s.tone ? ' tone-' + s.tone : '')}>
                           {s.heading && (
-                            <div className="docket-group-head">
+                            <div className="docket-group-head" data-docket-measure={'head:' + s.key}>
                               {/* an agent's head IS that agent; a status, the
                                   backlog, the archive and `Unassigned` are
                                   words and stay plain spans */}
@@ -1298,9 +1315,10 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
                           )}
                           <div id={s.heading ? rowsId : undefined}
                             className="docket-category-rows" hidden={categoryFolded}>
-                            {nestRows(s.items, searching ? NO_FOLD : collapsed).map((row) => (
+                            {s.before > 0 && <div aria-hidden="true" style={{ height: s.before }} />}
+                            {s.visibleRows.map((row) => (
                               <DocketRow key={row.item.slug} item={row.item}
-                                ageMode={sortMode} org={slug} toast={toast}
+                                ageMode={sortMode} ageTick={ageTick} org={slug} toast={toast}
                                 selected={row.item.slug === selId}
                                 depth={row.depth} kids={row.kids}
                                 // ⚠ THE ARROW DESCRIBES WHAT IS ON SCREEN, not
@@ -1311,21 +1329,19 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
                                 // opposite of what is rendered.
                                 folded={!searching && collapsed.has(row.item.slug)}
                                 foldLocked={searching}
-                                onFold={() => toggleFold(row.item.slug)}
-                                onClick={() => setSelId(
-                                  row.item.slug === selId ? null : row.item.slug)}
+                                onFold={toggleFold}
+                                onClick={pickRow}
                                 onDismiss={onDismiss} facts={facts}
                                 onFocusAgent={onFocusAgent} close={navClose}
                                 flash={row.item.slug === flash}
-                                rowRef={(el) => {
-                                  if (el) rows.current.set(row.item.slug, el)
-                                  else rows.current.delete(row.item.slug)
-                                }} />
+                                rowRef={captureRow} />
                             ))}
+                            {s.after > 0 && <div aria-hidden="true" style={{ height: s.after }} />}
                           </div>
                         </div>
                       )
                     })}
+                    {rowWindow.after > 0 && <div aria-hidden="true" style={{ height: rowWindow.after }} />}
                   </div>
                   <div className="mailer-read">
                     {cur
@@ -1533,12 +1549,12 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
     () => new Set<string>())
   const [collapsedCategories, setCollapsedCategories] = useState<ReadonlySet<string>>(
     () => new Set<string>())
-  const rows = mine ?? []
-  const sections = buildSections(groupMode,
+  const rows = mine ?? EMPTY_ITEMS
+  const sections = useMemo(() => buildSections(groupMode,
     sortItems(rows.filter(it => !it.archived && it.status !== 'backlogged'), sortMode),
     showBacklog ? sortItems(rows.filter(it => !it.archived && it.status === 'backlogged'), sortMode) : [],
     showArchived ? sortItems(rows.filter(it => it.archived), sortMode) : [],
-    it => it.owner?.node ?? UNASSIGNED)
+    it => it.owner?.node ?? UNASSIGNED), [groupMode, rows, sortMode, showBacklog, showArchived])
   const byName = useMemo(
     () => new Map(rows.map((it) => [it.slug, it])), [rows])
   const refIndex = useMemo(
@@ -1604,7 +1620,7 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
       return next
     })
   }, [])
-  const onDismiss = (item: WorkItem) => {
+  const onDismiss = useCallback((item: WorkItem) => {
     if (!item.manual_attention) return
     dismissWorkItemAttention(slug, item.slug, item.manual_attention.set_rev)
       .then(() => {
@@ -1612,7 +1628,14 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
         onChanged?.()
       })
       .catch((e: Error) => toast([`error: ${e.message}`]))
-  }
+  }, [slug, toast, onChanged])
+  const pickRow = useCallback((id: string) => setSelId(previous => previous === id ? null : id), [])
+  const windowSections = useMemo(() => sections.map(section => ({ ...section,
+    rows: nestRows(section.items, collapsed),
+    folded: Boolean(section.heading && collapsedCategories.has(section.key)),
+  })), [sections, collapsed, collapsedCategories])
+  const rowWindow = useDocketWindow(windowSections, selId)
+  const ageTick = Math.floor(Date.now() / 60_000)
   return (
     <div className="msgs docket-modal docket-agent">
       <div className="docket-filterbar">
@@ -1651,15 +1674,16 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
             </div>
           : (
             <div className="mailer">
-              <div className="mailer-list">
-                {sections.map(section => {
+              <div className="mailer-list" ref={rowWindow.ref} onScroll={rowWindow.onScroll}>
+                {rowWindow.before > 0 && <div aria-hidden="true" style={{ height: rowWindow.before }} />}
+                {rowWindow.windows.map(section => {
                   const categoryFolded = Boolean(section.heading && collapsedCategories.has(section.key))
                   const rowsId = `${controlsId}-${section.key}-rows`
                   const categoryName = `${section.heading}`
                   return (
                     <div key={section.key}
                       className={'docket-section' + (section.tone ? ' tone-' + section.tone : '')}>
-                      {section.heading && <div className="docket-group-head">
+                      {section.heading && <div className="docket-group-head" data-docket-measure={'head:' + section.key}>
                         <span>{section.heading}</span>
                         <button type="button" className="docket-category-toggle"
                           title={`${categoryFolded ? 'expand' : 'collapse'} ${categoryName}`}
@@ -1672,22 +1696,24 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
                       </div>}
                       <div id={section.heading ? rowsId : undefined}
                         className="docket-category-rows" hidden={categoryFolded}>
-                        {nestRows(section.items, collapsed).map((row) => (
+                        {section.before > 0 && <div aria-hidden="true" style={{ height: section.before }} />}
+                        {section.visibleRows.map((row) => (
                           <DocketRow key={row.item.slug} item={row.item}
-                            org={slug} toast={toast} ageMode={sortMode}
+                            org={slug} toast={toast} ageMode={sortMode} ageTick={ageTick}
                             selected={row.item.slug === selId}
                             depth={row.depth} kids={row.kids}
                             folded={collapsed.has(row.item.slug)}
-                            onFold={() => toggleFold(row.item.slug)}
-                            onClick={() => setSelId(
-                              row.item.slug === selId ? null : row.item.slug)}
+                            onFold={toggleFold}
+                            onClick={pickRow}
                             onDismiss={onDismiss} facts={facts}
                             onFocusAgent={onFocusAgent} />
                         ))}
+                        {section.after > 0 && <div aria-hidden="true" style={{ height: section.after }} />}
                       </div>
                     </div>
                   )
                 })}
+                {rowWindow.after > 0 && <div aria-hidden="true" style={{ height: rowWindow.after }} />}
               </div>
               <div className="mailer-read">
                 {cur
@@ -1711,7 +1737,7 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
  *  module counter is enough and needs no reset. */
 let copyTicket = 0
 
-function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
+const DocketRow = memo(function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
   close, flash, rowRef, depth = 0, kids = 0, folded = false, onFold,
   foldLocked = false, ageMode = 'updated', org, toast }: {
   item: WorkItem
@@ -1725,19 +1751,21 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
    *  beside a row agrees with the order it sits in. The agent docket is served
    *  in updated order and has no selector, so it takes the default. */
   ageMode?: DocketSortMode
+  /** Re-evaluate relative ages as time advances, even if the poll reuses an item. */
+  ageTick: number
   /** w2d5fab0a elements 1 and 2: how deep this row sits, and whether it has
    *  children of its own to fold away. The connecting lines are drawn from
    *  `depth` in CSS rather than with spacer elements. */
   depth?: number
   kids?: number
   folded?: boolean
-  onFold?: () => void
+  onFold?: (slug: string) => void
   /** the subtree fold cannot change anything right now, because a SEARCH is
    *  showing every match regardless of the fold. The arrow is disabled and
    *  says why rather than staying clickable and doing nothing — this file's
    *  standing objection to a live-looking control that is actually inert. */
   foldLocked?: boolean
-  onClick: () => void
+  onClick: (slug: string) => void
   onDismiss: (item: WorkItem) => void
   facts: Map<string, NodeFacts>
   onFocusAgent?: (agentId: string) => void
@@ -1745,8 +1773,9 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
   /** briefly true after a slug link brought the reader here, so the row the
    *  link meant is identifiable among rows that all look alike */
   flash?: boolean
-  rowRef?: (el: HTMLDivElement | null) => void
+  rowRef?: (slug: string, el: HTMLDivElement | null) => void
 }) {
+  const capture = useCallback((el: HTMLDivElement | null) => rowRef?.(item.slug, el), [rowRef, item.slug])
   const attention = item.effective_attention
   // active (white) / attention (orange) / backlog (its own quiet colour) /
   // archived (grey, darker bg). Archived wins over backlog, and attention wins
@@ -1869,7 +1898,7 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
     const row = e.currentTarget
     const { clientX, clientY } = e
     const entries: MenuEntry[] = [
-      { label: selected ? 'Close details' : 'Open details', onSelect: onClick },
+      { label: selected ? 'Close details' : 'Open details', onSelect: () => onClick(item.slug) },
     ]
     // ⚠ AND IT IS SUPPRESSED WHILE A SEARCH IS ACTIVE, for the same reason the
     // arrow is disabled — but it has to be said TWICE, because the menu is a
@@ -1880,7 +1909,7 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
     // clear the box — the exact restore guarantee this ticket turns on.
     if (kids > 0 && onFold && !foldLocked) {
       entries.push({ label: folded ? `Show ${kids} sub-item${kids === 1 ? '' : 's'}`
-        : `Hide ${kids} sub-item${kids === 1 ? '' : 's'}`, onSelect: onFold })
+        : `Hide ${kids} sub-item${kids === 1 ? '' : 's'}`, onSelect: () => onFold(item.slug) })
     }
     const owner = item.owner?.node
     if (owner && onFocusAgent) {
@@ -1904,8 +1933,9 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
     // THE NAME IN THE LIST IS THE SLUG (user 2026-09-05). The full descriptive
     // title is printed only in the detail pane; here it is the row's hover
     // title, so nothing is lost and the row stays one line of name.
-    <div data-copy-ticket-title={item.title} className={cls} title={item.title} onClick={onClick}
-      onDoubleClick={copySlug} ref={rowRef}
+    <div data-copy-ticket-title={item.title} data-docket-measure={'row:' + item.slug}
+      className={cls} title={item.title} onClick={() => onClick(item.slug)}
+      onDoubleClick={copySlug} ref={capture}
       // ⚠ THE STAFFING LOAD STARTS HERE, NOT ON THE MENU (user requirement
       // 2026-09-15). Hovering or focusing a row precedes the right-click that
       // opens its menu, so by the time the menu exists the request is already
@@ -1958,7 +1988,7 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
               : folded ? `show ${kids} sub-item${kids === 1 ? '' : 's'}`
                 : `hide ${kids} sub-item${kids === 1 ? '' : 's'}`}
             aria-expanded={!folded}
-            onClick={(e) => { e.stopPropagation(); onFold?.() }}>▾</button>
+            onClick={(e) => { e.stopPropagation(); onFold?.(item.slug) }}>▾</button>
         )}
         <span className="mfrom docket-rowname">{itemName(item)}</span>
         {folded && kids > 0 && (
@@ -1996,7 +2026,7 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
       </div>
     </div>
   )
-}
+})
 
 /** Every ticket-detail section uses the same disclosure contract.  The state
  * is deliberately local to the mounted pane: polling keeps a reader's
