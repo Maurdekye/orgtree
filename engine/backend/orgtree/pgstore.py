@@ -61,6 +61,11 @@ class MigrationDrift(RuntimeError):
     migration this build does not know. Refuses startup."""
 
 
+class DuplicateMarker(RuntimeError):
+    """Two markers in orgs/ name the same org_id: two orgs would write one
+    schema and corrupt each other. Refuses startup."""
+
+
 def url() -> str:
     """The engine's connection string: `ORGTREE_PG_CONNINFO` (a libpq keyword
     string set by PG-1's managed-process bracket, used exactly as given — its
@@ -528,6 +533,46 @@ def retire_unmarked(orgs_dir: str) -> list[str]:
                 c.execute("UPDATE public.orgs SET slug = slug || '@unmarked-' || org_id, "
                           "deleted_at = now() WHERE org_id = %s", (org_id,))
                 out.append(str(slug))
+    return out
+
+
+def retire_deleted(org_id: int) -> None:
+    """delete_org, once the marker is in the trash: retire the org's registry
+    row now, not at the next claim. Rows and schema are kept, so the trash
+    marker (which names the org_id) can bring them back."""
+    with connect() as c:
+        c.execute("UPDATE public.orgs SET slug = slug || '@deleted-' || org_id, "
+                  "deleted_at = now() WHERE org_id = %s AND deleted_at IS NULL", (org_id,))
+
+
+def revive_marked(orgs_dir: str) -> list[str]:
+    """At claim, after retire_unmarked: a marker in orgs/ whose org_id row is
+    retired was put back from the trash (the restore). Make the row live again
+    under the marker's file name. After retire_unmarked no live row can hold
+    that name with another org_id, since `<slug>.pg` names this one. Two
+    markers naming one org_id refuse (DuplicateMarker). A marker whose row is
+    missing is left alone; opening it fails loudly as before."""
+    names: dict[int, list[str]] = {}
+    if os.path.isdir(orgs_dir):
+        for name in sorted(os.listdir(orgs_dir)):
+            if not name.endswith(MARKER_EXT):
+                continue
+            org_id = read_marker(os.path.join(orgs_dir, name))
+            if org_id is not None:
+                names.setdefault(org_id, []).append(name[:-len(MARKER_EXT)])
+    dup = {i: s for i, s in names.items() if len(s) > 1}
+    if dup:
+        raise DuplicateMarker(
+            "these markers in orgs/ name the same PostgreSQL org, so they would share "
+            "one set of rows: " + "; ".join(f"org_id {i}: {', '.join(s)}" for i, s in sorted(dup.items()))
+            + ". Move all but one of each back to the trash.")
+    out: list[str] = []
+    with connect() as c:
+        for org_id, (slug,) in sorted(names.items()):
+            cur = c.execute("UPDATE public.orgs SET slug = %s, deleted_at = NULL "
+                            "WHERE org_id = %s AND deleted_at IS NOT NULL", (slug, org_id))
+            if cur.rowcount:
+                out.append(slug)
     return out
 
 

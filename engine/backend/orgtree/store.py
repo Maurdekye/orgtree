@@ -820,6 +820,10 @@ def claim_data_root(root: str | None = None) -> None:
         # (rows kept) so nothing half-made stays live (lead decision 20.2)
         for _s in pgstore.retire_unmarked(os.path.join(base, "orgs")):
             _log(f"postgres org {_s!r} has no marker in orgs/; retired (rows kept)")
+        # and the reverse: a marker put back from the trash (the restore)
+        # makes its retired row live again under the marker's name
+        for _s in pgstore.revive_marked(os.path.join(base, "orgs")):
+            _log(f"postgres org {_s!r} is back in orgs/; revived (restored from the trash)")
         pgstore.backfill_always_rows(ALWAYS_ROWS)
     os.makedirs(base, exist_ok=True)
     fd = os.open(owner_file(base), os.O_RDWR | os.O_CREAT, 0o644)
@@ -5694,14 +5698,19 @@ def delete_org(slug: str) -> None:
     # legacy writer remains) + the org pseudo-row exclusive, which every
     # org_tx takes shared first — so with the fence off no row transaction
     # can straddle the rename either, and no DOC_LOCK is taken.
-    # ⚠ PostgreSQL: this renames the marker and the SQLite-shaped files only;
-    # the org's schema rows STAY, so a "deleted" org's data persists — a
-    # correctness gap, docket item postgresql-delete-org-leaves-the-org-s-schema-ro.
+    # PostgreSQL: the marker is the org's file here; its schema rows STAY
+    # (keeping them is what makes the delete reversible), and the registry
+    # row is retired below, once the marker is in the trash. Putting the
+    # marker back revives it at the next claim (pgstore.revive_marked).
     from . import orgtx
     with orgtx.org_exclusive(slug):
         _ensure_migrated(slug)
         if not os.path.exists(p):
             raise LedgerError(f"no such org: {slug!r}")
+        pg_org_id = None
+        if STORE_BACKEND == "postgres":
+            from . import pgstore
+            pg_org_id = pgstore.read_marker(p)
         os.makedirs(trash, exist_ok=True)
         # ⚠ The stamp is SECOND-granular, and `os.replace` overwrites. Delete
         # → recreate → delete inside one second silently destroyed the first
@@ -5827,6 +5836,16 @@ def delete_org(slug: str) -> None:
                 with contextlib.suppress(OSError):
                     os.replace(side, dside)
         _remove_reply_snapshots()
+        if pg_org_id is not None:
+            # The marker is already in the trash, so the delete has happened:
+            # a failure here must not report it as failed. The next claim's
+            # retire_unmarked retires the row anyway.
+            from . import pgstore
+            try:
+                pgstore.retire_deleted(pg_org_id)
+            except Exception as e:
+                _log(f"postgres org {slug!r} (org_id {pg_org_id}) deleted, but its "
+                     f"registry row was not retired now ({e}); the next start retires it")
         # deletion is a change too: derived caches validated by the seq
         # (reply identity, tree ETag, loop snapshots) must not survive it —
         # and the section-granular snapshot must not either

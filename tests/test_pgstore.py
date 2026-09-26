@@ -251,6 +251,90 @@ class Seam(unittest.TestCase):
         again = _fresh_org('unmarked-one')                 # the name is free, and empty
         self.assertEqual(_node(again, 'a')['name'], 'a')
 
+    # docket postgresql-delete-org-leaves-the-org-s-schema-ro: a delete retires
+    # the registry row AT ONCE and keeps the rows; putting the trash marker
+    # back revives it at the next claim with its data.
+    def _trash_marker(self, slug: str) -> str:
+        trash = os.path.join(str(data), 'deleted')
+        names = sorted(n for n in os.listdir(trash)
+                       if n.startswith(slug + '-') and n.endswith(pgstore.MARKER_EXT))
+        return os.path.join(trash, names[-1])
+
+    def _claim_sweep(self) -> list:
+        orgs = os.path.join(str(data), 'orgs')
+        pgstore.retire_unmarked(orgs)
+        return pgstore.revive_marked(orgs)
+
+    def test_delete_retires_the_row_now_and_keeps_the_rows(self) -> None:
+        slug = _fresh_org('del-now')
+        org_id = pgstore.read_marker(store.org_path(slug))
+        store.delete_org(slug)
+        row = self._pg('SELECT slug, deleted_at IS NOT NULL FROM orgs WHERE org_id = %s', org_id)
+        self.assertEqual(row, [(f'{slug}@deleted-{org_id}', True)], 'retired at the delete, not later')
+        self.assertEqual(self._pg('SELECT count(*) FROM orgs WHERE slug = %s', slug)[0][0], 0)
+        self.assertEqual(self._pg(f'SELECT count(*) FROM org_{org_id}.nodes')[0][0], 3, 'rows kept')
+        self.assertEqual(pgstore.read_marker(self._trash_marker(slug)), org_id)
+
+    def test_restore_from_trash_revives_the_org_with_its_data(self) -> None:
+        slug = _fresh_org('del-back')
+        org = store.load_org(slug)
+        org.d['nodes']['b']['name'] = 'Kept'
+        store.save_org(org)
+        org_id = pgstore.read_marker(store.org_path(slug))
+        store.delete_org(slug)
+        os.replace(self._trash_marker(slug), store.org_path(slug))     # the restore
+        self.assertEqual(self._claim_sweep(), [slug])
+        self.assertEqual(self._pg('SELECT slug, deleted_at FROM orgs WHERE org_id = %s', org_id),
+                         [(slug, None)])
+        self.assertEqual(_node(slug, 'b')['name'], 'Kept')
+        self.assertEqual(self._claim_sweep(), [], 'a second claim changes nothing')
+
+    def test_restore_an_older_org_after_its_name_was_reused(self) -> None:
+        slug = _fresh_org('del-old')
+        org = store.load_org(slug)
+        org.d['nodes']['a']['name'] = 'First'
+        store.save_org(org)
+        first = pgstore.read_marker(store.org_path(slug))
+        store.delete_org(slug)
+        old_marker = self._trash_marker(slug)
+        self.assertEqual(_fresh_org('del-old'), slug)                  # a new org, same name
+        second = pgstore.read_marker(store.org_path(slug))
+        self.assertNotEqual(first, second)
+        self.assertEqual(_node(slug, 'a')['name'], 'a', 'the new org does not meet the old rows')
+        store.delete_org(slug)
+        os.replace(old_marker, store.org_path(slug))                   # restore the FIRST
+        self.assertEqual(self._claim_sweep(), [slug])
+        live = self._pg("SELECT org_id FROM orgs WHERE slug = %s AND deleted_at IS NULL", slug)
+        self.assertEqual(live, [(first,)])
+        self.assertEqual(_node(slug, 'a')['name'], 'First')
+        self.assertEqual(self._pg('SELECT deleted_at IS NOT NULL FROM orgs WHERE org_id = %s', second),
+                         [(True,)])
+
+    def test_two_markers_for_one_org_refuse(self) -> None:
+        slug = _fresh_org('del-dup')
+        twin = store.org_path('del-dup-twin')
+        shutil.copyfile(store.org_path(slug), twin)
+        try:
+            with self.assertRaises(pgstore.DuplicateMarker):
+                pgstore.revive_marked(os.path.join(str(data), 'orgs'))
+        finally:
+            os.remove(twin)
+
+    def test_a_failed_retire_does_not_fail_the_delete(self) -> None:
+        from unittest.mock import patch
+        slug = _fresh_org('del-fail')
+        org_id = pgstore.read_marker(store.org_path(slug))
+
+        def boom(_org_id):
+            raise RuntimeError('server went away')
+        with patch.object(pgstore, 'retire_deleted', boom):
+            store.delete_org(slug)
+        self.assertFalse(os.path.exists(store.org_path(slug)))
+        self.assertEqual(self._pg('SELECT deleted_at FROM orgs WHERE org_id = %s', org_id), [(None,)])
+        self._claim_sweep()                                            # the next start
+        self.assertEqual(self._pg('SELECT deleted_at IS NOT NULL FROM orgs WHERE org_id = %s', org_id),
+                         [(True,)])
+
     def test_many_orgs_share_a_bounded_connection_pool(self) -> None:
         slugs = [_fresh_org(f'pool-{i}') for i in range(30)]
         for s in slugs:
