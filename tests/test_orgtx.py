@@ -188,6 +188,45 @@ class OrgTxBasics(unittest.TestCase):
                 tx.d['settings_x']['v'] = 9
         self.assertEqual(set(cm.exception.rows), {('node', 'b'), ('section', 'settings_x')})
 
+    def test_whole_writes_anything_and_holds_every_row(self) -> None:
+        with orgtx.org_tx(self.slug, logs=[('mail_log', 'a')]) as tx:
+            tx.d['mail_log']['a'] = [{'m': 1}]
+        with orgtx.org_tx(self.slug, whole=True) as tx:
+            self.assertTrue(tx.whole and tx.all_nodes)
+            self.assertEqual(tx.lock_nodes, {'a', 'b', 'c'})
+            self.assertLessEqual({'killswitch', 'settings_x'}, set(tx.lock_sections))
+            self.assertIn(('mail_log', 'a'), tx.logs)
+            self.assertLessEqual(set(store.LAZY_SECTIONS), set(tx.logs))
+            plan = orgtx._lock_plan(tx, sorted(tx.lock_nodes))
+            self.assertIn(('section', 'killswitch', True), plan)
+            self.assertIn(('log', json.dumps(['mail_log', 'a']), True), plan)
+            self.assertTrue(all(x for _, _, x in plan))
+            tx.d['nodes']['a']['name'] = 'A'
+            tx.d['nodes']['d'] = {'id': 'd', 'name': 'd', 'parent': None, 'children': []}
+            tx.d['killswitch']['on'] = True
+            tx.d['settings_x']['v'] = 5
+            tx.d['brand_new'] = {'x': 1}
+            tx.d['mail_log']['a'][0]['m'] = 2
+            tx.append('events', {'kind': 'whole'})
+        d = store.load_org(self.slug).d
+        self.assertEqual((d['nodes']['a']['name'], d['nodes']['d']['name']), ('A', 'd'))
+        self.assertEqual((d['killswitch']['on'], d['settings_x']['v'], d['brand_new']),
+                         (True, 5, {'x': 1}))
+        self.assertEqual(d['mail_log']['a'], [{'m': 2}])
+        self.assertIn('whole', [e.get('kind') for e in d['events']])
+
+    def test_whole_names_nothing_else(self) -> None:
+        for extra in (dict(nodes=['a']), dict(nodes=orgtx.ALL), dict(sections=['killswitch']),
+                      dict(logs=['events']), dict(share_nodes=['a']),
+                      dict(share_sections=['settings_x']), dict(fingerprint='f')):
+            with self.subTest(extra=extra):
+                with self.assertRaises(ValueError):
+                    with orgtx.org_tx(self.slug, whole=True, **extra):
+                        pass
+        with orgtx.org_tx_multi({self.slug: dict(whole=True)}) as t:
+            t[self.slug].d['settings_x']['v'] = 3
+        self.assertEqual(store.load_org(self.slug).d['settings_x']['v'], 3)
+
     def test_current_tx_and_lock_plan_order(self) -> None:
         self.assertIsNone(orgtx.current_tx(self.slug))
         self.assertFalse(orgtx.open_on(self.slug))
@@ -309,6 +348,39 @@ class OrgTxConcurrency(unittest.TestCase):
             for n in tx.d['nodes'].values():
                 n['swept'] = True
         self.assertTrue(all(_node(self.slug, x).get('swept') for x in ('a', 'b', 'c')))
+
+    def test_whole_excludes_every_existing_row(self) -> None:
+        with orgtx.org_tx(self.slug, logs=[('mail_log', 'a')]) as tx:
+            tx.d['mail_log']['a'] = [{'m': 1}]
+        entered, release = threading.Event(), threading.Event()
+        t = self._hold(entered, release, whole=True)
+        try:
+            for names in (dict(nodes=['b']), dict(nodes=['brand-new']),
+                          dict(sections=['killswitch']), dict(share_sections=['settings_x']),
+                          dict(logs=[('mail_log', 'a')])):
+                with self.subTest(names=names):
+                    self.assertEqual(self._try(0.2, **names), 'blocked')
+            # the documented limits: a list-log append takes no row lock, and a
+            # section that did not exist when the rows were listed is not held
+            self.assertEqual(self._try(0.2, logs=['events']), 'got')
+            self.assertEqual(self._try(0.2, sections=['not_there_yet']), 'got')
+        finally:
+            release.set()
+            t.join()
+        self.assertEqual(self._try(0.2, sections=['killswitch']), 'got')
+
+    def test_whole_waits_for_a_row_holder(self) -> None:
+        for names in (dict(sections=['settings_x']), dict(share_sections=['killswitch']),
+                      dict(nodes=['c'])):
+            with self.subTest(names=names):
+                entered, release = threading.Event(), threading.Event()
+                t = self._hold(entered, release, **names)
+                try:
+                    self.assertEqual(self._try(0.2, whole=True), 'blocked')
+                finally:
+                    release.set()
+                    t.join()
+                self.assertEqual(self._try(0.2, whole=True), 'got')
 
     def test_multi_org_locks_and_commits_both(self) -> None:
         other = _fresh_org(f'cc2-{self._testMethodName}')
