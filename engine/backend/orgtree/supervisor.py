@@ -4087,14 +4087,28 @@ def export_predecessor_transcript(org: Org, nid: str,
 
 def export_predecessor_transcript_deferred(
         org: Org, nid: str, old_sid: str | None = None,
-        reason: str | None = None) -> tuple[str | None, int | None]:
+        reason: str | None = None, *,
+        strict: bool = False) -> tuple[str | None, int | None]:
     """`export_predecessor_transcript`'s FILE half, which writes nothing to
     `org`: the copy and the handoff record. Returns (dst, gen): gen is the
     published record's generation when its notice is owed (handoff.flag on),
     for the caller to announce — `announce_handoff_record` in the same
     transaction, or `announce_handoff_record_tx` after a commit (PG-3a: a
     row-transaction door runs this after its commit, off the row locks).
-    Idempotent: a re-run overwrites the same copy and record."""
+    Idempotent: a re-run overwrites the same copy and record.
+
+    ORDERED BY GENERATION (PG-3a review f7): an after-commit export runs off
+    the transaction's serialization, so an EARLIER boundary's copy can finish
+    after a later one's. The copy goes to a private file first; then, under a
+    per-destination lock, it replaces transcript.jsonl only when its
+    predecessor generation is not older than the one already there (recorded
+    in transcript.jsonl.generation). A stale export returns (None, None) and
+    publishes nothing. The handoff record reads the private copy, never the
+    shared destination.
+
+    `strict` (PG-3a review f6): a copy or record FAILURE raises instead of
+    returning (None, None), for an after-commit caller that discloses it as
+    a warning. A source that does not exist is not a failure either way."""
     n = org.nodes.get(nid)
     if not n:
         return None, None
@@ -4104,15 +4118,91 @@ def export_predecessor_transcript_deferred(
     src = transcript_path(sid, _transcript_root(org, nid))
     if not src:
         return None, None
+    gen = _predecessor_generation(org, nid, sid)
     dst = os.path.join(scratch_dir(org.d["slug"], nid), "transcript.jsonl")
+    tmp = f"{dst}.g{gen}.{uuid.uuid4().hex[:8]}.part"
     try:
-        shutil.copy2(src, dst)
+        shutil.copy2(src, tmp)
     except OSError:
+        _remove_quietly(tmp)
+        if strict:
+            raise
         return None, None
-    out = _publish_handoff_record(org, nid, dst, sid, reason)
+    try:
+        with _export_lock(dst):
+            if gen < _exported_generation(dst):
+                print(f"[orgtree] {org.d['slug']}/{nid}: transcript export "
+                      f"g{gen} skipped — a newer generation is already there")
+                return None, None
+            record_error: Exception | None = None
+            try:
+                out = _publish_handoff_record(org, nid, tmp, sid, reason,
+                                              gen=gen, strict=strict)
+            except Exception as e:                           # noqa: BLE001
+                out, record_error = None, e
+            _set_exported_generation(dst, gen, sid)
+            try:
+                os.replace(tmp, dst)
+            except PermissionError:
+                # Windows: a reader holding transcript.jsonl open refuses a
+                # rename over it, but not an in-place overwrite
+                shutil.copyfile(tmp, dst)
+    except OSError:
+        if strict:
+            raise
+        return None, None
+    finally:
+        _remove_quietly(tmp)
+    if record_error is not None:
+        raise record_error
     if out and handoff_flag_on():
-        return dst, int(org.node(nid).get("generation") or 0) - 1
+        return dst, gen
     return dst, None
+
+
+_EXPORT_LOCKS: dict[str, threading.Lock] = {}
+_EXPORT_LOCKS_GUARD = threading.Lock()
+
+
+def _export_lock(dst: str) -> threading.Lock:
+    key = os.path.normcase(os.path.abspath(dst))
+    with _EXPORT_LOCKS_GUARD:
+        return _EXPORT_LOCKS.setdefault(key, threading.Lock())
+
+
+def _predecessor_generation(org: Org, nid: str, sid: str) -> int:
+    """The generation of the bearer that archived session `sid` — immutable
+    once the boundary committed — else the pre-rework reading (the seat's
+    generation minus one)."""
+    for bid, b in org.nodes.items():
+        if bid.startswith(f"{nid}@") and b.get("session_id") == sid:
+            try:
+                return int(bid.rsplit("@", 1)[1])
+            except ValueError:
+                break
+    return int(org.node(nid).get("generation") or 0) - 1
+
+
+def _exported_generation(dst: str) -> int:
+    try:
+        with open(f"{dst}.generation", encoding="utf-8") as f:
+            return int(json.load(f)["generation"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return -1       # no record: a copy from before the ordering existed
+
+
+def _set_exported_generation(dst: str, gen: int, sid: str) -> None:
+    # written BEFORE the replace: a crash between the two leaves a marker
+    # that only the same or a newer boundary can pass, never an older one
+    with open(f"{dst}.generation", "w", encoding="utf-8") as f:
+        json.dump({"generation": gen, "session": sid}, f)
+
+
+def _remove_quietly(path: str) -> None:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
 
 
 def announce_handoff_record(org: Org, nid: str, gen: int) -> None:
@@ -4126,8 +4216,10 @@ def export_after_commit(slug: str, org: Org, nid: str, old_sid: str,
     """A session boundary's transcript export, run AFTER the transaction that
     archived `old_sid` committed (PG-3a, lead decision 40(2)): the file half
     on the committed document, then the owed notice in its own small org_tx
-    on the seat's notices row. The caller discloses a raise as a warning."""
-    dst, gen = export_predecessor_transcript_deferred(org, nid, old_sid, reason)
+    on the seat's notices row. The caller discloses a raise as a warning:
+    `strict`, so a real copy failure reaches it (review f6)."""
+    dst, gen = export_predecessor_transcript_deferred(org, nid, old_sid, reason,
+                                                      strict=True)
     if gen is not None:
         announce_handoff_record_tx(slug, nid, gen)
     return dst
@@ -4251,7 +4343,9 @@ def _handoff_provenance(org: Org, nid: str) -> dict[str, Any]:
 
 
 def _publish_handoff_record(org: Org, nid: str, dst: str, old_sid: str,
-                            reason: str | None = None) -> str | None:
+                            reason: str | None = None, *,
+                            gen: int | None = None,
+                            strict: bool = False) -> str | None:
     """Verified handoff (audit §3 / item 15; contract in
     mail-ack-contract/handoff-contract.md v2): build the citation-index
     record for the boundary that just archived `old_sid`, from exactly the
@@ -4260,10 +4354,14 @@ def _publish_handoff_record(org: Org, nid: str, dst: str, old_sid: str,
     `<scratch>/handoff-g<gen>/` where gen is the archived predecessor's
     generation. Best-effort like the copy above: a record that cannot be
     built or does not verify is NOT written, and the split still succeeds.
-    No provider call. Returns the published directory or None."""
+    No provider call. Returns the published directory or None. `dst` is the
+    copy to read (the export's private one); `gen` the predecessor generation
+    the export resolved; `strict` re-raises an error rather than printing it
+    (a record that does not VERIFY is still skipped, not raised)."""
     try:
         n = org.node(nid)
-        gen = int(n.get("generation") or 0) - 1
+        if gen is None:
+            gen = int(n.get("generation") or 0) - 1
         if gen < 0:
             return None
         pred = org.nodes.get(f"{nid}@{gen}") or {}
@@ -4301,6 +4399,8 @@ def _publish_handoff_record(org: Org, nid: str, dst: str, old_sid: str,
         # the notice is the caller's (export_predecessor_transcript_deferred)
         return handoff.write_generation(sd, gen, art, lines)
     except Exception as e:                                       # noqa: BLE001
+        if strict:
+            raise
         print(f"[orgtree] {org.d['slug']}/{nid}: handoff record skipped: {e!r}")
         return None
 

@@ -380,7 +380,7 @@ class Door(unittest.TestCase):
         slug = self.slug
         rec = SimpleNamespace(seen=[])
 
-        def fn(org, nid, old_sid=None, reason=None):
+        def fn(org, nid, old_sid=None, reason=None, **_):
             try:
                 readable = bool(org.node(nid)) and isinstance(
                     (org.d.get("mail") or {}), dict) and isinstance(
@@ -737,6 +737,96 @@ class Door(unittest.TestCase):
         self.assertIsNone(store.load_org(self.slug).nodes["x"].get("account"))
         self.assertEqual([w["step"] for w in out.get("warnings") or []],
                          ["account_export"])
+
+    def test_a_real_copy_failure_after_the_commit_is_a_warning(self):
+        # review f6 (review-astra's probe): only the LOW-LEVEL copy fails, the
+        # real file half runs. The rehire stands and the failure is disclosed
+        # (on 758467e the file half swallowed it: committed, warnings=[]).
+        self.crossing_seat()
+        dst = self.real_copy()
+        with patch.object(supervisor.shutil, "copy2",
+                          side_effect=OSError("disk full")) as cp:
+            out = self.rehire_on("door", self.slug)
+        self.assertEqual(cp.call_count, 1, "the real copy was attempted")
+        self.assertEqual(store.load_org(self.slug).nodes["x"]["state"], "live")
+        self.assertIn("account_export",
+                      [w.get("step") for w in out.get("warnings") or []
+                       if isinstance(w, dict)], out)
+        self.assertFalse(os.path.isfile(dst))
+        self.assertEqual([f for f in os.listdir(os.path.dirname(dst))
+                          if f.endswith(".part")], [], "no private copy left")
+
+    def test_the_inline_export_still_treats_a_copy_failure_as_no_copy(self):
+        # the non-strict callers (cheap compact, switch, the caller-owned
+        # saves) keep the old contract: a failed copy is simply no copy
+        self.crossing_seat(state="live")
+        self.real_copy()
+        org = store.load_org(self.slug)
+        with patch.object(supervisor.shutil, "copy2",
+                          side_effect=OSError("disk full")):
+            self.assertEqual(supervisor.export_predecessor_transcript_deferred(
+                org, "x", "s", "r"), (None, None))
+            with self.assertRaises(OSError):
+                supervisor.export_predecessor_transcript_deferred(
+                    org, "x", "s", "r", strict=True)
+
+    def test_an_older_export_never_replaces_a_newer_generation(self):
+        # review f7 (review-astra's probe): boundary 1 (rehire) commits and its
+        # copy is PAUSED; a successor turn runs, then boundary 2 (retool to
+        # another account) commits and exports first. Boundary 1's delayed
+        # copy then completes — and must not overwrite the newer transcript.
+        from orgtree import registry
+        self.crossing_seat()
+        dst = Path(self.real_copy())
+        older = dst.parent / "source-older.jsonl"
+        newer = dst.parent / "source-newer.jsonl"
+        older.write_text("older predecessor
+")
+        newer.write_text("newer predecessor
+")
+        initial_sid = store.load_org(self.slug).node("x")["session_id"]
+        account = registry.create_account(
+            "openai", "review-newer",
+            {"kind": "managed", "path": str(dst.parent / "account")})
+        real_copy = supervisor.shutil.copy2
+        seen = []
+
+        def locate(sid, *a, **k):
+            return str(older if sid == initial_sid else newer)
+
+        def copy_interleaved(src, dest, *a, **k):
+            if str(src) == str(older):
+                self.assertIsNone(pgdoor.current(self.slug))
+                org = store.load_org(self.slug)
+                org.node("x")["session_unrun"] = False
+                store.save_org(org)
+                second = self.call(self.slug, "boss", "orgtree_retool",
+                                   {"node": "x", "account": account["id"]})
+                self.assertEqual(second["account"], account["id"])
+                self.assertEqual(dst.read_text(), "newer predecessor
+",
+                                 "the newer export completed first")
+            seen.append(str(src))
+            return real_copy(src, dest, *a, **k)
+        with patch.object(supervisor, "transcript_path", locate),                 patch.object(supervisor.shutil, "copy2", copy_interleaved):
+            out = self.rehire_on("door", self.slug)
+        self.assertEqual(seen, [str(newer), str(older)],
+                         "both real exports ran, newest first")
+        self.assertEqual(store.load_org(self.slug).node("x")["generation"], 2)
+        self.assertEqual(dst.read_text(), "newer predecessor
+",
+                         "an older export overwrote the newer transcript")
+        self.assertNotIn("account_export",
+                         [w.get("step") for w in out.get("warnings") or []
+                          if isinstance(w, dict)], "a stale export is no failure")
+        # and the same boundary again (a retry) still refreshes its own copy
+        org = store.load_org(self.slug)
+        newer.write_text("newer predecessor, retried
+")
+        bearer_sid = org.nodes["x@1"]["session_id"]
+        supervisor.export_after_commit(self.slug, org, "x", bearer_sid, "r")
+        self.assertEqual(dst.read_text(), "newer predecessor, retried
+")
 
     def test_finish_switch_binding_can_hand_the_export_to_the_caller(self):
         self.crossing_seat(state="live")
