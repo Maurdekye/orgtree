@@ -465,7 +465,7 @@ class ManualRestartEvidenceTests(unittest.TestCase):
     def test_the_default_confirmation_is_unchanged(self):
         with patch.object(halt, 'consumed') as consumed:
             sup._confirm_delivered(self.slug, W, [])
-        consumed.assert_called_once_with(self.slug, W)
+        consumed.assert_called_once_with(self.slug, W, [])
 
     def test_rows_that_are_not_manual_reads_are_never_touched(self):
         _ids, did = self.delivery()
