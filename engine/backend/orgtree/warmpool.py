@@ -878,11 +878,15 @@ def native_startup_context_digest(org: Any, nid: str) -> str:
     def add(path: str, depth: int = 0, *, memory: bool = False,
             rule: bool = False) -> None:
         path = os.path.abspath(os.path.expanduser(path))
-        key = os.path.normcase(os.path.realpath(path))
-        if key in seen:
-            return
+        # the stat (cached read) first: most candidate paths do not exist,
+        # and realpath on a missing path walks every component — it was
+        # most of a warm pass once the reads were cached. A missing file and
+        # a lazy rule add nothing, so the order does not change the result.
         got = _digest_file(path, memory=memory, rule=rule)
         if got is False or got is None:
+            return
+        key = os.path.normcase(os.path.realpath(path))
+        if key in seen:
             return
         seen.add(key)
         digest, imports = got
