@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -33,9 +34,19 @@ def sha256(file: Path) -> str:
     return digest.hexdigest()
 
 
+def no_links(path: Path) -> None:
+    # Windows 8.3 spelling may resolve differently without being a link.
+    # Inspect reparse attributes rather than rejecting ordinary short paths.
+    for entry in (path.absolute(), *path.absolute().parents):
+        info = entry.lstat()
+        if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+            raise ValueError(f"Linked payload entry: {entry}")
+
+
 def regular(path: Path) -> None:
-    if not path.is_file() or path.is_symlink() or path.resolve() != path.absolute():
+    if not path.is_file():
         raise ValueError(f"Expected regular file without links: {path}")
+    no_links(path)
 
 
 def selected_member(name: str) -> str | None:
@@ -75,8 +86,7 @@ def extract_runtime(archive: Path, destination: Path) -> None:
 def files(directory: Path) -> dict[str, dict[str, object]]:
     result = {}
     for path in sorted(directory.rglob("*")):
-        if path.is_symlink() or path.resolve() != path.absolute():
-            raise ValueError(f"Linked payload entry: {path}")
+        no_links(path)
         if path.is_file():
             result[path.relative_to(directory).as_posix()] = {
                 "bytes": path.stat().st_size, "sha256": sha256(path)}
@@ -94,8 +104,7 @@ def assemble(archive: Path) -> dict[str, object]:
     if archive.stat().st_size != PIN["bytes"] or sha256(archive) != PIN["sha256"]:
         raise ValueError("PostgreSQL archive size/SHA-256 differs from the pin")
     engine = ROOT / "engine"
-    if engine.resolve() != engine.absolute():
-        raise ValueError("Engine directory cannot be behind a link")
+    no_links(engine)
     artifacts = ROOT / "artifacts" / "postgres-provision"
     artifacts.mkdir(parents=True, exist_ok=True)
     before = native_sources(ROOT)

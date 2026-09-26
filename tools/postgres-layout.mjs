@@ -10,8 +10,14 @@ export const POSTGRES_REQUIRED = ['pg-custodian.exe',
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex')
 
 function regular(file) {
-  if (!fs.lstatSync(file).isFile() || path.resolve(fs.realpathSync(file)).toLowerCase() !== path.resolve(file).toLowerCase()) {
+  if (!fs.lstatSync(file).isFile()) {
     throw new Error(`PostgreSQL payload must contain regular files without links: ${file}`)
+  }
+  for (let current = path.resolve(file); ;) {
+    if (fs.lstatSync(current).isSymbolicLink()) throw new Error(`Linked PostgreSQL payload path: ${current}`)
+    const parent = path.dirname(current)
+    if (parent === current) break
+    current = parent
   }
 }
 
