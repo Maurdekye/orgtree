@@ -13,7 +13,8 @@ save under DOC_LOCK is not one, so a policy that still took it fails.
     is told;
   * a plan made on a stale snapshot (the parent moved) widens and still
     commits, telling the NEW parent;
-  * auto-autopsy keeps the whole-document path (its named fence-off blocker).
+  * auto-autopsy (and, for the weekly limit, dissolve) runs on ONE
+    org_tx(whole=True): no row plan, never DOC_LOCK.
 """
 import os
 from pathlib import Path
@@ -119,14 +120,16 @@ class FilterSite(_Fixture):
         self.assertTrue(self.notices('other'), 'the new parent was not told')
         self.assertFalse(self.notices('boss'))
 
-    def test_auto_autopsy_keeps_the_whole_document_path(self):
+    def test_auto_autopsy_runs_on_one_whole_org_transaction(self):
         self.policy('auto-autopsy')
         self.assertIsNone(supervisor._fable_filter_spec(self.slug, 'flagged'))
-        with patch.object(supervisor, '_fable_filter_spec', lambda *a: None), \
-                patch.object(store, 'save_org', wraps=store.save_org) as sv:
-            supervisor._fable_filter_commit(self.slug, 'flagged', 'x')
-        self.assertEqual(self.mine(), [])
-        self.assertEqual(sv.call_count, 1)
+        self.commits.clear()
+        with patch.object(orgtx, 'org_tx', wraps=orgtx.org_tx) as tx:
+            applied, _ = supervisor._fable_filter_commit(self.slug, 'flagged',
+                                                          'x')
+        self.assertEqual(len(self.mine()), 1)
+        self.assertTrue(tx.call_args.kwargs.get('whole'))
+        self.assertIn(applied, ('auto-autopsy', 'halt'))
 
 
 class LimitEscalation(_Fixture):
@@ -192,9 +195,17 @@ class LimitEscalation(_Fixture):
         self.escalate()
         self.assertEqual(seen(), before)
 
-    def test_dissolve_keeps_the_whole_document_path(self):
+    def test_dissolve_runs_on_one_whole_org_transaction(self):
         self.limit_policy('dissolve')
         self.assertIsNone(supervisor._fable_limit_spec(self.slug))
+        self.commits.clear()
+        with patch.object(orgtx, 'org_tx', wraps=orgtx.org_tx) as tx:
+            self.escalate()
+        self.assertEqual(len(self.mine()), 1)
+        self.assertTrue(tx.call_args.kwargs.get('whole'))
+        org = store.load_org(self.slug)
+        self.assertTrue(org.d.get('fable_lock'))
+        self.assertNotEqual(org.node('peer')['state'], 'live')
 
 
 if __name__ == '__main__':

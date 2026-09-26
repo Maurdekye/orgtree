@@ -20003,8 +20003,8 @@ def _plan_rows(plan: dict[str, Any]) -> dict[str, Any]:
 
 
 class _WholeDocument(Exception):
-    """The Fable filter policy turned out to be auto-autopsy once the rows
-    were locked: that branch needs the whole document (below)."""
+    """The policy turned out to be one with no row plan (auto-autopsy,
+    dissolve) once the rows were locked: it runs on org_tx(whole=True)."""
 
 
 def _fable_filter_spec(slug: str, nid: str) -> Any:
@@ -20040,11 +20040,11 @@ def _fable_filter_commit(slug: str, nid: str, err_blob: str
     (the policy applied, the configured autopsy model).
 
     halt and opus run on one row transaction (`_fable_filter_spec`).
-    AUTO-AUTOPSY stays on the whole document: it hires an autopsy agent,
-    reorders, moves the flagged agent under it, hires a replacement and
-    retires the original — a subtree reorganisation with no row plan short
-    of `org_tx(whole=True)` (fence-off plan S8), which it moves to when that
-    lands. Until then this branch is a named fence-off blocker."""
+    AUTO-AUTOPSY hires an autopsy agent, reorders, moves the flagged agent
+    under it, hires a replacement and retires the original — a subtree
+    reorganisation with no row plan — so it runs on `org_tx(whole=True)`
+    (fence-off plan S8): one transaction that excludes every other org_tx on
+    the org while its short body runs, never DOC_LOCK."""
     from . import pgdoor
     spec = _fable_filter_spec(slug, nid)
     if spec is not None:
@@ -20061,12 +20061,13 @@ def _fable_filter_commit(slug: str, nid: str, err_blob: str
             return pgdoor.run(slug, spec, body)
         except _WholeDocument:
             pass
-    with store.DOC_LOCK:
-        o2 = store.load_org(slug)
-        applied = (o2.fable_filter_hit(nid, err_blob)
-                   if nid in o2.nodes else "halt")
-        store.save_org(o2)
-    return applied, str(o2.d.get("fable_filter_model", "opus"))
+
+    def whole(tx: orgtx.OrgTx) -> tuple[str, str]:
+        o = tx.org
+        applied = (o.fable_filter_hit(nid, err_blob)
+                   if nid in o.nodes else "halt")
+        return applied, str(o.d.get("fable_filter_model", "opus"))
+    return orgtx.org_tx_call(slug, whole, whole=True)
 
 
 def _fable_limit_spec(slug: str) -> Any:
@@ -20108,10 +20109,9 @@ def _fable_limit_escalate(slug: str, nid: str, err_blob: str,
     run AFTER the detecting agent's own freeze committed.
 
     halt and opus run on one row transaction (`_fable_limit_spec`). DISSOLVE
-    retires every Fable node's whole subtree (credits, mail, asks, …): no row
-    plan short of `org_tx(whole=True)` (fence-off plan S8), so it keeps the
-    whole-document path until that lands — a named fence-off blocker, also
-    taken when the policy changes to it between plan and lock.
+    retires every Fable node's whole subtree (credits, mail, asks, …) — no
+    row plan — so it runs on `org_tx(whole=True)` (fence-off plan S8), also
+    when the policy changes to it between plan and lock.
 
     Not atomic with the freeze any more: between the two commits another
     Fable agent may start a turn and hit the same wall; its own escalation
@@ -20132,10 +20132,10 @@ def _fable_limit_escalate(slug: str, nid: str, err_blob: str,
                 return
             except _WholeDocument:
                 pass
-        with store.DOC_LOCK:
-            o2 = store.load_org(slug)
-            o2.fable_limit_hit(nid, err_blob, until_ts=until_ts)
-            store.save_org(o2)
+        orgtx.org_tx_call(
+            slug, lambda tx: tx.org.fable_limit_hit(nid, err_blob,
+                                                    until_ts=until_ts),
+            whole=True)
     except Exception as e:                                   # noqa: BLE001
         print(f"[orgtree] {slug}/{nid}: Fable limit escalation failed "
               f"(the agent's own freeze stands; the next Fable wall "
