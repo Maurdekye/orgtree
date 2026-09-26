@@ -10,6 +10,10 @@ in `lifecycle_tx`:
     orgtree_swap            `_swap_rows`
     orgtree_self_subjugate  `_promote_rows` (the caller descends beneath its
                             target)
+    orgtree_retire,         `_archive_rows`. The turn interrupt and wait
+    orgtree_dissolve        (`supervisor.interrupt_before_archive`) already
+                            runs in `agent_call` BEFORE the door, with no
+                            lock held; its warnings arrive in `pre`.
 
 Each spec is computed from the door's UNLOCKED snapshot, so it can be stale.
 The body re-derives the plan on the LOCKED document (`lifecycle_tx._need`)
@@ -152,8 +156,30 @@ def _subjugate(org: Any, hn: Any, hs: Any, tx: pgdoor.AgentTx) -> Any:
                            str(tx.args.get("target") or ""))
 
 
+# ---------------------------------------------------------------- retire / dissolve
+
+
+def _archive_rows(snap: Any, call: Any, a: dict[str, Any]
+                  ) -> "tuple[set[str], set[str]]":
+    return lt._archive_rows(snap, call.node, str(a.get("node") or ""))
+
+
+def _archive(op_body: Callable[..., Any]):
+    def run(org: Any, hn: Any, hs: Any, tx: pgdoor.AgentTx) -> Any:
+        result = op_body(org, hn, hs, tx.node, str(tx.args.get("node") or ""))
+        warns = tx.pre.get("archive_warnings")
+        if warns:
+            result.setdefault("warnings", []).extend(warns)
+        return result
+    return run
+
+
 pgdoor.declare("orgtree_move", _spec("move", _move_rows), _door_body(_move))
 pgdoor.declare("orgtree_swap", _spec("swap_seats", _swap_rows),
                _door_body(_swap))
 pgdoor.declare("orgtree_self_subjugate", _spec("move", _subjugate_rows),
                _door_body(_subjugate))
+pgdoor.declare("orgtree_retire", _spec("retire", _archive_rows),
+               _door_body(_archive(lt.retire_body)))
+pgdoor.declare("orgtree_dissolve", _spec("dissolve", _archive_rows),
+               _door_body(_archive(lt.dissolve_body)))
