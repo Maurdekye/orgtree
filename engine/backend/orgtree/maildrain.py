@@ -158,6 +158,21 @@ def _write_demand(slug: str, nid: str, fn, default=None) -> None:
             fn(tx.org, demand)
 
 
+def _waiting_carrier(st) -> bool:
+    """An idle seat still holding a queued MAIL carrier in RAM.
+
+    A send that finds the seat busy queues its carrier under `_state_lock`
+    BEFORE its admission transaction commits the demand. If the worker
+    releases and a recovery pass reads in that window, the pass sees no
+    demand; forgetting the seat then would strand the carrier on an idle
+    node once the send commits (nothing else revisits it). The seat stays
+    tracked instead, and the next sweep admits it."""
+    from . import supervisor as sup
+    with sup._state_lock:
+        return (not st.get('busy')
+                and any(sup._carrier_is_ping(c) for c in st.get('queue') or []))
+
+
 def recover(slug: str, nid: str) -> bool:
     """One seat, one admission at most. Never take work from a live owner.
 
@@ -174,6 +189,8 @@ def recover(slug: str, nid: str) -> bool:
         # A renamed seat carries its marker under the new name.
         _discovery_needed = True
     if not n or not pending(org, nid):
+        if n and _waiting_carrier(sup.state(slug, nid)):
+            return False            # a send is still committing: stay tracked
         _forget(slug, nid)
         return False
     demand = n['mail_drain']
