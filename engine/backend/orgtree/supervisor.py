@@ -29309,7 +29309,9 @@ def resume_frozen(slug: str, only: Iterable[str] | None = None,
     # committed: the transcript exports now, in the order they were made (a
     # rebind's archive before a compaction's), off every row lock. A failed
     # copy is reported, never raised — the resume stands (as the inline copy
-    # it replaces returned None on OSError).
+    # it replaces returned None on OSError). A crash between the commit and
+    # this copy loses the copy (before, it left an extra file): the trade
+    # lead decision 41 accepted.
     for _xnid, _xsid, _xwhy in _resume_exports:
         if not _xsid:
             continue

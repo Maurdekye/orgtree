@@ -123,7 +123,8 @@ def _account_assign_body(tx: Any) -> Any:
     old_sid = result.pop("_export_old_sid", None)
     org = tx.org
     # after the commit, in `_agent_door`'s `_account_selection` order; each
-    # step's failure is a warning on the committed result, never a raise
+    # step's failure is a warning on the committed result, never a raise. A
+    # crash before the export loses the copy, not the rebind (decision 41).
     if old_sid:
         def account_export(_res: Any, _s: str = str(old_sid)) -> None:
             supervisor.export_after_commit(slug, org, target, _s,

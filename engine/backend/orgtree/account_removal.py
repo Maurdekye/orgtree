@@ -529,7 +529,8 @@ def announce(slug_wakes: list[tuple[str, str, str]],
     fanout must not read as a failed removal."""
     from . import supervisor
     # the session-boundary rebinds' transcript exports first (the order
-    # `_agent_door` uses: export, notify, wakes), on each committed org
+    # `_agent_door` uses: export, notify, wakes), on each committed org. A
+    # crash before this loses the copy, not the rebind (lead decision 41).
     for slug, org, nid, old_sid in exports or ():
         try:
             supervisor.export_after_commit(slug, org, nid, old_sid,

@@ -467,7 +467,9 @@ def apply(org: Any, nid: str, plan: dict[str, Any], *,
     `exports` (S7 L2, WS3b decision 6): when given, a provider-crossing
     rebind's transcript export is NOT run here, under the row locks — its
     (nid, archived session, reason) is appended for the caller to run with
-    `supervisor.export_after_commit` once its transaction has committed."""
+    `supervisor.export_after_commit` once its transaction has committed.
+    Without it (no caller left since S7 L2 — resume_frozen always passes a
+    list; kept only for compatibility) the copy runs inline, as before."""
     from . import supervisor
     n = org.node(nid)
     if (identity(n) != plan["node"] or not eligible(org, nid)
