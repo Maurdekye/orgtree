@@ -162,6 +162,9 @@ export interface OrgCanvasProps {
 // so the effect stays a tiny "farther away" cue, not a distinct layer racing
 // past the cards.
 const PARALLAX_BG = 0.88
+// Until the viewport has a size, keep a small initial preview instead of
+// mounting the whole org only to cull it on the next render.
+const UNMEASURED_CARD_LIMIT = 32
 
 const atRest = (s: Spring, tgt: Pt): boolean =>
   Math.abs(tgt.x - s.x) <= 0.4 && Math.abs(tgt.y - s.y) <= 0.4
@@ -3287,13 +3290,15 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
               return <circle key={sp.id} className="spark" cx={p.x} cy={p.y} r="3.4" />
             })}
         </svg>
-        {[...map.values()].map((n) => {
+        {[...map.values()].map((n, index) => {
           const p = posOf(n.id)
           if (!p) return null
           // Keep the single eye (its credit bar extends beyond its card), the draft,
           // focused composer and captured drag alive. Ordinary offscreen cards do not mount.
           if (n.id !== USER && n.id !== DRAFT && n.id !== focusId && n.id !== nodeDrag.current?.id
-            && !intersectsViewport({ ...p, ...sizeOf(n.id) }, visibleRect)) return null
+            && (visibleRect
+              ? !intersectsViewport({ ...p, ...sizeOf(n.id) }, visibleRect)
+              : index >= UNMEASURED_CARD_LIMIT)) return null
           if (n.id === USER) {
             if (compact) {
               // §5.1: the switchboard is desktop-idea-shaped (N-up parallel

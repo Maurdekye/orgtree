@@ -64,3 +64,29 @@ test('real graph removes offscreen cards and restores them on viewport resize', 
     assert.ok(count() <= initial, 'resize never invents or duplicates cards')
   } finally { await view.unmount(); resetConvos(); localStorage.clear(); setCrowdPilesOn(true) }
 })
+
+test('large graph keeps its unmeasured preview bounded and reveals remaining cards after measurement', async () => {
+  localStorage.clear(); resetConvos(); setCrowdPilesOn(false); installFetch(new FakeServer())
+  const roots = Array.from({ length: 120 }, (_, i) => ({ id: `node-${i}`, title: `Node ${i}`, state: 'live', tier: 'haiku',
+    generation: 0, children: [], seat: 1, grant: 0, free: 0, turns: [], scope: { tools: {}, add_dirs: [] } }))
+  const tree = { slug: 'large-viewport-fixture', name: 'fixture', roots, tiers: { haiku: 1 },
+    audit: { live_nodes: roots.length, top_level_holds: roots.length, no_overdraft: true, problems: [] },
+    dirs: [], audiences: [], audience_requests: [], credit_requests: [], max_top_grant: 1000,
+    default_top_grant: 10, compact_at: 0, user_inbox_count: 0, org_inbox: null, net: null,
+  } as unknown as TreePayload
+  const view = await mountView(<OrgCanvas tree={tree} slug={tree.slug} op={async () => ({})}
+    toast={() => {}} mailEvt={null} />, el => el)
+  try {
+    await inAct(async () => { await flush(5) })
+    const viewport = view.el.querySelector<HTMLElement>('.viewport')!
+    const count = () => view.el.querySelectorAll('.sq:not(.user)').length
+    assert.equal(viewport.dataset.culling, 'unmeasured')
+    assert.ok(count() > 0 && count() <= 32, `initial preview is bounded: ${count()}`)
+    assert.ok(view.el.querySelector('.sq.user'), 'user credit controls remain available')
+    viewport.getBoundingClientRect = () => ({ x: -100000, y: -100000, width: 200000, height: 200000,
+      top: -100000, left: -100000, right: 100000, bottom: 100000, toJSON: () => ({}) })
+    await inAct(async () => { fireResize(viewport) })
+    assert.equal(viewport.dataset.culling, 'active')
+    assert.equal(count(), roots.length, 'all real cards can mount after the viewport is measured')
+  } finally { await view.unmount(); resetConvos(); localStorage.clear(); setCrowdPilesOn(true) }
+})
