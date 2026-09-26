@@ -1,12 +1,21 @@
 import { useCallback, useMemo, useSyncExternalStore } from 'react'
-import type { TreeNode } from './types'
-import type { WsEvent } from './api'
+import type { CacheForecast, TreeNode } from './types'
+
+/** The node-stream wire shape shared by the org receiver and metadata store. */
+export type NodeStreamFrame = {
+  type: 'node_stream'; rev?: number; event_id?: string; reply_quote?: string;
+  node: string; kind: string; text?: string; sticky?: boolean; id?: string;
+  assistant_row?: unknown; segments?: unknown; delivery?: unknown;
+  count?: number | null; last_turn_count?: number | null; provider?: string;
+  source?: string | null; reason?: string | null; emitted_at_ms?: number;
+  waiting?: boolean; state?: string | null; forecast?: CacheForecast | null;
+}
 
 const fields = ['mcp_tool_count', 'last_turn_mcp_tool_count', 'mcp_tool_count_provider',
   'mcp_tool_count_source', 'mcp_tool_count_reason', 'mcp_readiness_waiting',
   'mcp_readiness_state', 'mcp_readiness_reason', 'cache_forecast'] as const
 export type NodeMetadata = Pick<TreeNode, typeof fields[number]>
-type Frame = Extract<WsEvent, { type: 'node_stream' }>
+type Frame = NodeStreamFrame
 type Entry = { generation: TreeNode['generation']; value: NodeMetadata }
 const orgs = new Map<string, Map<string, Entry>>()
 const listeners = new Map<string, Set<() => void>>()

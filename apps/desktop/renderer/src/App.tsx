@@ -98,6 +98,7 @@ import {
 import type { SettingsTab } from './canvas/settingskit'
 import { ingestPulse, ingestStream, resetConvos } from './convo'
 import { clearNodeMetadata, metadataPatch, publishNodeMetadata, replaceNodeMetadata } from './nodemetadata'
+import type { NodeStreamFrame } from './nodemetadata'
 import type {
   AccountUsage, AskInfo, AudiencesPayload, CacheForecast, DefaultsPayload, HostPayload, InboxPayload,
   DirGrant, MailEntry, OpRequest, OpResult, OrgEvent, OrgListEntry,
@@ -118,13 +119,7 @@ const SYSTEM = '@system'
 // (2026-09-19 base+patch protocol — see treesync.ts); sparks have none.
 type WsEvent =
   | { type: 'mail'; from: string; to: string }
-  | { type: 'node_stream'; rev?: number; event_id?: string; reply_quote?: string; node: string; kind: string; text?: string; sticky?: boolean; id?: string;
-      assistant_row?: unknown;
-      segments?: unknown; delivery?: unknown;
-      count?: number | null; last_turn_count?: number | null; provider?: string;
-      source?: string | null; reason?: string | null; emitted_at_ms?: number;
-      waiting?: boolean; state?: string | null;
-      forecast?: CacheForecast | null }
+  | NodeStreamFrame
   | { type: 'node_event'; rev?: number; node: string; event: string; was?: string;
       renamed?: Record<string, string> }
   | { type: 'changed'; rev?: number }
