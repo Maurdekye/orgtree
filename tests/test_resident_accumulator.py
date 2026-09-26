@@ -22,7 +22,10 @@ data.mkdir()
 home = Path(_temp.name) / 'home'
 home.mkdir()
 os.environ.update(ORGTREE_DATA=str(data), HOME=str(home), USERPROFILE=str(home),
-                  ORGTREE_STORE='sqlite', ORGTREE_ROW_CAS='1')
+                  # the SHIPPING SQLite setting: no row compare-and-set, so a
+                  # save on a stale resident overwrites silently (with it on,
+                  # the same interleaving raises StaleWrite instead)
+                  ORGTREE_STORE='sqlite', ORGTREE_ROW_CAS='0')
 os.environ.pop('ORGTREE_ORGTX_TEST_HOOKS', None)
 
 import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
