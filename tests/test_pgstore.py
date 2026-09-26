@@ -308,13 +308,19 @@ class Seam(unittest.TestCase):
         org.d['nodes']['a']['name'] = 'First'
         store.save_org(org)
         first = pgstore.read_marker(store.org_path(slug))
-        store.delete_org(slug)
+        # both deletes get ONE trash stamp, as inside one real second: without
+        # this the test only caught the overwrite when the clock cooperated
+        from unittest.mock import patch
+        same_second = patch.object(store.time, 'strftime', return_value='20260926T000000')
+        with same_second:
+            store.delete_org(slug)
         old_marker = self._trash_marker(slug)
         self.assertEqual(_fresh_org('del-old'), slug)                  # a new org, same name
         second = pgstore.read_marker(store.org_path(slug))
         self.assertNotEqual(first, second)
         self.assertEqual(_node(slug, 'a')['name'], 'a', 'the new org does not meet the old rows')
-        store.delete_org(slug)
+        with same_second:
+            store.delete_org(slug)
         # the same second: the second delete must not overwrite the first's marker
         self.assertEqual(pgstore.read_marker(old_marker), first, 'trash marker overwritten')
         trash = os.path.join(str(data), 'deleted')
