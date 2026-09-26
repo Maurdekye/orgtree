@@ -144,6 +144,11 @@ class SteerIdleFastPathTests(unittest.TestCase):
         did, _ = sup.claim_steer(self.slug, self.nid, "tool-c", self.tp)
         self.assertTrue(did)
         self.st["steer"] = []
+        # the hook fetches again BEFORE the CLI has written its record: that
+        # scan finds the attempt open and must not call the seat clear
+        self.assertEqual(sup.scan_steer_records(self.slug, self.nid), {})
+        self.assertFalse(sup._steer_attempts_clear(self.st),
+                         "a scan that saw an open attempt recorded 'clear'")
         self.record(did, "tool-c")
         self.assertEqual(sup.scan_steer_records(self.slug, self.nid).get("recorded"), 1)
         # and once recorded, the seat goes idle again: the next scan proves it
