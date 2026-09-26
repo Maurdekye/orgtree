@@ -410,6 +410,19 @@ def _set_status(slug: str, hub_id: str, connected: bool,
             pass
 
 
+def _net_section(slug: str, key: str) -> Any:
+    """One org-level net section (`net_spool`, `net_state`), committed and
+    lock-free — the same read the callers made with `orgtx.org_read`, but a
+    single `doc` row instead of the whole document (scale,
+    hot-paths-off-full-org-reads). Falls back to org_read when the row read
+    has no answer (JSON backend)."""
+    from . import orgtx, store
+    got = store.read_doc_sections(slug, (key,))
+    if got is None:
+        return orgtx.org_read(slug).d.get(key)
+    return got.get(key)
+
+
 class _NetDoc:
     """The org-level net settings `_participants` reads, as an `Org`-shaped
     stand-in (`.d` only). Every write path below still rebinds `org` to the
@@ -873,8 +886,7 @@ def _drain_spools(parts: dict[str, dict[str, Any]]) -> None:
             # snapshot the entries; no lock is held during HTTP (PG-3f: a
             # lock-free read, was DOC_LOCK)
             entries = [dict(e) for e in
-                       (orgtx.org_read(slug).d
-                        .get("net_spool") or {}).get(hid, [])]
+                       (_net_section(slug, "net_spool") or {}).get(hid, [])]
             for e in entries:
                 # F-06 D: upload attachments first (resumable — successful
                 # ids persist on the entry so a retry never re-uploads).
@@ -1061,8 +1073,7 @@ def _stamp_skip(slug: str, hub_id: str, err: str) -> None:
     from . import orgtx
     err = err[:200]
     # the steady state is a lock-free read that finds nothing changed
-    entries = (orgtx.org_read(slug).d
-               .get("net_spool") or {}).get(hub_id, [])
+    entries = (_net_section(slug, "net_spool") or {}).get(hub_id, [])
     if not entries or all(e.get("last_err") == err for e in entries):
         return
     with orgtx.org_tx(slug, **SPOOL_ROWS) as tx:
@@ -1153,8 +1164,8 @@ def _deliver_inbound(slug: str, hub_id: str, msgs: list[dict[str, Any]],
         mid = str(m.get("id") or "")
         if not mid:
             continue
-        ring = ((orgtx.org_read(slug).d
-                 .get("net_state") or {}).get(hub_id) or {}).get("seen_ids") or []
+        ring = ((_net_section(slug, "net_state") or {})
+                .get(hub_id) or {}).get("seen_ids") or []
         seen = mid in ring
         if not seen:
             body = str(m.get("body") or "")
@@ -1228,10 +1239,8 @@ def _read_hub_of(slug: str, mid: str) -> str | None:
     redteam ⑥: fanning a read receipt to EVERY hub stamps `read` on any hub
     where an id collides (adversarial-only with uuid ids, but the precise
     route costs nothing). None = evicted from the ring; fall back to fan-out."""
-    from . import store
     try:
-        org = store.load_org(slug)
-        for hid, st in (org.d.get("net_state") or {}).items():
+        for hid, st in (_net_section(slug, "net_state") or {}).items():
             if mid in (st.get("seen_ids") or []):
                 return str(hid)
     except Exception:                                            # noqa: BLE001
