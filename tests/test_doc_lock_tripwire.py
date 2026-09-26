@@ -97,8 +97,8 @@ class Tripwire(unittest.TestCase):
 
     def test_legacy_count_names_the_site_and_its_caller(self) -> None:
         with store.doc_lock_tripwire(raising=False) as counts:
-            _legacy_writer()
-            _legacy_writer()
+            for _ in range(2):
+                _legacy_writer()                  # one call site, twice
         site, n = _only(counts['legacy'])
         self.assertEqual(n, 2)
         self.assertRegex(site, SITE)
