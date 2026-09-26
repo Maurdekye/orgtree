@@ -16,6 +16,7 @@ What these prove, on the SeamBackend fake over a throwaway SQLite root:
 Run:  python tools/run-python-verification.py tests/test_orgtx.py
 """
 
+import json
 import os
 from pathlib import Path
 import tempfile
@@ -537,6 +538,43 @@ class PG0bFake(unittest.TestCase):
                     tx.d['nodes']['a']['name'] = 'after-heal'
             self.assertEqual(len(calls), 1, 'only the commit goes through store.save_org')
             self.assertIn('_migrations', store.load_org(self.slug).d)
+
+    def test_first_rows_of_an_empty_list_log_both_survive(self) -> None:
+        # decision 38 (found by PG-3d): a list log with NO rows at load, first
+        # written by two concurrent org_tx through setdefault. Without a
+        # row-tracked empty baseline the second commit replaced the section
+        # and erased the first's row.
+        sect = 'notice_log'
+        with store._POOL.acquire(self.slug) as conn:   # precondition: no rows, no blob
+            self.assertIsNone(conn.execute(
+                "SELECT 1 FROM log_l WHERE sect=? UNION ALL SELECT 1 FROM doc WHERE key=?",
+                (sect, sect)).fetchone())
+        inside, release = threading.Event(), threading.Event()
+        errors: list[BaseException] = []
+
+        def holder() -> None:
+            try:
+                with orgtx.org_tx(self.slug, logs=[sect]) as tx:
+                    tx.d.setdefault(sect, []).append({'id': 'held'})
+                    inside.set()
+                    release.wait(10)
+            except BaseException as e:              # pragma: no cover - asserted below
+                errors.append(e)
+
+        t = threading.Thread(target=holder, daemon=True)
+        t.start()
+        self.assertTrue(inside.wait(5), 'holder never entered its transaction')
+        try:
+            with orgtx.org_tx(self.slug, logs=[sect], lock_timeout=2, retries=0) as tx:
+                tx.d.setdefault(sect, []).append({'id': 'parallel'})
+        finally:
+            release.set()
+            t.join(10)
+        self.assertEqual(errors, [])
+        with store._POOL.acquire(self.slug) as conn:
+            ids = sorted(json.loads(v)['id'] for (v,) in conn.execute(
+                "SELECT val FROM log_l WHERE sect=?", (sect,)).fetchall())
+        self.assertEqual(ids, ['held', 'parallel'])
 
     def test_killswitch_row_always_present(self) -> None:
         org = store.load_org(self.slug)
