@@ -111,7 +111,10 @@ def child(args) -> int:
                 return
             with refused_lock, open(refused_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps({"at": time.time(), "event": event, "cmd": cmd[:300]}) + "\n")
-            raise RuntimeError(f"scale serve forbids external process: {cmd[:120]}")
+            # FileNotFoundError, not RuntimeError: the engine already treats it
+            # as "CLI not installed", so /api/providers and /api/host answer
+            # instead of 500ing (scale-ui-astra 2026-09-26)
+            raise FileNotFoundError(f"scale serve forbids external process: {cmd[:120]}")
     sys.addaudithook(forbid)
 
     t_import = time.time()
