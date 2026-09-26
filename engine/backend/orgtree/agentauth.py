@@ -38,7 +38,16 @@ def child_env(slug: str, nid: str, *, generation: int | None = None,
         if getattr(store.DOC_LOCK, "_is_owned", lambda: False)():
             node = store.load_org(slug).node(nid)
         else:
-            node = orgtx.org_read(slug).node(nid)
+            # scale (hot-paths-off-full-org-reads): ONE committed node row,
+            # not a whole-org snapshot per spawn (~0.4 s each at N=100). The
+            # same lock-free committed read as org_read. Fall back to it when
+            # the row cannot answer: no cheap row read (JSON store, `nodes`
+            # stored as a blob), an unknown node (org_read raises the error
+            # callers already see), or a stored row with no `seat_id` (a
+            # pre-P04a document; `Org.__init__` backfills it from lineage).
+            row = store.read_node(slug, nid)
+            node = (row if row is not None and row.get('seat_id')
+                    else orgtx.org_read(slug).node(nid))
         if generation is None:
             generation = int(node.get('generation', 0))
         if seat_id is None:
