@@ -353,6 +353,62 @@ class DesktopRecovery(unittest.TestCase):
         t.join(FREE_S)
         self.assertEqual(out[0]['results'][0]['phase'], 'handled', out)
 
+    def test_a_seat_added_after_the_read_is_refused(self) -> None:
+        # review M7: _tx reads the seat list lock-free, then locks those
+        # seats; a seat that appears in between was never locked, so the call
+        # refuses instead of deciding on it.
+        from unittest import mock
+        from orgtree import desktop_recovery as rec
+        slug = self._org()
+        real = orgtx.org_read
+        grown = []
+
+        def read_then_grow(*a, **kw):
+            out = real(*a, **kw)
+            if not grown:
+                grown.append(1)
+                org = store.load_org(slug)
+                org.d['nodes']['x'] = {'id': 'x', 'name': 'x', 'parent': None,
+                                       'children': [], 'state': 'live'}
+                org.d['desktop_import']['active_nodes'].append('x')
+                store.save_org(org)
+            return out
+        with mock.patch.object(orgtx, 'org_read', read_then_grow):
+            with self.assertRaisesRegex(Exception, 'Recovery seats changed'):
+                rec.status(slug)
+        self.assertTrue(grown, 'the seat was never added: the control did not run')
+        self.assertNotIn('x', _doc(slug)['desktop_import'].get('recovery_attempts', {}))
+        # the next call reads the grown list and succeeds
+        self.assertEqual({n['node'] for n in rec.status(slug)['nodes']}, {'w', 'x'})
+
+    def test_a_failed_commit_releases_the_dispatch_claim(self) -> None:
+        # review N5: resolve claims the seat in _dispatching under its row
+        # lock; if the transaction then fails, the claim must not survive.
+        import contextlib
+        from unittest import mock
+        from orgtree import desktop_recovery as rec
+        slug = self._org()
+        row = rec.status(slug)['nodes'][0]
+        real = rec._tx
+        failed = []
+
+        @contextlib.contextmanager
+        def failing(s, write_nodes=()):
+            with real(s, write_nodes) as org:
+                yield org
+                if write_nodes:
+                    failed.append(1)
+                    raise RuntimeError('commit failed')
+        with mock.patch.object(rec, '_tx', failing):
+            with self.assertRaisesRegex(RuntimeError, 'commit failed'):
+                rec.resolve_import(slug, [{'node': 'w', 'attempt': row['attempt'],
+                                           'expected_phase': row['phase']}],
+                                   'retry', True)
+        self.assertTrue(failed, 'the failing transaction never ran')
+        self.assertNotIn((slug, 'w'), rec._dispatching)
+        self.assertEqual(_doc(slug)['desktop_import']['recovery_attempts']['w']['attempt'],
+                         row['attempt'], 'the failed transaction wrote')
+
 
 ALL_TOOLS = {'bash': True, 'web': True, 'edit': True, 'subagents': True, 'mcp': ['*']}
 NO_TOOLS = {'bash': False, 'web': False, 'edit': False, 'subagents': False, 'mcp': []}

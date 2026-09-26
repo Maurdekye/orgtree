@@ -79,14 +79,32 @@ def _result_phase(result):
     if any(result.get(k) for k in ('frozen','limit_locked','remote','deferred','parked','not_idle','error')): return 'held'
     return 'admitted' if result.get('accepted') is True else 'held'
 
+@contextlib.contextmanager
+def _claiming_tx(slug, key, write_nodes=()):
+    """`_tx` whose body may claim `key` in `_dispatching` (the yielded
+    `claim()`). The claim is taken under the row lock, so no other resolve can
+    pass the check in between, and undone if the transaction does not commit:
+    a failed COMMIT must not leave the seat 'currently executing' until
+    restart (PG-3f review N5)."""
+    claimed=[]
+    def claim():
+        if key not in _dispatching:
+            _dispatching.add(key); claimed.append(key)
+    try:
+        with _tx(slug, write_nodes) as org:
+            yield org, claim
+    except BaseException:
+        for k in claimed: _dispatching.discard(k)
+        raise
+
 def _observe(slug,nid,stage,result=None):
-    with _tx(slug) as org:
+    with _claiming_tx(slug, (slug,nid)) as (org, claim):
         row=_records(org)[nid]
         if stage=='before':
             if row['phase'] not in {'not-dispatched','held'} or row['identity'] != _identity(org.node(nid)):
                 raise LedgerError('Recovery identity or phase changed before admission')
             row['phase']='dispatching'
-            _dispatching.add((slug,nid))
+            claim()
         else:
             _dispatching.discard((slug,nid))
             row['phase']='uncertain' if stage=='error' else _result_phase(result)
@@ -124,7 +142,7 @@ def resolve_import(slug,nodes,action,acknowledged,note=''):
     for choice in nodes:
         nid=str(choice.get('node') or '') if isinstance(choice,dict) else ''
         try:
-            with _tx(slug, write_nodes=[nid] if nid else []) as org:
+            with _claiming_tx(slug, (slug,nid), write_nodes=[nid] if nid else []) as (org, claim):
                 row=_records(org).get(nid)
                 if not row: raise LedgerError('No retained recovery intent')
                 key={'attempt':choice.get('attempt'),'phase':choice.get('expected_phase'),'action':action}
@@ -144,7 +162,7 @@ def resolve_import(slug,nodes,action,acknowledged,note=''):
                 row.update(attempt=uuid.uuid4().hex,resolution_of=key,actor='user',note=str(note)[:4000],
                            phase='handled' if action=='mark-handled' else 'dispatching',at=now())
                 intent=dict(row['intent']); org.node(nid).pop('inflight',None); _settle(org)
-                if action!='mark-handled': _dispatching.add((slug,nid))
+                if action!='mark-handled': claim()
             if action!='mark-handled':
                 try:
                     outcome=supervisor.send_message(slug,nid,
