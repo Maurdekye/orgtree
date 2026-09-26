@@ -576,6 +576,28 @@ class PG0bFake(unittest.TestCase):
                 "SELECT val FROM log_l WHERE sect=?", (sect,)).fetchall())
         self.assertEqual(ids, ['held', 'parallel'])
 
+    def test_split_rows_never_look_like_a_pending_heal(self) -> None:
+        # reviewer L1 (2): PG-3d's per-owner split rows must not read as a
+        # load-heal, or every org_tx would re-run up to MAX_HEALS and fail
+        from unittest.mock import patch
+        org = store.load_org(self.slug)
+        org.d['mail'] = {'a': [{'id': 'm1'}], 'b': [{'id': 'm2'}]}
+        org.d['delivering'] = {'a': []}
+        store.save_org(org)
+        store.save_org(store.load_org(self.slug))
+        with store._POOL.acquire(self.slug) as conn:   # precondition: really split
+            keys = {k for (k,) in conn.execute("SELECT key FROM doc").fetchall()}
+        self.assertIn('mail' + store.SPLIT_SEP + 'a', keys)
+        heals: list[str] = []
+        real = orgtx._heal
+        with patch.object(orgtx, '_heal', lambda s: (heals.append(s), real(s))[1]):
+            for _ in range(3):
+                with orgtx.org_tx(self.slug, sections=[('mail', 'a')]) as tx:
+                    self.assertEqual(orgtx._heal_pending(tx), [])
+                    tx.d['mail']['a'].append({'id': f'n{len(tx.d["mail"]["a"])}'})
+        self.assertEqual(heals, [])
+        self.assertEqual(len(store.load_org(self.slug).d['mail']['a']), 4)
+
     def test_killswitch_row_always_present(self) -> None:
         org = store.load_org(self.slug)
         dict.pop(org.d, 'killswitch', None)        # an org that never had one
