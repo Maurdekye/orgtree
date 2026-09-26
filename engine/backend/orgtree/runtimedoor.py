@@ -142,10 +142,12 @@ def unstick_spec(snapshot: Any, call: Any, a: dict[str, Any]
     (or in the absence of) `fable_lock` — p01 checked each, S6 plan review
     Q3. So holding `fable_lock` FOR UPDATE orders this against all of them,
     PROVIDED the other nodes are read after that lock is granted, which
-    org_tx guarantees (every lock is taken before the body runs, and a row
-    changed after the transaction's snapshot fails the FOR UPDATE with a
-    serialization error, which retries). The any() runs over every node,
-    archived included, so a retire cannot change the answer either."""
+    org_tx guarantees: it takes every lock before the body runs and loads the
+    document only then (on PostgreSQL in READ COMMITTED, so the reads see
+    every commit made before the locks were granted; on the SQLite seam the
+    load follows the per-process locks). tests/test_s6_unstick_race.py forces
+    the race. The any() runs over every node, archived included, so a retire
+    cannot change the answer either."""
     target = _target(a)
     return pgdoor.TxSpec(
         nodes=(target,) if target else (),
