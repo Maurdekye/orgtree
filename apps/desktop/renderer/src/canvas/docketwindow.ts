@@ -92,7 +92,7 @@ export function useDocketWindow(sections: WindowSection[], reveal: string | null
     observer.observe(element)
     for (const child of element.querySelectorAll('[data-docket-measure]')) observer.observe(child)
     return () => observer.disconnect()
-  })
+  }, [element, windowed, layout, viewport.top, viewport.height, readViewport])
 
   const revealed = useRef<string | null>(null)
   useLayoutEffect(() => {

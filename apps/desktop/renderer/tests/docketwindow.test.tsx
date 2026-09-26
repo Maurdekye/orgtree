@@ -93,8 +93,11 @@ test('scrolling and resizing variable-height rows keeps the selection mounted in
   assert.ok(!names(view.el).includes('ticket-0'), 'old rows were unmounted')
   assert.equal(view.el.querySelector('.docket-slug-text')?.textContent, 'ticket-0', 'detail selection survives')
   const small = rows(view.el).length
+  await resize(600, 300)
+  assert.ok(rows(view.el).length > small, 'larger viewport mounts more rows')
   await resize(600, 220)
-  assert.ok(rows(view.el).length > small, 'larger viewport mounts more rows despite their increased height')
+  assert.ok(rows(view.el).length > 0, 'narrower, taller rows remain visible')
+  assert.ok(rows(view.el).every(row => row.offsetHeight >= 72), 'resize delivered changed row measurements')
   assert.ok(rows(view.el).length < 35)
   await scroll(0)
   assert.ok(names(view.el).includes('ticket-0'), 'returning to the beginning is still possible')
