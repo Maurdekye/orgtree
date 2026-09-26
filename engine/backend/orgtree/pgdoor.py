@@ -242,11 +242,12 @@ class TxSpec:
         logs = {x if isinstance(x, str) else x[0] for x in self.logs}
         return TxSpec(
             tuple(n for n in o.nodes if n not in self.nodes),
-            tuple(s for s in o.sections if s not in self.sections),
+            tuple(s for s in o.sections if not _holds(self.sections, s)),
             tuple(n for n in o.share_nodes
                   if n not in self.nodes and n not in self.share_nodes),
             tuple(s for s in o.share_sections
-                  if s not in self.sections and s not in self.share_sections),
+                  if not _holds(self.sections, s)
+                  and not _holds(self.share_sections, s)),
             tuple(x for x in o.logs
                   if x not in self.logs
                   and (x if isinstance(x, str) else x[0]) not in logs))
@@ -464,7 +465,7 @@ def _run(slug: str, spec: TxSpec, step: Callable[[Any, TxSpec], Any]
                 raise
             wider = _norm(spec.widened(Widen(
                 nodes=[n for k, n in rows if k == "node"],
-                sections=[n for k, n in rows if k == "section"],
+                sections=_refused_sections(rows),
                 logs=[n for k, n in rows if k == "log"])))
             if wider == spec:
                 raise              # refused rows we already hold: a real bug
@@ -545,6 +546,37 @@ def _logkey(x: "LogName") -> "tuple[str, ...]":
     return (x,) if isinstance(x, str) else tuple(x)
 
 
+def _row(s: Any) -> Any:
+    """A section as org_tx takes it. PG-0 reports a refused PG-3d owner row
+    by its doc key `section\x1fowner`; org_tx names it `(section, owner)`
+    and refuses the joined string."""
+    if not isinstance(s, str):
+        return tuple(s)
+    from . import store
+    sec, sep, owner = s.partition(store.SPLIT_SEP)
+    return (sec, owner) if sep else s
+
+
+def _holds(held: "Iterable[Any]", s: Any) -> bool:
+    """Is section `s` held by `held`? An owner row is also held by its whole
+    container (org_tx's lock on `mail` covers every `mail\x1fowner`)."""
+    pool = {_row(h) for h in held}
+    s = _row(s)
+    return s in pool or (not isinstance(s, str) and s[0] in pool)
+
+
+def _refused_sections(rows: "list[tuple[str, str]]") -> "list[Any]":
+    """The sections of an `UnlockedWrite`, as org_tx names them. A split
+    container refused beside one of its own owner rows is the container the
+    owner's first message CREATED, which org_tx allows under the owner lock
+    (it shares the container), so the owner row alone is the widening. A
+    container that is really rewritten is refused again on the re-run, and
+    then it is added."""
+    secs = [_row(n) for k, n in rows if k == "section"]
+    owned = {s[0] for s in secs if not isinstance(s, str)}
+    return [s for s in secs if not (isinstance(s, str) and s in owned)]
+
+
 def _norm(spec: TxSpec) -> TxSpec:
     """A row named both ways is held FOR UPDATE only; duplicates dropped;
     every list sorted. PG-0's org_tx takes all its locks up front in its own
@@ -553,10 +585,10 @@ def _norm(spec: TxSpec) -> TxSpec:
     widened spec compares equal when nothing new was added."""
     ns = tuple(sorted(set(spec.nodes)))
     # sections, like logs, may be ("mail", owner) tuples (PG-3d mailtx)
-    ss = tuple(sorted(set(spec.sections), key=_logkey))
+    ss = tuple(sorted({_row(s) for s in spec.sections}, key=_logkey))
     return TxSpec(ns, ss,
                   tuple(sorted(set(spec.share_nodes) - set(ns))),
-                  tuple(sorted(set(spec.share_sections) - set(ss),
+                  tuple(sorted({_row(s) for s in spec.share_sections} - set(ss),
                                key=_logkey)),
                   tuple(sorted(set(spec.logs), key=_logkey)))
 
