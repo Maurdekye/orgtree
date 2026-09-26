@@ -55,7 +55,7 @@ class BatchTx(unittest.TestCase):
         self.dir = tempfile.mkdtemp(dir=_root.name)
         org = store.create_org(self.slug)
         org.hire(ledger.USER, None, 'haiku', 20, 'top')
-        org.hire('top', 'top', 'haiku', 2, 'mid')
+        org.hire(ledger.USER, 'top', 'haiku', 2, 'mid')
         store.save_org(org)
         fence = orgtx.TRANSITION_FENCE
         orgtx.TRANSITION_FENCE = False
