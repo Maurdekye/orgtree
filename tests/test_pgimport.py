@@ -215,6 +215,21 @@ class Recognition(Base):
         doc["brand_new_section"] = {"x": 1}
         self.assertIn("unrecognised section 'brand_new_section'", pgimport.problems(self.rows_for(doc)))
 
+    def test_split_owner_rows_need_their_container(self) -> None:
+        # PG-3d stores mail/delivering/notices as a container row plus one
+        # row per owner (store.SPLIT_SEP); those rows are recognised data
+        org = self.rows_for(sample_doc())
+        keys = [r[0] for r in org.rows["doc"]]
+        owner_rows = [k for k in keys if store.split_section_of(k)]
+        self.assertTrue(owner_rows, keys)
+        self.assertEqual(pgimport.problems(org), [])
+        sect = store.split_section_of(owner_rows[0])
+        org.rows["doc"] = [r for r in org.rows["doc"] if r[0] != sect]
+        self.assertIn(f"owner row {owner_rows[0]!r} has no {sect!r} container row", pgimport.problems(org))
+        org = self.rows_for(sample_doc())
+        org.rows["doc"].append(("name" + store.SPLIT_SEP + "n1", "[]"))
+        self.assertIn(f"unrecognised section {'name' + store.SPLIT_SEP + 'n1'!r}", pgimport.problems(org))
+
     def test_values_jsonb_cannot_hold_are_problems(self) -> None:
         org = self.rows_for(sample_doc())
         org.rows["doc"].append(("name", '{"a": NaN}'))

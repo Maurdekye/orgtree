@@ -287,7 +287,13 @@ def problems(org: OrgRows) -> list[str]:
     out += [f"unrecognised table {t!r}" for t in org.extra_tables]
     out += [f"table {t!r} has unrecognised or missing columns {c}" for t, c in org.extra_columns.items()]
     doc_keys = [r[0] for r in org.rows["doc"]]
-    out += [f"unrecognised section {k!r}" for k in doc_keys if k not in KNOWN_DOC_KEYS]
+    # a split section's owner rows (store.SPLIT_SECTIONS, PG-3d) are part of
+    # their section, and are recognised only beside its container row
+    split = {k: store.split_section_of(k) for k in doc_keys}
+    out += [f"unrecognised section {k!r}" for k in doc_keys
+            if split[k] is None and k not in KNOWN_DOC_KEYS]
+    out += [f"owner row {k!r} has no {s!r} container row" for k, s in split.items()
+            if s is not None and s not in doc_keys]
     out += [f"section {k!r} is a lazy log but is stored as a document row" for k in doc_keys
             if k in DICT_LOGS or k in LIST_LOGS]
     for sect in sorted({r[1] for r in org.rows["log_d"]} - DICT_LOGS):
