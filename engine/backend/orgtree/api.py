@@ -12280,6 +12280,136 @@ runtimedoor.declare(_runtime_refuse,
                     _arg_opt_int)
 
 
+def _message_door_before(call: Any, a: dict[str, Any]) -> dict[str, Any]:
+    """`orgtree_message`'s pre-transaction step (pgdoor BEFORE, run once, no
+    lock held): everything the legacy branch did that is NOT a pure function
+    of the document — the hub roster probe and the attachment work, which
+    COPIES files into the outbox and so must never re-run with the
+    transaction. The body re-resolves the recipient on the locked document
+    and refuses if it moved away from the one these attachments were
+    prepared for. ⚠ Runs before receipt admission: a REPLAYED keyed call
+    with user attachments re-copies them into outbox/ (residue without a
+    card — the same class the legacy branch already leaves when post_mail
+    refuses), and nothing else."""
+    if str(a.get("kind") or "") == "notice":
+        raise LedgerError(
+            "kind 'notice' is minted by orgtree_send_notice (a send that "
+            "never wakes the recipient) — use that tool instead")
+    snap = orgtx.org_read(str(call.org))
+    dest = snap._resolve_recipient(str(a.get("to", "")), outward=True)
+    if dest.startswith("@net:"):
+        _require_net_peer(dest[5:])
+    net_atts: list[str] = []
+    user_atts: list[dict[str, Any]] = []
+    raw_atts = [str(x) for x in cast("list[Any]", a.get("attachments") or [])]
+    if raw_atts:
+        if len(raw_atts) > 10:
+            raise LedgerError("at most 10 attachments")
+        if dest == USER:
+            for rel in raw_atts:
+                user_atts.append(_agent_send_file(
+                    snap, call.node, {"path": rel}, max_bytes=None)["sent"])
+        elif dest.startswith("@net:"):
+            ab = os.path.realpath(supervisor.scratch_dir(call.org, call.node))
+            for rel in raw_atts:
+                rel = _no_nul(rel).strip().lstrip("/\\")
+                full = os.path.realpath(os.path.join(ab, rel))
+                if full != ab and not full.startswith(ab + os.sep):
+                    raise LedgerError(f"attachment escapes your "
+                                      f"scratch space: {rel}")
+                if not os.path.isfile(full):
+                    raise LedgerError(f"attachment not found: {rel}")
+                if os.path.getsize(full) > _NET_ATT_MAX:
+                    raise LedgerError(f"attachment over 25 MB: {rel}")
+                net_atts.append(full)
+        else:
+            raise LedgerError(
+                "attachments ride mail to the user or @net: "
+                "peers — for local agent recipients use "
+                "orgtree_send_file or paths")
+    return {"dest": dest, "user_atts": user_atts, "net_atts": net_atts,
+            "had_atts": bool(raw_atts)}
+
+
+def _message_door_body(t: pgdoor.AgentTx) -> dict[str, Any]:
+    """The legacy `orgtree_message` branch on the locked document; its
+    post-save steps (spark, drive with ping_reason, delivery note and
+    carrier note, inter-org send, hub kick) after the commit."""
+    slug, actor, a, org = str(t.call.org), t.node, t.args, t.org
+    to = str(a.get("to", ""))
+    if to.startswith("@net:") and not any(
+            h.get("enabled") for h in org.d.get("net_hubs") or []):
+        raise LedgerError(
+            "no mailserver is configured for this org — ask the "
+            "user to enable a hub (settings → mailserver) before "
+            "addressing @net: mail")
+    dest = org._resolve_recipient(to, outward=True)
+    if t.pre.get("had_atts") and dest != t.pre.get("dest"):
+        raise LedgerError("the recipient changed while the attachments were "
+                          "being prepared — send again")
+    result = org.post_mail(actor, to, a.get("body", ""),
+                           a.get("kind", "message"),
+                           attachments=t.pre.get("user_atts") or None,
+                           urgent=bool(a.get("urgent")),
+                           urgent_reason=str(a.get("urgent_reason") or ""))
+    delivered = result.get("delivered")
+    then = t.after.then
+    if delivered and delivered.startswith("@"):
+        then.append(lambda _r: mail_notify(slug, actor, "org_inbox"))
+    if delivered and delivered.startswith("@org:"):
+        dst, text = delivered[5:], a.get("body", "")
+
+        def _interorg(res: Any) -> None:
+            err = supervisor.interorg_send(slug, dst, text)
+            if err and isinstance(res, dict):
+                res.setdefault("warnings", []).append(f"not delivered: {err}")
+        then.append(_interorg)
+    elif delivered and delivered.startswith("@net:"):
+        # the spool entry rides this transaction (atomic with the org-inbox
+        # row); the daemon ships it after the commit
+        net.spool_append(org, delivered[5:], a.get("body", ""),
+                         oid=str(result.get("id") or ""),
+                         kind=a.get("kind", "message"),
+                         attachments=list(t.pre.get("net_atts") or []))
+
+        def _kick(res: Any) -> None:
+            net.kick()
+            if isinstance(res, dict):
+                res.setdefault("warnings", []).append(
+                    "queued for the mail hub — delivery states (sent/delivered/"
+                    "read) appear on the org inbox entry")
+        then.append(_kick)
+    elif delivered is not None:
+        target = USER if delivered == "user_inbox" else delivered
+        then.append(lambda _r: mail_notify(slug, actor, target))
+        if delivered != "user_inbox" and not result.get("deferred"):
+            def _drive(res: Any) -> None:
+                r = supervisor.send_message(
+                    slug, delivered,
+                    "(orgtree) You have new mail above — handle it as "
+                    "appropriate, and use orgtree_status when your own task "
+                    "state changes.", mail_ping=True, sender=actor,
+                    ping_reason="agent_mail")
+                if isinstance(res, dict):
+                    res["delivery"] = supervisor.delivery_note(slug, delivered, r)
+                    receipt = res.get("delivery_receipt")
+                    if isinstance(receipt, dict):
+                        receipt["carrier_note"] = res["delivery"]
+            then.append(_drive)
+        elif delivered != "user_inbox":
+            state = result.get("recipient_state") or "not live"
+
+            def _deferred(res: Any) -> None:
+                if isinstance(res, dict):
+                    res["delivery"] = supervisor.delivery_note(
+                        slug, delivered, {"deferred": state})
+            then.append(_deferred)
+    return result
+
+
+maildoor.declare_message(_message_door_before, _message_door_body)
+
+
 def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
     """Execute one authenticated tool through the existing authority/admission gates."""
     # the tool verb is the operation the storage instrumentation attributes
