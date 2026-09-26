@@ -12,9 +12,10 @@ post-commit tail.
 
 THE ROWS. A send's rows depend on its RESOLVED recipient (`mailtx.send_rows`).
 `spec` resolves on the lock-free snapshot the door hands it; the body
-resolves again on the locked document and raises `pgdoor.Widen` when the
-answer differs (a rename or hire in between) — the door rolls back, locks the
-union and re-runs. A name that does not resolve on the snapshot locks only
+resolves again on the locked document. When the answer differs (a rename or
+hire in between), the send writes a row it does not hold, PG-0 refuses it
+(`UnlockedWrite`) and the door turns that into a widening: it rolls back,
+locks the union and re-runs (pgdoor, "Two things widen it"). A name that does not resolve on the snapshot locks only
 the send's shared rows; the body's own resolution then raises the ledger's
 refusal, and nothing is written.
 
@@ -49,15 +50,6 @@ def _spec_for(recipients: list[str]) -> pgdoor.TxSpec:
     return pgdoor.TxSpec(**{k: tuple(v) for k, v in rows.items()})
 
 
-def _covered(t: pgdoor.AgentTx, recipient: str) -> bool:
-    """Does the transaction already hold a send to `recipient`?"""
-    # compare in pgdoor's canonical row form (tuples for owner rows)
-    want, have = pgdoor._norm(_spec_for([recipient])), pgdoor._norm(t.spec)
-    return (set(want.nodes) <= set(have.nodes)
-            and set(want.sections) <= set(have.sections)
-            and set(want.logs) <= set(have.logs))
-
-
 def _resolve_on_snapshot(snapshot: Any, to: str, **kw: Any) -> list[str]:
     try:
         return [snapshot._resolve_recipient(to, **kw)]
@@ -85,8 +77,6 @@ def notice_body(notify: Notify, steer: Steer, note: Note
                 "notices are for agents in this org — the user "
                 "inbox and outside addresses never wake anyone "
                 "anyway; send those an orgtree_message")
-        if not _covered(t, nto):
-            raise pgdoor.Widen(**mailtx.send_rows(nto))
         result = t.org.post_mail(actor, nto, t.args.get("body", ""), "notice")
         deferred = bool(result.get("deferred"))
         state = result.get("recipient_state") or "not live"
