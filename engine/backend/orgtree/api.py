@@ -11719,9 +11719,12 @@ def _op_lookup_call(body: AgentCall, a: dict[str, Any]) -> dict[str, Any]:
     except LedgerError as e:
         raise HTTPException(422, str(e))
     cls = opreceipts.coverage(tool, for_args)
-    with store.DOC_LOCK:
+
+    def decide(org: Org) -> tuple[dict[str, Any], int | None]:
+        """The answer, and the receipt seq to witness when this call FENCED
+        the key (None when it wrote nothing). Runs on the document the
+        caller holds — under DOC_LOCK, or inside the row transaction."""
         try:
-            org = store.load_org(body.org)
             org.node(body.node)
         except LedgerError as e:
             raise HTTPException(422, str(e))
@@ -11735,9 +11738,9 @@ def _op_lookup_call(body: AgentCall, a: dict[str, Any]) -> dict[str, Any]:
         # and generation, `opreceipts.classify`)
         state = opreceipts.classify(row, tool, for_args)
         if state == "conflict":
-            return {"state": "conflict", "op_key": key, "receipt": row,
+            return ({"state": "conflict", "op_key": key, "receipt": row,
                     "status": "that key already identifies a DIFFERENT "
-                              "operation; this one was never done"}
+                              "operation; this one was never done"}, None)
         if str(a.get("op_epoch") or "") != epoch:
             # the key's epoch was rotated (restart or rewind): the log's
             # silence means nothing. A matching applied row is durable
@@ -11745,12 +11748,12 @@ def _op_lookup_call(body: AgentCall, a: dict[str, Any]) -> dict[str, Any]:
             # reported as a fence, not as an absence proof; no fence is
             # written (admission already refuses a stale epoch).
             if state == "applied":
-                return {"state": "applied", "op_key": key, "receipt": row,
+                return ({"state": "applied", "op_key": key, "receipt": row,
                         "status": "the document transaction committed (its "
                                   "receipt survived, and is being read under "
                                   "a later operation epoch); post-commit "
-                                  "effects are not covered"}
-            return {"state": "unknown", "reason": "epoch_rotated",
+                                  "effects are not covered"}, None)
+            return ({"state": "unknown", "reason": "epoch_rotated",
                     "op_key": key, "coverage": cls, "fenced": state == "fenced",
                     "status": "the operation epoch this key was issued under "
                               "is no longer current — the backend restarted, "
@@ -11759,51 +11762,78 @@ def _op_lookup_call(body: AgentCall, a: dict[str, Any]) -> dict[str, Any]:
                               "call applied. Do NOT reissue it; check the org."
                               + (" (A lookup had fenced this key, so no "
                                  "document transaction under it can commit "
-                                 "from here on.)" if state == "fenced" else "")}
+                                 "from here on.)" if state == "fenced" else "")}, None)
         if state == "applied":
-            return {"state": "applied", "op_key": key, "receipt": row,
+            return ({"state": "applied", "op_key": key, "receipt": row,
                     "status": "the document transaction committed; "
-                              "post-commit effects are not covered"}
+                              "post-commit effects are not covered"}, None)
         if state == "fenced":
             # an earlier lookup already fenced it — the SAME answer as fencing
             # it here, including the coverage caveat: a fence stops the
             # document effect, and cannot speak for work done outside it.
             # The class comes from the ROW, not from the asker's verb, which
             # by now is known to be the same call.
-            return _op_absent(key, str(cast("dict[str, Any]", row).get("cls")
+            return (_op_absent(key, str(cast("dict[str, Any]", row).get("cls")
                                        or cls),
                               at=str(cast("dict[str, Any]", row).get("at")
-                                     or ""))
+                                     or "")), None)
         with _OP_INFLIGHT_LOCK:
             running = (body.org, body.node, key) in _OP_INFLIGHT
         if running:
-            return {"state": "running", "op_key": key,
+            return ({"state": "running", "op_key": key,
                     "status": "a call with this key is executing in THIS "
                               "backend process right now; its outcome is not "
-                              "decided yet — do not reissue"}
+                              "decided yet — do not reissue"}, None)
         if not opreceipts.receipted(tool, for_args):
-            return {"state": "unknown", "reason": "unsupported_operation",
+            return ({"state": "unknown", "reason": "unsupported_operation",
                     "op_key": key, "coverage": cls,
                     "status": "this verb never reaches the document "
                               "transaction, so no receipt can exist either "
-                              "way — the outcome is unknown"}
+                              "way — the outcome is unknown"}, None)
         # nothing recorded, nothing running: FENCE the key, then answer.
         decision, info = opreceipts.admit(d, body.node, gen, key, tool,
                                           for_args, epoch_ok=True)
         if decision == opreceipts.REFUSE:
-            return {"state": "unknown", "reason": info.get("reason"),
+            return ({"state": "unknown", "reason": info.get("reason"),
                     "op_key": key, "coverage": cls,
-                    "status": str(info.get("detail") or "")}
+                    "status": str(info.get("detail") or "")}, None)
         opreceipts.append(d, opreceipts.row(
             op_id=opreceipts.new_id(), node=body.node, generation=gen,
             key=key, mint_ms=int(cast("int", info["mint_ms"])),
             tool=tool, args=for_args, cls=cls, outcome="fenced",
             at=ledger_mod.now(),
             summary="fenced by a lookup: not recorded as applied"))
-        store.save_org(org)
-        # the fence is a committed append too: witness it (see agent_call)
-        opreceipts.witness(store.DATA_ROOT, body.org, opreceipts.seq(d))
-    return _op_absent(key, cls)
+        return _op_absent(key, cls), opreceipts.seq(d)
+
+    if pgdoor.enabled():
+        # fence-off S5: ONE row transaction on exactly the rows a keyed call
+        # on the door takes for its receipt (pgdoor.agent_spec) — the counter
+        # (op_receipts_meta) FOR UPDATE and the receipt log — so an original
+        # carrying this key and this lookup's fence serialise on the counter:
+        # either the original commits first and is found, or the fence does
+        # and the original is refused. The caller's row is only read.
+        try:
+            answer, fenced = orgtx.org_tx_call(
+                body.org, lambda tx: decide(tx.org),
+                share_nodes=[body.node], sections=[opreceipts.META],
+                logs=[opreceipts.SECTION])
+        except LedgerError as e:
+            raise HTTPException(422, str(e))
+        if fenced is not None:
+            # committed: witness it (after the commit, as the door does)
+            opreceipts.witness(store.DATA_ROOT, body.org, fenced)
+        return answer
+    with store.DOC_LOCK:
+        try:
+            org = store.load_org(body.org)
+        except LedgerError as e:
+            raise HTTPException(422, str(e))
+        answer, fenced = decide(org)
+        if fenced is not None:
+            store.save_org(org)
+            # the fence is a committed append too: witness it (see agent_call)
+            opreceipts.witness(store.DATA_ROOT, body.org, fenced)
+    return answer
 
 
 _chat_read_limiters: Any = weakref.WeakKeyDictionary()
@@ -11952,12 +11982,22 @@ def _agent_identity(body: AgentCall, request: Request, *, durable: bool = False)
         # request may have minted between our snapshot and here). This
         # branch is the rare one (a legacy hire, once ever), so the cycle
         # costs nothing measurable and keeps the read path honest.
-        with store.write_org(body.org) as morg:
-            caller = morg.node(body.node)
-            if not caller.get("seat_id"):
-                caller["seat_id"] = str(uuid.uuid4())
-                store.save_org(morg)
-        caller = dict(caller)
+        if pgdoor.enabled():
+            # fence-off S5: the seat's own row FOR UPDATE, nothing else. Two
+            # racing mints meet on it: the second sees the first one's id.
+            def _mint(tx: Any) -> dict[str, Any]:
+                c = tx.org.node(body.node)
+                if not c.get("seat_id"):
+                    c["seat_id"] = str(uuid.uuid4())
+                return dict(c)
+            caller = orgtx.org_tx_call(body.org, _mint, nodes=[body.node])
+        else:
+            with store.write_org(body.org) as morg:
+                caller = morg.node(body.node)
+                if not caller.get("seat_id"):
+                    caller["seat_id"] = str(uuid.uuid4())
+                    store.save_org(morg)
+            caller = dict(caller)
     return dict(caller)
 
 
@@ -12197,13 +12237,33 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
         # the seq it reads is what the rewind check compares and reading it
         # beside a half-written transaction would be a false rewind. The
         # resident makes this lock-consistent read cost microseconds.
-        with _entry_ledger_422(store.write_org(body.org)) as org:
+        if pgdoor.enabled():
+            # fence-off S5: a row transaction holding the receipt counter
+            # (op_receipts_meta) FOR SHARE. Every keyed call holds it FOR
+            # UPDATE until it commits, so this read never lands beside a
+            # half-written one — the reason the write lock was taken here —
+            # and it does not wait for DOC_LOCK or for other readers.
+            def _epoch(tx: Any) -> tuple[str, str]:
+                try:
+                    tx.org.node(body.node)
+                except LedgerError as e:
+                    raise HTTPException(422, str(e))
+                return opreceipts.custody(cast("dict[str, Any]", tx.org.d),
+                                          store.DATA_ROOT, body.org)
             try:
-                org.node(body.node)
+                epoch, why = orgtx.org_tx_call(
+                    body.org, _epoch, share_nodes=[body.node],
+                    share_sections=[opreceipts.META])
             except LedgerError as e:
                 raise HTTPException(422, str(e))
-            epoch, why = opreceipts.custody(cast("dict[str, Any]", org.d),
-                                            store.DATA_ROOT, body.org)
+        else:
+            with _entry_ledger_422(store.write_org(body.org)) as org:
+                try:
+                    org.node(body.node)
+                except LedgerError as e:
+                    raise HTTPException(422, str(e))
+                epoch, why = opreceipts.custody(cast("dict[str, Any]", org.d),
+                                                store.DATA_ROOT, body.org)
         return {"epoch": epoch, "org": body.org,
                 # named so a reader can see WHY a fresh epoch appeared; the
                 # client does not branch on it
