@@ -330,10 +330,14 @@ class NoCallerRow(_Payer):
 
     def test_control_the_chain_held_for_share_overspends(self) -> None:
         def share(org, actor, nid):
+            # the TARGET stays FOR UPDATE (it is written, and a refused write
+            # would re-run the raise and let it read the other's commit);
+            # only the payer and the rows above it are demoted to FOR SHARE
             s = rcdoor.reallocate_rows(org, actor, nid)
             share.ran = 'p' in s.nodes      # the control really demoted the payer
-            return pgdoor.TxSpec(nodes=(), sections=s.sections,
-                                 share_nodes=tuple(s.nodes) + tuple(s.share_nodes),
+            return pgdoor.TxSpec(nodes=(nid,), sections=s.sections,
+                                 share_nodes=tuple(n for n in s.nodes if n != nid)
+                                 + tuple(s.share_nodes),
                                  share_sections=s.share_sections, logs=s.logs)
 
         share.ran = False
