@@ -121,10 +121,12 @@ T = TypeVar("T")
 LogName = str | tuple[str, str]
 #: PG-3d: a doc section, or (split section, owner) — see `sections` above
 SectionName = str | tuple[str, str]
-#: PG-3d: former doc sections that are now list logs (plan decision 29:
-#: `lifecycle`). Still accepted in `sections=` / `share_sections=` so a
-#: declaration written before the move keeps working; name them in `logs=`.
-MOVED_TO_LOGS: frozenset[str] = frozenset({"lifecycle"})
+#: PG-3d: former doc sections that are now list logs, still accepted in
+#: `sections=` / `share_sections=` so a declaration written before a move
+#: keeps working; name them in `logs=`. S8 (decision 38): `lifecycle` (moved
+#: by decision 29) is no longer here — every caller names it in `logs=`, and
+#: `sections=["lifecycle"]` is now refused (ValueError) like any log section.
+MOVED_TO_LOGS: frozenset[str] = frozenset()
 
 #: `after_commit` runs once the COMMIT has succeeded: raising there is how a
 #: test models a connection lost after the server committed (RT6).

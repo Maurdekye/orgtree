@@ -10,7 +10,8 @@ What these prove, on PG-0's SeamBackend fake over a throwaway SQLite root:
   * two transactions that each record a lifecycle row commit WHILE THE OTHER
     IS OPEN (an append takes no lock) — the reason for the move;
   * a declaration written the old way (`sections=["lifecycle"]`,
-    `share_sections=["lifecycle"]`) still works.
+    `share_sections=["lifecycle"]`) is refused since S8 (decision 38);
+    `logs=["lifecycle"]` declares it.
 
 Run:  python tools/run-python-verification.py tests/test_pg3d_lifecycle_log.py
 """
@@ -148,9 +149,14 @@ class LifecycleLog(unittest.TestCase):
         ops = {r['operation_id'] for r in _rows(self.slug)[0]}
         self.assertEqual(ops, {'held:1', 'parallel:1'})
 
-    def test_old_spelling_still_declares_it(self) -> None:
-        with orgtx.org_tx(self.slug, sections=['lifecycle'],
-                          share_sections=['lifecycle']) as tx:
+    def test_old_spelling_is_refused_and_logs_declares_it(self) -> None:
+        # S8 (decision 38): the MOVED_TO_LOGS compatibility for `lifecycle`
+        # is gone, so the old spelling is refused like any log section
+        for kw in ({'sections': ['lifecycle']}, {'share_sections': ['lifecycle']}):
+            with self.assertRaises(ValueError, msg=kw):
+                with orgtx.org_tx(self.slug, **kw):
+                    pass
+        with orgtx.org_tx(self.slug, logs=['lifecycle']) as tx:
             _rec(tx.d, 'legacy:1')
         self.assertIn('lifecycle', tx.logs)
         self.assertEqual([r['operation_id'] for r in _rows(self.slug)[0]], ['legacy:1'])

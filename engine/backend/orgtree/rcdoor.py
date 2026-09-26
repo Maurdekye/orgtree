@@ -63,7 +63,7 @@ FUNDING_SECTIONS = ("notices",)
 
 REQUESTS = "credit_requests"
 RESERVATIONS = "reservations"
-WATCHDOG_SECTIONS = ("watchdogs", "watchdog_tombs", "lifecycle")
+WATCHDOG_SECTIONS = ("watchdogs", "watchdog_tombs")
 WATCHDOG_SETTINGS = ("sandbox", "workspace", "slug")
 
 # Tools that skip `api._kiosk_cap_check` (lead decision 18.8). The cap bounds
@@ -201,7 +201,7 @@ def reservation_spec(snapshot: Any, body: Any, a: dict[str, Any]
 
 def watchdog_rows() -> pgdoor.TxSpec:
     return _spec(sections=WATCHDOG_SECTIONS,
-                 share_sections=WATCHDOG_SETTINGS, logs=("events",))
+                 share_sections=WATCHDOG_SETTINGS, logs=("events", "lifecycle"))
 
 
 def watchdog_fire_rows(owner: str) -> pgdoor.TxSpec:

@@ -63,11 +63,11 @@ HIRE_SETTINGS = (
 # What a full agent hire (api._hire_seat, incl. _seat_finish and a kickoff)
 # writes, MEASURED on a throwaway org (scratch probe_hire_seat_rows.py):
 #   · append-only logs (store.LIST_LOGS / DICT_LOGS — one row per entry):
-HIRE_LOGS = ("events", "notice_log", "mail_log")
+HIRE_LOGS = ("events", "notice_log", "mail_log", "lifecycle")
 #   · single-row doc sections, rewritten whole — so FOR UPDATE, and every
 #     other writer of them in the org queues behind a hire (`mail` and
 #     `notices` are the org-wide mutable queues: see store.py §3.2):
-HIRE_SECTIONS = ("notices", "mail", "audiences", "lifecycle")
+HIRE_SECTIONS = ("notices", "mail", "audiences")
 
 
 def new_node_id(org: Any, name: str) -> str:

@@ -103,8 +103,8 @@ def _publish_rows(nid):
     names are PG-3d's `mailtx.send_rows(nid)`, written out until that module
     lands; use send_rows here once it does."""
     return {"nodes": [nid],
-            "sections": ["tool_result_receipts", "mail", "notices", "audiences", "lifecycle"],
-            "logs": ["events", "notice_log", "user_mail_log", "user_outbox", "org_inbox",
+            "sections": ["tool_result_receipts", "mail", "notices", "audiences"],
+            "logs": ["events", "lifecycle", "notice_log", "user_mail_log", "user_outbox", "org_inbox",
                      ("mail_log", nid)],
             # the halt gate's own rows: the seat is already held FOR UPDATE,
             # the killswitch FOR SHARE (halt._gate_blocked decides from both)

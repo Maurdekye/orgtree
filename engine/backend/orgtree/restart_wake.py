@@ -213,8 +213,8 @@ def _notice_rows(nids: list[str]) -> dict[str, Any]:
     are PG-3d's `mailtx.send_rows(*nids)`, written out until that module
     lands; use send_rows here once it does."""
     return {"nodes": list(nids),
-            "sections": ["mail", "notices", "audiences", "lifecycle"],
-            "logs": ["events", "notice_log", "user_mail_log", "user_outbox", "org_inbox",
+            "sections": ["mail", "notices", "audiences"],
+            "logs": ["events", "lifecycle", "notice_log", "user_mail_log", "user_outbox", "org_inbox",
                      *[("mail_log", n) for n in nids]]}
 
 
