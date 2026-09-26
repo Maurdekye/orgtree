@@ -85,16 +85,28 @@ class WindowTests(unittest.TestCase):
     def test_committed_steer_wire_projects_each_socket_without_raw_event_leak(self):
         import asyncio
         from orgtree.api import Hub
+        import json
         class Socket:
+            # joins through Hub.join like a real socket: frames go through the
+            # per-socket outbox and its writer (the bounded-outbox fix)
+            query_params={}
             def __init__(self): self.frames=[]
+            async def accept(self): pass
             async def send_json(self, row): self.frames.append(row)
+            async def send_text(self, text): self.frames.append(json.loads(text))
         admin=Socket();visitor=Socket();hub=Hub()
-        hub.rooms['room']={admin,visitor};hub.public.add(visitor)
         row={'role':'user','text':'visible','row_id':'same-id','segments':[
             {'kind':'mail','rows':[{'id':'mail-one','body':'visible',
                 'ev_raw':{'private':'must stay internal'},
                 'ev_error':{'code':'bad_structure','private':'details'}}]}]}
-        asyncio.run(hub._send('room',{'kind':'steered','committed_row_raw':row}))
+        async def run():
+            await hub.join('room',admin);await hub.join('room',visitor,public=True)
+            await hub._send('room',{'kind':'steered','committed_row_raw':row})
+            for _ in range(20):
+                if admin.frames and visitor.frames: break
+                await asyncio.sleep(0.01)
+            hub.leave('room',admin);hub.leave('room',visitor)
+        asyncio.run(run())
         self.assertNotIn('committed_row_raw',admin.frames[0])
         self.assertNotIn('committed_row_raw',visitor.frames[0])
         self.assertEqual(admin.frames[0]['committed_row']['row_id'],'same-id')
