@@ -5695,7 +5695,8 @@ def delete_org(slug: str) -> None:
     # org_tx takes shared first — so with the fence off no row transaction
     # can straddle the rename either, and no DOC_LOCK is taken.
     # ⚠ PostgreSQL: this renames the marker and the SQLite-shaped files only;
-    # the org's schema rows stay (a known gap, tracked on its own docket item).
+    # the org's schema rows STAY, so a "deleted" org's data persists — a
+    # correctness gap, docket item postgresql-delete-org-leaves-the-org-s-schema-ro.
     from . import orgtx
     with orgtx.org_exclusive(slug):
         _ensure_migrated(slug)

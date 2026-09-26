@@ -8,7 +8,8 @@ What these prove, over a throwaway SQLite root (SeamBackend):
         cannot straddle the rename: the delete waits for its commit, and the
         trash copy holds the committed state;
   (ii)  a transaction queued behind a delete finds the org gone ("no such
-        org"), does NOT re-create orgs/<slug>.db, and org_read raises too;
+        org"), does NOT re-create orgs/<slug>.db, and org_read and cached_org
+        (a warm resident copy) raise too;
   (iii) with ORGTREE_ORGTX_FENCE=0 the delete takes no DOC_LOCK (a lock that
         raises on acquire stands in for it) — and with the fence on it does,
         so the test can fail;
@@ -151,6 +152,7 @@ class DeleteOrgExclusive(unittest.TestCase):
             if point == 'before_lock' and tx.slug == self.slug:
                 queued.set()
 
+        store.cached_org(self.slug)                 # warm the resident copy
         orgtx.set_pause_hook(hook)
         with patch.object(store, '_ensure_migrated', slow_ensure):
             d = threading.Thread(target=lambda: store.delete_org(self.slug),
@@ -176,6 +178,8 @@ class DeleteOrgExclusive(unittest.TestCase):
         self.assertEqual(len(_trash_docs(self.slug)), 1)
         with self.assertRaises(LedgerError):
             orgtx.org_read(self.slug)
+        with self.assertRaises(LedgerError):         # the resident copy died too
+            store.cached_org(self.slug)
 
     def test_iii_fence_off_takes_no_doc_lock(self) -> None:
         orgtx.TRANSITION_FENCE = False
