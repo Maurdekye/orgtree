@@ -157,6 +157,23 @@ class LockFreeLedger(unittest.TestCase):
         self.assertEqual(len(_rows(self.slug)), lifecycle.PRUNE_TO)
         self.assertEqual(lifecycle._worker.name, 'lifecycle-pruner')
 
+    def test_an_over_cap_ledger_is_due_at_once(self) -> None:
+        # ws5 review N2: a writer that sees the materialized ledger over
+        # MAX_RECORDS makes the org due at once — without waiting for
+        # PRUNE_EVERY appends and with NO explicit prune call
+        with patch.object(lifecycle, 'PRUNE_EVERY', 10 ** 9):
+            with orgtx.org_tx(self.slug, logs=['lifecycle']) as tx:
+                for i in range(lifecycle.MAX_RECORDS + 4):
+                    _rec(tx.d, f'old:{i}')
+            lifecycle._due.discard(self.slug)
+            self.assertTrue(lifecycle.idle.wait(10))
+            self.assertGreater(len(_rows(self.slug)), lifecycle.MAX_RECORDS)
+            with orgtx.org_tx(self.slug, logs=['lifecycle']) as tx:
+                self.assertTrue(lifecycle.has_state(tx.d, 'op:1', 'accepted'))  # materializes
+                _rec(tx.d, 'one-more')
+            self.assertTrue(lifecycle.idle.wait(10), 'the pruner thread never went idle')
+            self.assertEqual(len(_rows(self.slug)), lifecycle.PRUNE_TO)
+
     def test_a_commit_never_waits_for_a_prune(self) -> None:
         # p01 (3): the prune runs off the request path. Hold a prune open on
         # PRUNE_LOCK, make the org due, and time an ordinary commit

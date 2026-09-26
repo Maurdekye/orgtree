@@ -42,6 +42,17 @@ _STICKY_STATES = frozenset({"delay_reported"})
 # `over_cap` is seen only when the ledger is materialized, so a ledger already
 # over the cap at boot may wait up to PRUNE_EVERY appends. Appends of a
 # transaction that later rolls back still count: a prune only comes early.
+# (c) (ws5 review N1) Per-transaction coalescing means callers that record the
+# same (operation, state) repeatedly — a session's turn completions under one
+# identity("turn", session_id), an interval watchdog's "fired" — now add a row
+# each time instead of bumping one row's count, so the bounded ledger holds a
+# shorter history of distinct operations, and the "not an unbounded append
+# log" promise above holds only through the pruner (one prune org_tx per
+# PRUNE_EVERY appends per org). No behaviour depends on it today: the only
+# production reader is supervisor's sticky has_state("delay_reported").
+# (d) (ws5 review N3) A save through the legacy store.write_org cycle does not
+# publish to orgtx.commit_listeners: its appends are counted, but the prune is
+# handed off only at the next org_tx commit on that org (eventual, as (a)).
 #: the pruner's own row: a doc key no writer uses, locked FOR UPDATE only by
 #: `prune`, so two pruners serialize while appends take no lock at all
 PRUNE_LOCK = "lifecycle_prune"
