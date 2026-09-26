@@ -164,6 +164,21 @@ def child(args) -> int:
                             if tn == "LazyDoc":
                                 ids.add(id(o))
                     rec["orgs"] = cnt
+                    # which running frames hold a whole org (local var -> type)
+                    holders: dict = {}
+                    for ident, fr in sys._current_frames().items():
+                        while fr is not None:
+                            try:
+                                loc = fr.f_locals
+                            except Exception:
+                                loc = {}
+                            for k, v in list(loc.items()):
+                                tn = type(v).__name__
+                                if tn in want:
+                                    key = f"{os.path.basename(fr.f_code.co_filename)}:{fr.f_code.co_name}:{k}:{tn}"
+                                    holders[key] = holders.get(key, 0) + 1
+                            fr = fr.f_back
+                    rec["holders"] = holders
                 if frames_n:
                     snap = tracemalloc.take_snapshot().filter_traces(
                         [tracemalloc.Filter(False, tracemalloc.__file__)])
