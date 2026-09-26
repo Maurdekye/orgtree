@@ -482,7 +482,9 @@ class ContactFacets(unittest.TestCase):
                     if suffix == ":reply-to-chat-event":
                         h = r["harness"]
                         self.assertEqual(h["sidecars_touched"], {"reply_events": "write", "transcript_records": "read"})
-                        self.assertEqual(r["audit"]["sqlite_connect"].get("data:sidecar-db@orgtree.census_contacts:__init__"), 4)
+                        # reply_events connects once; transcript_records reuses one
+                        # connection per thread (slice C), so at most once
+                        self.assertIn(r["audit"]["sqlite_connect"].get("data:sidecar-db@orgtree.census_contacts:__init__"), (1, 2))
                         self.assertEqual(h["writes"] - h["writes_in_transaction"], 1)
                     else:
                         self.assertTrue(r["harness"]["all_writes_in_transaction"])
