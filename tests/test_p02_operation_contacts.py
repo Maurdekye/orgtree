@@ -2005,15 +2005,14 @@ class OperationContacts(unittest.TestCase):
         "control.resume": (None, "control.resume", 200, ()),
     }
     #: the warm rows whose saves re-write a log_d row naming the manager the
-    #: agent door unhalted earlier (an empty steer_attempts entry that
-    #: scan_steer_records set on the shared document), up to the operator unhalt.
-    #: op-halt and op-unhalt left the set when halt moved onto its own row
-    #: transaction (halt.py 0d71fb3/d656fc3): they no longer re-save the document
-    CT_UNHALT_CARRY = {"control.restart-wake-arm", "control.restart-wake-status",
-                       "control.restart-wake-cancel", "control.self-restart:non-desktop",
-                       "control.prime-restart-arm:non-desktop",
-                       "control.prime-restart-status:non-desktop",
-                       "control.prime-restart-cancel:non-desktop", "control.op-unstick"}
+    #: agent door unhalted earlier. EMPTY since PG-3e-A 6e41514: the carry was
+    #: an empty steer_attempts entry that scan_steer_records `setdefault`-ed
+    #: into the shared document, which every later legacy save re-wrote; the
+    #: scan now reads a lock-free snapshot and never writes it. (Before that,
+    #: op-halt and op-unhalt had already left the set when halt moved onto its
+    #: own row transaction, halt.py 0d71fb3/d656fc3.) Verified 2026-09-26 by
+    #: running the probe at 6e41514^ (7 carried rows) and at v3 (none).
+    CT_UNHALT_CARRY: frozenset[str] = frozenset()
 
     def ct_rows(self):
         return [r for r in self.doc["rows"] if r["contract"] in self.CT_MAIN

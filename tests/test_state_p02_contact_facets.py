@@ -911,8 +911,10 @@ class ContactFacets(unittest.TestCase):
 
     def test_f2_control_contacts_and_the_unhalt_carry_over(self):
         rows = self.assert_family("control.instrumentation", 18, ("refusal:route-agent-token",))
-        # apart from the locality control, the only third agent a row writes is the node unhalted earlier in the
-        # warm run: its steer_attempts log_d rows, re-written by every later save (control.writes' legacy defect)
+        # apart from the locality control, the only third agent a row MAY write is the node unhalted earlier in
+        # the warm run: its steer_attempts log_d rows, re-written by every later save (control.writes' legacy
+        # defect). PG-3e-A 6e41514 fixed that defect (scan_steer_records no longer writes the shared document),
+        # so no row carries it now; the branch below still pins the shape should it ever come back
         carried = 0
         for r in rows:
             third = set(r["agents"]["physical_written"]) - set(r["agents"]["targets"])
@@ -926,7 +928,7 @@ class ContactFacets(unittest.TestCase):
                 writes = [site for site in r["agents"]["third_sites"] if ":write@" in site]
                 self.assertTrue(writes and all(site.startswith("log_d:write@") for site in writes),
                                 r["agents"]["third_sites"])
-        self.assertGreater(carried, 0)
+        self.assertEqual(carried, 0)
         # the stripped kiosk route: this probe's app mounts no UI catch-all, so 404 (405 where one is mounted)
         for condition in ("cold", "warm"):
             kiosk = self.exact("control.kiosk", "control.kiosk:desktop-stripped", condition)
