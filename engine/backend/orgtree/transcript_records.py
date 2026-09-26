@@ -51,7 +51,7 @@ class _Held:
 
     def __init__(self, key, conn):
         self.key, self.conn, self.busy = key, conn, False
-        self.norm = os.path.normcase(os.path.abspath(key))
+        self.norm = _norm(key)
 
     def close(self):
         conn, self.conn = self.conn, None
@@ -79,12 +79,18 @@ atexit.register(_close_idle)
 _DELETES = frozenset({"shutil.rmtree", "os.remove", "os.rename", "os.rmdir"})
 
 
+def _norm(path):
+    # realpath, not abspath: a Windows temp folder is often spelled with an
+    # 8.3 short name (NCOLA_~1) on one side and the long name on the other
+    return os.path.normcase(os.path.realpath(path))
+
+
 def _audit(event, args):
     if event not in _DELETES or not _held_all:
         return
     try:
         paths = args[:2] if event == "os.rename" else args[:1]
-        targets = [os.path.normcase(os.path.abspath(os.fspath(a))) for a in paths]
+        targets = [_norm(os.fspath(a)) for a in paths]
         # the file itself, its -wal/-shm companions, or a folder above it
         hits = [held for held in list(_held_all)
                 if any(held.norm.startswith(t + os.sep) or t.startswith(held.norm)
