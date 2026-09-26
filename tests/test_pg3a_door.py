@@ -780,10 +780,8 @@ class Door(unittest.TestCase):
         dst = Path(self.real_copy())
         older = dst.parent / "source-older.jsonl"
         newer = dst.parent / "source-newer.jsonl"
-        older.write_text("older predecessor
-")
-        newer.write_text("newer predecessor
-")
+        older.write_text("older predecessor" + chr(10))
+        newer.write_text("newer predecessor" + chr(10))
         initial_sid = store.load_org(self.slug).node("x")["session_id"]
         account = registry.create_account(
             "openai", "review-newer",
@@ -803,30 +801,28 @@ class Door(unittest.TestCase):
                 second = self.call(self.slug, "boss", "orgtree_retool",
                                    {"node": "x", "account": account["id"]})
                 self.assertEqual(second["account"], account["id"])
-                self.assertEqual(dst.read_text(), "newer predecessor
-",
+                self.assertEqual(dst.read_text(), "newer predecessor" + chr(10),
                                  "the newer export completed first")
             seen.append(str(src))
             return real_copy(src, dest, *a, **k)
-        with patch.object(supervisor, "transcript_path", locate),                 patch.object(supervisor.shutil, "copy2", copy_interleaved):
+        with patch.object(supervisor, "transcript_path", locate), \
+                patch.object(supervisor.shutil, "copy2", copy_interleaved):
             out = self.rehire_on("door", self.slug)
         self.assertEqual(seen, [str(newer), str(older)],
                          "both real exports ran, newest first")
         self.assertEqual(store.load_org(self.slug).node("x")["generation"], 2)
-        self.assertEqual(dst.read_text(), "newer predecessor
-",
+        self.assertEqual(dst.read_text(), "newer predecessor" + chr(10),
                          "an older export overwrote the newer transcript")
         self.assertNotIn("account_export",
                          [w.get("step") for w in out.get("warnings") or []
                           if isinstance(w, dict)], "a stale export is no failure")
         # and the same boundary again (a retry) still refreshes its own copy
         org = store.load_org(self.slug)
-        newer.write_text("newer predecessor, retried
-")
+        newer.write_text("newer predecessor, retried" + chr(10))
         bearer_sid = org.nodes["x@1"]["session_id"]
-        supervisor.export_after_commit(self.slug, org, "x", bearer_sid, "r")
-        self.assertEqual(dst.read_text(), "newer predecessor, retried
-")
+        with patch.object(supervisor, "transcript_path", locate):
+            supervisor.export_after_commit(self.slug, org, "x", bearer_sid, "r")
+        self.assertEqual(dst.read_text(), "newer predecessor, retried" + chr(10))
 
     def test_finish_switch_binding_can_hand_the_export_to_the_caller(self):
         self.crossing_seat(state="live")
