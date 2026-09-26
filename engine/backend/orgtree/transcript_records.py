@@ -86,28 +86,33 @@ def database():
     path = Path(store.DATA_ROOT) / "transcript-records.sqlite3"
     key = str(path)
     held = getattr(_conn_state, "held", None)
-    if held is not None and held.busy:
-        conn = _open(path)
-        try:
-            with conn:
-                yield conn
-        finally:
-            conn.close()
-        return
-    with _held_lock:
-        if held is not None and held.key == key and held.conn is not None:
-            held.busy = True
-            conn = held.conn
-        else:
-            conn = None
-    if conn is None:
-        if held is not None:
+    nested = held is not None and held.busy
+    conn = None
+    if not nested:
+        with _held_lock:
+            if held is not None and held.key == key and held.conn is not None:
+                held.busy = True
+                conn = held.conn
+        if conn is None and held is not None:
             _conn_state.held = None
             with _held_lock:
                 held.close()
             if held.key != key:
                 _close_idle(keep=key)
-        conn = _open(path)
+    if conn is None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # check_same_thread=False only so a sweep or `_Held.__del__` can close
+        # it from another thread; only the thread that opened it ever uses it.
+        conn = sqlite3.connect(path, timeout=30, check_same_thread=False,
+                               factory=census_contacts.sidecar("transcript_records"))
+        _prepare(conn, path)
+        if nested:
+            try:
+                with conn:
+                    yield conn
+            finally:
+                conn.close()
+            return
         held = _Held(key, conn)
         held.busy = True
         with _held_lock:
@@ -127,12 +132,8 @@ def database():
         held.busy = False
 
 
-def _open(path):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    # check_same_thread=False only so `_Held` can close it from whichever
-    # thread collects it; it is only ever used by the thread that cached it.
-    conn = sqlite3.connect(path, timeout=30, check_same_thread=False,
-                           factory=census_contacts.sidecar("transcript_records"))
+def _prepare(conn, path):
+    """Per-connection PRAGMA, and the schema once per path; closes `conn` on failure."""
     try:
         conn.execute("PRAGMA synchronous=FULL")
         with _schema_lock:
@@ -189,7 +190,6 @@ def _open(path):
     except BaseException:
         conn.close()
         raise
-    return conn
 
 
 def _signature(stream, stats):
