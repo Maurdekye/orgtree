@@ -2186,8 +2186,7 @@ def _mcp_registry_observed() -> dict[str, Any] | None:
     transient read failure for a genuine operator configuration change.
     """
     try:
-        with open(os.path.expanduser("~/.claude.json"), encoding="utf-8") as f:
-            doc: Any = json.load(f)
+        doc: Any = _claude_json_doc()
     except FileNotFoundError:
         return {}
     except (OSError, json.JSONDecodeError):
@@ -2195,7 +2194,7 @@ def _mcp_registry_observed() -> dict[str, Any] | None:
     if not isinstance(doc, dict):
         return None
     raw = doc.get("mcpServers", {})
-    return dict(raw) if isinstance(raw, dict) else None
+    return copy.deepcopy(dict(raw)) if isinstance(raw, dict) else None
 
 
 def _mcp_infrastructure_fingerprint(org: Org, nid: str) -> str | None:
@@ -6623,11 +6622,38 @@ def start_usage_warm_loop() -> None:
     threading.Thread(target=loop, daemon=True, name="usage-warm").start()
 
 
+# `path -> ((st_mtime_ns, st_size), parsed document)`. The keeper's identity
+# hash read ~/.claude.json about three times per live node per pass, a full
+# JSON parse each time (scale-runtime, 2026-09-26). A parse is reused only
+# while the file's mtime AND size are unchanged, so an edit is seen on the
+# next read; a failed read and a read the file was rewritten under are never
+# stored. Keyed by the expanded path, so a changed HOME is a different entry.
+_CLAUDE_JSON: dict[str, tuple[tuple[int, int], Any]] = {}
+
+
+def _claude_json_doc() -> Any:
+    """~/.claude.json, parsed. Raises exactly what `json.load(open(...))`
+    raises (FileNotFoundError, OSError, JSONDecodeError). The result is
+    SHARED between callers: never mutate it; copy what you hand out."""
+    path = os.path.expanduser("~/.claude.json")
+    st = os.stat(path)
+    key = (st.st_mtime_ns, st.st_size)
+    hit = _CLAUDE_JSON.get(path)
+    if hit is not None and hit[0] == key:
+        return hit[1]
+    with open(path, encoding="utf-8") as f:
+        doc = json.load(f)
+    st2 = os.stat(path)
+    if (st2.st_mtime_ns, st2.st_size) == key:     # not rewritten mid-read
+        _CLAUDE_JSON[path] = (key, doc)
+    return doc
+
+
 def registered_mcp_servers() -> dict[str, Any]:
     """The user's globally registered MCP servers (~/.claude.json → mcpServers)."""
     try:
-        cfg = json.load(open(os.path.expanduser("~/.claude.json"), encoding="utf-8"))
-        return cfg.get("mcpServers", {}) or {}
+        cfg = _claude_json_doc()
+        return copy.deepcopy(cfg.get("mcpServers", {}) or {})
     except (OSError, json.JSONDecodeError):
         return {}
 
@@ -11556,16 +11582,27 @@ def ro_deny_rules(ro_paths: Sequence[str], own_scratch: str) -> list[str]:
     return deny
 
 
-def _build_cmd(org: Org, nid: str, write_ident: bool = True) -> list[str]:
+def _build_cmd(org: Org, nid: str, write_ident: bool = True, *,
+               session_probe: bool = True) -> list[str]:
     # write_ident=False renders the SAME argv without touching
     # .orgtree-identity.md — for warmpool's hash recompute, which runs every
     # keeper pass and must not churn the file's mtime (D-201). A real spawn
     # always writes: the process reads the file, so the bytes on disk must be
     # the bytes the argv promises.
+    #
+    # session_probe=False skips the transcript lookup and emits the
+    # `--session-id` form. It is for an argv that is only HASHED: the
+    # identity hash normalises the session flag's NAME away
+    # (warmpool._argv_normalized: `--session-id`/`--resume` -> `<session>`,
+    # the sid itself kept), so the lookup cannot change the hash. It was
+    # ~80% of a keeper pass (a glob over every ~/.claude/projects dir, per
+    # live node, per pass; scale-runtime, 2026-09-26). A real spawn keeps
+    # the default and gets exactly the argv it always did.
     n = org.node(nid)
     slug = org.d["slug"]
     sid = n["session_id"]
-    first = transcript_path(sid, _transcript_root(org, nid)) is None
+    first = (transcript_path(sid, _transcript_root(org, nid)) is None
+             if session_probe else True)
     # tier default, or this node's chosen version — downgraded to an id THIS
     # CLI knows (claude_model_for; 5.1 → 5.0 below the 2.1.257 floor)
     model = claude_model_for(org, nid)

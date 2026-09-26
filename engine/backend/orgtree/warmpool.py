@@ -1083,7 +1083,9 @@ def identity_snapshot(org: Any, nid: str, *,
         return h.hexdigest()[:32], {
             name: _part(raw[name]) for name in IDENTITY_COMPONENTS}
     if cmd is None:
-        cmd = sup._build_cmd(org, nid, write_ident=False)
+        # hash-only: the session flag's name is normalised away below, so the
+        # transcript lookup is skipped (see _build_cmd's session_probe)
+        cmd = sup._build_cmd(org, nid, write_ident=False, session_probe=False)
     if overrides is None:
         overrides = sup.env_overrides(org.d["slug"], nid)
     if env is None:
