@@ -63,8 +63,11 @@ class Cancelled(RuntimeError):
 # order, PYPG-PLAN §3.6: unconverted code may take DOC_LOCK and then call
 # org_tx; org_tx never waits on DOC_LOCK). Each is short — no kill or wait
 # ever runs inside one — so this is the old lock's cost, not a new convoy.
-# Set `_FENCE = False` once DOC_LOCK is gone.
-_FENCE = True
+# ONE switch for both fences (S8, lead 2026-09-26): this one follows
+# `orgtx.TRANSITION_FENCE` (env ORGTREE_ORGTX_FENCE) at call time, so a
+# fence-off run measures the real thing. `_FENCE` True/False is a TEST-ONLY
+# override; None (the default) follows org_tx.
+_FENCE: bool | None = None
 KILLSWITCH = "killswitch"
 # The killswitch row ALWAYS EXISTS (plan decision 26: PG-0 creates/backfills
 # it), so a latch serializes on an exclusive lock of a real row rather than a
@@ -95,7 +98,8 @@ def current_tx() -> orgtx.OrgTx | None:
 
 
 def _fence():
-    return store.DOC_LOCK if _FENCE else contextlib.nullcontext()
+    on = orgtx.TRANSITION_FENCE if _FENCE is None else _FENCE
+    return store.DOC_LOCK if on else contextlib.nullcontext()
 
 
 def _covers(tx: orgtx.OrgTx, nodes: frozenset[str], sections: frozenset[str],
