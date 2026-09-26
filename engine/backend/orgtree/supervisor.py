@@ -1135,6 +1135,9 @@ TURN_IDLE = int(os.environ.get("ORGTREE_TURN_IDLE", "600"))          # seconds
 # a cost whose failure mode is LATENCY, not loss. Do it as its own targeted
 # change IF a held seat is ever measured to bite; not speculatively.
 BG_IDLE = int(os.environ.get("ORGTREE_BG_IDLE", "3600"))             # seconds
+# how often the turn watchdog wakes to compare silence against TURN_IDLE /
+# BG_IDLE, so a kill lands up to this long after the idle cap is crossed
+TURN_DOG_POLL_S = 5.0                                                 # seconds
 # the compaction fork's own bound — it had a hard 600 with no way to tune it,
 # and a big context can legitimately need longer
 COMPACT_TIMEOUT = int(os.environ.get("ORGTREE_COMPACT_TIMEOUT", "600"))
@@ -20576,7 +20579,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     turnlog.emit(_trec, "first_output", thinking=thinking)
 
             def _dog() -> None:
-                while not dog_stop.wait(5.0):
+                while not dog_stop.wait(TURN_DOG_POLL_S):
                     now = time.monotonic()
                     # live background work ⇒ silence is expected, not a wedge
                     nbg = _bg_count()
