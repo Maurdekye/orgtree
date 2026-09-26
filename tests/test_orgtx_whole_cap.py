@@ -124,6 +124,11 @@ class WholeCap(unittest.TestCase):
 
     def test_a_slot_timeout_leaves_nothing_behind(self) -> None:
         orgtx.MAX_CONCURRENT = 1
+        # this thread has run an org_tx before, so its open-org set is the
+        # shared thread-local one (a fresh thread's is a throwaway local, and
+        # a mark leaked into it would go unnoticed)
+        with orgtx.org_tx(self.slug, nodes=['n4'], lock_timeout=2) as tx:
+            tx.d['nodes']['n4']['name'] = 'warm'
         inside, release, errors, ts = self._park(1)
         try:
             self._settle(inside, 1)
