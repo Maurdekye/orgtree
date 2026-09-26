@@ -105,6 +105,7 @@ from . import rcdoor  # PG-3c: credits/reservations/status on row transactions
 # PG-3a's door declarations: importing registers them with pgdoor
 from . import lifecycle_door
 from . import staffdoor  # noqa: F401  PG-3b: registers its door tools
+from . import accountdoor  # noqa: F401  fence-off S7: registers its door tools
 from . import reservations
 from . import ledger as ledger_mod
 from . import (accounts, antigravity_limits, appsettings, bridgeauth,
@@ -12431,12 +12432,15 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             if not str(a.get("reason") or "").strip():
                 raise HTTPException(422, "clear needs a `reason` for the audit")
             with _op_inflight(body):
-                with store.DOC_LOCK:
-                    org = store.load_org(body.org)
-                    rcpt = _op_admit(org, body, a)
-                    if rcpt is not None and "replay" in rcpt:
-                        return cast("dict[str, Any]", rcpt["replay"])
-                # the machine's account file, outside this org's DOC_LOCK:
+                # S7: admission on a lock-free coherent read (meta + receipt
+                # log). This window never saved; the DOC_LOCK it held was
+                # released before the clear, so it never excluded a
+                # concurrent same-key call either — the same parity here.
+                rcpt = _op_admit(orgtx.org_read(body.org, sections=[opreceipts.SECTION]),
+                                 body, a)
+                if rcpt is not None and "replay" in rcpt:
+                    return cast("dict[str, Any]", rcpt["replay"])
+                # the machine's account file, outside any org transaction:
                 # no org transaction can cover it (hence PRE coverage)
                 result = markclear.clear(
                     _m_account, str(a.get("pool") or ""),
@@ -12444,8 +12448,14 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                     org=body.org, actor=body.node, via="agent_tool",
                     reason=str(a.get("reason") or ""),
                     companion_expected=a.get("companion_expected"))
-                with store.DOC_LOCK:
-                    org = store.load_org(body.org)
+                # S7: the audit row and the receipt in one row transaction
+                # (was DOC_LOCK + a whole load/save): the events log, and the
+                # receipt META row + log when a key rides the call
+                _m_keyed = rcpt is not None
+                with orgtx.org_tx(
+                        body.org, logs=["events"] + ([opreceipts.SECTION] if _m_keyed else []),
+                        sections=[opreceipts.META] if _m_keyed else []) as _m_tx:
+                    org = _m_tx.org
                     if result.get("result") == "cleared":
                         org._log("account_mark_cleared", body.node, {
                             "account": result["account"],
@@ -12460,10 +12470,9 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                             "resumed; a frozen agent needs its own resume.")}
                     if rcpt is not None:
                         _op_file(org, body, a, rcpt, result)
-                    if result.get("result") == "cleared" or rcpt is not None:
-                        store.save_org(org)
-                        opreceipts.witness(store.DATA_ROOT, body.org,
-                                           opreceipts.seq(cast("dict[str, Any]", org.d)))
+                if rcpt is not None:
+                    opreceipts.witness(store.DATA_ROOT, body.org,
+                                       opreceipts.seq(cast("dict[str, Any]", org.d)))
                 return result
         except markclear.UnknownMarkAccount as e:
             raise HTTPException(422, str(e)) from e
@@ -12495,21 +12504,25 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
         with _op_inflight(body):
             _c_target = str(a.get("node") or "")
             try:
-                with store.DOC_LOCK:
-                    org = store.load_org(body.org)
-                    org.node(_c_target)       # 422s a bogus target before it acts
-                    if _c_target == body.node:
-                        raise HTTPException(
-                            403, "you cannot choose your own account — a "
-                                 "node's billing is its supervisors' and the "
-                                 "user's decision, never its own, and that "
-                                 "does not change because the move would also "
-                                 "release your own freeze")
-                    org._require_authority(body.node, _c_target)
-                    org._require_live(_c_target)
-                    rcpt = _op_admit(org, body, a)
-                    if rcpt is not None and "replay" in rcpt:
-                        return cast("dict[str, Any]", rcpt["replay"])
+                # S7: the gate is read-only, so a lock-free coherent read
+                # (receipt log included for admission) replaces the DOC_LOCK
+                # window; the move itself re-reads under its own row locks
+                # (`_continue_on_account`), exactly as it did after this
+                # window released DOC_LOCK
+                org = orgtx.org_read(body.org, sections=[opreceipts.SECTION])
+                org.node(_c_target)       # 422s a bogus target before it acts
+                if _c_target == body.node:
+                    raise HTTPException(
+                        403, "you cannot choose your own account — a "
+                             "node's billing is its supervisors' and the "
+                             "user's decision, never its own, and that "
+                             "does not change because the move would also "
+                             "release your own freeze")
+                org._require_authority(body.node, _c_target)
+                org._require_live(_c_target)
+                rcpt = _op_admit(org, body, a)
+                if rcpt is not None and "replay" in rcpt:
+                    return cast("dict[str, Any]", rcpt["replay"])
             except LedgerError as e:
                 raise HTTPException(422, str(e)) from e
             _c_account = str(a.get("account") or "").strip()
@@ -12525,12 +12538,14 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 # its class says so: PRE, because the switch is already durable
                 # by now. A missing receipt for this verb is `unknown`, never
                 # "nothing happened".
-                with store.DOC_LOCK:
-                    org = store.load_org(body.org)
+                # S7: a row transaction on the receipt META row + log (was
+                # DOC_LOCK + a whole load/save)
+                with orgtx.org_tx(body.org, sections=[opreceipts.META],
+                                  logs=[opreceipts.SECTION]) as _c_tx:
+                    org = _c_tx.org
                     _op_file(org, body, a, rcpt, result)
-                    store.save_org(org)
-                    opreceipts.witness(store.DATA_ROOT, body.org,
-                                       opreceipts.seq(cast("dict[str, Any]", org.d)))
+                opreceipts.witness(store.DATA_ROOT, body.org,
+                                   opreceipts.seq(cast("dict[str, Any]", org.d)))
             return result
     account_notify: str | None = None
     account_unpark: str | None = None   # a node an assignment just un-parked (SH-2)
