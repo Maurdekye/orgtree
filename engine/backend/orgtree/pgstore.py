@@ -314,6 +314,9 @@ class PgConn:
         #: set while this connection's transaction is CREATING the org: the
         #: marker path to write once its COMMIT succeeds (`_begin_create`)
         self.creating: str | None = None
+        #: the per-slug create lock held from `_begin_create` until the marker
+        #: is written (or the create rolls back / the connection closes)
+        self.create_lock: threading.Lock | None = None
         #: set when several orgs share ONE server connection (a multi-org
         #: org_tx): holds the org_id whose schema the search_path names now,
         #: and every statement switches it first when it is another org's
@@ -345,8 +348,11 @@ class PgConn:
                 if self.creating is not None and st.kind in ("commit", "rollback"):
                     marker, self.creating = self.creating, None
                     self.pinned = self.commit_armed = False
-                    if st.kind == "commit":
-                        _write_marker(marker, self.slug, self.org_id)
+                    try:
+                        if st.kind == "commit":
+                            _write_marker(marker, self.slug, self.org_id)
+                    finally:
+                        self._end_create()
                 return _EMPTY
             self.use()
             cur = self.raw.execute(st.sql, tuple(params) if params else None)
@@ -369,12 +375,20 @@ class PgConn:
     def executescript(self, script: str) -> None:
         raise NotImplementedError("schema comes from pg_migrations, not _DDL")
 
+    def _end_create(self) -> None:
+        lk, self.create_lock = self.create_lock, None
+        if lk is not None:
+            lk.release()
+
     def close(self) -> None:
         """Return the server connection to the process-wide idle pool (when
         it is clean), else close it. store's per-slug pool does not keep
         postgres connections idle: that multiplied by the org count and ran a
         40-connection server out of slots (`too many clients`)."""
-        _release(self.raw)
+        try:
+            _release(self.raw)
+        finally:
+            self._end_create()          # a create that never reached COMMIT
 
 
 # ----------------------------------------------------------------- orgs
@@ -449,6 +463,22 @@ def _write_marker(path: str, slug: str, org_id: int) -> None:
     os.replace(tmp, path)
 
 
+#: per-slug in-process create locks (review N1). The advisory lock in
+#: `_begin_create` is released at COMMIT, BEFORE the marker is written, so a
+#: second same-name create could see no marker and retire the org just
+#: committed. This lock spans _begin_create .. marker write.
+_create_locks: dict[str, threading.Lock] = {}
+_create_locks_guard = threading.Lock()
+
+
+def _create_lock_for(slug: str) -> threading.Lock:
+    with _create_locks_guard:
+        lk = _create_locks.get(slug)
+        if lk is None:
+            lk = _create_locks[slug] = threading.Lock()
+        return lk
+
+
 def _begin_create(raw: Any, slug: str) -> int:
     """Open the ONE transaction an org is created in (lead decision 20.2):
     the orgs row and its schema here, then the caller's save writes the rows,
@@ -511,18 +541,32 @@ def open_conn(slug: str, marker: str, *, create: bool = False) -> PgConn:
         if org_id is None:
             if not create:
                 raise sqlite3.OperationalError(f"unable to open database file: {marker}")
-            org_id = _begin_create(raw, slug)
-            if read_marker(marker) is not None:     # created while we waited
-                raw.execute("ROLLBACK")
+            lk = _create_lock_for(slug)
+            lk.acquire()
+            try:
+                again = read_marker(marker) is not None     # created while we waited
+                if not again:
+                    org_id = _begin_create(raw, slug)
+                    again = read_marker(marker) is not None  # another process created it
+                    if again:
+                        raw.execute("ROLLBACK")
+                if not again:
+                    raw.execute(f"SET search_path TO org_{int(org_id)}, public")
+                    conn = PgConn(raw, slug, org_id)
+            except BaseException:
+                lk.release()
+                raise
+            if again:
+                lk.release()
                 _release(raw)
                 return open_conn(slug, marker, create=False)
-            raw.execute(f"SET search_path TO org_{int(org_id)}, public")
-            conn = PgConn(raw, slug, org_id)
             # the save's BEGIN is swallowed (we are already in the creating
-            # transaction); its COMMIT goes through and then writes the marker
+            # transaction); its COMMIT goes through, writes the marker and
+            # releases the create lock
             conn.pinned = True
             conn.commit_armed = True
             conn.creating = marker
+            conn.create_lock = lk
             return conn
         raw.execute(f"SET search_path TO org_{int(org_id)}, public")
         return PgConn(raw, slug, org_id)

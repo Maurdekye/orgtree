@@ -203,6 +203,44 @@ class Seam(unittest.TestCase):
         slug = _fresh_org('atomic-one')                   # and the name still works
         self.assertEqual(_node(slug, 'a')['name'], 'a')
 
+    def test_same_name_creates_racing_retire_nothing(self) -> None:
+        # review N1 (probe C1): the advisory lock ends at COMMIT, before the
+        # marker is written; a second same-name create in that gap saw no
+        # marker and retired the org just committed
+        import threading
+        from unittest.mock import patch
+        real = pgstore._write_marker
+        first = threading.Event()
+        slow = [True]
+
+        def slow_marker(*a, **k):
+            if slow[0]:
+                slow[0] = False
+                first.set()
+                time.sleep(0.8)                    # the gap the race needs
+            real(*a, **k)
+        errors: list[BaseException] = []
+
+        def create() -> None:
+            try:
+                store.create_org('race-slow')
+            except store.LedgerError:
+                pass                               # "already exists" is a fine answer
+            except BaseException as e:             # pragma: no cover - asserted below
+                errors.append(e)
+        with patch.object(pgstore, '_write_marker', slow_marker):
+            t1 = threading.Thread(target=create)
+            t1.start()
+            self.assertTrue(first.wait(10), 'the first create never reached its marker')
+            t2 = threading.Thread(target=create)
+            t2.start()
+            t1.join(20)
+            t2.join(20)
+        self.assertEqual(errors, [])
+        rows = self._pg("SELECT org_id, slug FROM orgs WHERE slug LIKE 'race-slow%%'")
+        self.assertEqual([s for _, s in rows], ['race-slow'], f'retired or duplicated: {rows}')
+        self.assertEqual(pgstore.read_marker(store.org_path('race-slow')), rows[0][0])
+
     def test_claim_retires_a_live_row_without_a_marker(self) -> None:
         slug = _fresh_org('unmarked-one')
         os.remove(store.org_path(slug))                    # the marker is lost
