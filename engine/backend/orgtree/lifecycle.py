@@ -22,7 +22,7 @@ PRUNE_TO = 448
 # unrelated observations, but the ring must still have a hard bound.
 _STICKY_STATES = frozenset({"delay_reported"})
 
-# S8 (lead decision 7, superseding 5; decision 29's lock-free appends kept).
+# S8 (lead decision 8 on the scale parent, superseding 5; decision 29's lock-free appends kept).
 # On the ROW store the ledger is a list log (store.LIST_LOGS) that writers
 # only APPEND to, without a lock, so every mail send stays parallel. Safe
 # because a writer never edits a row another transaction may hold: it

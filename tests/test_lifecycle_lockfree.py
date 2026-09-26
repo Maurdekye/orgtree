@@ -1,4 +1,4 @@
-"""S8 (lead decision 7, superseding 5): the lifecycle ledger stays lock-free
+"""S8 (lead decision 8, superseding 5): the lifecycle ledger stays lock-free
 for writers and still loses nothing.
 
 `lifecycle.record` used to COALESCE onto any matching row and EVICT at the

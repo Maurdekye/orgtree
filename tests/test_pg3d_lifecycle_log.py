@@ -77,7 +77,7 @@ class LifecycleLog(unittest.TestCase):
         d = store.load_org(self.slug).d
         self.assertEqual(lifecycle.latest(d, 'mail:1')['count'], 2)
         self.assertTrue(lifecycle.has_state(d, 'mail:2', 'delay_reported'))
-        # S8 (lead decision 7): a STORED row is never edited any more — another
+        # S8 (lead decision 8): a STORED row is never edited any more — another
         # transaction may hold it. The repeat in a new cycle is a new row
         # (coalescing is per transaction); latest/has_state read the same.
         org = store.load_org(self.slug)

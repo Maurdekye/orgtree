@@ -245,7 +245,7 @@ class WatchdogRoute(unittest.TestCase):
         r, n, c = self.post(wid, 'remove', 'cap test')
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual((n, c), (1, 1), 'remove at the cap widened')
-        # S8 (lead decision 7): the route's commit only APPENDS its row; the
+        # S8 (lead decision 8): the route's commit only APPENDS its row; the
         # eviction is the one serialized pruner's, off the request path
         self.assertTrue(lifecycle.idle.wait(10))
         lifecycle.prune(self.slug)                 # idempotent if it already ran
