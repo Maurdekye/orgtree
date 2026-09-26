@@ -19,7 +19,9 @@ superior's NODE row first (maildoor's grant locks the caller; the routed
 request locks its superior), and a user-route grant locks the grantee's node
 row, which the request's caller row also is. So the audiences FOR SHARE is a
 second guarantee for them; the third test pins it on its own, with a writer
-that holds nothing but the audiences row.
+that holds nothing but the audiences row. (A request planned while the agent
+had NO audience plans to route, and the mail rows take audiences FOR UPDATE —
+stronger still; the FOR SHARE case is the filing plan.)
 
 Each wait is proven from the lock manager (racekit.blocked), never slept for,
 and the achieved order is checked. Converted racers, so the transition fence
@@ -172,15 +174,24 @@ class ScopeRequestVsAudienceGrant(unittest.TestCase):
     def test_a_writer_of_only_the_audiences_row_still_orders_the_request(self):
         """No current audience writer is ordered against request_scope by the
         audiences row alone (each also locks a party's node row). This pins
-        the FOR SHARE lock itself, for a future writer that touches nothing
-        else: a transaction holding ONLY `audiences` FOR UPDATE that grants
-        the worker a user audience."""
-        def grant_only_audiences():
+        the door's FOR SHARE on its own, for a future writer that touches
+        nothing else. The worker HOLDS a user audience, so the request plans
+        to FILE (audiences SHARED, no mail rows); a transaction holding ONLY
+        `audiences` FOR UPDATE revokes it. The request must wait for that
+        commit, then re-derive its plan under the lock (`rcdoor.require`
+        widens to the superior's mail rows) and ROUTE."""
+        org = store.load_org(self.slug)
+        org.d['audiences'].append({'grantee': 'worker', 'grantor': U})
+        store.save_org(org)
+
+        def revoke_only_audiences():
             with orgtx.org_tx(self.slug, sections=['audiences']) as tx:
-                tx.org.d['audiences'].append({'grantee': 'worker', 'grantor': U})
+                tx.org.d['audiences'][:] = [
+                    x for x in tx.org.d['audiences']
+                    if not (x.get('grantee') == 'worker' and x.get('grantor') == U)]
 
         with racekit.Race(wait=STEP_S, pair='converted') as race, self._watch_keys():
-            g = race.actor('G', grant_only_audiences)
+            g = race.actor('G', revoke_only_audiences)
             r = race.actor('R', self._request)
             gg = race.hold(g, 'before_commit')
             race.start(g)
@@ -190,15 +201,14 @@ class ScopeRequestVsAudienceGrant(unittest.TestCase):
             on = self._waited_on(r)
             race.release(gg)
             race.join(g, r)
-            race.expect_order('G.before_commit', 'R.blocked', 'G.after_commit',
-                              'R.after_lock', 'R.after_commit')
+            race.expect_order('G.before_commit', 'R.blocked', 'G.after_commit')
         self.assertEqual(on[0][1:], ('section', 'audiences'), on)
-        self.assertFalse(on[1], 'the request must hold audiences SHARED')
-        self.assertNotIn('routed', r.result, r.result)
-        _audience, filed, mailed = self._state()
-        self.assertEqual(len(filed), 1)
-        self.assertEqual(mailed, [])
-
+        self.assertFalse(on[1], 'a filing plan holds audiences SHARED')
+        self.assertEqual(r.result.get('routed'), 'boss', r.result)
+        audience, filed, mailed = self._state()
+        self.assertFalse(audience)
+        self.assertEqual(filed, [])
+        self.assertEqual(len(mailed), 1)
 
 if __name__ == '__main__':
     unittest.main()
