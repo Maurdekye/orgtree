@@ -153,6 +153,28 @@ class WorkListConditional(unittest.TestCase):
             self.assertNotIn(self._key(), api._work_list_cache, 'no sweep evicted the idle body')
             self.assertIsNone(api._work_list_sweeper, 'the sweep kept running on an empty cache')
 
+    def test_the_sweep_rearms_while_a_body_is_still_in_use(self) -> None:
+        # (native-design-review R1) the first ticks find the body in use and
+        # must re-arm; only a later tick, after polling stops, may evict it
+        with api._work_list_cache_lock:
+            if api._work_list_sweeper is not None:
+                api._work_list_sweeper.cancel()   # no leftover 5 s timer may do the work
+                api._work_list_sweeper = None
+            api._work_list_cache.clear()
+        with patch.object(api, '_WORK_CACHE_SWEEP_S', 0.05), \
+                patch.object(api, '_WORK_CACHE_IDLE_S', 0.3):
+            polls_until = time.monotonic() + 0.8   # ~16 ticks see it in use
+            while time.monotonic() < polls_until:
+                self.assertEqual(self.get().status_code, 200)
+                time.sleep(0.02)
+            self.assertIn(self._key(), api._work_list_cache, 'evicted while still polled')
+            self.assertIsNotNone(api._work_list_sweeper, 'the sweep stopped with a body held')
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline and self._key() in api._work_list_cache:
+                time.sleep(0.05)
+            self.assertNotIn(self._key(), api._work_list_cache,
+                             'the body outlived its polling: the sweep did not re-arm')
+
     def test_unknown_org_is_still_404(self) -> None:
         r = self.client.get('/api/orgs/no-such-org/work-items', headers=OP)
         self.assertEqual(r.status_code, 404)
