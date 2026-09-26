@@ -30,11 +30,7 @@ os.environ.pop('ORGTREE_ORGTX_TEST_HOOKS', None)
 
 import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
 
-from orgtree import orgtx, store  # noqa: E402
-
-# the late commit runs inside the pin hook, on the thread that will take the
-# fence next; with the fence on it would wait on itself
-orgtx.TRANSITION_FENCE = False
+from orgtree import store  # noqa: E402
 
 
 def tearDownModule() -> None:
@@ -53,13 +49,16 @@ def _fresh_org(name: str) -> str:
 
 
 def _late_commit(slug: str) -> None:
-    with orgtx.org_tx(slug, sections=[('mail', 'b')]) as tx:
-        tx.d['mail']['b'].append({'id': 'late'})
+    # another writer's cycle on a PRIVATE copy: a load outside DOC_LOCK is
+    # never the resident, so this commit publishes like any other save
+    org = store.load_org(slug)
+    org.d['mail']['b'].append({'id': 'late'})
+    with store.DOC_LOCK:
+        store.save_org(org)
 
 
 class ResidentAccumulator(unittest.TestCase):
     def setUp(self) -> None:
-        orgtx.use_backend(orgtx.SeamBackend())
         self.slug = _fresh_org(f'accum-{self._testMethodName}'[:58].replace('_', '-'))
         store.cached_org(self.slug)                     # the snapshot exists
         store._resident.pop(self.slug, None)
