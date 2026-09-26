@@ -92,8 +92,8 @@ import { HireDefaultsTab, orgDefaultTools, orgDirHoldings } from './canvas/modal
 import { mailRefTarget, refToken, useRefRoutes } from './canvas/reflinks'
 import type { TypedRef } from './canvas/workrefs'
 import {
-  SetBlock, SetGroup, SetRow, SettingsTabPanel, SettingsTabs, SetToggle,
-  useVisitedTabs,
+  OPEN_APP_SETTINGS_EVENT, SetBlock, SetGroup, SetRow, SettingsTabPanel,
+  SettingsTabs, SetToggle, useVisitedTabs,
 } from './canvas/settingskit'
 import type { SettingsTab } from './canvas/settingskit'
 import { ingestPulse, ingestStream, resetConvos } from './convo'
@@ -384,6 +384,19 @@ export default function App() {
   const [doomedOrg, setDoomedOrg] = useState<OrgListEntry | null>(null)   // org row pending deletion
   const [showDefaults, setShowDefaults] = useState(false)   // global new-org defaults
   const [showAccounts, setShowAccounts] = useState(false)   // D-144 account registry
+  // the section a banner asked Application settings to open at (the queued-
+  // for-a-turn-slot banner points at Runtime); the panel follows later asks
+  // itself while it is open
+  const [appSettingsTab, setAppSettingsTab] = useState<'runtime' | undefined>(undefined)
+  useEffect(() => {
+    const open = (e: Event) => {
+      const tab = (e as CustomEvent<{ tab?: string }>).detail?.tab
+      setAppSettingsTab(tab === 'runtime' ? 'runtime' : undefined)
+      setShowAccounts(true)
+    }
+    window.addEventListener(OPEN_APP_SETTINGS_EVENT, open)
+    return () => window.removeEventListener(OPEN_APP_SETTINGS_EVENT, open)
+  }, [])
   // host subscription usage bars. SCOPED, not one boolean: home and each
   // organization are separate places to have this open (user 2026-09-12) -
   // see useScopedOpen in canvas/modalpin.tsx for what went wrong without it.
@@ -1691,7 +1704,8 @@ export default function App() {
           close={() => { setDocketJump(null); setShowDocket(false) }} />
       )}
       {showAccounts && (
-        <AccountsPanel toast={toast} close={() => setShowAccounts(false)} />
+        <AccountsPanel toast={toast} initialTab={appSettingsTab}
+          close={() => { setShowAccounts(false); setAppSettingsTab(undefined) }} />
       )}
       {doomedOrg && (
         <ConfirmModal title={`permanently delete ${doomedOrg.name}?`}

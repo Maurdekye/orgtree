@@ -136,6 +136,15 @@ export function useVisitedTabs<T extends string>(first: T):
 
 /** a titled band of rows. The note is for scope ("saved in this browser"),
  *  not for prose — a sentence belongs in a row's `hint`. */
+/** Ask the shell to open Application settings at one section — from any
+ *  surface (a desk banner, a popout) without importing the settings panel.
+ *  App.tsx opens the panel; the panel switches to the section. */
+export const OPEN_APP_SETTINGS_EVENT = 'orgtree:open-app-settings'
+export function openAppSettings(tab: string, focus?: string): void {
+  window.dispatchEvent(new window.CustomEvent(OPEN_APP_SETTINGS_EVENT,
+    { detail: { tab, focus } }))
+}
+
 export function SetGroup({ title, note, children }: {
   title: string
   note?: ReactNode

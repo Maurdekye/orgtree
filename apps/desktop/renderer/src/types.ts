@@ -479,6 +479,12 @@ export interface TreeNode {
    *  2026-09-02 19:19Z). */
   cheap_compact_occ?: number | null
   waiting: boolean
+  /** Set while this node's turn waits behind the machine-wide concurrent-turn
+   *  limit (user ruling 2026-09-26): `since` is epoch seconds, `limit` the
+   *  limit in force when it queued, `waiting` how many turns were queued
+   *  then. null/absent otherwise. The desk shows a banner pointing at the
+   *  setting. */
+  queued_for_slot?: TurnSlotQueued | null
   responding: boolean
   phase: string | null
   /** WHICH account actually served this node's last turn, captured at spawn
@@ -1710,7 +1716,14 @@ export interface RuntimeSettingsPayload {
   /** Default off: additionally remind agents about their own BLOCKED items,
    *  but only while every remaining ticket in the organization is blocked. */
   blocked_docket_reminders_enabled: boolean
+  /** The live machine-wide limit on concurrent agent turns (default 16) and
+   *  the fair queue behind it. Absent from an older engine. */
+  max_concurrent_turns?: number
+  turn_slots?: { limit: number; held: number; waiting: number
+    waiting_by_org: Record<string, number> }
 }
+
+export interface TurnSlotQueued { since: number; limit: number; waiting: number }
 
 /** one bar of the host subscription's rate-limit standing (GET /api/usage —
  *  the same readout Claude Code shows under /usage). `model` is the display

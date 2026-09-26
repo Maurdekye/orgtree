@@ -30,8 +30,9 @@ import type { ReactNode } from 'react'
 import type {
   CacheForecast, ChatMessage, ChatPayload, CodexRouteInfo, HistoryItem, PendingMail,
   Denial, Readiness, ScratchPayload, ServingAccount, TreeFrozen, TreeNode, TurnStat,
-  ToolChip as ToolChipData, ToastFn,
+  ToolChip as ToolChipData, ToastFn, TurnSlotQueued,
 } from '../types'
+import { openAppSettings } from './settingskit'
 import {
   audienceAction, BASE, compactNode, fileBase, fileUrl, getChat, getHistory,
   getScratch, getWorkItems, interruptNode, processControl, retractMail,
@@ -1510,6 +1511,30 @@ export function HaltedBanner({ halt, killswitched, live }: {
             + 'agent is explicitly unhalted.')
         : 'Org killswitch latched — every agent here is halted. Mail is stored '
           + 'unread until the killswitch is released.'}</span>
+  </div>
+}
+
+/** The turn-limit banner (user ruling 2026-09-26 11:04Z): when more agents
+ * want to run than the machine-wide limit allows, a selected QUEUED agent
+ * says why it is not running — the agent concurrency limit is reached — and
+ * that the limit can be changed in Settings, with a button that opens it.
+ * It disappears the moment the engine admits the turn (or it is abandoned). */
+export function TurnSlotQueuedBanner({ queued, live }: {
+  queued?: TurnSlotQueued | null
+  live: boolean
+}) {
+  if (!live || !queued) return null
+  const others = Math.max(0, queued.waiting - 1)
+  return <div className="slot-queued-warning" role="status">
+    <WarnIcon fontSize="inherit" />
+    <span>{`Waiting for a turn slot — the agent concurrency limit (${queued.limit}) `
+      + 'is reached, so this agent runs when a running turn finishes'
+      + (others ? ` (${others} other${others === 1 ? '' : 's'} were waiting when it queued)` : '')
+      + '. The limit may be too low for this many agents; you can change it in '
+      + 'Settings.'}</span>
+    <button type="button" className="slot-queued-open"
+      onClick={() => openAppSettings('runtime', 'max_concurrent_turns')}>
+      Open settings</button>
   </div>
 }
 
@@ -3817,6 +3842,8 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
       {text.trimStart().startsWith('/') && canMail && (
         <SlashHints text={text} setText={setText} />)}
       <HaltedBanner halt={node.halt} killswitched={orgKillswitched}
+        live={node.state === 'live'} />
+      <TurnSlotQueuedBanner queued={node.queued_for_slot}
         live={node.state === 'live'} />
       {/* `processActive`, not `turnActive`: the mid-turn banner is about a
           STEER WINDOW, which only exists while a turn is genuinely running.

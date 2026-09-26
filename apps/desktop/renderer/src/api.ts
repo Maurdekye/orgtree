@@ -796,6 +796,14 @@ export const setBlockedDocketRemindersEnabled = (
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ blocked_docket_reminders_enabled: enabled }),
   })
+export const setMaxConcurrentTurns = (
+  limit: number,
+): Promise<RuntimeSettingsPayload> =>
+  req('/api/app-settings/runtime', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ max_concurrent_turns: limit }),
+  })
 export const getUsage = (force = false): Promise<UsagePayload> =>
   req(`/api/usage${force ? '?force=true' : ''}`)
 // cache-only — the glow polls this; only the modal above may cost a fetch

@@ -753,6 +753,8 @@ export interface CanvasNode {
   /** FR-01: parked while the user drives this session from another device */
   remote_controlled?: { at?: string } | null
   waiting?: boolean
+  /** queued behind the machine-wide concurrent-turn limit (see TreeNode) */
+  queued_for_slot?: TreeNode['queued_for_slot']
   responding?: boolean
   phase?: string | null
   /** which account actually served the last turn (resolved at spawn) */

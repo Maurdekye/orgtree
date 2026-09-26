@@ -1827,6 +1827,20 @@ button.cc-name:hover {
   color: var(--bad); border-color: color-mix(in srgb, var(--bad) 68%, var(--line));
   background: color-mix(in srgb, var(--bad) 10%, transparent);
 }
+/* the turn-limit banner (user ruling 2026-09-26): the halted banner's shape in
+   the warning yellow — the agent is not broken, it is waiting behind the
+   machine-wide concurrent-turn limit, and the button opens that setting. */
+.slot-queued-warning {
+  display: flex; align-items: flex-start; gap: 6px; flex: none;
+  width: 100%; min-width: 0; padding: 5px 8px; border: 1px solid;
+  border-radius: 6px; font-size: 11px; line-height: 1.35;
+  overflow-wrap: anywhere;
+  color: var(--warn, #e5c07b);
+  border-color: color-mix(in srgb, var(--warn, #e5c07b) 68%, var(--line));
+  background: color-mix(in srgb, var(--warn, #e5c07b) 10%, transparent);
+}
+.slot-queued-warning > span { flex: 1; min-width: 0; }
+.slot-queued-warning .slot-queued-open { flex: none; font-size: 11px; }
 /* `align-items: flex-end` lands every CONTROL on the composer's bottom edge:
    attach, notice toggle and send all share that baseline. The textarea opts
    out of it — see `.cc-composer textarea` below — because a control sitting on

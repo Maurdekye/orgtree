@@ -14,6 +14,7 @@ import type {
 import {
   getProviders, peekProviders, getRuntimeSettings,
   setIdleDocketRemindersEnabled, setBlockedDocketRemindersEnabled,
+  setMaxConcurrentTurns,
   setProviderEnabled,
   setWaitForMcpToolsEnabled, setWarmingEnabled, setWorkingCheckupsEnabled,
   setApikeyFallbackEnabled, setSubscriptionInferenceEnabled,
@@ -22,7 +23,8 @@ import { desktop } from '../desktop'
 import { fmtStamp } from '../timefmt'
 import type { LoginProvider, ProviderLoginStatus } from '../../../../../packages/contracts'
 import {
-  SetGroup, SetRow, SettingsTabPanel, SettingsTabs, SetToggle,
+  OPEN_APP_SETTINGS_EVENT, SetGroup, SetRow, SettingsTabPanel, SettingsTabs,
+  SetToggle,
 } from './settingskit'
 import type { SettingsTab } from './settingskit'
 import { OpenRouterSection } from './openrouter'
@@ -468,8 +470,49 @@ export function ProviderSignIn({ provider, connected, toast, onRefresh,
   )
 }
 
-export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => void }) {
-  const [tab, setTab] = useState<AppSettingsTab>('general')
+/** The machine-wide limit on agent turns running at once (user ruling
+ *  2026-09-26: a setting, default 16, applied live). Turns beyond it wait in
+ *  a fair queue — first come first served within an org, taking turns across
+ *  orgs — and a queued agent's desk points here. */
+export function TurnLimitSetting({ runtime, busy, onSave }: {
+  runtime: RuntimeSettingsPayload | null
+  busy: boolean
+  onSave: (limit: number) => void
+}) {
+  const live = runtime?.max_concurrent_turns
+  const [draft, setDraft] = useState('')
+  useEffect(() => { if (live !== undefined) setDraft(String(live)) }, [live])
+  if (live === undefined) return null
+  const n = Number(draft)
+  const valid = Number.isInteger(n) && n >= 1 && n <= 512
+  const slots = runtime?.turn_slots
+  const commit = () => { if (valid && n !== live) onSave(n) }
+  return <SetRow label="most agent turns running at once"
+    hint={'Default 16, shared by every organization on this machine. Extra '
+      + 'turns wait their turn: first come, first served within an '
+      + 'organization, and taking turns across organizations. A change applies '
+      + 'at once; lowering it lets running turns finish.'
+      + (slots ? ` Now: ${slots.held} running, ${slots.waiting} waiting.` : '')}>
+    <input id="app-settings-max-concurrent-turns" type="number" min={1} max={512}
+      aria-label="most agent turns running at once" value={draft}
+      aria-invalid={!valid} disabled={busy}
+      onChange={e => setDraft(e.target.value)} onBlur={commit}
+      onKeyDown={e => { if (e.key === 'Enter') commit() }} />
+  </SetRow>
+}
+
+export function AccountsPanel({ toast, close, initialTab }: {
+  toast: ToastFn; close: () => void; initialTab?: AppSettingsTab
+}) {
+  const [tab, setTab] = useState<AppSettingsTab>(initialTab ?? 'general')
+  useEffect(() => {
+    const open = (e: Event) => {
+      const tab = (e as CustomEvent<{ tab?: string }>).detail?.tab
+      if (tab && APP_TABS.some(t => t.id === tab)) setTab(tab as AppSettingsTab)
+    }
+    window.addEventListener(OPEN_APP_SETTINGS_EVENT, open)
+    return () => window.removeEventListener(OPEN_APP_SETTINGS_EVENT, open)
+  }, [])
   const appVersion = useAppVersion()
   const registry = useAccountRegistry()
   const [addAccount, setAddAccount] = useState<AccountProvider | null>(null)
@@ -646,6 +689,12 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
           hint="Keep supported harness processes ready between turns." />
       </SetGroup>
       <SetGroup title="Turns">
+        <TurnLimitSetting runtime={runtime} busy={busy} onSave={limit => {
+          setBusy(true)
+          setMaxConcurrentTurns(limit).then(r => { setRuntime(r); setError('') })
+            .catch((e: Error) => { setError(e.message); toast([e.message]) })
+            .finally(() => setBusy(false))
+        }} />
         <SetToggle label="check on working agents after 20 minutes" checked={runtime?.working_checkups_enabled !== false}
           disabled={!runtime || busy} onChange={v => changeRuntime(setWorkingCheckupsEnabled, v)} />
         <SetToggle label="wait until the MCP tool surface is ready" checked={runtime?.wait_for_mcp_tools_enabled === true}
