@@ -215,6 +215,48 @@ class ClaudePipeLifecycleTests(unittest.TestCase):
         self.assertEqual(self.st["queue"], [])
         self.assertNotIn("halt", store.load_org(self.slug).node(self.nid))
 
+    # PG-3e-A review M3: the boundary feed (new input into a running turn)
+    # re-checks halt on the agent's row it holds FOR UPDATE. The durable halt
+    # below is committed WITHOUT the in-memory `halt_requested` flag or a kill,
+    # so only that locked re-check can see it. The child holds its result
+    # until the test has committed (or not) and queued the follow-up.
+    _GATED = _CHILD.replace(
+        "elif mode=='interrupt':",
+        "elif mode=='gated':\n"
+        " while not Path(marker+'.go').exists():time.sleep(.02)\n"
+        " result()\n"
+        " for line in sys.stdin:\n"
+        "  Path(marker+'.followup').write_text(line)\n"
+        "  result()\n"
+        "elif mode=='interrupt':")
+
+    def boundary_feed(self, halt_first):
+        from orgtree import halt
+        self.script.write_text(self._GATED, encoding="utf-8")
+        self.start("gated")
+        if halt_first:
+            with halt.txn(self.slug, nodes=[self.nid]) as tx:
+                tx.org.node(self.nid)["halt"] = {
+                    "phase": "halting", "requested_at": ledger.now(),
+                    "by": ledger.USER}
+        self.st["queue"].append({"cmd": True, "text": "/next"})
+        Path(str(self.marker) + ".go").write_text("1")
+        self.assert_settled(timeout=6)
+        return Path(str(self.marker) + ".followup")
+
+    def test_boundary_feed_control_feeds_the_queued_input(self):
+        fed = self.boundary_feed(halt_first=False)
+        self.assertTrue(fed.exists(), "the boundary never fed the queued input")
+        self.assertIn("/next", fed.read_text())
+
+    def test_halt_committed_mid_turn_refuses_the_boundary_feed(self):
+        fed = self.boundary_feed(halt_first=True)
+        self.assertFalse(fed.exists(),
+                         "the boundary fed new input to a halted agent")
+        inflight = store.load_org(self.slug).node(self.nid).get("inflight") or {}
+        self.assertNotEqual(inflight.get("text"), "/next",
+                            "an in-flight marker was recorded for the refused input")
+
     @unittest.skipUnless(os.name == "nt", "the incident used a Windows command wrapper")
     def test_idle_watchdog_ends_launcher_and_child_then_returns_queued_mail(self):
         self.stack.enter_context(patch.object(sup, "TURN_IDLE", .2))
