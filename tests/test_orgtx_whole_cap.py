@@ -182,6 +182,35 @@ class WholeCap(unittest.TestCase):
             with self.subTest(fn.__name__):
                 self.assertIs(fn.__code__, marker, f'{fn.__name__} queues behind the cap')
 
+    def test_two_nested_txs_in_one_body_take_no_slot(self) -> None:
+        # review N1 (M1): releasing an inner nested slot must restore the
+        # depth, not zero it, or the second nested tx waits on the cap
+        orgtx.MAX_CONCURRENT = 1
+        a = _fresh_org(f'cap-na-{self._testMethodName}'[:58].replace('_', '-'))
+        b = _fresh_org(f'cap-nb-{self._testMethodName}'[:58].replace('_', '-'))
+        with orgtx.org_tx(self.slug, nodes=['n0'], lock_timeout=2) as tx:
+            tx.d['nodes']['n0']['name'] = 'outer'
+            for other in (a, b):
+                with orgtx.org_tx(other, nodes=['n0'], lock_timeout=1) as inner:
+                    inner.d['nodes']['n0']['name'] = 'inner'
+        self.assertEqual(store.load_org(b).d['nodes']['n0']['name'], 'inner')
+
+    def test_an_uncapped_call_does_not_leave_the_thread_uncapped(self) -> None:
+        # review N1 (M3): a leaked flag would uncap a pooled API thread forever
+        orgtx.MAX_CONCURRENT = 1
+        orgtx.uncapped(lambda: None)()
+        inside, release, errors, ts = self._park(1)
+        try:
+            self._settle(inside, 1)
+            with self.assertRaises(orgtx.LockTimeout):
+                with orgtx.org_tx(self.slug, nodes=['n5'], lock_timeout=0.3):
+                    self.fail('ran uncapped after the uncapped call returned')
+        finally:
+            release.set()
+            for t in ts:
+                t.join(30)
+        self.assertEqual(errors, [])
+
 
 if __name__ == '__main__':
     unittest.main()
