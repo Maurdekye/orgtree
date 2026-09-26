@@ -442,8 +442,9 @@ class LifecycleBoundary(unittest.TestCase):
     def test_catalogue_reads(self):
         r, changed, _ = self.ok(self.agent('orgtree_list_orgs', {}, 'mid'), 'list_orgs')
         self.assertIn(self.slug, [o['slug'] for o in r.json()['orgs']])
-        # recorded legacy behaviour: a read that takes the write lock and broadcasts
-        self.assertEqual((changed, self.hub.call_count), ([], 1))
+        # fence-off S5: a lock-free read now — no write cycle, no broadcast
+        # (it used to take the write lock and broadcast, writing nothing)
+        self.assertEqual((changed, self.hub.call_count), ([], 0))
         r, changed, _ = self.ok(self.agent('orgtree_list_tiers', {}, 'mid'), 'list_tiers')
         self.assertEqual((r.json(), changed, self.hub.call_count), ({'tiers': ['fixture']}, [], 0))
 
