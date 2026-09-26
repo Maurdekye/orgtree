@@ -28983,6 +28983,7 @@ def _invariant_sweep_org(slug: str) -> None:
                          retag_legacy_spend_freeze)
     known = set(_PROVIDER_SCOPED_FREEZE_FLAGS) | {"spend"}
     announce: list[tuple[str, str, str, str]] = []   # nid, name, sup, body
+    announced: list[tuple[str, str, str]] = []       # orphan keys, marked after COMMIT
     rc_cleared: list[tuple[str, bool, str | None]] = []   # nid, had_mail, sid
     def _repairs(o: Org) -> list[str]:
         """The nodes this pass will WRITE (PG-3e-B): an unrecognised freeze
@@ -29007,6 +29008,7 @@ def _invariant_sweep_org(slug: str) -> None:
     def _sweep(tx: orgtx.OrgTx) -> None:
         org = tx.org
         announce.clear()
+        announced.clear()
         rc_cleared.clear()
         for nid, n in org.nodes.items():
             if n.get("state") != "live":
@@ -29061,7 +29063,7 @@ def _invariant_sweep_org(slug: str) -> None:
                     and org.nodes[sup]["state"] != "live":
                 key = (slug, nid, "orphan")
                 if key not in _invariant_announced:
-                    _invariant_announced.add(key)
+                    announced.append(key)
                     announce.append((
                         nid, name, sup,
                         f"{name} is live but its superior {sup!r} is "
@@ -29078,6 +29080,9 @@ def _invariant_sweep_org(slug: str) -> None:
         print(f"[orgtree] {slug}: invariant sweep skipped "
               f"({type(exc).__name__})", flush=True)
         return
+    # only a committed pass marks its orphan findings as announced: a failed
+    # commit must leave them to be found (and told) on the next pass
+    _invariant_announced.update(announced)
     for _rnid, _had_mail, _sid in rc_cleared:
         # mirror remote_control_stop: the FR-01 flag is the one writer that
         # fills a node's current session from outside the turn path, so spend

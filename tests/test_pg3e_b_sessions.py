@@ -644,9 +644,15 @@ class RemoteReapInsideASave(unittest.TestCase):
 
 class InvariantSweepCommitsTheHealedRow(unittest.TestCase):
     """The sweep's quarantine leaves a flagless `error` freeze, which every
-    load retags as a spend freeze. The sweep must commit that retagged form:
-    otherwise the heal rides the NEXT org_tx on the org (its own announcement
-    first) and is refused as an unlocked write of a row it never named."""
+    load retags as a spend freeze. The sweep commits that retagged form, so
+    its own commit is at the load-heal fixed point and no later load has to
+    heal the row again. (Before PG-0b re-ran heals, a row left un-healed made
+    the NEXT org_tx carry the heal and be refused as an unlocked write.)
+
+    The committed row is read RAW, straight after the sweep's own commit:
+    every later load re-applies the retag, and under PG-0b the announcement's
+    org_tx heal-commits it too, so any read after that point would pass
+    whether or not the sweep committed the healed form."""
 
     def setUp(self) -> None:
         orgtx.use_backend(orgtx.SeamBackend())
@@ -654,18 +660,38 @@ class InvariantSweepCommitsTheHealedRow(unittest.TestCase):
         _set(self.slug, "worker", frozen={"error": "x", "bogus_kind": True,
                                           "at": "2026-09-12T00:00:00Z"})
 
+    def _raw_node(self, nid: str) -> dict:
+        import sqlite3
+        conn = sqlite3.connect(store._db_path(self.slug))
+        try:
+            row = conn.execute("SELECT val FROM nodes WHERE id = ?", (nid,)).fetchone()
+        finally:
+            conn.close()
+        self.assertIsNotNone(row, f"no committed row for {nid}")
+        return json.loads(row[0])
+
     def test_quarantine_commits_the_retag_and_the_org_stays_writable(self) -> None:
         # PG-3e-A's wake-stamp pre-save hook is scoped to the tx's own rows on
         # its branch (ff81b6a), not yet on this one; keep it out of the way
         hooks = [h for h in store.pre_save_hooks
                  if getattr(h, "__name__", "") != "_stamp_wakes_on_save"]
-        with patch.object(store, "pre_save_hooks", hooks):
+        committed: list = []
+        real = supervisor._computed_tx
+
+        def spy(*a, **k):
+            out = real(*a, **k)
+            committed.append(self._raw_node("worker"))
+            return out
+
+        with patch.object(store, "pre_save_hooks", hooks),                 patch.object(supervisor, "_computed_tx", spy):
             supervisor._invariant_sweep_org(self.slug)
-            fz = _node(self.slug, "worker")["frozen"]
-            self.assertEqual(fz.get("_quarantined"), {"bogus_kind": True})
-            self.assertIs(fz.get("spend"), True, f"not retagged: {fz}")
-            self.assertEqual(fz.get("spend_error"), "x")
-            self.assertNotIn("error", fz)
+        self.assertEqual(len(committed), 1, "the sweep's transaction never ran")
+        fz = committed[0]["frozen"]
+        self.assertEqual(fz.get("_quarantined"), {"bogus_kind": True})
+        self.assertIs(fz.get("spend"), True, f"committed un-retagged: {fz}")
+        self.assertEqual(fz.get("spend_error"), "x")
+        self.assertNotIn("error", fz)
+        with patch.object(store, "pre_save_hooks", hooks):
             # the top-level node's finding reached the user
             log = store.load_org(self.slug).d.get("user_mail_log") or []
             self.assertTrue(any("bogus_kind" in str(m.get("body") or "")
@@ -674,6 +700,7 @@ class InvariantSweepCommitsTheHealedRow(unittest.TestCase):
             with orgtx.org_tx(self.slug, nodes=["other"]) as tx:
                 tx.org.node("other")["note"] = "after"
         self.assertEqual(_node(self.slug, "other").get("note"), "after")
+
 
 if __name__ == "__main__":
     unittest.main()
