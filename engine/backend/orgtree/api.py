@@ -3068,6 +3068,10 @@ def _org_view(slug: str, request: Request,
         # №12: three states wore one pulse — split them: waiting on a turn
         # slot vs actually responding vs busy-but-between (draining/queued)
         node["waiting"] = bool(st.get("waiting"))
+        # queued behind the machine-wide concurrent-turn limit (user ruling
+        # 2026-09-26): {since, limit, waiting} while queued, else None — the
+        # desk shows a banner pointing at the setting
+        node["queued_for_slot"] = st.get("queued_for_slot") or None
         node["responding"] = bool(st.get("responding"))
         node["phase"] = st.get("phase")     # e.g. "compacting" (№3)
         # ⚠ WHICH ACCOUNT ACTUALLY SERVED THIS TURN — captured at spawn from
@@ -5244,6 +5248,7 @@ class RuntimePreference(Body):
     idle_docket_reminders_enabled: bool | None = None
     blocked_docket_reminders_enabled: bool | None = None
     git_periodic_fetch_enabled: bool | None = None
+    max_concurrent_turns: int | None = None
 
 
 def _runtime_preferences() -> dict[str, Any]:
@@ -5259,6 +5264,10 @@ def _runtime_preferences() -> dict[str, Any]:
             appsettings.idle_docket_reminders_enabled()),
         "blocked_docket_reminders_enabled": (
             appsettings.blocked_docket_reminders_enabled()),
+        # the LIVE limit (setting, else ORGTREE_MAX_TURNS, else 16) and the
+        # queue behind it right now
+        "max_concurrent_turns": supervisor._turn_slots.limit,
+        "turn_slots": supervisor._turn_slots.snapshot(),
     }
 
 
@@ -5286,7 +5295,8 @@ async def runtime_preference(body: RuntimePreference) -> dict[str, Any]:
             and body.blocked_docket_reminders_enabled is None
             and body.git_periodic_fetch_enabled is None
             and body.quick_staff_behavior is None
-            and body.quick_staff_request_accounts is None):
+            and body.quick_staff_request_accounts is None
+            and body.max_concurrent_turns is None):
         raise HTTPException(422, "one runtime setting is required")
     try:
         if body.quick_staff_behavior is not None:
@@ -5315,6 +5325,13 @@ async def runtime_preference(body: RuntimePreference) -> dict[str, Any]:
                 body.blocked_docket_reminders_enabled)
         if body.git_periodic_fetch_enabled is not None:
             await run_in_threadpool(appsettings.set_git_periodic_fetch_enabled, body.git_periodic_fetch_enabled)
+        if body.max_concurrent_turns is not None:
+            try:
+                await run_in_threadpool(appsettings.set_max_concurrent_turns,
+                                        body.max_concurrent_turns)
+            except ValueError as e:
+                raise HTTPException(422, str(e)) from e
+            supervisor.set_turn_limit(body.max_concurrent_turns)
         result = await run_in_threadpool(_runtime_preferences)
     except (appsettings.AppSettingsUnreadable, OSError) as e:
         raise HTTPException(500, str(e)) from e

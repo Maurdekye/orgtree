@@ -44,7 +44,7 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, Final, Protocol, TypeVar, cast
 
-from . import halt, inbox, maildrain, mailtx
+from . import halt, inbox, maildrain, mailtx, turnslots
 from . import lifecycle_tx, orgtx
 from . import (accounts, agentauth, antigravity_limits, appsettings,
                cachecontinuity, clipin, codex_limits, codex_route, deployment,
@@ -1151,7 +1151,26 @@ COMPACT_TIMEOUT = int(os.environ.get("ORGTREE_COMPACT_TIMEOUT", "600"))
 #
 # ⚠ The cap is GLOBAL, not per-org: 16 is shared across every org on the
 # instance, so a busy org can starve a quiet one. Nothing enforces fairness.
-MAX_CONCURRENT = int(os.environ.get("ORGTREE_MAX_TURNS", "16"))
+#
+# (user ruling 2026-09-26) Now a SETTING, default 16, admitted by a FAIR queue
+# (turnslots.FairSlots: FIFO within an org, round-robin across orgs, no
+# polling). Resolution: the stored app setting, else ORGTREE_MAX_TURNS, else
+# 16. `MAX_CONCURRENT` is only the boot value; the live limit is
+# `_turn_slots.limit`, changed by `set_turn_limit`.
+def _initial_turn_limit() -> int:
+    try:
+        stored = appsettings.max_concurrent_turns()
+    except Exception:                                      # noqa: BLE001
+        stored = None
+    if stored is not None:
+        return stored
+    try:
+        return int(os.environ.get("ORGTREE_MAX_TURNS", "16"))
+    except ValueError:
+        return turnslots.DEFAULT_LIMIT
+
+
+MAX_CONCURRENT = _initial_turn_limit()
 # a wait this long is worth a loud line on its own, independent of the admit
 # journal (user report 2026-08-30: a message looked "stuck" for ~58s with no
 # trace anywhere of why — see the SLOT_WAIT_WARN_S print site below).
@@ -1160,50 +1179,77 @@ SLOT_WAIT_WARN_S = float(os.environ.get("ORGTREE_SLOT_WAIT_WARN_S", "5"))
 # publishes an exact runtime inventory cannot invisibly hold a turn forever.
 MCP_READINESS_TIMEOUT_S = 30.0
 
-_turn_slots = threading.Semaphore(MAX_CONCURRENT)
+_turn_slots = turnslots.FairSlots(MAX_CONCURRENT)
+
+
+def set_turn_limit(limit: int) -> None:
+    """Apply a new concurrent-turn limit live: raising admits queued turns at
+    once; lowering preempts nothing (running turns finish first)."""
+    _turn_slots.set_limit(limit)
 
 
 class _AdmissionCancelled(RuntimeError):
     """A queued turn was interrupted before it acquired a turn slot."""
 
 class _InterruptibleTurnSlot:
-    """Acquire the global turn slot while allowing manual interruption."""
+    """Acquire a machine-wide turn slot, fairly, while allowing interruption.
 
-    def __init__(self, state: dict[str, Any]) -> None:
+    Queued turns are admitted FIFO within their org and round-robin across
+    orgs (turnslots.FairSlots). While a turn waits, its runtime state carries
+    `queued_for_slot` ({since, limit, waiting}) so the UI can say WHY the
+    agent is not running. The cancel check reads the state WITHOUT taking
+    `_state_lock` (single dict reads are atomic): the scheduler's lock is
+    then never held around `_state_lock`, so the interrupt paths may call
+    `_turn_slots.wake()` from anywhere without a lock-order inversion."""
+
+    def __init__(self, state: dict[str, Any], org: str = "") -> None:
         self._state = state
+        self._org = org
         self._token = object()
         self._acquired = False
+
+    def _cancelled(self) -> bool:
+        st = self._state
+        return bool(st.get("halt_requested")
+                    or st.get("admission_cancel_token") is self._token)
+
+    def _queued(self, info: dict[str, Any]) -> None:
+        with _state_lock:
+            if self._state.get("admission_wait_token") is self._token:
+                self._state["queued_for_slot"] = dict(info)
 
     def __enter__(self) -> None:
         with _state_lock:
             self._state["waiting"] = True
             self._state["admission_waiting"] = True
             self._state["admission_wait_token"] = self._token
-        while True:
+        try:
+            _turn_slots.acquire(self._org, self._cancelled, self._queued)
+        except turnslots.Cancelled:
             with _state_lock:
-                if (self._state.get("halt_requested")
-                        or self._state.get("admission_cancel_token") is self._token):
-                    self._state.pop("admission_cancel_token", None)
-                    self._state.pop("admission_wait_token", None)
-                    self._state["waiting"] = False
-                    self._state["admission_waiting"] = False
-                    raise _AdmissionCancelled()
-            if _turn_slots.acquire(timeout=0.1):
-                self._acquired = True
-                with _state_lock:
-                    self._state["waiting"] = False
-                    self._state["admission_waiting"] = False
-                    self._state.pop("admission_wait_token", None)
-                    if (self._state.get("halt_requested")
-                        or self._state.get("admission_cancel_token") is self._token):
-                        self._state.pop("admission_cancel_token", None)
-                        self._acquired = False
-                        _turn_slots.release()
-                        raise _AdmissionCancelled()
-                return None
+                self._state.pop("admission_cancel_token", None)
+                self._state.pop("admission_wait_token", None)
+                self._state.pop("queued_for_slot", None)
+                self._state["waiting"] = False
+                self._state["admission_waiting"] = False
+            raise _AdmissionCancelled() from None
+        self._acquired = True
+        with _state_lock:
+            self._state["waiting"] = False
+            self._state["admission_waiting"] = False
+            self._state.pop("admission_wait_token", None)
+            self._state.pop("queued_for_slot", None)
+            if (self._state.get("halt_requested")
+                    or self._state.get("admission_cancel_token") is self._token):
+                self._state.pop("admission_cancel_token", None)
+                self._acquired = False
+                _turn_slots.release()
+                raise _AdmissionCancelled()
+        return None
 
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         if self._acquired:
+            self._acquired = False
             _turn_slots.release()
 
 
@@ -3309,7 +3355,7 @@ _TREE_STATE_KEYS = (
     "proc_warm", "proc_live", "proc_relaunch", "proc_relaunch_reason",
     "mcp_tool_count", "mcp_tool_provider", "mcp_tool_source",
     "mcp_tool_reason", "mcp_readiness_waiting", "mcp_readiness_state",
-    "mcp_readiness_reason", "tasks")
+    "mcp_readiness_reason", "tasks", "queued_for_slot")
 
 
 def tree_state_fingerprint(slug: str) -> str:
@@ -20068,7 +20114,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                             else "+".join(accounts.POOLED))
         st["waiting"] = True
         _slot_wait_t0 = time.monotonic()
-        with _InterruptibleTurnSlot(st):
+        with _InterruptibleTurnSlot(st, slug):
             st["waiting"] = False
             turnlog.emit(_trec, "start",
                          slot_wait_ms=int((time.monotonic() - _slot_wait_t0) * 1000))
@@ -20083,7 +20129,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
             slot_wait_s = time.monotonic() - _slot_wait_t0
             if slot_wait_s > SLOT_WAIT_WARN_S:
                 print(f"[orgtree] {slug}/{nid}: waited {slot_wait_s:.1f}s for "
-                      f"a turn slot (MAX_CONCURRENT={MAX_CONCURRENT}, shared "
+                      f"a turn slot (limit={_turn_slots.limit}, shared "
                       f"across every org on this instance) — this is the "
                       f"machine-wide cap being contended, not this node")
             # PG-3e-A: THE point of no return, as TWO row transactions (decisions
@@ -26845,7 +26891,7 @@ def manual_compact(slug: str, nid: str) -> None:
         # `waiting` is the established "blocked on a slot, not running" flag
         # (№12 — the UI draws it hollow).
         st["waiting"] = True
-        with _InterruptibleTurnSlot(st):
+        with _InterruptibleTurnSlot(st, slug):
             st["waiting"] = False
             _compact_split(slug, nid)
     except (_AdmissionCancelled, halt.Cancelled):
@@ -27418,6 +27464,7 @@ def interrupt_turn(slug: str, nid: str) -> dict[str, Any]:
             st["deploy_hold_cancel"] = st.get("deploy_hold_token")
         elif admission_waiting:
             st["admission_cancel_token"] = admission_token
+            _turn_slots.wake()   # the fair queue blocks; wake it to re-check
         elif (proc is not None or codex_turn is not None \
               or antigravity_turn is not None or readiness_wait):
             st["interrupted"] = True

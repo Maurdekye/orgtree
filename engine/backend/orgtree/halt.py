@@ -822,6 +822,9 @@ def _cut_state(slug: str, nid: str, st, *, halting: bool = True) -> None:
             st["halt_requested"] = True
         st["interrupted"] = True
         st["admission_cancel_token"] = st.get("admission_wait_token")
+        # the fair turn-slot queue blocks on a condition: wake it so a queued
+        # turn sees the cancel now (FairSlots never takes _state_lock)
+        sup._turn_slots.wake()
         st["deploy_hold_cancel"] = st.get("deploy_hold_token")
         ev = st.get("mcp_tool_event")
         proc = st.get("proc")
@@ -1012,6 +1015,8 @@ def _halt(slug: str, nid: str, actor: str, *, timeout=None) -> dict[str, Any]:
             with sup._state_lock:
                 for runtime in owners:
                     runtime["halt_requested"] = True
+            # a turn queued in the fair turn-slot queue sees the halt now
+            sup._turn_slots.wake()
 
             def undo() -> None:
                 if not requested(slug, nid):

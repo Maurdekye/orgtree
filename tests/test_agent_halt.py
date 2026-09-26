@@ -126,7 +126,7 @@ class AgentHaltTests(unittest.TestCase):
     def test_slot_wait_cannot_enter_after_halt(self):
         self.st["busy"] = True
         entered = []
-        self.stack.enter_context(patch.object(sup, "_turn_slots", threading.Semaphore(0)))
+        self.stack.enter_context(patch.object(sup, "_turn_slots", sup.turnslots.FairSlots(0)))
 
         @halt.worker
         def waiting(slug, nid):
@@ -905,7 +905,7 @@ class AgentHaltTests(unittest.TestCase):
     def test_queued_switch_at_halted_turn_boundary_retains_wake(self):
         self.queue_cross_provider_switch()
         self.st["busy"] = True
-        with patch.object(sup, "_turn_slots", threading.Semaphore(0)), \
+        with patch.object(sup, "_turn_slots", sup.turnslots.FairSlots(0)), \
              patch.object(sup, "_run_turn") as run:
             worker = threading.Thread(target=sup._run_one_turn,
                                       args=(self.slug, self.nid, "waiting input"))

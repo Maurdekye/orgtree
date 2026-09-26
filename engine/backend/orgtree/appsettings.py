@@ -444,6 +444,40 @@ def set_working_checkups_enabled(enabled: bool) -> None:
         _save(doc)
 
 
+#: bounds of the machine-wide concurrent-turn limit (user ruling 2026-09-26:
+#: a SETTING, default 16). The scheduler itself is turnslots.FairSlots.
+MAX_TURNS_MIN: Final = 1
+MAX_TURNS_MAX: Final = 512
+
+
+def max_concurrent_turns() -> int | None:
+    """The stored machine-wide limit on concurrent agent turns, or None when
+    the user never set one (the caller then falls back to ORGTREE_MAX_TURNS,
+    then to 16). A stored value outside the bounds reads as unset rather than
+    being silently clamped into something the user did not choose."""
+    raw = load().get("runtime")
+    runtime = raw if isinstance(raw, dict) else {}
+    value = runtime.get("max_concurrent_turns")
+    if type(value) is int and MAX_TURNS_MIN <= value <= MAX_TURNS_MAX:
+        return value
+    return None
+
+
+def set_max_concurrent_turns(limit: int) -> None:
+    """Persist the machine-wide concurrent-turn limit (refuses out of range)."""
+    if type(limit) is not int or not MAX_TURNS_MIN <= limit <= MAX_TURNS_MAX:
+        raise ValueError(f"max_concurrent_turns must be an integer from "
+                         f"{MAX_TURNS_MIN} to {MAX_TURNS_MAX}")
+    with _LOCK:
+        doc = load(strict=True)
+        raw = doc.get("runtime")
+        runtime: dict[str, Any] = dict(raw) if isinstance(raw, dict) else {}
+        runtime["max_concurrent_turns"] = limit
+        doc["runtime"] = runtime
+        doc["version"] = VERSION
+        _save(doc)
+
+
 def set_idle_docket_reminders_enabled(enabled: bool) -> None:
     """Persist the machine-wide idle docket reminder choice."""
     with _LOCK:

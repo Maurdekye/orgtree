@@ -66,7 +66,7 @@ class TurnAdmissionInterruptTests(unittest.TestCase):
         self.assertEqual(leaked, [], "a worker thread outlived its test")
 
     def test_cancel_before_slot_acquisition_settles_without_releasing_slot(self):
-        supervisor._turn_slots = threading.Semaphore(0)
+        supervisor._turn_slots = supervisor.turnslots.FairSlots(0)
         entered = threading.Event()
         outcome = []
 
@@ -88,22 +88,31 @@ class TurnAdmissionInterruptTests(unittest.TestCase):
         self.assertEqual(outcome, ["cancelled"])
         self.assertFalse(entered.is_set())
         self.assertFalse(self.state.get("waiting"))
-        self.assertEqual(supervisor._turn_slots._value, 0)
+        snap = supervisor._turn_slots.snapshot()
+        self.assertEqual((snap["held"], snap["waiting"]), (0, 0),
+                         "a cancelled waiter neither holds a slot nor stays queued")
 
     def test_cancel_racing_slot_acquisition_releases_only_acquired_slot(self):
         class Gate:
+            """A slot scheduler that grants only when the test opens it —
+            AFTER the interrupt has landed — so the grant and the cancel race
+            exactly as they can in production."""
+            limit = 1
+
             def __init__(self):
                 self.called = threading.Event()
                 self.open = threading.Event()
                 self.releases = 0
 
-            def acquire(self, timeout=None):
+            def acquire(self, org, cancelled=lambda: False, on_queued=None, max_wait=5.0):
                 self.called.set()
                 self.open.wait(WAIT_S)
-                return True
 
             def release(self):
                 self.releases += 1
+
+            def wake(self):
+                pass
 
         gate = Gate()
         supervisor._turn_slots = gate
@@ -126,10 +135,10 @@ class TurnAdmissionInterruptTests(unittest.TestCase):
         self.assertFalse(self.state.get("waiting"))
 
     def test_ordinary_admission_enters_and_returns_slot(self):
-        supervisor._turn_slots = threading.Semaphore(1)
+        supervisor._turn_slots = supervisor.turnslots.FairSlots(1)
         with supervisor._InterruptibleTurnSlot(self.state):
             self.assertFalse(self.state.get("waiting"))
-        self.assertEqual(supervisor._turn_slots._value, 1)
+        self.assertEqual(supervisor._turn_slots.snapshot()["held"], 0)
 
     def test_waiting_and_active_status_wording_are_distinct(self):
         waiting = {"waiting": True, "busy": True, "responding": False,
@@ -152,7 +161,7 @@ class TurnAdmissionInterruptTests(unittest.TestCase):
             state["busy"] = False
             state["waiting"] = False
             state["queue"] = [{"text": "queued compact mail"}]
-        supervisor._turn_slots = threading.Semaphore(0)
+        supervisor._turn_slots = supervisor.turnslots.FairSlots(0)
         forwarded = []
         original_run_turn = supervisor._run_turn
         original_split = supervisor._compact_split
@@ -205,7 +214,7 @@ class TurnAdmissionInterruptTests(unittest.TestCase):
         old_run_turn = supervisor._run_turn
         supervisor.turnlog.start = lambda *args, **kwargs: recorder
         supervisor._run_turn = lambda *args, **kwargs: None
-        supervisor._turn_slots = threading.Semaphore(0)
+        supervisor._turn_slots = supervisor.turnslots.FairSlots(0)
         with supervisor._state_lock:
             self.state["queue"] = []
         try:
@@ -246,7 +255,7 @@ class TurnAdmissionInterruptTests(unittest.TestCase):
         second = {"text": "second", "toks": ["t2"]}
         old_start = supervisor.turnlog.start
         supervisor.turnlog.start = lambda *args, **kwargs: Recorder()
-        supervisor._turn_slots = threading.Semaphore(0)
+        supervisor._turn_slots = supervisor.turnslots.FairSlots(0)
         with supervisor._state_lock:
             self.state["queue"] = [first, second]
         try:
@@ -270,7 +279,7 @@ class TurnAdmissionInterruptTests(unittest.TestCase):
 
 
     def test_stale_provider_interrupt_does_not_cancel_new_admission(self):
-        supervisor._turn_slots = threading.Semaphore(1)
+        supervisor._turn_slots = supervisor.turnslots.FairSlots(1)
         with supervisor._state_lock:
             self.state["interrupted"] = True
         with supervisor._InterruptibleTurnSlot(self.state):
