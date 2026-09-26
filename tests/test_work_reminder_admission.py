@@ -39,6 +39,13 @@ class WorkReminderAdmissionTests(unittest.TestCase):
         from engine.backend.orgtree import worktx
         self.stack.enter_context(mock.patch.object(
             worktx, 'tx', side_effect=lambda slug, fn, **kw: fn(store.load_org(slug))))
+        # PG-3e-A: the working-checkup reservation is a halt transaction; the
+        # same stand-in — one fresh load, the body run on it.
+        import contextlib, types
+        from engine.backend.orgtree import halt
+        self.stack.enter_context(mock.patch.object(
+            halt, 'txn', side_effect=lambda slug, **kw: contextlib.nullcontext(
+                types.SimpleNamespace(org=store.load_org(slug)))))
 
     def ticket(self, status="open"):
         self.org.work_create("worker", "Required task", "test", owner="worker")
