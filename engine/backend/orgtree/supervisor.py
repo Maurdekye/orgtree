@@ -20016,6 +20016,79 @@ def _fable_filter_commit(slug: str, nid: str, err_blob: str
     return applied, str(o2.d.get("fable_filter_model", "opus"))
 
 
+def _fable_limit_spec(slug: str) -> Any:
+    """S6: the rows `Org.fable_limit_hit` writes under the halt (default) and
+    opus policies, planned lock-free, or None for dissolve.
+
+    It sets the org-wide `fable_lock`, then for every live Fable node sets
+    `limit_locked` (halt) or `model` (opus) and tells the node, its parent
+    and (halt) its peers, and finally the user (`user_inbox`) and the event
+    log. So: every live Fable node FOR UPDATE, the `notices` row of each
+    node told, `fable_lock` and `user_inbox`, the policy FOR SHARE. A Fable
+    node hired, or a peer that appeared, after the plan is a refused write
+    that `pgdoor.run` turns into a widening."""
+    from . import pgdoor
+    snap = store.cached_org(slug)
+    policy = snap.d.get("fable_limit_policy", "halt")
+    if policy == "dissolve":
+        return None
+    fable = sorted(k for k, v in snap.nodes.items()
+                   if v.get("state") == "live" and v.get("model") == "fable")
+    told: set[str] = set(fable)
+    for k in fable:
+        parent = snap.nodes[k].get("parent")
+        if parent:
+            told.add(str(parent))
+        if policy != "opus":
+            told.update(snap._peers_of(parent, k))
+    return pgdoor.TxSpec(
+        nodes=tuple(fable),
+        sections=("fable_lock", "user_inbox")
+        + tuple(("notices", x) for x in sorted(told)),
+        share_sections=("fable_limit_policy",),
+        logs=("events", "notice_log"))
+
+
+def _fable_limit_escalate(slug: str, nid: str, err_blob: str,
+                          until_ts: float | None) -> None:
+    """The org-wide Fable weekly-limit escalation (`Org.fable_limit_hit`),
+    run AFTER the detecting agent's own freeze committed.
+
+    halt and opus run on one row transaction (`_fable_limit_spec`). DISSOLVE
+    retires every Fable node's whole subtree (credits, mail, asks, …): no row
+    plan short of `org_tx(whole=True)` (fence-off plan S8), so it keeps the
+    whole-document path until that lands — a named fence-off blocker, also
+    taken when the policy changes to it between plan and lock.
+
+    Not atomic with the freeze any more: between the two commits another
+    Fable agent may start a turn and hit the same wall; its own escalation
+    then finds `fable_lock` set and returns (`already_locked`). A failure
+    here leaves the freeze standing and is logged; the next Fable wall
+    retries it."""
+    from . import pgdoor
+    try:
+        spec = _fable_limit_spec(slug)
+        if spec is not None:
+            def body(h: Any) -> None:
+                o = h.org
+                if o.d.get("fable_limit_policy", "halt") == "dissolve":
+                    raise _WholeDocument()
+                o.fable_limit_hit(nid, err_blob, until_ts=until_ts)
+            try:
+                pgdoor.run(slug, spec, body)
+                return
+            except _WholeDocument:
+                pass
+        with store.DOC_LOCK:
+            o2 = store.load_org(slug)
+            o2.fable_limit_hit(nid, err_blob, until_ts=until_ts)
+            store.save_org(o2)
+    except Exception as e:                                   # noqa: BLE001
+        print(f"[orgtree] {slug}/{nid}: Fable limit escalation failed "
+              f"(the agent's own freeze stands; the next Fable wall "
+              f"retries it): {e!r}", flush=True)
+
+
 def _resume_rows(slug: str, pick: set[str] | None) -> dict[str, Any]:
     """PG-3e-A: the rows a `resume_frozen` sweep may write, planned from the
     cached snapshot: each candidate node (the `only` set, or every node that
@@ -22988,19 +23061,14 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     # clean-result gate. See `_parse_limit_reset_ts(trusted=…)`
                     _trusted_blob = not (agent_authored
                                          and err_blob is synth_limit_txt)
-                    # PG-3e-A: the agent's row only, unless this limit may
-                    # escalate org-wide (`fable_limit_hit` below, on a trusted
-                    # Fable-tier wall), which stays on the whole-document path
-                    # (`_node_write`). Decided from the error text alone, NOT
-                    # from the model: the escalation reads the model off the
-                    # locked document, and a node whose model changed
-                    # mid-turn must not reach an org-wide write inside a
-                    # one-row transaction. A false positive only costs the
-                    # slower path.
-                    _fable_escalation = bool(
-                        _trusted_blob and _looks_like_fable_tier_limit(err_blob))
-                    with _node_write(slug, nid,
-                                     whole_org=_fable_escalation) as o2:
+                    # PG-3e-A / S6: the freeze is the agent's row only. An
+                    # org-wide Fable escalation (a trusted Fable-tier WEEKLY
+                    # wall on a node whose LOCKED model is fable) is decided
+                    # in here but committed by `_fable_limit_escalate` in its
+                    # own transaction after this one — never an org-wide
+                    # write inside the one-row transaction.
+                    _escalate: tuple[str, float | None] | None = None
+                    with _node_write(slug, nid) as o2:
                         if nid in o2.nodes:
                             fz = _ensure_frozen(o2.node(nid))
                             # POSITIVE kind marker — see FrozenInfo.limit. A
@@ -23396,11 +23464,9 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                 # would self-release the lock hours into a
                                 # week-long quota, which is FABLE-2's whole
                                 # warning.
-                                o2.fable_limit_hit(
-                                    nid, err_blob,
-                                    until_ts=_fable_lock_ts(
-                                        err_blob, _billing_ts, _billing_src,
-                                        _trusted_blob))
+                                _escalate = (err_blob, _fable_lock_ts(
+                                    err_blob, _billing_ts, _billing_src,
+                                    _trusted_blob))
                             # V1 window removal (user redesign 2026-09-12):
                             # no turn runs on an org-key lane any more, so a
                             # fresh limit freeze never carries the key-lane
@@ -23421,6 +23487,12 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                       "schedule_kind": fz.get("schedule_kind"),
                                       "reset_src": fz.get("reset_src"),
                                       "untrusted": fz.get("untrusted")}
+                    if _escalate is not None:
+                        # the freeze above has committed; the escalation is
+                        # idempotent (an existing fable_lock is kept), so a
+                        # second agent that hit the same wall first only
+                        # finds it done
+                        _fable_limit_escalate(slug, nid, *_escalate)
                     # The old process/account identity is runtime attribution,
                     # not org configuration.  Keep it in memory until the
                     # freeze is resumed; the limit journal row above remains

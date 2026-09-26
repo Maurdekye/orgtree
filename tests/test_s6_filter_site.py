@@ -34,7 +34,8 @@ T = {'bash': False, 'web': False, 'edit': False, 'subagents': False, 'mcp': []}
 _N = [0]
 
 
-class FilterSite(unittest.TestCase):
+class _Fixture(unittest.TestCase):
+    """The org, the commit counter and the helpers; no tests of its own."""
 
     def setUp(self):
         _N[0] += 1
@@ -73,6 +74,9 @@ class FilterSite(unittest.TestCase):
 
     def mine(self):
         return [c for c in self.commits if c.slug == self.slug]
+
+
+class FilterSite(_Fixture):
 
     def test_halt_commits_on_one_row_transaction(self):
         self.policy('halt')
@@ -123,6 +127,74 @@ class FilterSite(unittest.TestCase):
             supervisor._fable_filter_commit(self.slug, 'flagged', 'x')
         self.assertEqual(self.mine(), [])
         self.assertEqual(sv.call_count, 1)
+
+
+class LimitEscalation(_Fixture):
+    """The org-wide Fable weekly-limit escalation (`fable_limit_hit`) on its
+    own row transaction after the freeze (`_fable_limit_escalate`)."""
+
+    def limit_policy(self, p):
+        org = store.load_org(self.slug)
+        org.d['fable_limit_policy'] = p
+        org.node('peer')['model'] = 'fable'
+        store.save_org(org)
+
+    def escalate(self):
+        supervisor._fable_limit_escalate(self.slug, 'flagged', 'weekly', None)
+
+    def test_halt_locks_every_fable_node_in_one_commit(self):
+        self.limit_policy('halt')
+        self.commits.clear()
+        self.escalate()
+        self.assertEqual(len(self.mine()), 1)
+        org = store.load_org(self.slug)
+        self.assertTrue(org.d.get('fable_lock', {}).get('no_reset'))
+        self.assertTrue(org.node('flagged').get('limit_locked'))
+        self.assertTrue(org.node('peer').get('limit_locked'))
+        self.assertTrue(org.d.get('user_inbox'))
+
+    def test_opus_converts_every_fable_node_in_one_commit(self):
+        self.limit_policy('opus')
+        self.commits.clear()
+        self.escalate()
+        self.assertEqual(len(self.mine()), 1)
+        org = store.load_org(self.slug)
+        self.assertEqual(org.node('flagged')['model'], 'opus')
+        self.assertEqual(org.node('peer')['model'], 'opus')
+
+    def test_a_fable_node_hired_after_the_plan_is_locked_too(self):
+        self.limit_policy('halt')
+        stale = store.load_org(self.slug)
+        org = store.load_org(self.slug)
+        org.hire(U, None, 'luna', 10, 'late')
+        org.node('late')['model'] = 'fable'
+        store.save_org(org)
+        spec = supervisor._fable_limit_spec
+
+        def on_stale(slug):
+            with patch.object(store, 'cached_org', lambda _s: stale):
+                return spec(slug)
+        with patch.object(supervisor, '_fable_limit_spec', on_stale):
+            self.escalate()
+        org = store.load_org(self.slug)
+        self.assertTrue(org.node('late').get('limit_locked'))
+        self.assertTrue(org.d.get('fable_lock'))
+
+    def test_a_second_wall_changes_nothing(self):
+        self.limit_policy('halt')
+        self.escalate()
+
+        def seen():
+            d = store.load_org(self.slug).d
+            return (d.get('fable_lock'), len(d.get('user_inbox') or []),
+                    len(d.get('events') or []))
+        before = seen()
+        self.escalate()
+        self.assertEqual(seen(), before)
+
+    def test_dissolve_keeps_the_whole_document_path(self):
+        self.limit_policy('dissolve')
+        self.assertIsNone(supervisor._fable_limit_spec(self.slug))
 
 
 if __name__ == '__main__':
