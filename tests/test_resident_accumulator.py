@@ -11,8 +11,10 @@ the snapshot the same way. These force each interleaving deterministically.
 Run:  python tools/run-python-verification.py tests/test_resident_accumulator.py
 """
 
+import json
 import os
 from pathlib import Path
+import sqlite3
 import tempfile
 import unittest
 
@@ -55,6 +57,37 @@ def _late_commit(slug: str) -> None:
     org.d['mail']['b'].append({'id': 'late'})
     with store.DOC_LOCK:
         store.save_org(org)
+
+
+def _legacy_commit(slug: str, mutate) -> None:
+    """Another writer's cycle on a PRIVATE copy: a load outside DOC_LOCK is
+    never the resident, so this save publishes like any other."""
+    org = store.load_org(slug)
+    mutate(org.d)
+    with store.DOC_LOCK:
+        store.save_org(org)
+
+
+def _raw_mail_b(slug: str, entry: dict) -> None:
+    """A write the change sets never hear of (a migration or restore does
+    this, then calls _invalidate_snapshot): straight into the database."""
+    con = sqlite3.connect(store._db_path(slug))
+    try:
+        sep = getattr(store, 'SPLIT_SEP', None)
+        split = None if sep is None else 'mail' + sep
+        row = (None if split is None else
+               con.execute('SELECT val FROM doc WHERE key=?', (split + 'b',)).fetchone())
+        if row is not None:                     # v3: one row per owner
+            con.execute('UPDATE doc SET val=? WHERE key=?',
+                        (json.dumps(json.loads(row[0]) + [entry]), split + 'b'))
+        else:                                   # 2.1.x: the whole section
+            (val,) = con.execute("SELECT val FROM doc WHERE key='mail'").fetchone()
+            mail = json.loads(val)
+            mail['b'].append(entry)
+            con.execute("UPDATE doc SET val=? WHERE key='mail'", (json.dumps(mail),))
+        con.commit()
+    finally:
+        con.close()
 
 
 class ResidentAccumulator(unittest.TestCase):
@@ -107,6 +140,52 @@ class ResidentAccumulator(unittest.TestCase):
         snap = store.cached_org(self.slug)
         self.assertEqual(snap.d['mail']['b'], [{'id': 'm2'}, {'id': 'late'}])
 
+
+    def _with_pin_hook(self, after_pin):
+        """Run one write_org cold start with `after_pin` fired right after the
+        warm pin; returns the advance results and what the cycle saw."""
+        advanced: list[bool] = []
+        orig_pin, orig_adv = store._load_pinned, store._advance_resident
+
+        def pin(slug, **kw):
+            out = orig_pin(slug, **kw)
+            if slug == self.slug and not advanced:
+                after_pin(slug)
+            return out
+
+        def adv(slug, d):
+            ok = orig_adv(slug, d)
+            advanced.append(ok)
+            return ok
+        store._load_pinned, store._advance_resident = pin, adv
+        try:
+            with store.write_org(self.slug) as org:
+                seen = {k: list(v) for k, v in org.d['mail'].items()}
+        finally:
+            store._load_pinned, store._advance_resident = orig_pin, orig_adv
+        return advanced, seen
+
+    def test_invalidate_between_pin_and_advance_refuses_the_advance(self) -> None:
+        # ws2's R1: an invalidation (a write the change sets never saw)
+        # landing after the warm pin must make the advance refuse, so the
+        # cycle falls back to a fresh load instead of a partial delta
+        def after_pin(slug):
+            _raw_mail_b(slug, {'id': 'raw'})
+            store._invalidate_snapshot(slug)
+        advanced, seen = self._with_pin_hook(after_pin)
+        self.assertEqual(advanced, [False])
+        self.assertEqual(seen['b'], [{'id': 'm2'}, {'id': 'raw'}])
+
+    def test_node_insert_between_pin_and_advance_reaches_the_snapshot(self) -> None:
+        # ws2's R2: the resident's advance must not consume the snapshot's
+        # structural (insert/delete) flag, or the next refresh keeps the old
+        # node order and the inserted node is missing from reads
+        def after_pin(slug):
+            _legacy_commit(slug, lambda d: d['nodes'].__setitem__(
+                'c', {'id': 'c', 'name': 'c', 'parent': None, 'children': []}))
+        advanced, _ = self._with_pin_hook(after_pin)
+        self.assertEqual(advanced, [True])
+        self.assertIn('c', store.cached_org(self.slug).d['nodes'])
 
 if __name__ == '__main__':
     unittest.main()
