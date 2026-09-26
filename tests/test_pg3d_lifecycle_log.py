@@ -77,10 +77,14 @@ class LifecycleLog(unittest.TestCase):
         d = store.load_org(self.slug).d
         self.assertEqual(lifecycle.latest(d, 'mail:1')['count'], 2)
         self.assertTrue(lifecycle.has_state(d, 'mail:2', 'delay_reported'))
-        org = store.load_org(self.slug)            # a coalescing edit of a stored row
+        # S8 (lead decision 7): a STORED row is never edited any more — another
+        # transaction may hold it. The repeat in a new cycle is a new row
+        # (coalescing is per transaction); latest/has_state read the same.
+        org = store.load_org(self.slug)
         _rec(org.d, 'mail:1')
         store.save_org(org)
-        self.assertEqual([r['count'] for r in _rows(self.slug)[0]], [3, 1])
+        self.assertEqual([r['count'] for r in _rows(self.slug)[0]], [2, 1, 1])
+        self.assertEqual(lifecycle.latest(store.load_org(self.slug).d, 'mail:1')['count'], 1)
 
     def test_pre_move_blob_loads_and_converts(self) -> None:
         blob = [{'operation_id': 'old:1', 'kind': 'mail', 'state': 'accepted',

@@ -27,6 +27,7 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 
 _temp = tempfile.TemporaryDirectory(prefix='v3-lc-lockfree-', ignore_cleanup_errors=True)
 data = Path(_temp.name) / 'data'
@@ -110,10 +111,12 @@ class LockFreeLedger(unittest.TestCase):
         self.assertEqual(lifecycle.latest(store.load_org(self.slug).d, 'op:2')['last_at'], 't3')
 
     def test_the_pruner_never_drops_a_concurrent_append(self) -> None:
-        with orgtx.org_tx(self.slug, logs=['lifecycle']) as tx:
-            _rec(tx.d, 'stuck', 'delay_reported')
-            for i in range(lifecycle.MAX_RECORDS + 4):
-                _rec(tx.d, f'old:{i}')
+        with patch.object(lifecycle, 'PRUNE_EVERY', 10 ** 9):   # no automatic prune here
+            with orgtx.org_tx(self.slug, logs=['lifecycle']) as tx:
+                _rec(tx.d, 'stuck', 'delay_reported')
+                for i in range(lifecycle.MAX_RECORDS + 4):
+                    _rec(tx.d, f'old:{i}')
+        lifecycle._due.discard(self.slug)
         before = len(_rows(self.slug))
         self.assertGreater(before, lifecycle.MAX_RECORDS)
         at_commit, go = threading.Event(), threading.Event()
@@ -154,7 +157,7 @@ class LockFreeLedger(unittest.TestCase):
         _rec(doc, 'x')
         _rec(doc, 'x')
         self.assertEqual([r['count'] for r in doc['lifecycle']], [2])
-        for i in range(lifecycle.MAX_RECORDS + 1):
+        for i in range(lifecycle.MAX_RECORDS):     # 1 + 512 rows: one over the cap
             _rec(doc, f'y:{i}')
         self.assertEqual(len(doc['lifecycle']), lifecycle.PRUNE_TO)
 
