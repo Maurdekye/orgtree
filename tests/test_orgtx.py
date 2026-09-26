@@ -190,7 +190,7 @@ class OrgTxBasics(unittest.TestCase):
 
     def test_whole_writes_anything_and_holds_every_row(self) -> None:
         with orgtx.org_tx(self.slug, logs=[('mail_log', 'a')]) as tx:
-            tx.d['mail_log']['a'] = [{'m': 1}]
+            tx.d.setdefault('mail_log', {})['a'] = [{'m': 1}]
         with orgtx.org_tx(self.slug, whole=True) as tx:
             self.assertTrue(tx.whole and tx.all_nodes)
             self.assertEqual(tx.lock_nodes, {'a', 'b', 'c'})
@@ -351,7 +351,7 @@ class OrgTxConcurrency(unittest.TestCase):
 
     def test_whole_excludes_every_existing_row(self) -> None:
         with orgtx.org_tx(self.slug, logs=[('mail_log', 'a')]) as tx:
-            tx.d['mail_log']['a'] = [{'m': 1}]
+            tx.d.setdefault('mail_log', {})['a'] = [{'m': 1}]
         entered, release = threading.Event(), threading.Event()
         t = self._hold(entered, release, whole=True)
         try:
