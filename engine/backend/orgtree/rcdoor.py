@@ -271,6 +271,28 @@ def _reallocate_body(tx: Any) -> Any:
                              api._arg_num(a, "delta", 0))
 
 
+def op_reallocate_spec(snapshot: Any, body: Any, a: dict[str, Any]
+                       ) -> pgdoor.TxSpec:
+    """The OPERATOR's reallocate (`POST /ops` op="reallocate"; p03-lead
+    ruling 2026-09-26 13:22Z (a): funding supplies it, WS3a declares it for
+    op_tx). The same rows as the agent tool (`reallocate_spec`) with the
+    acting identity `body.actor` — the user, or an agent acting through the
+    operator door — in place of the calling seat."""
+    return reallocate_rows(snapshot, str(body.actor), body.node)
+
+
+def op_reallocate_body(tx: Any) -> Any:
+    """`_org_op_locked`'s reallocate branch on the locked rows, re-checked
+    first like `_reallocate_body` (a moved tree widens before anything is
+    written). Pure document work: no after-commit tail."""
+    from .ledger import LedgerError
+    b = tx.body
+    if b.delta is None:
+        raise LedgerError("reallocate needs delta")
+    require(tx.spec, reallocate_rows(tx.org, str(b.actor), b.node))
+    return tx.org.reallocate(b.actor, b.node, b.delta)
+
+
 def _request_body(tx: Any) -> Any:
     a = tx.args
     require(tx.spec, request_rows(tx.org, tx.node))
