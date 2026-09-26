@@ -25,6 +25,10 @@ class WorkReminderAdmissionTests(unittest.TestCase):
             ("store.load_org", {"return_value": self.org}),
             ("store.save_org", {}),
             ("store.list_orgs", {"return_value": [{"slug":"reminder-test"}]}),
+            # the fleet passes read the SNAPSHOT pair, never load_org: only a
+            # reservation loads (its transaction's own read)
+            ("store.cached_list", {"return_value": [{"slug":"reminder-test"}]}),
+            ("store.cached_org", {"side_effect": lambda slug: self.org}),
             ("state", {"return_value": self.runtime}),
             ("mail_spark", {}),
             ("_auto_wake_gates_clear", {"return_value": True}),
@@ -92,11 +96,13 @@ class WorkReminderAdmissionTests(unittest.TestCase):
                 item['slug']=f'old-ticket-{i}'
                 item['owner']={'node':nid,'generation':1}
                 self.org._work_active().append(item)
-            with mock.patch.object(store,'load_org',return_value=self.org) as reads, \
+            with mock.patch.object(store,'cached_org',return_value=self.org) as snaps, \
+                 mock.patch.object(store,'load_org',return_value=self.org) as reads, \
                  mock.patch.object(supervisor,'_auto_wake_gates_clear',side_effect=lambda org,nid: org.node(nid)['state']=='live'):
                 wake=mock.Mock(return_value={'accepted':True})
                 sweep(wake=wake,now=5000,mode_enabled=True)
-                self.assertEqual(reads.call_count,2,'one snapshot plus one live reservation, regardless of archived count')
+                self.assertEqual(snaps.call_count,1,'one snapshot per org per sweep')
+                self.assertEqual(reads.call_count,1,'one live reservation, regardless of archived count')
                 wake.assert_called_once()
                 self.assertEqual(wake.call_args.args[1],'worker')
 
@@ -106,12 +112,16 @@ class WorkReminderAdmissionTests(unittest.TestCase):
         changed=copy.deepcopy(self.org)
         changed.node('worker')['state']='archived'
         for sweep in (supervisor._working_checkup_pass, supervisor._idle_docket_reminder_pass):
-            with mock.patch.object(store,'load_org',side_effect=[self.org,changed]) as reads, \
+            # the snapshot still says live; the reservation's own load says
+            # archived, and that locked answer is the one that must decide
+            with mock.patch.object(store,'cached_org',return_value=self.org), \
+                 mock.patch.object(store,'load_org',return_value=changed) as reads, \
                  mock.patch.object(supervisor,'_auto_wake_gates_clear',side_effect=lambda org,nid: org.node(nid)['state']=='live') as gate:
                 wake=mock.Mock(return_value={'accepted':True})
                 sweep(wake=wake,now=5000,mode_enabled=True)
-                self.assertEqual(reads.call_count,2)
-                gate.assert_called_once_with(changed,'worker')
+                self.assertEqual(reads.call_count,1)
+                gate.assert_called_with(changed,'worker')
                 wake.assert_not_called()
+                self.assertNotIn('docket_reminder_at',changed.node('worker'))
 
 if __name__ == '__main__': unittest.main()
