@@ -14,7 +14,7 @@ from pathlib import Path
 os.environ['ORGTREE_PGDOOR'] = '1'          # before orgtree is imported
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import test_state_receipt_lookup_boundary as boundary  # noqa: E402
+import test_state_receipt_lookup_boundary as _lookup  # noqa: E402
 from test_state_receipt_lookup_boundary import *  # noqa: E402,F401,F403
 from orgtree import orgtx, pgdoor  # noqa: E402
 import unittest  # noqa: E402
@@ -27,7 +27,7 @@ class DoorIsOn(unittest.TestCase):
         # without this the parity run could silently be the legacy run again
         self.assertTrue(pgdoor.enabled())
         self.assertFalse(orgtx.TRANSITION_FENCE)
-        self.assertTrue(boundary.api.pgdoor.routed(boundary.RA))
+        self.assertTrue(_lookup.api.pgdoor.routed(_lookup.RA))
 
 
 if __name__ == '__main__':

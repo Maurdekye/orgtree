@@ -126,6 +126,28 @@ class StaffingReads(unittest.TestCase):
         self.assertEqual(out, [{'wid': wid}])
         self.assertEqual(self.seen, [(wid, 'slug', self.snap)])
 
+    def test_an_unconverted_docket_is_migrated_privately_never_stored(self):
+        # the preview converts a legacy docket IN ITS OWN COPY (as the unsaved
+        # load under DOC_LOCK did): the stored document stays legacy, and a
+        # second preview behaves exactly like the first
+        org = store.load_org(self.slug)
+        wid = org.work_create('mid', 'Item', 'Problem. Fix.', owner='kid',
+                              status='backlogged')['created']
+        org._work_find(wid)[0]['id'] = 'w1234abcd'       # the retired key
+        store.save_org(org)
+        self.assertEqual(store.load_org(self.slug).work_identity_state(), 'legacy')
+
+        def preview(org, w, snap=None):
+            self.seen.append(org.work_identity_state())
+            return {'wid': w}
+        with patch.object(quickstaff, 'preview', preview),                 patch.object(store, 'export_json', lambda slug: None):
+            first = api.quick_staff_preview(self.slug, wid)
+            second = api.quick_staff_preview(self.slug, wid)
+        self.assertEqual(first, second)
+        self.assertEqual(self.seen, ['slug', 'slug'])   # previewed converted
+        self.assertEqual(store.load_org(self.slug).work_identity_state(), 'legacy')
+        self.assertEqual(store.cached_org(self.slug).work_identity_state(), 'legacy')
+
     def test_a_ledger_refusal_is_still_a_422(self):
         def preview(org, w, snap=None):
             raise ledger.LedgerError('no such item')
@@ -255,6 +277,20 @@ class ListOrgs(unittest.TestCase):
                 self.call()
         self.assertEqual(cm.exception.status_code, 422)
         self.assertIn('agent is halted', str(cm.exception.detail))
+
+    def test_a_refusal_writes_nothing(self):
+        from orgtree import orgtx, supervisor
+        org = store.load_org(self.slug)
+        org.node('mid')['halt'] = {'at': 'x'}
+        store.save_org(org)
+        rev = orgtx.backend().revision(self.slug)
+        seq = store.org_seq(self.slug)
+        for gate in (None, 'halt'):
+            with patch.object(supervisor.halt, 'blocked', lambda *a, **k: gate):
+                with self.assertRaises(HTTPException):
+                    self.call()
+        self.assertEqual((orgtx.backend().revision(self.slug), store.org_seq(self.slug)),
+                         (rev, seq))
 
     def test_an_unknown_caller_is_still_refused(self):
         with self.assertRaises(HTTPException) as cm:
