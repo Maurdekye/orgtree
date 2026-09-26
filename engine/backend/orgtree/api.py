@@ -103,6 +103,7 @@ from . import pgdoor
 from . import workdoor
 from . import runtimedoor
 from . import maildoor  # S1: the agent mail tools on the door
+from . import presentdoor  # S2 slice 4: present / submit_report on the door
 from . import rcdoor  # PG-3c: credits/reservations/status on row transactions
 # PG-3a's door declarations: importing registers them with pgdoor
 from . import lifecycle_door
@@ -12435,6 +12436,68 @@ def _message_door_body(t: pgdoor.AgentTx) -> dict[str, Any]:
 
 
 maildoor.declare_message(_message_door_before, _message_door_body)
+
+
+def _present_door_before(call: Any, a: dict[str, Any]) -> dict[str, Any]:
+    """`orgtree_present`'s pre-transaction step (pgdoor BEFORE, run once, no
+    lock held): present-by-path's argument checks, the ledger gate on a
+    lock-free snapshot (a refused present leaves no outbox residue, as the
+    legacy branch promised), then the COPY into outbox/ — file IO that must
+    never re-run with the transaction. A markdown present has no before
+    work. ⚠ Runs before receipt admission: a replayed keyed call re-copies
+    the file (residue without a card, the class `_message_door_before`
+    documents), and nothing else."""
+    raw = _no_nul(str(a.get("path") or "")).strip()
+    if not raw:
+        return {}
+    if str(a.get("body") or "").strip():
+        raise LedgerError("an HTML mockup takes `path` OR `body`, not both")
+    if not _MOCKUP_EXT.search(raw):
+        raise LedgerError(
+            f"only a .html/.htm file may be presented by path — {raw} is "
+            f"not one. Markdown goes in `body`; any other file is a "
+            f"download (orgtree_send_file)")
+    snap = orgtx.org_read(str(call.org))
+    snap.present_gate(call.node, a.get("title") or "")
+    final, size = _outbox_snapshot(snap, call.node, raw, max_bytes=_MOCKUP_MAX,
+                                   always_copy=True, html_bundle=True)
+    return {"html_file": f"outbox/{final}", "html_bytes": size}
+
+
+def _present_door_body(t: pgdoor.AgentTx) -> dict[str, Any]:
+    """The legacy `orgtree_present` branch on the locked document. A path
+    was already copied by the before-step; the locked gate runs again inside
+    present_document, and a refusal there names the copy it leaves behind
+    (p01 condition C4, as `_message_door_body` does)."""
+    a = t.args
+    html = t.pre.get("html_file")
+    if not html:
+        # markdown only: `_agent_present` takes no path here, so it never
+        # reaches the copy
+        return _agent_present(t.org, t.node, {**a, "path": ""})
+    try:
+        return t.org.present_document(t.node, a.get("title") or "", "",
+                                      a.get("replaces"), html_file=str(html),
+                                      html_bytes=int(t.pre.get("html_bytes") or 0))
+    except LedgerError as e:
+        raise LedgerError(f"{e} (already copied to your outbox, with no card "
+                          f"pointing at it: {html})") from e
+
+
+def _report_door_body(t: pgdoor.AgentTx) -> dict[str, Any]:
+    """The legacy `orgtree_submit_report` branch on the locked document. It
+    mails the caller's own superior: one hop up, decided on the caller's
+    `parent` (its row is the door's own, FOR UPDATE) and delivered into the
+    superior's rows (the spec's send rows), so the addressing path is fully
+    held (p01 condition C1) without `maildoor.hold_path`. The legacy cycle
+    popped `_mail_to` into `mail_to` but never drove it (only a `drive`
+    target reads `mail_to`), so nothing is driven here either."""
+    result = _agent_submit_report(t.org, t.node, t.args)
+    result.pop("_mail_to", None)
+    return result
+
+
+presentdoor.declare(_present_door_before, _present_door_body, _report_door_body)
 
 
 def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
