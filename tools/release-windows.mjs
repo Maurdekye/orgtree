@@ -497,7 +497,7 @@ export function verifyPackagedRuntime({ root, resources, spawnSyncImpl = spawnSy
     if (error instanceof RuntimeLayoutError) fail(error.message)
     throw error
   }
-  return { digest: packagedDigest, probe }
+  return { digest: packagedDigest, postgresManifestSha256: packagedPostgres.manifestSha256, probe }
 }
 
 /**
@@ -506,19 +506,22 @@ export function verifyPackagedRuntime({ root, resources, spawnSyncImpl = spawnSy
  * `app-64.7z` with the dependency tree's 7-Zip, require the identical tree
  * digest, and run the import probe against the extracted interpreter.
  */
-export function verifyInstallerPayloadRuntime({ root, installer, workDir, expectedDigest, spawnSyncImpl = spawnSync }) {
+export function verifyInstallerPayloadRuntime({ root, installer, workDir, expectedDigest, expectedPostgresManifestSha256, spawnSyncImpl = spawnSync }) {
   let extracted
   try {
     extracted = extractInstallerEngine({ root, installer, workDir, spawnSyncImpl })
     assertRuntimeLayoutOrFail(extracted.runtime, 'installer payload engine/runtime')
-    assertPostgresRuntime(extracted.engine)
+    const postgres = assertPostgresRuntime(extracted.engine)
+    if (!expectedPostgresManifestSha256 || postgres.manifestSha256 !== expectedPostgresManifestSha256) {
+      fail('Installer payload PostgreSQL differs from the verified packaged PostgreSQL manifest')
+    }
     const digest = runtimeTreeDigest(extracted.runtime)
     if (expectedDigest && (digest.sha256 !== expectedDigest.sha256 || digest.files !== expectedDigest.files)) {
       fail(`Installer payload runtime differs from the verified packaged runtime `
         + `(payload ${digest.files} files ${digest.sha256}, expected ${expectedDigest.files} files ${expectedDigest.sha256})`)
     }
     const probe = assertRuntimeImports(extracted.runtime, { spawnSyncImpl })
-    return { digest, probe }
+    return { digest, postgresManifestSha256: postgres.manifestSha256, probe }
   } catch (error) {
     if (error instanceof RuntimeLayoutError) fail(error.message)
     throw error
@@ -1168,6 +1171,7 @@ export async function produceWindowsRelease(options, dependencies = {}) {
     installer,
     workDir: path.join(releaseDir, 'payload-runtime-check'),
     expectedDigest: packagedRuntime.digest,
+    expectedPostgresManifestSha256: packagedRuntime.postgresManifestSha256,
     spawnSyncImpl,
   })
   const packagedHashes = derivePackagedHashes({

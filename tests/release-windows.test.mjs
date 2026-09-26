@@ -33,8 +33,10 @@ import {
   validReleaseVersion,
   validateLatestYml,
   verifyPublicRelease,
+  verifyInstallerPayloadRuntime,
 } from '../tools/release-windows.mjs'
 import { REPRESENTATIVE_RUNTIME_IMPORTS, runtimeTreeDigest } from '../tools/runtime-layout.mjs'
+import { POSTGRES_PIN, POSTGRES_REQUIRED } from '../tools/postgres-layout.mjs'
 
 function fixtureRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-release-fixture-'))
@@ -54,6 +56,60 @@ function put(root, relative, bytes) {
 function responseJson(value, status = 200) {
   return { status, ok: status >= 200 && status < 300, json: async () => value }
 }
+
+test('installer payload rejects self-consistent stale PostgreSQL with unchanged Python', t => {
+  const root = fixtureRoot()
+  t.after(() => removeFixture(root))
+  const engine = path.join(root, 'fixture-engine')
+  const files = {}
+  for (const name of POSTGRES_REQUIRED) {
+    const data = Buffer.from(name)
+    put(engine, name, data)
+    files[name] = { bytes: data.length, sha256: sha256Bytes(data) }
+  }
+  const postgres = { schema: 'orgtree.postgres-runtime/v1', archive: POSTGRES_PIN,
+    custodian: { features: [], sources: {} }, files }
+  const save = () => put(engine, 'postgres-runtime-manifest.json', JSON.stringify(postgres))
+  const expectedPostgresManifestSha256 = hashFile(save())
+  const runtime = path.join(engine, 'runtime')
+  put(runtime, 'python.exe', 'fixture-python')
+  put(runtime, 'python313.zip', 'fixture-stdlib')
+  put(runtime, 'python313._pth', 'python313.zip\n.\nLib/site-packages\n../mailhub\nimport site\n')
+  put(runtime, 'runtime-manifest.json', JSON.stringify({ dependencies: [{ name: 'fixture', version: '1' }] }))
+  put(runtime, 'Lib/site-packages/fixture-1.dist-info/METADATA', 'fixture')
+  const expectedDigest = runtimeTreeDigest(runtime)
+  const installer = put(root, 'fixture.exe', 'fixture-installer')
+  put(root, `node_modules/electron-winstaller/vendor/7z-${process.arch === 'arm64' ? 'arm64' : 'x64'}.exe`, 'fixture-7z')
+  let extractions = 0, imports = 0
+  const spawnSyncImpl = (exe, args) => {
+    if (args[0] === 'x') {
+      extractions++
+      const output = args.find(arg => arg.startsWith('-o')).slice(2)
+      if (args.at(-1) === '$PLUGINSDIR/app-64.7z') put(output, '$PLUGINSDIR/app-64.7z', 'fixture-archive')
+      else fs.cpSync(engine, path.join(output, 'resources', 'engine'), { recursive: true })
+      return { status: 0, stdout: '', stderr: '' }
+    }
+    assert.equal(path.basename(exe), 'python.exe')
+    imports++
+    return { status: 0, stdout: JSON.stringify({ ok: true, python: 'fixture', modules: {} }), stderr: '' }
+  }
+  const verify = (expected = expectedPostgresManifestSha256) => verifyInstallerPayloadRuntime({
+    root, installer, workDir: path.join(root, 'extracted'), expectedDigest,
+    expectedPostgresManifestSha256: expected, spawnSyncImpl,
+  })
+  assert.equal(verify().postgresManifestSha256, expectedPostgresManifestSha256)
+  assert.deepEqual([extractions, imports], [2, 1])
+  // The stale payload remains internally consistent and has identical Python.
+  const stale = Buffer.from('stale-custodian')
+  put(engine, 'pg-custodian.exe', stale)
+  postgres.files['pg-custodian.exe'] = { bytes: stale.length, sha256: sha256Bytes(stale) }
+  save()
+  assert.deepEqual(runtimeTreeDigest(runtime), expectedDigest)
+  assert.throws(() => verify(), /Installer payload PostgreSQL differs/)
+  assert.deepEqual([extractions, imports], [4, 1])
+  assert.throws(() => verify(null), /Installer payload PostgreSQL differs/)
+  assert.deepEqual([extractions, imports], [6, 1])
+})
 
 function responseBytes(bytes, status = 200) {
   const buffer = Buffer.from(bytes)
@@ -305,9 +361,10 @@ test('candidate orchestration builds, stages, verifies, and writes the handoff w
       // Their own behavior is covered by tests/runtime-layout.test.mjs.
       verifyPackagedRuntime: ({ root: checkedRoot, resources }) => {
         runtimeChecks.push(['packaged', checkedRoot, resources])
-        return { digest: runtimeTreeDigest(path.join(resources, 'engine', 'runtime')), probe: { python: '3.13.15' } }
+        return { digest: runtimeTreeDigest(path.join(resources, 'engine', 'runtime')), postgresManifestSha256: 'a'.repeat(64), probe: { python: '3.13.15' } }
       },
-      verifyInstallerPayloadRuntime: ({ installer, expectedDigest }) => {
+      verifyInstallerPayloadRuntime: ({ installer, expectedDigest, expectedPostgresManifestSha256 }) => {
+        assert.equal(expectedPostgresManifestSha256, 'a'.repeat(64))
         runtimeChecks.push(['payload', installer])
         return { digest: expectedDigest, probe: { python: '3.13.15' } }
       },
