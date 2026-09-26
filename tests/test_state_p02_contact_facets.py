@@ -592,9 +592,12 @@ class ContactFacets(unittest.TestCase):
         self.assertGreater(self.exact("credits.decide", "credits.decide:dry", "warm")["census"]["statements"], 0)
         refusals = {r["variant"]: r for r in self.funding_rows() if r["variant"].startswith("refusal:")}
         self.assertEqual(len(refusals), 11)
+        # decide-bad-action and decide-not-pending left this set with PG-3c
+        # (824ea66): the decide route refuses inside its org_tx, after its row
+        # reads (still 422, still no write)
         argument = {"refusal:request-not-a-number", "refusal:request-not-top-level", "refusal:reallocate-upward",
                     "refusal:reallocate-self", "refusal:reallocate-not-a-number",
-                    "refusal:decide-dry-without-granted", "refusal:decide-bad-action", "refusal:decide-not-pending"}
+                    "refusal:decide-dry-without-granted"}
         for variant, r in refusals.items():
             with self.subTest(variant=variant):
                 self.assertEqual(self.written(r), [])
