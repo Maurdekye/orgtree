@@ -111,7 +111,7 @@ from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from typing import Any, Protocol, TypeVar, cast
 
-from . import store
+from . import profiling, store
 from .ledger import Org
 from .stateprobe import SaveChanges
 
@@ -539,6 +539,28 @@ def _heal(slug: str) -> None:
     store._save_org(store._load_sqlite_org(slug))   # pyright: ignore[reportPrivateUsage]
 
 
+def _billed_save(org: Org, got: list[SaveChanges], receipt: bool) -> None:
+    """`store.save_org` for a row transaction, timed as `org_save_ms` only
+    when it WROTE something — changed rows, or a receipt row. A body that
+    left the document as it found it still runs the compare-on-save, and
+    billing that as a save would report a write that never happened (the
+    write-route timing sink's contract; the JSON backend skips the save
+    outright in that case). The unbilled compare stays inside the held time,
+    so it is reported as mutation, which is what it is."""
+    if profiling.current() is None:
+        store.save_org(org)
+        return
+    started, cpu0 = time.perf_counter(), time.thread_time()
+    try:
+        with profiling.detached():
+            store.save_org(org)
+    finally:
+        if receipt or any(not c.is_empty() for c in got):
+            profiling.add("org_save_ms", (time.perf_counter() - started) * 1000.0)
+            profiling.add(profiling.cpu_field("org_save_ms"),
+                          (time.thread_time() - cpu0) * 1000.0)
+
+
 class SeamBackend:
     """The fake: in-process row locks over the existing SQLite seam.
 
@@ -601,7 +623,10 @@ class SeamBackend:
                                 f"op_key {tx.op_key!r} was used with another fingerprint")
                         tx.replayed = True
                         tx.result = hit[1]
-                tx.org = store._load_sqlite_org(tx.slug)   # pyright: ignore[reportPrivateUsage]
+                # billed as the load, as `store.load_org` bills the legacy one
+                # (the write-route timing sink's `org_load_ms`)
+                with profiling.stage("org_load_ms"):
+                    tx.org = store._load_sqlite_org(tx.slug)   # pyright: ignore[reportPrivateUsage]
                 _check_heal(tx)
             _refuse_mixed_replay(order)
             yield
@@ -628,7 +653,7 @@ class SeamBackend:
                 loc.on_commit = on_commit
                 loc.defer_hooks = tx.deferred_hooks
                 try:
-                    store.save_org(tx.org)
+                    _billed_save(tx.org, got, tx.op_key is not None)
                 finally:
                     loc.guard = loc.on_commit = loc.defer_hooks = None
                 tx.revision = self.revision(tx.slug)
@@ -875,7 +900,8 @@ class PgBackend:
             loc.pinned = dict(conns)
             try:
                 for tx in order:
-                    tx.org = store._load_sqlite_org(tx.slug)   # pyright: ignore[reportPrivateUsage]
+                    with profiling.stage("org_load_ms"):     # as SeamBackend's
+                        tx.org = store._load_sqlite_org(tx.slug)   # pyright: ignore[reportPrivateUsage]
                     _check_heal(tx)
                 yield
                 if any(tx.replayed for tx in order):
@@ -910,7 +936,7 @@ class PgBackend:
                     loc.guard, loc.on_commit = guard, got.append
                     loc.defer_hooks = tx.deferred_hooks
                     try:
-                        store.save_org(tx.org)
+                        _billed_save(tx.org, got, tx.op_key is not None)
                     except Exception as e:
                         raise _pg_error(e) from e
                     finally:

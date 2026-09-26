@@ -315,13 +315,16 @@ class StagesAreMeasuredNotDecorative(WriteTimingBase):
     def test_a_slow_document_load_is_reported_as_the_load(self):
         self.capture(True)
         self.clear_sink()
-        real = store._load_org
+        # the ROW loader, which both the legacy `load_org` and a row
+        # transaction's load go through: the route now runs as an org_tx (S4)
+        # and never calls `_load_org`
+        real = store._load_sqlite_org
 
-        def slow(slug):
+        def slow(slug, *a, **k):
             time.sleep(self.DELAY)
-            return real(slug)
+            return real(slug, *a, **k)
 
-        with patch.object(store, '_load_org', slow):
+        with patch.object(store, '_load_sqlite_org', slow):
             got = self.save_agent_details()
         self.assertEqual(got.status_code, 200, got.text)
         row = self.only('/api/orgs/{slug}/nodes/{nid}/scope')
