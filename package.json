@@ -70,7 +70,8 @@
         "to": "engine",
         "filter": [
           "**/*",
-          "!**/__pycache__/**"
+          "!**/__pycache__/**",
+          "!native/**/target/**"
         ]
       },
       {
