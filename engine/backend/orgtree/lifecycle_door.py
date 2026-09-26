@@ -664,7 +664,14 @@ def _switch_gate_first(call: Any, a: dict[str, Any]) -> dict[str, Any]:
 def switch_spec(org: Any, actor: str, nid: str,
                 account: "str | None") -> pgdoor.TxSpec:
     from . import supervisor
-    return supervisor.switch_rows(org, actor, nid, rebind=bool(account))
+    spec = supervisor.switch_rows(org, actor, nid, rebind=bool(account))
+    # + `kiosk` FOR SHARE: the body re-checks the flag the gate read
+    return pgdoor.TxSpec(nodes=spec.nodes, sections=spec.sections,
+                         share_nodes=spec.share_nodes,
+                         share_sections=tuple(sorted(
+                             {*spec.share_sections, "kiosk"}
+                             - set(spec.sections))),
+                         logs=spec.logs)
 
 
 def switch_body(org: Any, slug: str, held: pgdoor.TxSpec, after: pgdoor.After,
