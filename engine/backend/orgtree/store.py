@@ -183,60 +183,88 @@ def _migration_allowed() -> bool:
 # across the release/re-acquire so a worker parked on the condition does not
 # read as a multi-second lock hold.
 class DocLockTripped(AssertionError):
-    """A DOC_LOCK acquisition while the tripwire is armed to raise."""
+    """A legacy write while the tripwire is armed to raise: a DOC_LOCK
+    acquisition that is not the transition fence (`kind` "legacy"), or a
+    whole-document save outside any org_tx (`kind` "save")."""
 
-    def __init__(self, site: str) -> None:
-        super().__init__(f"DOC_LOCK acquired at {site} with the tripwire armed "
-                         "(a writer still on the legacy lock, or the transition fence)")
+    def __init__(self, kind: str, site: str) -> None:
+        what = ("DOC_LOCK acquired" if kind == "legacy"
+                else "save_org called outside an org_tx")
+        super().__init__(f"{what} at {site} with the tripwire armed "
+                         "(a writer still on the legacy whole-document cycle)")
+        self.kind = kind
         self.site = site
 
 
 class _DocLockTripwire:
     """THE DOC_LOCK TRIPWIRE (FENCE-OFF-PLAN S8). The fence can go only when
-    nothing live takes DOC_LOCK after startup; this makes that a measurement
-    rather than a claim. Once armed, every OUTERMOST acquisition (a
-    re-entrant one and a `Condition.wait` re-acquire are not counted) is
-    counted against its call site, `file:function:line` of the first frame
-    outside the lock machinery. Armed to raise, the acquisition raises
-    `DocLockTripped` instead, before taking the lock.
+    no live code writes through the legacy whole-document cycle after
+    startup; this makes that a measurement rather than a claim.
+
+    Once armed it counts, per call site, three kinds of event:
+      * `legacy` — an OUTERMOST DOC_LOCK acquisition (a re-entrant one and a
+        `Condition.wait` re-acquire are not counted) that is not the fence;
+      * `fence` — DOC_LOCK taken AS the transition fence (`store.FENCE`, used
+        by org_tx and halt): expected while the fence is on, reported apart
+        so it cannot bury the real writers;
+      * `save` — `save_org` with no org_tx open on this thread: a
+        whole-document writer that never took DOC_LOCK at all.
+    The fence-off gate is legacy_total == 0 and save_total == 0 WITH the
+    fence still on. A site is `file:function:line <- file:function:line`:
+    the first frame outside the lock/save machinery and its caller (for a
+    fence event, outside orgtx too, so it names who opened the org_tx).
+    Armed to raise, a legacy or save event raises `DocLockTripped` before
+    the lock is taken or anything is written; a fence event never raises.
 
     The engine arms it at the end of startup (`arm_doc_lock_tripwire_from_env`):
     ORGTREE_DOC_LOCK_TRIPWIRE = off | count | raise, default `count` on
     PostgreSQL and `off` otherwise. Tests arm it with `doc_lock_tripwire()`.
-    Counts are served by /api/diagnostics/state-access."""
+    The report is served by /api/diagnostics/state-access."""
 
+    KINDS = ("legacy", "fence", "save")
     _SKIP_FILES = frozenset({"contextlib.py", "threading.py"})
-    #: the lock machinery, and store.write_org (the helper, not a call site)
-    _SKIP_FUNCS = frozenset({"acquire", "__enter__", "_acquire_restore", "write_org"})
+    #: the lock and save machinery, and the helpers that are not call sites
+    _SKIP_FUNCS = frozenset({"acquire", "__enter__", "_acquire_restore", "write_org",
+                             "save_org", "_save_org"})
 
     def __init__(self) -> None:
         self.mode = "off"                   # off | count | raise
         self.armed_at: float | None = None
-        self.counts: dict[str, int] = {}
+        self.counts: dict[str, dict[str, int]] = {k: {} for k in self.KINDS}
         self._mu = threading.Lock()
+        #: set by `store.FENCE` around its acquisition
+        self.tls = threading.local()
 
-    def _site(self, f: Any) -> str:
+    def _site(self, f: Any, kind: str) -> str:
         here = (__file__, profiling.__file__)
-        while f is not None:
+        skip_files = self._SKIP_FILES | ({"orgtx.py"} if kind == "fence" else set())
+        found: list[str] = []
+        while f is not None and len(found) < 2:
             co = f.f_code
-            if os.path.basename(co.co_filename) in self._SKIP_FILES                     or (co.co_filename in here and co.co_name in self._SKIP_FUNCS):
-                f = f.f_back
-                continue
-            return f"{os.path.basename(co.co_filename)}:{co.co_name}:{f.f_lineno}"
-        return "?"
+            base = os.path.basename(co.co_filename)
+            if not (base in skip_files
+                    or (co.co_filename in here and co.co_name in self._SKIP_FUNCS)):
+                found.append(f"{base}:{co.co_name}:{f.f_lineno}")
+            f = f.f_back
+        return " <- ".join(found) or "?"
 
-    def hit(self, frame: Any) -> None:
-        site = self._site(frame)
+    def hit(self, frame: Any, kind: str) -> None:
+        site = self._site(frame, kind)
         with self._mu:
-            self.counts[site] = self.counts.get(site, 0) + 1
-        if self.mode == "raise":
-            raise DocLockTripped(site)
+            bucket = self.counts[kind]
+            bucket[site] = bucket.get(site, 0) + 1
+        if self.mode == "raise" and kind != "fence":
+            raise DocLockTripped(kind, site)
 
     def report(self) -> dict[str, Any]:
         with self._mu:
+            totals = {k: sum(v.values()) for k, v in self.counts.items()}
             return {"mode": self.mode, "armed_at": self.armed_at,
-                    "total": sum(self.counts.values()),
-                    "sites": dict(sorted(self.counts.items(), key=lambda kv: -kv[1]))}
+                    "legacy_total": totals["legacy"], "fence_total": totals["fence"],
+                    "save_total": totals["save"],
+                    "total": totals["legacy"] + totals["save"],
+                    "sites": {k: dict(sorted(v.items(), key=lambda kv: -kv[1]))
+                              for k, v in self.counts.items()}}
 
 
 _TRIPWIRE = _DocLockTripwire()
@@ -247,7 +275,7 @@ def arm_doc_lock_tripwire(mode: str) -> None:
     if mode not in ("off", "count", "raise"):
         raise ValueError(f"tripwire mode must be off, count or raise, not {mode!r}")
     with _TRIPWIRE._mu:                             # pyright: ignore[reportPrivateUsage]
-        _TRIPWIRE.counts = {}
+        _TRIPWIRE.counts = {k: {} for k in _TRIPWIRE.KINDS}
         _TRIPWIRE.armed_at = None if mode == "off" else time.time()
         _TRIPWIRE.mode = mode
 
@@ -255,20 +283,23 @@ def arm_doc_lock_tripwire(mode: str) -> None:
 def arm_doc_lock_tripwire_from_env() -> str:
     """The end-of-startup arming (api startup): ORGTREE_DOC_LOCK_TRIPWIRE,
     default `count` on PostgreSQL and `off` otherwise. Returns the mode."""
-    mode = os.environ.get("ORGTREE_DOC_LOCK_TRIPWIRE", "").strip().lower()         or ("count" if STORE_BACKEND == "postgres" else "off")
+    mode = (os.environ.get("ORGTREE_DOC_LOCK_TRIPWIRE", "").strip().lower()
+            or ("count" if STORE_BACKEND == "postgres" else "off"))
     arm_doc_lock_tripwire(mode)
     return mode
 
 
 def doc_lock_tripwire_report() -> dict[str, Any]:
-    """{mode, armed_at, total, sites: {file:function:line: n}}."""
+    """{mode, armed_at, legacy_total, fence_total, save_total, total,
+    sites: {legacy|fence|save: {site: n}}}; `total` = legacy + save."""
     return _TRIPWIRE.report()
 
 
 @contextlib.contextmanager
-def doc_lock_tripwire(raising: bool = True) -> Iterator[dict[str, int]]:
+def doc_lock_tripwire(raising: bool = True) -> Iterator[dict[str, dict[str, int]]]:
     """For tests: arm the tripwire for the block (raising by default) and
-    yield its live per-site counts; the previous state is restored after."""
+    yield its live counts, {legacy|fence|save: {site: n}}; the previous
+    state is restored after."""
     with _TRIPWIRE._mu:                             # pyright: ignore[reportPrivateUsage]
         saved = (_TRIPWIRE.mode, _TRIPWIRE.armed_at, _TRIPWIRE.counts)
     arm_doc_lock_tripwire("raise" if raising else "count")
@@ -393,8 +424,9 @@ class _InstrumentedDocLock(profiling.TimedRLock):
 
     def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
         outer = getattr(self._held, "depth", 0) == 0
-        if outer and _TRIPWIRE.mode != "off":
-            _TRIPWIRE.hit(sys._getframe(1))     # S8: count (or refuse) before queueing
+        if outer and _TRIPWIRE.mode != "off":    # S8: count (or refuse) before queueing
+            _TRIPWIRE.hit(sys._getframe(1), "fence" if getattr(_TRIPWIRE.tls, "fence", False)
+                          else "legacy")
         t0 = time.perf_counter() if outer else 0.0
         admitted, ahead = self._admit(blocking, timeout)
         if outer:
@@ -476,6 +508,24 @@ class _InstrumentedDocLock(profiling.TimedRLock):
 
 
 DOC_LOCK = _InstrumentedDocLock()
+
+
+class _FenceLock:
+    """DOC_LOCK taken AS the transition fence (org_tx, halt): the same lock,
+    counted in the tripwire's `fence` bucket instead of as a legacy writer."""
+
+    def __enter__(self) -> bool:
+        _TRIPWIRE.tls.fence = True
+        try:
+            return DOC_LOCK.__enter__()
+        finally:
+            _TRIPWIRE.tls.fence = False
+
+    def __exit__(self, *exc: Any) -> bool:
+        return DOC_LOCK.__exit__(*exc)
+
+
+FENCE = _FenceLock()
 
 
 # ---------------------------------------------------------------- the latch
@@ -5500,6 +5550,8 @@ def save_org(org: Org) -> None:
 
 def _save_org(org: Org) -> None:
     _assert_synced_data_root()
+    if _TRIPWIRE.mode != "off" and not getattr(_orgtx_local, "rowlock_depth", 0):
+        _TRIPWIRE.hit(sys._getframe(1), "save")   # S8: a save outside any org_tx
     from .notification_state import reconcile_attention
     _t0 = time.perf_counter()
     # reconcile reads only work_items and asks, and rewrites only work_items

@@ -1114,7 +1114,7 @@ def _run(make: Callable[[], list[OrgTx]], lock_timeout: float | None,
     # the JSON fallback's only lock is DOC_LOCK, so it is taken here, before
     # any row-lock bookkeeping, whether or not the fence is on (decision 39)
     fence: contextlib.AbstractContextManager[Any] = (
-        store.DOC_LOCK if TRANSITION_FENCE or store.STORE_BACKEND == "json"
+        store.FENCE if TRANSITION_FENCE or store.STORE_BACKEND == "json"
         else contextlib.nullcontext())
     with fence:
         txs = yield from _attempts(b, txs, make, slugs, open_slugs, timeout, retries)

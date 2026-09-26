@@ -99,7 +99,7 @@ def current_tx() -> orgtx.OrgTx | None:
 
 def _fence():
     on = orgtx.TRANSITION_FENCE if _FENCE is None else _FENCE
-    return store.DOC_LOCK if on else contextlib.nullcontext()
+    return store.FENCE if on else contextlib.nullcontext()   # S8: counted as the fence
 
 
 def _covers(tx: orgtx.OrgTx, nodes: frozenset[str], sections: frozenset[str],
