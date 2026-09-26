@@ -248,8 +248,8 @@ class SplitStorage(unittest.TestCase):
         advanced: list[bool] = []
         orig_pin, orig_adv = store._load_pinned, store._advance_resident
 
-        def pin(slug):
-            out = orig_pin(slug)
+        def pin(slug, **kw):
+            out = orig_pin(slug, **kw)
             if slug == self.slug and not advanced:
                 # a commit AFTER the pin: the advance must re-read it
                 with orgtx.org_tx(slug, sections=[('mail', 'b')]) as tx:
