@@ -2005,15 +2005,6 @@ def orgs_create(body: OrgCreate) -> dict[str, Any]:
         raise HTTPException(422, "sandboxed orgs ride a fixed-size disk with "
                                  "a 4096 MB minimum — set disk_mb to at "
                                  "least 4096")
-    try:
-        org = store.create_org(body.name, body.dirs, body.permission_mode)
-    except LedgerError as e:
-        raise HTTPException(400, str(e))
-    except OSError as e:
-        # create_org mkdirs the workspace before the ledger ever sees the
-        # name; a name the host filesystem refuses (too long, a reserved
-        # device name, an unwritable data root) surfaced as a bare 500
-        raise HTTPException(422, f"could not create the org's workspace: {e}")
     # global default org settings (user spec): every new org is born with them.
     # net_hub_address is CONFIG for the local hub entry, not an org-doc key —
     # popped here and translated below, never written raw into the doc.
@@ -2034,16 +2025,23 @@ def orgs_create(body: OrgCreate) -> dict[str, Any]:
     dflt.pop("prefer_reserve", None)
     local_hub_addr = str(dflt.pop("net_hub_address", "") or "") \
         or net._default_address()
-    if dflt:
-        with store.DOC_LOCK:
-            org.d.update(dflt)  # type: ignore[arg-type]  # defaults.json holds org-doc-shaped keys
-            store.save_org(org)
-    if body.kiosk is not None:
-        # kiosk orgs are a DISTINCT TYPE, born as kiosks with their limits
-        # defined at creation (user ruling) — never converted from a normal
-        # org. Token + sandbox secret are minted with the org.
-        with store.DOC_LOCK:
-            o = store.load_org(org.d["slug"])
+
+    # PG-3f: everything below is applied to the new Org BEFORE its one
+    # creating save (store.create_org's `prepare`), so the org is born whole
+    # in a single atomic write. It used to be up to three more
+    # load-modify-save cycles under DOC_LOCK after the create — defaults,
+    # then kiosk/sandbox, then the network identity — and a kiosk whose
+    # ceiling failed validation was unwound by deleting an org that had
+    # already been saved as a NON-kiosk one (a window in which the net
+    # poller could register it). Now a failure raises before anything is
+    # saved, so there is nothing to unwind.
+    def prepare(o: Org) -> None:
+        if dflt:
+            o.d.update(dflt)  # type: ignore[arg-type]  # defaults.json holds org-doc-shaped keys
+        if body.kiosk is not None:
+            # kiosk orgs are a DISTINCT TYPE, born as kiosks with their limits
+            # defined at creation (user ruling) — never converted from a normal
+            # org. Token + sandbox secret are minted with the org.
             o.d["kiosk"] = {
                 "enabled": True,
                 "token": secrets.token_hex(16),
@@ -2065,56 +2063,46 @@ def orgs_create(body: OrgCreate) -> dict[str, Any]:
                 o.d["kiosk"]["max_scope"] = o._norm_ceiling(
                     prov if prov is not None else o.default_kiosk_ceiling())
             except (LedgerError, *_BAD_SHAPE) as e:
-                # unwind: without this, the org survived its own failed
-                # creation as a non-kiosk org (registered + saved above)
-                # while the 422 told the caller nothing was made
-                # ⚠ A NARROW RACE, closed for the same reason the
-                # delete endpoint takes the polite exit: this org was
-                # saved as a NON-kiosk one, and the net poller mints an
-                # identity and registers any non-kiosk org it finds. If
-                # a pass landed in that window the unwind would leave a
-                # roster row for an org that never finished being made.
-                # Snapshot before the rename; never let it fail the
-                # unwind, which is already an error path.
-                try:
-                    _doc = dict(store.load_org(org.d["slug"]).d)
-                except LedgerError:
-                    _doc = {}
-                store.delete_org(org.d["slug"])
-                if _doc:
-                    net.unregister_org(_doc)
-                raise HTTPException(422, str(e))
+                # nothing has been saved yet: refusing here leaves no org
+                raise HTTPException(422, str(e)) from e
             # a capped org never inherits the 50-credit hire pre-fill (user
             # report: the first hire swallowed the whole pool) — grants in a
             # kiosk are deliberate drags; the admin can set a sub-cap default
             o.d["default_top_grant"] = 0
-            store.save_org(o)
-            if o.d["kiosk"]["sandbox"]:
-                sandbox.warm(o)        # prebuild image+container in background
-        _token_cache["at"] = 0.0
-        _bridge_cache["at"] = 0.0
-    elif body.sandbox:
-        # a sandboxed NORMAL org (user ruling): same container isolation,
-        # no kiosk limits or public URL
-        with store.DOC_LOCK:
-            o = store.load_org(org.d["slug"])
+        elif body.sandbox:
+            # a sandboxed NORMAL org (user ruling): same container isolation,
+            # no kiosk limits or public URL
             o.d["sandbox"] = {"enabled": True, "secret": secrets.token_hex(16),
                               **({"limit_mb": int(body.disk_mb)}
                                  if body.disk_mb is not None else {})}
-            store.save_org(o)
-            sandbox.warm(o)
-        _bridge_cache["at"] = 0.0
-    if body.kiosk is None:
-        # F-06: non-kiosk orgs mint their permanent network identity at birth
-        # (kiosks are sealed and mint none). The hub list starts with the
-        # local entry (unless opted out) plus any typed remote addresses.
-        with store.DOC_LOCK:
-            o = store.load_org(org.d["slug"])
+        if body.kiosk is None:
+            # F-06: non-kiosk orgs mint their permanent network identity at
+            # birth (kiosks are sealed and mint none). The hub list starts
+            # with the local entry (unless opted out) plus any typed remote
+            # addresses.
             net.mint_identity(o)
             o.d["net_autoconnect"] = bool(body.net_autoconnect)
             o.d["net_hubs"] = net.hub_entries(
                 body.net_autoconnect, body.net_hubs, local_hub_addr)
-            store.save_org(o)
+
+    try:
+        org = store.create_org(body.name, body.dirs, body.permission_mode,
+                               prepare=prepare)
+    except LedgerError as e:
+        raise HTTPException(400, str(e))
+    except OSError as e:
+        # create_org mkdirs the workspace before the ledger ever sees the
+        # name; a name the host filesystem refuses (too long, a reserved
+        # device name, an unwritable data root) surfaced as a bare 500
+        raise HTTPException(422, f"could not create the org's workspace: {e}")
+    if body.kiosk is not None:
+        if org.d["kiosk"]["sandbox"]:
+            sandbox.warm(org)      # prebuild image+container in background
+        _token_cache["at"] = 0.0
+        _bridge_cache["at"] = 0.0
+    elif body.sandbox:
+        sandbox.warm(org)
+        _bridge_cache["at"] = 0.0
     return {"slug": org.d["slug"]}
 
 

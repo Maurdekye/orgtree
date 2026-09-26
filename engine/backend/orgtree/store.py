@@ -5403,10 +5403,17 @@ def workspace_dir(slug: str) -> str:
 
 
 def create_org(name: str, extra_dirs: list[str] | None = None,
-               permission_mode: str = "acceptEdits") -> Org:
+               permission_mode: str = "acceptEdits",
+               prepare: Callable[[Org], None] | None = None) -> Org:
     """Every org gets its own fresh workspace dir, minted here. Pre-existing
     directories are an ADVANCED grant (`extra_dirs`) — appended after the workspace
-    in the org's default capability set."""
+    in the org's default capability set.
+
+    PG-3f: `prepare(org)` runs on the new Org BEFORE its one creating save,
+    so everything the caller adds (defaults, kiosk, sandbox, net identity) is
+    born in that same atomic write — no later load-modify-save, no DOC_LOCK,
+    and no window where another reader sees a half-made org. If it raises,
+    nothing is saved."""
     _assert_synced_data_root()
     slug = slugify(name)
     _ensure_migrated(slug)
@@ -5416,6 +5423,8 @@ def create_org(name: str, extra_dirs: list[str] | None = None,
     os.makedirs(ws, exist_ok=True)
     dirs = [ws] + [os.path.normpath(d) for d in (extra_dirs or []) if d.strip()]
     org = Org.create(name, dirs, permission_mode, workspace=ws)
+    if prepare is not None:
+        prepare(org)
     if row_store():
         # PG-0b (decision 34): an org is BORN with its singleton rows, so
         # its first operation writes only what that operation changes
