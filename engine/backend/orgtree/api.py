@@ -6142,8 +6142,13 @@ def _validate_steer_actor(request: Request | None, slug: str, nid: str) -> None:
     valid = False
     if isinstance(identity, (tuple, list)) and len(identity) == 4 and tuple(identity[:2]) == (slug, nid):
         try:
-            # PG-3e-A: a pure read — one coherent lock-free org_read
-            node = orgtx.org_read(slug).node(nid)
+            # the SHARED snapshot (store.cached_org), not a private read: this
+            # door is hit after EVERY tool call, 68% of all requests at N=100
+            # (scale item, evidence 12), and a full org_read here was the
+            # biggest part of an idle poll's cost. Same rule and same
+            # freshness as `_agent_identity`, which authenticates every
+            # /api/agent call from the same snapshot.
+            node = store.cached_org(slug).node(nid)
             valid = (node.get("state") == "live" and int(node.get("generation", 0)) == identity[2]
                      and str(node.get("seat_id") or "") == identity[3])
         except (KeyError, ValueError, OSError):

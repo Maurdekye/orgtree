@@ -28921,7 +28921,9 @@ def maybe_storage_check(slug: str) -> None:
 
     def run() -> None:
         try:
-            org = store.load_org(slug)
+            # read-only: the shared snapshot, not a private full load per
+            # org every 20 s (`storage_check` loads for itself if it runs)
+            org = store.cached_org(slug)
             k = kiosk_cfg(org)
             if (k and int(k.get("storage_limit_mb") or 0) > 0) \
                     or sbx.is_sandboxed(org) \
@@ -32248,6 +32250,13 @@ def claim_steer(slug: str, nid: str, tool_use_id: str,
     if idle:
         return None, []
     scan_steer_records(slug, nid)           # positive-only: a record may have landed
+    with _state_lock:
+        if not st.get("steer"):
+            # no RAM carrier, so `_claim_steer_tx` could choose nothing: it
+            # would open the halt gate's transaction only to return empty.
+            # (The scan above still ran — it is what proves "no open
+            # attempt" and so arms the idle fast path for the next poll.)
+            return None, []
     held: dict[str, Any] = {}
     ok = False
     try:
