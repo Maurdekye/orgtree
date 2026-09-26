@@ -38,6 +38,12 @@ from engine.backend.orgtree import ledger, orgtx, store, supervisor  # noqa: E40
 if not str(store.DATA_ROOT).lower().startswith(_ROOT.lower()):
     raise AssertionError(f"store bound outside fixture: {store.DATA_ROOT}")
 
+# These tests prove ROW-lock behaviour ("org_tx never waits on DOC_LOCK"),
+# which the transition fence (every org_tx behind DOC_LOCK, plan decision 19)
+# would serialize away. The fence has its own tests; FenceControl below turns
+# it back on for one writer to show it is the only thing making it wait.
+orgtx.TRANSITION_FENCE = False
+
 WAIT_S = 5.0
 _seq = [0]
 
@@ -134,6 +140,24 @@ class NeverWaitsOnDocLock(unittest.TestCase):
             done, _ = _finishes(legacy, timeout=0.5)
         self.assertFalse(done, "negative control: a DOC_LOCK writer was not "
                                "detected as blocked")
+
+    def test_fence_on_control(self) -> None:
+        # with the transition fence ON the same writer DOES wait on DOC_LOCK,
+        # then completes once it is released: the fence, not the site, orders it
+        _set(self.slug, "worker", cheap_compacted={"at": "x"})
+        box: list = []
+        t = threading.Thread(target=lambda: box.append(
+            supervisor._retire_breadcrumb_splice(self.slug, "worker")), daemon=True)
+        with patch.object(orgtx, "TRANSITION_FENCE", True):
+            with _Holder(lambda: store.DOC_LOCK):
+                t.start()
+                t.join(0.5)
+                self.assertTrue(t.is_alive(), "the fence did not order the "
+                                              "writer behind DOC_LOCK")
+            t.join(WAIT_S)
+        self.assertFalse(t.is_alive(), "the writer never finished after "
+                                       "DOC_LOCK was released")
+        self.assertNotIn("cheap_compacted", _node(self.slug, "worker"))
 
     def test_retire_breadcrumb_splice(self) -> None:
         _set(self.slug, "worker", cheap_compacted={"at": "x"})
