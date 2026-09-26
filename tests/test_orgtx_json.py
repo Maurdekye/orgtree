@@ -164,6 +164,20 @@ class OrgTxOnJson(unittest.TestCase):
         self.assertEqual(tx.revision, r0 + 1)
         self.assertEqual(store.load_org(self.slug).d['nodes']['a']['name'], 'B')
 
+    def test_a_reorder_only_body_still_saves(self) -> None:
+        with orgtx.org_tx(self.slug, sections=['nodes']) as tx:
+            tx.d['nodes']['b'] = {'id': 'b', 'name': 'b', 'parent': None, 'children': []}
+        before = list(store.load_org(self.slug).d['nodes'])
+        self.assertEqual(before, ['a', 'b'])
+        with patch.object(store, '_save_json', wraps=store._save_json) as save:
+            with orgtx.org_tx(self.slug, sections=['nodes']) as tx:
+                nodes = tx.d['nodes']
+                reordered = {k: nodes[k] for k in reversed(list(nodes))}
+                nodes.clear()
+                nodes.update(reordered)
+        self.assertEqual(save.call_count, 1, 'a reorder was dropped as a no-op')
+        self.assertEqual(list(store.load_org(self.slug).d['nodes']), ['b', 'a'])
+
     def test_org_read_is_a_private_copy(self) -> None:
         view = orgtx.org_read(self.slug, sections=['events'])
         view.d['nodes']['a']['name'] = 'scribbled'

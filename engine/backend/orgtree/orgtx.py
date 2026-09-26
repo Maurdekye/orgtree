@@ -641,13 +641,14 @@ class JsonBackend:
 
 
 def _json_image(org: Org | None) -> str | None:
-    """The whole document as canonical JSON, to tell a no-op body from a
-    write. None (treated as changed) when it cannot be serialised — the save
+    """The whole document as JSON, key order included, to tell a no-op body from a
+    write (two extra whole-document dumps per transaction, JSON store only).
+    None (treated as changed) when it cannot be serialised — the save
     then raises exactly as it always did."""
     if org is None:
         return None
     try:
-        return json.dumps(org.d, sort_keys=True, separators=(",", ":"))
+        return json.dumps(org.d, separators=(",", ":"))   # key ORDER counts: the file keeps it
     except (TypeError, ValueError):
         return None
 
