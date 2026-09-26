@@ -1243,10 +1243,10 @@ class HealExclusiveOnPostgres(unittest.TestCase):
 
 @unittest.skipUnless(ADMIN, 'ORGTREE_TEST_PG_ADMIN_URL not set: NOT RUN')
 class SessionRoundTrips(unittest.TestCase):
-    """S-B (pg-per-call-cost): a pooled checkout skips `SET search_path` when
-    the connection already names that org and `RESET ALL` when nothing SET a
-    session setting; review B3's guarantee still holds for any session SET;
-    PgConn.executemany is one batched call."""
+    """S-B (pg-per-call-cost, ruling (b)): RESET ALL still runs on every
+    release (review B3 by construction), sent with a SET of the org the
+    connection named in one round trip, so a checkout of the same org again
+    runs no SET; PgConn.executemany is one batched call."""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -1256,13 +1256,13 @@ class SessionRoundTrips(unittest.TestCase):
 
     def setUp(self) -> None:
         pgstore.close_idle()
-        self.own: list[str] = []
-        real = pgstore._own
+        self.sql: list[str] = []
+        real = pgstore._session
 
         def spy(raw, sql):
-            self.own.append(sql.split()[0] + (' ' + sql.split()[1] if sql.startswith('SET') else ''))
+            self.sql.append(sql)
             return real(raw, sql)
-        p = patch.object(pgstore, '_own', spy)
+        p = patch.object(pgstore, '_session', spy)
         p.start()
         self.addCleanup(p.stop)
         self.addCleanup(pgstore.close_idle)
@@ -1270,79 +1270,76 @@ class SessionRoundTrips(unittest.TestCase):
     def _open(self, slug: str) -> pgstore.PgConn:
         return pgstore.open_conn(slug, store.org_path(slug))
 
-    def _org_id(self, slug: str) -> int:
-        return int(pgstore.read_marker(store.org_path(slug)))
+    def _path(self, slug: str) -> str:
+        return f'org_{int(pgstore.read_marker(store.org_path(slug)))}, public'
 
     @staticmethod
     def _show(raw, name: str) -> str:
         return str(raw.execute(f'SHOW {name}').fetchone()[0])
 
-    def test_same_org_again_skips_both_round_trips(self) -> None:
+    def test_same_org_again_runs_no_set(self) -> None:
         c = self._open(self.a)
         raw = c.raw
         c.close()
-        self.own.clear()
+        self.sql.clear()
         c = self._open(self.a)
         self.assertIs(c.raw, raw, 'the idle pool handed out another connection')
-        self.assertEqual(c.execute('SELECT count(*) FROM doc').fetchone()[0] > 0, True)
+        self.assertEqual(self.sql, [], 'a same-org checkout still ran SET search_path')
+        self.assertEqual(self._show(raw, 'search_path'), self._path(self.a))
+        self.assertGreater(c.execute('SELECT count(*) FROM doc').fetchone()[0], 0)
         c.close()
-        self.assertEqual(self.own, [], 'a same-org checkout still ran SET search_path or RESET ALL')
+        self.assertEqual(self.sql, [f'RESET ALL; SET search_path TO {self._path(self.a)}'])
 
     def test_another_org_repoints_the_search_path(self) -> None:
         c = self._open(self.a)
         raw = c.raw
         c.close()
+        self.sql.clear()
         c = self._open(self.b)
         self.assertIs(c.raw, raw)
-        self.assertEqual(self._show(raw, 'search_path'), f'org_{self._org_id(self.b)}, public')
+        self.assertEqual(self.sql, [f'SET search_path TO {self._path(self.b)}'])
+        self.assertEqual(self._show(raw, 'search_path'), self._path(self.b))
         c.close()
-        self.assertEqual(self.own, ['SET search_path', 'SET search_path'])
+
+    def test_every_release_resets(self) -> None:
+        c = self._open(self.a)
+        c.execute('SELECT 1')
+        c.close()
+        self.assertTrue(self.sql[-1].startswith('RESET ALL'), self.sql)
+        pgstore.close_idle()
+        raw = pgstore.connect()               # a connection that never named an org
+        pgstore._release(raw)
+        self.assertEqual(self.sql[-1], 'RESET ALL')
 
     def test_b3_a_session_set_never_reaches_the_next_checkout(self) -> None:
         for stmt, name, value in (("SET lock_timeout = '123ms'", 'lock_timeout', '123ms'),
                                   ("set statement_timeout to 4567", 'statement_timeout', '4567ms'),
                                   ("SELECT set_config('lock_timeout', '77ms', false)", 'lock_timeout', '77ms'),
-                                  ("SET SESSION idle_in_transaction_session_timeout = 8910",
-                                   'idle_in_transaction_session_timeout', '8910ms')):
+                                  ("SET search_path TO public", 'search_path', 'public')):
             with self.subTest(stmt=stmt):
                 c = self._open(self.a)
                 raw = c.raw
-                default = self._show(raw, name)
+                default = self._path(self.a) if name == 'search_path' else self._show(raw, name)
                 raw.execute(stmt)
                 self.assertEqual(self._show(raw, name), value)
                 c.close()
-                self.assertEqual(self.own[-1], 'RESET', f'{stmt!r} was not reset on release')
                 c = self._open(self.a)
                 self.assertIs(c.raw, raw)
                 self.assertEqual(self._show(raw, name), default, f'{stmt!r} leaked')
-                self.assertEqual(self._show(raw, 'search_path'), f'org_{self._org_id(self.a)}, public')
+                self.assertEqual(self._show(raw, 'search_path'), self._path(self.a))
                 c.close()
-
-    def test_set_local_needs_no_reset(self) -> None:
-        c = self._open(self.a)
-        raw = c.raw
-        raw.execute('BEGIN')
-        raw.execute("SET LOCAL lock_timeout = '321ms'")
-        raw.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ')
-        raw.execute('COMMIT')
-        self.own.clear()
-        c.close()
-        self.assertEqual(self.own, [])
-        c = self._open(self.a)
-        self.assertNotEqual(self._show(c.raw, 'lock_timeout'), '321ms')
-        c.close()
 
     def test_a_path_set_inside_a_rolled_back_transaction_is_not_trusted(self) -> None:
         c = self._open(self.a)
         raw = c.raw
         raw.execute('BEGIN')
-        pgstore._point_at(raw, self._org_id(self.b))     # a multi-org switch
+        pgstore._point_at(raw, int(pgstore.read_marker(store.org_path(self.b))))   # a multi-org switch
         raw.execute('ROLLBACK')                          # ... undone by the server
-        self.assertEqual(self._show(raw, 'search_path'), f'org_{self._org_id(self.a)}, public')
+        self.assertEqual(self._show(raw, 'search_path'), self._path(self.a))
         c.close()
         c = self._open(self.b)
         self.assertIs(c.raw, raw)
-        self.assertEqual(self._show(raw, 'search_path'), f'org_{self._org_id(self.b)}, public')
+        self.assertEqual(self._show(raw, 'search_path'), self._path(self.b))
         c.close()
 
     def test_a_failed_statement_forgets_the_path(self) -> None:
@@ -1369,7 +1366,6 @@ class SessionRoundTrips(unittest.TestCase):
         finally:
             c.execute("DELETE FROM meta WHERE key LIKE 'sb-%'")
             c.close()
-
 
 if __name__ == '__main__':
     unittest.main()
