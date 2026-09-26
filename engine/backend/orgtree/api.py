@@ -2010,6 +2010,10 @@ class OrgCreate(Body):
 
 
 @app.get("/api/orgs")
+async def _orgs_list_route(request: Request) -> list[dict[str, Any]]:
+    return await _run_ui_read(orgs_list, request)
+
+
 def orgs_list(request: Request) -> list[dict[str, Any]]:
     pub = _public_slug(request)
     if pub:
@@ -2819,6 +2823,10 @@ def _tree_etag(slug: str) -> str:
 
 
 @app.get("/api/orgs/{slug}")
+async def _org_tree_route(slug: str, request: Request, response: Response) -> Any:
+    return await _run_ui_read(org_tree, slug, request, response)
+
+
 def org_tree(slug: str, request: Request,
              response: Response = None) -> Any:  # type: ignore[assignment]
     # `response` is FastAPI's header-injection seam on the dict-returning
@@ -7485,6 +7493,13 @@ def _work_list_build(slug: str, archived: int, backlogged: int,
 
 
 @app.get("/api/orgs/{slug}/work-items")
+async def _work_items_list_route(slug: str, archived: int = 0, backlogged: int = 0,
+                                 compact: int = 0,
+                                 request: Request = cast(Request, None)) -> Any:
+    return await _run_ui_read(work_items_list, slug, archived, backlogged, compact,
+                              request)
+
+
 def work_items_list(slug: str, archived: int = 0,
                     backlogged: int = 0, compact: int = 0,
                     request: Request = cast(Request, None)) -> Any:
@@ -11784,6 +11799,30 @@ def _op_lookup_call(body: AgentCall, a: dict[str, Any]) -> dict[str, Any]:
 
 
 _chat_read_limiters: Any = weakref.WeakKeyDictionary()
+
+
+_ui_read_limiters: Any = weakref.WeakKeyDictionary()
+
+#: Worker threads the desk's polled reads may hold at once (#5, scale gate).
+UI_READ_THREADS = 8
+
+
+async def _run_ui_read(function: Any, *args: Any) -> Any:
+    """The desk's polled reads — the org list, the org tree, the docket list —
+    on a worker from THEIR OWN capacity, not the shared 40-worker pool.
+
+    Measured in-process (2026-09-26, N=100, artifacts/ui_pool_probe.py): with
+    the shared pool full of writers parked on DOC_LOCK (40 borrowed, 20
+    waiting), each of these reads — a few ms on an idle engine, and needing
+    no lock — waited ~3.5 s for a worker; the chat read, already on its own
+    limiter, answered in 20 ms. mem-leak-probe saw the same shape under real
+    agent load (org tree p50 60 s at 2 calls/s). The reads' own work is
+    unchanged: they run the same sync function on a worker thread, only
+    admitted by a limiter agent traffic cannot exhaust. Like the chat read,
+    the wait happens on the event loop BEFORE a worker is borrowed."""
+    loop = asyncio.get_running_loop()
+    limiter = _ui_read_limiters.setdefault(loop, anyio.CapacityLimiter(UI_READ_THREADS))
+    return await anyio.to_thread.run_sync(partial(function, *args), limiter=limiter)
 
 
 async def _run_chat_read(function: Any, *args: Any) -> Any:
