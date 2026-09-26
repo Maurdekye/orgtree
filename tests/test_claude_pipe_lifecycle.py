@@ -218,6 +218,7 @@ class ClaudePipeLifecycleTests(unittest.TestCase):
     @unittest.skipUnless(os.name == "nt", "the incident used a Windows command wrapper")
     def test_idle_watchdog_ends_launcher_and_child_then_returns_queued_mail(self):
         self.stack.enter_context(patch.object(sup, "TURN_IDLE", .2))
+        self.stack.enter_context(patch.object(sup, "TURN_DOG_POLL_S", .05))
         self.start("silent", wrapped=True)
         pending = {"text": "queued followup"}
         self.st["queue"].append(pending)
@@ -245,6 +246,7 @@ class ClaudePipeLifecycleTests(unittest.TestCase):
     @unittest.skipUnless(os.name == "nt", "Windows inherited-pipe cleanup")
     def test_expiry_releases_reader_even_when_a_child_keeps_the_pipe_open(self):
         self.stack.enter_context(patch.object(sup, "TURN_IDLE", .2))
+        self.stack.enter_context(patch.object(sup, "TURN_DOG_POLL_S", .05))
         # Simulate failed tree cleanup: only the shell dies. The reader must
         # still return and report timeout, independently of pipe EOF.
         self.stack.enter_context(patch.object(sup, "_wd_kill_tree",
