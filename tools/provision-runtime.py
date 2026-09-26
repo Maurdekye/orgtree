@@ -49,7 +49,7 @@ def main():
             for r in json.loads(report.read_text(encoding="utf-8"))["install"]]}
     (RUNTIME / "runtime-manifest.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     # This imports dependencies only, never the engine/store.
-    subprocess.run([str(RUNTIME / "python.exe"), "-c", "import sys,sqlite3,ssl,fastapi,uvicorn,websockets,httpx,PIL,psutil; import pathlib,importlib.util; assert pathlib.Path(sys.executable).resolve().parents[2] in map(pathlib.Path, sys.path), sys.path; assert importlib.util.find_spec('engine') is not None; assert importlib.util.find_spec('mailhub') is not None, 'engine/mailhub submodule not checked out'; print(sys.version); print(sys.executable)"], check=True)
+    subprocess.run([str(RUNTIME / "python.exe"), "-c", "import sys,sqlite3,ssl,fastapi,uvicorn,websockets,httpx,PIL,psutil,psycopg,psycopg_binary; assert psycopg.pq.__impl__ == 'binary', 'psycopg binary implementation missing'; import pathlib,importlib.util; assert pathlib.Path(sys.executable).resolve().parents[2] in map(pathlib.Path, sys.path), sys.path; assert importlib.util.find_spec('engine') is not None; assert importlib.util.find_spec('mailhub') is not None, 'engine/mailhub submodule not checked out'; print(sys.version); print(sys.executable)"], check=True)
     print("App-local runtime ready:", RUNTIME)
 
 if __name__ == "__main__":

@@ -27,6 +27,7 @@ import { spawnSync } from 'node:child_process'
  *  own runtime substrate. */
 export const REPRESENTATIVE_RUNTIME_IMPORTS = [
   'fastapi', 'pydantic', 'uvicorn', 'starlette', 'websockets', 'httpx', 'PIL', 'psutil',
+  'psycopg', 'psycopg_binary',
 ]
 
 /** Find the provisioned `engine/runtime`, searching UPWARD from `startDir`.

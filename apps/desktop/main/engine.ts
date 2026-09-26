@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import path from 'node:path'
+import { postgresRuntimeEnvironment } from './postgres-runtime'
 import { canonicalPath, parseAttach, parseReady, parseRefusal, parseProgress, TOKEN_HEADER, validateDataRoot, verifyDescriptorTrust, type DescriptorOwner } from './policy'
 
 export const ENGINE_REFUSED = 'Engine start refused: '
@@ -52,7 +53,7 @@ import type { EngineStatus } from '../../../packages/contracts/index'
 import { maintenanceRequest, type MaintenanceRequest } from './maintenance'
 import { orgActivityRows, type OrgActivityRow } from './traylist'
 
-export interface EngineOptions { python: string; directory: string; dataRoot: string; forbiddenRoot: string; uiDirectory: string; timeoutMs?: number }
+export interface EngineOptions { python: string; directory: string; dataRoot: string; forbiddenRoot: string; uiDirectory: string; timeoutMs?: number; packagedPostgres?: boolean }
 /** The bundled mail hub's live state, as /api/desktop/status reports it —
  *  feeds the tray's right-click status line (user requirement 2026-09-15). */
 export interface MailhubStats { running: boolean; healthy: boolean; port: number; exposed: boolean; error?: string }
@@ -188,7 +189,8 @@ export class Engine extends EventEmitter {
     const realRoot = fs.realpathSync.native(root)
     validateDataRoot(realRoot, options.forbiddenRoot)
     this.state({ state: 'starting' })
-    const env = { ...process.env, ORGTREE_DATA: realRoot, ORGTREE_V2_TOKEN: this.credential,
+    const env = { ...process.env, ...postgresRuntimeEnvironment(options.directory, options.packagedPostgres),
+      ORGTREE_DATA: realRoot, ORGTREE_V2_TOKEN: this.credential,
       ORGTREE_V2_UI_DIR: options.uiDirectory, ORGTREE_V2_PARENT_PID: String(process.pid), PYTHONUNBUFFERED: '1' }
     // Never inherit a v1 backend port or root selector.
     delete env['ORGTREE_PORT' as keyof typeof env]

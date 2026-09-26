@@ -1708,6 +1708,9 @@ else {
     const directory = path.join(base, 'engine')
     try {
       const engineOptions = { directory,
+        // Temporary opt-in while the v3 runtime delivery decision is pending.
+        // This supplies paths; it does not select a backend or run a cutover.
+        packagedPostgres: process.env.ORGTREE_DESKTOP_PACKAGED_PG === '1',
         python: app.isPackaged ? path.join(directory, 'runtime', 'python.exe') : process.env.ORGTREE_V2_PYTHON ?? '',
         dataRoot: resolveDataRoot(process.env.ORGTREE_V2_DATA, app.getPath('userData'), identity),
         forbiddenRoot: process.env.ORGTREE_DATA || path.join(os.homedir(), 'orgtree'),
