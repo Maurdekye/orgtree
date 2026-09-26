@@ -12271,23 +12271,47 @@ def _message_door_body(t: pgdoor.AgentTx) -> dict[str, Any]:
             "user to enable a hub (settings → mailserver) before "
             "addressing @net: mail")
     dest = org._resolve_recipient(to, outward=True)
-    if t.pre.get("had_atts") and dest != t.pre.get("dest"):
-        raise LedgerError("the recipient changed while the attachments were "
-                          "being prepared — send again")
-    result = org.post_mail(actor, to, a.get("body", ""),
-                           a.get("kind", "message"),
-                           attachments=t.pre.get("user_atts") or None,
-                           urgent=bool(a.get("urgent")),
-                           urgent_reason=str(a.get("urgent_reason") or ""))
+    copied = [str(x.get("path") or x.get("name") or "")
+              for x in t.pre.get("user_atts") or []]
+    try:
+        if t.pre.get("had_atts") and dest != t.pre.get("dest"):
+            raise LedgerError("the recipient changed while the attachments "
+                              "were being prepared — send again")
+        # the addressing rule reads the parent pointers between sender and
+        # recipient: hold them, re-derived here (p01 condition C1)
+        maildoor.hold_path(t, dest)
+        result = org.post_mail(actor, to, a.get("body", ""),
+                               a.get("kind", "message"),
+                               attachments=t.pre.get("user_atts") or None,
+                               urgent=bool(a.get("urgent")),
+                               urgent_reason=str(a.get("urgent_reason") or ""))
+    except LedgerError as e:
+        if copied:
+            # p01 condition C4: the before-step already copied these into
+            # outbox/; a refused send must say so rather than orphan them
+            raise LedgerError(f"{e} (already copied to your outbox, with no "
+                              f"card pointing at them: {', '.join(copied)})") from e
+        raise
     delivered = result.get("delivered")
     then = t.after.then
     if delivered and delivered.startswith("@"):
         then.append(lambda _r: mail_notify(slug, actor, "org_inbox"))
     if delivered and delivered.startswith("@org:"):
         dst, text = delivered[5:], a.get("body", "")
+        # p01 condition C2 (plan decision 38 deferred): the source records
+        # "out" in THIS transaction; the destination is written after the
+        # commit under an op_key naming this outbound mail, so a retry of the
+        # delivery is idempotent at the destination. A crash between the two
+        # leaves "out, not delivered" (a keyed replay of the tool does not
+        # re-run this step) — exactly the legacy window, and said below.
+        okey = f"agent-out:{slug}:{result.get('id') or ''}"
+        result["delivery"] = (
+            "recorded as sent; the other org's inbox is written right after "
+            "this commit — if that step fails you get a 'not delivered' "
+            "warning, and repeating this exact call does not retry it")
 
         def _interorg(res: Any) -> None:
-            err = supervisor.interorg_send(slug, dst, text)
+            err = supervisor.interorg_send(slug, dst, text, op_key=okey)
             if err and isinstance(res, dict):
                 res.setdefault("warnings", []).append(f"not delivered: {err}")
         then.append(_interorg)

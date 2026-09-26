@@ -34,7 +34,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from . import mailtx, pgdoor
+from . import mailtx, pgdoor, worktx
 from .ledger import USER, LedgerError
 
 NOTICE = "orgtree_send_notice"
@@ -57,12 +57,61 @@ def _resolve_on_snapshot(snapshot: Any, to: str, **kw: Any) -> list[str]:
         return []                  # the body's own resolution refuses it
 
 
+# THE RELATIONSHIP PATH (p01 lock-plan condition C1, 2026-09-26). The
+# addressing rule a send decides on — downward at any depth, one hop up, a
+# sibling, or a held audience — READS the parent pointers between sender and
+# recipient. PG-0 refuses only unlocked WRITES, so a stale prediction of a
+# row the body merely reads would never widen. Every node on the path
+# therefore is held FOR SHARE (one shared lock per level, as rcdoor holds
+# watchdog authority), and the body re-derives the path on the locked
+# document FIRST (`rcdoor.require`): a tree that moved widens and re-runs
+# instead of deciding on rows nobody holds.
+
+def path(org: Any, a: str, b: str) -> tuple[str, ...]:
+    """Every node whose parent pointer decides whether `a` and `b` are
+    related: `a` and `b` up to their lowest common ancestor, inclusive. An
+    outside address, the user or an unknown id contributes nothing (the
+    body's own checks refuse what does not resolve)."""
+    if a not in org.nodes or b not in org.nodes:
+        return ()          # the user or an outside address: no tree decides it
+
+    def up(n: str) -> list[str]:
+        out: list[str] = []
+        cur: Any = n
+        while cur and cur != USER and cur not in out and cur in org.nodes:
+            out.append(cur)
+            cur = org.nodes[cur].get("parent")
+        return out
+    ua, ub = up(a), up(b)
+    common = next((n for n in ua if n in ub), None)
+    if common is None:
+        return tuple(dict.fromkeys(ua + ub))          # related only via the top
+    return tuple(dict.fromkeys(ua[:ua.index(common) + 1] + ub[:ub.index(common) + 1]))
+
+
+def _hold_path(t: pgdoor.AgentTx, *others: str) -> None:
+    """Call FIRST in a body: the path between the caller and each of
+    `others`, re-derived on the locked document, must be held (or widen)."""
+    from . import rcdoor                               # rcdoor imports api
+    need = tuple(dict.fromkeys(n for o in others if o for n in path(t.org, t.node, o)))
+    rcdoor.require(t.spec, pgdoor.TxSpec(share_nodes=need))
+
+
+def _with_path(spec: pgdoor.TxSpec, snapshot: Any, caller: str,
+               *others: str) -> pgdoor.TxSpec:
+    need = tuple(dict.fromkeys(n for o in others if o for n in path(snapshot, caller, o)))
+    return pgdoor.TxSpec(spec.nodes, spec.sections, spec.share_nodes + need,
+                         spec.share_sections, spec.logs)
+
+
 # ------------------------------------------------------ orgtree_send_notice
 
-def notice_spec(snapshot: Any, _call: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
+def notice_spec(snapshot: Any, call: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
     """A notice to one in-org agent: that agent's node row, pending box and
-    mail_log owner, plus a send's shared rows (notices, audiences, the logs)."""
-    return _spec_for(_resolve_on_snapshot(snapshot, str(a.get("to", ""))))
+    mail_log owner, plus a send's shared rows (notices, audiences, the logs),
+    and the relationship path between caller and recipient FOR SHARE."""
+    dest = _resolve_on_snapshot(snapshot, str(a.get("to", "")))
+    return _with_path(_spec_for(dest), snapshot, str(call.node), *dest)
 
 
 def notice_body(notify: Notify, steer: Steer, note: Note
@@ -77,6 +126,7 @@ def notice_body(notify: Notify, steer: Steer, note: Note
                 "notices are for agents in this org — the user "
                 "inbox and outside addresses never wake anyone "
                 "anyway; send those an orgtree_message")
+        _hold_path(t, nto)
         result = t.org.post_mail(actor, nto, t.args.get("body", ""), "notice")
         deferred = bool(result.get("deferred"))
         state = result.get("recipient_state") or "not live"
@@ -119,9 +169,12 @@ def ask_spec(snapshot: Any, call: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
         parent = (snapshot.nodes.get(str(call.node)) or {}).get("parent")
     except Exception:                                        # noqa: BLE001
         pass
+    # every save that touches `asks` rewrites `work_items` (the docket's
+    # attention reconcile), so both are held on EVERY ask (worktx's rule,
+    # p01 condition C3); the routing decision reads `audiences`
     rows = mailtx.merge(mailtx.send_rows(str(parent)) if parent else {},
-                        sections=["asks"] + (["work_items"] if a.get("work_item") else []),
-                        logs=["events"])
+                        sections=list(worktx.BASE_SECTIONS),
+                        share_sections=["audiences"], logs=["events"])
     return pgdoor.TxSpec(**{k: tuple(v) for k, v in rows.items()})
 
 
@@ -137,7 +190,8 @@ def ask_body(t: pgdoor.AgentTx) -> dict[str, Any]:
 
 
 #: withdrawing clears the caller's open ask and its scope / credit requests
-WITHDRAW_SPEC = pgdoor.TxSpec(sections=("asks", "credit_requests", "scope_requests"),
+WITHDRAW_SPEC = pgdoor.TxSpec(sections=(*worktx.BASE_SECTIONS, "credit_requests",
+                                        "scope_requests"),
                               logs=("events",))
 
 
@@ -170,13 +224,25 @@ def audience_spec(snapshot: Any, call: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
                         *(mailtx.send_rows(w) for w in who[1:]),
                         sections=["audiences", "audience_requests"],
                         logs=["events"])
-    return pgdoor.TxSpec(**{k: tuple(v) for k, v in rows.items()})
+    spec = pgdoor.TxSpec(**{k: tuple(v) for k, v in rows.items()})
+    return _with_path(spec, snapshot, str(call.node), *who)
 
 
 def audience_body(t: pgdoor.AgentTx) -> dict[str, Any]:
     """The legacy `orgtree_audience` branch on the locked document; the
     agents it names to wake are driven after the commit."""
     a, org, me = t.args, t.org, t.node
+    # the chain an audience request climbs (and a forward/grant/deny reads)
+    # is decided on parent pointers: hold them, re-derived here (C1)
+    parties: list[str] = []
+    for k in ("target", "from", "grantee"):
+        v = str(a.get(k) or "")
+        if v:
+            try:
+                parties.append(org._resolve_recipient(v))
+            except LedgerError:
+                pass
+    _hold_path(t, *parties)
     action = a.get("action", "")
     if action == "request":
         result = org.request_audience(me, a.get("target", ""), a.get("reason", ""))
@@ -201,7 +267,7 @@ def audience_body(t: pgdoor.AgentTx) -> dict[str, Any]:
 MESSAGE = "orgtree_message"
 
 
-def message_spec(snapshot: Any, _call: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
+def message_spec(snapshot: Any, call: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
     """A message: the resolved recipient's send rows (an agent's box, or the
     user inbox); for outside mail the org-inbox log (a send log already) and,
     for the mail hub, the spool it queues on — the hubs read FOR SHARE."""
@@ -209,7 +275,13 @@ def message_spec(snapshot: Any, _call: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
     rows = mailtx.send_rows(*dest)
     if dest and dest[0].startswith("@net:"):
         rows = mailtx.merge(rows, sections=["net_spool"], share_sections=["net_hubs"])
-    return pgdoor.TxSpec(**{k: tuple(v) for k, v in rows.items()})
+    spec = pgdoor.TxSpec(**{k: tuple(v) for k, v in rows.items()})
+    return _with_path(spec, snapshot, str(call.node), *dest)
+
+
+def hold_path(t: pgdoor.AgentTx, *others: str) -> None:
+    """Public for api's `orgtree_message` body (see `_hold_path`)."""
+    _hold_path(t, *others)
 
 
 def declare_message(before: Callable[[Any, dict[str, Any]], dict[str, Any]],
