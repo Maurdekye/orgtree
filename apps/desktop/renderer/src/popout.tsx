@@ -25,11 +25,15 @@ interface SurfaceContextValue {
   error: string
 }
 const SurfaceContext = createContext<SurfaceContextValue | null>(null)
+// Rows only need their owning document and overlay container. Subscribe to
+// those stable nodes without also subscribing to each new set of controls.
+const SurfaceDocumentContext = createContext<Document | null>(null)
+const SurfaceOverlayContext = createContext<HTMLElement | null>(null)
 export const CurrentOrg = createContext<string | null>(null)
 export const useCurrentOrg = () => useContext(CurrentOrg)
 export const useSurface = () => useContext(SurfaceContext)
-export const useSurfaceDocument = () => useSurface()?.document ?? document
-export const useOverlayRoot = () => useSurface()?.overlays ?? document.body
+export const useSurfaceDocument = () => useContext(SurfaceDocumentContext) ?? document
+export const useOverlayRoot = () => useContext(SurfaceOverlayContext) ?? document.body
 const stop = (e: SyntheticEvent) => e.stopPropagation()
 // Native document ownership and React propagation are DIFFERENT boundaries.
 // This helper also belongs on an ancestor capture handler, before any action.
@@ -653,7 +657,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
         <button onClick={redock}>Return here</button>
       </DetachedNotice>}
     </div>
-    {ready && createPortal(<SurfaceContext.Provider value={{ document: owner, overlays: parts.overlays, detached, name: popoutName.current, open, redock, error }}>
+    {ready && createPortal(<SurfaceDocumentContext.Provider value={owner}><SurfaceOverlayContext.Provider value={parts.overlays}><SurfaceContext.Provider value={{ document: owner, overlays: parts.overlays, detached, name: popoutName.current, open, redock, error }}>
       <ObjectMenuBoundary className="movable-events" onPointerDown={detached ? stop : undefined}
         onPointerMove={detached ? stop : undefined} onPointerUp={detached ? stop : undefined}
         onPointerCancel={detached ? stop : undefined} onClick={detached ? stop : undefined}
@@ -667,6 +671,6 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
         {error && <div role="alert" className="popout-error">{error}</div>}
         {children}
       </ObjectMenuBoundary>
-    </SurfaceContext.Provider>, parts.content)}
+    </SurfaceContext.Provider></SurfaceOverlayContext.Provider></SurfaceDocumentContext.Provider>, parts.content)}
   </>
 }
