@@ -95,6 +95,67 @@ def parent(args) -> int:
         return proc.wait()
 
 
+def _reqprof_wrap(app, root: Path):
+    """PROFILING ONLY (ORGTREE_SCALE_REQPROF=1): a request carrying the header
+    `x-scale-prof: <label>` is cProfiled end to end. Sync endpoints and
+    dependencies are run INLINE on the event-loop thread (not the thread pool)
+    so one profiler on one thread sees the whole request; send such requests
+    ONE AT A TIME on an otherwise idle engine. One JSON record per request
+    goes to metrics/reqprof.jsonl: thread CPU ms, wall ms, SQL statements,
+    whole-org loads, JSON decodes, and the top functions by cumulative time."""
+    import cProfile
+    import io
+    import pstats
+    import fastapi.dependencies.utils as fdu
+    import fastapi.routing as fr
+
+    async def _inline(func, *a, **k):
+        return func(*a, **k)
+    fr.run_in_threadpool = _inline
+    fdu.run_in_threadpool = _inline
+    out_path = root / "metrics" / "reqprof.jsonl"
+    keep = ("orgtree", "psycopg", "json")
+
+    async def wrapped(scope, receive, send):
+        if scope.get("type") != "http":
+            return await app(scope, receive, send)
+        hdr = dict(scope.get("headers") or [])
+        label = hdr.get(b"x-scale-prof")
+        if not label:
+            return await app(scope, receive, send)
+        pr = cProfile.Profile()
+        t_cpu, p_cpu, t_wall = time.thread_time(), time.process_time(), time.perf_counter()
+        pr.enable()
+        try:
+            return await app(scope, receive, send)
+        finally:
+            pr.disable()
+            rec = {"label": label.decode(), "path": scope.get("path"),
+                   "thread_cpu_ms": round((time.thread_time() - t_cpu) * 1000, 1),
+                   "process_cpu_ms": round((time.process_time() - p_cpu) * 1000, 1),
+                   "wall_ms": round((time.perf_counter() - t_wall) * 1000, 1)}
+            st = pstats.Stats(pr)
+            calls = {}
+            for (fn, ln, name), (cc, nc, tt, ct, _c) in st.stats.items():  # type: ignore[attr-defined]
+                calls[(os.path.basename(fn), name)] = calls.get((os.path.basename(fn), name), 0) + nc
+            def n(file, func):
+                return sum(v for (f, fu), v in calls.items() if f == file and fu == func)
+            rec["sql_execute"] = n("cursor.py", "execute") + n("cursor.py", "executemany")
+            rec["whole_org_loads"] = n("store.py", "_load_sqlite_org")
+            rec["load_lazy"] = n("store.py", "_load_lazy")
+            rec["org_read"] = n("orgtx.py", "org_read")
+            rec["cached_org"] = n("store.py", "cached_org")
+            rec["json_decodes"] = n("decoder.py", "raw_decode")
+            rec["json_encodes"] = n("encoder.py", "encode")
+            buf = io.StringIO()
+            ps = pstats.Stats(pr, stream=buf).sort_stats("cumulative")
+            ps.print_stats("|".join(keep), 25)
+            rec["top"] = buf.getvalue()[-6000:]
+            with open(out_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(rec) + chr(10))
+    return wrapped
+
+
 def child(args) -> int:
     t_proc = time.time()
     root = Path(args.root).resolve()
@@ -386,6 +447,8 @@ def child(args) -> int:
         out["threads"] = threading.active_count()
         return out
 
+    if os.environ.get("ORGTREE_SCALE_REQPROF"):
+        app = _reqprof_wrap(app, root)
     import uvicorn
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=args.port, lifespan="on",
                                            access_log=False, log_level="warning",
