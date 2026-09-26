@@ -1163,5 +1163,86 @@ class Split(unittest.TestCase):
         self.assertNotIn("root@0", store.load_org(self.slug).nodes)
 
 
+class SwitchModel(unittest.TestCase):
+    """lifecycle_tx.switch_model on `_switch_rows`."""
+
+    def build(self, slug):
+        org = store.create_org(slug)
+        org.hire(ledger.USER, None, "luna", 12, "root")
+        org.hire(ledger.USER, "root", "luna", 2, "mid")
+        org.hire(ledger.USER, "mid", "luna", 0, "w")
+        store.save_org(org)
+
+    def setUp(self):
+        self.slug = "pg3a-sm-" + str(time.time_ns())
+        self.build(self.slug)
+        self.tiers = store.load_org(self.slug).d["tiers"]
+
+    def tearDown(self):
+        store._POOL.close_all(self.slug)
+
+    def view(self, slug):
+        o = store.load_org(slug)
+        return ({k: (v["parent"], v["grant"], v["model"], v["state"], v.get("generation"))
+                 for k, v in o.nodes.items()},
+                sorted((k, len(v)) for k, v in (o.d.get("notices") or {}).items()),
+                [e["op"] for e in o.d["events"]][-2:])
+
+    def pick(self, pricier):
+        base = self.tiers["luna"]
+        same_provider = [t for t, c in self.tiers.items()
+                         if t != "luna" and (c > base if pricier else c < base)]
+        return sorted(same_provider, key=lambda t: self.tiers[t])[0] if same_provider else None
+
+    def parity(self, actor, nid, tier):
+        twin = "pg3a-sm-twin-" + str(time.time_ns())
+        self.build(twin)
+        with store.DOC_LOCK:
+            o = store.load_org(twin)
+            legacy = o.switch_model(actor, nid, tier)
+            store.save_org(o)
+        mine = lifecycle_tx.switch_model(self.slug, actor, nid, tier)
+        strip = lambda r: {k: v for k, v in r.items() if k not in ("old_session", "session_id")}  # noqa: E731
+        self.assertEqual(strip(mine), strip(legacy))
+        self.assertEqual(self.view(self.slug), self.view(twin))
+        store._POOL.close_all(twin)
+        return mine
+
+    def test_plan_holds_the_paying_chain(self):
+        o = store.load_org(self.slug)
+        self.assertEqual(lifecycle_tx._switch_rows(o, ledger.USER, "w"),
+                         ({"w", "w@0", "mid", "root"}, set()))
+
+    def test_an_upgrade_matches_the_legacy_method(self):
+        tier = self.pick(pricier=True)
+        if tier is None:
+            self.skipTest("no pricier tier configured")
+        self.parity(ledger.USER, "w", tier)
+        self.assertEqual(store.load_org(self.slug).node("w")["model"], tier)
+
+    def test_a_downgrade_matches_the_legacy_method(self):
+        tier = self.pick(pricier=False)
+        if tier is None:
+            self.skipTest("no cheaper tier configured")
+        self.parity(ledger.USER, "w", tier)
+
+    def test_an_upgrade_needs_the_paying_chain(self):
+        tier = self.pick(pricier=True)
+        if tier is None:
+            self.skipTest("no pricier tier configured")
+        spec = lifecycle_tx.SPECS["switch_model"]
+        with self.assertRaises(orgtx.UnlockedWrite):
+            with halt.txn(self.slug, nodes=["w", "w@0"], sections=spec.sections,
+                          share_sections=spec.share_sections, logs=spec.logs) as tx:
+                tx.org.switch_model(ledger.USER, "w", tier)
+        self.assertEqual(store.load_org(self.slug).node("w")["model"], "luna")
+
+    def test_an_unknown_tier_writes_nothing(self):
+        before = self.view(self.slug)
+        with self.assertRaises(ledger.LedgerError):
+            lifecycle_tx.switch_model(self.slug, ledger.USER, "w", "no-such-tier")
+        self.assertEqual(self.view(self.slug), before)
+
+
 if __name__ == "__main__":
     unittest.main()
