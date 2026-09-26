@@ -196,6 +196,29 @@ def audience_body(t: pgdoor.AgentTx) -> dict[str, Any]:
     return result
 
 
+# ------------------------------------------------------------ orgtree_message
+
+MESSAGE = "orgtree_message"
+
+
+def message_spec(snapshot: Any, _call: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
+    """A message: the resolved recipient's send rows (an agent's box, or the
+    user inbox); for outside mail the org-inbox log (a send log already) and,
+    for the mail hub, the spool it queues on — the hubs read FOR SHARE."""
+    dest = _resolve_on_snapshot(snapshot, str(a.get("to", "")), outward=True)
+    rows = mailtx.send_rows(*dest)
+    if dest and dest[0].startswith("@net:"):
+        rows = mailtx.merge(rows, sections=["net_spool"], share_sections=["net_hubs"])
+    return pgdoor.TxSpec(**{k: tuple(v) for k, v in rows.items()})
+
+
+def declare_message(before: Callable[[Any, dict[str, Any]], dict[str, Any]],
+                    body: Callable[[pgdoor.AgentTx], dict[str, Any]]) -> None:
+    """`orgtree_message` on the door. Its before-step and body live in api
+    (they use api's attachment, hub-roster and inter-org helpers)."""
+    pgdoor.declare(MESSAGE, message_spec, body=body, before=before)
+
+
 def declare(notify: Notify, steer: Steer, note: Note) -> None:
     """Register the mail tools on the door (api calls this once at import)."""
     pgdoor.declare(NOTICE, notice_spec, body=notice_body(notify, steer, note))
