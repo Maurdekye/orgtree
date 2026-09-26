@@ -209,6 +209,16 @@ class NoticeDoor(unittest.TestCase):
         self.assertEqual(self.sent, [('sub', True, 'agent_mail')])
         self.assertEqual(r.get('delivery'), 'note')
 
+    def test_message_widened_drives_once_after_commit(self):
+        with patch.object(maildoor, '_resolve_on_snapshot', lambda *a, **k: []):
+            self.tool(maildoor.MESSAGE, 'boss', to='sub', body='widened msg')
+        self.assertGreaterEqual(len(self.sections), 2, 'no widen happened')
+        box = store.load_org(self.slug).d['mail'].get('sub') or []
+        self.assertEqual(sum(1 for m in box if m.get('body') == 'widened msg'), 1)
+        self.assertEqual(self.sent, [('sub', True, 'agent_mail')],
+                         'a drive ran for a rolled-back attempt')
+        self.assertEqual(self.notified.count('sub'), 1)
+
     def test_message_attachment_to_the_user_is_copied_once_even_on_a_widen(self):
         scratch = supervisor.scratch_dir(self.slug, 'boss')
         os.makedirs(scratch, exist_ok=True)
