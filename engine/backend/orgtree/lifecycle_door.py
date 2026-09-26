@@ -17,6 +17,9 @@ in `lifecycle_tx`:
     orgtree_retool          `retool_rows` — `api._retool_seat` (set_scope,
                             and an account rebind through the door's
                             `_account_selection`); live effort after commit
+    orgtree_cheap_compact   `_split_rows` — `Org.cheap_compact`; the
+                            transcript copy runs AFTER the commit
+                            (`supervisor.export_after_commit`, S3)
     orgtree_rehire          `rehire_rows` — the whole `api._rehire_seat`
                             composite (rehire, scope, audiences, docket
                             assignment, kickoff, placement). The pre-lock
@@ -375,6 +378,34 @@ def retool_body(tx: pgdoor.AgentTx) -> Any:
     return result
 
 
+# ---------------------------------------------------------------- cheap compact
+# `Org.cheap_compact` on `lifecycle_tx._split_rows` (the seat and its new
+# bearer FOR UPDATE; ancestors, actor and a lost bearer's successor FOR
+# SHARE). The cycle copies the predecessor's transcript inside its save
+# window; here the copy is file IO, so it runs AFTER the commit, generation
+# ordered, and a failure is a warning (fence-off S3, lead decision 40(2)).
+
+
+def _split_rows(snap: Any, call: Any, a: dict[str, Any]
+                ) -> "tuple[set[str], set[str]]":
+    return lt._split_rows(snap, call.node, str(a.get("node") or ""))
+
+
+def _cheap_compact(org: Any, hn: Any, hs: Any, tx: pgdoor.AgentTx) -> Any:
+    nid = str(tx.args.get("node") or "")
+    result = lt.cheap_compact_body(org, hn, hs, tx.node, nid)
+    old_sid = result.get("old_session") if isinstance(result, dict) else None
+    if old_sid:
+        from . import supervisor
+        slug = tx.call.org
+
+        def export(res: Any) -> None:
+            supervisor.export_after_commit(slug, org, nid, str(old_sid),
+                                           "cheap_compact")
+        tx.after.then.append(export)
+    return result
+
+
 pgdoor.declare("orgtree_move", _spec("move", _move_rows), _door_body(_move))
 pgdoor.declare("orgtree_swap", _spec("swap_seats", _swap_rows),
                _door_body(_swap))
@@ -387,3 +418,5 @@ pgdoor.declare("orgtree_dissolve", _spec("dissolve", _archive_rows),
 pgdoor.declare("orgtree_rehire", _rehire_spec, body=rehire_body,
                before=_sweep_first)
 pgdoor.declare("orgtree_retool", _retool_spec, body=retool_body)
+pgdoor.declare("orgtree_cheap_compact", _spec("cheap_compact", _split_rows),
+               _door_body(_cheap_compact))

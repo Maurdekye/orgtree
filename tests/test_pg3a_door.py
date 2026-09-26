@@ -39,7 +39,7 @@ REQUEST = SimpleNamespace(state=SimpleNamespace())
 U = ledger.USER
 TOOLS = ("orgtree_move", "orgtree_swap", "orgtree_self_subjugate",
          "orgtree_retire", "orgtree_dissolve", "orgtree_rehire",
-         "orgtree_retool")
+         "orgtree_retool", "orgtree_cheap_compact")
 _N = [0]
 
 
@@ -281,6 +281,66 @@ class Door(unittest.TestCase):
                                   lambda slug, org, nid: []):
                     opened = self.attempts(node, tool, args)
                 self.assertEqual(len(opened), 1, (name, opened))
+
+    # ------------------------------------------------------ cheap compact (S3)
+
+    def test_cheap_compact_matches_the_cycle_and_copies_after_the_commit(self):
+        exported = self.exports()
+        with patch.object(supervisor, "export_predecessor_transcript_deferred",
+                          exported.fn):
+            mine, legacy = self.both("a", "orgtree_cheap_compact",
+                                     {"node": "x"})
+        self.assertTrue(mine.get("old_session"), mine)
+        self.assertEqual(self.strip({**mine, "old_session": None}),
+                         self.strip({**legacy, "old_session": None}))
+        self.assertEqual(self.view(self.slug), self.view(self.twin))
+        o = store.load_org(self.slug)
+        self.assertEqual(o.nodes["x"]["generation"], 1)
+        self.assertIn("x@0", o.nodes)
+        # the door's copy ran ONCE, after its commit (no transaction open),
+        # on a readable committed document; then the cycle's, inline
+        self.assertEqual(exported.seen[0], ("cheap_compact", False, True))
+        self.assertEqual(len(exported.seen), 2, exported.seen)
+
+    def test_cheap_compact_commits_in_one_attempt(self):
+        # an open ask (a standing request kept, read FOR SHARE) and a parent
+        # notice (written): a spec missing either would force a re-run
+        org = store.load_org(self.slug)
+        org.d.setdefault("asks", []).append(
+            {"id": "q1", "node": "x", "status": "open", "questions": []})
+        store.save_org(org)
+        with patch.object(supervisor, "export_predecessor_transcript_deferred",
+                          lambda *a, **k: (None, None)):
+            opened = self.attempts("boss", "orgtree_cheap_compact",
+                                   {"node": "x"})
+        self.assertEqual(len(opened), 1, opened)
+        self.assertEqual(store.load_org(self.slug).nodes["x"]["generation"], 1)
+
+    def test_a_failed_cheap_compact_copy_is_a_warning_not_a_refusal(self):
+        self.real_copy()
+        with patch.object(supervisor.shutil, "copy2",
+                          side_effect=OSError("disk full")) as cp:
+            out = self.call(self.slug, "a", "orgtree_cheap_compact",
+                            {"node": "x"})
+        self.assertEqual(cp.call_count, 1, "the real copy was attempted")
+        self.assertEqual(store.load_org(self.slug).nodes["x"]["generation"], 1)
+        self.assertIn("then:export",
+                      [w.get("step") for w in out.get("warnings") or []
+                       if isinstance(w, dict)], out)
+
+    def test_a_refused_cheap_compact_commits_and_copies_nothing(self):
+        # b is not x's superior: refused on the locked document, and the
+        # after-commit copy is never scheduled
+        before = self.view(self.slug)
+        exported = self.exports()
+        with patch.object(supervisor, "export_predecessor_transcript_deferred",
+                          exported.fn):
+            with self.assertRaises(HTTPException) as e:
+                self.call(self.slug, "b", "orgtree_cheap_compact",
+                          {"node": "x"})
+        self.assertEqual(e.exception.status_code, 422)
+        self.assertEqual(self.view(self.slug), before)
+        self.assertEqual(exported.seen, [])
 
     # ------------------------------------------------------------ rehire
 
