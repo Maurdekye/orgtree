@@ -7078,15 +7078,71 @@ def work_identity_migrate(slug: str) -> dict[str, Any]:
 # `store.org_seq` plus a clock bucket is a complete validator: an unchanged org
 # answers 304 with no body, and the one build after a change is shared by every
 # poller through the body cache below.
+#
+# A cached body is tens of MB on a big org, so it is kept only while it is
+# useful: it is EVICTED once nobody has requested it for `_WORK_CACHE_IDLE_S`,
+# or once its org's seq has moved on (it can never be served again), whichever
+# comes first. A daemon sweep runs every `_WORK_CACHE_SWEEP_S` while the cache
+# is non-empty and stops when it is empty, so an idle engine holds no body.
 _WORK_STALE_BUCKET_S = 30.0
-_work_list_cache: dict[tuple[str, int, int, int], tuple[str, bytes]] = {}
+_WORK_CACHE_IDLE_S = 60.0
+_WORK_CACHE_SWEEP_S = 5.0
+
+
+class _WorkBody:
+    __slots__ = ("etag", "body", "seq", "used")
+
+    def __init__(self, etag: str, body: bytes, seq: int) -> None:
+        self.etag, self.body, self.seq = etag, body, seq
+        self.used = time.monotonic()
+
+
+_work_list_cache: dict[tuple[str, int, int, int], _WorkBody] = {}
 _work_list_cache_lock = threading.Lock()
 _work_list_build_locks: dict[tuple[str, int, int, int], threading.Lock] = {}
+_work_list_sweeper: threading.Timer | None = None
 
 
-def _work_list_etag(slug: str, key: tuple[str, int, int, int]) -> str:
-    parts = (store.org_seq(slug), key[1:], int(time.time() // _WORK_STALE_BUCKET_S))
+def _work_list_etag(seq: int, key: tuple[str, int, int, int]) -> str:
+    parts = (seq, key[1:], int(time.time() // _WORK_STALE_BUCKET_S))
     return '"w' + hashlib.sha1(repr(parts).encode()).hexdigest()[:20] + '"'
+
+
+def _work_list_sweep() -> int:
+    """Evict idle and superseded bodies; returns how many were evicted."""
+    now = time.monotonic()
+    evicted = 0
+    with _work_list_cache_lock:
+        for key, hit in list(_work_list_cache.items()):
+            if (now - hit.used > _WORK_CACHE_IDLE_S
+                    or store.org_seq(key[0]) != hit.seq):
+                del _work_list_cache[key]
+                evicted += 1
+        for key, lock in list(_work_list_build_locks.items()):
+            if key not in _work_list_cache and not lock.locked():
+                del _work_list_build_locks[key]
+    return evicted
+
+
+def _work_list_sweep_tick() -> None:
+    global _work_list_sweeper
+    try:
+        _work_list_sweep()
+    finally:
+        with _work_list_cache_lock:
+            _work_list_sweeper = None
+            if _work_list_cache:
+                _work_list_arm_sweeper_locked()
+
+
+def _work_list_arm_sweeper_locked() -> None:
+    """Start the sweep if it is not running (caller holds the cache lock)."""
+    global _work_list_sweeper
+    if _work_list_sweeper is None:
+        timer = threading.Timer(_WORK_CACHE_SWEEP_S, _work_list_sweep_tick)
+        timer.daemon = True
+        _work_list_sweeper = timer
+        timer.start()
 
 
 def _work_list_build(slug: str, archived: int, backlogged: int,
@@ -7118,26 +7174,33 @@ def work_items_list(slug: str, archived: int = 0,
     if request is None:
         return _work_list_build(slug, *flags)
     key = (slug, *flags)
-    etag = _work_list_etag(slug, key)
+    seq = store.org_seq(slug)
+    etag = _work_list_etag(seq, key)
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers={"ETag": etag})
     with _work_list_cache_lock:
         hit = _work_list_cache.get(key)
         lock = _work_list_build_locks.setdefault(key, threading.Lock())
-    if hit is None or hit[0] != etag:
+    if hit is None or hit.etag != etag:
         with lock:
             # a concurrent poller may have built this very version while we queued
             with _work_list_cache_lock:
                 hit = _work_list_cache.get(key)
-            if hit is None or hit[0] != etag:
+                if hit is not None and hit.etag != etag:
+                    # superseded: free it now rather than hold two bodies
+                    del _work_list_cache[key]
+                    hit = None
+            if hit is None:
                 body = _dump_tree(_work_list_build(slug, *flags))
                 # the seq may have moved during the build: stamp what it was
                 # BEFORE, so a stale build can only cause one extra refetch
-                hit = (etag, body)
+                hit = _WorkBody(etag, body, seq)
                 with _work_list_cache_lock:
                     _work_list_cache[key] = hit
-    return Response(content=hit[1], media_type="application/json",
-                    headers={"ETag": hit[0]})
+                    _work_list_arm_sweeper_locked()
+    hit.used = time.monotonic()
+    return Response(content=hit.body, media_type="application/json",
+                    headers={"ETag": hit.etag})
 
 
 @app.get("/api/orgs/{slug}/work-items/{wid}")

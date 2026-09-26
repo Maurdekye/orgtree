@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -98,6 +99,47 @@ class WorkListConditional(unittest.TestCase):
         plain = self.client.get(f'/api/orgs/{self.slug}/work-items',
                                 headers={**OP, 'If-None-Match': full})
         self.assertEqual(plain.status_code, 200, 'another query was answered from the wrong ETag')
+
+    # ── eviction: a cached body is tens of MB on a big org ──────────────────
+    def _key(self) -> tuple[str, int, int, int]:
+        return (self.slug, 1, 1, 0)
+
+    def test_recently_requested_body_is_kept(self) -> None:
+        self.assertEqual(self.get().status_code, 200)
+        self.assertIn(self._key(), api._work_list_cache, 'the body was never cached')
+        api._work_list_sweep()
+        self.assertIn(self._key(), api._work_list_cache, 'a body in use was evicted')
+
+    def test_idle_body_is_evicted(self) -> None:
+        self.assertEqual(self.get().status_code, 200)
+        hit = api._work_list_cache[self._key()]
+        hit.used -= api._WORK_CACHE_IDLE_S + 1
+        self.assertGreaterEqual(api._work_list_sweep(), 1)
+        self.assertNotIn(self._key(), api._work_list_cache, 'an idle body was kept')
+        again = self.get()
+        self.assertEqual(again.status_code, 200)
+        self.assertIn('first-item', again.text)
+
+    def test_superseded_body_is_evicted_without_a_request(self) -> None:
+        self.assertEqual(self.get().status_code, 200)
+        self._add('second-item')           # the org seq moves on
+        self.assertGreaterEqual(api._work_list_sweep(), 1)
+        self.assertNotIn(self._key(), api._work_list_cache, 'a body that can never be served was kept')
+
+    def test_the_sweep_runs_by_itself_and_stops_when_empty(self) -> None:
+        with patch.object(api, '_WORK_CACHE_SWEEP_S', 0.05), \
+                patch.object(api, '_WORK_CACHE_IDLE_S', 0.2):
+            api._work_list_sweep()          # start from an empty cache
+            with api._work_list_cache_lock:
+                api._work_list_cache.clear()
+            self.assertEqual(self.get().status_code, 200)
+            self.assertIn(self._key(), api._work_list_cache)
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline and (
+                    api._work_list_cache or api._work_list_sweeper is not None):
+                time.sleep(0.05)
+            self.assertNotIn(self._key(), api._work_list_cache, 'no sweep evicted the idle body')
+            self.assertIsNone(api._work_list_sweeper, 'the sweep kept running on an empty cache')
 
     def test_unknown_org_is_still_404(self) -> None:
         r = self.client.get('/api/orgs/no-such-org/work-items', headers=OP)
