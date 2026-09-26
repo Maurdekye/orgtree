@@ -47,7 +47,8 @@ class PrimarySelection(unittest.TestCase):
 
     def test_codex_retool_archives_old_session_and_clears_home(self):
         old = self.bind_worker('openai', ran=True)
-        with patch.object(fx.supervisor, 'export_predecessor_transcript') as export:
+        with patch.object(fx.supervisor, 'export_predecessor_transcript_deferred',
+                          return_value=(None, None)) as export:
             out = self.call('orgtree_retool', node='worker', account='openai/primary')
         self.assertIsNone(self.bound('worker'))
         self.assertEqual(fx.supervisor.codex_bound_home(self.org, 'worker'), ('', ''))
@@ -62,7 +63,8 @@ class PrimarySelection(unittest.TestCase):
         node = self.org.node('worker')
         node.update(model='luna', codex_thread='keep', session_unrun=False)
         fx.store.save_org(self.org)
-        with patch.object(fx.supervisor, 'export_predecessor_transcript') as export:
+        with patch.object(fx.supervisor, 'export_predecessor_transcript_deferred',
+                          return_value=(None, None)) as export:
             out = self.call('orgtree_retool', node='worker', account='primary')
         self.assertFalse(out['account_binding']['session_boundary'])
         self.assertFalse(out['account_binding']['cache_namespace_changed'])
@@ -117,7 +119,8 @@ class PrimarySelection(unittest.TestCase):
             return {}
         with patch.object(fx.supervisor, 'send_message', side_effect=observe), \
              patch.object(fx.supervisor, 'notify', side_effect=observe), \
-             patch.object(fx.supervisor, 'export_predecessor_transcript'):
+             patch.object(fx.supervisor, 'export_predecessor_transcript_deferred',
+                          return_value=(None, None)):
             out = self.call('orgtree_rehire', node='worker', account='primary', kickoff='go')
         self.assertTrue(out['started'])
         self.assertTrue(observed)
@@ -136,7 +139,8 @@ class PrimarySelection(unittest.TestCase):
         for tool, extra in cases:
             with self.subTest(tool=tool, extra=extra), \
                  patch.object(fx.supervisor, 'assign_account') as assign, \
-                 patch.object(fx.supervisor, 'export_predecessor_transcript') as export:
+                 patch.object(fx.supervisor, 'export_predecessor_transcript_deferred',
+                          return_value=(None, None)) as export:
                 with self.assertRaises(fx.api.HTTPException):
                     self.call(tool, node='worker', account=destination['id'], **extra)
                 assign.assert_not_called()
@@ -243,7 +247,8 @@ class PrimarySelection(unittest.TestCase):
         body = fx.api.AgentCall(org=self.slug, node='manager', tool='orgtree_op_call', args={
             'tool': 'orgtree_retool', 'args': {'node': 'worker', 'account': row['id']},
             'op_key': f'{int(time.time() * 1000)}-{fx.uuid.uuid4().hex[:24]}', 'op_epoch': epoch})
-        with patch.object(fx.supervisor, 'export_predecessor_transcript') as export:
+        with patch.object(fx.supervisor, 'export_predecessor_transcript_deferred',
+                          return_value=(None, None)) as export:
             first = fx.api.agent_call(body, fx.Request({'type': 'http', 'headers': []}))
             replay = fx.api.agent_call(body, fx.Request({'type': 'http', 'headers': []}))
         self.assertEqual(first['account'], row['id'])
@@ -303,7 +308,8 @@ class PrimarySelection(unittest.TestCase):
         body = fx.api.AgentCall(org=self.slug, node='manager', tool='orgtree_op_call', args={
             'tool': 'orgtree_retool', 'args': {'node': 'worker', 'account': 'primary'},
             'op_key': f'{int(time.time() * 1000)}-{fx.uuid.uuid4().hex[:24]}', 'op_epoch': epoch})
-        with patch.object(fx.supervisor, 'export_predecessor_transcript') as export:
+        with patch.object(fx.supervisor, 'export_predecessor_transcript_deferred',
+                          return_value=(None, None)) as export:
             first = fx.api.agent_call(body, fx.Request({'type': 'http', 'headers': []}))
             second = fx.api.agent_call(body, fx.Request({'type': 'http', 'headers': []}))
         self.assertEqual(first['account'], 'openai/primary')
