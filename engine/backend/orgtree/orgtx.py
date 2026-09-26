@@ -56,6 +56,15 @@ THE INTERFACE (stable; this is what the PG-3x family packages code against):
     after the body has run surfaces as `Retryable`; `org_tx_call(slug, fn,
     ...)` re-runs the whole body for you, so prefer it when the body is
     pure (no side effects outside the transaction).
+  * `whole=True` (plan decision 23; reconcile and other STARTUP/SWEEP code
+    only): `nodes=ALL`, then every doc section row and every (dict-log,
+    owner) row that exists, all FOR UPDATE, and the body may write
+    anything, new sections and nodes included. Name nothing else beside it.
+    It excludes every org_tx that names a node or an existing row. It does
+    NOT exclude a list-log append (appends take no row lock) or an org_tx
+    that creates a section which did not exist when the rows were listed.
+    On PostgreSQL it takes one advisory lock per row, so it is not for
+    request paths.
   * Nesting: an `org_tx` on the same org inside another on the same thread
     raises `NestedTx` (it would wait on its own locks).
   * DOC_LOCK: `org_tx` never takes or waits on DOC_LOCK. Unconverted code may
@@ -219,6 +228,10 @@ class OrgTx:
     #: slugs whose save hooks store deferred; org_tx fires them after COMMIT
     #: with every lock released (lead decision 14)
     deferred_hooks: list[str] = field(default_factory=lambda: [])
+    #: whole=True (plan decision 23): nodes=ALL plus every doc section row and
+    #: every (dict-log, owner) row that exists, FOR UPDATE, and any write
+    #: allowed. `lock_sections` / `logs` hold what was resolved under the lock
+    whole: bool = False
 
     @property
     def d(self) -> dict[str, Any]:
@@ -377,6 +390,8 @@ def _lock_plan(tx: OrgTx, node_ids: Iterable[str] = ()) -> list[tuple[str, str, 
 
 def _disallowed(tx: OrgTx, changes: SaveChanges) -> tuple[tuple[str, str], ...]:
     """Rows the save wrote that the transaction did not lock for update."""
+    if tx.whole:
+        return ()           # decision 23: a whole-org transaction may write anything
     bad: list[tuple[str, str]] = []
     # an always-present row (the killswitch) that did not exist when this tx
     # loaded is CREATED with its cleared value by the save itself — not a
@@ -402,6 +417,31 @@ def _disallowed(tx: OrgTx, changes: SaveChanges) -> tuple[tuple[str, str], ...]:
         if s not in named_logs:
             bad.append(("log", s))
     return tuple(dict.fromkeys(bad))
+
+
+def _whole_rows(tx: OrgTx, doc_keys: Iterable[str],
+                log_owners: Iterable[tuple[str, str]]) -> None:
+    """whole=True: take the org's existing doc rows and (dict-log, owner)
+    rows, as listed under the exclusive node pseudo-row, into the lock set.
+    `lock_sections` then holds real row names (split owner rows included)
+    and `logs` every log section by name plus each owner row, so a helper
+    that checks what an enclosing transaction holds sees them held."""
+    tx.lock_sections = frozenset(
+        k for k in doc_keys if k != "nodes" and k not in store.LAZY_SECTIONS)
+    tx.logs = frozenset(store.LAZY_SECTIONS) | frozenset(
+        (s, o) for s, o in log_owners if s in store.DICT_LOGS)
+
+
+def _sqlite_rows(slug: str) -> tuple[list[str], list[tuple[str, str]]]:
+    """The doc keys and (dict-log, owner) pairs of one org's SQLite file."""
+    conn = store._open_conn(store._db_path(slug))   # pyright: ignore[reportPrivateUsage]
+    try:
+        keys = [str(k) for (k,) in conn.execute("SELECT key FROM doc").fetchall()]
+        owners = [(str(s), str(o)) for s, o in conn.execute(
+            "SELECT DISTINCT sect, owner FROM log_d").fetchall()]
+    finally:
+        conn.close()
+    return keys, owners
 
 
 def _check(tx: OrgTx, changes: SaveChanges) -> None:
@@ -505,6 +545,8 @@ class SeamBackend:
                     probe = store._load_sqlite_org(tx.slug)   # pyright: ignore[reportPrivateUsage]
                     ids = list(dict.keys(cast("dict[str, Any]", probe.d.get("nodes") or {})))
                     tx.lock_nodes = frozenset(ids)
+                    if tx.whole:
+                        _whole_rows(tx, *_sqlite_rows(tx.slug))
                 for kind, name, exclusive in _lock_plan(tx, ids):
                     self.locks.acquire(owner, (tx.slug, kind, name), exclusive, lock_timeout)
             for tx in order:
@@ -737,6 +779,12 @@ class PgBackend:
                         ids = [str(r[0]) for r in raw.execute(
                             "SELECT id FROM nodes ORDER BY id").fetchall()]
                         tx.lock_nodes = frozenset(ids)
+                        if tx.whole:
+                            _whole_rows(
+                                tx, [str(r[0]) for r in raw.execute(
+                                    "SELECT key FROM doc").fetchall()],
+                                [(str(r[0]), str(r[1])) for r in raw.execute(
+                                    "SELECT DISTINCT sect, owner FROM log_d").fetchall()])
                     for kind, name, exclusive in _lock_plan(tx, ids):
                         if tx.all_nodes and kind == "node" and name == _ALL_NODES_KEY:
                             continue                   # taken above
@@ -964,8 +1012,17 @@ def _new_tx(slug: str, nodes: Iterable[str] | Any = None,
             logs: Iterable[LogName] | None = None,
             share_nodes: Iterable[str] | None = None,
             share_sections: Iterable[SectionName] | None = None,
-            op_key: str | None = None, fingerprint: str | None = None) -> OrgTx:
+            op_key: str | None = None, fingerprint: str | None = None,
+            whole: bool = False) -> OrgTx:
     """Validate one org's names and build its (not yet begun) OrgTx."""
+    if whole:
+        if nodes is not None or sections or logs or share_nodes or share_sections:
+            raise ValueError("whole=True locks every row: name no nodes, sections, "
+                             "logs or shares beside it")
+        if fingerprint is not None and op_key is None:
+            raise ValueError("fingerprint without op_key")
+        return OrgTx(slug=slug, org=cast(Org, None), op_key=op_key,
+                     fingerprint=fingerprint, all_nodes=True, whole=True)
     all_nodes = nodes is ALL
     lock_nodes = frozenset() if all_nodes else _names(nodes, "nodes")
     lock_sections, lock_parents = _section_names(sections, "sections")
@@ -1079,11 +1136,11 @@ def org_tx(slug: str, *, nodes: Iterable[str] | Any = None,
            share_sections: Iterable[SectionName] | None = None,
            op_key: str | None = None, fingerprint: str | None = None,
            lock_timeout: float | None = None,
-           retries: int = DEFAULT_RETRIES) -> Iterator[OrgTx]:
+           retries: int = DEFAULT_RETRIES, whole: bool = False) -> Iterator[OrgTx]:
     """One row transaction on one org. See the module docstring."""
     def make() -> list[OrgTx]:
         return [_new_tx(slug, nodes, sections, logs, share_nodes, share_sections,
-                        op_key, fingerprint)]
+                        op_key, fingerprint, whole)]
     with _run(make, lock_timeout, retries) as txs:
         yield txs[0]
 
