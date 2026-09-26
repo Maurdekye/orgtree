@@ -72,15 +72,19 @@ def parent(args) -> int:
                ORGTREE_CODEX=str(root / "no-cli" / "codex.exe"))
     if args.fence is not None:
         env["ORGTREE_ORGTX_FENCE"] = args.fence
+    extra = dict(kv.split("=", 1) for kv in (args.env or []))
+    env.update(extra)
     (root / "metrics").mkdir(exist_ok=True)
     update_descriptor(root, {"origin": None, "token": token, "serve": {"state": "starting",
-                             "port": port, "spawned_at": time.time(), "fence": args.fence}})
+                             "port": port, "spawned_at": time.time(), "fence": args.fence,
+                             "env": extra}})
     cmd = [args.python or sys.executable, "-I", "-B", str(Path(__file__).resolve()), "--child",
            "--root", str(root), "--port", str(port)]
     log = open(root / "metrics" / "serve.log", "a", encoding="utf-8")
     proc = subprocess.Popen(cmd, cwd=REPO, env=env, stdout=log, stderr=subprocess.STDOUT)
     update_descriptor(root, {"serve": {"state": "starting", "port": port, "pid": proc.pid,
-                                       "spawned_at": time.time(), "fence": args.fence}})
+                                       "spawned_at": time.time(), "fence": args.fence,
+                                       "env": extra}})
     try:
         return proc.wait()
     except KeyboardInterrupt:
@@ -270,6 +274,9 @@ def child(args) -> int:
             + ("+dirty" if prov.dirty else ""),
             "serve": {"state": "ready", "port": args.port, "pid": os.getpid(), "fence": os.environ.get(
                 "ORGTREE_ORGTX_FENCE"), "provenance": prov.receipt(),
+                      "env_orgtree": {k: v for k, v in os.environ.items()
+                                      if k.startswith("ORGTREE_") and "TOKEN" not in k
+                                      and "URL" not in k},
                 "startup_s": {"interpreter_to_import": round(t_import - t_proc, 2),
                               "load_app": round(t_app - t_import, 2),
                               "to_listening": round(t_ready - t_proc, 2),
@@ -285,6 +292,7 @@ def main(argv=None) -> int:
     p.add_argument("--port", type=int, default=0)
     p.add_argument("--python", default=None)
     p.add_argument("--fence", default=None, help="ORGTREE_ORGTX_FENCE for the engine (default: as built)")
+    p.add_argument("--env", action="append", help="KEY=VALUE for the engine env (repeatable; recorded in the descriptor)")
     p.add_argument("--child", action="store_true")
     args = p.parse_args(argv)
     return child(args) if args.child else parent(args)
