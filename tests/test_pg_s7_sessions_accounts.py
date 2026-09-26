@@ -426,8 +426,8 @@ class AccountAssignDoor(unittest.TestCase):
             'claude', 'a', {'kind': 'managed',
                             'path': os.path.join(_root.name, f'assign{_N[0]}')})
         org = store.create_org(self.slug)
-        org.hire(U, None, 'opus', 20, 'boss')
-        org.hire('boss', 'boss', 'opus', 0, 'mid', add_dirs=[], tools=T,
+        org.hire(U, None, 'opus', 40, 'boss')
+        org.hire('boss', 'boss', 'opus', 10, 'mid', add_dirs=[], tools=T,
                  org_visibility='full', charter='c')
         org.hire('mid', 'mid', 'opus', 0, 'worker', add_dirs=[], tools=T,
                  org_visibility='full', charter='c')
@@ -588,9 +588,8 @@ class ResumeFrozenFallback(unittest.TestCase):
         def stale_rows(slug, pick, **kw):
             rows = real_rows(slug, pick, **kw)
             # the plan saw an older generation than the locked row carries
-            rows['nodes'] = [x.replace(f'@{self.gen0}', f'@{self.gen0 - 1}')
-                             .replace(f'@{self.gen0 + 1}', f'@{self.gen0}')
-                             for x in rows['nodes']]
+            rows['nodes'] = [x.split('@')[0] + f"@{int(x.split('@')[1]) + 5}"
+                             if '@' in x else x for x in rows['nodes']]
             return rows
         with patch.object(supervisor, '_resume_rows', stale_rows), \
                 patch.object(account_fallback, 'apply', self._apply):
