@@ -4838,6 +4838,17 @@ _changed_node_struct: dict[str, set[str]] = {}
 #: backend save, a failure mid-collection) force the next snapshot rebuild
 #: to be a full reload.
 _changed_all: set[str] = set()
+#: THE RESIDENT'S OWN COPY of the same change set (lost-update fix,
+#: 2026-09-26). The warm-resident advance (`_advance_resident`) used to drain
+#: the accumulators above, which the shared snapshot drains too: a reader's
+#: refresh landing between the warm pin and the advance took a commit's keys,
+#: the advance then saw nothing to re-read and installed a document missing
+#: that commit, and the next write cycle saved over it (reproduced: a
+#: concurrent evidence row lost while its call answered 200). Each consumer
+#: now drains only its own set; every publish feeds both.
+_res_changed_keys: dict[str, set[str]] = {}
+_res_changed_nodes: dict[str, set[str]] = {}
+_res_changed_all: set[str] = set()
 _snap_gates: dict[str, threading.Lock] = {}
 #: per-slug snapshot REBUILD mutex — herd suppression, not coherence. Under
 #: sustained writes every request used to find the cache stale and re-parse
@@ -4867,15 +4878,20 @@ def _rebuild_mutex(slug: str) -> threading.Lock:
 def _publish_changes(slug: str, changes: SaveChanges) -> None:
     try:
         with _changed_lock:
-            _changed_keys.setdefault(slug, set()).update(changes.changed_keys())
-            _changed_nodes.setdefault(slug, set()).update(
-                changes.node_updates, changes.node_inserts, changes.node_deletes)
+            keys = changes.changed_keys()
+            nids = set().union(changes.node_updates, changes.node_inserts,
+                               changes.node_deletes)
+            _changed_keys.setdefault(slug, set()).update(keys)
+            _changed_nodes.setdefault(slug, set()).update(nids)
+            _res_changed_keys.setdefault(slug, set()).update(keys)
+            _res_changed_nodes.setdefault(slug, set()).update(nids)
             if changes.node_inserts or changes.node_deletes:
                 _changed_node_struct.setdefault(slug, set()).update(
                     changes.node_inserts, changes.node_deletes)
     except Exception:
         with _changed_lock:
             _changed_all.add(slug)
+            _res_changed_all.add(slug)
 
 
 def _publish_changes_unknown(slug: str) -> None:
@@ -4883,6 +4899,7 @@ def _publish_changes_unknown(slug: str) -> None:
     collection): the next reader rebuild must not trust the accumulation."""
     with _changed_lock:
         _changed_all.add(slug)
+        _res_changed_all.add(slug)
 
 
 def external_change(slug: str) -> None:
@@ -4905,6 +4922,9 @@ def _invalidate_snapshot(slug: str) -> None:
         _changed_keys.pop(slug, None)
         _changed_nodes.pop(slug, None)
         _changed_node_struct.pop(slug, None)
+        # a warm document pinned before this surprise must not be advanced
+        # on a partial delta: force its advance to refuse
+        _res_changed_all.add(slug)
 
 
 def org_seq(slug: str) -> int:
@@ -4942,7 +4962,7 @@ _doc_cache_lock = threading.Lock()
 _doc_cache: dict[str, tuple[int, "Org"]] = {}
 
 
-def _load_pinned(slug: str) -> tuple[Org, int]:
+def _load_pinned(slug: str, *, resident: bool = False) -> tuple[Org, int]:
     """A full snapshot load whose view PROVABLY equals its recorded seq.
 
     The old rule — cache a full load only if `org_seq` did not move across
@@ -4954,7 +4974,10 @@ def _load_pinned(slug: str) -> tuple[Org, int]:
     no save can commit between the two — the loaded document is exactly the
     state at `seq_pin` and is always cacheable. The gate is held only for
     the pin (microseconds), not the parse; accumulated change sets die here
-    too, superseded by the full view."""
+    too, superseded by the full view — ONLY the consumer's own: `resident`
+    pins for the write path's warm resident and resets the resident's set,
+    otherwise it is the shared snapshot's, and neither may reset the other's
+    (see `_res_changed_keys`)."""
     slug = _safe_slug(slug)
     _ensure_migrated(slug)
     if not os.path.exists(_db_path(slug)):
@@ -4963,10 +4986,15 @@ def _load_pinned(slug: str) -> tuple[Org, int]:
     with _POOL.acquire(slug) as conn:
         with _snap_gate(slug):
             with _changed_lock:
-                _changed_all.discard(slug)
-                _changed_keys.pop(slug, None)
-                _changed_nodes.pop(slug, None)
-                _changed_node_struct.pop(slug, None)
+                if resident:
+                    _res_changed_all.discard(slug)
+                    _res_changed_keys.pop(slug, None)
+                    _res_changed_nodes.pop(slug, None)
+                else:
+                    _changed_all.discard(slug)
+                    _changed_keys.pop(slug, None)
+                    _changed_nodes.pop(slug, None)
+                    _changed_node_struct.pop(slug, None)
             seq_pin = org_seq(slug)
             conn.execute("BEGIN")
             _meta_get(conn, "schema_version")     # first read pins the view
@@ -5275,14 +5303,15 @@ def _advance_resident(slug: str, d: LazyDoc) -> bool:
     Returns False when the delta cannot be trusted (an unknown change set):
     the caller falls back to the in-lock load rather than guessing."""
     with _changed_lock:
-        if slug in _changed_all:
-            _changed_all.discard(slug)
-            _changed_keys.pop(slug, None)
-            _changed_nodes.pop(slug, None)
+        # the RESIDENT's own change set, never the snapshot's: a reader's
+        # refresh drains that one on its own schedule (see _res_changed_keys)
+        if slug in _res_changed_all:
+            _res_changed_all.discard(slug)
+            _res_changed_keys.pop(slug, None)
+            _res_changed_nodes.pop(slug, None)
             return False
-        keys = _changed_keys.pop(slug, set())
-        nids = _changed_nodes.pop(slug, set())
-        _changed_node_struct.pop(slug, None)
+        keys = _res_changed_keys.pop(slug, set())
+        nids = _res_changed_nodes.pop(slug, set())
     if not keys and not nids:
         return True
     try:
@@ -5501,7 +5530,7 @@ def write_org(slug: str) -> Generator[Org]:
         # section through a pending slot.
         with _rebuild_mutex(slug):
             if _resident.get(slug) is None and slug not in _warm_pending:
-                warm, _seq_pin = _load_pinned(slug)
+                warm, _seq_pin = _load_pinned(slug, resident=True)
                 if isinstance(warm.d, LazyDoc):
                     _settle_marks(warm.d)
                     _warm_pending[slug] = warm
