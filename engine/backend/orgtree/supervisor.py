@@ -35408,8 +35408,19 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
         # transaction rolled back whole, so commit a replay of exactly those
         # steps, then raise the original error as the legacy pass did.
         if failed.step > 1:
-            _kill_late(orgtx.org_tx_call(
-                slug, lambda tx: _block(tx, stop=failed.step), whole=True))
+            try:
+                _kill_late(orgtx.org_tx_call(
+                    slug, lambda tx: _block(tx, stop=failed.step), whole=True))
+            except Exception as replay_exc:                  # noqa: BLE001
+                # the replay failing too (p01's review, N2) must not replace
+                # the error the pass actually died of: log it, chain it
+                inner = (replay_exc.exc if isinstance(replay_exc, _ReconcileStepFailed)
+                         else replay_exc)
+                print(f"[orgtree] {slug}: reconcile's replay of steps "
+                      f"1-{failed.step - 1} failed too "
+                      f"({type(inner).__name__}: {inner}); nothing of this "
+                      f"pass was committed", flush=True)
+                raise failed.exc from inner
         raise failed.exc
     _kill_late(blk)
     org = blk["org"]

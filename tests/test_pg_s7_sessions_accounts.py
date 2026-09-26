@@ -357,6 +357,30 @@ class ReconcileOneWholeTransaction(unittest.TestCase):
         self.assertNotIn('half_applied', org.node('sw'), "step 5's partial write committed")
         self.assertIn('pending_switch', org.node('sw'))
 
+    def test_a_failing_replay_still_raises_the_original_error(self):
+        # p01's review N2: step 5 fails, and then the replay of steps 1-4
+        # fails too (halt recovery raises the second time it runs)
+        calls = []
+
+        def boom(org, slug, nid, **kw):
+            raise RuntimeError('switch apply died')
+
+        def recover(org):
+            calls.append(1)
+            if len(calls) > 1:
+                raise KeyError('replay died')
+            return False
+
+        with patch.object(supervisor, '_apply_pending_switch_locked', boom), \
+                patch.object(supervisor.halt, 'recover', recover):
+            with self.assertRaisesRegex(RuntimeError, 'switch apply died') as cm:
+                supervisor.reconcile(self.slug)
+        self.assertIsInstance(cm.exception.__cause__, KeyError)
+        self.assertEqual(len(calls), 2, 'the replay never ran')
+        org = store.load_org(self.slug)
+        self.assertIn('remote_controlled', org.node('rc'), 'something committed')
+        self.assertIn('inflight', org.node('cmd'), 'something committed')
+
     def test_a_failing_first_step_commits_nothing(self):
         def boom(org):
             org.node('rc').pop('remote_controlled', None)
