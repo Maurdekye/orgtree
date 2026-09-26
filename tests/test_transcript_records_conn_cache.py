@@ -146,6 +146,34 @@ class ConnectionCacheTests(unittest.TestCase):
             leave.set()
             thread.join(30)
 
+    def test_a_sweep_never_closes_a_connection_another_thread_is_using(self):
+        old_root = store.DATA_ROOT
+        inside, leave, result = threading.Event(), threading.Event(), []
+
+        def worker():
+            with records.database() as conn:
+                inside.set()
+                leave.wait(30)
+                # still usable after the other thread's root change swept
+                result.append(conn.execute("SELECT count(*) FROM cache_probe").fetchone()[0])
+        thread = threading.Thread(target=worker)
+        thread.start()
+        try:
+            self.assertTrue(inside.wait(30))
+            with tempfile.TemporaryDirectory(dir=fixture.name) as new_root:
+                store.DATA_ROOT = new_root
+                try:
+                    with records.database():
+                        pass  # sweeps every idle connection to the old root
+                finally:
+                    store.DATA_ROOT = old_root
+                    with records.database():
+                        pass
+        finally:
+            leave.set()
+            thread.join(30)
+        self.assertEqual(result, [0], "the busy connection was closed under its thread")
+
     def test_deleting_a_data_root_closes_the_idle_connections_to_it(self):
         """A test's tearDown deletes its temporary data root while the cached
         connections are still open; on Windows that failed until the
