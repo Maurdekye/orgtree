@@ -97,6 +97,7 @@ import {
 } from './canvas/settingskit'
 import type { SettingsTab } from './canvas/settingskit'
 import { ingestPulse, ingestStream, resetConvos } from './convo'
+import { clearNodeMetadata, metadataPatch, publishNodeMetadata, replaceNodeMetadata } from './nodemetadata'
 import type {
   AccountUsage, AskInfo, AudiencesPayload, CacheForecast, DefaultsPayload, HostPayload, InboxPayload,
   DirGrant, MailEntry, OpRequest, OpResult, OrgEvent, OrgListEntry,
@@ -156,12 +157,7 @@ export const patchMcpNode = (
   if (node.id !== id) return childChanged ? { ...node, children } : node
   return {
     ...node, children,
-    mcp_tool_count: typeof data.count === 'number' ? data.count : null,
-    last_turn_mcp_tool_count: typeof data.last_turn_count === 'number'
-      ? data.last_turn_count : null,
-    mcp_tool_count_provider: data.provider ?? node.mcp_tool_count_provider,
-    mcp_tool_count_source: data.source ?? null,
-    mcp_tool_count_reason: data.reason ?? null,
+    ...metadataPatch(node, data),
   }
 }
 
@@ -183,9 +179,7 @@ export const patchMcpReadinessNode = (
   if (node.id !== id) return childChanged ? { ...node, children } : node
   return {
     ...node, children,
-    mcp_readiness_waiting: Boolean(data.waiting),
-    mcp_readiness_state: data.state ?? null,
-    mcp_readiness_reason: data.reason ?? null,
+    ...metadataPatch(node, data),
   }
 }
 
@@ -753,10 +747,9 @@ export default function App() {
         if (t && wantSlug.current === want) {
           const replay = onBase(syncRef.current,
             (t as TreePayload & { sync_rev?: number }).sync_rev)
-          setTree(replay.length
-            ? replay.reduce((acc, f) => applyPatchFrame(
-                acc, f as Extract<WsEvent, { type: 'node_stream' }>), t)
-            : t)
+          replaceNodeMetadata(want, t.roots,
+            replay as Extract<WsEvent, { type: 'node_stream' }>[])
+          setTree(t)
           setTreeRead({ at: Date.now(), error: null })
         }
         fetchOk()
@@ -869,6 +862,7 @@ export default function App() {
   // a conversation belongs to ONE org — dropping the store on an org switch
   // keeps a stale chat from ever being shown under a different tree
   useEffect(() => { resetConvos() }, [slug])
+  useEffect(() => () => { if (slug) clearNodeMetadata(slug) }, [slug])
   // ⚠ STAFFING AVAILABILITY LOADS HERE, WHEN THE ORG DOES (user requirement
   // 2026-09-15). Every staffing surface — the ticket context menus, the hire
   // modal's model/account/effort selects — reads this one answer, and none of
@@ -914,15 +908,15 @@ export default function App() {
         if (data.kind === 'cache_forecast'
             || data.kind === 'mcp_tool_count'
             || data.kind === 'mcp_readiness') {
-          // Live patch: applied in place immediately (these are
-          // hard-realtime process facts); the frame is also buffered by
+          // Live metadata goes straight to subscribed desks. It cannot
+          // replace chart roots or rebuild layout; the frame is buffered by
           // onFrame above so a fetch racing it converges by replay
           // instead of being discarded. The cache entry is still dropped:
           // a 304 must not revalidate a pre-patch body for the CACHE —
           // the render itself no longer depends on that.
           invalidateTreeCache(slug)
           const frame = data
-          setTree((old) => old ? applyPatchFrame(old, frame) : old)
+          publishNodeMetadata(slug, frame)
           if (frame.kind === 'mcp_tool_count') {
             window.dispatchEvent(new CustomEvent('orgtree:mcp-tool-count-applied', {
               detail: {

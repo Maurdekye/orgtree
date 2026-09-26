@@ -26,6 +26,7 @@ import { PopoutButton, PopoutWindowControls, useSurface, useSurfaceDocument } fr
 // from Canvas.tsx in the phase-3 split.
 
 import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useNodeMetadata } from '../nodemetadata'
 import type { ReactNode } from 'react'
 import type {
   CacheForecast, ChatMessage, ChatPayload, CodexRouteInfo, HistoryItem, PendingMail,
@@ -1794,10 +1795,11 @@ function ctxTargetElement(root: Element | null,
     ?? matches[0] ?? null
 }
 
-function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
+function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage, onConfig,
   onRecenter, onJump, maxTop, pxc, pub, bare = false, compact = false,
   compactAt, onMailLink, onWorkLink, onOpenDoc, onPin, openPresentedRequest,
   staleIdentity = false, onDismiss }: DeskChatProps) {
+  const node = useNodeMetadata(slug, baseNode)
   // org killswitch latch — read here (context survives popout portals and
   // OwnedDeskChat's memo) for the halted banner above the composer
   const orgKillswitched = useContext(OrgKillswitchContext)
@@ -2950,7 +2952,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   const canCompactContext = live && !node.bearer_state && !node.compacted_unrun
     && typeof contextOccupancy === 'number' && contextOccupancy > 0
     && typeof node.context_window === 'number' && node.context_window > 0
-  // The tree copy is patched directly by the node-stream event. Chat is a
+  // The metadata subscription is patched by the node-stream event. Chat is a
   // slower reconciliation payload and must not mask a newer gate transition.
   const mcpReadinessWaiting = Boolean(node.mcp_readiness_waiting)
   const mcpReadinessState = node.mcp_readiness_state
