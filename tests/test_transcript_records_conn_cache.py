@@ -214,6 +214,25 @@ class ConnectionCacheTests(unittest.TestCase):
             with records.database():
                 pass
 
+    def test_removing_the_database_file_closes_the_idle_connection_to_it(self):
+        old_root = store.DATA_ROOT
+        new_root = tempfile.mkdtemp(dir=fixture.name)
+        store.DATA_ROOT = os.path.realpath(new_root)
+        try:
+            with records.database() as mine:
+                pass
+            db = Path(new_root) / "transcript-records.sqlite3"  # the short spelling
+            for companion in (Path(str(db) + "-wal"), Path(str(db) + "-shm")):
+                if companion.exists():
+                    os.remove(companion)
+            os.remove(db)  # raised PermissionError on Windows before the hook
+            self.assertTrue(closed(mine))
+            self.assertFalse(db.exists())
+        finally:
+            store.DATA_ROOT = old_root
+            with records.database():
+                pass
+
     def test_each_thread_has_its_own_connection_and_it_closes_with_the_thread(self):
         with records.database() as mine:
             pass

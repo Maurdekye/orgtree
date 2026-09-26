@@ -75,8 +75,14 @@ atexit.register(_close_idle)
 #: audit events that delete or move a path. Before one of them touches a
 #: cached database, or a folder holding it, the idle connections to it are
 #: closed, so a caller deleting a data root (a test's temporary directory)
-#: sees what it saw when every call closed its own connection.
-_DELETES = frozenset({"shutil.rmtree", "os.remove", "os.rename", "os.rmdir"})
+#: sees what it saw when every call closed its own connection. A folder is
+#: matched only by the folder deletions: `os.remove` / `os.rename` run on
+#: every atomic save, so they are matched by file name alone (realpath costs
+#: ~100 us on Windows), and renaming a folder that holds a cached database
+#: is not covered.
+_FOLDER_DELETES = frozenset({"shutil.rmtree", "os.rmdir"})
+_DELETES = _FOLDER_DELETES | {"os.remove", "os.rename"}
+_FILE_NAME = "transcript-records.sqlite3"
 
 
 def _norm(path):
@@ -89,8 +95,12 @@ def _audit(event, args):
     if event not in _DELETES or not _held_all:
         return
     try:
-        paths = args[:2] if event == "os.rename" else args[:1]
-        targets = [_norm(os.fspath(a)) for a in paths]
+        paths = [os.fspath(a) for a in (args[:2] if event == "os.rename" else args[:1])]
+        if event not in _FOLDER_DELETES:
+            paths = [a for a in paths if os.path.basename(a).startswith(_FILE_NAME)]
+            if not paths:
+                return
+        targets = [_norm(a) for a in paths]
         # the file itself, its -wal/-shm companions, or a folder above it
         hits = [held for held in list(_held_all)
                 if any(held.norm.startswith(t + os.sep) or t.startswith(held.norm)
@@ -120,7 +130,7 @@ def database():
     `store.DATA_ROOT` changes the path: the calling thread replaces its
     connection and every thread's idle connection to another path is closed."""
     from . import store
-    path = Path(store.DATA_ROOT) / "transcript-records.sqlite3"
+    path = Path(store.DATA_ROOT) / _FILE_NAME
     key = str(path)
     held = getattr(_conn_state, "held", None)
     nested = held is not None and held.busy
