@@ -381,6 +381,35 @@ class OrgTxConcurrency(unittest.TestCase):
                     t.join()
                 self.assertEqual(self._try(0.2, whole=True), 'got')
 
+    def test_whole_is_not_starved_by_overlapping_shared_takers(self) -> None:
+        # every org_tx takes the org pseudo-row shared; four overlapping
+        # sharers mean it is never free, so only writer preference lets a
+        # waiting whole=True in (p01's condition for runtime whole callers)
+        stop = threading.Event()
+        rounds: list[int] = []
+
+        def churn() -> None:
+            while not stop.is_set():
+                with orgtx.org_tx(self.slug, share_sections=['settings_x'], lock_timeout=10):
+                    rounds.append(1)
+                    time.sleep(0.03)
+        ts = [threading.Thread(target=churn) for _ in range(4)]
+        for t in ts:
+            t.start()
+            time.sleep(0.008)
+        try:
+            time.sleep(0.2)
+            t0 = time.monotonic()
+            got = self._try(3.0, whole=True)
+            waited = time.monotonic() - t0
+        finally:
+            stop.set()
+            for t in ts:
+                t.join(10)
+        self.assertGreater(len(rounds), 8, 'the shared load never ran')
+        self.assertEqual(got, 'got')
+        self.assertLess(waited, 1.0)
+
     def test_multi_org_locks_and_commits_both(self) -> None:
         other = _fresh_org(f'cc2-{self._testMethodName}')
         entered, release = threading.Event(), threading.Event()
