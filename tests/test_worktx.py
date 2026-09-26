@@ -345,7 +345,13 @@ class PerOwnerMail(Base):
         mails = store.load_org(self.slug).d['mail'].get('sub') or []
         self.assertEqual(sum(1 for m in mails if self.item in str(m)), 1)
 
-    def test_other_agents_box_is_not_blocked_by_a_docket_assign(self):
+    def _b_waits_on_a(self, box):
+        """A: a docket assign to `sub`, paused while it holds its locks.
+        B: a transaction naming `box`'s own mail rows (what
+        mailtx.retract_rows names). True when B could NOT finish while A
+        held. The org_tx transition fence (plan decision 19: every org_tx
+        takes DOC_LOCK first) is OFF here, as in the door's row-lock tests,
+        or every transaction would queue on it regardless of rows."""
         a_in, release, b_done = threading.Event(), threading.Event(), threading.Event()
         out = {}
 
@@ -353,7 +359,6 @@ class PerOwnerMail(Base):
             if p == 'after_lock' and threading.current_thread().name == 'A':
                 a_in.set()
                 release.wait(10)
-        orgtx.set_pause_hook(hook)
 
         def a():
             try:
@@ -364,33 +369,46 @@ class PerOwnerMail(Base):
                 out['A'] = e
 
         def b():
-            # the rows mailtx.retract_rows('peer') names: peer's own box
             try:
                 worktx.tx(self.slug, lambda o: None,
-                          rows=worktx.Rows(sections={('mail', 'peer')},
-                                           logs={('mail_log', 'peer')}))
+                          rows=worktx.Rows(sections={('mail', box)},
+                                           logs={('mail_log', box)}))
                 out['B'] = None
             except Exception as e:  # noqa: BLE001
                 out['B'] = e
             finally:
                 b_done.set()
+        fence = orgtx.TRANSITION_FENCE
+        orgtx.TRANSITION_FENCE = False
+        orgtx.set_pause_hook(hook)
         ta = threading.Thread(target=a, name='A')
         tb = threading.Thread(target=b, name='B')
         ta.start()
         try:
             self.assertTrue(a_in.wait(10), 'A never took its locks')
             tb.start()
-            b_ran_while_a_held = b_done.wait(2)
+            b_finished_while_a_held = b_done.wait(2)
         finally:
             release.set()
             ta.join(10)
             tb.join(10)
             orgtx.set_pause_hook(None)
+            orgtx.TRANSITION_FENCE = fence
         self.assertEqual(out, {'A': None, 'B': None})
-        self.assertTrue(b_ran_while_a_held,
-                        "a transaction on peer's box waited for a docket "
-                        "assign to sub (the whole mail section is locked)")
         self.assertEqual(get(self.slug, self.item)[0]['owner']['node'], 'sub')
+        return not b_finished_while_a_held
+
+    def test_other_agents_box_is_not_blocked_by_a_docket_assign(self):
+        self.assertFalse(self._b_waits_on_a('peer'),
+                         "a transaction on peer's box waited for a docket "
+                         "assign to sub (the whole mail section is locked)")
+
+    def test_control_the_new_owners_own_box_is_blocked(self):
+        # the control: the SAME harness must see a wait where one is real,
+        # or the test above would pass on a harness that cannot block
+        self.assertTrue(self._b_waits_on_a('sub'),
+                        "a transaction on sub's own box did not wait for the "
+                        "assign that holds it — the harness cannot see a block")
 
 if __name__ == '__main__':
     unittest.main()
