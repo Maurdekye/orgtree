@@ -1,6 +1,6 @@
 {
   "schema": "orgtree.state-operation-contracts/v1",
-  "source_inventory_sha256": "813be8052c0cd92ae890ff489c84ffe3c9c193f747a0f112fae9d647261c51a8",
+  "source_inventory_sha256": "72f973bd51f6bf1eee4738044f0496be38e73ce1cc58339c981797361c367a65",
   "qualification": {
     "runtime_census": false,
     "conversion_authorized": false
@@ -2029,8 +2029,8 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 35767,
-          "end": 36402,
+          "start": 35842,
+          "end": 36477,
           "sha256": "aea89a1ee9d03979c7779247e1960c1e519dc10e78e7ba612fada6d9199464f5"
         },
         {
@@ -3173,14 +3173,14 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 14373,
-          "end": 14396,
+          "start": 14438,
+          "end": 14461,
           "sha256": "f3dca4713beedcb31f23aee07a672efedd5005b9d02af2b92ab6916a714b01ff"
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 35162,
-          "end": 35195,
+          "start": 35237,
+          "end": 35270,
           "sha256": "3432755af3bbb402340a60d92c5d73ce3e4501c6264dd99bd84647e773f6a2af"
         },
         {
@@ -3353,14 +3353,14 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 14373,
-          "end": 14396,
+          "start": 14438,
+          "end": 14461,
           "sha256": "f3dca4713beedcb31f23aee07a672efedd5005b9d02af2b92ab6916a714b01ff"
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 35162,
-          "end": 35195,
+          "start": 35237,
+          "end": 35270,
           "sha256": "3432755af3bbb402340a60d92c5d73ce3e4501c6264dd99bd84647e773f6a2af"
         },
         {
@@ -3463,14 +3463,14 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 14373,
-          "end": 14396,
+          "start": 14438,
+          "end": 14461,
           "sha256": "f3dca4713beedcb31f23aee07a672efedd5005b9d02af2b92ab6916a714b01ff"
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 35162,
-          "end": 35195,
+          "start": 35237,
+          "end": 35270,
           "sha256": "3432755af3bbb402340a60d92c5d73ce3e4501c6264dd99bd84647e773f6a2af"
         },
         {
@@ -3603,14 +3603,14 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 14373,
-          "end": 14396,
+          "start": 14438,
+          "end": 14461,
           "sha256": "f3dca4713beedcb31f23aee07a672efedd5005b9d02af2b92ab6916a714b01ff"
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 35162,
-          "end": 35195,
+          "start": 35237,
+          "end": 35270,
           "sha256": "3432755af3bbb402340a60d92c5d73ce3e4501c6264dd99bd84647e773f6a2af"
         },
         {
@@ -3866,14 +3866,14 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 14373,
-          "end": 14396,
+          "start": 14438,
+          "end": 14461,
           "sha256": "f3dca4713beedcb31f23aee07a672efedd5005b9d02af2b92ab6916a714b01ff"
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 35162,
-          "end": 35195,
+          "start": 35237,
+          "end": 35270,
           "sha256": "3432755af3bbb402340a60d92c5d73ce3e4501c6264dd99bd84647e773f6a2af"
         },
         {
@@ -4170,8 +4170,8 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 36145,
-          "end": 36157,
+          "start": 36220,
+          "end": 36232,
           "sha256": "926ec49c1eaa4e512cbcd65b9db2b2cfa7cf30f42352d219f38d0f528a9401ec"
         },
         {
@@ -4321,14 +4321,14 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 7564,
-          "end": 7671,
-          "sha256": "3a1782ce0ea669d3b1f9687fdc9b6765afa4f6b1f6f3d22c14c37f71cda9a271"
+          "start": 7584,
+          "end": 7693,
+          "sha256": "85dbae9c425411c53458ecd4ad36070c85236bcaf955ca12dfdad6caa356f662"
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 8323,
-          "end": 8369,
+          "start": 8346,
+          "end": 8392,
           "sha256": "dbcdbb7efde85ab52bbdd74d8bfbf0ec4203d9dcfe771e711144bbde40dc1808"
         },
         {
@@ -4362,14 +4362,14 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 7564,
-          "end": 7671,
-          "sha256": "3a1782ce0ea669d3b1f9687fdc9b6765afa4f6b1f6f3d22c14c37f71cda9a271"
+          "start": 7584,
+          "end": 7693,
+          "sha256": "85dbae9c425411c53458ecd4ad36070c85236bcaf955ca12dfdad6caa356f662"
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 8323,
-          "end": 8369,
+          "start": 8346,
+          "end": 8392,
           "sha256": "dbcdbb7efde85ab52bbdd74d8bfbf0ec4203d9dcfe771e711144bbde40dc1808"
         }
       ],
@@ -4415,20 +4415,20 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 7564,
-          "end": 7671,
-          "sha256": "3a1782ce0ea669d3b1f9687fdc9b6765afa4f6b1f6f3d22c14c37f71cda9a271"
+          "start": 7584,
+          "end": 7693,
+          "sha256": "85dbae9c425411c53458ecd4ad36070c85236bcaf955ca12dfdad6caa356f662"
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 7541,
-          "end": 7554,
-          "sha256": "c39b1ab1d366881ece3a35f01d19de52b3441c7cc67a009ebe6fd463d4624bfc"
+          "start": 7562,
+          "end": 7574,
+          "sha256": "65859328259ab3753e2e5ea6a3298a1611fd5a340a10db62c0f669d5c0e448a2"
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 8323,
-          "end": 8369,
+          "start": 8346,
+          "end": 8392,
           "sha256": "dbcdbb7efde85ab52bbdd74d8bfbf0ec4203d9dcfe771e711144bbde40dc1808"
         }
       ],
@@ -4457,9 +4457,9 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 7564,
-          "end": 7671,
-          "sha256": "3a1782ce0ea669d3b1f9687fdc9b6765afa4f6b1f6f3d22c14c37f71cda9a271"
+          "start": 7584,
+          "end": 7693,
+          "sha256": "85dbae9c425411c53458ecd4ad36070c85236bcaf955ca12dfdad6caa356f662"
         }
       ],
       "open_questions": [
@@ -4484,20 +4484,20 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 7541,
-          "end": 7554,
-          "sha256": "c39b1ab1d366881ece3a35f01d19de52b3441c7cc67a009ebe6fd463d4624bfc"
+          "start": 7562,
+          "end": 7574,
+          "sha256": "65859328259ab3753e2e5ea6a3298a1611fd5a340a10db62c0f669d5c0e448a2"
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 7564,
-          "end": 7671,
-          "sha256": "3a1782ce0ea669d3b1f9687fdc9b6765afa4f6b1f6f3d22c14c37f71cda9a271"
+          "start": 7584,
+          "end": 7693,
+          "sha256": "85dbae9c425411c53458ecd4ad36070c85236bcaf955ca12dfdad6caa356f662"
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 8323,
-          "end": 8369,
+          "start": 8346,
+          "end": 8392,
           "sha256": "dbcdbb7efde85ab52bbdd74d8bfbf0ec4203d9dcfe771e711144bbde40dc1808"
         }
       ],
@@ -5442,8 +5442,8 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 36145,
-          "end": 36157,
+          "start": 36220,
+          "end": 36232,
           "sha256": "926ec49c1eaa4e512cbcd65b9db2b2cfa7cf30f42352d219f38d0f528a9401ec"
         },
         {
@@ -8551,14 +8551,14 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 26108,
-          "end": 26276,
+          "start": 26183,
+          "end": 26351,
           "sha256": "d82d0b6d0451de5cf042ccd5f51390faf2385a29ffbd3b1ad4b29f9c77e80017"
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 26067,
-          "end": 26105,
+          "start": 26142,
+          "end": 26180,
           "sha256": "a4df89a9344726577272ad30d11e9324d546c4cd411d0600b9c91bd374f059b8"
         },
         {
@@ -8569,8 +8569,8 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 15499,
-          "end": 15813,
+          "start": 15564,
+          "end": 15878,
           "sha256": "3819b0b031ca700c51563b329fe1e5fb33de95dc59f8b9b70d030dfefd51be6a"
         },
         {
@@ -8731,8 +8731,8 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 28474,
-          "end": 28605,
+          "start": 28549,
+          "end": 28680,
           "sha256": "9c38af47d5e6c096ab8e547ad5f328da0c358449865dda7e5ee92e184e5e1a9b"
         },
         {
@@ -8857,8 +8857,8 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 34082,
-          "end": 34102,
+          "start": 34157,
+          "end": 34177,
           "sha256": "f8021fef1c3ef06699c351e87cccab713ec03c9f40f51cf865d0a2068034e509"
         },
         {
@@ -10251,8 +10251,8 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 27351,
-          "end": 27465,
+          "start": 27426,
+          "end": 27540,
           "sha256": "63ff3d7a61143da7393521e990089401b41a0e5ebffd11abd8228417000b8cf1"
         },
         {
@@ -10321,20 +10321,20 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 31812,
-          "end": 31902,
+          "start": 31887,
+          "end": 31977,
           "sha256": "c0d6914ddd1e4dbdffc0acb683ae75a63671341c1aa2de7d3ac13de064a11d23"
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 31375,
-          "end": 31376,
+          "start": 31450,
+          "end": 31451,
           "sha256": "0d92c04126088ff548943b33c452404675041147d4f04e1105bc0d88f0975388"
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 31786,
-          "end": 31809,
+          "start": 31861,
+          "end": 31884,
           "sha256": "843595a04a419daab24b46ae25c9a7faeb8d90e97e9f6bad6dcdd7a733e95a3d"
         }
       ]
@@ -10474,8 +10474,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 27351,
-          "end": 27465,
+          "start": 27426,
+          "end": 27540,
           "sha256": "63ff3d7a61143da7393521e990089401b41a0e5ebffd11abd8228417000b8cf1"
         },
         {
@@ -10498,8 +10498,8 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 26862,
-          "end": 26874,
+          "start": 26937,
+          "end": 26949,
           "sha256": "b4a4a19fe29e63b38b2f57873b07cd8c23818874a92d86b3a1d6d34fb2f78e69"
         },
         {
@@ -10943,8 +10943,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 28863,
-          "end": 28961,
+          "start": 28938,
+          "end": 29036,
           "sha256": "6a25b7747edb55b13cc55fa4e0aef6a6a23d44ccba1237fcb6b2b383f55f8b60"
         },
         {
@@ -11155,8 +11155,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 28863,
-          "end": 28961,
+          "start": 28938,
+          "end": 29036,
           "sha256": "6a25b7747edb55b13cc55fa4e0aef6a6a23d44ccba1237fcb6b2b383f55f8b60"
         },
         {
@@ -12605,8 +12605,8 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 34553,
-          "end": 35057,
+          "start": 34628,
+          "end": 35132,
           "sha256": "30b3a0d089bad8eec364e73235169cc6922261dc45414062137ddff7172e1517"
         }
       ]
@@ -15927,8 +15927,8 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 15499,
-          "end": 15813,
+          "start": 15564,
+          "end": 15878,
           "sha256": "3819b0b031ca700c51563b329fe1e5fb33de95dc59f8b9b70d030dfefd51be6a"
         }
       ],
@@ -16037,8 +16037,8 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 26773,
-          "end": 26837,
+          "start": 26848,
+          "end": 26912,
           "sha256": "a6fa54bf7235b871b0d05827060494faa6f3c0fdc38e4f5977307a120523d374"
         }
       ],
@@ -16147,8 +16147,8 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 26108,
-          "end": 26276,
+          "start": 26183,
+          "end": 26351,
           "sha256": "d82d0b6d0451de5cf042ccd5f51390faf2385a29ffbd3b1ad4b29f9c77e80017"
         }
       ],
@@ -16202,8 +16202,8 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 26067,
-          "end": 26105,
+          "start": 26142,
+          "end": 26180,
           "sha256": "a4df89a9344726577272ad30d11e9324d546c4cd411d0600b9c91bd374f059b8"
         }
       ],
@@ -16819,8 +16819,8 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 34082,
-          "end": 34102,
+          "start": 34157,
+          "end": 34177,
           "sha256": "f8021fef1c3ef06699c351e87cccab713ec03c9f40f51cf865d0a2068034e509"
         },
         {
@@ -17786,8 +17786,8 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 33122,
-          "end": 33226,
+          "start": 33197,
+          "end": 33301,
           "sha256": "9078596f3dbfae3e17973e42b0a9545fcf1074c4ba441df424eb69090cc53ce2"
         }
       ],
@@ -18815,8 +18815,8 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 27351,
-          "end": 27465,
+          "start": 27426,
+          "end": 27540,
           "sha256": "63ff3d7a61143da7393521e990089401b41a0e5ebffd11abd8228417000b8cf1"
         }
       ],
@@ -19148,8 +19148,8 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 29969,
-          "end": 30202,
+          "start": 30044,
+          "end": 30277,
           "sha256": "00ebc0c209073eda2b30d3bb53b3257070a90399e7f00e2c27325c46fc1ebcba"
         }
       ],
@@ -19223,8 +19223,8 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 30399,
-          "end": 30489,
+          "start": 30474,
+          "end": 30564,
           "sha256": "c91a5099bb77e336dd40fe95172ef3715cbf8b9f2d8b785957c03cecb9f42b49"
         }
       ],
@@ -19361,8 +19361,8 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 30492,
-          "end": 30518,
+          "start": 30567,
+          "end": 30593,
           "sha256": "0a2e0e50a95cffa5dc9181c72a3187a4818de5dd274e8f5a179a64ec1e0371b9"
         }
       ],
@@ -19611,8 +19611,8 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 27351,
-          "end": 27465,
+          "start": 27426,
+          "end": 27540,
           "sha256": "63ff3d7a61143da7393521e990089401b41a0e5ebffd11abd8228417000b8cf1"
         }
       ],
@@ -19941,14 +19941,14 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 31277,
-          "end": 31329,
+          "start": 31352,
+          "end": 31404,
           "sha256": "e467b9c601853c81d1648e22f807e1692d100474fa1c196f58c80ededca8d93a"
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 31453,
-          "end": 31469,
+          "start": 31528,
+          "end": 31544,
           "sha256": "144920dbba42f823105215c06425e56b4959c2ed7443de044beee08d249e798a"
         },
         {
@@ -19959,8 +19959,8 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 31472,
-          "end": 31568,
+          "start": 31547,
+          "end": 31643,
           "sha256": "d27d3570353720b355247bdecaa06248291c9a2a0469681cb4aaf60e1ccf0164"
         }
       ],
@@ -20014,8 +20014,8 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 31588,
-          "end": 31625,
+          "start": 31663,
+          "end": 31700,
           "sha256": "85891c3c729ee9f995a54a3746b3c99ef412104d2a9975714ff1685b9b1dd85e"
         }
       ],
@@ -20069,8 +20069,8 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 31988,
-          "end": 32000,
+          "start": 32063,
+          "end": 32075,
           "sha256": "d4cfde9b8c0247668ee7a63708899daed29d6d813c4dc19708f46916d5427346"
         }
       ],
@@ -20234,8 +20234,8 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 28660,
-          "end": 28842,
+          "start": 28735,
+          "end": 28917,
           "sha256": "7a07c08486210ddbf99708d70eb06b27119da43479c4378b6d29221696e761dc"
         }
       ],
@@ -20289,8 +20289,8 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 26862,
-          "end": 26874,
+          "start": 26937,
+          "end": 26949,
           "sha256": "b4a4a19fe29e63b38b2f57873b07cd8c23818874a92d86b3a1d6d34fb2f78e69"
         }
       ],
@@ -21042,8 +21042,8 @@
         },
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 28863,
-          "end": 28961,
+          "start": 28938,
+          "end": 29036,
           "sha256": "6a25b7747edb55b13cc55fa4e0aef6a6a23d44ccba1237fcb6b2b383f55f8b60"
         },
         {
@@ -33996,7 +33996,7 @@
       ]
     },
     {
-      "id": "b18cf6a3c43c1f2a470f75ffca51c57ca508deb7ba3dfecff55b420a35e7a279",
+      "id": "f7d30a3af207ef233a88496faef92564a761526e508c9b588bcc102e76fd61bc",
       "disposition": "mapped",
       "contracts": [
         "asks.present"
@@ -34005,14 +34005,14 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 36095,
-          "end": 36096,
+          "start": 36170,
+          "end": 36171,
           "sha256": "d57f9832ca1d8446890663663bc9ddb119b940474ee04ca06c3657c6cd8afaf6"
         }
       ]
     },
     {
-      "id": "b2edc16194ebeb58d15fcf80ca3512aca1e1a943ab1242988351e48cd18a46d1",
+      "id": "9e2aab02e413d541df8212c81c29fbcdeed3e3755253ce01edc082dc760c5998",
       "disposition": "mapped",
       "contracts": [
         "exchange.send-file"
@@ -34021,14 +34021,14 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 36120,
-          "end": 36121,
+          "start": 36195,
+          "end": 36196,
           "sha256": "500dd2931fbc356ce7f15014b3c6054a0b4769740bc95a168f784d8778b3b2df"
         }
       ]
     },
     {
-      "id": "50982c12e69a677daab7e2f4aa0510b71901e64d8fe6654351327070159c8399",
+      "id": "ac35b40fe3a1cb6d272d7fe130b72ce87954604998389122c14ac243d2add821",
       "disposition": "mapped",
       "contracts": [
         "mail.message",
@@ -34039,14 +34039,14 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/supervisor.py",
-          "start": 36145,
-          "end": 36157,
+          "start": 36220,
+          "end": 36232,
           "sha256": "926ec49c1eaa4e512cbcd65b9db2b2cfa7cf30f42352d219f38d0f528a9401ec"
         }
       ]
     },
     {
-      "id": "419fcdf40872dbd3377bd8a64d772934690fd8fb4a2e3b3d3f14cd4420cce45d",
+      "id": "0f9410684cc76f56175c2e05e3525daaf80de151876b672cf930b83055aba3a7",
       "disposition": "pending",
       "contracts": [],
       "reason": "Shared transcript docket-button selector (orgtree_work, orgtree_staff): orgtree_staff is contracted, orgtree_work is not — the full orgtree_work card (36 actions) is the P05 work family and the action-coverage rule needs all 36 (S3 ruling 2); the prototype's item read is covered by work.item-list and work.item-get instead. Owner: P05 (the work family).",
