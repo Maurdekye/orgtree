@@ -44,6 +44,8 @@ app, *_ = load_app()
 from orgtree import api, ledger, orgtx, pgdoor, rcdoor, store  # noqa: E402
 from orgtree.ledger import LedgerError, USER  # noqa: E402
 
+TOOLS = {'bash': False, 'web': False, 'edit': False, 'subagents': False, 'mcp': []}
+
 
 def tearDownModule() -> None:
     orgtx.set_pause_hook(None)
@@ -95,9 +97,10 @@ class OpReallocate(unittest.TestCase):
         self.slug = f'opre{self.seq}'
         org = store.create_org(self.slug)
         org.hire(USER, None, 'haiku', 20, 'top')
-        org.hire('top', 'top', 'haiku', 8, 'mid')
-        org.hire('mid', 'mid', 'haiku', 3, 'leaf')
-        org.hire('top', 'top', 'haiku', 2, 'side')
+        kw = dict(add_dirs=[], tools=TOOLS, org_visibility='team', charter='a test agent')
+        org.hire('top', 'top', 'haiku', 8, 'mid', **kw)
+        org.hire('mid', 'mid', 'haiku', 3, 'leaf', **kw)
+        org.hire('top', 'top', 'haiku', 2, 'side', **kw)
         store.save_org(org)
         pgdoor.run(self.slug, pgdoor.TxSpec(), lambda h: None)
 
