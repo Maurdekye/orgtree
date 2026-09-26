@@ -5687,11 +5687,17 @@ def delete_org(slug: str) -> None:
     p = org_path(slug)                      # validates the slug (see _safe_slug)
     trash = os.path.join(DATA_ROOT, "deleted")
     ext = db_ext() if row_store() else ".json"
-    # Under DOC_LOCK like every other write: without it a load-modify-save
-    # cycle already in flight re-creates the doc AFTER the rename and the org
-    # comes back from the dead, half-populated and with no trash copy of the
-    # final state.
-    with DOC_LOCK:
+    # EXCLUSIVE against every writer: without it a load-modify-save cycle
+    # already in flight re-creates the doc AFTER the rename and the org comes
+    # back from the dead, half-populated and with no trash copy of the final
+    # state. S8: org_exclusive = the transition fence (DOC_LOCK, while any
+    # legacy writer remains) + the org pseudo-row exclusive, which every
+    # org_tx takes shared first — so with the fence off no row transaction
+    # can straddle the rename either, and no DOC_LOCK is taken.
+    # ⚠ PostgreSQL: this renames the marker and the SQLite-shaped files only;
+    # the org's schema rows stay (a known gap, tracked on its own docket item).
+    from . import orgtx
+    with orgtx.org_exclusive(slug):
         _ensure_migrated(slug)
         if not os.path.exists(p):
             raise LedgerError(f"no such org: {slug!r}")

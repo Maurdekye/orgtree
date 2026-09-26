@@ -667,6 +667,20 @@ class SeamBackend:
     def read(self, slug: str, sections: tuple[str, ...]) -> Org:
         return store.load_org_snapshot(slug, sections)
 
+    @contextlib.contextmanager
+    def exclusive(self, slug: str, lock_timeout: float) -> Iterator[None]:
+        """`org_exclusive` on the fake: the org pseudo-row EXCLUSIVE, alone.
+        On the JSON store DOC_LOCK (always taken there) is the whole lock."""
+        if store.STORE_BACKEND == "json":
+            yield
+            return
+        owner = object()
+        try:
+            self.locks.acquire(owner, (slug, "org", _ORG_KEY), True, lock_timeout)
+            yield
+        finally:
+            self.locks.release_all(owner)
+
 
 class JsonBackend:
     """The JSON-store fallback (plan decision 39): the legacy cycle behind the
@@ -971,6 +985,31 @@ class PgBackend:
     def read(self, slug: str, sections: tuple[str, ...]) -> Org:
         return store.load_org_snapshot(slug, sections)
 
+    @contextlib.contextmanager
+    def exclusive(self, slug: str, lock_timeout: float) -> Iterator[None]:
+        """`org_exclusive` on PostgreSQL: the org pseudo-row's advisory lock
+        EXCLUSIVE in a short transaction of its own that reads and writes
+        nothing, rolled back when the block ends."""
+        from . import pgstore
+        from .ledger import LedgerError
+        org_id = pgstore.read_marker(store._db_path(slug))   # pyright: ignore[reportPrivateUsage]
+        if org_id is None:
+            raise LedgerError(f"no such org: {slug!r}")
+        raw = pgstore._checkout()                  # pyright: ignore[reportPrivateUsage]
+        try:
+            try:
+                raw.execute("BEGIN")
+                raw.execute(f"SET LOCAL lock_timeout = '{max(1, int(lock_timeout * 1000))}ms'")
+                raw.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))",
+                            (org_id, f"org:{_ORG_KEY}"))
+            except Exception as e:
+                raise _pg_error(e) from e
+            yield
+        finally:
+            with contextlib.suppress(Exception):
+                raw.execute("ROLLBACK")
+            pgstore._release(raw)                   # pyright: ignore[reportPrivateUsage]
+
 
 _backend: Backend | None = None
 _backend_lock = threading.Lock()
@@ -1261,6 +1300,31 @@ def org_tx_call(slug: str, fn: Callable[[OrgTx], T], *,
                 raise
             attempt += 1
             time.sleep(random.uniform(0, 0.01 * (2 ** attempt)))
+
+
+@contextlib.contextmanager
+def org_exclusive(slug: str, *, lock_timeout: float | None = None) -> Iterator[None]:
+    """Exclude every org_tx on `slug` for the block, WITHOUT loading or
+    saving it: the transition fence (while it is on, as every org_tx takes
+    it), then the org pseudo-row EXCLUSIVE. For store.delete_org, whose
+    rename must not race a transaction that loaded before it and saves after
+    it (that save would re-create the org). A transaction queued behind it
+    then finds the org gone. Not re-entrant with an org_tx on the same org
+    on this thread (NestedTx)."""
+    if slug in (getattr(_open, "slugs", None) or set()):
+        raise NestedTx(f"org_exclusive on {slug!r} inside an org_tx on it")
+    timeout = DEFAULT_LOCK_TIMEOUT_S if lock_timeout is None else lock_timeout
+    fence: contextlib.AbstractContextManager[Any] = (
+        store.FENCE if TRANSITION_FENCE or store.STORE_BACKEND == "json"
+        else contextlib.nullcontext())
+    b = backend()
+    excl = getattr(b, "exclusive", None)
+    with fence:
+        if excl is None:                           # a test backend without it
+            yield
+            return
+        with excl(slug, timeout):
+            yield
 
 
 def org_read(slug: str, *, sections: Iterable[str] = ()) -> Org:
