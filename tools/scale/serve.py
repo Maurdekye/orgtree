@@ -118,6 +118,11 @@ def child(args) -> int:
     from engine.launch import load_app
     app, *_ = load_app()
     from orgtree import api, store, supervisor
+    if os.environ.get("ORGTREE_SCALE_HALT_FENCE") == "0":
+        # halt._FENCE is a hard-coded True that ignores ORGTREE_ORGTX_FENCE
+        # (p03-lead 2026-09-26); a real fence-off arm needs both off
+        from orgtree import halt
+        halt._FENCE = False  # pyright: ignore[reportPrivateUsage]
     if Path(store.DATA_ROOT).resolve() != (root / "data").resolve():
         raise RuntimeError("store escaped the scale data root")
     if store.STORE_BACKEND != "postgres":
@@ -325,7 +330,8 @@ def child(args) -> int:
             "origin": f"http://127.0.0.1:{args.port}", "engine_commit": (prov.commit or "")
             + ("+dirty" if prov.dirty else ""),
             "serve": {"state": "ready", "port": args.port, "pid": os.getpid(), "fence": os.environ.get(
-                "ORGTREE_ORGTX_FENCE"), "provenance": prov.receipt(),
+                "ORGTREE_ORGTX_FENCE"), "halt_fence": getattr(__import__("orgtree.halt", fromlist=["_FENCE"]), "_FENCE", None),
+                      "provenance": prov.receipt(),
                       "env_orgtree": {k: v for k, v in os.environ.items()
                                       if k.startswith("ORGTREE_") and "TOKEN" not in k
                                       and "URL" not in k},
