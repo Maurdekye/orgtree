@@ -855,7 +855,7 @@ def _drain_spools(parts: dict[str, dict[str, Any]]) -> None:
             # snapshot the entries; no lock is held during HTTP (PG-3f: a
             # lock-free read, was DOC_LOCK)
             entries = [dict(e) for e in
-                       (orgtx.org_read(slug, sections=["net_spool"]).d
+                       (orgtx.org_read(slug).d
                         .get("net_spool") or {}).get(hid, [])]
             for e in entries:
                 # F-06 D: upload attachments first (resumable — successful
@@ -1043,7 +1043,7 @@ def _stamp_skip(slug: str, hub_id: str, err: str) -> None:
     from . import orgtx
     err = err[:200]
     # the steady state is a lock-free read that finds nothing changed
-    entries = (orgtx.org_read(slug, sections=["net_spool"]).d
+    entries = (orgtx.org_read(slug).d
                .get("net_spool") or {}).get(hub_id, [])
     if not entries or all(e.get("last_err") == err for e in entries):
         return
@@ -1135,7 +1135,7 @@ def _deliver_inbound(slug: str, hub_id: str, msgs: list[dict[str, Any]],
         mid = str(m.get("id") or "")
         if not mid:
             continue
-        ring = ((orgtx.org_read(slug, sections=["net_state"]).d
+        ring = ((orgtx.org_read(slug).d
                  .get("net_state") or {}).get(hub_id) or {}).get("seen_ids") or []
         seen = mid in ring
         if not seen:

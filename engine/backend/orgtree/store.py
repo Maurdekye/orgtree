@@ -3763,6 +3763,13 @@ def _ensure_migrated(slug: str) -> None:
     db = _db_path(slug)
     if os.path.exists(db):
         return
+    # PG-3f: nothing on disk to migrate — a brand-new org (create_org) —
+    # returns without DOC_LOCK. Safe lock-free: a migration of this slug keeps
+    # the `.json` or the `.db.migrating` candidate present until its `.db`
+    # exists, so seeing neither means there is nothing to migrate or finish.
+    if not os.path.exists(_json_path(slug)) \
+            and not os.path.exists(db + ".migrating"):
+        return
     with DOC_LOCK:
         if os.path.exists(db):
             return

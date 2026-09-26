@@ -526,6 +526,11 @@ class OrgsCreate(unittest.TestCase):
         from unittest import mock
         real = store.save_org
         saved: list = []
+        # the desktop build refuses kiosk/sandbox creation at admission
+        # (desktop_policy); the create path itself is what is tested here
+        env = mock.patch.dict(os.environ, {'ORGTREE_DESKTOP_MANAGED': '0'})
+        env.start()
+        self.addCleanup(env.stop)
 
         def counting(org, *a, **kw):
             saved.append(dict(org.d))
