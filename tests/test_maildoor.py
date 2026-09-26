@@ -149,6 +149,52 @@ class NoticeDoor(unittest.TestCase):
         self.assertEqual(store.load_org(self.slug).d.get('mail'), before)
         self.assertEqual((self.sent, self.notified), ([], []))
 
+    # -- orgtree_ask / withdraw_ask / audience -----------------------------
+    def tool(self, tool, node, **a):
+        return api.agent_call(api.AgentCall(org=self.slug, node=node,
+                                            tool=tool, args=a), REQUEST)
+
+    def asks(self, node):
+        return [x for x in store.load_org(self.slug).d.get('asks') or []
+                if x.get('node') == node]
+
+    def test_ask_parks_a_card_on_the_door_in_one_attempt(self):
+        r = self.tool(maildoor.ASK, 'boss', question='which way?')
+        self.assertTrue(r.get('asked'), r)
+        self.assertEqual([x['status'] for x in self.asks('boss')], ['open'])
+        self.assertEqual(len(self.sections), 1, 'the ask needed a widen')
+        self.assertIn('asks', self.sections[-1])
+
+    def test_routed_ask_mails_and_drives_the_superior_after_commit(self):
+        r = self.tool(maildoor.ASK, 'sub', question='may I?')
+        if not r.get('routed'):
+            self.skipTest('sub holds a user audience in this fixture')
+        self.assertEqual(r['routed'], 'boss')
+        box = store.load_org(self.slug).d['mail'].get('boss') or []
+        self.assertEqual(sum(1 for m in box if m.get('kind') == 'question'), 1)
+        self.assertEqual([t for t, wake, _ in self.sent if wake], ['boss'])
+        self.assertEqual(len(self.sections), 1, 'the routed ask needed a widen')
+
+    def test_withdraw_ask_on_the_door(self):
+        self.tool(maildoor.ASK, 'boss', question='never mind?')
+        r = self.tool(maildoor.WITHDRAW_ASK, 'boss')
+        self.assertTrue(r.get('withdrawn'), r)
+        self.assertEqual([x['status'] for x in self.asks('boss')], ['withdrawn'])
+        self.assertIn('asks', self.sections[-1])
+
+    def test_audience_request_on_the_door_drives_the_first_hop(self):
+        org = store.load_org(self.slug)
+        org.hire('sub', 'sub', 'luna', 0, 'leaf', add_dirs=[], tools=T,
+                 org_visibility='full', charter='c')
+        store.save_org(org)
+        r = self.tool(maildoor.AUDIENCE, 'leaf', action='request',
+                      target='boss', reason='need the boss')
+        self.assertEqual(r.get('currently_at'), 'sub', r)
+        reqs = store.load_org(self.slug).d.get('audience_requests') or []
+        self.assertEqual([(q['from'], q['target']) for q in reqs], [('leaf', 'boss')])
+        self.assertEqual([t for t, wake, _ in self.sent if wake], ['sub'])
+        self.assertEqual(len(self.sections), 1, 'the request needed a widen')
+
     def test_door_off_keeps_the_legacy_cycle(self):
         with patch.dict(os.environ, {'ORGTREE_PGDOOR': '0'}):
             self.assertFalse(pgdoor.routed(maildoor.NOTICE, {}))

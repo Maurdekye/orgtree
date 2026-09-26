@@ -159,6 +159,13 @@ def audience_spec(snapshot: Any, call: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
     for p in parties:
         if p:
             who += _resolve_on_snapshot(snapshot, p)
+    try:
+        # a request's first hop is mail to the caller's own superior
+        parent = (snapshot.nodes.get(str(call.node)) or {}).get("parent")
+    except Exception:                                        # noqa: BLE001
+        parent = None
+    if parent:
+        who.append(str(parent))
     rows = mailtx.merge(mailtx.audience_rows(who[0]) if who else {},
                         *(mailtx.send_rows(w) for w in who[1:]),
                         sections=["audiences", "audience_requests"],
