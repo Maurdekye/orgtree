@@ -12474,7 +12474,9 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
         # transaction with the shared prologue — never inside the cycle
         # below, and never taking DOC_LOCK — and then the same generic tail.
         return _agent_door(body, a, {"harness": _hire_harness,
-                                     "archive_warnings": _archive_warnings})
+                                     "archive_warnings": _archive_warnings,
+                                     "renamed_to": _renamed_to,
+                                     "rename_warnings": _rename_warnings})
     with _op_inflight(body), _entry_ledger_422(store.write_org(body.org)) as org:
         try:
             org.node(body.node)
