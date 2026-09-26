@@ -111,6 +111,30 @@ class QuickStaffDoor(unittest.TestCase):
         self.assertEqual(self.ticket()['status'], 'open')
         self.assertEqual(self.woken, [self.owner])
 
+    def test_the_archive_move_is_its_own_transaction_first(self):
+        # PG-3w decision 13: the operator's quick staff sweeps the archive in
+        # its OWN org_tx before the click's, which runs with the move deferred
+        org = store.load_org(self.slug)
+        old = org.work_create(self.owner, 'Old widget', 'Broken. Repair it.')['slug']
+        org.work_update(self.owner, old, done_so_far=['x'], working_on_next=['y'],
+                        status='dropped',
+                        dropped_reason='Cancelled by the test; nothing to resume.')
+        self._save(org)
+        self.assertFalse(store.load_org(self.slug)._work_find(old)[1])
+        sel = self.selection()
+        seen = []
+        orgtx.commit_listeners.append(seen.append)
+        try:
+            r = self.post(sel)
+        finally:
+            orgtx.commit_listeners.remove(seen.append)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(store.load_org(self.slug)._work_find(old)[1])
+        self.assertEqual(len(self.runs), 1)          # no widening re-run
+        self.assertEqual(len(seen), 2, seen)         # the sweep, then the click
+        self.assertIn('work_items_archive', seen[0].changes.log_sections)
+        self.assertNotIn('work_items_archive', seen[-1].changes.log_sections)
+
     def test_immediate_modes_one_run_one_commit_then_wake(self):
         for i, mode in enumerate(('under_assignee', 'top_level')):
             with self.subTest(mode=mode):
@@ -144,13 +168,27 @@ class QuickStaffDoor(unittest.TestCase):
         self.assertEqual(self.post(sel).status_code, 200)
         del self.runs[:], self.woken[:]
         r0 = self.rev()
-        saves, hub = [], []
+        saves, hub, sweeping = [], [], []
         real_save = store.save_org
+        real_sweep = pgdoor.BEFORE['quick_staff']
+
+        def sweep(*a, **k):
+            # PG-3w decision 13: the archive sweep is its own transaction
+            # BEFORE admission, so a replay still sweeps (idempotent
+            # housekeeping); only the call's own transaction must not save
+            sweeping.append(1)
+            try:
+                return real_sweep(*a, **k)
+            finally:
+                sweeping.pop()
+
         # the legacy path returns a replay from INSIDE its lock, before the
         # save and before the hub fan-out: the door must roll back, not commit
         # an empty transaction
         with patch.object(store, 'save_org',
-                          lambda *a, **k: saves.append(1) or real_save(*a, **k)), \
+                          lambda *a, **k: (sweeping or saves.append(1))
+                          or real_save(*a, **k)), \
+                patch.dict(pgdoor.BEFORE, {'quick_staff': sweep}), \
                 patch.object(api, 'hub_changed', lambda *a, **k: hub.append(1)):
             r = self.post(sel)
         self.assertEqual(r.status_code, 200, r.text)

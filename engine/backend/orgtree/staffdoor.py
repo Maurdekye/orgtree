@@ -26,10 +26,30 @@ The children scan and the name probe iterate every node; that needs
 """
 from __future__ import annotations
 
-from typing import Any
+import contextlib
+from typing import Any, Iterator
 
 from . import pgdoor
 from .ledger import USER, LedgerError, slugify
+
+
+def _sweep_first(call: Any, a: dict[str, Any]) -> None:
+    """PG-3w (plan decision 13): the docket's archive move in its OWN
+    transaction before the call's, as every docket write does; the call then
+    runs with the move deferred (`_archive_deferred`), so it neither writes
+    the archive nor widens into it. An agent call names its org; an operator
+    op carries it as `org_slug` (`slug` in orgtree_staff's args is the ITEM)."""
+    from . import worktx
+    worktx.sweep(str(getattr(call, "org", None) or a["org_slug"]))
+
+
+@contextlib.contextmanager
+def _archive_deferred(org: Any) -> Iterator[None]:
+    org._work_defer_archive = True
+    try:
+        yield
+    finally:
+        org._work_defer_archive = False
 
 # org settings `Org.hire` / `_new_node` read to DECIDE (the phantom rule: a
 # writer of any of these takes it FOR UPDATE, so a hire holding it FOR SHARE
@@ -232,14 +252,16 @@ def staff_body(tx: pgdoor.AgentTx) -> Any:
     if missing:
         raise pgdoor.Widen(nodes=missing)
     drive: list[str] = []
-    result = api._staff_call(tx.org, tx.call.org, tx.node, a, drive, None, [],
-                             tx.pre.get("harness"))
+    with _archive_deferred(tx.org):
+        result = api._staff_call(tx.org, tx.call.org, tx.node, a, drive, None,
+                                 [], tx.pre.get("harness"))
     check_created(tx.spec, str(result.get("node") or ""))
     tx.after.drive.extend(drive)
     return result
 
 
-pgdoor.declare("orgtree_staff", staff_spec, body=staff_body, when=_staff_on_door)
+pgdoor.declare("orgtree_staff", staff_spec, body=staff_body, when=_staff_on_door,
+               before=_sweep_first)
 
 
 # --------------------------------- quick staff (the ticket menu's Staff…)
@@ -296,16 +318,18 @@ def quick_staff_body(tx: pgdoor.OpTx) -> Any:
     if missing:
         raise pgdoor.Widen(nodes=missing)
     drive: list[str] = []
-    result, undo, replayed = api._quick_staff_locked(
-        tx.org, tx.slug, tx.args["wid"], b, p["request_id"], p["selection"],
-        p["snap"], p.get("harness"), drive)
+    with _archive_deferred(tx.org):
+        result, undo, replayed = api._quick_staff_locked(
+            tx.org, tx.slug, tx.args["wid"], b, p["request_id"],
+            p["selection"], p["snap"], p.get("harness"), drive)
     if replayed:
         raise pgdoor._Replay(result)
     check_created(tx.spec, str(result.get("node") or ""))
     return result, undo, drive
 
 
-pgdoor.declare("quick_staff", quick_staff_spec, body=quick_staff_body)
+pgdoor.declare("quick_staff", quick_staff_spec, body=quick_staff_body,
+               before=_sweep_first)
 
 
 def quick_staff_undo_rows(org: Any, undo: dict[str, Any]) -> pgdoor.TxSpec:
@@ -333,11 +357,13 @@ def quick_staff_undo_body(tx: pgdoor.OpTx) -> bool:
     through `pgdoor._Replay` rather than committing an empty write."""
     from . import api
     a = tx.args
-    if not api._quick_staff_undo_locked(tx.org, a["wid"], a["request_id"],
-                                        a["nid"], a["undo"]):
+    with _archive_deferred(tx.org):
+        done = api._quick_staff_undo_locked(tx.org, a["wid"], a["request_id"],
+                                            a["nid"], a["undo"])
+    if not done:
         raise pgdoor._Replay(False)
     return True
 
 
 pgdoor.declare("quick_staff_undo", quick_staff_undo_spec,
-               body=quick_staff_undo_body)
+               body=quick_staff_undo_body, before=_sweep_first)
