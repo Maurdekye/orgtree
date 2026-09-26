@@ -182,6 +182,103 @@ def _migration_allowed() -> bool:
 # inner RLock, and a `Condition.wait` correctly SUSPENDS the held-time clock
 # across the release/re-acquire so a worker parked on the condition does not
 # read as a multi-second lock hold.
+class DocLockTripped(AssertionError):
+    """A DOC_LOCK acquisition while the tripwire is armed to raise."""
+
+    def __init__(self, site: str) -> None:
+        super().__init__(f"DOC_LOCK acquired at {site} with the tripwire armed "
+                         "(a writer still on the legacy lock, or the transition fence)")
+        self.site = site
+
+
+class _DocLockTripwire:
+    """THE DOC_LOCK TRIPWIRE (FENCE-OFF-PLAN S8). The fence can go only when
+    nothing live takes DOC_LOCK after startup; this makes that a measurement
+    rather than a claim. Once armed, every OUTERMOST acquisition (a
+    re-entrant one and a `Condition.wait` re-acquire are not counted) is
+    counted against its call site, `file:function:line` of the first frame
+    outside the lock machinery. Armed to raise, the acquisition raises
+    `DocLockTripped` instead, before taking the lock.
+
+    The engine arms it at the end of startup (`arm_doc_lock_tripwire_from_env`):
+    ORGTREE_DOC_LOCK_TRIPWIRE = off | count | raise, default `count` on
+    PostgreSQL and `off` otherwise. Tests arm it with `doc_lock_tripwire()`.
+    Counts are served by /api/diagnostics/state-access."""
+
+    _SKIP_FILES = frozenset({"contextlib.py", "threading.py"})
+    #: the lock machinery, and store.write_org (the helper, not a call site)
+    _SKIP_FUNCS = frozenset({"acquire", "__enter__", "_acquire_restore", "write_org"})
+
+    def __init__(self) -> None:
+        self.mode = "off"                   # off | count | raise
+        self.armed_at: float | None = None
+        self.counts: dict[str, int] = {}
+        self._mu = threading.Lock()
+
+    def _site(self, f: Any) -> str:
+        here = (__file__, profiling.__file__)
+        while f is not None:
+            co = f.f_code
+            if os.path.basename(co.co_filename) in self._SKIP_FILES                     or (co.co_filename in here and co.co_name in self._SKIP_FUNCS):
+                f = f.f_back
+                continue
+            return f"{os.path.basename(co.co_filename)}:{co.co_name}:{f.f_lineno}"
+        return "?"
+
+    def hit(self, frame: Any) -> None:
+        site = self._site(frame)
+        with self._mu:
+            self.counts[site] = self.counts.get(site, 0) + 1
+        if self.mode == "raise":
+            raise DocLockTripped(site)
+
+    def report(self) -> dict[str, Any]:
+        with self._mu:
+            return {"mode": self.mode, "armed_at": self.armed_at,
+                    "total": sum(self.counts.values()),
+                    "sites": dict(sorted(self.counts.items(), key=lambda kv: -kv[1]))}
+
+
+_TRIPWIRE = _DocLockTripwire()
+
+
+def arm_doc_lock_tripwire(mode: str) -> None:
+    """Arm (`count` / `raise`) or disarm (`off`) the tripwire; counts reset."""
+    if mode not in ("off", "count", "raise"):
+        raise ValueError(f"tripwire mode must be off, count or raise, not {mode!r}")
+    with _TRIPWIRE._mu:                             # pyright: ignore[reportPrivateUsage]
+        _TRIPWIRE.counts = {}
+        _TRIPWIRE.armed_at = None if mode == "off" else time.time()
+        _TRIPWIRE.mode = mode
+
+
+def arm_doc_lock_tripwire_from_env() -> str:
+    """The end-of-startup arming (api startup): ORGTREE_DOC_LOCK_TRIPWIRE,
+    default `count` on PostgreSQL and `off` otherwise. Returns the mode."""
+    mode = os.environ.get("ORGTREE_DOC_LOCK_TRIPWIRE", "").strip().lower()         or ("count" if STORE_BACKEND == "postgres" else "off")
+    arm_doc_lock_tripwire(mode)
+    return mode
+
+
+def doc_lock_tripwire_report() -> dict[str, Any]:
+    """{mode, armed_at, total, sites: {file:function:line: n}}."""
+    return _TRIPWIRE.report()
+
+
+@contextlib.contextmanager
+def doc_lock_tripwire(raising: bool = True) -> Iterator[dict[str, int]]:
+    """For tests: arm the tripwire for the block (raising by default) and
+    yield its live per-site counts; the previous state is restored after."""
+    with _TRIPWIRE._mu:                             # pyright: ignore[reportPrivateUsage]
+        saved = (_TRIPWIRE.mode, _TRIPWIRE.armed_at, _TRIPWIRE.counts)
+    arm_doc_lock_tripwire("raise" if raising else "count")
+    try:
+        yield _TRIPWIRE.counts
+    finally:
+        with _TRIPWIRE._mu:                         # pyright: ignore[reportPrivateUsage]
+            _TRIPWIRE.mode, _TRIPWIRE.armed_at, _TRIPWIRE.counts = saved
+
+
 class _InstrumentedDocLock(profiling.TimedRLock):
     """`profiling.TimedRLock` (per-REQUEST lock_wait_ms / mutate_ms, the
     Condition protocol, the substitutability contract its own docstring
@@ -296,6 +393,8 @@ class _InstrumentedDocLock(profiling.TimedRLock):
 
     def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
         outer = getattr(self._held, "depth", 0) == 0
+        if outer and _TRIPWIRE.mode != "off":
+            _TRIPWIRE.hit(sys._getframe(1))     # S8: count (or refuse) before queueing
         t0 = time.perf_counter() if outer else 0.0
         admitted, ahead = self._admit(blocking, timeout)
         if outer:
