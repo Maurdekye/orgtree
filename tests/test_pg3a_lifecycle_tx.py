@@ -1359,5 +1359,91 @@ class RenameRepair(unittest.TestCase):
         self.assertEqual(self.view(self.slug), before)
 
 
+class StaleShareAndLogRows(unittest.TestCase):
+    """Review f1 + nit (v3-popout-review-opus55, 2026-09-26): a stale plan
+    that misses a row locked only FOR SHARE (an ancestor chain the writer
+    decides on), or a (dict-log, owner) row, must widen and converge — not
+    run on an unlocked decision input, and not end in an UnlockedWrite."""
+
+    def build(self, slug):
+        org = store.create_org(slug)
+        org.hire(ledger.USER, None, "luna", 6, "root")
+        org.hire(ledger.USER, "root", "luna", 3, "a")
+        org.hire(ledger.USER, "a", "luna", 2, "x")
+        org.hire(ledger.USER, "x", "luna", 0, "x1")
+        org.hire(ledger.USER, "root", "luna", 0, "b")
+        store.save_org(org)
+        with store.DOC_LOCK:
+            o = store.load_org(slug)
+            # a mail_log row owned by x1: deleting x1 writes it, so a rerun
+            # that widened to x1 without its (mail_log, x1) row is refused
+            o.d.setdefault("mail_log", {}).setdefault("x1", []).append(
+                {"at": "2026-09-26T00:00:00Z", "from": "x", "text": "hello"})
+            store.save_org(o)
+
+    def setUp(self):
+        self.slug = "pg3a-st-" + str(time.time_ns())
+        self.build(self.slug)
+
+    def tearDown(self):
+        store._POOL.close_all(self.slug)
+
+    def test_a_stale_share_chain_widens_and_the_rerun_holds_it(self):
+        # x1 -> a: LCA(x, a) = a, so both credit legs stay below root and
+        # root is locked ONLY FOR SHARE (an ancestor chain the move decides
+        # on). The first plan drops it; the body must widen, and the rerun
+        # must hold it.
+        real = lifecycle_tx._move_rows
+        seen = []
+
+        def stale(org, actor, nid, new_parent):
+            u, s = real(org, actor, nid, new_parent)
+            seen.append(("root" in u, "root" in s))
+            if len(seen) == 1:
+                s = s - {"root"}
+            return u, s
+        held = []
+        real_need = lifecycle_tx._need
+
+        def spy(org, rows, held_nodes, held_share):
+            held.append((set(held_nodes), set(held_share)))
+            return real_need(org, rows, held_nodes, held_share)
+        with patch.object(lifecycle_tx, "_move_rows", stale), \
+             patch.object(lifecycle_tx, "_need", spy):
+            lifecycle_tx.move(self.slug, ledger.USER, "x1", "a")
+        self.assertEqual(seen[0], (False, True))       # root is share-only here
+        self.assertGreaterEqual(len(held), 2)           # widened and reran
+        self.assertNotIn("root", held[0][0] | held[0][1])
+        self.assertIn("root", held[-1][1])              # the rerun holds it
+        self.assertEqual(store.load_org(self.slug).node("x1")["parent"], "a")
+
+    def test_a_delete_widened_to_a_new_node_also_takes_its_log_rows(self):
+        # the first plan misses x1 (a new report): the rerun must hold x1 AND
+        # its ("mail_log", "x1") owner row, or its commit is refused
+        real = lifecycle_tx._delete_plan
+        calls = []
+
+        def stale(org, actor, nid):
+            u, s, secs, lg = real(org, actor, nid)
+            calls.append(1)
+            if len(calls) == 1:
+                u = u - {"x1"}
+                lg = tuple(x for x in lg if not (isinstance(x, tuple) and x[1] == "x1"))
+            return u, s, secs, lg
+        with patch.object(lifecycle_tx, "_delete_plan", stale):
+            r = lifecycle_tx.delete(self.slug, ledger.USER, "x")
+        self.assertEqual(r["deleted"], ["x", "x1"])
+
+    def test_widen_carries_missing_log_rows(self):
+        o = store.load_org(self.slug)
+        upd, share, secs, logs = lifecycle_tx._delete_plan(o, ledger.USER, "x")
+        with halt.txn(self.slug, nodes=upd, share_nodes=share, sections=secs,
+                      logs=[x for x in logs if x != ("mail_log", "x1")]) as tx:
+            with self.assertRaises(lifecycle_tx.Widen) as cm:
+                lifecycle_tx._plan_gap(tx, upd, share, secs, (), logs)
+        self.assertEqual(cm.exception.logs, {("mail_log", "x1")})
+        self.assertEqual(cm.exception.nodes, set())
+
+
 if __name__ == "__main__":
     unittest.main()
