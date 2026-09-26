@@ -104,6 +104,33 @@ class DoorOnOrgTx(unittest.TestCase):
         self.assertEqual(store.load_org(self.slug).node('other')['charter'], 'c+')
         self.assertEqual(self.rev(), r0 + 1)             # ONE commit
 
+    def test_unlocked_owner_row_widens_to_that_owner(self):
+        # PG-3d splits mail per owner: PG-0 refuses the box as the doc key
+        # 'mail\x1fother', and the door must widen with ('mail', 'other') —
+        # org_tx refuses the joined string (was a ValueError, not a widening)
+        runs, r0 = [], self.rev()
+
+        def body(tx):
+            runs.append(tx.spec.sections)
+            tx.org.post_mail('worker', 'other', 'hi')
+            return 'ok'
+
+        self.assertEqual(self.call(body, pgdoor.TxSpec()), 'ok')
+        self.assertIn(('mail', 'other'), runs[-1])
+        self.assertNotIn('mail', runs[-1])     # the owner row, not the container
+        self.assertEqual(self.rev(), r0 + 1)   # ONE commit
+        box = store.load_org(self.slug).d.get('mail', {}).get('other') or []
+        self.assertEqual([m.get('body') for m in box][-1:], ['hi'])
+
+    def test_a_held_container_covers_its_owner_rows(self):
+        held = pgdoor.TxSpec(sections=('mail',))
+        self.assertTrue(held.covers(pgdoor.TxSpec(
+            sections=(('mail', 'other'),))).empty())
+        self.assertTrue(held.covers(pgdoor.TxSpec(
+            share_sections=(('mail', 'other'),))).empty())
+        self.assertFalse(pgdoor.TxSpec(sections=(('mail', 'x'),)).covers(
+            pgdoor.TxSpec(sections=(('mail', 'other'),))).empty())
+
     def test_refusal_of_a_row_already_held_is_not_retried(self):
         with self.assertRaises(LedgerError):
             self.call(lambda tx: (_ for _ in ()).throw(pgdoor.Widen(nodes=['worker'])),
