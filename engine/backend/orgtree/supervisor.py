@@ -35218,8 +35218,10 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
             # one was simply left alone. The window is one THIS fix opened.
             # Reproduced: tests/restart_reconcile_spend_race_probe.py.
             # See `_marker_is_same` for why identity is `at` first.
-            with store.DOC_LOCK:
-                _spend = store.load_org(slug)
+            # S7: one row transaction on this seat (was DOC_LOCK + a whole
+            # load/save); the read and the pop stay one observation
+            with orgtx.org_tx(slug, nodes=[nid]) as _spend_tx:
+                _spend = _spend_tx.org
                 _snode = _spend.node(nid) if nid in _spend.nodes else None
                 _cur = _snode.get("inflight") if _snode is not None else None
                 # READ IN THE SAME LOCK AS `_cur`, and that is not tidiness.
@@ -35232,7 +35234,6 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
                 _ours = _marker_is_same(_cur, inf)
                 if _ours:
                     _spend.node(nid).pop("inflight", None)
-                    store.save_org(_spend)
             if not _ours and (_cur or _ended_newer):
                 # ⚠ A NEWER TURN HAS ALREADY STARTED — DROP THE OLD REPLAY.
                 # USER RULING 2026-09-19: "if restart recovery discovers that
@@ -35345,17 +35346,17 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
         # one is the honest outcome, see the drop above.)
         undispatched = inflight[dispatched:]
         if undispatched:
-            with store.DOC_LOCK:
-                back = store.load_org(slug)
+            # S7: a row transaction on exactly the seats being restored
+            with orgtx.org_tx(slug, nodes=[n for n, _ in undispatched]) as _back_tx:
+                back = _back_tx.org
                 restored = []
                 for nid, inf in undispatched:
                     if nid in back.nodes and not back.node(nid).get("inflight"):
                         back.node(nid)["inflight"] = inf
                         restored.append(nid)
-                if restored:
-                    store.save_org(back)
-                    print(f"[orgtree] {slug}: restored {len(restored)} "
-                          f"undispatched turn marker(s): {restored}")
+            if restored:
+                print(f"[orgtree] {slug}: restored {len(restored)} "
+                      f"undispatched turn marker(s): {restored}")
     # state-audit F1: nodes the queued-switch apply just unfroze. Driven with
     # the ACCURATE wake, unconditionally (like the inflight replays — a node
     # this list names was stranded by the crossing, and active_only gates only
@@ -35371,7 +35372,7 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
     # no longer names. `drive_unfrozen_by_switch` consumes the marker.
     if not latched:
         try:
-            _o_sw = store.load_org(slug)
+            _o_sw = orgtx.org_read(slug)
             for _n2, _v2 in _o_sw.nodes.items():
                 if (_v2.get("switch_resume") and not _v2.get("frozen")
                         and _v2.get("state") == "live"
@@ -35423,9 +35424,10 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
                      _inventory=inventory, mail_ping=True)
     # An explicit unhalt may have committed just before shutdown. Those
     # retained commands/carriers have durable intent even without waking mail.
-    with store.DOC_LOCK:
-        pending_halts = [nid for nid, n in store.load_org(slug).nodes.items()
-                         if n.get("halt_queue") and not n.get("halt")]
+    # S7: a lock-free read (was DOC_LOCK); resume_pending decides under its
+    # own transaction
+    pending_halts = [nid for nid, n in orgtx.org_read(slug).nodes.items()
+                     if n.get("halt_queue") and not n.get("halt")]
     for nid in pending_halts:
         halt.resume_pending(slug, nid)
     return marked
