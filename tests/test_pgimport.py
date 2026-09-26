@@ -23,7 +23,7 @@ import import_provenance  # noqa: F401  asserts orgtree resolves inside this che
 
 import importlib.util
 
-from orgtree import store
+from orgtree import ledger, store
 
 _SPEC = importlib.util.spec_from_file_location(
     "pgimport", Path(__file__).resolve().parents[1] / "tools" / "pypg" / "pgimport.py")
@@ -250,6 +250,17 @@ class Recognition(Base):
         conn.close()
         self.assertIn("section 'lifecycle' has both a document row and log rows",
                       pgimport.problems(pgimport.extract_sqlite("acme", db)))
+
+    def test_keys_found_in_the_real_data_are_recognised(self) -> None:
+        # the 2026-09-26 dry run on a copy of the real orgs refused these;
+        # the first four are in ledger.NODE_KEYED_SECTIONS, the last is a
+        # legacy key nothing reads
+        for key in ("reply_incarnation", "mail_drain_version", "op_receipts_meta",
+                    "tool_result_receipts", "chain_notices"):
+            org = self.rows_for(sample_doc())
+            org.rows["doc"].append((key, "{}"))
+            self.assertEqual(pgimport.problems(org), [], key)
+        self.assertTrue(set(ledger.NODE_KEYED_SECTIONS) <= pgimport.KNOWN_DOC_KEYS)
 
     def test_only_logs_that_used_to_be_document_rows_may_be_one(self) -> None:
         org = self.rows_for(sample_doc())

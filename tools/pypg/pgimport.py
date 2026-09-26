@@ -72,7 +72,7 @@ if str(_REPO / "engine" / "backend") not in sys.path:
 # The tool READS SQLite/JSON sources through the store's SQLite code; an
 # operator shell that already says postgres must not change how it reads.
 os.environ["ORGTREE_STORE"] = "sqlite"
-from orgtree import store  # noqa: E402  (after the backend is on the path)
+from orgtree import ledger, store  # noqa: E402  (after the backend is on the path)
 
 SCHEMA = "orgtree.pgimport/v1"
 TABLES: tuple[str, ...] = ("doc", "nodes", "log_d", "log_l", "meta")
@@ -100,7 +100,9 @@ MARKER_EXT = ".pg"
 #: outside this list REFUSES the cutover until someone has looked at it and
 #: added it here: the rows would carry it faithfully, but the ticket requires
 #: that nothing unrecognised is switched over unseen. Built from ``Org.create``
-#: and every top-level access in the backend at bb44eb3 (see the tests).
+#: and every top-level access in the backend at bb44eb3 (see the tests), plus
+#: ledger.NODE_KEYED_SECTIONS, the backend's own census of every top-level
+#: section (test_principal_identity fails on a key missing from it).
 KNOWN_DOC_KEYS = frozenset("""
 version slug name created tiers models workspace dirs permission_mode default_tools
 default_visibility max_top_grant default_top_grant credit_requests compact_at
@@ -118,7 +120,12 @@ watchdogs watchdog_history watchdog_tombs work_items work_items_archive work_ide
 work_deleted_names user_outbox op_receipts scope_requests reservations repositories
 wakes executing max_depth max_children running_commit running_backend_pid
 _migrations _actors_typed whole_grants_v1 lifecycle
-""".split())
+""".split()) | frozenset(ledger.NODE_KEYED_SECTIONS) | frozenset({
+    # seeded by older engines and READ BY NOTHING (ledger.py's Org.create
+    # comment); found in the real data's dry run 2026-09-26. Imported as it
+    # is: refusing it would mean editing the user's data to get past it.
+    "chain_notices",
+})
 
 #: List logs that an older engine kept as ONE document row and the store now
 #: loads from that row and converts to log rows on its next save (store.py's
