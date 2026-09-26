@@ -51,7 +51,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import mailtx, pgdoor
-from .ledger import USER
+from .ledger import USER, actor_kind
 
 # org settings the funding decisions read (FOR SHARE: the phantom rule — a
 # settings writer takes them FOR UPDATE)
@@ -213,8 +213,13 @@ def watchdog_fire_rows(owner: str) -> pgdoor.TxSpec:
 
 
 def watchdog_action_rows(org: Any, actor: str, wid: str) -> pgdoor.TxSpec:
-    """pause/resume/remove by `actor`: the dog rows, plus the owner's chain
-    up to the actor FOR SHARE — the downward-authority check reads it."""
+    """pause/resume/remove/supersede by `actor`: the dog rows, plus the
+    owner's chain up to the actor FOR SHARE — the downward-authority check
+    reads it. The user (or the system) passes that check without reading any
+    node row (`Org._require_authority`), so for them it is the dog rows only
+    — the canvas route (`api.watchdog_action`, fence-off S10)."""
+    if actor_kind(actor) in ("user", "system"):
+        return watchdog_rows()
     w = next((d for d in org.d.get("watchdogs") or [] if d.get("id") == wid),
              None)
     owner = str(w.get("owner") or "") if w else ""
@@ -226,7 +231,7 @@ def watchdog_action_rows(org: Any, actor: str, wid: str) -> pgdoor.TxSpec:
 def watchdog_spec(snapshot: Any, body: Any, a: dict[str, Any]
                   ) -> pgdoor.TxSpec:
     act = str(a.get("action") or "")
-    if act in ("pause", "resume", "remove"):
+    if act in ("pause", "resume", "remove", "supersede"):
         return watchdog_action_rows(snapshot, body.node,
                                     str(a.get("id") or ""))
     return watchdog_rows()

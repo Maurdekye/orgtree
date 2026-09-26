@@ -9255,14 +9255,21 @@ class WatchdogAction(Body):
 
 @app.post("/api/orgs/{slug}/watchdogs")
 def watchdog_action(slug: str, body: WatchdogAction) -> dict[str, Any]:
-    """FR-18: the user manages any dog from the canvas detail panel."""
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-            r = org.watchdog_action(USER, body.id, body.action, body.reason)
-        except LedgerError as e:
-            raise HTTPException(422, str(e))
-        store.save_org(org)
+    """FR-18: the user manages any dog from the canvas detail panel.
+
+    PG-3c (fence-off S10): one operator transaction on the dog rows
+    (`rcdoor.watchdog_action_rows` — for the user that is the watchdog
+    sections and the events log; `_require_authority` reads no node row for
+    a user actor), not DOC_LOCK + a whole-document save."""
+    def _act(h: Any) -> dict[str, Any]:
+        rcdoor.hold(slug, rcdoor.watchdog_action_rows(h.org, USER, body.id))
+        return h.org.watchdog_action(USER, body.id, body.action, body.reason)
+
+    try:
+        r = rcdoor.run_op(slug, rcdoor.watchdog_action_rows(
+            orgtx.org_read(slug), USER, body.id), _act)
+    except LedgerError as e:
+        raise HTTPException(422, str(e))
     hub_changed(slug)
     return r
 
