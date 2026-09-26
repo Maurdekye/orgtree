@@ -9311,7 +9311,6 @@ class BatchResolve(Body):
     scope: list[str] | None = None
 
 
-@app.post("/api/orgs/{slug}/nodes/{nid}/batch")
 def _batch_rows(org: Org, nid: str) -> pgdoor.TxSpec:
     """The rows `Org.resolve_batch` + the composed answer mail write for
     `nid`'s open batch, derived from `org`: the three request tables (asks
@@ -9346,6 +9345,8 @@ def _batch_rows(org: Org, nid: str) -> pgdoor.TxSpec:
     return rcdoor.union(*parts)
 
 
+
+@app.post("/api/orgs/{slug}/nodes/{nid}/batch")
 def batch_resolve(slug: str, nid: str, body: BatchResolve) -> dict[str, Any]:
     """FR-14: resolve a node's whole request batch — question answers, the
     credit decision and per-item scope grants — in one submit, one lock, one
