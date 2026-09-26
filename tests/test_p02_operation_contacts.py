@@ -2013,13 +2013,14 @@ class OperationContacts(unittest.TestCase):
     }
     #: the warm rows whose saves re-write a log_d row naming the manager the
     #: agent door unhalted earlier (an empty steer_attempts entry that
-    #: scan_steer_records set on the shared document), up to the operator unhalt
+    #: scan_steer_records set on the shared document), up to the operator unhalt.
+    #: op-halt and op-unhalt left the set when halt moved onto its own row
+    #: transaction (halt.py 0d71fb3/d656fc3): they no longer re-save the document
     CT_UNHALT_CARRY = {"control.restart-wake-arm", "control.restart-wake-status",
                        "control.restart-wake-cancel", "control.self-restart:non-desktop",
                        "control.prime-restart-arm:non-desktop",
                        "control.prime-restart-status:non-desktop",
-                       "control.prime-restart-cancel:non-desktop", "control.op-unstick",
-                       "control.op-halt", "control.op-unhalt"}
+                       "control.prime-restart-cancel:non-desktop", "control.op-unstick"}
 
     def ct_rows(self):
         return [r for r in self.doc["rows"] if r["contract"] in self.CT_MAIN
@@ -2230,9 +2231,11 @@ class OperationContacts(unittest.TestCase):
         # @net: with no enabled hub: the product's own refusal
         self.assertIn("no mailserver is configured", one("refusal:org-send-net-no-hub")["detail"])
         # the reply-events routes answer a raw 500 for an unknown org or node
-        for variant in ("refusal:reply-events-ghost-node", "refusal:reply-events-no-org",
-                        "refusal:reply-events-clear-ghost"):
+        for variant in ("refusal:reply-events-ghost-node", "refusal:reply-events-no-org"):
             self.assertEqual(one(variant)["http_status"], 500, variant)
+        # ... except the clear, which PG-3d put on org_tx (8493f99): a ghost
+        # node is now a proper 404
+        self.assertEqual(one("refusal:reply-events-clear-ghost")["http_status"], 404)
         # send_file touches the filesystem and the deliveries sidecar only: no
         # call writes the org's store, and a keyed call files no receipt
         for r in self.rows(contract="exchange.send-file"):

@@ -376,7 +376,8 @@ class ContactFacets(unittest.TestCase):
             with self.subTest(contract=contract):
                 cold = self.exact(contract, "migration:legacy-json", "cold")
                 h = cold["harness"]
-                self.assertEqual((h["writes"], h["writes"] - h["writes_in_transaction"]), (68, 1))
+                # 73 since PG-3d's per-owner split of mail/delivering/notices (4408075)
+                self.assertEqual((h["writes"], h["writes"] - h["writes_in_transaction"]), (73, 1))
         for contract in routes:
             with self.subTest(contract=contract):
                 refused = self.exact(contract, "migration:refused", "cold")
@@ -479,7 +480,10 @@ class ContactFacets(unittest.TestCase):
                 with self.subTest(variant=suffix, condition=condition):
                     r = self.exact("mail.human-send", "mail.human-send" + suffix, condition)
                     self.assertEqual((r["http_status"], r["unknown_contacts"]), (200, []))
-                    want = self.FULL if condition == "cold" or suffix == ":attachment" else ["meta", "nodes"]
+                    # PG-3d: a send runs on one org_tx that reads its declared rows in
+                    # the transaction, so a warm send reads the row tables too; only
+                    # a session command (no mail) stays on the shared snapshot
+                    want = ["meta", "nodes"] if condition == "warm" and suffix == ":session-command" else self.FULL
                     self.assertEqual(self.read(r), want)
                     if suffix == ":attachment":
                         self.assertTrue(r["audit"].get("stat"))
@@ -493,9 +497,14 @@ class ContactFacets(unittest.TestCase):
         unknown = self.exact("mail.human-send", "refusal:human-unknown-node", "warm")
         self.assertEqual((unknown["http_status"], self.written(unknown)), (422, []))
         self.assertGreaterEqual(self.foreign(unknown), 100)
-        for variant in ("refusal:human-empty", "refusal:human-target-and-reply", "refusal:human-command-archived"):
+        for variant in ("refusal:human-empty", "refusal:human-target-and-reply"):
             with self.subTest(variant=variant):
                 self.assertEqual(self.exact("mail.human-send", variant, "warm")["census"]["statements"], 0)
+        # PG-3d: the archived-target refusal is decided inside the send's org_tx,
+        # after its row reads (it still writes nothing)
+        archived = self.exact("mail.human-send", "refusal:human-command-archived", "warm")
+        self.assertGreater(archived["census"]["statements"], 0)
+        self.assertEqual(self.written(archived), [])
 
     def test_human_send_effects_observed_so_far(self):
         for condition in ("cold", "warm"):
@@ -578,7 +587,9 @@ class ContactFacets(unittest.TestCase):
                 self.assertEqual(self.written(self.exact("credits.decide", "credits.decide:dry", condition)), [])
                 for contract in ("credits.request", "credits.reallocate"):
                     self.assertEqual(self.written(self.exact(contract, contract + ":keyed-replay", condition)), [])
-        self.assertEqual(self.exact("credits.decide", "credits.decide:dry", "warm")["census"]["statements"], 0)
+        # PG-3c (824ea66): the dry-run preview is an org_read, so it reads rows
+        # even warm; it still writes nothing (asserted above)
+        self.assertGreater(self.exact("credits.decide", "credits.decide:dry", "warm")["census"]["statements"], 0)
         refusals = {r["variant"]: r for r in self.funding_rows() if r["variant"].startswith("refusal:")}
         self.assertEqual(len(refusals), 11)
         argument = {"refusal:request-not-a-number", "refusal:request-not-top-level", "refusal:reallocate-upward",

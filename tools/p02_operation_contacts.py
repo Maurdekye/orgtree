@@ -3610,7 +3610,7 @@ class Probe:
                 ("exchange.reply-events-count", "refusal:reply-events-no-org", "GET",
                  "/api/orgs/nope-org/nodes/ex-mid/reply-events", {}, "500 legacy: raw LedgerError"),
                 ("exchange.reply-events-clear", "refusal:reply-events-clear-ghost", "DELETE",
-                 f"{base}/nodes/ghost/reply-events", {}, "500 legacy: raw LedgerError"),
+                 f"{base}/nodes/ghost/reply-events", {}, "404 no such node (PG-3d: clear on org_tx)"),
                 ("exchange.mail-retract", "refusal:retract-gone", "DELETE",
                  f"{base}/nodes/ex-mid/mail/nope", {}, "the mail is gone"),
                 ("exchange.orgs-list", "refusal:route-no-token", "GET", "/api/orgs",
