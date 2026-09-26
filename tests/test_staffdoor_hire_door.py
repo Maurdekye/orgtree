@@ -134,5 +134,81 @@ class HireDoor(unittest.TestCase):
         self.assertEqual(self.sent, [])
 
 
+    # ---- f1 (review of 3ebb57b): a hire that writes the docket
+
+    def seed(self, fn):
+        """Write the org outside the door (the DOC_LOCK guard lifted)."""
+        org = store.load_org(self.slug)
+        out = fn(org)
+        self.p[-1].stop()
+        store.save_org(org)
+        self.p[-1].start()
+        return out
+
+    def owner(self, wid):
+        o = store.load_org(self.slug)._work_find(wid)[0].get('owner')
+        return o.get('node') if isinstance(o, dict) else o
+
+    def committed(self, fn):
+        seen = []
+        orgtx.commit_listeners.append(seen.append)
+        try:
+            return fn(), seen
+        finally:
+            orgtx.commit_listeners.remove(seen.append)
+
+    def test_hire_with_a_work_item_is_one_run(self):
+        # the docket row and the item's previous owner (sent the handover
+        # notice) are declared: without them the first run is refused at
+        # commit and a widened second run does the hire
+        wid = self.seed(lambda o: o.work_create(
+            'mid', 'Item', 'Problem. Fix.', owner='peer')['created'])
+        r = self.hire('mid', name='kid', work_item=wid)
+        self.assertEqual(r['node'], 'kid')
+        self.assertEqual(len(self.runs), 1)           # no widened re-run
+        self.assertEqual(self.owner(wid), 'kid')
+
+    def test_hire_with_review_items_is_one_run(self):
+        wid = self.seed(lambda o: o.work_create(
+            'mid', 'Item', 'Problem. Fix.', owner='mid')['created'])
+        r = self.hire('mid', name='rev', review_items=[wid])
+        self.assertEqual(r['node'], 'rev')
+        self.assertEqual(r.get('review_items'), [wid])
+        self.assertEqual(len(self.runs), 1)
+
+    def test_a_docket_writing_hire_sweeps_the_archive_first(self):
+        # PG-3w decision 13, as staff / quick staff take it: the archive move
+        # is its OWN org_tx before the hire, and the hire defers the move,
+        # so it never writes (or widens into) the archive
+        def expired(o):
+            # the drop is the LAST docket write here: any later one would
+            # already sweep the dropped item inline
+            wid = o.work_create('mid', 'Item', 'Problem. Fix.',
+                                owner='peer')['created']
+            old = o.work_create('mid', 'Old item', 'Problem. Fix.',
+                                owner='peer')['created']
+            o.work_update('peer', old, done_so_far=['x'],
+                          working_on_next=['y'], status='dropped',
+                          dropped_reason='Cancelled by the test; nothing to resume.')
+            return old, wid
+        old, wid = self.seed(expired)
+        self.assertFalse(store.load_org(self.slug)._work_find(old)[1])
+        _r, seen = self.committed(
+            lambda: self.hire('mid', name='kid', work_item=wid))
+        self.assertTrue(store.load_org(self.slug)._work_find(old)[1])
+        self.assertEqual(len(self.runs), 1)           # no widening re-run
+        self.assertEqual(len(seen), 2, seen)          # the sweep, then the hire
+        self.assertIn('work_items_archive', seen[0].changes.log_sections)
+        self.assertNotIn('work_items_archive', seen[-1].changes.log_sections)
+
+    def test_a_plain_hire_takes_no_sweep_transaction(self):
+        _r, seen = self.committed(lambda: self.hire('mid', name='kid'))
+        self.assertEqual(len(seen), 1, seen)
+        self.assertNotIn('work_items',
+                         staffdoor.hire_spec(store.load_org(self.slug),
+                                             SimpleNamespace(node='mid'),
+                                             {'name': 'k2'}).sections)
+
+
 if __name__ == '__main__':
     unittest.main()
