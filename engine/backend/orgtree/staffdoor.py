@@ -115,9 +115,41 @@ def hire_rows(org: Any, actor: str, a: dict[str, Any]) -> pgdoor.TxSpec:
                          share_sections=HIRE_SETTINGS, logs=HIRE_LOGS)
 
 
+def _writes_docket(a: dict[str, Any]) -> bool:
+    """A hire carrying `work_item` or `review_items` also writes the docket
+    (`api._seat_finish`: `work_assign` / `work_review_grant`)."""
+    return (bool(str(a.get("work_item") or "").strip())
+            or a.get("review_items") is not None)
+
+
+def agent_hire_rows(org: Any, actor: str, a: dict[str, Any]) -> pgdoor.TxSpec:
+    """`orgtree_hire`'s rows: `hire_rows`, and when the hire writes the
+    docket, `work_items` and the assigned item's CURRENT owner (sent the
+    handover notice), exactly as `staff_rows` takes them. A reviewer grant's
+    other noticed parties are rarer and ride the door's widening."""
+    h = hire_rows(org, actor, a)
+    if not _writes_docket(a):
+        return h
+    nodes = h.nodes
+    wi = str(a.get("work_item") or "").strip()
+    if wi:
+        prev = _item_owner(org, wi)
+        if prev and prev in org.nodes and prev not in nodes:
+            nodes = nodes + (prev,)
+    return pgdoor.TxSpec(nodes=nodes, sections=h.sections + ("work_items",),
+                         share_sections=h.share_sections, logs=h.logs)
+
+
 def hire_spec(snapshot: Any, body: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
     """The callable spec registered for `orgtree_hire`."""
-    return hire_rows(snapshot, body.node, a)
+    return agent_hire_rows(snapshot, body.node, a)
+
+
+def _hire_sweep_first(call: Any, a: dict[str, Any]) -> None:
+    """PG-3w decision 13 for the hire that writes the docket; a plain hire
+    touches no docket row and skips the sweep's transaction."""
+    if _writes_docket(a):
+        _sweep_first(call, a)
 
 
 def require_rows(held: pgdoor.TxSpec, org: Any, actor: str,
@@ -125,7 +157,7 @@ def require_rows(held: pgdoor.TxSpec, org: Any, actor: str,
     """Re-derive the rows from the LOCKED document; if any is not held (the
     tree or a name moved since the snapshot), `Widen` so the door re-runs
     with them. Call it FIRST in the body, before anything is written."""
-    need = hire_rows(org, actor, a)
+    need = agent_hire_rows(org, actor, a)
     missing = [n for n in need.nodes if n not in held.nodes]
     if missing:
         raise pgdoor.Widen(nodes=missing)
@@ -152,14 +184,20 @@ def hire_body(tx: pgdoor.AgentTx) -> Any:
     a = tx.args
     require_rows(tx.spec, tx.org, tx.node, a)
     drive: list[str] = []
-    result = api._hire_seat(tx.org, tx.call.org, tx.node, a, drive,
-                            tx.pre.get("harness"))
+    # decision 13: the sweep ran first (`_hire_sweep_first`), so the docket
+    # write here defers the archive move instead of widening into it
+    defer = (_archive_deferred(tx.org) if _writes_docket(a)
+             else contextlib.nullcontext())
+    with defer:
+        result = api._hire_seat(tx.org, tx.call.org, tx.node, a, drive,
+                                tx.pre.get("harness"))
     check_created(tx.spec, str(result.get("node") or ""))
     tx.after.drive.extend(drive)
     return result
 
 
-pgdoor.declare("orgtree_hire", hire_spec, body=hire_body)
+pgdoor.declare("orgtree_hire", hire_spec, body=hire_body,
+               before=_hire_sweep_first)
 
 
 # ------------------------------------------------ the operator's hire (op)
