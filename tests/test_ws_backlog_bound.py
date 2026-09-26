@@ -186,6 +186,8 @@ class WsBacklogBound(unittest.TestCase):
             self._flood(ws, 400)                # ~6 MB: enough to block a write
             self.assertTrue(_wait(lambda: api.hub.drops["stuck"] > self.drops0["stuck"], 15),
                             "a write stalled past the timeout was never dropped")
+            self.assertEqual(api.hub.drops["abort_failed"], self.drops0["abort_failed"],
+                             "the transport could not be reached to abort it")
             self.assertNotIn(ws, _room())
             self.assertTrue(_connection_ended(s), "the stalled connection was never torn down")
         finally:
