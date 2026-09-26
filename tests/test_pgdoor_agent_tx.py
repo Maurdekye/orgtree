@@ -364,6 +364,26 @@ class AgentTxTest(unittest.TestCase):
                          ['then:then'])
         self.assertEqual(order, ['then', 'on_commit'])
 
+    def test_op_tx_refuses_a_body_that_asks_for_a_wake(self):
+        # N1: op_tx has no drive step (the agent door's `_agent_door_tail`
+        # is the only consumer of after.drive), so a body shared with the
+        # agent door that queued a wake-up would lose it silently. The door
+        # refuses such a body inside the transaction: nothing commits and no
+        # after-commit callable runs.
+        pgdoor.declare('op_wake', pgdoor.TxSpec(nodes=(W,)))
+        ran = []
+
+        def body(tx):
+            tx.org.node(W)['n'] += 1
+            tx.after.then.append(lambda res: ran.append(res))
+            tx.after.drive.append(P)
+            return {'ok': True}
+
+        with self.assertRaisesRegex(RuntimeError, 'after.drive'):
+            pgdoor.op_tx(SLUG, 'op_wake', None, {}, body,
+                         on_commit=lambda org: ran.append('on_commit'))
+        self.assertEqual((self.fs.commits, self.n(), ran), (0, 0, []))
+
     # ------------------------------------------------------- the halt rule
     def test_halted_refuses_and_runs_nothing(self):
         self.fs.nodes[W]['halt'] = True
