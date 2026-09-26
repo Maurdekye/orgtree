@@ -1275,7 +1275,9 @@ def cmd_writer(args: argparse.Namespace) -> int:
     pooled.execute("CREATE TABLE IF NOT EXISTS p02_writer (i INTEGER, pad BLOB)")
     deadline = time.monotonic() + args.seconds
     writes = 0
-    while time.monotonic() < deadline:
+    # --stop-file ends the run early: the gate creates it once its snapshot
+    # is done, so the writer stays live exactly as long as the copy needs
+    while time.monotonic() < deadline and not (args.stop_file and os.path.exists(args.stop_file)):
         conn = sqlite3.connect(sidecar, timeout=10)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=OFF")
@@ -1363,16 +1365,19 @@ def cmd_gate(args: argparse.Namespace) -> int:
         # attempt to finish with zero guard refusals.
         busy_attempts = []
         for n_try in range(1, 4):
+            stop = run / "logs" / f"writer-stop-{n_try}"
             writer = subprocess.Popen(
                 [str(python), "-I", "-B", str(Path(__file__).resolve()), "_writer",
                  "--target", str(source), "--org-db", org_db, "--seconds", "8",
-                 "--interval", "0"], env=writer_env, stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT, text=True)
+                 "--interval", "0", "--stop-file", str(stop)], env=writer_env,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             time.sleep(1.0)
             busy_code, busy = _child(python, "snapshot",
                                      snap_argv + ["--run", str(run / f"copy-busy-{n_try}")],
                                      dict(os.environ), run / "logs" / f"snapshot-busy-{n_try}.log",
                                      args.timeout)
+            # the copy is over: stop writing now rather than at the 8 s cap
+            stop.write_text("stop", encoding="utf-8")
             writer_out = writer.communicate(timeout=120)[0]
             busy_classes = (busy or {}).get("classes", {})
             moved = sum(c.get("retries", 0) + c.get("skipped", 0) for c in busy_classes.values())
@@ -1954,6 +1959,7 @@ def main(argv: list[str] | None = None) -> int:
     w.add_argument("--org-db", required=True)
     w.add_argument("--seconds", type=float, default=30)
     w.add_argument("--interval", type=float, default=0.01)
+    w.add_argument("--stop-file", help="stop early once this file exists")
     g = sub.add_parser("gate")
     g.add_argument("--run", required=True)
     g.add_argument("--tree", required=True)
