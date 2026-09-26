@@ -416,5 +416,222 @@ class ReconcileOneWholeTransaction(unittest.TestCase):
         self.assertEqual(seen, [{'whole': True}])
 
 
+
+# ─────────────────────────────────────────────── L2: account_assign on the door
+
+class AccountAssignDoor(unittest.TestCase):
+    def setUp(self):
+        self.slug = _slug('s7assign')
+        self.acct = registry.create_account(
+            'claude', 'a', {'kind': 'managed',
+                            'path': os.path.join(_root.name, f'assign{_N[0]}')})
+        org = store.create_org(self.slug)
+        org.hire(U, None, 'opus', 20, 'boss')
+        org.hire('boss', 'boss', 'opus', 0, 'mid', add_dirs=[], tools=T,
+                 org_visibility='full', charter='c')
+        org.hire('mid', 'mid', 'opus', 0, 'worker', add_dirs=[], tools=T,
+                 org_visibility='full', charter='c')
+        org.hire(U, None, 'opus', 0, 'stranger')
+        store.save_org(org)
+        pgdoor.use_org_tx(None)
+        self.p = [patch.object(supervisor, 'send_message', return_value={}),
+                  patch.object(supervisor, 'notify')]
+        for x in self.p:
+            x.start()
+
+    def tearDown(self):
+        for x in self.p:
+            x.stop()
+        store._POOL.close_all(self.slug)
+
+    def call(self, actor, node):
+        return api.agent_call(api.AgentCall(
+            org=self.slug, node=actor, tool='orgtree_account_assign',
+            args={'node': node, 'account': self.acct['id']}), REQUEST)
+
+    def test_it_is_declared_on_the_door(self):
+        self.assertTrue(pgdoor.routed('orgtree_account_assign', {}))
+
+    def test_rows_are_the_rebind_rows_and_the_authority_chain(self):
+        org = store.load_org(self.slug)
+        gen = int(org.node('worker').get('generation') or 0)
+        spec = accountdoor.account_assign_rows(org, 'boss', 'worker')
+        self.assertEqual(set(spec.nodes), {'worker', f'worker@{gen}'})
+        self.assertEqual(set(spec.share_nodes), {'mid', 'boss'})
+        for s in supervisor._ASSIGN_SECTIONS:
+            self.assertIn(s, spec.sections)
+        for s in supervisor._ASSIGN_SHARE:
+            self.assertIn(s, spec.share_sections)
+        for lg in supervisor._ASSIGN_LOGS:
+            self.assertIn(lg, spec.logs)
+
+    def test_a_superior_rebinds_on_the_door_not_the_cycle(self):
+        with _NoCycle():
+            r = self.call('boss', 'worker')
+        self.assertEqual(r['account'], self.acct['name'])
+        self.assertEqual(store.load_org(self.slug).node('worker').get('account'),
+                         self.acct['id'])
+        supervisor.notify.assert_called_with(self.slug, 'worker', 'account')
+
+    def test_authority_refusals_keep_their_codes(self):
+        for actor, node, code in (('worker', 'worker', 403),
+                                  ('stranger', 'worker', 403),
+                                  ('boss', '', 422)):
+            with self.assertRaises(HTTPException) as cm:
+                self.call(actor, node)
+            self.assertEqual(cm.exception.status_code, code, (actor, node))
+        self.assertIsNone(store.load_org(self.slug).node('worker').get('account'))
+
+    def test_it_does_not_wait_for_a_doc_lock_holder(self):
+        _fence_off(self)
+        r = _while_doc_lock_held(self, lambda: self.call('boss', 'worker'))
+        self.assertEqual(r['account'], self.acct['name'])
+
+    def test_a_session_boundary_exports_after_the_commit(self):
+        org = store.load_org(self.slug)
+        org.node('worker')['codex_thread'] = 'thr-1'      # a session that ran
+        org.node('worker').pop('session_unrun', None)
+        store.save_org(org)
+        gen0 = int(org.node('worker').get('generation') or 0)
+        seen = []
+
+        def export(slug, o, nid, old_sid, reason):
+            # at the moment of the copy the rebind is already on disk
+            seen.append((nid, reason, int(store.load_org(slug).node(nid)
+                                          .get('generation') or 0)))
+        with patch.object(supervisor, 'export_after_commit', export), \
+                patch.object(supervisor, 'export_predecessor_transcript',
+                             side_effect=AssertionError('copied under the locks')):
+            self.call('boss', 'worker')
+        self.assertEqual(seen, [('worker', 'account_assign', gen0 + 1)])
+
+
+# ─────────────────────────────── L2: resume_frozen's fallback sweep, off DOC_LOCK
+
+class ResumeFrozenFallback(unittest.TestCase):
+    def setUp(self):
+        _fence_off(self)
+        self.slug = _slug('s7fallback')
+        self.acct = registry.create_account(
+            'claude', 'f', {'kind': 'managed',
+                            'path': os.path.join(_root.name, f'fb{_N[0]}')})
+        org = store.create_org(self.slug)
+        org.hire(U, None, 'opus', 0, 'worker')
+        n = org.node('worker')
+        n['codex_thread'] = 'thr-1'
+        n.pop('session_unrun', None)
+        n['frozen'] = {'at': '2026-09-26T10:00:00Z', 'limit': True,
+                       'provider': 'claude', 'resume_texts': ['carry on']}
+        store.save_org(org)
+        self.gen0 = int(n.get('generation') or 0)
+        self.exported = []
+        self.p = [patch.object(supervisor, 'send_message', return_value={}),
+                  patch.object(supervisor, '_run_turn'),
+                  patch.object(supervisor, 'notify'),
+                  patch.object(supervisor, 'export_after_commit', self._export),
+                  patch.object(supervisor, 'export_predecessor_transcript',
+                               side_effect=AssertionError('copied under the locks'))]
+        for x in self.p:
+            x.start()
+
+    def tearDown(self):
+        for x in self.p:
+            x.stop()
+        store._POOL.close_all(self.slug)
+
+    def _export(self, slug, org, nid, old_sid, reason):
+        self.exported.append((nid, reason, int(store.load_org(slug).node(nid)
+                                               .get('generation') or 0)))
+
+    def _apply(self, org, nid, plan, *, exports=None):
+        # account_fallback.apply's effect (its plan checks are provider IO
+        # this test does not stage): the REAL rebind on the transaction's org
+        out = supervisor.assign_account(
+            org.d['slug'], nid, self.acct['id'], actor='@system', org=org,
+            via='limit_fallback', allow_frozen=True, export=exports is None)
+        sid = out.pop('_export_old_sid', None)
+        if sid and exports is not None:
+            exports.append((nid, str(sid), 'account_assign'))
+        return True
+
+    def test_the_sweep_takes_no_doc_lock_and_exports_after_the_commit(self):
+        from orgtree import account_fallback
+        lock = _CountingDocLock(store.DOC_LOCK)
+        with patch.object(store, 'DOC_LOCK', lock), \
+                patch.object(account_fallback, 'apply', self._apply):
+            got = supervisor.resume_frozen(self.slug, only=['worker'],
+                                           account_fallbacks={'worker': {}})
+        self.assertEqual(got, ['worker'])
+        self.assertEqual(lock.n, 0, f'DOC_LOCK taken {lock.n} times')
+        n = store.load_org(self.slug).node('worker')
+        self.assertEqual(n.get('account'), self.acct['id'])
+        self.assertNotIn('frozen', n)
+        self.assertEqual(self.exported, [('worker', 'account_assign', self.gen0 + 1)])
+
+    def test_a_rolled_back_sweep_exports_nothing(self):
+        from orgtree import account_fallback
+        with patch.object(account_fallback, 'apply', self._apply), \
+                patch.object(supervisor, '_retry_replay',
+                             side_effect=RuntimeError('died after the rebind')):
+            with self.assertRaises(RuntimeError):
+                supervisor.resume_frozen(self.slug, only=['worker'],
+                                         account_fallbacks={'worker': {}})
+        n = store.load_org(self.slug).node('worker')
+        self.assertIsNone(n.get('account'))
+        self.assertIn('frozen', n)
+        self.assertEqual(self.exported, [])
+
+    def test_a_split_since_the_plan_leaves_the_node_unwritten(self):
+        from orgtree import account_fallback
+        real_rows = supervisor._resume_rows
+
+        def stale_rows(slug, pick, **kw):
+            rows = real_rows(slug, pick, **kw)
+            # the plan saw an older generation than the locked row carries
+            rows['nodes'] = [x.replace(f'@{self.gen0}', f'@{self.gen0 - 1}')
+                             .replace(f'@{self.gen0 + 1}', f'@{self.gen0}')
+                             for x in rows['nodes']]
+            return rows
+        with patch.object(supervisor, '_resume_rows', stale_rows), \
+                patch.object(account_fallback, 'apply', self._apply):
+            got = supervisor.resume_frozen(self.slug, only=['worker'],
+                                           account_fallbacks={'worker': {}})
+        self.assertEqual(got, [])
+        n = store.load_org(self.slug).node('worker')
+        self.assertIsNone(n.get('account'))
+        self.assertIn('frozen', n)
+
+
+# ─────────────────────────────────── L2: account removal's exports after the commit
+
+class AccountRemovalExports(unittest.TestCase):
+    def test_a_session_boundary_rebind_exports_in_announce(self):
+        from orgtree import account_removal
+        row = registry.create_account(
+            'openai', 'r', {'kind': 'managed',
+                            'path': os.path.join(_root.name, f'rm{_N[0]}')})
+        slug = _slug('s7remove')
+        org = ledger.Org.create(slug)
+        org.nodes['root'] = {'state': 'live', 'parent': None, 'generation': 1,
+                             'model': 'astra', 'grant': 50, 'free': 50,
+                             'session_id': 'sid-0', 'scope': {},
+                             'account': row['id'], 'codex_thread': 'thr-1',
+                             'codex_account': row['id']}
+        store.save_org(org)
+        seen = []
+        with patch.object(supervisor, 'export_after_commit',
+                          lambda s, o, nid, sid, why: seen.append((s, nid, why))), \
+                patch.object(supervisor, 'export_predecessor_transcript',
+                             side_effect=AssertionError('copied under the locks')), \
+                patch.object(supervisor, 'notify'):
+            out = account_removal.remove_account_rebinding_agents(row['id'],
+                                                                  actor='USER')
+            self.assertEqual(seen, [], 'exported before announce')
+            self.assertEqual([(s, n) for s, _o, n, _sid in out['exports']],
+                             [(slug, 'root')])
+            account_removal.announce(out['wakes'], out['rebound'], out['exports'])
+        self.assertEqual(seen, [(slug, 'root', 'account_assign')])
+        store._POOL.close_all(slug)
+
 if __name__ == '__main__':
     unittest.main()

@@ -66,7 +66,10 @@ def request_scope_spec(snapshot: Any, body: Any, a: dict[str, Any]
 def _request_scope_body(tx: Any) -> Any:
     # the orgtree_request_scope branch of api.agent_call, unchanged (FR-13:
     # user-only grantor; the ledger routes deep agents without a user
-    # audience to their superior as mail)
+    # audience to their superior as mail). The re-check is belt-and-braces
+    # (p01's L1 review): a changed routing writes the new parent's mail rows,
+    # which PG-0's UnlockedWrite would also widen; this widens first, before
+    # anything is written.
     rcdoor.require(tx.spec, request_scope_rows(tx.org, tx.node))
     return tx.org.request_scope(tx.node, tx.args.get("items") or [],
                                 tx.args.get("reason"))
