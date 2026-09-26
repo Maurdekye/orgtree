@@ -527,14 +527,15 @@ class ReclaimTransactionTests(unittest.TestCase):
         self.assert_once()
 
     def test_unreadable_postcommit_outcome_retains_fence_until_fresh_receipt(self):
-        org = self.load(self.slug)
+        # fence-off S2: the row transaction's outcome read (org_read) fails,
+        # not a caller document's reload under DOC_LOCK (that branch is gone)
         def lost(doc):
             self.save(doc)
             raise OSError('response lost')
-        with store.DOC_LOCK, patch.object(store, 'save_org', side_effect=lost), \
-                patch.object(store, 'load_org', side_effect=OSError('read unavailable')):
+        with patch.object(store, 'save_org', side_effect=lost), \
+                patch.object(orgtx, 'org_read', side_effect=OSError('read unavailable')):
             with self.assertRaisesRegex(OSError, 'read unavailable'):
-                self.recover(org=org)
+                self.recover()
         self.assertEqual(self.st['mail_reclaiming'], {self.tok})
         self.assertEqual(len(self.st['mail_reclaim_intents']), 1)
         out = self.recover()
@@ -542,11 +543,10 @@ class ReclaimTransactionTests(unittest.TestCase):
         self.assert_once()
 
     def test_unreadable_precommit_outcome_retains_fence_and_retries_original(self):
-        org = self.load(self.slug)
-        with store.DOC_LOCK, patch.object(store, 'save_org', side_effect=OSError('no commit')), \
-                patch.object(store, 'load_org', side_effect=OSError('read unavailable')):
+        with patch.object(store, 'save_org', side_effect=OSError('no commit')), \
+                patch.object(orgtx, 'org_read', side_effect=OSError('read unavailable')):
             with self.assertRaisesRegex(OSError, 'read unavailable'):
-                self.recover(org=org)
+                self.recover()
         self.assertEqual(self.st['mail_reclaiming'], {self.tok})
         out = self.recover()
         self.assertEqual(list(out['resolved'].values()), ['unchanged'])
