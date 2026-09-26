@@ -37,13 +37,24 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
+def share_dir(root: Path) -> Path:
+    """A mirror of the descriptor and live marker log INSIDE the repo worktree,
+    for consumers whose folder grant covers the repo but not the throwaway
+    root (scale-ui-astra). data_root in the mirror still names the real root."""
+    d = REPO / ".scale-share" / Path(root).name
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def update_descriptor(root: Path, patch: dict) -> dict:
     p = root / "scale-descriptor.json"
     d = json.loads(p.read_text(encoding="utf-8"))
     d.update(patch)
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps(d, indent=1), encoding="utf-8")
-    os.replace(tmp, p)
+    body = json.dumps(d, indent=1)
+    for target in (p, share_dir(root) / "scale-descriptor.json"):
+        tmp = target.with_suffix(".tmp")
+        tmp.write_text(body, encoding="utf-8")
+        os.replace(tmp, target)
     return d
 
 

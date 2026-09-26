@@ -55,6 +55,7 @@ PROFILE = {
     "steer_attempts_rows": (58, 99, 140), "steer_attempts_bytes": (525, 8752, 41662, 170_000),
     "turns": (230, 600, 1500),
     "work_item_bytes": (6821, 130_900, 1_000_000, 1_000_000),
+    "archived_item_bytes": (13331, 80359, 487770, 910613),
     "charter_chars": (1036, 3867, 5620, 6106),
     "events_per_live": 40,
 }
@@ -393,7 +394,7 @@ def child(args) -> int:
                               title=f"{nid} archived {j}: {text(rng, 40)}", status="done",
                               owner={"node": nid, "generation": 0}, archived_at=iso(t),
                               updated_at=iso(t))
-                    target = quantile_draw(rng, PROFILE["work_item_bytes"])
+                    target = quantile_draw(rng, PROFILE["archived_item_bytes"])
                     it["evidence"] = [{"at": iso(t), "by": nid, "op": "evidence",
                                        "note": text(rng, max(0, target - 3000))}]
                     cp.write_row(("work_items_archive", iso(t), json.dumps(it))); rows_l += 1

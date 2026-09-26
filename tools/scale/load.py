@@ -47,7 +47,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from serve import update_descriptor  # noqa: E402
+from serve import share_dir, update_descriptor  # noqa: E402
 
 MARK = re.compile(r"\[\[m(\d+)\]\]")
 
@@ -107,17 +107,26 @@ def pct(xs: list[float]) -> dict:
 
 
 class Recorder:
-    def __init__(self, out: Path):
+    def __init__(self, out: Path, mirror: dict[str, Path] | None = None):
         self.out = out
+        self.mirror = mirror or {}
         self.lock = threading.Lock()
         self.files: dict[str, object] = {}
 
     def write(self, name: str, row: dict) -> None:
+        line = json.dumps(row) + "\n"
         with self.lock:
             f = self.files.get(name)
             if f is None:
                 f = self.files[name] = open(self.out / f"{name}.jsonl", "a", encoding="utf-8")
-            f.write(json.dumps(row) + "\n")
+            f.write(line)
+            if name in self.mirror:
+                # the shared mirror is line-buffered: a reader tails it live
+                m = self.files.get("mirror:" + name)
+                if m is None:
+                    m = self.files["mirror:" + name] = open(self.mirror[name], "a",
+                                                           encoding="utf-8", buffering=1)
+                m.write(line)
 
     def close(self) -> None:
         for f in self.files.values():
@@ -131,6 +140,10 @@ def main(argv=None) -> int:
     p.add_argument("--rate", type=float, default=None, help="aggregate agent tool calls/s")
     p.add_argument("--turn-rate-per-agent", type=float, default=0.039)
     p.add_argument("--calls-per-turn", type=float, default=2.0)
+    p.add_argument("--steer-per-turn", type=float, default=10.0,
+                   help="steer polls per turn: the PostToolUse hook polls after EVERY tool call "
+                        "(Bash, Edit, ...), not only orgtree calls; 10 is an ASSUMPTION")
+    p.add_argument("--steer-rate", type=float, default=None, help="aggregate steer polls/s (overrides)")
     p.add_argument("--windows", type=int, default=4)
     p.add_argument("--stream-frac", type=float, default=0.05)
     p.add_argument("--stream-nodes", type=int, default=None)
@@ -140,6 +153,8 @@ def main(argv=None) -> int:
     p.add_argument("--seed", type=int, default=7)
     p.add_argument("--no-ui", action="store_true")
     p.add_argument("--min-free-commit-gb", type=float, default=10.0)
+    p.add_argument("--max-engine-gb", type=float, default=5.0,
+                   help="GUARD: stop the run and KILL the (throwaway) engine above this private size")
     args = p.parse_args(argv)
 
     sys.path.insert(0, str(REPO / "tools"))
@@ -154,10 +169,13 @@ def main(argv=None) -> int:
     N = int(desc["agents"])
     origin, token, slug = desc["origin"], desc["token"], desc["org"]
     rate = args.rate if args.rate is not None else args.turn_rate_per_agent * N * args.calls_per_turn
+    steer_rate = (args.steer_rate if args.steer_rate is not None
+                  else args.turn_rate_per_agent * N * args.steer_per_turn)
     label = args.label or f"n{N}-r{rate:g}-w{args.windows}-{time.strftime('%H%M%S')}"
     out = root / "metrics" / label
     out.mkdir(parents=True, exist_ok=True)
-    rec = Recorder(out)
+    share = share_dir(root)
+    rec = Recorder(out, {"markers": share / f"markers-{label}.jsonl"})
     rng = random.Random(args.seed)
     H = {"X-Orgtree-Desktop-Token": token}
 
@@ -187,8 +205,23 @@ def main(argv=None) -> int:
     engine_pid = int(desc["serve"]["pid"])
     eproc = psutil.Process(engine_pid)
     stop = threading.Event()
+    guard: dict = {}
     t0 = time.time()
-    config = {"label": label, "agents": N, "rate_calls_s": rate, "windows": args.windows,
+
+    def free_commit_gb():
+        import subprocess
+        try:
+            out = subprocess.run(["powershell", "-NoProfile", "-Command",
+                                  "(Get-CimInstance Win32_OperatingSystem).FreeVirtualMemory"],
+                                 capture_output=True, text=True, timeout=30).stdout.strip()
+            return round(int(out) / 1024 / 1024, 2)
+        except Exception:                                    # noqa: BLE001
+            return None
+    fc0 = free_commit_gb()
+    if fc0 is not None and fc0 < args.min_free_commit_gb:
+        raise SystemExit(f"free commit {fc0} GB < floor {args.min_free_commit_gb} GB; not starting load")
+    config = {"label": label, "agents": N, "rate_calls_s": rate, "steer_polls_s": steer_rate,
+              "windows": args.windows,
               "stream_nodes": len(stream_nodes), "stream_hz": args.stream_hz,
               "duration_s": args.duration, "workers": args.workers,
               "derivation": {"turn_rate_per_agent": args.turn_rate_per_agent,
@@ -200,7 +233,8 @@ def main(argv=None) -> int:
                              "load": {"running": True, "rate": rate, "since": t0, "label": label,
                                       "windows": args.windows, "stream_nodes": stream_nodes,
                                       "stream_hz": args.stream_hz,
-                                      "markers": str(out / "markers.jsonl")}})
+                                      "markers": str(out / "markers.jsonl"),
+                                      "markers_share": str(share / f"markers-{label}.jsonl")}})
 
     # ---------------- 1. agent tool calls (open loop) ----------------------
     weights = [w for w, _, _ in MIX]
@@ -256,6 +290,39 @@ def main(argv=None) -> int:
                     tool, targs = "orgtree_status", {"status": "working", "summary": ctx.text(80)}
                 pool.submit(one_call, nxt, me, tool, targs)
                 i += 1
+
+    # ---------------- 1b. steer polls (the PostToolUse hook, every tool call)
+    sessions = {}
+    def steer_driver():
+        if steer_rate <= 0:
+            return
+        with cf.ThreadPoolExecutor(max_workers=max(8, args.workers // 2)) as pool:
+            nxt = time.time()
+            while not stop.is_set() and time.time() - t0 < args.duration:
+                nxt += rng.expovariate(steer_rate)
+                d = nxt - time.time()
+                if d > 0:
+                    stop.wait(d)
+                me = rng.choice(live)
+                pool.submit(one_steer, nxt, me)
+
+    def one_steer(due: float, me: str) -> None:
+        begun = time.time()
+        status, err = None, None
+        try:
+            r = client().post(f"/api/orgs/{slug}/nodes/{me}/steer",
+                              json={"tool_use_id": "toolu_scale_" + os.urandom(6).hex()},
+                              headers={"X-Orgtree-Agent-Token": tokens[me]})
+            status = r.status_code
+            if status != 200:
+                err = r.text[:200]
+        except Exception as e:                               # noqa: BLE001
+            err = f"{type(e).__name__}: {e}"[:200]
+        end = time.time()
+        rec.write("steer", {"t": round(due - t0, 3), "status": status, "err": err,
+                            "lag_ms": round((begun - due) * 1000, 1),
+                            "http_ms": round((end - begun) * 1000, 1),
+                            "total_ms": round((end - due) * 1000, 1)})
 
     # ---------------- 2. UI windows + 3. screen feed -----------------------
     received: dict[int, dict[int, float]] = {w: {} for w in range(args.windows)}
@@ -405,10 +472,30 @@ def main(argv=None) -> int:
                 except Exception as e:                       # noqa: BLE001
                     row["stats_error"] = str(e)[:120]
             rec.write("samples", row)
+            # GUARD (machine memory is tight): above the engine cap, or below the
+            # free-commit floor, stop the run and kill the throwaway engine
+            priv = row.get("private") or row.get("rss") or 0
+            breach = None
+            if priv > args.max_engine_gb * 2 ** 30:
+                breach = f"engine private {priv / 2 ** 30:.2f} GB > cap {args.max_engine_gb} GB"
+            elif int(row["t"]) % 10 == 0:
+                fc = free_commit_gb()
+                if fc is not None and fc < args.min_free_commit_gb:
+                    breach = f"free commit {fc} GB < floor {args.min_free_commit_gb} GB"
+            if breach:
+                guard["breach"] = {"t": row["t"], "why": breach}
+                rec.write("samples", {"t": row["t"], "guard": breach})
+                try:
+                    eproc.kill()
+                except Exception:                            # noqa: BLE001
+                    pass
+                stop.set()
+                break
             stop.wait(2.0)
 
     threads = [threading.Thread(target=sampler, daemon=True, name="sampler"),
                threading.Thread(target=call_driver, daemon=True, name="calls"),
+               threading.Thread(target=steer_driver, daemon=True, name="steer"),
                threading.Thread(target=streamer, daemon=True, name="stream")]
     if not args.no_ui:
         for w in range(args.windows):
@@ -417,7 +504,7 @@ def main(argv=None) -> int:
     for t in threads:
         t.start()
     try:
-        while time.time() - t0 < args.duration:
+        while time.time() - t0 < args.duration and not stop.is_set():
             time.sleep(1)
             if int(time.time() - t0) % 30 == 0:
                 free = psutil.virtual_memory()  # physical, for the log only
@@ -435,7 +522,7 @@ def main(argv=None) -> int:
     def rows(name):
         f = out / f"{name}.jsonl"
         return [json.loads(l) for l in f.read_text(encoding="utf-8").splitlines()] if f.exists() else []
-    calls, ui, samples = rows("calls"), rows("ui"), rows("samples")
+    calls, ui, samples, steers = rows("calls"), rows("ui"), rows("samples"), rows("steer")
     by_tool: dict[str, list] = {}
     for c in calls:
         by_tool.setdefault(c["tool"] + (":" + c["action"] if c.get("action") else ""), []).append(c)
@@ -472,11 +559,15 @@ def main(argv=None) -> int:
         return sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / den
     half = mem[len(mem) // 2:]
     elapsed = (max((c["t"] for c in calls), default=0) or 1)
-    summary = {"config": config,
+    summary = {"config": config, "guard": guard or None,
                "achieved": {"calls": len(calls), "calls_per_s": round(len(calls) / elapsed, 2),
-                            "offered_calls_per_s": rate,
+                            "offered_calls_per_s": rate, "steer_polls": len(steers),
+                            "offered_steer_per_s": steer_rate,
                             "ui_requests": len(ui), "stream_markers": len(emitted)},
                "tools": tools_summary, "routes": routes_summary, "feed": feed,
+               "steer": {"total_ms": pct([x["total_ms"] for x in steers]),
+                         "errors": sum(1 for x in steers if x["err"]),
+                         "sample_errors": list({str(x["err"])[:160] for x in steers if x["err"]})[:3]},
                "memory": {"start_mb": round(mem[0][1] / 2 ** 20) if mem else None,
                           "end_mb": round(mem[-1][1] / 2 ** 20) if mem else None,
                           "max_mb": round(max(m for _, m in mem) / 2 ** 20) if mem else None,
