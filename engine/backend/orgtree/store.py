@@ -4327,6 +4327,33 @@ def read_user_inbox(slug: str) -> dict[str, Any]:
         raise LedgerError(f"cannot open org {slug!r}: {e}") from e
 
 
+def read_doc_sections(slug: str, keys: Iterable[str]) -> dict[str, Any] | None:
+    """Named SMALL top-level sections (plain `doc` rows) as STORED, in one
+    short read — no node table, no logs, no Org. For a hot reader that needs
+    a handful of org-level settings and was decoding the whole document for
+    them (scale, hot-paths-off-full-org-reads). Absent keys are absent from
+    the result. None = no cheap answer (JSON backend): the caller loads.
+
+    Storage truth, like `read_node`: `Org.__init__`'s load-time defaults and
+    normalizations are NOT applied, so a caller must only use keys whose
+    stored value it reads the same way the constructed view would.
+    Refuses node, log and split sections (they are not single `doc` rows)."""
+    wanted = tuple(dict.fromkeys(keys))
+    bad = [k for k in wanted
+           if k in ROWED or k in LAZY_SECTIONS or k in SPLIT_SECTIONS]
+    if bad:
+        raise ValueError(f"not plain doc sections: {bad!r}")
+    if not wanted:
+        return {}
+
+    def body(conn: sqlite3.Connection) -> dict[str, Any]:
+        marks = ",".join("?" * len(wanted))
+        rows = conn.execute(f"SELECT key,val FROM doc WHERE key IN ({marks})",
+                            wanted).fetchall()
+        return {cast(str, k): json.loads(cast(str, v)) for k, v in rows}
+    return cast("dict[str, Any] | None", _bounded_read(slug, body))
+
+
 # ------------------------------------------------- bounded log tail readers
 # (perf-redesign 2026-09-12, REPORT.md #4/#5/#6.) Three polled endpoints used
 # to MATERIALIZE entire unbounded logs per request — the whole 19k-row events
