@@ -17,11 +17,13 @@ from orgtree import agentauth, orgtx, store
 
 class SnapshotTokenTests(unittest.TestCase):
     def test_snapshot_token_matches_loaded_generation_without_loading_again(self):
-        org = SimpleNamespace(node=lambda nid: {'generation': 7, 'seat_id': 'seat-a'})
-        # PG-3r: outside a legacy DOC_LOCK hold the node is read lock-free through orgtx.org_read
-        with patch.object(agentauth, '_key', b'fixture-secret'), patch.object(orgtx, 'org_read', return_value=org) as load,                 patch.object(store, 'load_org', side_effect=AssertionError('no legacy load outside a hold')):
+        row = {'generation': 7, 'seat_id': 'seat-a'}
+        # PG-3r: outside a legacy DOC_LOCK hold the node is read lock-free; scale: as its one committed row (store.read_node),
+        # not a whole-org orgtx.org_read (the fallback when the row cannot answer: tests/test_child_env_row_read.py)
+        with patch.object(agentauth, '_key', b'fixture-secret'), patch.object(store, 'read_node', return_value=row) as load, \
+                patch.object(orgtx, 'org_read', side_effect=AssertionError('no whole-org read on the row path')),                 patch.object(store, 'load_org', side_effect=AssertionError('no legacy load outside a hold')):
             canonical = agentauth.child_env('fixture', 'agent')
-            load.assert_called_once_with('fixture')
+            load.assert_called_once_with('fixture', 'agent')
             load.reset_mock()
             snapshot = agentauth.child_env('fixture', 'agent', generation=7, seat_id='seat-a')
             self.assertEqual(canonical, snapshot)
