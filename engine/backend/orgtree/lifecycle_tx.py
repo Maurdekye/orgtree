@@ -111,6 +111,18 @@ SPECS: dict[str, Spec] = {
                           notes="nodes/share_nodes = _split_rows(org, actor, nid)"),
     "reseed": Spec(sections=("notices",), logs=("events", "notice_log"),
                    notes="nodes/share_nodes = _split_rows(org, actor, nid)"),
+    # Retool: `Org.switch_model` (the ledger half; the route's account
+    # resolution and binding stay with PG-3e-B / PG-3f — decisions 14, 36).
+    # Node rows from `_switch_rows`: the seat, the crossing's new bearer
+    # `nid@gen`, and EVERY ancestor FOR UPDATE (an upgrade's shortfall is
+    # `_chain_acquire`d up the paying path, as rehire's); the actor FOR
+    # SHARE. Decided on: the tier table, the fable lock, cascade_alloc and
+    # the D-014 top-grant cap. Written: notices.
+    "switch_model": Spec(sections=("notices",),
+                         share_sections=("cascade_alloc", "fable_lock",
+                                         "max_top_grant", "tiers"),
+                         logs=("events", "notice_log"),
+                         notes="nodes/share_nodes = _switch_rows(org, actor, nid)"),
     "swap_seats": Spec(sections=("audiences", "notices"),
                        logs=("events", "notice_log"),
                        notes="nodes/share_nodes = _swap_rows(org, actor, a, b)"),
@@ -708,3 +720,28 @@ def _split_op(op: str):
 
 cheap_compact_body, cheap_compact = _split_op("cheap_compact")
 reseed_body, reseed = _split_op("reseed")          # reseed(slug, actor, nid, new_session_id)
+
+
+# ---------------------------------------------------------------- retool
+
+
+def _switch_rows(org, actor: str, nid: str) -> tuple[set[str], set[str]]:
+    """(FOR UPDATE, FOR SHARE) node rows of `Org.switch_model(actor, nid, …)`."""
+    n = org.nodes.get(nid)
+    if n is None:
+        return {nid}, set()
+    upd = {nid, f"{nid}@{n.get('generation', 0)}"} | _anc(org, nid)
+    share = {actor} if actor in org.nodes else set()
+    return upd, share - upd
+
+
+def switch_model_body(org, held_nodes, held_share, actor: str, nid: str, tier: str,
+                      **kw: Any) -> dict[str, Any]:
+    """The door body: a pure function of the locked `org`."""
+    _need(org, lambda o: _switch_rows(o, actor, nid), held_nodes, held_share)
+    return org.switch_model(actor, nid, tier, **kw)
+
+
+def switch_model(slug: str, actor: str, nid: str, tier: str, **kw: Any) -> dict[str, Any]:
+    return _run("switch_model", slug, lambda o: _switch_rows(o, actor, nid),
+                lambda org, hn, hs: switch_model_body(org, hn, hs, actor, nid, tier, **kw))
