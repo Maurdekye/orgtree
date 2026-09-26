@@ -230,6 +230,33 @@ class Recognition(Base):
         org.rows["doc"].append(("name" + store.SPLIT_SEP + "n1", "[]"))
         self.assertIn(f"unrecognised section {'name' + store.SPLIT_SEP + 'n1'!r}", pgimport.problems(org))
 
+    def test_a_legacy_lifecycle_document_row_is_recognised(self) -> None:
+        # the 2.1.x engine keeps the lifecycle ledger as ONE doc row
+        # (lifecycle.py: doc.setdefault("lifecycle", [])); v3's store loads it
+        # and converts it to log rows on its next save
+        db = self.orgs() / "acme.db"
+        write_db(db, sample_doc())
+        ledger = [{"at": "2026-09-25T10:00:02Z", "kind": "send", "node": "n1"}]
+        conn = sqlite3.connect(db)
+        conn.execute("DELETE FROM log_l WHERE sect='lifecycle'")
+        conn.execute("INSERT INTO doc(key, val) VALUES ('lifecycle', ?)", (json.dumps(ledger),))
+        conn.commit()
+        self.assertEqual(store.reconstruct_full(conn)["lifecycle"], ledger)
+        conn.close()
+        self.assertEqual(pgimport.problems(pgimport.extract_sqlite("acme", db)), [])
+        conn = sqlite3.connect(db)
+        conn.execute("INSERT INTO log_l(sect, at, val) VALUES ('lifecycle', NULL, '{}')")
+        conn.commit()
+        conn.close()
+        self.assertIn("section 'lifecycle' has both a document row and log rows",
+                      pgimport.problems(pgimport.extract_sqlite("acme", db)))
+
+    def test_only_logs_that_used_to_be_document_rows_may_be_one(self) -> None:
+        org = self.rows_for(sample_doc())
+        org.rows["doc"] = [r for r in org.rows["doc"] if r[0] != "events"] + [("events", "[]")]
+        org.rows["log_l"] = [r for r in org.rows["log_l"] if r[1] != "events"]
+        self.assertIn("section 'events' is a lazy log but is stored as a document row", pgimport.problems(org))
+
     def test_values_jsonb_cannot_hold_are_problems(self) -> None:
         org = self.rows_for(sample_doc())
         org.rows["doc"].append(("name", '{"a": NaN}'))

@@ -117,8 +117,15 @@ storage_blocked storage_full storage_warned turn_error_log user_inbox user_mail_
 watchdogs watchdog_history watchdog_tombs work_items work_items_archive work_identity
 work_deleted_names user_outbox op_receipts scope_requests reservations repositories
 wakes executing max_depth max_children running_commit running_backend_pid
-_migrations _actors_typed whole_grants_v1
+_migrations _actors_typed whole_grants_v1 lifecycle
 """.split())
+
+#: List logs that an older engine kept as ONE document row and the store now
+#: loads from that row and converts to log rows on its next save (store.py's
+#: LIST_LOGS notes). The 2.1.x engine writes `lifecycle` this way on every
+#: send, so its legacy shape is recognised data and is imported as it is.
+#: A section holding both shapes at once is still refused.
+LEGACY_DOC_ROW_LOGS = frozenset({"lifecycle", "work_items_archive"}) & LIST_LOGS
 
 
 class ImportRefused(RuntimeError):
@@ -295,7 +302,10 @@ def problems(org: OrgRows) -> list[str]:
     out += [f"owner row {k!r} has no {s!r} container row" for k, s in split.items()
             if s is not None and s not in doc_keys]
     out += [f"section {k!r} is a lazy log but is stored as a document row" for k in doc_keys
-            if k in DICT_LOGS or k in LIST_LOGS]
+            if (k in DICT_LOGS or k in LIST_LOGS) and k not in LEGACY_DOC_ROW_LOGS]
+    log_sects = {r[1] for r in org.rows["log_l"]}
+    out += [f"section {k!r} has both a document row and log rows" for k in doc_keys
+            if k in LEGACY_DOC_ROW_LOGS and k in log_sects]
     for sect in sorted({r[1] for r in org.rows["log_d"]} - DICT_LOGS):
         out.append(f"unrecognised dict-log section {sect!r}")
     for sect in sorted({r[1] for r in org.rows["log_l"]} - LIST_LOGS):
