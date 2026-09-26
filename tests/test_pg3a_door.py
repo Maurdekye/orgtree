@@ -293,7 +293,10 @@ class Door(unittest.TestCase):
         self.assertTrue(mine.get("old_session"), mine)
         self.assertEqual(self.strip({**mine, "old_session": None}),
                          self.strip({**legacy, "old_session": None}))
-        self.assertEqual(self.view(self.slug), self.view(self.twin))
+        # each org minted its own session id: compare modulo that
+        self.assertEqual(
+            self.view(self.slug).replace(mine["old_session"], "<sid>"),
+            self.view(self.twin).replace(legacy["old_session"], "<sid>"))
         o = store.load_org(self.slug)
         self.assertEqual(o.nodes["x"]["generation"], 1)
         self.assertIn("x@0", o.nodes)
