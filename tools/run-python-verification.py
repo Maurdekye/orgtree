@@ -433,7 +433,33 @@ def pycache_root(repo_root: Path, requested: str | None) -> Path | None:
     if _is_within(base, repo_root) or _is_within(repo_root, base):
         raise ValueError(f"pycache dir must be outside the checkout: {base}")
     base.mkdir(parents=True, exist_ok=True)
+    _prune_pycache(base)
     return base
+
+
+#: bytecode not rewritten for this long belongs to a source nobody imports any
+#: more (a removed worktree, a deleted module) and is dropped at the next run
+PYCACHE_MAX_AGE_S = 14 * 24 * 3600
+#: past this total the whole cache is dropped and rebuilt by the next runs
+PYCACHE_MAX_BYTES = 2 * 1024 ** 3
+
+
+def _prune_pycache(base: Path) -> None:
+    """Keep the shared cache bounded; a missing entry only costs a compile."""
+    cutoff = time.time() - PYCACHE_MAX_AGE_S
+    total = 0
+    for path in base.rglob("*.pyc"):
+        try:
+            st = path.stat()
+            if st.st_mtime < cutoff:
+                path.unlink()
+            else:
+                total += st.st_size
+        except OSError:
+            pass  # another run replaced or removed it
+    if total > PYCACHE_MAX_BYTES:
+        shutil.rmtree(base, ignore_errors=True)
+        base.mkdir(parents=True, exist_ok=True)
 
 
 def _module_name(path: Path, repo_root: Path) -> str:
@@ -497,7 +523,30 @@ def _child_script() -> str:
         from pathlib import Path
         from unittest import SkipTest
 
-        roots = [Path(item).resolve() for item in json.loads(os.environ["ORGTREE_VERIFY_IMPORT_ROOTS"])]
+        if sys.pycache_prefix:
+            # A pyc records its source's mtime in WHOLE seconds plus its size,
+            # so bytecode cached from a source edited under two seconds ago
+            # could later be taken for a same-size edit made in that same
+            # second, and served stale -- the shape of a mutation run. Freshness
+            # is judged when the loader STATS the source, before reading it: a
+            # source that was settled then can only change afterwards into a
+            # later second, which the ordinary check catches.
+            import importlib._bootstrap_external as _be, time as _time
+            _fresh = set()
+            def _stats(self, path, _orig=_be.SourceFileLoader.path_stats):
+                st = _orig(self, path)
+                if _time.time() - st["mtime"] < 2.0:
+                    _fresh.add(path)
+                else:
+                    _fresh.discard(path)
+                return st
+            def _cache(self, source_path, bytecode_path, data, _orig=_be.SourceFileLoader._cache_bytecode):
+                if source_path not in _fresh:
+                    return _orig(self, source_path, bytecode_path, data)
+            _be.SourceFileLoader.path_stats = _stats
+            _be.SourceFileLoader._cache_bytecode = _cache
+
+        roots =[Path(item).resolve() for item in json.loads(os.environ["ORGTREE_VERIFY_IMPORT_ROOTS"])]
         sys.path[:] = [str(item) for item in roots] + [item for item in sys.path if item not in {"", os.getcwd()}]
         module = os.environ["ORGTREE_VERIFY_MODULE"]
         result = {"phase": "pass", "marker": None, "import_provenance": {}}
@@ -808,7 +857,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--timeout", type=float, default=300.0)
     parser.add_argument("--keep-data", action="store_true", help="retain the run parent for inspection")
     parser.add_argument("--pycache-dir", default=str(Path(tempfile.gettempdir()) / "orgtree-verify-pycache"),
-                        help="reusable bytecode cache OUTSIDE the checkout (-X pycache_prefix); 'off' = -B, compile every run")
+                        help="reusable bytecode cache OUTSIDE the checkout (-X pycache_prefix); 'off' = -B, compile every run. "
+                             "Bytecode is never cached for a source modified under 2 s before it was imported, so a "
+                             "same-size edit in the same second is not served stale; for mutation testing 'off' "
+                             "remains the belt-and-braces choice. Entries unused for 14 days are pruned; the whole "
+                             "cache is dropped past 2 GB.")
     args = parser.parse_args(argv)
 
     repo_root = _canonical(Path(args.repo_root))
