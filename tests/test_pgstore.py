@@ -830,5 +830,85 @@ class PG0bPostgres(unittest.TestCase):
         self.assertEqual(_node(other, 'b')['name'], 'b')
 
 
+@unittest.skipUnless(ADMIN, 'ORGTREE_TEST_PG_ADMIN_URL not set: NOT RUN')
+class DeleteOrgExclusiveOnPostgres(unittest.TestCase):
+    """S8: delete_org runs under orgtx.org_exclusive, which on PostgreSQL is
+    the org pseudo-row's advisory lock EXCLUSIVE (PgBackend.exclusive). The
+    SQLite twin with pause hooks is tests/test_delete_org_exclusive.py."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        store.claim_data_root()
+        orgtx.use_backend(orgtx.PgBackend())
+
+    def setUp(self) -> None:
+        self.slug = _fresh_org(f'pgdx-{self._testMethodName}'[:60])
+        self.errors: list[BaseException] = []
+
+    def _thread(self, fn, name: str = '') -> threading.Thread:
+        def run() -> None:
+            try:
+                fn()
+            except BaseException as e:            # noqa: BLE001  reported by the test
+                self.errors.append(e)
+        t = threading.Thread(target=run, name=name or None, daemon=True)
+        t.start()
+        return t
+
+    def test_open_tx_blocks_the_delete(self) -> None:
+        inside, go = threading.Event(), threading.Event()
+
+        def write() -> None:
+            with orgtx.org_tx(self.slug, nodes=['a']) as tx:
+                tx.d['nodes']['a']['name'] = 'late'
+                inside.set()
+                self.assertTrue(go.wait(10))
+
+        w = self._thread(write)
+        self.assertTrue(inside.wait(10))
+        deleted = threading.Event()
+        d = self._thread(lambda: (store.delete_org(self.slug), deleted.set()))
+        time.sleep(0.5)
+        self.assertFalse(deleted.is_set(), 'delete ran while a transaction held the org')
+        go.set()
+        w.join(10)
+        d.join(10)
+        self.assertEqual(self.errors, [])
+        self.assertTrue(deleted.is_set())
+        self.assertNotIn(self.slug, [o['slug'] for o in store.list_orgs()])
+
+    def test_delete_blocks_a_new_tx_which_then_finds_no_org(self) -> None:
+        from unittest.mock import patch
+
+        from orgtree.ledger import LedgerError
+        in_delete, go = threading.Event(), threading.Event()
+        real = store._ensure_migrated
+
+        def slow_ensure(slug: str) -> None:
+            if threading.current_thread().name == 'deleter':
+                in_delete.set()
+                self.assertTrue(go.wait(10))
+            return real(slug)
+
+        def write() -> None:
+            with orgtx.org_tx(self.slug, nodes=['a'], lock_timeout=10) as tx:
+                tx.d['nodes']['a']['name'] = 'resurrected'
+
+        with patch.object(store, '_ensure_migrated', slow_ensure):
+            d = self._thread(lambda: store.delete_org(self.slug), name='deleter')
+            self.assertTrue(in_delete.wait(10))
+            w = self._thread(write)
+            time.sleep(0.5)                     # the writer is waiting on the advisory lock
+            self.assertTrue(w.is_alive(), 'the writer did not wait for the delete')
+            go.set()
+            d.join(10)
+            w.join(15)
+        self.assertEqual(len(self.errors), 1, self.errors)
+        self.assertIsInstance(self.errors[0], LedgerError)
+        self.assertNotIn(self.slug, [o['slug'] for o in store.list_orgs()])
+        with self.assertRaises(LedgerError):
+            orgtx.org_read(self.slug)
+
+
 if __name__ == '__main__':
     unittest.main()
