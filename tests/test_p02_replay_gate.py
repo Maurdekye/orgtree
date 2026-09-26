@@ -393,8 +393,12 @@ class EndToEndGate(Temp):
         code, last, out = run_tool("gate", "--run", str(run), "--tree", str(ROOT),
                                    "--n", "40", timeout=1500)
         verdict = json.loads((run / "out" / "gate-verdict.json").read_text("utf-8"))
-        self.assertEqual(code, 0, json.dumps(last) + out[-1500:])
         checks = verdict["checks"]
+        # A failed check's own record (copy_busy keeps its attempts) goes in the
+        # message: the run folder is deleted with the temp dir.
+        failed = {k: v for k, v in checks.items()
+                  if isinstance(v, dict) and v.get("passed") is False}
+        self.assertEqual(code, 0, json.dumps(last) + out[-1500:] + json.dumps(failed, default=str)[:6000])
         for name in ("fixture", "copy_busy", "copy_quiet", "copy_journal", "controls",
                      "pin_harness_refuses", "pin_child_refuses", "pin_without_variables",
                      "decoy_alive", "decoy_unchanged", "home_empty", "trees_unchanged",
