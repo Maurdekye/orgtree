@@ -35,6 +35,13 @@ _STICKY_STATES = frozenset({"delay_reported"})
 # caller reads `count`. On a plain dict (the JSON backend's whole-document
 # cycle under DOC_LOCK, `Org.create`, fixtures) the old in-place behaviour
 # stays: that cycle is serialized.
+# Limits (p01, accepted): (a) a prune is triggered only by a later org_tx
+# COMMIT on the org, so an org that meanwhile sees only legacy DOC_LOCK saves
+# (the fence period) is not pruned until some org_tx commits there — bounded
+# in practice; (b) the append count is per process and resets at restart, and
+# `over_cap` is seen only when the ledger is materialized, so a ledger already
+# over the cap at boot may wait up to PRUNE_EVERY appends. Appends of a
+# transaction that later rolls back still count: a prune only comes early.
 #: the pruner's own row: a doc key no writer uses, locked FOR UPDATE only by
 #: `prune`, so two pruners serialize while appends take no lock at all
 PRUNE_LOCK = "lifecycle_prune"
