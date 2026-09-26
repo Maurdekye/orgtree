@@ -146,8 +146,7 @@ def child(args) -> int:
                                   [f"{os.path.basename(f.filename)}:{f.lineno}" for f in st.traceback]]
                                  for st in snap.statistics("traceback")[:8]]}
                 with open(dump_path, "a", encoding="utf-8") as f:
-                    f.write(json.dumps(rec) + "
-")
+                    f.write(json.dumps(rec) + chr(10))
         threading.Thread(target=_dumper, name="scale-trace-dump", daemon=True).start()
     app, *_ = load_app()
     from orgtree import api, store, supervisor
