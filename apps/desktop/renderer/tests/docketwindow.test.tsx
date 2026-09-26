@@ -71,7 +71,7 @@ test('large docket mounts a bounded viewport and can reach its last item', async
   assert.ok(list.scrollTop > 0, 'reference jump scrolls before the distant row mounts')
   assert.ok(names(view.el).includes('ticket-1999'), 'last item remains reachable')
   assert.ok(rows(view.el).length < 30)
-  assert.ok(view.el.querySelector('.docket-pane-head')?.textContent?.includes('ticket-1999'))
+  assert.equal(view.el.querySelector('.docket-slug-text')?.textContent, 'ticket-1999')
 })
 
 test('selecting a row does not render its unchanged neighbours', async t => {
@@ -91,7 +91,7 @@ test('scrolling and resizing variable-height rows keeps the selection mounted in
   await inAct(() => rows(view.el)[0].click())
   await scroll(12000)
   assert.ok(!names(view.el).includes('ticket-0'), 'old rows were unmounted')
-  assert.ok(view.el.querySelector('.docket-pane-head')?.textContent?.includes('ticket-0'), 'detail selection survives')
+  assert.equal(view.el.querySelector('.docket-slug-text')?.textContent, 'ticket-0', 'detail selection survives')
   const small = rows(view.el).length
   await resize(600, 220)
   assert.ok(rows(view.el).length > small, 'larger viewport mounts more rows despite their increased height')
