@@ -12316,7 +12316,11 @@ def _message_door_before(call: Any, a: dict[str, Any]) -> dict[str, Any]:
         raise LedgerError(
             "kind 'notice' is minted by orgtree_send_notice (a send that "
             "never wakes the recipient) — use that tool instead")
-    snap = orgtx.org_read(str(call.org))
+    # S-C: the seq-gated shared snapshot (the one the door's spec already
+    # resolved on — a dict lookup while nothing committed), not a fresh full
+    # load. Safe because the body re-resolves on the locked document and
+    # refuses when the recipient moved away from what this step checked.
+    snap = store.cached_org(str(call.org))
     dest = snap._resolve_recipient(str(a.get("to", "")), outward=True)
     if dest.startswith("@net:"):
         _require_net_peer(dest[5:])
@@ -12371,6 +12375,11 @@ def _message_door_body(t: pgdoor.AgentTx) -> dict[str, Any]:
         if t.pre.get("had_atts") and dest != t.pre.get("dest"):
             raise LedgerError("the recipient changed while the attachments "
                               "were being prepared — send again")
+        if dest.startswith("@net:") and dest != t.pre.get("dest"):
+            # S-C: before() resolved on the shared snapshot; a hub address it
+            # did not see was never checked against the hub roster
+            raise LedgerError("the recipient changed while the send was "
+                              "being prepared — send again")
         # the addressing rule reads the parent pointers between sender and
         # recipient: hold them, re-derived here (p01 condition C1)
         maildoor.hold_path(t, dest)

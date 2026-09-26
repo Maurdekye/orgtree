@@ -26,6 +26,7 @@ from __future__ import annotations
 import contextlib
 import contextvars
 import copy
+import os
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from functools import wraps
@@ -221,7 +222,24 @@ def _no_org(slug: str) -> bool:
     """No such org: the gates then run their body exactly as the lock-free
     `blocked()` pre-gate used to let them (it answered None for a missing
     org), instead of an org_tx raising "no such org" out of every delivery
-    of a deleted or never-created org."""
+    of a deleted or never-created org.
+
+    S-C (pg-per-call-cost, 2026-09-26): the org's own file answers first. A
+    document at `store.org_path` (`<slug>.pg` marker, `.db`, or `.json`) is
+    an org, and the gate's transaction loads it anyway — one stat instead of
+    a shared-snapshot rebuild, which after every commit (the send's own) was
+    a load of ~35 round trips on PostgreSQL. Only a missing file falls back
+    to the historical check, so a deleted, never-created or still-cached org
+    and a test's injected fixture answer exactly as before. The one case
+    that differs: a file that exists but cannot be loaded (a damaged
+    database, an unreadable marker) is no longer "no org" — the gate's
+    transaction raises that load error instead of running the body ungated.
+    An invalid slug is no org, as before (`_safe_slug` raised the same)."""
+    try:
+        if os.path.exists(store.org_path(slug)):
+            return False
+    except LedgerError:
+        return True
     try:
         store.cached_org(slug)
         return False
