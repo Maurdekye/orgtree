@@ -12,8 +12,8 @@ Identity model (docs/mailserver-spec.md §3, all user-ruled):
                 never recomputed — the address survives moves and renames.
 
 Transport model (spec §4/§10, all ruled): outbound sends return instantly by
-writing a SPOOL entry into the org doc (staged inside the caller's DOC_LOCK,
-riding the same save as the org-inbox row — no crash window where the ledger
+writing a SPOOL entry into the org doc (staged inside the caller's row
+transaction, riding the same commit as the org-inbox row — no crash window where the ledger
 says "queued" with no spool entry); the SENDER thread drains spools with
 backoff and retries FOREVER ("no hub yet" is a status, not an error). The
 POLLER thread holds one multiplexed long poll per hub address covering every
@@ -97,7 +97,8 @@ def mint_identity(org: "Org") -> dict[str, Any] | None:
     """Mint the org's permanent network identity. Idempotent — an existing
     identity is returned untouched (the slug is IMMUTABLE for the org's
     lifetime, user ruling). Returns None for kiosk orgs, which have no
-    identity by design. Caller holds DOC_LOCK and saves."""
+    identity by design. The caller owns the Org and saves it: an org_tx
+    that locks `net_identity`, or create_org's `prepare` (PG-3f)."""
     if org.d.get("kiosk"):
         return None
     ident = org.d.get("net_identity")
@@ -811,10 +812,21 @@ def unregister_org(doc: dict[str, Any], *, timeout: float = 4.0,
     return {"unregistered": done, **({"errors": errors} if errors else {})}
 
 
+#: PG-3f: the rows every mail-transport write takes, never DOC_LOCK — the
+#: hub spool FOR UPDATE and the org-inbox log (whose OUTBOUND rows these
+#: writers edit in place: state, tries, last_err). Every writer of those
+#: outbound rows takes the `net_spool` lock, even one that changes no spool
+#: entry (`_apply_receipts`), so their edits stay serialized among themselves
+#: the way DOC_LOCK serialized them; the send path that appends them
+#: (`mailtx.OUTSIDE_SEND_ROWS`) takes the same row.
+SPOOL_ROWS: dict[str, list[Any]] = {"sections": ["net_spool"],
+                                    "logs": ["org_inbox"]}
+
+
 def _drain_spools(parts: dict[str, dict[str, Any]]) -> None:
     """Ship queued outbound. At-least-once: the hub send is idempotent on the
     entry id, so a crash after send / before the doc update just re-sends."""
-    from . import store
+    from . import orgtx
     for slug, p in parts.items():
         for h in p["hubs"]:
             hid = str(h["id"])
@@ -840,11 +852,11 @@ def _drain_spools(parts: dict[str, dict[str, Any]]) -> None:
                               or "connection failing; retrying")
                 _stamp_skip(slug, hid, f"hub unreachable — {why}")
                 continue
-            # snapshot the entries OUTSIDE the lock hold during HTTP
-            with store.DOC_LOCK:
-                org = store.load_org(slug)
-                entries = [dict(e) for e in
-                           (org.d.get("net_spool") or {}).get(hid, [])]
+            # snapshot the entries; no lock is held during HTTP (PG-3f: a
+            # lock-free read, was DOC_LOCK)
+            entries = [dict(e) for e in
+                       (orgtx.org_read(slug, sections=["net_spool"]).d
+                        .get("net_spool") or {}).get(hid, [])]
             for e in entries:
                 # F-06 D: upload attachments first (resumable — successful
                 # ids persist on the entry so a retry never re-uploads).
@@ -914,7 +926,7 @@ def _ship_attachments(slug: str, hub_id: str, addr: str,
     """Upload a spool entry's attachment files to the hub, resumably: each
     uploaded id is persisted onto the entry (`att_ids`) so a crash or later
     failure never re-uploads. Unreadable files are dropped with a note."""
-    from . import store
+    from . import orgtx
     paths = [str(x) for x in
              cast("list[Any]", e.get("attachments") or [])]
     att_ids = [str(x) for x in cast("list[Any]", e.get("att_ids") or [])]
@@ -924,15 +936,13 @@ def _ship_attachments(slug: str, hub_id: str, addr: str,
             data = open(path, "rb").read()
         except OSError:
             # deleted since staging — drop it rather than stall forever
-            with store.DOC_LOCK:
-                org = store.load_org(slug)
-                for se in (org.d.get("net_spool") or {}).get(hub_id, []):
+            with orgtx.org_tx(slug, **SPOOL_ROWS) as tx:
+                for se in (tx.d.get("net_spool") or {}).get(hub_id, []):
                     if se.get("id") == e["id"]:
                         se["attachments"] = [x for x in se["attachments"]
                                              if x != path]
                         se["last_err"] = (f"attachment vanished before "
                                           f"upload: {os.path.basename(path)}")
-                        store.save_org(org)
                         break
             paths.remove(path)
             continue
@@ -944,12 +954,10 @@ def _ship_attachments(slug: str, hub_id: str, addr: str,
         if r.status_code != 200:
             raise RuntimeError(f"attachment upload HTTP {r.status_code}")
         att_ids.append(str(cast("dict[str, Any]", r.json())["id"]))
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            for se in (org.d.get("net_spool") or {}).get(hub_id, []):
+        with orgtx.org_tx(slug, **SPOOL_ROWS) as tx:
+            for se in (tx.d.get("net_spool") or {}).get(hub_id, []):
                 if se.get("id") == e["id"]:
                     se["att_ids"] = list(att_ids)
-                    store.save_org(org)
                     break
     return att_ids
 
@@ -960,17 +968,15 @@ def _spool_done(slug: str, hub_id: str, entry_id: str) -> None:
     compose-STAGED files the entry carried (redteam: nothing ever swept the
     stage; the hub holds its own copy now). Agent-scratch attachments are
     the agent's own files and stay."""
-    from . import store
+    from . import orgtx
     removed: dict[str, Any] | None = None
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
-        spool = org.d.setdefault("net_spool", {})
+    with orgtx.org_tx(slug, **SPOOL_ROWS) as tx:
+        spool = tx.d.setdefault("net_spool", {})
         removed = next((e for e in spool.get(hub_id, [])
                         if e.get("id") == entry_id), None)
         spool[hub_id] = [e for e in spool.get(hub_id, [])
                          if e.get("id") != entry_id]
-        _stamp_row(org.d, entry_id, "sent")
-        store.save_org(org)
+        _stamp_row(tx.d, entry_id, "sent")
     for pth in cast("list[Any]", (removed or {}).get("attachments") or []):
         p = str(pth)
         if os.path.basename(os.path.dirname(p)) == "net_stage":
@@ -1003,11 +1009,10 @@ def _refile_known_elsewhere(slug: str, hub_id: str, entry_id: str,
             break
     if target is None:
         return None
-    from . import store
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
+    from . import orgtx
+    with orgtx.org_tx(slug, **SPOOL_ROWS) as tx:
         spool = cast("dict[str, list[dict[str, Any]]]",
-                     org.d.setdefault("net_spool", {}))
+                     tx.d.setdefault("net_spool", {}))
         lst = spool.get(hub_id) or []
         e = next((x for x in lst if x.get("id") == entry_id), None)
         if e is None or int(e.get("refiled") or 0) >= 4:
@@ -1021,12 +1026,11 @@ def _refile_known_elsewhere(slug: str, hub_id: str, entry_id: str,
         # registered" ⚠ on a now-correctly-routed message reads as still
         # failing until the next delivery would have popped it
         for row in reversed(cast("list[dict[str, Any]]",
-                                 org.d.get("org_inbox") or [])):
+                                 tx.d.get("org_inbox") or [])):
             if row.get("net_id") == entry_id:
                 row.pop("last_err", None)
                 row.pop("tries", None)
                 break
-        store.save_org(org)
     return target
 
 
@@ -1036,27 +1040,29 @@ def _stamp_skip(slug: str, hub_id: str, err: str) -> None:
     lets the drain visit still shows its stuck mail (`tries` is untouched:
     no attempt happened). Writes only when the reason CHANGED — the steady
     state costs one save total, not one per pass."""
-    from . import store
+    from . import orgtx
     err = err[:200]
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
-        entries = (org.d.get("net_spool") or {}).get(hub_id, [])
+    # the steady state is a lock-free read that finds nothing changed
+    entries = (orgtx.org_read(slug, sections=["net_spool"]).d
+               .get("net_spool") or {}).get(hub_id, [])
+    if not entries or all(e.get("last_err") == err for e in entries):
+        return
+    with orgtx.org_tx(slug, **SPOOL_ROWS) as tx:
+        entries = (tx.d.get("net_spool") or {}).get(hub_id, [])
         if not entries or all(e.get("last_err") == err for e in entries):
             return
         for e in entries:
             e["last_err"] = err
         ids = {str(e.get("id")) for e in entries}
-        for row in cast("list[dict[str, Any]]", org.d.get("org_inbox") or []):
+        for row in cast("list[dict[str, Any]]", tx.d.get("org_inbox") or []):
             if row.get("net_id") in ids and row.get("last_err") != err:
                 row["last_err"] = err
-        store.save_org(org)
 
 
 def _bump_try(slug: str, hub_id: str, entry_id: str, err: str) -> None:
-    from . import store
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
-        for e in (org.d.get("net_spool") or {}).get(hub_id, []):
+    from . import orgtx
+    with orgtx.org_tx(slug, **SPOOL_ROWS) as tx:
+        for e in (tx.d.get("net_spool") or {}).get(hub_id, []):
             if e.get("id") == entry_id:
                 e["tries"] = int(e.get("tries") or 0) + 1
                 e["last_err"] = err[:200]
@@ -1067,12 +1073,11 @@ def _bump_try(slug: str, hub_id: str, entry_id: str, err: str) -> None:
                 # (_stamp_row advances the state; the stale reason is
                 # removed on the next delivery receipt path via _ship).
                 for row in reversed(cast("list[dict[str, Any]]",
-                                         org.d.get("org_inbox") or [])):
+                                         tx.d.get("org_inbox") or [])):
                     if row.get("net_id") == entry_id:
                         row["tries"] = e["tries"]
                         row["last_err"] = e["last_err"]
                         break
-                store.save_org(org)
                 return
 
 
@@ -1097,20 +1102,18 @@ def _stamp_row(org_d: Any, net_id: str, state: str) -> bool:
 
 
 def _apply_receipts(slug: str, receipts: list[dict[str, Any]]) -> None:
-    from . import store
+    from . import orgtx
     if not receipts:
         return
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
-        hit = False
+    # PG-3f: SPOOL_ROWS although no spool entry changes — the net_spool lock
+    # is what serializes edits of the outbound org-inbox rows
+    with orgtx.org_tx(slug, **SPOOL_ROWS) as tx:
         for r in receipts:
             st = str(r.get("state") or "")
             if st == "fetched":
                 st = "sent"          # custody stages collapse into "sent"
             if st in ("sent", "delivered", "read"):
-                hit = _stamp_row(org.d, str(r.get("id")), st) or hit
-        if hit:
-            store.save_org(org)
+                _stamp_row(tx.d, str(r.get("id")), st)
 
 
 def _deliver_inbound(slug: str, hub_id: str, msgs: list[dict[str, Any]],
@@ -1118,18 +1121,23 @@ def _deliver_inbound(slug: str, hub_id: str, msgs: list[dict[str, Any]],
                      p: dict[str, Any] | None = None) -> list[str]:
     """Deliver polled messages: dedupe on the persisted seen-ring, deliver
     FIRST, record seen, then return the ids to ack. Duplicates never
-    double-drive; a crash mid-sequence redelivers, never loses."""
-    from . import store, supervisor
+    double-drive; a crash mid-sequence REPLAYS the delivery (its op_key
+    receipt returns the recorded recipients), never posts twice, never
+    loses.
+
+    PG-3f: no DOC_LOCK. The seen check is a lock-free read; the delivery is
+    `deliver_org_inbox`'s own transaction (never nested in one here — the
+    same org would raise NestedTx); the seen record is a small org_tx on
+    `net_state`."""
+    from . import orgtx, supervisor
     ack: list[str] = []
     for m in msgs:
         mid = str(m.get("id") or "")
         if not mid:
             continue
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            ring = (org.d.setdefault("net_state", {})
-                    .setdefault(hub_id, {}).setdefault("seen_ids", []))
-            seen = mid in ring
+        ring = ((orgtx.org_read(slug, sections=["net_state"]).d
+                 .get("net_state") or {}).get(hub_id) or {}).get("seen_ids") or []
+        seen = mid in ring
         if not seen:
             body = str(m.get("body") or "")
             # F-06 D: fetch attachments to a temp dir; deliver_org_inbox does
@@ -1176,13 +1184,13 @@ def _deliver_inbound(slug: str, hub_id: str, msgs: list[dict[str, Any]],
                 pass
             supervisor.deliver_org_inbox(slug, f"@net:{m.get('from')}", body,
                                          attachments=att_paths or None,
-                                         net_id=mid)
+                                         net_id=mid,
+                                         op_key=f"net:{hub_id}:{mid}")
             if tmp_dir:
                 import shutil
                 shutil.rmtree(tmp_dir, ignore_errors=True)
-            with store.DOC_LOCK:
-                org = store.load_org(slug)
-                cell = (org.d.setdefault("net_state", {})
+            with orgtx.org_tx(slug, sections=["net_state"]) as tx:
+                cell = (tx.d.setdefault("net_state", {})
                         .setdefault(hub_id, {}))
                 if addr:
                     # the ring is a fact about THIS address (second wave)
@@ -1191,7 +1199,6 @@ def _deliver_inbound(slug: str, hub_id: str, msgs: list[dict[str, Any]],
                 if mid not in ring:
                     ring.append(mid)
                     del ring[:-SEEN_RING]
-                store.save_org(org)
             with _dlv_q_lock:             # redteam ⑤: the sender snapshots
                 _dlv_q.append((slug, hub_id, mid))
         ack.append(mid)
