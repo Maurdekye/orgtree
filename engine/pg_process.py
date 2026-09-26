@@ -460,8 +460,8 @@ def _is_source(name: str) -> bool:
 
 
 def classify_for_bootstrap(root: Path) -> tuple[str, list[str]]:
-    """``("existing", sources)``: ``orgs/`` holds an org store; it keeps its
-    backend. ``("fresh", [])``: no ``orgs/`` entries at all, no ``pg/`` and no
+    """``("existing", sources)``: ``orgs/`` holds an org store, or the trash
+    ``deleted/`` holds a deleted org's files; it keeps its backend. ``("fresh", [])``: no ``orgs/`` entries at all, no ``pg/`` and no
     ``pre-postgres/``. ``("ambiguous", found)``: neither -- an empty folder
     or any other entry in ``orgs/``, a PostgreSQL marker, or a database or
     cutover folder with no record choosing it. A leftover product binding
@@ -469,11 +469,17 @@ def classify_for_bootstrap(root: Path) -> tuple[str, list[str]]:
     does not count."""
     orgs = root / "orgs"
     found: list[str] = []
+    # an org in the trash (store.delete_org moves its files flat into
+    # deleted/, and moving them back IS the restore) is an existing store too
+    # (coordinator ruling (a) on review finding f1, 2026-09-26)
+    for folder in ("orgs", "deleted"):
+        if (root / folder).is_dir():
+            sources = [f"{folder}/{p.name}" for p in sorted((root / folder).iterdir(), key=lambda p: p.name)
+                       if p.is_file() and _is_source(p.name)]
+            if sources:
+                return "existing", sources
     if orgs.is_dir():
         entries = sorted(orgs.iterdir(), key=lambda p: p.name)
-        sources = [f"orgs/{p.name}" for p in entries if p.is_file() and _is_source(p.name)]
-        if sources:
-            return "existing", sources
         found += [f"orgs/{p.name}" + ("/" if p.is_dir() else "") for p in entries]
     elif orgs.exists():
         found.append("orgs (not a folder)")

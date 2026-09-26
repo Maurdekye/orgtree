@@ -590,6 +590,32 @@ class BracketTests(unittest.TestCase):
         self.assertEqual(self.calls(), [])
         self.assertEqual(self.refusals, [])
 
+    def test_orgs_only_in_the_trash_are_an_existing_store(self) -> None:
+        # coordinator ruling (a) on review finding f1: store.delete_org moves an
+        # org flat into deleted/ and moving it back is the restore, so such a
+        # root stays on SQLite until the cutover
+        import shutil
+        for name in ("acme-20260901T120000.db", "acme-20260901T120000.json",
+                     "acme-20260901T120000.json.premigration", "acme-20260901T120000-1.db-wal"):
+            root, env = self.fresh()
+            for p in list(root.iterdir()):
+                shutil.rmtree(p) if p.is_dir() else p.unlink()
+            (root / "orgs").mkdir()
+            (root / "deleted").mkdir()
+            (root / "deleted" / name).write_text("x")
+            before = self.tree(root)
+            self.assertEqual(bracket.classify_for_bootstrap(root), ("existing", [f"deleted/{name}"]))
+            self.assertIsNone(bracket.start_for_engine(root, env, self.migrator), name)
+            self.assertEqual(self.tree(root), before, name)
+        self.assertEqual(self.calls(), [])
+        # an empty trash, or one holding no org file, does not stop a fresh root
+        root, env = self.fresh()
+        for p in list(root.iterdir()):
+            shutil.rmtree(p) if p.is_dir() else p.unlink()
+        (root / "deleted" / "old-workspace").mkdir(parents=True)
+        (root / "deleted" / "notes.txt").write_text("")
+        self.assertEqual(bracket.classify_for_bootstrap(root), ("fresh", []))
+
     def test_an_ambiguous_root_refuses_and_writes_nothing(self) -> None:
         cases = {"an empty folder in orgs/": lambda r: (r / "orgs" / "sub").mkdir(parents=True),
                  "a PostgreSQL marker": lambda r: ((r / "orgs").mkdir(), (r / "orgs" / "acme.pg").write_text("{}")),
