@@ -305,6 +305,11 @@ def child(args) -> int:
                             for d in snap.compare_to(prev, "traceback")[:8]]
         out["cur_by_line"] = [[str(st.traceback[0]), round(st.size / 2**20, 2), st.count]
                               for st in snap.statistics("lineno")[:top]]
+        if prev is None:
+            # first snapshot of a process traced from start: WHO holds it now
+            out["cur_by_tb"] = [{"size_mb": round(st.size / 2**20, 2), "count": st.count,
+                                 "tb": [f"{os.path.basename(f.filename)}:{f.lineno}" for f in st.traceback][-frames:]}
+                                for st in snap.statistics("traceback")[:10]]
         _tm["prev"] = snap
         types = collections.Counter(type(o).__name__ for o in gc.get_objects())
         out["gc_types"] = types.most_common(20)
