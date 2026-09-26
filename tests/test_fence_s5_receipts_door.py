@@ -138,6 +138,32 @@ class _Base(unittest.TestCase):
                     {'tool': RA, 'args': ARGS, 'op_key': key,
                      'op_epoch': self.epoch})
 
+    def unminted(self):
+        """The seat as the identity check sees it WITHOUT a seat_id, so the
+        mint branch really runs (a load mints every missing seat_id itself —
+        ledger's seat-id migration — so a stored node never lacks one). The
+        mint's own transaction still loads the stored node, which has one:
+        what it must return is that stored id, from its locked row. Returns
+        the list the mint's org_tx calls are recorded in."""
+        real_cached, real_tx = store.cached_org, orgtx.org_tx_call
+        stored = store.load_org(self.slug).node('kid')['seat_id']
+        self.stored_seat = stored
+        calls: list = []
+
+        def cached(slug):
+            org = store.load_org(slug)
+            org.node('kid').pop('seat_id', None)
+            return org
+
+        def tx_call(slug, fn, **names):
+            calls.append(names)
+            return real_tx(slug, fn, **names)
+        for x in (patch.object(store, 'cached_org', cached),
+                  patch.object(orgtx, 'org_tx_call', tx_call)):
+            x.start()
+            self.addCleanup(x.stop)
+        return calls
+
     def rows(self, key):
         d = store.load_org(self.slug).d
         return [r for r in (d.get(opreceipts.SECTION) or []) if r.get('key') == key]
@@ -162,17 +188,14 @@ class NeverWaitsOnDocLock(_Base):
         self.assertEqual((row['node'], row['outcome']), ('mid', 'fenced'))
 
     def test_the_seat_id_mint(self):
-        org = store.load_org(self.slug)
-        org.node('kid').pop('seat_id', None)
-        store.save_org(org)
+        calls = self.unminted()
         body = api.AgentCall(org=self.slug, node='kid', tool='orgtree_status', args={})
         with _Held(lambda: store.DOC_LOCK):
             done, out, _t = _run(lambda: api._agent_identity(body, REQUEST, durable=True),
                                  FREE_S)
         self.assertTrue(done, 'the seat_id mint waited on DOC_LOCK')
-        sid = store.load_org(self.slug).node('kid').get('seat_id')
-        self.assertTrue(sid)
-        self.assertEqual(out[0].get('seat_id'), sid)
+        self.assertEqual(calls, [{'nodes': ['kid']}])     # the branch ran
+        self.assertEqual(out[0].get('seat_id'), self.stored_seat)
 
 
 class HoldsItsRow(_Base):
@@ -201,9 +224,7 @@ class HoldsItsRow(_Base):
         self.assertEqual(out[0]['state'], 'not_applied', out)
 
     def test_the_mint_waits_for_the_seat_row(self):
-        org = store.load_org(self.slug)
-        org.node('kid').pop('seat_id', None)
-        store.save_org(org)
+        calls = self.unminted()
         body = api.AgentCall(org=self.slug, node='kid', tool='orgtree_status', args={})
         with _Held(lambda: orgtx.org_tx(self.slug, nodes=['kid'])):
             done, out, t = _run(lambda: api._agent_identity(body, REQUEST, durable=True),
@@ -211,7 +232,36 @@ class HoldsItsRow(_Base):
             self.assertFalse(done, 'the mint wrote a seat row it did not hold')
         t.join(FREE_S)
         self.assertFalse(t.is_alive())
-        self.assertTrue(out[0].get('seat_id'))
+        self.assertEqual(calls, [{'nodes': ['kid']}])
+        self.assertEqual(out[0].get('seat_id'), self.stored_seat)
+
+
+class LookupAtTheCeiling(_Base):
+    def test_a_fence_that_evicts_commits_and_the_watermark_rises(self):
+        # p01 (S5 review, Q3): the fence append is the one that crosses
+        # CEILING, so it also evicts (a slice rewrite of the receipt log) —
+        # logs=[op_receipts] admits it, META FOR UPDATE orders it
+        import time
+        org = store.load_org(self.slug)
+        d = org.d
+        now = int(time.time() * 1000)
+        for i in range(opreceipts.CEILING):
+            opreceipts.append(d, opreceipts.row(
+                op_id=opreceipts.new_id(), node='mid', generation=0,
+                key=f'fill-{i}', mint_ms=now - 60_000 + i, tool=RA, args=ARGS,
+                cls='applied', outcome='applied', at=ledger.now()))
+        store.save_org(org)
+        before = dict(store.load_org(self.slug).d[opreceipts.META])
+        self.assertEqual(len(store.load_org(self.slug).d[opreceipts.SECTION]),
+                         opreceipts.CEILING)
+        key = opreceipts.mint_key()
+        self.assertEqual(self.lookup(key)['state'], 'not_applied')
+        after_d = store.load_org(self.slug).d
+        log, meta = after_d[opreceipts.SECTION], after_d[opreceipts.META]
+        self.assertEqual(len(log), opreceipts.TRIM_TO)        # evicted, persisted
+        self.assertEqual([r['outcome'] for r in log if r.get('key') == key], ['fenced'])
+        self.assertGreater(int(meta['from_ms']), int(before.get('from_ms') or 0))
+        self.assertEqual(int(meta['seq']), int(before['seq']) + 1)
 
 
 class LookupAgainstTheCall(_Base):
