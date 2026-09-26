@@ -38,7 +38,7 @@ from orgtree import (api, ledger, lifecycle_door, lifecycle_tx, orgtx,  # noqa: 
 REQUEST = SimpleNamespace(state=SimpleNamespace())
 U = ledger.USER
 TOOLS = ("orgtree_move", "orgtree_swap", "orgtree_self_subjugate",
-         "orgtree_retire", "orgtree_dissolve")
+         "orgtree_retire", "orgtree_dissolve", "orgtree_rehire")
 _N = [0]
 
 
@@ -77,9 +77,12 @@ class Door(unittest.TestCase):
 
     def view(self, slug):
         o = store.load_org(slug)
-        return ({k: (v["parent"], v["grant"], v["state"])
-                 for k, v in o.nodes.items()},
-                [(e["op"], e["detail"]) for e in o.d["events"]][-4:])
+        v = ({k: (v["parent"], v["grant"], v["state"])
+              for k, v in o.nodes.items()},
+             [(e["op"], e["detail"]) for e in o.d["events"]][-4:])
+        # a scope event carries the org's own workspace path: compare the
+        # two orgs modulo their slug
+        return repr(v).replace(slug, "<slug>")
 
     def both(self, node, tool, args):
         """The tool on the door (self.slug, write_org exploding) and on the
@@ -274,6 +277,96 @@ class Door(unittest.TestCase):
                 with patch.object(supervisor, "interrupt_before_archive",
                                   lambda slug, org, nid: []):
                     opened = self.attempts(node, tool, args)
+                self.assertEqual(len(opened), 1, (name, opened))
+
+    # ------------------------------------------------------------ rehire
+
+    def archive(self, nid):
+        for slug in (self.slug, self.twin):
+            org = store.load_org(slug)
+            org.retire(U, nid)
+            store.save_org(org)
+
+    def item(self):
+        """A docket item on both orgs, returned by slug (same on both)."""
+        slugs = []
+        for slug in (self.slug, self.twin):
+            org = store.load_org(slug)
+            w = org.work_create(U, "rehire item", "why it exists", owner="boss")
+            store.save_org(org)
+            slugs.append(w["created"])
+        self.assertEqual(slugs[0], slugs[1])
+        return slugs[0]
+
+    def test_the_rehire_scope_fields_are_the_seat_finish_fields(self):
+        self.assertEqual(set(lifecycle_door._REHIRE_SCOPE),
+                         set(api._SEAT_SCOPE_REHIRE))
+
+    def test_rehire_matches_the_cycle(self):
+        self.archive("x")
+        mine, legacy = self.both("boss", "orgtree_rehire", {"node": "x"})
+        self.assertEqual(self.strip(mine), self.strip(legacy))
+        self.assertEqual(self.view(self.slug), self.view(self.twin))
+        self.assertEqual(store.load_org(self.slug).nodes["x"]["state"], "live")
+
+    def test_rehire_into_a_new_parent_matches_the_cycle(self):
+        self.archive("x")
+        mine, legacy = self.both("boss", "orgtree_rehire",
+                                 {"node": "x", "target": "b"})
+        self.assertEqual(self.strip(mine), self.strip(legacy))
+        self.assertEqual(self.view(self.slug), self.view(self.twin))
+        self.assertEqual(store.load_org(self.slug).nodes["x"]["parent"], "b")
+
+    def test_rehire_with_scope_and_kickoff_matches_the_cycle(self):
+        self.archive("x")
+        args = {"node": "x", "charter": "new charter", "kickoff": "go"}
+        mine, legacy = self.both("boss", "orgtree_rehire", args)
+        self.assertEqual(self.strip(mine), self.strip(legacy))
+        self.assertEqual(self.view(self.slug), self.view(self.twin))
+        self.assertEqual(store.load_org(self.slug).nodes["x"].get("charter"),
+                         "new charter")
+
+    def test_rehire_with_a_work_item_matches_the_cycle(self):
+        self.archive("x")
+        slug = self.item()
+        mine, legacy = self.both("boss", "orgtree_rehire",
+                                 {"node": "x", "work_item": slug})
+        self.assertEqual(self.strip(mine), self.strip(legacy))
+        owner = lambda s: [(i.get("owner") or {}).get("node")
+                           for i in store.load_org(s).d["work_items"]
+                           if i.get("slug") == slug]
+        self.assertEqual(owner(self.slug), ["x"])
+        self.assertEqual(owner(self.slug), owner(self.twin))
+
+    def test_a_refused_rehire_after_a_rename_says_the_rename_stands(self):
+        # the rename runs before the door, in its own transaction; a refusal
+        # after it must name the new id, on both paths, word for word
+        self.archive("x")
+        args = {"node": "x", "name": "xx", "target": "nobody"}
+        with self.assertRaises(HTTPException) as door:
+            self.call(self.slug, "boss", "orgtree_rehire", dict(args))
+        with patch.object(pgdoor, "enabled", lambda: False):
+            with self.assertRaises(HTTPException) as cyc:
+                self.call(self.twin, "boss", "orgtree_rehire", dict(args))
+        self.assertIn("The RENAME already happened", door.exception.detail)
+        self.assertEqual(door.exception.detail, cyc.exception.detail)
+        self.assertEqual(store.load_org(self.slug).nodes["xx"]["state"],
+                         store.load_org(self.twin).nodes["xx"]["state"])
+
+    def test_every_rehire_shape_commits_in_one_attempt(self):
+        cases = [("plain", {"node": "x"}),
+                 ("placed", {"node": "x", "target": "b"}),
+                 ("scoped+kickoff", {"node": "x", "charter": "c2",
+                                     "tools": {"bash": False}, "kickoff": "go"}),
+                 ("work_item", None)]
+        for name, args in cases:
+            with self.subTest(name):
+                self.tearDown()
+                self.setUp()
+                self.archive("x")
+                if args is None:
+                    args = {"node": "x", "work_item": self.item()}
+                opened = self.attempts("boss", "orgtree_rehire", args)
                 self.assertEqual(len(opened), 1, (name, opened))
 
 if __name__ == "__main__":

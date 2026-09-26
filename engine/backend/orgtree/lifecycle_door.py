@@ -14,6 +14,10 @@ in `lifecycle_tx`:
     orgtree_dissolve        (`supervisor.interrupt_before_archive`) already
                             runs in `agent_call` BEFORE the door, with no
                             lock held; its warnings arrive in `pre`.
+    orgtree_rehire          `rehire_rows` — the whole `api._rehire_seat`
+                            composite (rehire, scope, audiences, docket
+                            assignment, kickoff, placement). The pre-lock
+                            rename's outcome arrives in `pre`.
 
 Each spec is computed from the door's UNLOCKED snapshot, so it can be stale.
 The body re-derives the plan on the LOCKED document (`lifecycle_tx._need`)
@@ -174,6 +178,116 @@ def _archive(op_body: Callable[..., Any]):
     return run
 
 
+# ---------------------------------------------------------------- rehire
+# `api._rehire_seat` is a composite: `Org.rehire`, then `_seat_finish` (the
+# scope fields, audience grants, a docket assignment when `work_item` rides
+# the call, the kickoff mail), then the placement (`move` / `insert_parent`)
+# when `target` / `hire_type` put the seat somewhere else. Its rows are the
+# union of each part's plan. The sections are PG-3b's hire sections (the
+# seat half is the same code) plus rehire's own and the docket:
+#   REHIRE_SECTIONS  lifecycle_tx.SPECS["rehire"] (fable_lock, notices,
+#                    watchdogs) + mail, audiences, lifecycle + work_items;
+#   REHIRE_SHARE     SPECS["rehire"]'s settings = PG-3b's HIRE_SETTINGS less
+#                    fable_lock, which rehire WRITES (agreed with WS3a
+#                    2026-09-26; their staffdoor test pins the equality);
+#   REHIRE_LOGS      events, notice_log, mail_log.
+# `orgtree_staff`'s rehire mode starts from `rehire_rows` (WS3a's staffdoor).
+
+REHIRE_SECTIONS = tuple(sorted(set(lt.SPECS["rehire"].sections)
+                               | {"mail", "audiences", "lifecycle", "work_items"}))
+REHIRE_SHARE = tuple(lt.SPECS["rehire"].share_sections)
+REHIRE_LOGS = tuple(sorted(set(lt.SPECS["rehire"].logs) | {"mail_log"}))
+# the scope fields `_seat_finish` applies on a rehire: api._SEAT_SCOPE_REHIRE
+# (api cannot be imported here; tests/test_pg3a_door.py pins the equality)
+_REHIRE_SCOPE = ("permission_mode", "effort", "team_charter", "prefer_reserve",
+                 "account_fallback", "clear_account_fallback", "charter",
+                 "org_visibility", "tools", "add_dirs")
+
+
+def rehire_rows(org: Any, actor: str, a: dict[str, Any]) -> pgdoor.TxSpec:
+    """Every row `api._rehire_seat(org, slug, actor, a, ...)` locks, computed
+    on `org` (the snapshot, or the locked document when a body re-checks)."""
+    nid = str(a.get("node") or "")
+    upd, share = lt._rehire_rows(org, actor, nid)
+    sections, ssecs = set(REHIRE_SECTIONS), set(REHIRE_SHARE)
+    kw = {f: a.get(f) for f in _REHIRE_SCOPE if a.get(f) is not None}
+    if kw:
+        u, s2, sec, ssec, _logs = lt._scope_plan(org, actor, nid, kw, False)
+        upd |= u
+        share |= s2
+        sections |= set(sec)
+        ssecs |= set(ssec)
+    dest = str(a.get("target") or "")
+    htype = str(a.get("hire_type") or "subordinate")
+    if dest or htype != "subordinate":
+        dest = dest or actor
+        u, s2 = lt._move_rows(org, actor, nid, dest)
+        upd |= u
+        share |= s2
+        if htype == "superior":
+            u, s2 = lt._insert_rows(org, actor, nid, dest)
+            upd |= u
+            share |= s2
+        ssecs |= set(lt.SPECS["move"].share_sections)
+    return pgdoor.TxSpec(nodes=tuple(sorted(upd)),
+                         sections=tuple(sorted(sections)),
+                         share_nodes=tuple(sorted(share - upd)),
+                         share_sections=tuple(sorted(ssecs - sections)),
+                         logs=REHIRE_LOGS)
+
+
+def _rehire_spec(snap: Any, call: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
+    return rehire_rows(snap, call.node, a)
+
+
+def _sweep_first(call: Any, a: dict[str, Any]) -> None:
+    """Plan decision 13: a docket write's archive move runs in its OWN
+    transaction first, and the call then runs with the move deferred — a
+    rehire carrying `work_item` assigns a docket item."""
+    from . import worktx
+    worktx.sweep(str(call.org))
+
+
+def rename_stands(e: LedgerError, renamed_to: "str | None") -> LedgerError:
+    """A rehire refused AFTER its pre-lock rename committed (the rename
+    cannot share the rehire's transaction): the refusal must say the rename
+    stands and name the id to retry against, word for word as the DOC_LOCK
+    cycle does. Also used by orgtree_staff's rehire mode (WS3a)."""
+    if not renamed_to:
+        return e
+    return LedgerError(
+        f'{e}  ⚠ The RENAME already happened and cannot be undone '
+        f'here: the node is still archived, now named '
+        f'"{renamed_to}". Nothing else was applied and it was not '
+        f'started — retry against "{renamed_to}", without `name`.')
+
+
+def rehire_body(tx: pgdoor.AgentTx) -> Any:
+    """`orgtree_rehire` on the door: exactly `api._rehire_seat` on the locked
+    rows, after re-deriving them on the locked document (a gap widens before
+    anything is written). The wake-ups ride `after.drive`."""
+    from . import api     # api imports this module; resolve at call time
+    a = tx.args
+    need = tx.spec.covers(rehire_rows(tx.org, tx.node, a))
+    if need.nodes or need.share_nodes:
+        raise pgdoor.Widen(nodes=need.nodes, share_nodes=need.share_nodes)
+    renamed_to = tx.pre.get("renamed_to")
+    drive: list[str] = []
+    tx.org._work_defer_archive = True
+    try:
+        result = api._rehire_seat(tx.org, tx.call.org, tx.node, a, drive,
+                                  renamed_to,
+                                  list(tx.pre.get("rename_warnings") or []))
+    except LedgerError as e:
+        if not renamed_to:
+            raise
+        raise rename_stands(e, renamed_to) from e
+    finally:
+        tx.org._work_defer_archive = False
+    tx.after.drive.extend(drive)
+    return result
+
+
 pgdoor.declare("orgtree_move", _spec("move", _move_rows), _door_body(_move))
 pgdoor.declare("orgtree_swap", _spec("swap_seats", _swap_rows),
                _door_body(_swap))
@@ -183,3 +297,5 @@ pgdoor.declare("orgtree_retire", _spec("retire", _archive_rows),
                _door_body(_archive(lt.retire_body)))
 pgdoor.declare("orgtree_dissolve", _spec("dissolve", _archive_rows),
                _door_body(_archive(lt.dissolve_body)))
+pgdoor.declare("orgtree_rehire", _rehire_spec, body=rehire_body,
+               before=_sweep_first)
