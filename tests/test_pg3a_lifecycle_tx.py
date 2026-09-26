@@ -983,13 +983,15 @@ class Promote(unittest.TestCase):
         upd, share = lifecycle_tx._promote_rows(o, "a", "a", "t")
         self.assertTrue({"a", "t", "t1", "m", "x", "root"} <= upd, upd)
 
-    def test_the_second_leg_rows_are_needed(self):
-        # leg 1's rows only: leg 2 (a and its remainder under t) is unlocked
-        o = store.load_org(self.slug)
-        u, s = lifecycle_tx._move_rows(o, "a", "t", "root")
+    def test_the_release_leg_rows_are_needed(self):
+        # leg 1 takes t (and its stake) out from under m: m's grant is
+        # released, so a transaction holding a, t and t1 but not m is refused
+        # and nothing is written. (Leg 2's own rows turned out to be covered
+        # by leg 1's here — a moving under t touches a, t and a's stake only;
+        # the replay stays as the model of the verb, like move_batch's.)
         spec = lifecycle_tx.SPECS["move"]
         with self.assertRaises(orgtx.UnlockedWrite):
-            with halt.txn(self.slug, nodes=u, share_nodes=s - u,
+            with halt.txn(self.slug, nodes=["a", "t", "t1", "x"], share_nodes=["root"],
                           sections=spec.sections, share_sections=spec.share_sections,
                           logs=spec.logs) as tx:
                 tx.org.subjugate("a", "a", "t")
