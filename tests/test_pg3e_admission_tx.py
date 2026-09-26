@@ -30,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
-from orgtree import ledger, orgtx, store, supervisor as sup
+from orgtree import halt, ledger, orgtx, store, supervisor as sup
 
 assert Path(store.DATA_ROOT).resolve() == Path(_root.name).resolve()
 
@@ -129,6 +129,52 @@ class DrainTxTests(unittest.TestCase):
                (org.d.get('mail') or {}).get('worker') or []]
         self.assertIn(self.mail_id, box)
         self.assertFalse((org.d.get('delivering') or {}).get('worker'))
+
+
+class CompactionRowsTests(unittest.TestCase):
+    """Review N1: the compaction transaction (tx1) runs on every ordinary
+    admission, so it names the agent's own and its planned parent's
+    `notices` rows, never the whole container; and it compacts only when
+    every row the compaction writes is actually locked."""
+
+    def setUp(self):
+        self.slug = 'n1-' + self._testMethodName[5:].replace('_', '-')[-24:].strip('-')
+        org = store.create_org(self.slug)
+        org.hire(ledger.USER, None, 'opus', 0, 'boss')
+        org.hire(ledger.USER, None, 'opus', 0, 'other')
+        org.hire(ledger.USER, 'boss', 'opus', 0, 'child')
+        store.save_org(org)
+
+    def tearDown(self):
+        store._POOL.close_all(self.slug)
+
+    def test_tx1_names_own_and_parent_notices_rows_only(self):
+        rows = sup._admission_rows(self.slug, 'child', compact=True)
+        self.assertNotIn('notices', rows['sections'])
+        self.assertEqual(sorted(rows['sections']),
+                         [('notices', 'boss'), ('notices', 'child')])
+        top = sup._admission_rows(self.slug, 'boss', compact=True)
+        self.assertEqual(top['sections'], [('notices', 'boss')])
+
+    def test_planned_rows_are_locked(self):
+        with halt.txn(self.slug, **sup._admission_rows(
+                self.slug, 'child', compact=True)) as tx:
+            self.assertTrue(sup._admission_pred_locked(tx, tx.org, 'child'))
+
+    def test_a_parent_moved_after_planning_skips_the_compaction(self):
+        rows = sup._admission_rows(self.slug, 'child', compact=True)
+        org = store.load_org(self.slug)
+        org.move(ledger.USER, 'child', 'other')
+        store.save_org(org)
+        with halt.txn(self.slug, **rows) as tx:
+            self.assertEqual(tx.org.node('child').get('parent'), 'other')
+            self.assertFalse(sup._admission_pred_locked(tx, tx.org, 'child'))
+
+    def test_a_held_notices_container_covers_the_parent_row(self):
+        rows = sup._admission_rows(self.slug, 'child', compact=True)
+        rows['sections'] = ['notices']
+        with halt.txn(self.slug, **rows) as tx:
+            self.assertTrue(sup._admission_pred_locked(tx, tx.org, 'child'))
 
 
 if __name__ == '__main__':

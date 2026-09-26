@@ -19667,12 +19667,13 @@ def _resume_rows(slug: str, pick: set[str] | None) -> dict[str, Any]:
 def _admission_pred_locked(tx: orgtx.OrgTx, org: Org, nid: str) -> bool:
     """True when every row a cheap-compaction of `nid` would write is locked:
     the `nid@<generation>` row it inserts and its parent's notices row (both
-    planned lock-free by `_admission_rows`)."""
+    planned lock-free by `_admission_rows`). A whole `notices` container held
+    by an enclosing transaction covers the parent's row, as in `halt._covers`."""
     gen = int(org.node(nid).get("generation") or 0)
     parent = org.node(nid).get("parent")
     return (f"{nid}@{gen}" in tx.lock_nodes
-            and (not parent or f"notices{store.SPLIT_SEP}{parent}"
-                 in tx.lock_sections))
+            and (not parent or "notices" in tx.lock_sections
+                 or f"notices{store.SPLIT_SEP}{parent}" in tx.lock_sections))
 
 
 def _halt_check_locked(org: Org, nid: str) -> None:
