@@ -13321,6 +13321,22 @@ def _working_checkup_eligible(org: Org, nid: str) -> bool:
     return _auto_wake_gates_clear(org, nid)
 
 
+def _working_checkup_decision(org: Org, nid: str, now: float) -> str:
+    """What `_working_checkup_reserve` would do for this seat: "none" (write
+    nothing), "stamp" (record a missing anchor) or "checkup" (reserve one).
+    A pure read of `org`, so the fleet pass asks it of the shared SNAPSHOT
+    first and opens its halt transaction only for a seat whose answer is not
+    "none"; the reservation asks it again of the locked document, which decides."""
+    if not _working_checkup_eligible(org, nid):
+        return "none"
+    anchor = _working_checkup_anchor(org.node(nid))
+    if not anchor:
+        return "stamp"
+    if now - anchor <= WORKING_CHECKUP_AFTER_S:
+        return "none"
+    return "checkup"
+
+
 def _working_checkup_reserve(slug: str, nid: str, now: float) -> str | None:
     """Atomically claim one due checkup and persist its internal mail.
 
@@ -13333,16 +13349,14 @@ def _working_checkup_reserve(slug: str, nid: str, now: float) -> str | None:
     """
     with halt.txn(slug, **mailtx.send_rows(nid)) as _ck_tx:
         org = _ck_tx.org
-        if not _working_checkup_eligible(org, nid):
+        decision = _working_checkup_decision(org, nid, now)
+        if decision == "none":
             return None
         n = org.node(nid)
-        anchor = _working_checkup_anchor(n)
-        if not anchor:
+        if decision == "stamp":
             # Reconcile a legacy/hand-edited working row without a timestamp
             # conservatively. Absence is not evidence that 20 minutes passed.
             n["working_activity_at"] = _iso_ts(now)
-            return None
-        if now - anchor <= WORKING_CHECKUP_AFTER_S:
             return None
         mid = uuid_hex8()
         stamp = _iso_ts(now)
@@ -13457,13 +13471,17 @@ def _idle_docket_reminder_reserve(
         org, nid, now), rows=rows)
 
 
-def _idle_docket_reminder_reserve_body(
+def _idle_docket_reminder_decision(
         org: Org, nid: str,
-        now: float) -> tuple[str, list[dict[str, str]]] | None:
-    """The decision and the writes of `_idle_docket_reminder_reserve`, on the
-    locked document. The transaction commits whatever this changed."""
+        now: float) -> tuple[str, list[dict[str, str]]]:
+    """What `_idle_docket_reminder_reserve_body` would do for this seat:
+    ("none", []) writes nothing, ("stamp", items) records a missing anchor,
+    ("remind", items) reserves a reminder naming `items`. A pure read of
+    `org`: the fleet pass asks it of the shared SNAPSHOT first and opens the
+    reservation transaction only for a seat whose answer is not "none"; the
+    body asks it again of the locked document, which decides."""
     if not _auto_wake_gates_clear(org, nid):
-        return None
+        return "none", []
     # THE REMINDER's set, never the checkup's. Which question is asked is
     # the user's machine-wide choice and it DEFAULTS OFF: off is the
     # long-standing behaviour (nudge the actionable owned items, exclude
@@ -13476,15 +13494,28 @@ def _idle_docket_reminder_reserve_body(
              if appsettings.blocked_docket_reminders_enabled()
              else org.work_idle_reminder_items(nid))
     if not items:
+        return "none", []
+    anchor = _idle_docket_anchor(org.node(nid))
+    if not anchor:
+        return "stamp", items
+    if now - anchor <= IDLE_DOCKET_REMINDER_AFTER_S:
+        return "none", []           # MORE than 20 minutes, not exactly
+    return "remind", items
+
+
+def _idle_docket_reminder_reserve_body(
+        org: Org, nid: str,
+        now: float) -> tuple[str, list[dict[str, str]]] | None:
+    """The decision and the writes of `_idle_docket_reminder_reserve`, on the
+    locked document. The transaction commits whatever this changed."""
+    decision, items = _idle_docket_reminder_decision(org, nid, now)
+    if decision == "none":
         return None                 # no wake AND no stamp
     n = org.node(nid)
-    anchor = _idle_docket_anchor(n)
-    if not anchor:
+    if decision == "stamp":
         # absence is not evidence that 20 minutes passed
         n["docket_reminder_at"] = _iso_ts(now)
         return None
-    if now - anchor <= IDLE_DOCKET_REMINDER_AFTER_S:
-        return None                 # MORE than 20 minutes, not exactly
     mid = uuid_hex8()
     stamp = _iso_ts(now)
     n["docket_reminder_at"] = stamp
@@ -13549,6 +13580,13 @@ def _idle_docket_reminder_pass(
                 continue
             try:
                 if not _working_cache_idle(slug, nid):
+                    continue
+                # SCALE (O(N^2) -> O(N)): decide on the snapshot first and
+                # open the reservation transaction only for a seat whose
+                # decision writes something. The transaction decides again
+                # on the locked document; a seat that turned due after this
+                # snapshot is taken on the next tick.
+                if _idle_docket_reminder_decision(org, nid, now)[0] == "none":
                     continue
                 got = _idle_docket_reminder_reserve(slug, nid, now)
                 if not got:
@@ -14038,6 +14076,10 @@ def _working_checkup_pass(
                 # atomically by the reservation below. The second idle-only
                 # check in send_message closes a race with a real wake.
                 if not _working_cache_idle(slug, nid):
+                    continue
+                # SCALE: the same snapshot pre-check as the docket reminder;
+                # its halt transaction only for a seat that would write
+                if _working_checkup_decision(org, nid, now) == "none":
                     continue
                 mid = _working_checkup_reserve(slug, nid, now)
                 if not mid:
