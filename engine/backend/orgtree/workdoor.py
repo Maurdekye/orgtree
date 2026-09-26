@@ -34,8 +34,9 @@ TOOL = "orgtree_work"
 
 
 def before(call: Any, _a: dict[str, Any]) -> None:
-    """The archive move as its own transaction, before the call's."""
-    worktx.sweep(call.org)
+    """The archive move as its own transaction, before the call's — opened
+    only when the door's own snapshot has something due (S-D)."""
+    worktx.sweep(call.org, snapshot=pgdoor._snapshot(call.org))  # pyright: ignore[reportPrivateUsage]
 
 
 def spec(_snapshot: Any, _call: Any, a: dict[str, Any]) -> pgdoor.TxSpec:

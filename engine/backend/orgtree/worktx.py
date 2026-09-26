@@ -16,6 +16,21 @@ TWO TRANSACTIONS PER DOCKET WRITE (plan decision 13, p03-lead 2026-09-25):
      the ledger method skips the move. The identity check and slug backfill
      still run inside it.
 
+THE SWEEP RUNS ONLY WHEN SOMETHING IS DUE (S-D, 2026-09-26). Transaction 1
+used to open on EVERY docket write, and on PostgreSQL each transaction pays a
+full org load: an evidence call was four transactions, 27 ms against 6 ms on
+SQLite. `sweep` now asks `due` first, on the lock-free shared snapshot
+(`store.cached_org`, which the door reads for the call's row spec anyway and
+which is current as of this call), and opens the transaction only when an
+item there is eligible and attention-free. Nothing is delayed in any case
+that matters: the snapshot sees every commit made before this call, exactly
+as the transaction would. A commit landing in the microseconds between the
+snapshot and where the transaction would have opened is swept by the next
+docket write, which is the same race the unconditional sweep always had with
+a commit landing just after it. The transaction still re-checks eligibility
+under its lock (decision 13 a), so a stale "due" costs one empty sweep and
+nothing else. An unreadable snapshot sweeps unconditionally, as before.
+
 WHICH ROWS. A docket write always locks `work_items` and `asks` and appends to
 `events`. What else it touches depends on what the ledger decides while it
 runs: an assignment mails the new owner (the owner's own `("mail", nid)`
@@ -37,6 +52,7 @@ widening that adds nothing new is a bug, not a retry.
 from __future__ import annotations
 
 import re
+import time as _time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any, TypeVar, cast
@@ -215,10 +231,30 @@ def tx(slug: str, fn: Callable[[Org], T], *, rows: Rows,
                          f"{MAX_WIDEN} attempts: {rows.kwargs()}")
 
 
+def due(org: Org, now_ts: float | None = None) -> bool:
+    """Would `_work_archive_eligible` move anything? The same predicate, read
+    only: an active item that is eligible (done over an hour, dropped or
+    superseded at once) and holds no attention."""
+    now_ts = _time.time() if now_ts is None else now_ts
+    return any(org._work_eligible(it, now_ts)  # pyright: ignore[reportPrivateUsage]
+               and not org._work_attention(it)  # pyright: ignore[reportPrivateUsage]
+               for it in org._work_active())  # pyright: ignore[reportPrivateUsage]
+
+
 def sweep(slug: str, now_ts: float | None = None, *,
-          lock_timeout: float | None = None) -> list[str]:
-    """The archive move as its own transaction (decision 13). Returns the
-    slugs moved. Re-checks eligibility under the `work_items` lock."""
+          lock_timeout: float | None = None,
+          snapshot: Org | None = None) -> list[str]:
+    """The archive move as its own transaction (decision 13), opened only
+    when `due` says the current snapshot has something to move (S-D; see the
+    module docstring). Returns the slugs moved. Re-checks eligibility under
+    the `work_items` lock. `snapshot` is the caller's current lock-free read
+    of the org, when it already has one."""
+    try:
+        snap = snapshot if snapshot is not None else store.cached_org(slug)
+        if not due(snap, now_ts):
+            return []
+    except Exception:                                   # noqa: BLE001
+        pass            # an unreadable snapshot: sweep unconditionally, as before
     return tx(slug, lambda org: org._work_archive_eligible(now_ts),  # pyright: ignore[reportPrivateUsage]
               rows=Rows(logs={"events", "work_items_archive"}),
               lock_timeout=lock_timeout)
