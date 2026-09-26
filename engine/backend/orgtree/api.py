@@ -5649,7 +5649,8 @@ async def accounts_remove(account_id: str) -> dict[str, Any]:
         raise HTTPException(422, str(e))
     except account_removal.RemovalIncomplete as e:
         raise HTTPException(500, str(e))
-    account_removal.announce(out["wakes"], out["rebound"])
+    account_removal.announce(out["wakes"], out["rebound"],
+                             out.get("exports"))
     for slug in out["orgs"]:
         await hub.changed(slug)
     return {"removed": out["removed"], "rebound": out["rebound"],

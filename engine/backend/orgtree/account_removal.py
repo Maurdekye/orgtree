@@ -306,12 +306,19 @@ def _migrate_org(entry: dict[str, Any], actor: str) -> dict[str, Any]:
     slug, org, primary = entry["slug"], entry["org"], entry["primary"]
     moved: list[dict[str, Any]] = []
     wakes: list[tuple[str, str]] = []
+    # S7 L2 (WS3b decision 6): a session-boundary rebind's transcript export
+    # is file IO — never under the row locks; `announce` runs it after the
+    # commit (`supervisor.export_after_commit`)
+    exports: list[tuple[str, str]] = []
     for target in entry["live"]:
         nid = str(target["node"])
         out = supervisor.assign_account(
             slug, nid, primary, actor=actor, org=org, via="account_removed",
             allow_frozen=bool(target["allow_frozen"]),
-            immediate=bool(target["busy"]), notify_change=False)
+            immediate=bool(target["busy"]), notify_change=False, export=False)
+        old_sid = out.pop("_export_old_sid", None)
+        if old_sid:
+            exports.append((nid, str(old_sid)))
         if out.get("unparked"):
             wakes.append(("unpark", nid))
         if out.get("auth_thawed"):
@@ -361,7 +368,7 @@ def _migrate_org(entry: dict[str, Any], actor: str) -> dict[str, Any]:
         org.d["default_account"] = primary
         org._log("account_default_rebound", actor,
                  {"account": primary}, [])
-    return {"moved": moved, "wakes": wakes}
+    return {"moved": moved, "wakes": wakes, "exports": exports}
 
 
 def remove_account_rebinding_agents(account_id: str, *,
@@ -396,7 +403,7 @@ def _remove_marked(account_id: str, actor: str) -> dict[str, Any]:
         if plan["blockers"]:
             raise RemovalRefused(_blocker_message(aid, plan["blockers"]))
         try:
-            results, wakes, saved = _migrate_in_one_tx(plan, actor)
+            results, wakes, saved, exports = _migrate_in_one_tx(plan, actor)
         except _PlanMoved:
             continue
         # A binding made in an org the transaction did not lock (a hire or a
@@ -416,7 +423,7 @@ def _remove_marked(account_id: str, actor: str) -> dict[str, Any]:
             raise registry.UnknownAccount(aid)
         apikey_accounts.forget_credentials(row)
         return {"removed": aid, "rebound": results, "wakes": wakes,
-                "orgs": saved}
+                "orgs": saved, "exports": exports}
     raise RemovalRefused(
         f"account {account_id} was not removed: its bindings kept changing "
         f"while the removal ran. Nothing was changed; try again.")
@@ -447,7 +454,8 @@ def _drained_plan(account_id: str) -> dict[str, Any]:
 
 def _migrate_in_one_tx(plan: dict[str, Any], actor: str
                        ) -> tuple[list[dict[str, Any]],
-                                  list[tuple[str, str, str]], list[str]]:
+                                  list[tuple[str, str, str]], list[str],
+                                  list[tuple[str, Any, str, str]]]:
     """PHASES 2 and 3: migrate every affected org in ONE org_tx_multi.
 
     Raises `_PlanMoved` (rolled back) when a binding sits outside the locked
@@ -460,8 +468,9 @@ def _migrate_in_one_tx(plan: dict[str, Any], actor: str
     specs = {str(e["slug"]): _lock_spec(e) for e in plan["orgs"]}
     results: list[dict[str, Any]] = []
     wakes: list[tuple[str, str, str]] = []
+    exports: list[tuple[str, Any, str, str]] = []   # slug, org, nid, old sid
     if not specs:
-        return results, wakes, []
+        return results, wakes, [], exports
     txs: dict[str, orgtx.OrgTx] = {}
     body_started = body_done = False
     try:
@@ -482,6 +491,8 @@ def _migrate_in_one_tx(plan: dict[str, Any], actor: str
                 out = _migrate_org(entry, actor)
                 results.extend(out["moved"])
                 wakes.extend((slug, kind, nid) for kind, nid in out["wakes"])
+                exports.extend((slug, txs[slug].org, nid, sid)
+                               for nid, sid in out["exports"])
             body_done = True
     except (RemovalRefused, _PlanMoved):
         raise
@@ -506,16 +517,27 @@ def _migrate_in_one_tx(plan: dict[str, Any], actor: str
         raise RemovalRefused(
             f"account {aid} was not removed: {failed} could not be saved "
             f"({e}). Nothing was changed.") from e
-    return results, wakes, sorted(specs)
+    return results, wakes, sorted(specs), exports
 
 
 def announce(slug_wakes: list[tuple[str, str, str]],
-             rebound: list[dict[str, Any]]) -> None:
+             rebound: list[dict[str, Any]],
+             exports: list[tuple[str, Any, str, str]] | None = None) -> None:
     """The off-lock half: the freeze wakes a rebind cleared, and the account
     notification each moved live node owes its surfaces. Never raises — the
     document is already saved and the account is already gone, so a failed
     fanout must not read as a failed removal."""
     from . import supervisor
+    # the session-boundary rebinds' transcript exports first (the order
+    # `_agent_door` uses: export, notify, wakes), on each committed org
+    for slug, org, nid, old_sid in exports or ():
+        try:
+            supervisor.export_after_commit(slug, org, nid, old_sid,
+                                           "account_assign")
+        except Exception as e:                               # noqa: BLE001
+            print(f"[orgtree] {slug}/{nid}: account-removal transcript "
+                  f"export failed after the commit ({type(e).__name__}: {e})",
+                  flush=True)
     for slug, kind, nid in slug_wakes:
         try:
             if kind == "unpark":

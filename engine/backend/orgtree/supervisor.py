@@ -19939,16 +19939,6 @@ def _envelope_rows(nid: str) -> dict[str, Any]:
 
 
 @contextlib.contextmanager
-def _whole_org(slug: str) -> Iterator[Org]:
-    """PG-3e-A: the legacy whole-document write (DOC_LOCK, load, one save at
-    the end) for a branch whose writes cannot be bounded to named rows."""
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
-        yield org
-        store.save_org(org)
-
-
-@contextlib.contextmanager
 def _node_write(slug: str, nid: str, *, whole_org: bool = False
                 ) -> Iterator[Org]:
     """PG-3e-A: a turn-path write to the agent's own row, yielding the Org.
