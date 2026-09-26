@@ -522,5 +522,37 @@ class Door(unittest.TestCase):
                     opened = self.attempts("a", "orgtree_retool", args)
                 self.assertEqual(len(opened), 1, (name, opened))
 
+    def test_a_provider_crossing_retool_moots_in_one_attempt(self):
+        # a live luna seat whose session ran, rebound to another account:
+        # assign_account archives the session in place and moots the seat's
+        # open ask and pending scope request (supervisor._ASSIGN_* rows)
+        org = store.load_org(self.slug)
+        org.nodes["x"]["account"] = "old-review-account"
+        org.nodes["x"]["session_unrun"] = False
+        org.d["audiences"].append({"grantee": "x", "grantor": U})
+        org.ask_user("x", "a question?")
+        org.request_scope(
+            "x", [{"kind": "dir", "path": tempfile.mkdtemp(dir=_root.name)}],
+            "why")
+        store.save_org(org)
+        o = store.load_org(self.slug)             # the seed really is open
+        self.assertEqual([q["status"] for q in o.d["asks"]
+                          if q["node"] == "x"], ["open"])
+        self.assertEqual([r["status"] for r in o.d["scope_requests"]
+                          if r["node"] == "x"], ["pending"])
+        exported = []
+        with patch.object(supervisor, "export_predecessor_transcript",
+                          lambda *a, **k: exported.append(k.get("reason"))):
+            opened = self.attempts("a", "orgtree_retool",
+                                   {"node": "x", "account": "primary"})
+        self.assertEqual(len(opened), 1, opened)
+        self.assertEqual(exported, ["account_assign"])   # the crossing ran
+        o = store.load_org(self.slug)
+        self.assertEqual([q["status"] for q in o.d["asks"]
+                          if q["node"] == "x"], ["moot"])
+        self.assertEqual([r["status"] for r in o.d["scope_requests"]
+                          if r["node"] == "x"], ["moot"])
+
+
 if __name__ == "__main__":
     unittest.main()

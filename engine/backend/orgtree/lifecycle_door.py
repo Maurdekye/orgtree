@@ -328,12 +328,19 @@ def retool_rows(org: Any, actor: str, a: dict[str, Any]) -> pgdoor.TxSpec:
     kw = {f: a.get(f) for f in RETOOL_FIELDS if a.get(f) is not None}
     upd, share, secs, ssecs, logs = lt._scope_plan(org, actor, nid, kw, False)
     secs, logs = set(secs), set(logs)
+    ssecs = set(ssecs)
     if a.get("account") is not None and nid in org.nodes:
+        # the generic door step's supervisor.assign_account (doc held): the
+        # in-place split rows a provider crossing archives into, and its own
+        # declared sections (a live seat's open asks, credit and scope
+        # requests are mooted; notices folded; the docket reconciled)
+        from . import supervisor
         u, s2 = lt._split_rows(org, actor, nid)
         upd |= u
         share |= s2
-        secs |= {"asks", "notices"}
-        logs |= {"events", "notice_log"}
+        secs |= set(supervisor._ASSIGN_SECTIONS)
+        ssecs |= set(supervisor._ASSIGN_SHARE)
+        logs |= set(supervisor._ASSIGN_LOGS)
     return pgdoor.TxSpec(nodes=tuple(sorted(upd)), sections=tuple(sorted(secs)),
                          share_nodes=tuple(sorted(share - upd)),
                          share_sections=tuple(sorted(set(ssecs) - secs)),
