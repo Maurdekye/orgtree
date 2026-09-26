@@ -372,6 +372,27 @@ class Door(unittest.TestCase):
                 opened = self.attempts("boss", "orgtree_rehire", args)
                 self.assertEqual(len(opened), 1, (name, opened))
 
+    def exports(self):
+        """A stand-in for the transcript export's file half recording, per
+        call: its reason, whether a door transaction was still open, and
+        whether the document it was handed could still be read (the handoff
+        record reads the seat's mailbox and asks from it)."""
+        slug = self.slug
+        rec = SimpleNamespace(seen=[])
+
+        def fn(org, nid, old_sid=None, reason=None):
+            try:
+                readable = bool(org.node(nid)) and isinstance(
+                    (org.d.get("mail") or {}), dict) and isinstance(
+                    org.d.get("asks", []), list)
+            except Exception:                              # noqa: BLE001
+                readable = False
+            rec.seen.append((reason, pgdoor.current(slug) is not None,
+                             readable))
+            return None, None
+        rec.fn = fn
+        return rec
+
     def test_rehire_audience_grants_commit_in_one_attempt(self):
         # review f3: Org.audience_grant resolves an open request
         # (audience_requests) and, for the user's ear, writes the user inbox
@@ -415,13 +436,16 @@ class Door(unittest.TestCase):
         org.nodes["x"]["account"] = "old-review-account"
         org.nodes["x"]["session_unrun"] = False
         store.save_org(org)
-        exported = []
-        with patch.object(supervisor, "export_predecessor_transcript",
-                          lambda *a, **k: exported.append(k.get("reason"))):
+        exported = self.exports()
+        with patch.object(supervisor, "export_predecessor_transcript_deferred",
+                          exported.fn):
             opened = self.attempts("boss", "orgtree_rehire",
                                    {"node": "x", "account": "primary"})
         self.assertEqual(len(opened), 1, opened)
-        self.assertEqual(exported, ["account_assign"])   # the crossing ran
+        # the crossing ran, and its transcript copy ran ONCE, after the
+        # commit (off the row locks), on a readable committed document
+        # (review f5; lead decision 40(2))
+        self.assertEqual(exported.seen, [("account_assign", False, True)])
         o = store.load_org(self.slug)
         self.assertEqual(o.nodes["x"]["state"], "live")
         self.assertIsNone(o.nodes["x"].get("account"))
@@ -540,18 +564,69 @@ class Door(unittest.TestCase):
                           if q["node"] == "x"], ["open"])
         self.assertEqual([r["status"] for r in o.d["scope_requests"]
                           if r["node"] == "x"], ["pending"])
-        exported = []
-        with patch.object(supervisor, "export_predecessor_transcript",
-                          lambda *a, **k: exported.append(k.get("reason"))):
+        exported = self.exports()
+        with patch.object(supervisor, "export_predecessor_transcript_deferred",
+                          exported.fn):
             opened = self.attempts("a", "orgtree_retool",
                                    {"node": "x", "account": "primary"})
         self.assertEqual(len(opened), 1, opened)
-        self.assertEqual(exported, ["account_assign"])   # the crossing ran
+        self.assertEqual(exported.seen, [("account_assign", False, True)])
         o = store.load_org(self.slug)
         self.assertEqual([q["status"] for q in o.d["asks"]
                           if q["node"] == "x"], ["moot"])
         self.assertEqual([r["status"] for r in o.d["scope_requests"]
                           if r["node"] == "x"], ["moot"])
+
+
+    # ------------------------------------------------ transcript export (f5)
+
+    def handoff_notices(self, org):
+        return [r for r in (org.d.get("notices") or {}).get("x") or []
+                if "lifecycle.handoff_record" in repr(r.get("ev"))]
+
+    def test_the_after_commit_export_announces_in_its_own_small_tx(self):
+        # export_after_commit: the file half on the committed document, then
+        # the owed notice in an org_tx over the seat's notices row only (the
+        # SQLite seam refuses an undeclared write)
+        org = store.load_org(self.slug)
+        self.assertEqual(self.handoff_notices(org), [])
+        with patch.object(supervisor, "export_predecessor_transcript_deferred",
+                          lambda *a, **k: ("dst", 3)):
+            self.assertEqual(supervisor.export_after_commit(
+                self.slug, org, "x", "old-sid", "account_assign"), "dst")
+        self.assertEqual(len(self.handoff_notices(store.load_org(self.slug))), 1)
+        with patch.object(supervisor, "export_predecessor_transcript_deferred",
+                          lambda *a, **k: ("dst", None)):   # no notice owed
+            supervisor.export_after_commit(self.slug, org, "x", "s", "r")
+        self.assertEqual(len(self.handoff_notices(store.load_org(self.slug))), 1)
+
+    def test_the_inline_export_still_announces_in_the_callers_org(self):
+        # every other caller keeps export_predecessor_transcript unchanged:
+        # the notice lands in the org it was handed, in its transaction
+        org = store.load_org(self.slug)
+        with patch.object(supervisor, "export_predecessor_transcript_deferred",
+                          lambda *a, **k: ("dst", 2)):
+            self.assertEqual(supervisor.export_predecessor_transcript(
+                org, "x", old_sid="s", reason="switch_model"), "dst")
+        self.assertEqual(len(self.handoff_notices(org)), 1)
+
+    def test_a_failed_after_commit_export_is_a_warning_not_a_refusal(self):
+        self.archive("x")
+        org = store.load_org(self.slug)
+        org.nodes["x"]["account"] = "old-review-account"
+        org.nodes["x"]["session_unrun"] = False
+        store.save_org(org)
+
+        def boom(*a, **k):
+            raise OSError("disk gone")
+        with patch.object(supervisor, "export_predecessor_transcript_deferred",
+                          boom):
+            r = self.call(self.slug, "boss", "orgtree_rehire",
+                          {"node": "x", "account": "primary"})
+        self.assertEqual(store.load_org(self.slug).nodes["x"]["state"], "live")
+        self.assertIn("account_export",
+                      [w.get("step") for w in r.get("warnings") or []
+                       if isinstance(w, dict)])
 
 
 if __name__ == "__main__":

@@ -11868,7 +11868,7 @@ def _agent_door(body: AgentCall, a: dict[str, Any],
     family's own `after.then` callables and the generic tail."""
     after = pgdoor.After()
     fam = pgdoor.BODIES[body.tool]
-    notify: dict[str, str] = {}
+    notify: dict[str, Any] = {}
 
     def fn(tx: pgdoor.AgentTx) -> Any:
         notify.clear()
@@ -11891,9 +11891,15 @@ def _agent_door(body: AgentCall, a: dict[str, Any],
                 # doc_held: never DOC_LOCK under the row locks (decision 26)
                 disclosure = supervisor.assign_account(
                     body.org, target, account, actor=body.node, org=tx.org,
-                    via=via, notify_change=False, doc_held=True)
+                    via=via, notify_change=False, doc_held=True,
+                    export=False)
             except (RuntimeError, ValueError) as e:
                 raise LedgerError(str(e)) from e
+            old_sid = disclosure.pop("_export_old_sid", None)
+            if old_sid:
+                # the transcript copy is file IO: after the commit, never
+                # under the row locks (lead decision 40(2), review f5)
+                notify["export"] = (target, str(old_sid), tx.org)
             result["account"] = disclosure["account"]
             result["account_binding"] = disclosure
             notify["account"] = target
@@ -11928,6 +11934,10 @@ def _agent_door(body: AgentCall, a: dict[str, Any],
     # COMMITTED from here on (plan decision 27, F2): a step that raises is
     # logged and disclosed in result["warnings"], never raised
     ac = pgdoor.after_commit
+    if "export" in notify:
+        _xt, _xsid, _xorg = notify["export"]
+        ac(result, "account_export", supervisor.export_after_commit,
+           body.org, _xorg, _xt, _xsid, "account_assign")
     if "account" in notify:
         ac(result, "account_notify", supervisor.notify, body.org,
            notify["account"], "account")

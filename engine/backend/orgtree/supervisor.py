@@ -4079,22 +4079,65 @@ def export_predecessor_transcript(org: Org, nid: str,
     (a session that never ran a turn has no transcript at all). A later
     cheap-compact overwrites the copy with the newer generation's — earlier
     generations stay reachable by rehiring their bearers."""
+    dst, gen = export_predecessor_transcript_deferred(org, nid, old_sid, reason)
+    if gen is not None:
+        announce_handoff_record(org, nid, gen)
+    return dst
+
+
+def export_predecessor_transcript_deferred(
+        org: Org, nid: str, old_sid: str | None = None,
+        reason: str | None = None) -> tuple[str | None, int | None]:
+    """`export_predecessor_transcript`'s FILE half, which writes nothing to
+    `org`: the copy and the handoff record. Returns (dst, gen): gen is the
+    published record's generation when its notice is owed (handoff.flag on),
+    for the caller to announce — `announce_handoff_record` in the same
+    transaction, or `announce_handoff_record_tx` after a commit (PG-3a: a
+    row-transaction door runs this after its commit, off the row locks).
+    Idempotent: a re-run overwrites the same copy and record."""
     n = org.nodes.get(nid)
     if not n:
-        return None
+        return None, None
     sid = old_sid or n.get("session_id")
     if not sid:
-        return None
+        return None, None
     src = transcript_path(sid, _transcript_root(org, nid))
     if not src:
-        return None
+        return None, None
     dst = os.path.join(scratch_dir(org.d["slug"], nid), "transcript.jsonl")
     try:
         shutil.copy2(src, dst)
     except OSError:
-        return None
-    _publish_handoff_record(org, nid, dst, sid, reason)
+        return None, None
+    out = _publish_handoff_record(org, nid, dst, sid, reason)
+    if out and handoff_flag_on():
+        return dst, int(org.node(nid).get("generation") or 0) - 1
+    return dst, None
+
+
+def announce_handoff_record(org: Org, nid: str, gen: int) -> None:
+    """The handoff record's notice to the seat (handoff.flag on)."""
+    org._notify_ev([nid], events.mint("lifecycle.handoff_record", _SYSTEM_ACTOR,
+                                      _node_ref(org, nid), generation=int(gen)))
+
+
+def export_after_commit(slug: str, org: Org, nid: str, old_sid: str,
+                        reason: str) -> str | None:
+    """A session boundary's transcript export, run AFTER the transaction that
+    archived `old_sid` committed (PG-3a, lead decision 40(2)): the file half
+    on the committed document, then the owed notice in its own small org_tx
+    on the seat's notices row. The caller discloses a raise as a warning."""
+    dst, gen = export_predecessor_transcript_deferred(org, nid, old_sid, reason)
+    if gen is not None:
+        announce_handoff_record_tx(slug, nid, gen)
     return dst
+
+
+def announce_handoff_record_tx(slug: str, nid: str, gen: int) -> None:
+    with orgtx.org_tx(slug, sections=[("notices", nid)],
+                      logs=["notice_log"]) as tx:
+        if nid in tx.org.nodes:
+            announce_handoff_record(tx.org, nid, gen)
 
 
 def handoff_flag_on() -> bool:
@@ -4255,11 +4298,8 @@ def _publish_handoff_record(org: Org, nid: str, dst: str, old_sid: str,
             print(f"[orgtree] {org.d['slug']}/{nid}: handoff record g{gen} NOT written — "
                   f"{len(bad)} verify problem(s): {bad[0][:160]}")
             return None
-        out = handoff.write_generation(sd, gen, art, lines)
-        if out and handoff_flag_on():
-            org._notify_ev([nid], events.mint("lifecycle.handoff_record", _SYSTEM_ACTOR,
-                                              _node_ref(org, nid), generation=int(gen)))
-        return out
+        # the notice is the caller's (export_predecessor_transcript_deferred)
+        return handoff.write_generation(sd, gen, art, lines)
     except Exception as e:                                       # noqa: BLE001
         print(f"[orgtree] {org.d['slug']}/{nid}: handoff record skipped: {e!r}")
         return None
@@ -15611,7 +15651,8 @@ def assign_account(slug: str, nid: str, account_id: str, *,
                    allow_frozen: bool = False,
                    immediate: bool = False,
                    notify_change: bool = True,
-                   doc_held: bool = False) -> dict[str, Any]:
+                   doc_held: bool = False,
+                   export: bool = True) -> dict[str, Any]:
     """Reassign a node's account binding — the ONE writer both surfaces call
     (design D2d). Authority is checked by the CALLER (operator token, or
     org.is_ancestor for the agent tool); everything about the ACCOUNT is
@@ -15810,13 +15851,18 @@ def assign_account(slug: str, nid: str, account_id: str, *,
         except Exception:                                    # noqa: BLE001
             prev_hash, prev_comp = "", None
         pred_id = None
+        deferred_export: str | None = None
         if changed and (
                 row["provider"] in ("openai", "google")
                 or providers.provider_of(tier) in ("openai", "google")
                 or bool(node.get("codex_thread"))):
             if bool(node.get("codex_thread")) or not node.get("session_unrun"):
                 pred_id, old_sid = org._archive_session_in_place(nid)
-                export_predecessor_transcript(org, nid, old_sid=old_sid, reason="account_assign")
+                if export:
+                    export_predecessor_transcript(org, nid, old_sid=old_sid,
+                                                  reason="account_assign")
+                else:
+                    deferred_export = old_sid
                 org._moot_asks(nid, "the asking session was replaced by a "
                                     "provider account switch — the "
                                     "successor starts fresh and never posed it")
@@ -15901,6 +15947,10 @@ def assign_account(slug: str, nid: str, account_id: str, *,
             **({"auth_thawed": True} if auth_thawed else {}),
         }
         org._log("account_assign", actor, {**disclosure, "via": via}, [])
+        if deferred_export:
+            # export=False (a row-transaction door): the caller runs
+            # export_after_commit with this after ITS commit; never logged
+            disclosure["_export_old_sid"] = deferred_export
     if notify_change:
         notify(slug, nid, "account")
     # state-audit SH-2 (state-review fix 2026-09-12): the park is gone and the
