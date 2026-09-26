@@ -711,6 +711,9 @@ def op_tx(slug: str, op: str, body: Any, a: dict[str, Any],
     the committed attempt's `after.then` callables run with the result, each
     through `after_commit` (a failure is a warning, the op stands), and then
     `on_commit(org)`."""
+    # an op's request body does not carry its org: a before-step finds it
+    # here, as `org_slug` (the key staffdoor's operator calls already pass)
+    a = {**a, "org_slug": a.get("org_slug") or slug}
     pre = _before(op, slug, body, a, pre)
     base = spec if spec is not None else _resolve(op, slug, body, a)
     last: list[After] = []

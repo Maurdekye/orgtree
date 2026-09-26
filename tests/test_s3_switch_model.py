@@ -244,6 +244,88 @@ class SwitchDoor(unittest.TestCase):
         self.assertIn((["x"], False), woke)
 
 
+    # ------------------------------------------------ review f1 / f2 (S3)
+    def test_the_provider_gate_runs_once_outside_the_transaction(self):
+        # f1: provider_hire_gate may make HTTP requests (OpenRouter's key
+        # check), so it runs before the row locks, once per call — not
+        # again when the door widens and re-runs
+        real_rows = supervisor.switch_rows
+        for kind, who in self.KINDS:
+            with self.subTest(kind):
+                self.tearDown()
+                self.setUp()
+                gated, calls = [], [0]
+
+                def narrow_first(org, actor, nid, *, rebind):
+                    # the snapshot's plan misses the ancestors: one widen
+                    calls[0] += 1
+                    spec = real_rows(org, actor, nid, rebind=rebind)
+                    if calls[0] == 1:
+                        return pgdoor.TxSpec(
+                            nodes=tuple(n for n in spec.nodes if n != "boss"),
+                            sections=spec.sections,
+                            share_nodes=tuple(n for n in spec.share_nodes
+                                              if n != "boss"),
+                            share_sections=spec.share_sections,
+                            logs=spec.logs)
+                    return spec
+                with patch.object(api, "provider_hire_gate",
+                                  lambda org, tier, **k: gated.append(
+                                      (tier, pgdoor.current(self.slug)
+                                       is not None))), \
+                        patch.object(supervisor, "switch_rows", narrow_first):
+                    _, opened = self.attempts(kind, who, node="x", tier=SAME)
+                self.assertEqual(len(opened), 2, "the stale plan did not widen")
+                self.assertEqual(gated, [(SAME, False)])
+                self.assertEqual(store.load_org(self.slug).nodes["x"]["model"],
+                                 SAME)
+
+    def test_a_kiosk_flag_that_moved_after_the_gate_refuses(self):
+        # the gate read the snapshot's kiosk flag; the body holds `kiosk`
+        # and refuses when it no longer matches (the gate is not re-run)
+        slug = self.slug
+
+        def flip(org, tier, **k):
+            o = store.load_org(slug)
+            o.d["kiosk"] = {"credits": 0}
+            store.save_org(o)
+        with patch.object(api, "provider_hire_gate", flip):
+            with self.assertRaises(HTTPException) as e:
+                self.door("tool", "a", node="x", tier=SAME)
+        self.assertEqual(e.exception.status_code, 422)
+        self.assertIn("kiosk setting changed", str(e.exception.detail))
+        self.assertEqual(store.load_org(self.slug).nodes["x"]["model"], "luna")
+
+    def test_an_account_rebind_exports_before_the_unpark_wake(self):
+        # f2 (review-astra's probe): a used, account-parked seat rebound
+        # with the switch; the successor is woken only after its
+        # predecessor's transcript and handoff are published
+        from orgtree import registry
+        for kind, who in self.KINDS:
+            with self.subTest(kind):
+                self.tearDown()
+                self.setUp()
+                org = store.load_org(self.slug)
+                org.nodes["x"]["session_unrun"] = False
+                org.nodes["x"]["frozen"] = {"cause": "account"}
+                store.save_org(org)
+                events = []
+                sel = {"id": "review-openai", "provider": "openai",
+                       "name": "review"}
+                with patch.object(registry, "validate_selection",
+                                  return_value=sel), \
+                        patch.object(supervisor, "export_after_commit",
+                                     lambda *a, **k: events.append("export")), \
+                        patch.object(supervisor, "drive_account_unpark",
+                                     lambda *a, **k: events.append("wake")):
+                    self.door(kind, who, node="x", tier=SAME,
+                              account="review-openai")
+                final = store.load_org(self.slug).nodes["x"]
+                self.assertEqual(final["account"], "review-openai")
+                self.assertNotIn("frozen", final)
+                self.assertEqual(final["generation"], 1)
+                self.assertEqual(events, ["export", "wake"])
+
 def _with_stale(real):
     def run(self, *a, **k):
         r = real(self, *a, **k)

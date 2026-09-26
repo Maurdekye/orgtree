@@ -633,13 +633,32 @@ pgdoor.declare("revoke_dir", _revoke_dir_spec, body=_op_body(_revoke_dir_op))
 # ================================================================ switch model
 # `orgtree_switch_model` (agent) and the `switch_model` op on
 # `supervisor.switch_rows` (pg-supervisor-a, S6 C2-A) — the same rows as the
-# queued switch applied at the turn boundary. The provider gate and the
-# account rule run on the locked document, as the cycle ran them under
-# DOC_LOCK; the busy flag (D-234: a mid-turn seat QUEUES the switch) is the
-# in-memory runtime, read on every attempt. An account riding the switch is
-# bound in this transaction (`finish_switch_binding(export=False)`). After
-# the commit: the transcript copies a crossing owes, generation ordered (a
-# failure is a warning), and the account-unpark wake.
+# queued switch applied at the turn boundary. The PROVIDER GATE runs BEFORE
+# the transaction, once per call, with no row held: it can make HTTP
+# requests (an OpenRouter tier's key check). It reads the org's kiosk flag
+# from the lock-free snapshot, so the body re-reads that flag under a share
+# lock and refuses if it changed. The account rule runs on the locked
+# document, as the cycle ran it under DOC_LOCK; the busy flag (D-234: a
+# mid-turn seat QUEUES the switch) is the in-memory runtime, read on every
+# attempt. An account riding the switch is bound in this transaction
+# (`finish_switch_binding(export=False)`). After the commit, in this order:
+# the transcript copies a crossing or a rebind owes (generation ordered; a
+# failure is a warning), THEN the account-unpark wake - the cycle's order,
+# so a woken successor finds its handoff already published (review f2).
+
+
+def _switch_gate_first(call: Any, a: dict[str, Any]) -> dict[str, Any]:
+    """before=: `api.provider_hire_gate` on the lock-free snapshot, outside
+    the transaction (review f1). The op refuses a missing tier in its body,
+    as the cycle does, before any gate."""
+    from . import api
+    slug = str(getattr(call, "org", None) or a["org_slug"])
+    tier = a.get("tier")
+    if getattr(call, "org", None) is None and tier is None:
+        return {}
+    snap = pgdoor._snapshot(slug)
+    api.provider_hire_gate(snap, tier)
+    return {"switch_gated_kiosk": bool(snap.d.get("kiosk"))}
 
 
 def switch_spec(org: Any, actor: str, nid: str,
@@ -650,16 +669,22 @@ def switch_spec(org: Any, actor: str, nid: str,
 
 def switch_body(org: Any, slug: str, held: pgdoor.TxSpec, after: pgdoor.After,
                 actor: str, nid: str, tier: str,
-                account: "str | None") -> dict[str, Any]:
+                account: "str | None", gated_kiosk: bool) -> dict[str, Any]:
     """The cycle's switch_model branch on the locked rows (a gap in the
     re-derived plan widens first); file IO and wake-ups go to `after`."""
-    from . import api, supervisor
+    from . import supervisor
     need = held.covers(switch_spec(org, actor, nid, account))
     if not need.empty():
         raise pgdoor.Widen(nodes=need.nodes, sections=need.sections,
                            share_nodes=need.share_nodes,
                            share_sections=need.share_sections, logs=need.logs)
-    api.provider_hire_gate(org, tier)
+    # the gate ran before the transaction on the snapshot's kiosk flag; the
+    # kiosk holdouts are the only part of it that reads the org, so hold the
+    # flag and refuse if it moved since (the gate is not re-run in here)
+    with pgdoor.join(slug, share_sections=["kiosk"]):
+        if bool(org.d.get("kiosk")) != bool(gated_kiosk):
+            raise LedgerError("the org's kiosk setting changed while this "
+                              "switch was being checked - try again")
     try:
         supervisor.check_switch_account(org, slug, nid, tier, account)
     except ValueError as e:
@@ -668,15 +693,13 @@ def switch_body(org: Any, slug: str, held: pgdoor.TxSpec, after: pgdoor.After,
         actor, nid, tier, account=account,
         busy=bool(nid and supervisor.state(slug, nid)["busy"]))
     exports: list[str] = []
+    unparked = False
     if not result.get("queued") and not result.get("cancelled"):
         fsb = supervisor.finish_switch_binding(org, slug, nid, account, actor,
                                                export=False)
         if fsb.get("export_old_sid"):
             exports.append(str(fsb["export_old_sid"]))
-        if fsb.get("unparked"):
-            def account_unpark(res: Any) -> None:
-                supervisor.drive_account_unpark(slug, nid)
-            after.then.append(account_unpark)
+        unparked = bool(fsb.get("unparked"))
     if result.get("old_session"):
         exports.append(str(result["old_session"]))
     for sid in exports:
@@ -684,6 +707,12 @@ def switch_body(org: Any, slug: str, held: pgdoor.TxSpec, after: pgdoor.After,
             supervisor.export_after_commit(slug, org, nid, _sid,
                                            "switch_model")
         after.then.append(export)
+    if unparked:
+        # AFTER the exports: the woken successor's first turn reads the
+        # handoff they publish (review f2)
+        def account_unpark(res: Any) -> None:
+            supervisor.drive_account_unpark(slug, nid)
+        after.then.append(account_unpark)
     return result
 
 
@@ -701,7 +730,8 @@ def _switch_tool(tx: pgdoor.AgentTx) -> Any:
     slug, nid = tx.call.org, str(tx.args.get("node") or "")
     result = switch_body(tx.org, slug, tx.spec, tx.after, tx.node, nid,
                          str(tx.args.get("tier") or ""),
-                         _switch_account(tx.args))
+                         _switch_account(tx.args),
+                         bool(tx.pre.get("switch_gated_kiosk")))
     # a crossing that cleared a stale provider freeze leaves the seat live
     # but idle: wake it with the accurate message (the cycle's tail step)
     stale = [str(x) for x in result.pop("resume_stale_freeze", [])]
@@ -712,7 +742,8 @@ def _switch_tool(tx: pgdoor.AgentTx) -> Any:
     return result
 
 
-pgdoor.declare("orgtree_switch_model", _switch_tool_spec, body=_switch_tool)
+pgdoor.declare("orgtree_switch_model", _switch_tool_spec, body=_switch_tool,
+               before=_switch_gate_first)
 
 
 def _switch_op_spec(snap: Any, body: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
@@ -728,7 +759,9 @@ def _switch_op(tx: pgdoor.OpTx) -> Any:
     # those seats for every op
     return switch_body(tx.org, tx.slug, tx.spec, tx.after, str(b.actor),
                        str(b.node or ""), b.tier,
-                       str(getattr(b, "account", "") or "") or None)
+                       str(getattr(b, "account", "") or "") or None,
+                       bool(tx.pre.get("switch_gated_kiosk")))
 
 
-pgdoor.declare("switch_model", _switch_op_spec, body=_switch_op)
+pgdoor.declare("switch_model", _switch_op_spec, body=_switch_op,
+               before=_switch_gate_first)
