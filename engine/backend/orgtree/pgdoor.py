@@ -552,10 +552,12 @@ def _norm(spec: TxSpec) -> TxSpec:
     the org-wide rule; sorting here only makes the spec canonical, so a
     widened spec compares equal when nothing new was added."""
     ns = tuple(sorted(set(spec.nodes)))
-    ss = tuple(sorted(set(spec.sections)))
+    # sections, like logs, may be ("mail", owner) tuples (PG-3d mailtx)
+    ss = tuple(sorted(set(spec.sections), key=_logkey))
     return TxSpec(ns, ss,
                   tuple(sorted(set(spec.share_nodes) - set(ns))),
-                  tuple(sorted(set(spec.share_sections) - set(ss))),
+                  tuple(sorted(set(spec.share_sections) - set(ss),
+                               key=_logkey)),
                   tuple(sorted(set(spec.logs), key=_logkey)))
 
 
