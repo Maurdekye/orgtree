@@ -1120,7 +1120,7 @@ class Split(unittest.TestCase):
         self.assertEqual(self.view(self.slug), self.view(twin))
         o = store.load_org(self.slug)
         self.assertEqual(o.node("root@0")["successor"], "root")
-        self.assertEqual([a["status"] for a in o.d["asks"]], ["pending"])   # kept
+        self.assertEqual([a["status"] for a in o.d["asks"]], ["open"])      # kept, not mooted
         store._POOL.close_all(twin)
 
     def test_reseed_of_an_unrecoverable_node(self):
