@@ -5542,6 +5542,27 @@ def _resident_dirty(d: LazyDoc) -> list[str]:
     return dirty
 
 
+def org_slugs() -> list[str]:
+    """Every org's slug, for a hot loop that reads its own few rows per org
+    and needs nothing from the listing row (scale, hot-paths-off-full-org-
+    reads: `list_orgs()` reads every node row of every org to build rows the
+    net poller threw away). On a row backend it is the directory listing
+    alone, as in `cached_list`; the JSON backend keeps `list_orgs()`."""
+    if not row_store():
+        return [str(o["slug"]) for o in list_orgs()]
+    out: list[str] = []
+    for f in sorted(os.listdir(_orgs_dir())):
+        if not f.endswith(db_ext()):
+            continue
+        slug = f[:-len(db_ext())]
+        try:
+            _safe_slug(slug)
+        except (LedgerError, ValueError):
+            continue
+        out.append(slug)
+    return out
+
+
 def cached_list() -> list[dict[str, Any]]:
     """`list_orgs()` for the background loops: same summary rows, answered
     from the shared snapshots. The dir listing itself is the only per-call

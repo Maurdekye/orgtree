@@ -78,6 +78,7 @@ class Participants(unittest.TestCase):
         self.plant()
         with patch.object(store, 'load_org', boom), \
                 patch.object(store, 'load_org_snapshot', boom), \
+                patch.object(store, 'list_orgs', boom), \
                 patch.object(orgtx, 'org_read', boom):
             new = net._participants()
         self.assertEqual(json.dumps(new, sort_keys=True), json.dumps(old, sort_keys=True))
@@ -137,6 +138,14 @@ class NetSection(unittest.TestCase):
 
 
 class ReadDocSections(unittest.TestCase):
+    def test_org_slugs_matches_list_orgs_without_reading_nodes(self) -> None:
+        want = [str(o['slug']) for o in store.list_orgs()]
+        with patch.object(store, 'list_orgs', boom), \
+                patch.object(store, 'load_org', boom), \
+                patch.object(store, '_scan_orgs', boom):
+            self.assertEqual(store.org_slugs(), want)
+        self.assertIn('np-kiosk', want)          # kiosk is filtered by the caller
+
     def test_stored_values_for_present_keys_only(self) -> None:
         org = store.load_org('np-a')
         got = store.read_doc_sections('np-a', ['name', 'net_hubs', 'no_such_key'])

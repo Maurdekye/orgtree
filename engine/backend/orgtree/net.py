@@ -447,10 +447,9 @@ def _participants() -> dict[str, dict[str, Any]]:
     hot-paths-off-full-org-reads; was a full load_org per org per save)."""
     from . import orgtx, store
     out: dict[str, dict[str, Any]] = {}
-    for o in store.list_orgs():
-        slug = str(o["slug"])
-        if o.get("kiosk"):
-            continue
+    # the slugs only: `kiosk` is re-checked from the rows read below, and
+    # list_orgs() would read every node row of every org to build its rows
+    for slug in store.org_slugs():
         try:
             doc = store.read_doc_sections(slug, _PARTICIPANT_KEYS)
             org: Any = _NetDoc(doc) if doc is not None else store.load_org(slug)
