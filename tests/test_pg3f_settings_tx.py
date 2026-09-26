@@ -159,14 +159,14 @@ class Writers:
 
         # --- the mail transport (PG-3f leftovers): one queued outbound entry
         # on hub h1 and its org-inbox out row
-        def spool(**extra):
+        def spool(row=None, **extra):
             e = {'id': 'e1', 'to': 'peer-abc123', 'body': 'b', 'at': 't',
                  'oid': 'o1', 'tries': 0, **extra}
             return dict(net_hubs=[{'id': 'h1', 'address': 'http://x'},
                                   {'id': 'h2', 'address': 'http://y'}],
                         net_spool={'h1': [e]},
                         org_inbox=[{'id': 'o1', 'dir': 'out', 'net_id': 'e1',
-                                    'state': 'queued', 'at': 't'}])
+                                    'state': 'queued', 'at': 't', **(row or {})}])
 
         def out_row(d):
             return next(r for r in d['org_inbox'] if r.get('net_id') == 'e1')
@@ -201,8 +201,11 @@ class Writers:
                  {'id': 'h2', 'address': 'http://y'}])
 
         def refile_ok(d):
+            # review f2: the out row's earlier failure note is cleared too, so
+            # the refile's org_inbox log leg really writes
             return (not d['net_spool'].get('h1')
-                    and d['net_spool']['h2'][0]['refiled'] == 1)
+                    and d['net_spool']['h2'][0]['refiled'] == 1
+                    and 'last_err' not in out_row(d) and 'tries' not in out_row(d))
 
         def receipts_w(slug):
             net._apply_receipts(slug, [{'id': 'e1', 'state': 'delivered'}])
@@ -237,7 +240,8 @@ class Writers:
             ('spool-done', spool(), done_w, 'net_spool', done_ok),
             ('bump-try', spool(), bump_w, 'net_spool', bump_ok),
             ('stamp-skip', spool(), skip_w, 'net_spool', skip_ok),
-            ('refile', spool(), refile_w, 'net_spool', refile_ok),
+            ('refile', spool(row={'last_err': 'no org registered', 'tries': 2}),
+             refile_w, 'net_spool', refile_ok),
             ('receipts', spool(), receipts_w, 'net_spool', receipts_ok),
             ('attachment-vanished', spool(attachments=[gone]), vanished_w,
              'net_spool', vanished_ok),
@@ -509,6 +513,40 @@ class InboundDelivery(unittest.TestCase):
             # seen now: acked again, never delivered again
             self.assertEqual(net._deliver_inbound(slug, 'h1', msg), ['m7'])
             self.assertEqual(dlv.call_count, 1)
+
+
+class MigrationFastPath(unittest.TestCase):
+    """review f1: _ensure_migrated's lock-free fast path must NOT skip a
+    migration interrupted between its two renames (`<slug>.db.migrating` +
+    `<slug>.json.premigration`, no `.json`, no `.db`): create_org finishes it
+    and refuses the name, never mints a fresh org over the verified candidate
+    that holds the org's whole history."""
+
+    def test_an_interrupted_migration_is_finished_not_overwritten(self) -> None:
+        from orgtree.ledger import LedgerError
+        org = store.create_org('mig-victim')
+        slug = org.d['slug']
+        org.d['probe_marker'] = 'original-history'
+        store.save_org(org)
+        store._POOL.close_all(slug)
+        db = store._db_path(slug)
+        os.replace(db, db + '.migrating')
+        Path(store._premigration_path(slug)).write_text('{}', encoding='utf-8')
+        staged = (os.path.exists(db + '.migrating'), os.path.exists(db),
+                  os.path.exists(store._json_path(slug)),
+                  os.path.exists(store._premigration_path(slug)))
+        self.assertEqual(staged, (True, False, False, True), 'the constellation was not staged')
+        with self.assertRaises(LedgerError):
+            store.create_org('mig-victim')
+        self.assertTrue(os.path.exists(db))
+        self.assertEqual(store.load_org(slug).d.get('probe_marker'), 'original-history',
+                         'a fresh org was created over the interrupted migration')
+
+    def test_a_clean_name_is_created_on_the_fast_path(self) -> None:
+        # the control: nothing on disk, the org is created (without DOC_LOCK:
+        # OrgsCreate proves that part)
+        org = store.create_org('mig-fresh')
+        self.assertTrue(os.path.exists(store._db_path(org.d['slug'])))
 
 
 class OrgsCreate(unittest.TestCase):
