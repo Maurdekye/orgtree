@@ -9916,8 +9916,10 @@ def _confirm_delivered(slug: str, nid: str, toks: Iterable[str], *,
     `halt.consumed`: that spends the turn's retained raw input carrier on the
     provider's INITIAL acknowledgement, which a matched tool-result echo is
     not."""
+    toks = list(toks)
     if provider_ack:
-        halt.consumed(slug, nid)
+        # the tokens pick the carrier when this runs off the turn's thread
+        halt.consumed(slug, nid, toks)
     drop = set(toks)
     if not drop:
         return

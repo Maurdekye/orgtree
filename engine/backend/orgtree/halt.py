@@ -337,6 +337,14 @@ def set_pending_carrier(st, slug: str, nid: str, carrier) -> dict:
     c = carrier if isinstance(carrier, dict) else {"text": carrier}
     tok = _own_slot(st, slug, nid)
     if tok is None:
+        # outside a turn worker with no single slot to take: a slot of its
+        # own, which every halt capture still sweeps; the last worker out
+        # clears it
+        if st.get("halt_pending_carriers"):
+            print(f"[orgtree] {slug}/{nid}: a pending carrier was set off "
+                  f"the turn thread beside "
+                  f"{len(st['halt_pending_carriers'])} others — kept in a "
+                  f"slot of its own", flush=True)
         tok = object()
     st.setdefault("halt_pending_carriers", {})[tok] = c
     st.setdefault("halt_carrier_ids", {})[tok] = c.get("_halt_id")
@@ -359,11 +367,39 @@ def set_pending_id(st, slug: str, nid: str, ident: Any) -> None:
         st.setdefault("halt_carrier_ids", {})[tok] = ident
 
 
-def pop_pending_carrier(st, slug: str, nid: str) -> tuple[Any, Any]:
-    """Remove this worker's slot: (carrier, the id recorded with it). Caller
-    holds `_state_lock`."""
-    tok = _own_slot(st, slug, nid)
+def _slot_by_tokens(st, toks: Iterable[str]) -> object | None:
+    """The slot whose carrier holds one of these journal tokens, or None."""
+    want = set(toks)
+    if not want:
+        return None
+    for tok, c in (st.get("halt_pending_carriers") or {}).items():
+        if isinstance(c, dict) and want.intersection(c.get("toks") or ()):
+            return tok
+    return None
+
+
+def pop_pending_carrier(st, slug: str, nid: str,
+                        toks: Iterable[str] = ()) -> tuple[Any, Any]:
+    """Remove the consumed worker's slot: (carrier, the id recorded with it).
+
+    Which slot: this thread's own (`_SLOT`); else — a caller on ANOTHER
+    thread, where the ContextVar is empty (a mail-drain recovery, a tool
+    hook, an HTTP handler; review by p03-ws3b) — the slot whose carrier holds
+    one of the confirmed journal `toks`; else the only slot when there is
+    exactly one. Ambiguous (several slots, none matching) spends NOTHING and
+    says so: an unspent carrier can at worst be replayed by a halt, a wrongly
+    spent one is lost. Caller holds `_state_lock`."""
+    tok = _slot_token(slug, nid)
     if tok is None:
+        tok = _slot_by_tokens(st, toks)
+    if tok is None:
+        tok = _own_slot(st, slug, nid)
+    if tok is None:
+        if st.get("halt_pending_carriers"):
+            print(f"[orgtree] {slug}/{nid}: provider acknowledgement matched "
+                  f"no pending carrier among "
+                  f"{len(st['halt_pending_carriers'])} (off the turn thread, "
+                  f"no matching journal token) — none spent", flush=True)
         return None, None
     c = (st.get("halt_pending_carriers") or {}).pop(tok, None)
     ident = (st.get("halt_carrier_ids") or {}).pop(tok, None)
@@ -871,16 +907,18 @@ def complete_auxiliary(slug: str, nid: str, carrier) -> None:
     confirmed(tx.org, nid, [], [carrier])
 
 
-def consumed(slug: str, nid: str) -> None:
+def consumed(slug: str, nid: str, toks: Iterable[str] = ()) -> None:
     """Initial provider acknowledgement also spends a retained raw carrier.
-    Opens a transaction only when there is a durable copy to spend."""
+    Opens a transaction only when there is a durable copy to spend. `toks`
+    (the journal tokens the acknowledgement confirmed) pick the carrier when
+    this runs off the turn's own thread (`pop_pending_carrier`)."""
     from . import supervisor as sup
     n = _node(slug, nid)
     if not n or n.get("halt"):
         return
     st = sup.state(slug, nid)
     with sup._state_lock:
-        c, recorded = pop_pending_carrier(st, slug, nid)
+        c, recorded = pop_pending_carrier(st, slug, nid, toks)
         ident = (c or {}).get("_halt_id") or recorded
     if not ident or not n.get("halt_queue"):
         return

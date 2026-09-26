@@ -57,6 +57,39 @@ class FenceOffGuard(_base.AgentHaltTests):
         _run_turn(self.slug, self.nid, {"text": "one"})
         self.assertEqual(seen["after"], [])
 
+    def _two_slots(self):
+        a, b = object(), object()
+        with sup._state_lock:
+            self.st["halt_pending_carriers"] = {
+                a: {"text": "a", "toks": ["tok-a"]},
+                b: {"text": "b", "toks": ["tok-b"]}}
+            self.st["halt_carrier_ids"] = {a: None, b: None}
+
+    def _pending_texts(self):
+        with sup._state_lock:
+            return sorted(c["text"] for c in halt.pending_carriers(self.st))
+
+    def _consume_on_a_fresh_thread(self, toks):
+        # a plain Thread starts with an EMPTY context: no worker's slot
+        t = threading.Thread(target=halt.consumed,
+                             args=(self.slug, self.nid, toks))
+        t.start()
+        t.join(5)
+
+    def test_an_ack_off_the_turn_thread_spends_the_carrier_it_confirmed(self):
+        """p03-ws3b's review: `_confirm_delivered` may run off the worker's
+        thread (mail-drain recovery, a tool hook), where the ContextVar is
+        empty. With two slots it must still spend the carrier whose journal
+        token it confirmed — and only that one."""
+        self._two_slots()
+        self._consume_on_a_fresh_thread(["tok-a"])
+        self.assertEqual(self._pending_texts(), ["b"])
+
+    def test_an_ambiguous_ack_off_the_turn_thread_spends_nothing(self):
+        self._two_slots()
+        self._consume_on_a_fresh_thread([])
+        self.assertEqual(self._pending_texts(), ["a", "b"])
+
     def test_a_finished_worker_leaves_no_carrier_behind(self):
         """A turn worker that ends while another still runs drops its own
         slot: the running one's carrier is the only one a halt would keep."""
