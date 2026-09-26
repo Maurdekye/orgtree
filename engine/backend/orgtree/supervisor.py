@@ -14544,7 +14544,8 @@ def check_switch_account(org: Org, slug: str, nid: str, tier: str,
 
 
 def finish_switch_binding(org: Org, slug: str, nid: str,
-                          account: str | None, actor: str) -> dict[str, Any]:
+                          account: str | None, actor: str, *,
+                          export: bool = True) -> dict[str, Any]:
     """The rebind half of an ATOMIC switch+rebind, on the caller's doc under
     the caller's save window (both doors after an immediate apply; the
     boundary apply for a queued one).
@@ -14557,7 +14558,11 @@ def finish_switch_binding(org: Org, slug: str, nid: str,
     handle pops, and no account-park clear. Aligned field-for-field with
     `assign_account`; keep the two in step. Returns a small disclosure —
     `{"unparked": bool}` — so a caller that saves can drive the unpark wake
-    after its save (mirroring the `assign_account` doors)."""
+    after its save (mirroring the `assign_account` doors).
+
+    `export=False` (a row-transaction door, PG-3a): the transcript copy is
+    NOT made here; the archived session id comes back as `export_old_sid`
+    for the caller to hand `export_after_commit` after its commit."""
     if not account or nid not in org.nodes:
         return {}
     node = org.node(nid)
@@ -14565,6 +14570,7 @@ def finish_switch_binding(org: Org, slug: str, nid: str,
     account = selection["id"]
     previous = str(node.get("account") or "")
     _rebound_pred: str | None = None
+    deferred_export: str | None = None
     if previous != account and (
             selection["provider"] in ("openai", "google")
             or providers.provider_of(str(node.get("model") or ""))
@@ -14572,7 +14578,11 @@ def finish_switch_binding(org: Org, slug: str, nid: str,
             or bool(node.get("codex_thread"))):
         if bool(node.get("codex_thread")) or not node.get("session_unrun"):
             pred_id, old_sid = org._archive_session_in_place(nid)
-            export_predecessor_transcript(org, nid, old_sid=old_sid, reason="switch_model")
+            if export:
+                export_predecessor_transcript(org, nid, old_sid=old_sid,
+                                              reason="switch_model")
+            else:
+                deferred_export = old_sid
             org._moot_asks(nid, "the asking session was replaced by a "
                                 "provider account switch — the "
                                 "successor starts fresh and never posed it")
@@ -14628,7 +14638,8 @@ def finish_switch_binding(org: Org, slug: str, nid: str,
     org._log("account_assign", actor,
              {"account": selection["name"], "previous_account": previous or None,
               "via": "switch_model"}, [])
-    return {**({"unparked": True} if unparked else {})}
+    return {**({"unparked": True} if unparked else {}),
+            **({"export_old_sid": deferred_export} if deferred_export else {})}
 
 
 #: The accurate wake for a node whose stale provider freeze a crossing

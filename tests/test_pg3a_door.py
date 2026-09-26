@@ -628,6 +628,77 @@ class Door(unittest.TestCase):
                       [w.get("step") for w in r.get("warnings") or []
                        if isinstance(w, dict)])
 
+    def crossing_seat(self, state="archived"):
+        """x on a luna tier, bound to another account, its session run: a
+        rebind to 'primary' crosses a session boundary."""
+        if state == "archived":
+            self.archive("x")
+        org = store.load_org(self.slug)
+        org.nodes["x"]["account"] = "old-review-account"
+        org.nodes["x"]["session_unrun"] = False
+        store.save_org(org)
+
+    def real_copy(self):
+        """The real file half, with a real source transcript (the handoff
+        record stubbed out): returns the path a copy lands at."""
+        src = os.path.join(tempfile.mkdtemp(dir=_root.name), "old.jsonl")
+        with open(src, "w", encoding="utf-8") as f:
+            f.write('{"type": "user"}' + chr(10))
+        dst = os.path.join(supervisor.scratch_dir(self.slug, "x"),
+                           "transcript.jsonl")
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        for c in (patch.object(supervisor, "transcript_path",
+                               lambda *a, **k: src),
+                  patch.object(supervisor, "_publish_handoff_record",
+                               lambda *a, **k: None)):
+            c.start()
+            self.addCleanup(c.stop)
+        return dst
+
+    def test_a_rolled_back_rebind_leaves_no_copied_transcript(self):
+        # pg-supervisor-a's condition: the copy is a FILE effect, so it must
+        # not happen for a rebind whose transaction rolls back. Positive
+        # control first: the same rebind, committed, does copy.
+        self.crossing_seat()
+        dst = self.real_copy()
+        self.call(self.slug, "boss", "orgtree_rehire",
+                  {"node": "x", "account": "primary"})
+        self.assertTrue(os.path.isfile(dst), "control: a committed rebind copies")
+        self.tearDown()
+        self.setUp()
+        self.crossing_seat()
+        dst = self.real_copy()
+        self.assertFalse(os.path.isfile(dst))
+        real = supervisor.assign_account
+
+        def then_refused(*a, **k):
+            real(*a, **k)                  # the rebind ran inside the tx ...
+            raise ValueError("refused after the rebind")   # ... then rolled back
+        with patch.object(supervisor, "assign_account", then_refused):
+            with self.assertRaises(HTTPException):
+                self.call(self.slug, "boss", "orgtree_rehire",
+                          {"node": "x", "account": "primary"})
+        self.assertEqual(store.load_org(self.slug).nodes["x"]["state"], "archived")
+        self.assertFalse(os.path.isfile(dst), "a rolled-back rebind copied")
+
+    def test_finish_switch_binding_can_hand_the_export_to_the_caller(self):
+        self.crossing_seat(state="live")
+        for export in (True, False):
+            with self.subTest(export=export):
+                org = store.load_org(self.slug)
+                called = []
+                with patch.object(supervisor, "export_predecessor_transcript",
+                                  lambda *a, **k: called.append(k)):
+                    out = supervisor.finish_switch_binding(
+                        org, self.slug, "x", "primary", "boss", export=export)
+                if export:
+                    self.assertEqual(len(called), 1)
+                    self.assertNotIn("export_old_sid", out)
+                else:
+                    self.assertEqual(called, [])
+                    self.assertTrue(out.get("export_old_sid"))
+                self.assertIsNone(org.nodes["x"].get("account"))
+
 
 if __name__ == "__main__":
     unittest.main()
