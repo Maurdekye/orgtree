@@ -162,7 +162,7 @@ class SharedSnapshotUntouched(unittest.TestCase):
         self.slug = _org()
         org = store.load_org(self.slug)
         self.wid = org.work_create('mid', 'Item', 'Problem. Fix.',
-                                   owner='kid')['created']
+                                   owner='kid', status='backlogged')['created']
         store.save_org(org)
 
     def test_the_real_staffing_reads_leave_the_shared_snapshot_as_it_was(self):

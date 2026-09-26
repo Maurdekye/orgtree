@@ -1448,13 +1448,19 @@ class OperationContacts(unittest.TestCase):
         for condition in ("cold", "warm"):
             refresh = self.rows(variant="quick-staff.options-refresh", condition=condition)[0]
             self.assertEqual(refresh["census"]["statements"], 0)
-        # warm, every read and replay is served from the resident document: no
-        # statement at all; cold, the options read and the previews do read
+        # fence-off S5: the reads no longer take DOC_LOCK, so they are no
+        # longer served the write-through resident (0 statements while the
+        # lock was held). They read the SHARED snapshot instead (org_seq-
+        # guarded): after a save it refreshes, at most what a cold read
+        # costs, and only from the org's own store; it never writes.
         for variant in reads:
             with self.subTest(variant=variant):
                 warm = self.rows(variant=variant, condition="warm")[0]
-                self.assertEqual((warm["census"]["statements"], len(warm["harness"]["stores"])),
-                                 (0, 0))
+                cold = self.rows(variant=variant, condition="cold")[0]
+                self.assertLessEqual(warm["census"]["statements"],
+                                     cold["census"]["statements"])
+                self.assertLessEqual(len(warm["harness"]["stores"]), 1)
+                self.assertEqual(warm["harness"]["writes"], 0)
         for variant in ("quick-staff.options", "quick-staff.preview"):
             self.assertGreater(self.rows(variant=variant, condition="cold")[0]
                                ["census"]["statements"], 0)
