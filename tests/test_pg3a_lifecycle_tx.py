@@ -1002,5 +1002,72 @@ class Promote(unittest.TestCase):
         self.assertEqual(self.view(self.slug), before)
 
 
+class InsertParent(unittest.TestCase):
+    """lifecycle_tx.insert_parent on `_insert_rows`."""
+
+    def build(self, slug):
+        org = store.create_org(slug)
+        org.hire(ledger.USER, None, "luna", 9, "root")
+        org.hire(ledger.USER, "root", "luna", 5, "t")
+        org.hire(ledger.USER, "t", "luna", 1, "n")          # the one inserted
+        org.hire(ledger.USER, "t", "luna", 0, "k1")
+        org.hire(ledger.USER, "k1", "luna", 0, "k11")
+        store.save_org(org)
+
+    def setUp(self):
+        self.slug = "pg3a-ip-" + str(time.time_ns())
+        self.build(self.slug)
+
+    def tearDown(self):
+        store._POOL.close_all(self.slug)
+
+    def view(self, slug):
+        o = store.load_org(slug)
+        return ({k: (v["parent"], v["grant"], v["scope"].get("tools")) for k, v in o.nodes.items()},
+                sorted((k, len(v)) for k, v in (o.d.get("notices") or {}).items()),
+                [e["op"] for e in o.d["events"]][-2:])
+
+    def test_matches_the_legacy_method(self):
+        twin = "pg3a-ip-twin-" + str(time.time_ns())
+        self.build(twin)
+        with store.DOC_LOCK:
+            o = store.load_org(twin)
+            legacy = o.insert_parent(ledger.USER, "n", "t")
+            store.save_org(o)
+        mine = lifecycle_tx.insert_parent(self.slug, ledger.USER, "n", "t")
+        self.assertEqual(mine, legacy)
+        self.assertEqual(self.view(self.slug), self.view(twin))
+        o = store.load_org(self.slug)
+        self.assertEqual((o.node("n")["parent"], o.node("t")["parent"],
+                          o.node("k1")["parent"]), ("root", "n", "t"))
+        store._POOL.close_all(twin)
+
+    def test_plan(self):
+        o = store.load_org(self.slug)
+        upd, share = lifecycle_tx._insert_rows(o, ledger.USER, "n", "t")
+        self.assertEqual(upd, {"t", "n", "k1", "k11"})
+        self.assertEqual(share, {"root"})
+
+    def test_the_inserted_node_row_is_needed(self):
+        # n is re-parented and re-granted: a transaction without it is refused
+        # and nothing is written. (The rest of target's branch is locked
+        # CONSERVATIVELY for `_sweep_dirs(nid)`, which only writes it when a
+        # branch row holds more than the seat: normally n takes t's scope and
+        # nothing clamps, so no test can make that part fail.)
+        spec = lifecycle_tx.SPECS["move"]
+        with self.assertRaises(orgtx.UnlockedWrite):
+            with halt.txn(self.slug, nodes=["t", "k1", "k11"], share_nodes=["root"],
+                          sections=spec.sections, share_sections=spec.share_sections,
+                          logs=spec.logs) as tx:
+                tx.org.insert_parent(ledger.USER, "n", "t")
+        self.assertEqual(store.load_org(self.slug).node("n")["parent"], "t")
+
+    def test_a_refused_insertion_writes_nothing(self):
+        before = self.view(self.slug)
+        with self.assertRaises(ledger.LedgerError):
+            lifecycle_tx.insert_parent(self.slug, ledger.USER, "k11", "t")  # not a direct report
+        self.assertEqual(self.view(self.slug), before)
+
+
 if __name__ == "__main__":
     unittest.main()
