@@ -345,6 +345,42 @@ class PerOwnerMail(Base):
         mails = store.load_org(self.slug).d['mail'].get('sub') or []
         self.assertEqual(sum(1 for m in mails if self.item in str(m)), 1)
 
+    def test_first_mail_in_the_org_widens_by_the_owner_row_not_the_container(self):
+        # a fresh org whose `mail` section has never held a row: the first
+        # owner box CREATES the container, and org_tx refuses the container
+        # beside the owner row. The widening must take the owner row alone.
+        global _n
+        _n += 1
+        org = store.create_org(f'wtx-fresh-{_n}')
+        slug = org.d['slug']
+        org.hire(USER, None, 'haiku', 0, 'own')
+        org.hire(USER, 'own', 'haiku', 0, 'sub')
+        org.work_create('own', 'Fresh item',
+                        objective='Problem: first mail. Solution: owner row.')
+        store.save_org(org)
+        org = store.load_org(slug)
+        item = org.d['work_items'][-1]['slug']
+        self.assertFalse(any(org.d['mail'].values()) if org.d.get('mail') else False,
+                         'fixture: the org must have no mail yet')
+        refusals = []
+        real = worktx.refused_rows
+
+        def spy(e):
+            rows = real(e)
+            refusals.append(rows)
+            return rows
+        seen = self._lock_sets()
+        try:
+            worktx.refused_rows = spy
+            worktx.run(slug, lambda o: o.work_assign('own', item, 'sub'))
+        finally:
+            worktx.refused_rows = real
+        self.assertTrue(any(('section', 'mail') in r for r in refusals),
+                        'fixture: the container was never refused, so this '
+                        'test is not exercising the container case')
+        self.assertIn('mailsub', seen[-1])
+        self.assertNotIn('mail', seen[-1], 'the widening took the whole mail container')
+
     def _b_waits_on_a(self, box):
         """A: a docket assign to `sub`, paused while it holds its locks.
         B: a transaction naming `box`'s own mail rows (what
