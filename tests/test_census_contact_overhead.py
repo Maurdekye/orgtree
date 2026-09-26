@@ -25,7 +25,7 @@ WORKLOADS = ["pooled_read", "write_transaction", "executemany_batch",
 # Statement calls per operation: fixed for the primary-store workloads, measured
 # by the observer for the sidecar ones (the real site functions decide them).
 CALLS_PER_OP = {"pooled_read": 1, "write_transaction": 3, "executemany_batch": 3,
-                "transcript_ingest": 3, "reply_events_remember": 5, "reply_events_lookup": 5}
+                "transcript_ingest": 2, "reply_events_remember": 5, "reply_events_lookup": 5}
 THREADS = [1, 8]
 RESULT_FIELDS = {"workload", "threads", "arm", "calls_per_repetition", "rows_per_repetition",
                  "median_ns_per_call", "p90_ns_per_call", "delta_median_ns_vs_plain",
