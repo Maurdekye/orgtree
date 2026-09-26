@@ -6,7 +6,8 @@ import { clearNodeMetadata, publishNodeMetadata, replaceNodeMetadata, useNodeMet
 import { newSync, onBase, onFrame } from '../src/treesync'
 import { DeskChat } from '../src/canvas/desk'
 import type { CanvasNode } from '../src/canvas/shared'
-import type { CacheForecast, TreeNode, WsEvent } from '../src/types'
+import type { CacheForecast, TreeNode } from '../src/types'
+import type { WsEvent } from '../src/api'
 
 const node = (id: string, generation = 1): TreeNode => ({ id, generation,
   state: 'live', tier: 'haiku', children: [], parent: null, seat: 1, grant: 0, free: 0,

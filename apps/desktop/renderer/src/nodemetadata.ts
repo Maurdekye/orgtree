@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useSyncExternalStore } from 'react'
-import type { TreeNode, WsEvent } from './types'
+import type { TreeNode } from './types'
+import type { WsEvent } from './api'
 
 const fields = ['mcp_tool_count', 'last_turn_mcp_tool_count', 'mcp_tool_count_provider',
   'mcp_tool_count_source', 'mcp_tool_count_reason', 'mcp_readiness_waiting',
