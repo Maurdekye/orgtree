@@ -442,6 +442,45 @@ class OrgTxConcurrency(unittest.TestCase):
                 with orgtx.org_tx(other, nodes=['c']):
                     pass
 
+    def test_writer_preference_cycle_is_detected_then_the_retry_succeeds(self) -> None:
+        # the failure mode writer preference adds (p01): A shares K; W queues
+        # for K exclusive (behind A); R holds J and asks K shared, so it now
+        # waits behind the queued W; A asks J. A -> R -> W -> A is a cycle:
+        # A, which closes it, is the victim (as on PostgreSQL), not a hang
+        locks = orgtx.RowLocks()
+        K, J = ('s', 'section', 'k'), ('s', 'section', 'j')
+        A, W, R = object(), object(), object()
+        locks.acquire(A, K, False, 1)
+        locks.acquire(R, J, True, 1)
+        got: dict[str, str] = {}
+
+        def run(name: str, owner: object, key: tuple, exclusive: bool) -> None:
+            locks.acquire(owner, key, exclusive, 5)
+            got[name] = 'got'
+            locks.release_all(owner)
+
+        def queued(owner: object, behind: object) -> None:
+            for _ in range(200):
+                if locks.waiting(owner) == {behind}:
+                    return
+                time.sleep(0.01)
+            self.fail(f'{owner!r} never queued behind {behind!r}')
+        tw = threading.Thread(target=run, args=('W', W, K, True))
+        tw.start()
+        queued(W, A)
+        tr = threading.Thread(target=run, args=('R', R, K, False))
+        tr.start()
+        queued(R, W)                     # the writer-preference edge
+        with self.assertRaises(orgtx.DeadlockDetected):
+            locks.acquire(A, J, False, 5)
+        locks.release_all(A)             # the victim rolls back ...
+        tw.join(5)
+        tr.join(5)
+        self.assertEqual(got, {'W': 'got', 'R': 'got'})
+        locks.acquire(A, K, False, 1)    # ... and its retry succeeds
+        locks.acquire(A, J, False, 1)
+        locks.release_all(A)
+
     def test_waiting_probe(self) -> None:
         locks = orgtx.RowLocks()
         o1, o2 = object(), object()
