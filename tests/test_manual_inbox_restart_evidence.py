@@ -431,12 +431,14 @@ class ManualRestartEvidenceTests(unittest.TestCase):
 
     def test_the_manual_pass_sits_after_the_steer_pass_and_before_the_fold(self):
         text = Path(sup.__file__).read_text(encoding='utf-8')
-        body = text[text.index('\ndef reconcile(slug: str'):]
+        # S7 L3: reconcile's first block is `_reconcile_block`, one
+        # org_tx(whole=True); its step 6 ends by recording whether to settle
+        body = text[text.index('\ndef _reconcile_block(org: Org, slug: str'):]
         body = body[:body.index('\ndef ', 1)]
         steer = body.index('recorded = _reconcile_steer_records(org)')
-        manual = body.index('manual = _reconcile_manual_records(org, net_ids=manual_net)')
+        manual = body.index('manual = _reconcile_manual_records(org, net_ids=out["manual_net"])')
         fold = body.index('folded = _reconcile_mail_journal(org, owners_gone=_restart_owners_gone(),')
-        save = body.index('if recorded or manual or folded or restart_changed:')
+        save = body.index('out["settle"] = bool(recorded or manual or folded or restart_changed)')
         self.assertLess(steer, manual)
         self.assertLess(manual, fold)
         self.assertLess(fold, save)

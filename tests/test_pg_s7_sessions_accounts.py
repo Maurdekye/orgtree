@@ -294,9 +294,10 @@ class ReconcileSmallBlocks(unittest.TestCase):
                 patch.object(supervisor, '_condemnable', return_value=False):
             with self.assertRaises(RuntimeError):
                 supervisor.reconcile(self.slug)
-        # only the first block (L3 converts it) takes DOC_LOCK now: the spend
-        # before each dispatch and the finally restore are row transactions
-        self.assertEqual(lock.n, 1, f'DOC_LOCK taken {lock.n} times')
+        # the first block is one org_tx(whole=True) (L3); the spend before
+        # each dispatch and the finally restore are row transactions: the
+        # pass takes DOC_LOCK nowhere
+        self.assertEqual(lock.n, 0, f'DOC_LOCK taken {lock.n} times')
         org = store.load_org(self.slug)
         first, second = order
         self.assertNotIn('inflight', org.node(first), 'the dispatched marker was not spent')
