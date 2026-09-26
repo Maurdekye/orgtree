@@ -22,14 +22,27 @@ full org load: an evidence call was four transactions, 27 ms against 6 ms on
 SQLite. `sweep` now asks `due` first, on the lock-free shared snapshot
 (`store.cached_org`, which the door reads for the call's row spec anyway and
 which is current as of this call), and opens the transaction only when an
-item there is eligible and attention-free. Nothing is delayed in any case
-that matters: the snapshot sees every commit made before this call, exactly
-as the transaction would. A commit landing in the microseconds between the
-snapshot and where the transaction would have opened is swept by the next
-docket write, which is the same race the unconditional sweep always had with
-a commit landing just after it. The transaction still re-checks eligibility
-under its lock (decision 13 a), so a stale "due" costs one empty sweep and
-nothing else. An unreadable snapshot sweeps unconditionally, as before.
+item there is eligible and attention-free. The transaction still re-checks
+eligibility under its lock (decision 13 a), so a stale "due" costs one empty
+sweep and nothing else. An unreadable snapshot sweeps unconditionally, as
+before.
+
+WHAT A STALE "NOT DUE" CAN DELAY, AND WHY THAT IS ACCEPTABLE (review-astra,
+S-D review). The snapshot sees every commit made in THIS process before the
+call (a local save bumps the seq the snapshot is checked against). A commit
+landing between the snapshot read and where the transaction would have opened
+is missed, the same race the unconditional sweep had with a commit landing
+just after it. On PostgreSQL a commit made by ANOTHER process reaches the
+snapshot through `pgfeed` (NOTIFY, with a 5 s poll as the safety net, longer
+while it reconnects), so an item another process made eligible in that window
+is not moved by this call; the next docket write after the snapshot catches
+up moves it. Only the PHYSICAL move waits. Every reader decides "archived"
+with `_work_archived`, which is true for an eligible row wherever it is
+stored (list and get, the counts, and `work_update`'s refusal without
+`reopen`), so nothing a caller sees changes while the row waits in
+`work_items`. The only difference is that the row is still in the active
+section a little longer, as it always was between a close and the next
+docket write.
 
 WHICH ROWS. A docket write always locks `work_items` and `asks` and appends to
 `events`. What else it touches depends on what the ledger decides while it
@@ -233,8 +246,8 @@ def tx(slug: str, fn: Callable[[Org], T], *, rows: Rows,
 
 def due(org: Org, now_ts: float | None = None) -> bool:
     """Would `_work_archive_eligible` move anything? The same predicate, read
-    only: an active item that is eligible (done over an hour, dropped or
-    superseded at once) and holds no attention."""
+    only: an active item that is eligible (done or superseded for over an
+    hour, dropped at once) and holds no attention."""
     now_ts = _time.time() if now_ts is None else now_ts
     return any(org._work_eligible(it, now_ts)  # pyright: ignore[reportPrivateUsage]
                and not org._work_attention(it)  # pyright: ignore[reportPrivateUsage]
