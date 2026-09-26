@@ -257,11 +257,13 @@ def child(args) -> int:
     _tm: dict = {}
 
     @api.app.get("/scale/mem")
-    def _scale_mem(action: str = "snap", frames: int = 12, top: int = 25) -> dict:
+    async def _scale_mem(action: str = "snap", frames: int = 12, top: int = 25) -> dict:
         """Memory attribution. action=start: tracemalloc.start(frames) and a
         baseline snapshot. action=snap: diff against the previous snapshot
         (by line and by traceback for the biggest growers) plus the private
-        bytes, the traced total and the top object types by count."""
+        bytes, the traced total and the top object types by count.
+        ASYNC on purpose: it must not queue behind a saturated request pool
+        (it blocks the loop for the snapshot instead, which is the point)."""
         import collections
         import gc
         import tracemalloc
