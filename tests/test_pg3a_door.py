@@ -38,7 +38,8 @@ from orgtree import (api, ledger, lifecycle_door, lifecycle_tx, orgtx,  # noqa: 
 REQUEST = SimpleNamespace(state=SimpleNamespace())
 U = ledger.USER
 TOOLS = ("orgtree_move", "orgtree_swap", "orgtree_self_subjugate",
-         "orgtree_retire", "orgtree_dissolve", "orgtree_rehire")
+         "orgtree_retire", "orgtree_dissolve", "orgtree_rehire",
+         "orgtree_retool")
 _N = [0]
 
 
@@ -96,10 +97,12 @@ class Door(unittest.TestCase):
         return mine, legacy
 
     def strip(self, r):
+        """The result without its per-call reference, compared modulo the
+        org's own slug (a scope carries the org's workspace path)."""
         r = dict(r)
         for k in ("ref", "reference", "warnings"):
             r.pop(k, None)
-        return r
+        return repr(r).replace(self.slug, "<slug>").replace(self.twin, "<slug>")
 
     def test_the_topology_tools_are_declared_and_routed(self):
         for t in TOOLS:
@@ -443,6 +446,81 @@ class Door(unittest.TestCase):
         self.assertEqual(o.nodes["xx"]["state"], "archived")
         self.assertNotIn("x", o.nodes)
 
+    # ------------------------------------------------------------ retool
+
+    def test_retool_fields_are_the_set_scope_fields_retool_passes(self):
+        import inspect
+        src = inspect.getsource(api._retool_seat)
+        for f in lifecycle_door.RETOOL_FIELDS:
+            self.assertIn(f"{f}=", src, f)
+
+    def test_retool_matches_the_cycle(self):
+        args = {"node": "x", "charter": "retooled", "tools": {"bash": False}}
+        mine, legacy = self.both("a", "orgtree_retool", args)
+        self.assertEqual(self.strip(mine), self.strip(legacy))
+        self.assertEqual(self.view(self.slug), self.view(self.twin))
+        self.assertEqual(store.load_org(self.slug).nodes["x"].get("charter"),
+                         "retooled")
+
+    def test_retool_effort_is_sent_live_after_the_commit(self):
+        sent = []
+
+        def live(org, nid, previous=None):
+            # the level must already be COMMITTED when the send runs
+            committed = store.load_org(org.d["slug"]).effective_effort(nid)
+            sent.append((org.d["slug"], nid, committed))
+            return {"sent": True}
+        with patch.object(supervisor, "send_live_effort", live):
+            mine, legacy = self.both("a", "orgtree_retool",
+                                     {"node": "x", "effort": "low"})
+        self.assertEqual(mine.get("effort_delivery"), {"sent": True})
+        self.assertEqual(mine.get("effort_delivery"), legacy.get("effort_delivery"))
+        self.assertEqual([t for t in sent if t[0] == self.slug],
+                         [(self.slug, "x", "low")])
+
+    def test_choosing_your_own_account_is_the_same_403_on_both_paths(self):
+        for slug, door in ((self.slug, True), (self.twin, False)):
+            with patch.object(pgdoor, "enabled", lambda d=door: d):
+                with self.assertRaises(HTTPException) as e:
+                    self.call(slug, "x", "orgtree_retool",
+                              {"node": "x", "account": "claude-9"})
+                self.assertEqual(e.exception.status_code, 403)
+
+    def _account(self):
+        from orgtree import registry
+        row = registry.create_account(
+            "claude", "t", {"kind": "managed",
+                            "path": os.path.join(_root.name, f"acct-{self.slug}")})
+        for slug in (self.slug, self.twin):
+            org = store.load_org(slug)
+            org.node("x")["model"] = "opus"
+            store.save_org(org)
+        return row["id"]
+
+    def test_retool_with_an_account_matches_the_cycle(self):
+        rid = self._account()
+        mine, legacy = self.both("a", "orgtree_retool",
+                                 {"node": "x", "account": rid})
+        self.assertEqual(store.load_org(self.slug).nodes["x"].get("account"), rid)
+        self.assertEqual(store.load_org(self.slug).nodes["x"].get("account"),
+                         store.load_org(self.twin).nodes["x"].get("account"))
+        self.assertEqual(mine.get("account"), legacy.get("account"))
+
+    def test_every_retool_shape_commits_in_one_attempt(self):
+        cases = [("scope", {"node": "x", "charter": "c3", "tools": {"bash": False},
+                            "add_dirs": []}),
+                 ("effort", {"node": "x", "effort": "low"}),
+                 ("account", None)]
+        for name, args in cases:
+            with self.subTest(name):
+                self.tearDown()
+                self.setUp()
+                if args is None:
+                    args = {"node": "x", "account": self._account()}
+                with patch.object(supervisor, "send_live_effort",
+                                  lambda *a, **k: {}):
+                    opened = self.attempts("a", "orgtree_retool", args)
+                self.assertEqual(len(opened), 1, (name, opened))
 
 if __name__ == "__main__":
     unittest.main()
