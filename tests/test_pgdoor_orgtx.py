@@ -122,6 +122,26 @@ class DoorOnOrgTx(unittest.TestCase):
         box = store.load_org(self.slug).d.get('mail', {}).get('other') or []
         self.assertEqual([m.get('body') for m in box][-1:], ['hi'])
 
+    def test_a_rewritten_container_is_refused_again_then_held(self):
+        # the other half of the owner-row-only widening: a body that really
+        # rewrites the container (here: deletes an existing one) is refused
+        # for it again on the owner-row re-run, and the door then adds it
+        # (probe by v3-popout-review-opus55, reviewing d53652a)
+        org = store.load_org(self.slug)
+        org.post_mail('worker', 'other', 'pre')
+        store.save_org(org)
+        runs, r0 = [], self.rev()
+
+        def body(tx):
+            runs.append(tuple(tx.spec.sections))
+            tx.org.d.pop('mail', None)
+            return 'ok'
+
+        self.assertEqual(self.call(body, pgdoor.TxSpec()), 'ok')
+        self.assertIn('mail', runs[-1])
+        self.assertEqual(self.rev(), r0 + 1)   # ONE commit
+        self.assertFalse((store.load_org(self.slug).d.get('mail') or {}).get('other'))
+
     def test_a_held_container_covers_its_owner_rows(self):
         held = pgdoor.TxSpec(sections=('mail',))
         self.assertTrue(held.covers(pgdoor.TxSpec(
