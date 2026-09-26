@@ -4272,6 +4272,8 @@ def read_node_history_rows(slug: str, nid: str, cap: int
         if conn.execute("SELECT 1 FROM doc WHERE key IN "
                         "('events','notice_log') LIMIT 1").fetchone():
             return None
+        if STORE_BACKEND == "postgres":
+            return _pg_node_history_rows(conn, nid, cap)
         ev = conn.execute(
             "SELECT val FROM log_l WHERE sect='events' AND ("
             "json_extract(val,'$.detail.node')=? OR "
@@ -4291,6 +4293,33 @@ def read_node_history_rows(slug: str, nid: str, cap: int
         return ([json.loads(cast(str, r[0])) for r in reversed(ev)],
                 [json.loads(cast(str, r[0])) for r in reversed(nl)])
     return _bounded_read(slug, body)
+
+
+def _pg_node_history_rows(conn: sqlite3.Connection, nid: str, cap: int
+                          ) -> tuple[list[Any], list[Any]]:
+    """`read_node_history_rows` on postgres: the same filter, order and tails,
+    with each row's JSON parsed ONCE by native jsonb operators. Through the
+    portable statement, PG-0's `json_extract` (0001) is a SQL function the
+    planner cannot inline, so every call re-parsed `val` — six per event row,
+    ~20x SQLite on a 19k-event org (PG-4 follow-up probe). `OFFSET 0` keeps
+    the planner from pulling the subquery up and duplicating the cast into each
+    reference; `COLLATE "C"` orders `at` bytewise, as SQLite does. `->>` gives
+    the same text as `json_extract` for the string ids and timestamps these
+    fields hold. (No jsonb `?` operator here: PgConn reads `?` as a placeholder.)"""
+    ev = conn.execute(
+        "SELECT val FROM (SELECT val, seq, val::jsonb AS j FROM log_l "
+        "WHERE sect='events' OFFSET 0) r WHERE "
+        "j#>>'{detail,node}'=? OR j#>>'{detail,to}'=? OR j->>'actor'=? OR "
+        "j#>>'{detail,grantee}'=? OR j#>>'{detail,from}'=? "
+        "ORDER BY COALESCE(j->>'at','') COLLATE \"C\" DESC, seq DESC LIMIT ?",
+        (nid, nid, nid, nid, nid, cap)).fetchall()
+    nl = conn.execute(
+        "SELECT val FROM (SELECT val, seq, val::jsonb AS j FROM log_l "
+        "WHERE sect='notice_log' OFFSET 0) r WHERE j->>'node'=? "
+        "ORDER BY COALESCE(j->>'at','') COLLATE \"C\" DESC, seq DESC LIMIT ?",
+        (nid, cap)).fetchall()
+    return ([json.loads(cast(str, r[0])) for r in reversed(ev)],
+            [json.loads(cast(str, r[0])) for r in reversed(nl)])
 
 
 def read_mail_tails(slug: str, nid: str, keep: int, slack: int = 40

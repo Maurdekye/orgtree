@@ -313,5 +313,71 @@ class BoundedReadersOnPostgres(unittest.TestCase):
         self.assertEqual(inbox["delivered"], list(self.full["user_mail_log"])[-50:])
 
 
+@unittest.skipUnless(ADMIN, "ORGTREE_TEST_PG_ADMIN_URL not set: NOT RUN")
+class NodeHistoryOnPostgres(unittest.TestCase):
+    """PG-4 follow-up: the postgres history reader (native jsonb, parsed once)
+    returns exactly the rows the handler's `touches` test and its at-then-seq
+    tail select: every one of the five fields, timestamps out of insertion
+    order, equal timestamps broken by seq, the cap, and the notice tail."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        slug = _fresh_org("pg4-history")
+        org = store.load_org(slug)
+        org.d.setdefault("events", [])
+        org.d.setdefault("notice_log", [])
+        ev = org.d["events"]
+        fields = [("actor", None), ("detail", "node"), ("detail", "to"),
+                  ("detail", "grantee"), ("detail", "from")]
+        # 40 rows: every 3rd touches 'c' through a rotating field; timestamps
+        # run BACKWARDS against insertion, with pairs of equal stamps
+        for i in range(40):
+            row: dict = {"at": f"2026-09-25T10:{59 - i // 2:02d}:00Z", "op": "x",
+                         "actor": "z", "detail": {"i": i}}
+            if i % 3 == 0:
+                top, sub = fields[(i // 3) % 5]
+                if sub is None:
+                    row[top] = "c"
+                else:
+                    row["detail"][sub] = "c"
+            ev.append(row)
+        ev.append({"op": "x", "actor": "c", "detail": {"i": 40}})     # no `at`
+        for i in range(6):
+            org.d["notice_log"].append({"at": f"2026-09-25T11:00:0{5 - i}Z",
+                                        "node": "c" if i % 2 else "q", "body": str(i)})
+        store.save_org(org)
+        cls.slug = slug
+        cls.full = store.load_org(slug).d
+
+    def _expected(self, cap: int):
+        def touches(e):
+            d = e.get("detail") or {}
+            return "c" in (d.get("node"), d.get("to"), e.get("actor"),
+                           d.get("grantee"), d.get("from"))
+        ev = [(e.get("at") or "", i, e) for i, e in enumerate(self.full["events"]) if touches(e)]
+        ev.sort(key=lambda t: (t[0], t[1]), reverse=True)
+        nl = [(e.get("at") or "", i, e) for i, e in enumerate(self.full["notice_log"])
+              if e.get("node") == "c"]
+        nl.sort(key=lambda t: (t[0], t[1]), reverse=True)
+        return ([t[2] for t in reversed(ev[:cap])], [t[2] for t in reversed(nl[:cap])])
+
+    def test_matches_the_handler_filter_and_tail(self) -> None:
+        for cap in (200, 5, 1):
+            with self.subTest(cap=cap):
+                got = store.read_node_history_rows(self.slug, "c", cap)
+                self.assertEqual(got, self._expected(cap))
+        # the fixture really exercises every field and the missing `at`
+        events, notices = store.read_node_history_rows(self.slug, "c", 200)
+        self.assertEqual(len(events), 15)
+        self.assertEqual(len(notices), 3)
+
+    def test_the_postgres_branch_is_the_one_answering(self) -> None:
+        with mock.patch.object(store, "_pg_node_history_rows",
+                               side_effect=AssertionError("pg branch")) as m:
+            with self.assertRaises(AssertionError):
+                store.read_node_history_rows(self.slug, "c", 5)
+        self.assertEqual(m.call_count, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
