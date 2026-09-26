@@ -123,7 +123,10 @@ class RequestScopeDoor(unittest.TestCase):
         self.p.stop()
         store._POOL.close_all(self.slug)
 
-    def call(self, node, items=({'kind': 'tool', 'tool': 'web'},)):
+    # a folder nobody holds: a top-level hire already holds every tool
+    ITEMS = ({'kind': 'dir', 'path': 'C:/s7-not-held', 'mode': 'ro'},)
+
+    def call(self, node, items=ITEMS):
         return api.agent_call(api.AgentCall(
             org=self.slug, node=node, tool='orgtree_request_scope',
             args={'items': list(items), 'reason': 'need it'}), REQUEST)
@@ -148,9 +151,8 @@ class RequestScopeDoor(unittest.TestCase):
         for lg in mail['logs']:
             self.assertIn(lg, deep.logs)
         # a user audience stops the routing: back to the plain filing rows
-        org.d.setdefault('audiences', {})['worker'] = [U]
-        if not org._has_audience('worker', U):
-            self.skipTest('audience fixture shape differs on this build')
+        org.d['audiences'].append({'grantee': 'worker', 'grantor': U})
+        self.assertTrue(org._has_audience('worker', U))
         self.assertNotIn('boss', accountdoor.request_scope_rows(org, 'worker').nodes)
 
     def test_a_top_level_request_files_on_the_door_not_the_cycle(self):
