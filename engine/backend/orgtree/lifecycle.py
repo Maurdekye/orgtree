@@ -80,12 +80,13 @@ def _fresh(doc: Any) -> list[dict[str, Any]] | None:
     return [r for r in pending if isinstance(r, dict)]
 
 
-def _note_append(slug: str) -> None:
-    """Count one row-store append; mark the org due for a prune."""
+def _note_append(slug: str, over_cap: bool = False) -> None:
+    """Count one row-store append; mark the org due for a prune (at once
+    when the writer could see the ledger is over the cap)."""
     global _listening
     with _due_lock:
         _appended[slug] = _appended.get(slug, 0) + 1
-        if _appended[slug] >= PRUNE_EVERY:
+        if over_cap or _appended[slug] >= PRUNE_EVERY:
             _appended[slug] = 0
             _due.add(slug)
         if _listening:
@@ -182,7 +183,9 @@ def record(doc: dict[str, Any], *, operation_id: str, kind: str,
         row = {"operation_id": operation_id, "kind": kind, "state": state,
                "at": at, "count": 1, **fields}
         store.log_append(doc, "lifecycle", row)
-        _note_append(str(dict.get(doc, "slug") or doc._slug))   # pyright: ignore[reportPrivateUsage]
+        seen = dict.get(doc, "lifecycle")          # only if already materialized
+        _note_append(str(dict.get(doc, "slug") or doc._slug),   # pyright: ignore[reportPrivateUsage]
+                     over_cap=isinstance(seen, list) and len(seen) > MAX_RECORDS)
         return row
     rows = _records(doc)
     found = next((r for r in reversed(rows)
