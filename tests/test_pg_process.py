@@ -52,6 +52,13 @@ STUB_CUSTODIAN = textwrap.dedent('''
         print(json.dumps({"ok": True, "runtime": rt}))
     elif cmd == "stop":
         open(state_file, "w").write("stopped"); print(json.dumps({"ok": True, "stop": {}}))
+    elif cmd == "bind-product":
+        if os.environ.get("STUB_BIND_FAILS"):
+            print(json.dumps({"ok": False, "code": "product.not_engine_root", "message": "stub"})); sys.exit(1)
+        binding = os.path.join(args[args.index("--root") + 1], "orgtree-product-root.json")
+        if not os.path.exists(binding):
+            open(binding, "w").write("{}")
+        print(json.dumps({"ok": True}))
 ''')
 
 
@@ -523,6 +530,114 @@ class BracketTests(unittest.TestCase):
             with self.assertRaisesRegex(BracketError, "has no 'ORGTREE_AGENT_LEGACY_DATA'"):
                 bracket.start_for_engine(root, env, self.migrator)
         self.assertEqual(self.calls(), [])
+
+    # -- fresh-root bootstrap (ORGTREE_PG_BOOTSTRAP=1, packaged desktop only)
+
+    def fresh(self, **extra: str) -> tuple[Path, dict]:
+        """The engine's own data root, NOT cut over, in a non-agent
+        environment, with the bootstrap switch on."""
+        root = Path(self.env["APPDATA"]) / "Orgtree v2" / "data"
+        env = self.unset_store(ORGTREE_DATA=str(root), ORGTREE_PG_BOOTSTRAP="1", **extra)
+        env.pop("ORGTREE_AGENT_PARENT_DATA")
+        return root, env
+
+    def tree(self, root: Path) -> dict[str, bytes | None]:
+        return {str(p.relative_to(root)): (p.read_bytes() if p.is_file() else None) for p in sorted(root.rglob("*"))}
+
+    def test_a_fresh_root_is_bound_recorded_and_started_on_postgres(self) -> None:
+        root, env = self.fresh()
+        (root / "app-settings.json").write_text("{}")  # root-level files are not an org store
+        (root / "orgs").mkdir()  # an EMPTY orgs/ is fresh
+        owned = bracket.start_for_engine(root, env, self.migrator)
+        self.assertTrue(owned.product)
+        self.assertEqual(self.cmds(), ["bind-product", "status", "init", "start", "attach"])
+        self.assertEqual(self.calls()[0]["args"], ["bind-product", "--root", str(root)])
+        self.assertIsNone(self.calls()[0]["token"])
+        record = json.loads((root / bracket.CUTOVER_FILE).read_text(encoding="utf-8"))
+        self.assertEqual((record["schema"], record["backend"], record["via"]),
+                         (bracket.CUTOVER_SCHEMA, "postgres", "fresh-bootstrap"))
+        self.assertEqual(env[bracket.STORE_ENV], "postgres")
+        self.assertIn("port=45123", env[bracket.CONNINFO_ENV])
+        self.assertEqual([p.name for p in root.glob("*.tmp")], [])
+        owned.stop()
+        # the next launch is the ordinary postgres path: no second bind
+        self.log.unlink()
+        root2, env2 = self.fresh()
+        bracket.start_for_engine(root2, env2, self.migrator).stop()
+        self.assertEqual(self.cmds(), ["status", "start", "attach", "stop"])
+
+    def test_a_bootstrap_that_stopped_after_the_bind_is_resumed(self) -> None:
+        root, env = self.fresh()
+        (root / bracket.PRODUCT_FILE).write_text("{}", encoding="utf-8")
+        (root / f"{bracket.PRODUCT_FILE}.77.tmp").write_text("{}", encoding="utf-8")
+        owned = bracket.start_for_engine(root, env, self.migrator)
+        self.assertEqual(self.cmds()[:2], ["bind-product", "status"])
+        self.assertEqual(json.loads((root / bracket.CUTOVER_FILE).read_text(encoding="utf-8"))["backend"], "postgres")
+        owned.stop()
+
+    def test_an_existing_org_store_keeps_its_backend_untouched(self) -> None:
+        for name in ("acme.db", "acme.json", "acme.db.migrating", "acme.json.premigration", "acme.db-wal"):
+            root, env = self.fresh()
+            (root / "orgs").mkdir(exist_ok=True)
+            for p in (root / "orgs").iterdir():
+                p.unlink()
+            (root / "orgs" / name).write_text("x")
+            (root / "orgs" / "notes.txt").write_text("a stray beside a real store is the store's business")
+            before = self.tree(root)
+            self.assertIsNone(bracket.start_for_engine(root, env, self.migrator), name)
+            self.assertEqual(self.tree(root), before, name)
+            self.assertNotIn(bracket.CONNINFO_ENV, env)
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(self.refusals, [])
+
+    def test_an_ambiguous_root_refuses_and_writes_nothing(self) -> None:
+        cases = {"an empty folder in orgs/": lambda r: (r / "orgs" / "sub").mkdir(parents=True),
+                 "a PostgreSQL marker": lambda r: ((r / "orgs").mkdir(), (r / "orgs" / "acme.pg").write_text("{}")),
+                 "a stray file in orgs/": lambda r: ((r / "orgs").mkdir(), (r / "orgs" / "notes.txt").write_text("")),
+                 "a database folder": lambda r: (r / "pg").mkdir(),
+                 "a cutover folder": lambda r: (r / "pre-postgres").mkdir(),
+                 "orgs as a file": lambda r: (r / "orgs").write_text("")}
+        for label, make in cases.items():
+            root, env = self.fresh()
+            import shutil
+            for p in list(root.iterdir()):
+                shutil.rmtree(p) if p.is_dir() else p.unlink()
+            make(root)
+            before = self.tree(root)
+            with self.assertRaisesRegex(BracketError, "neither a fresh root nor an existing org store", msg=label):
+                bracket.start_for_engine(root, env, self.migrator)
+            self.assertEqual(self.tree(root), before, label)
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(len(self.refusals), len(cases), "every refusal writes the event-log line")
+
+    def test_the_bootstrap_acts_only_on_exactly_1_with_no_store_and_no_record(self) -> None:
+        root, env = self.fresh()
+        for value in ("", "0", " 0 "):
+            self.assertIsNone(bracket.start_for_engine(root, {**env, "ORGTREE_PG_BOOTSTRAP": value}, self.migrator))
+        self.assertIsNone(bracket.start_for_engine(root, {**env, bracket.STORE_ENV: "sqlite"}, self.migrator))
+        self.assertEqual(list(root.iterdir()), [])
+        self.cutover(root, "sqlite")
+        self.assertIsNone(bracket.start_for_engine(root, env, self.migrator))
+        (root / bracket.CUTOVER_FILE).unlink()
+        with self.assertRaisesRegex(BracketError, "only 1"):
+            bracket.start_for_engine(root, {**env, "ORGTREE_PG_BOOTSTRAP": "yes"}, self.migrator)
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(list(root.iterdir()), [])
+
+    def test_the_bootstrap_refuses_in_an_agent_session_before_binding(self) -> None:
+        root, env = self.fresh(ORGTREE_AGENT_PARENT_DATA="")
+        env["ORGTREE_AGENT_PARENT_DATA"] = str(root)
+        with self.assertRaisesRegex(BracketError, "overlaps protected location ORGTREE_AGENT_PARENT_DATA"):
+            bracket.start_for_engine(root, env, self.migrator)
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(list(root.iterdir()), [])
+
+    def test_a_refused_bind_writes_no_record(self) -> None:
+        root, env = self.fresh(STUB_BIND_FAILS="1")
+        with self.assertRaisesRegex(BracketError, "bind-product refused: product.not_engine_root"):
+            bracket.start_for_engine(root, env, self.migrator)
+        self.assertFalse((root / bracket.CUTOVER_FILE).exists())
+        self.assertEqual(self.cmds(), ["bind-product"])
 
     def test_the_deny_list_is_the_rust_guards(self) -> None:
         rust = (Path(bracket.__file__).resolve().parent / "native" / "prototype-guard" / "src" / "product.rs").read_text(encoding="utf-8")
