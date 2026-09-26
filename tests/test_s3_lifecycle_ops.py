@@ -118,6 +118,12 @@ class LifecycleOps(unittest.TestCase):
             r = self.op(self.slug, **kw)
         return r, opened
 
+    def unrecoverable(self, nid):
+        for slug in (self.slug, self.twin):
+            org = store.load_org(slug)
+            org.mark_unrecoverable(nid, "test: its session is gone")
+            store.save_org(org)
+
     def archive(self, nid):
         for slug in (self.slug, self.twin):
             org = store.load_org(slug)
@@ -136,6 +142,8 @@ class LifecycleOps(unittest.TestCase):
             ("demote", None, dict(op="demote", node="x", new_parent="b")),
             ("cheap_compact", None, dict(op="cheap_compact", node="x")),
             ("rehire", lambda: self.archive("x"), dict(op="rehire", node="x")),
+            ("reseed", lambda: self.unrecoverable("x"),
+             dict(op="reseed", node="x")),
             ("revoke_dir", None, dict(op="revoke_dir", node="x",
                                       dir="C:/shared")),
         ]
@@ -215,26 +223,24 @@ class LifecycleOps(unittest.TestCase):
         self.assertEqual(e.exception.status_code, 409)
         self.assertEqual(self.view(self.slug), before)
 
-    def test_reseed_mints_one_session_id_across_a_widened_rerun(self):
-        # a lost bearer is re-seeded: the fresh session id is minted BEFORE
-        # the transaction, so a widened re-run reuses it
-        org = store.load_org(self.slug)
-        org.retire(U, "x")
-        org.nodes["x"]["bearer_state"] = "lost"
-        store.save_org(org)
+    def test_reseed_mints_its_session_id_once_before_the_transaction(self):
+        # the fresh session id is minted in the before-step (outside the
+        # transaction), so every attempt of the body uses the same one
+        self.unrecoverable("x")
         minted = []
         real = pgdoor.BEFORE["reseed"]
 
         def spy(body, a):
+            self.assertIsNone(pgdoor.current(self.slug))
             out = real(body, a)
             minted.append(out["reseed_session"])
             return out
         with patch.dict(pgdoor.BEFORE, {"reseed": spy}):
-            try:
-                self.door(op="reseed", node="x")
-            except HTTPException:
-                self.skipTest("reseed refused on this fixture")
+            self.door(op="reseed", node="x")
         self.assertEqual(len(minted), 1)
+        o = store.load_org(self.slug)
+        self.assertEqual(o.nodes["x"]["session_id"], minted[0])
+        self.assertEqual(o.nodes["x"]["generation"], 1)
 
     def test_a_refused_op_is_a_422_and_commits_nothing(self):
         before = self.view(self.slug)
