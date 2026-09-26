@@ -58,8 +58,12 @@ class HaltReceipts(unittest.TestCase):
         return api.agent_call(api.AgentCall(org=self.slug, node=actor,
                                             tool=tool, args=args), REQUEST)
 
-    def keyed(self, tool, args, actor="boss"):
-        epoch = self.call(opreceipts.OP_EPOCH, {}, actor)["epoch"]
+    def epoch(self, actor="boss"):
+        # the OP_EPOCH preflight is WS3a's site (FENCE-OFF-PLAN §1 A), so it
+        # is taken OUTSIDE the measured blocks below
+        return self.call(opreceipts.OP_EPOCH, {}, actor)["epoch"]
+
+    def keyed(self, tool, args, epoch, actor="boss"):
         call = {"tool": tool, "args": args, "op_key": opreceipts.mint_key(),
                 "op_epoch": epoch}
         return call, self.call(opreceipts.OP_CALL, call, actor)
@@ -76,13 +80,14 @@ class HaltReceipts(unittest.TestCase):
                 for k in ("legacy", "save")}
 
     def test_keyed_halt_and_unhalt_file_receipts_without_the_legacy_cycle(self):
+        epoch = self.epoch()
         with store.doc_lock_tripwire(raising=False) as counts:
-            call, r = self.keyed("orgtree_halt", {"node": "w1"})
+            call, r = self.keyed("orgtree_halt", {"node": "w1"}, epoch)
             self.assertTrue(r["halted"], r)
             replay = self.call(opreceipts.OP_CALL, call)
             self.assertTrue(replay["replayed"], replay)
             self.assertTrue(replay["receipt"]["result"]["halted"])
-            _, u = self.keyed("orgtree_unhalt", {"node": "w1"})
+            _, u = self.keyed("orgtree_unhalt", {"node": "w1"}, epoch)
             self.assertTrue(u["unhalted"], u)
         self.assertEqual(self.api_sites(counts), {"legacy": [], "save": []},
                          counts)
@@ -91,8 +96,9 @@ class HaltReceipts(unittest.TestCase):
         self.assertEqual(opreceipts.coverage("orgtree_halt", {}), opreceipts.PRE)
 
     def test_a_keyed_batch_halt_files_one_receipt(self):
+        epoch = self.epoch()
         with store.doc_lock_tripwire(raising=False) as counts:
-            _, r = self.keyed("orgtree_halt", {"nodes": ["w1", "w2"]})
+            _, r = self.keyed("orgtree_halt", {"nodes": ["w1", "w2"]}, epoch)
         self.assertEqual(r["batch"], 2, r)
         self.assertTrue(all(v.get("halted") for v in r["nodes"].values()), r)
         self.assertEqual(self.api_sites(counts), {"legacy": [], "save": []},
@@ -101,7 +107,8 @@ class HaltReceipts(unittest.TestCase):
 
     def test_an_unauthorised_target_is_refused_before_anything_is_filed(self):
         with self.assertRaises(HTTPException) as e:
-            self.keyed("orgtree_halt", {"nodes": ["w1", "other"]})
+            self.keyed("orgtree_halt", {"nodes": ["w1", "other"]},
+                       self.epoch())
         self.assertEqual(e.exception.status_code, 422)
         self.assertEqual(self.receipts(), [])
         o = store.load_org(self.slug)
