@@ -57,7 +57,7 @@ BASE_LOGS: tuple[str, ...] = ("events",)
 #: `("mail_log", nid)`, never the whole `mail` section, so a docket write that
 #: mails one agent does not queue behind mail to every other agent in the org.
 #: A recipient the arguments do not predict is refused at commit as
-#: `mailnid` and widened into as exactly that owner row (`widen`).
+#: `mail\x1fnid` and widened into as exactly that owner row (`widen`).
 
 #: How many times `run` may widen the row set before giving up.
 MAX_WIDEN = 4
@@ -101,7 +101,7 @@ class Rows:
         for kind, name in refused:
             if kind == "section" and store.SPLIT_SEP in name:
                 # an owner row of a split section (PG-3d): org_tx names it
-                # `sectionowner` and takes it back as (section, owner)
+                # `section\x1fowner` and takes it back as (section, owner)
                 sec, owner = name.split(store.SPLIT_SEP, 1)
                 name = (sec, owner)   # type: ignore[assignment]
             target = {"section": self.sections, "node": self.nodes,

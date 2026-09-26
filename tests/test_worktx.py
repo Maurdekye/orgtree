@@ -333,14 +333,14 @@ class PerOwnerMail(Base):
         worktx.run(self.slug, lambda o: o.work_assign('own', self.item, 'sub'),
                    rows=worktx.rows_for('assign', {'owner': 'sub'}))
         self.assertEqual(len(seen), 1, 'the prediction should need no widening')
-        self.assertIn('mailsub', seen[-1])
+        self.assertIn('mail\x1fsub', seen[-1])
         self.assertNotIn('mail', seen[-1], 'the whole mail section was locked')
 
     def test_unpredicted_recipient_widens_into_its_box_only(self):
         seen = self._lock_sets()
         worktx.run(self.slug, lambda o: o.work_assign('own', self.item, 'sub'))
         self.assertGreaterEqual(len(seen), 2, 'the thin first attempt should widen')
-        self.assertIn('mailsub', seen[-1])
+        self.assertIn('mail\x1fsub', seen[-1])
         self.assertNotIn('mail', seen[-1], 'the widening took the whole mail section')
         mails = store.load_org(self.slug).d['mail'].get('sub') or []
         self.assertEqual(sum(1 for m in mails if self.item in str(m)), 1)
@@ -378,7 +378,7 @@ class PerOwnerMail(Base):
         self.assertTrue(any(('section', 'mail') in r for r in refusals),
                         'fixture: the container was never refused, so this '
                         'test is not exercising the container case')
-        self.assertIn('mailsub', seen[-1])
+        self.assertIn('mail\x1fsub', seen[-1])
         self.assertNotIn('mail', seen[-1], 'the widening took the whole mail container')
 
     def _b_waits_on_a(self, box):
