@@ -14,15 +14,12 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import subprocess
-import sys
-import tempfile
 import unittest
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+import p02_contacts_probe
 
 ROOT = Path(__file__).resolve().parents[1]
-TOOL = ROOT / "tools" / "p02_operation_contacts.py"
 BASE_TMP = os.environ.get("P02_HARNESS_TMP") or None
 
 RESERVATION = ("list-read", "list-scope", "landing", "acquire", "overlap", "renew",
@@ -81,18 +78,8 @@ class OperationContacts(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls._tmp = tempfile.TemporaryDirectory(prefix="p02-op-contacts-", dir=BASE_TMP)
-        out = Path(cls._tmp.name) / "out"
-        proc = subprocess.run([sys.executable, "-I", "-B", str(TOOL), "--out", str(out)],
-                              capture_output=True, text=True, timeout=1200)
-        if proc.returncode != 0:
-            raise AssertionError(f"probe exited {proc.returncode}: {proc.stderr[-3000:]}")
-        cls.doc = json.loads((out / "operation-contacts.json").read_text(encoding="utf-8"))
-        cls.md = (out / "operation-contacts.md").read_text(encoding="utf-8")
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls._tmp.cleanup()
+        # one probe run shared with test_state_p02_contact_facets (tests/p02_contacts_probe.py)
+        cls.doc, cls.md = p02_contacts_probe.probe_output(BASE_TMP)
 
     def rows(self, **match):
         return [r for r in self.doc["rows"] if all(r.get(k) == v for k, v in match.items())]

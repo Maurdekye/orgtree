@@ -12,15 +12,12 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import subprocess
-import sys
-import tempfile
 import unittest
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+import p02_contacts_probe
 
 ROOT = Path(__file__).resolve().parents[1]
-TOOL = ROOT / "tools" / "p02_operation_contacts.py"
 ALIASES = ("orgtree_reservation", "orgtree_resource_reservation")
 READ_ONLY = ("list-read", "landing", "overlap")
 DOC_WRITERS = ("list-scope", "acquire", "renew", "recover", "invalidate", "release", "land")
@@ -35,18 +32,8 @@ class ContactFacets(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls._tmp = tempfile.TemporaryDirectory(prefix="p01-contact-facets-",
-                                               dir=os.environ.get("P02_HARNESS_TMP") or None)
-        out = Path(cls._tmp.name) / "out"
-        proc = subprocess.run([sys.executable, "-I", "-B", str(TOOL), "--out", str(out)],
-                              capture_output=True, text=True, timeout=1200)
-        if proc.returncode != 0:
-            raise AssertionError(f"probe exited {proc.returncode}: {proc.stderr[-3000:]}")
-        cls.doc = json.loads((out / "operation-contacts.json").read_text(encoding="utf-8"))
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls._tmp.cleanup()
+        # the same probe run test_p02_operation_contacts reads (tests/p02_contacts_probe.py)
+        cls.doc, _ = p02_contacts_probe.probe_output(os.environ.get("P02_HARNESS_TMP") or None)
 
     def row(self, variant, condition="warm"):
         # reservation family only: refusal/control labels recur in other families
