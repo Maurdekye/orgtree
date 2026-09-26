@@ -131,6 +131,13 @@ class DoorOnOrgTx(unittest.TestCase):
         self.assertFalse(pgdoor.TxSpec(sections=(('mail', 'x'),)).covers(
             pgdoor.TxSpec(sections=(('mail', 'other'),))).empty())
 
+    def test_a_joined_owner_key_is_named_as_org_tx_takes_it(self):
+        key = 'mail' + store.SPLIT_SEP + 'other'
+        n = pgdoor._norm(pgdoor.TxSpec(sections=(key, 'work_items'),
+                                       share_sections=(key,)))
+        self.assertEqual(n.sections, (('mail', 'other'), 'work_items'))
+        self.assertEqual(n.share_sections, ())    # FOR UPDATE wins
+
     def test_refusal_of_a_row_already_held_is_not_retried(self):
         with self.assertRaises(LedgerError):
             self.call(lambda tx: (_ for _ in ()).throw(pgdoor.Widen(nodes=['worker'])),
