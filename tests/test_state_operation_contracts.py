@@ -646,7 +646,7 @@ class ContractCoverage(unittest.TestCase):
         # a shared selector still pending (the transcript docket button: orgtree_work is not contracted); the
         # shared read block S3 candidate 1 used here is mapped since P01 F4
         document = copy.deepcopy(self.document)
-        row = next(r for r in document["dispatch"] if r["id"].startswith("0f941068"))
+        row = next(r for r in document["dispatch"] if r["id"].startswith("104235a2"))
         self.assertEqual(row["disposition"], "pending")
         site = next(s["source"] for s in self.source["dispatch_selectors"]
                     if contracts.witness_id("dispatch", s) == row["id"])
