@@ -144,6 +144,7 @@ class MarkUnrecoverable(unittest.TestCase):
         orgtx.set_pause_hook(hook)
         self.addCleanup(orgtx.set_pause_hook, None)
         self.enterContext(patch.object(halt, "_FENCE", False))   # the row alone must order them
+        self.enterContext(patch.object(orgtx, "TRANSITION_FENCE", False))
 
         def mark():
             lifecycle_tx.mark_unrecoverable(self.slug, "worker", "x")
@@ -652,6 +653,60 @@ class Delete(unittest.TestCase):
             r = lifecycle_tx.delete(self.slug, ledger.USER, "a")
         self.assertEqual(r["deleted"], ["a", "a1"])
         self.assertGreaterEqual(len(calls), 3)          # plan, refused body, rerun
+
+    def test_the_first_deletes_of_a_new_org_both_bank_their_cost(self):
+        # plan decision 34: a created org is born with its deleted_cost_usd
+        # row (PG-0b), so the very FIRST deletes already serialize on it.
+        # Two deletes of disjoint subtrees share only that row (root is
+        # FOR SHARE for both); the second must wait and bank on top of the
+        # first, not beside it. On a missing row FOR UPDATE locks nothing
+        # and one bank would be lost.
+        slug = "pg3a-dl1-" + str(time.time_ns())
+        org = store.create_org(slug)
+        org.hire(ledger.USER, None, "luna", 6, "root")
+        org.hire(ledger.USER, "root", "luna", 0, "a")
+        org.hire(ledger.USER, "root", "luna", 0, "b")
+        org.nodes["a"]["cost_usd"] = 0.25
+        org.nodes["b"]["cost_usd"] = 0.5
+        store.save_org(org)
+        self.addCleanup(store._POOL.close_all, slug)
+        self.assertEqual(dict.get(store.load_org(slug).d, "deleted_cost_usd"), 0)
+        order = []
+        held, release = threading.Event(), threading.Event()
+        os.environ["ORGTREE_ORGTX_TEST_HOOKS"] = "1"
+        self.addCleanup(os.environ.pop, "ORGTREE_ORGTX_TEST_HOOKS", None)
+
+        def hook(point, tx):
+            if threading.current_thread().name == "d1" and point == "before_commit":
+                held.set()
+                release.wait(5)
+        orgtx.set_pause_hook(hook)
+        self.addCleanup(orgtx.set_pause_hook, None)
+        self.enterContext(patch.object(halt, "_FENCE", False))   # the row alone must order them
+        self.enterContext(patch.object(orgtx, "TRANSITION_FENCE", False))
+        errors = []
+
+        def run(nid):
+            try:
+                lifecycle_tx.delete(slug, ledger.USER, nid)
+                order.append(nid)
+            except Exception as e:  # noqa: BLE001  reported below
+                errors.append(repr(e))
+        t1 = threading.Thread(target=run, args=("a",), name="d1")
+        t1.start()
+        self.assertTrue(held.wait(5))
+        t2 = threading.Thread(target=run, args=("b",), name="d2")
+        t2.start()
+        time.sleep(0.3)
+        self.assertEqual(order, [])          # the second delete is waiting
+        release.set()
+        t1.join(10)
+        t2.join(10)
+        self.assertEqual(errors, [])
+        self.assertEqual(order, ["a", "b"])
+        o = store.load_org(slug)
+        self.assertEqual(sorted(o.nodes), ["root"])
+        self.assertEqual(o.d["deleted_cost_usd"], 0.75)
 
 
 class Swap(unittest.TestCase):
