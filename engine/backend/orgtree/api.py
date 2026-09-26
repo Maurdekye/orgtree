@@ -85,6 +85,7 @@ from . import account_fallback as accountfallback
 from . import orgtx
 from . import crashreports
 from . import mailtx  # PG-3d: mail on row transactions
+from . import lifecycle_tx  # S4: the lifecycle HTTP routes on row transactions
 from . import orgtx
 from . import events
 from . import registry
@@ -4094,29 +4095,35 @@ class Scope(Body):
 def node_scope(slug: str, nid: str, body: Scope,
                request: Request) -> dict[str, Any]:
     pub = bool(_public_slug(request))
-    with _entry_ledger_422(store.write_org(slug)) as org:
-        try:
-            rc = (not pub) and (bool((org.d.get("kiosk") or {}).get("auto_raise"))
-                                or body.raise_ceiling)
-            effort_before = (org.effective_effort(nid)
-                             if body.effort is not None else None)
-            result = org.set_scope(USER, nid, add_dirs=body.add_dirs, tools=body.tools,
-                                   org_visibility=body.org_visibility,
-                                   permission_mode=body.permission_mode,
-                                   charter=body.charter,
-                                   team_charter=body.team_charter,
-                                   effort=body.effort,
-                                   model_version=body.model_version,
-                                   auto_cheap_compact=body.auto_cheap_compact,
-                                   external_handles=body.external_handles,
-                                   raise_ceiling=rc,
-                                   account_fallback=body.account_fallback,
-                                   clear_account_fallback=body.clear_account_fallback,
-                                   clear_prefer_reserve=body.clear_prefer_reserve,
-                                   prefer_reserve=body.prefer_reserve)
-        except LedgerError as e:
-            raise HTTPException(422, str(e))
-        store.save_org(org)
+    # S4 (fence-off): one row transaction over WS3b's `_scope_plan` rows, not
+    # the DOC_LOCK cycle. The kiosk ceiling is still decided on the locked
+    # kiosk row (`may_raise` is only the permission: not a public slug), and
+    # the effort level before the write is read on the locked document too.
+    kw = dict(add_dirs=body.add_dirs, tools=body.tools,
+              org_visibility=body.org_visibility,
+              permission_mode=body.permission_mode,
+              charter=body.charter,
+              team_charter=body.team_charter,
+              effort=body.effort,
+              model_version=body.model_version,
+              auto_cheap_compact=body.auto_cheap_compact,
+              external_handles=body.external_handles,
+              raise_ceiling=body.raise_ceiling,
+              account_fallback=body.account_fallback,
+              clear_account_fallback=body.clear_account_fallback,
+              clear_prefer_reserve=body.clear_prefer_reserve,
+              prefer_reserve=body.prefer_reserve)
+    try:
+        result, effort_before, org = lifecycle_tx.set_scope_observed(
+            slug, USER, nid, kw, not pub,
+            before=((lambda o: o.effective_effort(nid))
+                    if body.effort is not None else None))
+    except lifecycle_tx.WidenExhausted as e:
+        raise HTTPException(409, str(e))
+    except LedgerError as e:
+        raise HTTPException(422, str(e))
+    # `org` is the transaction's committed private document: the live effort
+    # below is sent only after the commit, from what was committed
     if body.effort is not None and isinstance(result, dict):
         # the level is saved now, so a running Claude turn may be sent it
         result["effort_delivery"] = supervisor.send_live_effort(
@@ -5712,13 +5719,13 @@ async def node_account_assign(slug: str, nid: str,
 
 @app.post("/api/orgs/{slug}/nodes/{nid}/reorder")
 def node_reorder(slug: str, nid: str, body: Reorder) -> dict[str, Any]:
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-            result = org.reorder(USER, nid, before=body.before, after=body.after)
-        except LedgerError as e:
-            raise HTTPException(422, str(e))
-        store.save_org(org)
+    # S4 (fence-off): one row transaction (lifecycle_tx.reorder)
+    try:
+        result = lifecycle_tx.reorder(slug, USER, nid, body.before, body.after)
+    except lifecycle_tx.WidenExhausted as e:
+        raise HTTPException(409, str(e))
+    except LedgerError as e:
+        raise HTTPException(422, str(e))
     hub_changed(slug)
     return result
 
@@ -6343,19 +6350,15 @@ def lineage_drop_phantom(slug: str, nid: str) -> dict[str, Any]:
 @app.post("/api/orgs/{slug}/dissolve-all")
 def org_dissolve_all(slug: str) -> dict[str, Any]:
     """Dissolve EVERY agent in the org at once (context kept — rehire revives)."""
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-            freed = nodes = 0
-            for root in list(org.children(None)):
-                r = org.dissolve(USER, root)
-                freed += r["freed"]
-                nodes += len(r["nodes"])
-            store.save_org(org)
-        except LedgerError as e:
-            raise HTTPException(422, str(e))
+    # S4 (fence-off): ONE row transaction over every root, all or nothing
+    try:
+        result = lifecycle_tx.dissolve_all(slug, USER)
+    except lifecycle_tx.WidenExhausted as e:
+        raise HTTPException(409, str(e))
+    except LedgerError as e:
+        raise HTTPException(422, str(e))
     hub_changed(slug)
-    return {"freed": freed, "nodes": nodes}
+    return result
 
 
 @app.post("/api/orgs/{slug}/killswitch")
@@ -6747,28 +6750,34 @@ def repair_rename(slug: str, body: RenameRepair) -> dict[str, Any]:
     id, an intact identity chain, and the user or the renamed identity as
     actor. No MCP tool — a new tool definition would change every agent's
     prompt, and this is a repair, not a capability."""
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
-        try:
-            # Convert an old-identity document IN THIS SAVE, like every other
-            # docket mutation. The ledger's own guard runs from `_work_sweep`,
-            # which this repair does not go through — it writes item fields
-            # directly, because the docket's mutators refuse for exactly the
-            # reason being repaired. Without this the repair would save a
-            # legacy document and the next read would 409.
-            migrated = _work_identity_ready(org, slug)
-            r = org.repair_rename_identity(
-                body.actor, body.rename_at,
-                documents=body.documents, work_items=body.work_items)
-        except LedgerError as e:
-            # nothing is saved on a refusal, so a document that was pending
-            # conversion is still pending — the repair does not convert it as
-            # a side effect of failing
-            raise HTTPException(422, str(e))
-        store.save_org(org)
+    try:
+        store.cached_org(slug)
+    except LedgerError as e:
+        raise HTTPException(404, str(e))
+    try:
+        # S4 (fence-off): ONE row transaction. Convert an old-identity
+        # document IN THIS TRANSACTION, like every other docket mutation. The
+        # ledger's own guard runs from `_work_sweep`, which this repair does
+        # not go through — it writes item fields directly, because the
+        # docket's mutators refuse for exactly the reason being repaired.
+        # Without this the repair would commit a legacy document and the
+        # next read would 409.
+        convert = _work_identity_ready_once(slug)
+        reports: list[dict[str, Any] | None] = []
+        r = lifecycle_tx.repair_rename_identity(
+            slug, body.actor, body.rename_at,
+            extra_sections=WORK_CONVERSION_SECTIONS,
+            extra_nodes=work_conversion_nodes,
+            pre=lambda org: reports.append(convert(org)),
+            documents=body.documents, work_items=body.work_items)
+        migrated = reports[-1] if reports else None   # the committed attempt's
+    except lifecycle_tx.WidenExhausted as e:
+        raise HTTPException(409, str(e))
+    except LedgerError as e:
+        # nothing commits on a refusal, so a document that was pending
+        # conversion is still pending — the repair does not convert it as
+        # a side effect of failing
+        raise HTTPException(422, str(e))
     hub_changed(slug)
     return {"ok": True, "migrated": migrated, **r}
 
@@ -7239,6 +7248,40 @@ def _work_identity_ready(org: Any, slug: str) -> dict[str, Any] | None:
     # the pre-migration backup, from committed state, exactly once per org
     store.export_json(slug)
     return org.work_identity_migrate()
+
+
+#: The rows the work-identity conversion (`Org.work_identity_migrate`) writes
+#: beyond `work_items` and the `events` log, for a row transaction that runs
+#: it: the `asks` list (question cards' docket pointers) and the
+#: `work_identity` marker, plus — `work_conversion_nodes` — every node holding
+#: a live `ask` card, whose pointers it rewrites too. A converted docket needs
+#: none of the node rows. (S4 item: the node rows were found by the spec
+#: test, beyond the reviewed plan.)
+WORK_CONVERSION_SECTIONS: tuple[str, ...] = ("asks", "work_identity")
+
+
+def work_conversion_nodes(org: Any) -> set[str]:
+    if org.work_identity_state() == org.WORK_IDENTITY_SLUG:
+        return set()
+    return {k for k, n in org.nodes.items() if isinstance(n.get("ask"), dict)}
+
+
+def _work_identity_ready_once(slug: str) -> Callable[[Any], dict[str, Any] | None]:
+    """`_work_identity_ready` for a body that may RUN MORE THAN ONCE (a row
+    transaction re-run on Widen): the conversion itself re-applies on each
+    attempt's fresh document, but the pre-migration backup file is taken at
+    most once per call."""
+    backed_up = False
+
+    def convert(org: Any) -> dict[str, Any] | None:
+        nonlocal backed_up
+        if org.work_identity_state() == "slug":
+            return None
+        if not backed_up:
+            store.export_json(slug)
+            backed_up = True
+        return org.work_identity_migrate()
+    return convert
 
 
 def _work_identity_guard(org: Any) -> None:
