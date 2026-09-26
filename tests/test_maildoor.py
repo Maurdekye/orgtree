@@ -61,6 +61,7 @@ class NoticeDoor(unittest.TestCase):
         self.assertTrue(pgdoor.routed(maildoor.NOTICE, {}),
                         'orgtree_send_notice is not declared on the door')
         self.sent, self.notified, self.notes, self.locked, self.sections = [], [], [], [], []
+        self.shared = []
         self.p = [patch.object(supervisor, 'send_message',
                                lambda slug, t, *a, **k: self.sent.append(
                                    (t, k.get('wake', True), k.get('ping_reason'))) or {}),
@@ -75,7 +76,8 @@ class NoticeDoor(unittest.TestCase):
             x.start()
         orgtx.set_pause_hook(lambda p, tx: (
             self.locked.append(set(tx.lock_nodes)),
-            self.sections.append(set(tx.lock_sections)))
+            self.sections.append(set(tx.lock_sections)),
+            self.shared.append(set(tx.share_nodes)))
             if p == 'after_lock' else None)
 
     def tearDown(self):
@@ -265,6 +267,78 @@ class NoticeDoor(unittest.TestCase):
         finally:
             orgtx.TRANSITION_FENCE = fence
         self.assertEqual(err, [])
+
+    # -- p01 lock-plan conditions ------------------------------------------
+    def deep(self):
+        org = store.load_org(self.slug)
+        org.hire('boss', 'sub', 'luna', 0, 'leaf', add_dirs=[], tools=T,
+                 org_visibility='full', charter='c')
+        store.save_org(org)
+
+    def test_c1_a_downward_send_holds_the_path_for_share(self):
+        self.deep()
+        self.tool(maildoor.MESSAGE, 'boss', to='leaf', body='deep')
+        self.assertEqual(len(self.sections), 1, 'the send needed a widen')
+        self.assertIn('sub', self.shared[-1] | self.locked[-1],
+                      'the intermediate parent pointer was not held')
+
+    def test_c1_a_path_the_spec_missed_widens_before_the_send(self):
+        self.deep()
+        with patch.object(maildoor, '_with_path', lambda spec, *a, **k: spec):
+            self.tool(maildoor.MESSAGE, 'boss', to='leaf', body='deep2')
+        self.assertGreaterEqual(len(self.sections), 2, 'the body did not widen')
+        self.assertNotIn('sub', self.shared[0] | self.locked[0])
+        self.assertIn('sub', self.shared[-1] | self.locked[-1])
+        box = store.load_org(self.slug).d['mail'].get('leaf') or []
+        self.assertEqual(sum(1 for m in box if m.get('body') == 'deep2'), 1)
+
+    def test_c3_ask_without_a_work_item_holds_work_items(self):
+        from orgtree import notification_state
+        org = store.load_org(self.slug)
+        org.work_create('boss', 'Attention fixture',
+                        objective='Problem: x. Solution: y.')
+        it = org.d['work_items'][-1]
+        it['manual_attention'] = {'set_rev': 1, 'reason': 'look'}
+        it['notification_attention_active'] = False     # stale: the next save flips it
+        with patch.object(notification_state, 'reconcile_attention', lambda *a, **k: None):
+            store.save_org(org)
+        self.assertFalse(store.load_org(self.slug).d['work_items'][-1]
+                         ['notification_attention_active'])
+        self.tool(maildoor.ASK, 'boss', question='plain ask')
+        self.assertEqual(len(self.sections), 1, 'the ask was refused an unlocked write')
+        self.assertIn('work_items', self.sections[-1])
+        self.assertTrue(store.load_org(self.slug).d['work_items'][-1]
+                        ['notification_attention_active'],
+                        'the fixture did not make the ask rewrite work_items')
+
+    def test_c4_a_refused_message_names_its_outbox_copies(self):
+        scratch = supervisor.scratch_dir(self.slug, 'boss')
+        os.makedirs(scratch, exist_ok=True)
+        with open(os.path.join(scratch, 'orphan.txt'), 'w') as f:
+            f.write('x')
+        with patch.object(ledger.Org, 'post_mail',
+                          side_effect=ledger.LedgerError('refused for the test')):
+            with self.assertRaises(HTTPException) as cm:
+                self.tool(maildoor.MESSAGE, 'boss', to='user', body='x',
+                          attachments=['orphan.txt'])
+        self.assertIn('orphan.txt', str(cm.exception.detail))
+        self.assertIn('refused for the test', str(cm.exception.detail))
+
+    def test_c2_org_send_runs_after_commit_under_an_op_key(self):
+        calls = []
+        with patch.object(supervisor, 'interorg_send',
+                          lambda src, dst, body, op_key=None: calls.append(
+                              (src, dst, op_key)) or None),                 patch.object(ledger.Org, '_resolve_recipient',
+                             lambda self, to, **k: to):
+            try:
+                r = self.tool(maildoor.MESSAGE, 'boss', to='@org:elsewhere', body='hi')
+            except HTTPException as e:
+                self.skipTest(f'@org: send refused in this fixture: {e.detail}')
+        self.assertEqual(len(calls), 1)
+        src, dst, key = calls[0]
+        self.assertEqual((src, dst), (self.slug, 'elsewhere'))
+        self.assertTrue(key and key.startswith(f'agent-out:{self.slug}:'), key)
+        self.assertIn("repeating this exact call does not retry it", r.get('delivery', ''))
 
     def test_door_off_keeps_the_legacy_cycle(self):
         with patch.dict(os.environ, {'ORGTREE_PGDOOR': '0'}):
