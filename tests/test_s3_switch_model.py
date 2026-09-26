@@ -37,7 +37,7 @@ from orgtree import api, ledger, orgtx, pgdoor, store, supervisor  # noqa: E402
 REQUEST = SimpleNamespace(state=SimpleNamespace())
 U = ledger.USER
 _N = [0]
-SAME = "astra"        # luna -> astra: same provider, no session boundary
+SAME = "terra"        # luna -> terra: same provider, no session boundary
 CROSS = "haiku"       # luna -> haiku: a provider crossing (new bearer)
 
 
