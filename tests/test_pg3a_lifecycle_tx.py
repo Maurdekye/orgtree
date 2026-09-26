@@ -1239,5 +1239,79 @@ class SwitchModel(unittest.TestCase):
             lifecycle_tx.switch_model(self.slug, ledger.USER, "w", "no-such-tier")
         self.assertEqual(self.view(self.slug), before)
 
+class RenameRepair(unittest.TestCase):
+    """lifecycle_tx.repair_rename_identity on `_repair_plan`. The stranded
+    state is built the way test_rename_history_immutable builds it, then
+    SAVED — so both paths see the persisted document; parity is asserted on
+    whatever the legacy method does with it (repair or refusal)."""
+
+    def build(self, slug):
+        org = store.create_org(slug)
+        org.hire(ledger.USER, None, "luna", 3, "coordinator")
+        org.hire(ledger.USER, "coordinator", "luna", 0, "owner-agent")
+        org.hire(ledger.USER, "coordinator", "luna", 0, "peer-agent")
+        item = org.work_create(ledger.USER, "Stranded by an older rename", "why",
+                               owner="owner-agent")["slug"]
+        org.work_assign(ledger.USER, item, "peer-agent")
+        org.rename(ledger.USER, "peer-agent", "peer-renamed")
+        it = next(i for i in org.d["work_items"] if i["slug"] == item)
+        row = [h for h in it["history"] if h.get("op") == "assign"][-1]
+        holder = dict(row["to"])
+        holder["node"] = "peer-agent"
+        it["owner"] = row["to"] = holder
+        store.save_org(org)
+        at = [e for e in org.d["events"] if e["op"] == "rename"][-1]["at"]
+        return item, at
+
+    def setUp(self):
+        self.slug = "pg3a-rr-" + str(time.time_ns())
+        self.item, self.at = self.build(self.slug)
+
+    def tearDown(self):
+        store._POOL.close_all(self.slug)
+
+    def view(self, slug):
+        o = store.load_org(slug)
+        return ([(i["slug"], (i.get("owner") or {}).get("node")) for i in o.d["work_items"]],
+                [e["op"] for e in o.d["events"]][-2:])
+
+    def outcome(self, fn):
+        try:
+            return ("ok", fn())
+        except ledger.LedgerError as e:
+            return ("refused", str(e))
+
+    def test_matches_the_legacy_method(self):
+        twin = "pg3a-rr-twin-" + str(time.time_ns())
+        titem, tat = self.build(twin)
+        with store.DOC_LOCK:
+            o = store.load_org(twin)
+            legacy = self.outcome(lambda: o.repair_rename_identity(
+                ledger.USER, tat, work_items=[titem]))
+            if legacy[0] == "ok":
+                store.save_org(o)
+        mine = self.outcome(lambda: lifecycle_tx.repair_rename_identity(
+            self.slug, ledger.USER, self.at, work_items=[self.item]))
+        norm = lambda x: repr(x).replace(twin, self.slug).replace(titem, self.item).replace(tat, self.at)  # noqa: E731
+        self.assertEqual(norm(mine), norm(legacy))
+        self.assertEqual(norm(self.view(self.slug)), norm(self.view(twin)))
+        print("repair outcome through the store:", mine[0])
+        store._POOL.close_all(twin)
+
+    def test_plan(self):
+        o = store.load_org(self.slug)
+        upd, share, secs, logs = lifecycle_tx._repair_plan(o, ledger.USER, self.at)
+        self.assertEqual(upd, {"peer-agent"})
+        self.assertEqual(share, {"peer-renamed"})
+        self.assertEqual(secs, ("work_items",))
+
+    def test_an_unknown_rename_writes_nothing(self):
+        before = self.view(self.slug)
+        with self.assertRaises(ledger.LedgerError):
+            lifecycle_tx.repair_rename_identity(self.slug, ledger.USER, "1999-01-01",
+                                                work_items=[self.item])
+        self.assertEqual(self.view(self.slug), before)
+
+
 if __name__ == "__main__":
     unittest.main()

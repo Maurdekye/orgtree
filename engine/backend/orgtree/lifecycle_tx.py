@@ -745,3 +745,62 @@ def switch_model_body(org, held_nodes, held_share, actor: str, nid: str, tier: s
 def switch_model(slug: str, actor: str, nid: str, tier: str, **kw: Any) -> dict[str, Any]:
     return _run("switch_model", slug, lambda o: _switch_rows(o, actor, nid),
                 lambda org, hn, hs: switch_model_body(org, hn, hs, actor, nid, tier, **kw))
+
+
+# ---------------------------------------------------------------- rename repair
+# `Org.repair_rename_identity(actor, rename_at, documents=, work_items=)`
+# finishes a rename for records an OLDER rename stranded. It writes records
+# only: the named documents' `node` field (the `documents` log), the named
+# work items' live holder fields (`work_items` / `work_items_archive`) and the
+# `rename_repair` event. It decides on the renamed seat (the new id and its
+# stack must exist, created before the rename) and on the OLD id being free.
+#   nodes FOR UPDATE: the old id — claimed so that a hire minting that name
+#     (which locks its new id FOR UPDATE) serialises with the repair. On
+#     PostgreSQL an absent row locks nothing (the decision-26/34 class), so
+#     this relies on the hire's own row; see the limit in the breadcrumbs;
+#   nodes FOR SHARE: the new id and its stack, and the actor;
+#   sections: work_items; logs: documents, work_items_archive, events.
+
+
+def _repair_plan(org, actor: str, rename_at: str
+                 ) -> tuple[set[str], set[str], tuple[str, ...], tuple[Any, ...]]:
+    at = str(rename_at or "").strip()
+    hits = [e for e in org.d.get("events") or []
+            if e.get("op") == "rename" and e.get("at") == at]
+    upd: set[str] = set()
+    share: set[str] = set()
+    if len(hits) == 1:
+        det = hits[0].get("detail") or {}
+        old, new = det.get("old") or det.get("node"), det.get("new")
+        if old:
+            upd.add(str(old))
+        if new:
+            share |= {k for k in org.nodes if k == new or k.startswith(str(new) + "@")}
+    if actor in org.nodes:
+        share.add(actor)
+    return (upd, share - upd, ("work_items",),
+            ("documents", "events", "work_items_archive"))
+
+
+def repair_rename_body(tx, actor: str, rename_at: str, **kw: Any) -> dict[str, Any]:
+    upd, share, _s, _l = _repair_plan(tx.org, actor, rename_at)
+    miss_u = upd - set(tx.lock_nodes)
+    miss_s = share - set(tx.lock_nodes) - set(tx.share_nodes)
+    if miss_u or miss_s:
+        raise Widen(miss_u, miss_s)
+    return tx.org.repair_rename_identity(actor, rename_at, **kw)
+
+
+def repair_rename_identity(slug: str, actor: str, rename_at: str,
+                           **kw: Any) -> dict[str, Any]:
+    upd, share, sections, logs = _repair_plan(store.cached_org(slug), actor, rename_at)
+    for _ in range(MAX_WIDEN + 1):
+        try:
+            with halt.txn(slug, nodes=upd, share_nodes=share - upd,
+                          sections=sections, logs=logs) as tx:
+                return repair_rename_body(tx, actor, rename_at, **kw)
+        except Widen as w:
+            upd |= w.nodes
+            share |= w.share_nodes
+    raise LedgerError(f"repair_rename_identity: the lock set kept growing after "
+                      f"{MAX_WIDEN} widenings — nothing was applied; retry")
