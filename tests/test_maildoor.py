@@ -184,7 +184,7 @@ class NoticeDoor(unittest.TestCase):
 
     def test_audience_request_on_the_door_drives_the_first_hop(self):
         org = store.load_org(self.slug)
-        org.hire('sub', 'sub', 'luna', 0, 'leaf', add_dirs=[], tools=T,
+        org.hire('boss', 'sub', 'luna', 0, 'leaf', add_dirs=[], tools=T,
                  org_visibility='full', charter='c')
         store.save_org(org)
         r = self.tool(maildoor.AUDIENCE, 'leaf', action='request',
