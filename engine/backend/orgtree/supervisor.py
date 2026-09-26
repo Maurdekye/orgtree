@@ -19505,10 +19505,10 @@ ADMISSION_GATE_SECTIONS: tuple[str, ...] = (
 def _admission_write_rows(nid: str) -> dict[str, list[Any]]:
     return {"sections": [("mail", nid), ("delivering", nid), ("notices", nid)],
             "logs": [("mail_log", nid)]}
-#: Written by the COMPACTION transaction: an auto cheap-compaction notifies
-#: the agent and its parent (the notices box and `notice_log`) and logs an
+#: Written by the COMPACTION transaction: an auto cheap-compaction folds the
+#: agent's notices and notifies the agent and its parent (their per-owner
+#: `notices` rows, planned by `_admission_rows`, and `notice_log`) and logs an
 #: event.
-ADMISSION_COMPACT_SECTIONS: tuple[str, ...] = ("notices",)
 ADMISSION_COMPACT_LOGS: tuple[str, ...] = ("events", "notice_log")
 
 
@@ -19536,14 +19536,18 @@ def _admission_rows(slug: str, nid: str, *, compact: bool = False
             [*rows.get("sections", ()), *own["sections"]]))
         return {"nodes": [nid], "sections": sections,
                 "share_sections": share, "logs": own["logs"]}
-    gen = 0
+    gen, parent = 0, None
     try:
         n = store.cached_org(slug).nodes.get(nid)
         gen = int((n or {}).get("generation") or 0)
+        parent = (n or {}).get("parent")
     except Exception:                                    # noqa: BLE001
         pass
-    return {"nodes": [nid, f"{nid}@{gen}"],
-            "sections": list(ADMISSION_COMPACT_SECTIONS),
+    # the agent's own notices row and its PLANNED parent's (read lock-free;
+    # `_admission_pred_locked` skips the compaction when either moved), never
+    # the whole container: this transaction runs on every ordinary admission
+    notices = [("notices", nid)] + ([("notices", str(parent))] if parent else [])
+    return {"nodes": [nid, f"{nid}@{gen}"], "sections": notices,
             "share_sections": share, "logs": list(ADMISSION_COMPACT_LOGS)}
 
 
@@ -19661,9 +19665,14 @@ def _resume_rows(slug: str, pick: set[str] | None) -> dict[str, Any]:
 
 
 def _admission_pred_locked(tx: orgtx.OrgTx, org: Org, nid: str) -> bool:
-    """True when the row a cheap-compaction of `nid` would insert is locked."""
+    """True when every row a cheap-compaction of `nid` would write is locked:
+    the `nid@<generation>` row it inserts and its parent's notices row (both
+    planned lock-free by `_admission_rows`)."""
     gen = int(org.node(nid).get("generation") or 0)
-    return f"{nid}@{gen}" in tx.lock_nodes
+    parent = org.node(nid).get("parent")
+    return (f"{nid}@{gen}" in tx.lock_nodes
+            and (not parent or f"notices{store.SPLIT_SEP}{parent}"
+                 in tx.lock_sections))
 
 
 def _halt_check_locked(org: Org, nid: str) -> None:
@@ -20154,11 +20163,11 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                     f"cheap-compact (context "
                                     f"{100 * float(_occ0 or 0) / float(_cw0 or 1):.0f}"
                                     f"%, {_state0}: {_reason0})")
-                        # The generation-owned decision commits in the same
-                        # admission org_tx as the drain below (it used to be
-                        # its own save before the drain): a restart sees both
-                        # or neither, so it still cannot resurrect stale
-                        # evidence.
+                        # The generation-owned decision commits with the
+                        # compaction in THIS transaction, before the drain's
+                        # (decision 9): a restart sees the successor together
+                        # with its own evidence, so it still cannot resurrect
+                        # stale evidence.
             with halt.txn(slug, **_admission_rows(slug, nid)) as _adm_tx:
                 org = _adm_tx.org
                 _admission_gates(slug, org, nid)
