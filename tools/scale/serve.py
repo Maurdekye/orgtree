@@ -248,6 +248,50 @@ def child(args) -> int:
                 "thread_cpu_s_approx": round(time.process_time() - c0, 3),
                 "stats": buf.getvalue()}
 
+    _tm: dict = {}
+
+    @api.app.get("/scale/mem")
+    def _scale_mem(action: str = "snap", frames: int = 12, top: int = 25) -> dict:
+        """Memory attribution. action=start: tracemalloc.start(frames) and a
+        baseline snapshot. action=snap: diff against the previous snapshot
+        (by line and by traceback for the biggest growers) plus the private
+        bytes, the traced total and the top object types by count."""
+        import collections
+        import gc
+        import tracemalloc
+        import psutil
+        out: dict = {"private_mb": round(psutil.Process().memory_info().private / 2**20, 1)}
+        if action == "start":
+            if not tracemalloc.is_tracing():
+                tracemalloc.start(frames)
+            _tm["prev"] = tracemalloc.take_snapshot()
+            out["traced_mb"] = round(tracemalloc.get_traced_memory()[0] / 2**20, 1)
+            return out
+        if not tracemalloc.is_tracing():
+            return {"error": "call action=start first"}
+        snap = tracemalloc.take_snapshot()
+        flt = [tracemalloc.Filter(False, tracemalloc.__file__)]
+        snap = snap.filter_traces(flt)
+        prev = _tm.get("prev")
+        cur, peak = tracemalloc.get_traced_memory()
+        out.update(traced_mb=round(cur / 2**20, 1), traced_peak_mb=round(peak / 2**20, 1))
+        if prev is not None:
+            prev = prev.filter_traces(flt)
+            out["by_line"] = [[str(d.traceback[0]), round(d.size_diff / 2**20, 2), d.count_diff,
+                               round(d.size / 2**20, 2)]
+                              for d in snap.compare_to(prev, "lineno")[:top]]
+            out["by_tb"] = [{"size_diff_mb": round(d.size_diff / 2**20, 2), "count_diff": d.count_diff,
+                             "tb": [f"{os.path.basename(f.filename)}:{f.lineno}" for f in d.traceback][-frames:]}
+                            for d in snap.compare_to(prev, "traceback")[:8]]
+        out["cur_by_line"] = [[str(st.traceback[0]), round(st.size / 2**20, 2), st.count]
+                              for st in snap.statistics("lineno")[:top]]
+        _tm["prev"] = snap
+        types = collections.Counter(type(o).__name__ for o in gc.get_objects())
+        out["gc_types"] = types.most_common(20)
+        out["gc_count"] = gc.get_count()
+        out["threads"] = threading.active_count()
+        return out
+
     import uvicorn
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=args.port, lifespan="on",
                                            access_log=False, log_level="warning",
