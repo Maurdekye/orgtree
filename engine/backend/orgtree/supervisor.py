@@ -19949,6 +19949,73 @@ def _plan_rows(plan: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in plan.items() if not k.startswith("_")}
 
 
+class _WholeDocument(Exception):
+    """The Fable filter policy turned out to be auto-autopsy once the rows
+    were locked: that branch needs the whole document (below)."""
+
+
+def _fable_filter_spec(slug: str, nid: str) -> Any:
+    """S6: the rows `Org.fable_filter_hit` writes, planned lock-free from the
+    cached snapshot, or None for the auto-autopsy policy.
+
+    halt (the default) tells the parent (its `notices` row) and the user
+    (`user_inbox`) and logs; opus also writes the agent's `model` and tells
+    each peer. The agent's own row is held FOR UPDATE either way (opus writes
+    it; halt decides on it), the policy sections FOR SHARE. A parent or a
+    peer set that moves before the locks are granted costs a widening, not a
+    lost record: `pgdoor.run` re-runs with the row the commit refused."""
+    from . import pgdoor
+    snap = store.cached_org(slug)
+    policy = snap.d.get("fable_filter_policy", "halt")
+    n = snap.nodes.get(nid) or {}
+    if policy == "auto-autopsy" and n.get("model") == "fable":
+        return None
+    parent = n.get("parent")
+    told = [parent] if parent else []
+    if policy == "opus":
+        told += snap._peers_of(parent, nid)
+    return pgdoor.TxSpec(
+        nodes=(nid,),
+        sections=tuple(("notices", str(x)) for x in told) + ("user_inbox",),
+        share_sections=("fable_filter_policy", "fable_filter_model"),
+        logs=("events", "notice_log"))
+
+
+def _fable_filter_commit(slug: str, nid: str, err_blob: str
+                         ) -> tuple[str, str]:
+    """Record a Fable content-filter hit (`Org.fable_filter_hit`) and return
+    (the policy applied, the configured autopsy model).
+
+    halt and opus run on one row transaction (`_fable_filter_spec`).
+    AUTO-AUTOPSY stays on the whole document: it hires an autopsy agent,
+    reorders, moves the flagged agent under it, hires a replacement and
+    retires the original — a subtree reorganisation with no row plan short
+    of `org_tx(whole=True)` (fence-off plan S8), which it moves to when that
+    lands. Until then this branch is a named fence-off blocker."""
+    from . import pgdoor
+    spec = _fable_filter_spec(slug, nid)
+    if spec is not None:
+        def body(h: Any) -> tuple[str, str]:
+            o = h.org
+            model = str(o.d.get("fable_filter_model", "opus"))
+            if nid not in o.nodes:
+                return "halt", model
+            if (o.d.get("fable_filter_policy", "halt") == "auto-autopsy"
+                    and o.node(nid)["model"] == "fable"):
+                raise _WholeDocument()
+            return o.fable_filter_hit(nid, err_blob), model
+        try:
+            return pgdoor.run(slug, spec, body)
+        except _WholeDocument:
+            pass
+    with store.DOC_LOCK:
+        o2 = store.load_org(slug)
+        applied = (o2.fable_filter_hit(nid, err_blob)
+                   if nid in o2.nodes else "halt")
+        store.save_org(o2)
+    return applied, str(o2.d.get("fable_filter_model", "opus"))
+
+
 def _resume_rows(slug: str, pick: set[str] | None) -> dict[str, Any]:
     """PG-3e-A: the rows a `resume_frozen` sweep may write, planned from the
     cached snapshot: each candidate node (the `only` set, or every node that
@@ -22626,11 +22693,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 if (org.node(nid)["model"] == "fable"
                         and _looks_like_filtered(err_blob)
                         and not _looks_like_usage_limit(err_blob)):
-                    with store.DOC_LOCK:
-                        o2 = store.load_org(slug)
-                        applied = (o2.fable_filter_hit(nid, err_blob)
-                                   if nid in o2.nodes else "halt")
-                        store.save_org(o2)
+                    applied, _autopsy_model = _fable_filter_commit(
+                        slug, nid, err_blob)
                     notify(slug, nid, "filter_flagged")
                     turnlog.emit(_trec, "owner", branch="filter", handled=False)
                     if applied == "opus":
@@ -22662,7 +22726,7 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                      "orgtree_status when your own task state changes.", mail_ping=True)
                         raise RuntimeError(
                             f"a Fable content filter flagged the message — "
-                            f"auto-autopsy started on {o2.d.get('fable_filter_model', 'opus')} (org policy)")
+                            f"auto-autopsy started on {_autopsy_model} (org policy)")
                     raise RuntimeError(
                         "a Fable content filter flagged the message — turn "
                         "halted (org policy): " + err_blob[:250])
