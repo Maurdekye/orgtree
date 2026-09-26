@@ -301,7 +301,12 @@ class ContactFacets(unittest.TestCase):
                             self.assertEqual(self.read(r), full)
                         else:
                             self.assertEqual(r["census"]["statements"], 0)
-                        self.assertIn("file_read:home:provider", r["contact_classes"])
+                        # the provider config read (~/.claude.json) is CACHED per
+                        # (mtime, size) since warmpool ff63a0e, so a chart read
+                        # only shows it when that cache is cold: allowed, not required
+                        self.assertLessEqual(set(r["contact_classes"]), {
+                            "file_read:home:provider", "file_read:data:other",
+                            "fs_mutation:data:other", "sqlite_connect:data:org-db:own"})
 
     # -- S2e: org view, org feed, agent mail, human mail and inbox --------------
     def exact(self, contract, variant, condition):
