@@ -59,7 +59,7 @@ def fixture():
 
 def archived(slug, item):
     org = store.load_org(slug)
-    return any(it['slug'] == item for it in org.d['work_items_archive'])
+    return any(it['slug'] == item for it in (org.d.get('work_items_archive') or []))
 
 
 class SweepWhenDue(unittest.TestCase):
