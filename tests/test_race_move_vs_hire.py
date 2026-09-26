@@ -43,6 +43,11 @@ import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside thi
 from orgtree import halt, ledger, lifecycle_tx, orgtx, store  # noqa: E402
 from orgtree.ledger import USER, LedgerError, slugify  # noqa: E402
 
+# This suite proves ROW-lock waits ("the hire is waiting on the parent row"),
+# which the transition fence (every org_tx behind DOC_LOCK, plan decision 19,
+# default-on since PG-0b) would serialize away; the fence has its own tests.
+orgtx.TRANSITION_FENCE = False
+
 WAIT = 5.0
 # WS3a's staffdoor (pypg/pg-3b-staffing b02ef50), reproduced so this test
 # does not depend on that branch: what a hire decides on and writes
