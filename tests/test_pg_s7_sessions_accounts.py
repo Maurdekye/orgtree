@@ -522,6 +522,9 @@ class ResumeFrozenFallback(unittest.TestCase):
         n.pop('session_unrun', None)
         n['frozen'] = {'at': '2026-09-26T10:00:00Z', 'limit': True,
                        'provider': 'claude', 'resume_texts': ['carry on']}
+        # an open question the session-boundary rebind moots: the rebind
+        # writes asks (and the docket reconcile work_items) beside the seat
+        org.ask_user('worker', 'which way?')
         store.save_org(org)
         self.gen0 = int(n.get('generation') or 0)
         self.exported = []
@@ -562,9 +565,12 @@ class ResumeFrozenFallback(unittest.TestCase):
                                            account_fallbacks=self.plans)
         self.assertEqual(got, ['worker'])
         self.assertEqual(lock.n, 0, f'DOC_LOCK taken {lock.n} times')
-        n = store.load_org(self.slug).node('worker')
+        org = store.load_org(self.slug)
+        n = org.node('worker')
         self.assertEqual(n.get('account'), self.acct['id'])
         self.assertNotIn('frozen', n)
+        self.assertEqual([a.get('status') for a in org.d.get('asks') or []
+                          if a.get('node') == 'worker'], ['moot'])
         self.assertEqual(self.exported, [('worker', 'account_assign', self.gen0 + 1)])
 
     def test_a_rolled_back_sweep_exports_nothing(self):
