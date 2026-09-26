@@ -90,6 +90,16 @@ def _hold_chain(t: pgdoor.AgentTx, target: str) -> None:
         raise pgdoor.Widen(share_nodes=missing)
 
 
+def _after(effect: str, check: str) -> dict[str, Any]:
+    """The part of a result the receipt keeps. A keyed REPLAY answers with
+    it and runs nothing, so after a crash between the commit and the effect
+    it would report success for an effect that never ran: say so (p01, S6
+    plan review Q2)."""
+    return {"after_commit": (f"{effect} runs once, after the commit; a "
+                             f"replay of this operation key does not run it "
+                             f"again — {check}")}
+
+
 def _merge(result: dict[str, Any], fn: Callable[[], Any]) -> None:
     """Run a post-commit effect and fold its dict into the tool result."""
     out = fn()
@@ -110,7 +120,7 @@ def interrupt_body(t: pgdoor.AgentTx) -> dict[str, Any]:
     _hold_chain(t, target)
     t.org._require_authority(t.node, target)
     slug = str(t.call.org)
-    result: dict[str, Any] = {}
+    result = _after("the interrupt", "check the agent's turn state")
 
     def interrupt(res: dict[str, Any]) -> None:
         # signals a live process: never inside the transaction
@@ -123,6 +133,19 @@ def interrupt_body(t: pgdoor.AgentTx) -> dict[str, Any]:
 
 def unstick_spec(snapshot: Any, call: Any, a: dict[str, Any]
                  ) -> pgdoor.TxSpec:
+    """⚠ DO NOT "fix" this back to `api.unstick_rows` (every other node FOR
+    SHARE). `Org.unstick` clears `fable_lock` only when no node is still
+    `limit_locked`, and it reads the other nodes for that. Every writer that
+    changes WHICH nodes are limit-locked also writes `fable_lock`:
+    `fable_limit_hit` sets both, `clear_fable_lock` and `unstick` clear both,
+    and the load-time normalization clears `limit_locked` only while popping
+    (or in the absence of) `fable_lock` — p01 checked each, S6 plan review
+    Q3. So holding `fable_lock` FOR UPDATE orders this against all of them,
+    PROVIDED the other nodes are read after that lock is granted, which
+    org_tx guarantees (every lock is taken before the body runs, and a row
+    changed after the transaction's snapshot fails the FOR UPDATE with a
+    serialization error, which retries). The any() runs over every node,
+    archived included, so a retire cannot change the answer either."""
     target = _target(a)
     return pgdoor.TxSpec(
         nodes=(target,) if target else (),
@@ -205,7 +228,8 @@ def restart_wake_body(refuse: Refuse
                 _merge(res, lambda: restart_wake.arm_restart_wake(
                     slug, target, actor, reason=reason))
         t.after.then.append(sidecar)
-        return {}
+        return _after("the restart-wake change",
+                      "check it with action='status'")
     return run
 
 
@@ -234,7 +258,8 @@ def self_restart_body(desktop_managed: Callable[[], bool]
             _merge(res, lambda: supervisor.launch_self_restart(
                 slug, actor, target, **kw))
         t.after.then.append(launch)
-        return {}
+        return _after("the restart launch",
+                      "check the running build before retrying")
     return run
 
 
@@ -309,7 +334,7 @@ def prime_body(refuse: Refuse,
                 _merge(res, lambda: supervisor.cancel_prime_restart(
                     slug, actor))
             t.after.then.append(cancel)
-            return {}
+            return _after("the cancel", "check it with action='status'")
         if tool == PRIME_RELAUNCH:
             target, reason, deadline = "org", a.get("reason"), None
         else:
@@ -324,7 +349,7 @@ def prime_body(refuse: Refuse,
             _merge(res, lambda: supervisor.arm_prime_restart(
                 slug, actor, target, reason, deadline_minutes=deadline))
         t.after.then.append(arm)
-        return {}
+        return _after("the arm", "check it with action='status'")
     return run
 
 

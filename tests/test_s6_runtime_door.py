@@ -112,6 +112,8 @@ class RuntimeDoor(unittest.TestCase):
         _, args, _ = self.after_commit('interrupt')
         self.assertEqual(args, (self.slug, 'worker'))
         self.assertEqual(out.get('effect'), 'interrupt')
+        # the receipt's copy says a replay will not re-run the effect
+        self.assertIn('replay', out.get('after_commit', ''))
         self.assertGreaterEqual(self.rev(), r0)
 
     def test_interrupt_refuses_upward_and_signals_nothing(self):

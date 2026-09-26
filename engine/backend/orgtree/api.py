@@ -9342,7 +9342,7 @@ def node_unstick(slug: str, nid: str) -> dict[str, Any]:
     # the same row, so the two are ordered), and the notice/event it writes.
     try:
         with supervisor.halt.txn(slug, nodes=[nid],
-                                 sections=["fable_lock", "notices"],
+                                 sections=["fable_lock", ("notices", nid)],
                                  logs=["events", "notice_log"]) as _us_tx:
             r = _us_tx.org.unstick(USER, nid)
     except LedgerError as e:
