@@ -1016,15 +1016,19 @@ class OperationContacts(unittest.TestCase):
             self.assertGreater(chat["harness"]["statement_stores"].get("data:sidecar-db", 0), 0)
             typed = self.rows(variant="mail.human-send:reply-target", condition=condition)[0]
             self.assertNotIn("data:sidecar-db", typed["harness"]["statement_stores"])
-            # the chat-event reply reaches four sidecar connections, and the
+            # the chat-event reply reaches the reply_events and transcript sidecars, and the
             # reply_events sidecar re-runs its DDL outside a transaction per call
             h = chat["harness"]
             ddl = h["stores"]["reply_events"]["kinds"].get("ddl", 0)
             self.assertEqual(ddl, 1)
             self.assertEqual(h["writes"] - h["writes_in_transaction"], ddl)
+            # transcript_records reuses one connection per thread (slice C):
+            # at most one connect, where every call used to open its own (3)
+            secondary = chat["census"]["secondary"]
+            self.assertLessEqual(secondary.get("transcript_records", {}).get("connects") or 0, 1)
             self.assertEqual(chat["census"]["connects"] + sum(
-                (v.get("connects") or 0) for v in chat["census"]["secondary"].values()),
-                5 if condition == "cold" else 4)
+                (v.get("connects") or 0) for k, v in secondary.items() if k != "transcript_records"),
+                2 if condition == "cold" else 1)
             # the attachment check stats h-top's working folder: two isfile
             # (one per attachment), one getsize (the file that exists)
             att = self.rows(variant="mail.human-send:attachment", condition=condition)[0]
