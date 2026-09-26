@@ -305,5 +305,90 @@ class ReconcileSmallBlocks(unittest.TestCase):
                          f'{second} original', 'the undispatched marker was not restored')
 
 
+
+class ReconcileOneWholeTransaction(unittest.TestCase):
+    """L3 (plan decision 23): reconcile's first block is ONE
+    org_tx(whole=True). A failing step leaves exactly what the legacy pass had
+    saved when it raised (p01, S7 Q5 (b)); the FR-01 kill precedes the pop for
+    every flag present when the pass starts (Q4)."""
+
+    def setUp(self):
+        _fence_off(self)
+        self.slug = _slug('s7whole')
+        org = store.create_org(self.slug)
+        for nid in ('cmd', 'rc', 'sw'):
+            org.hire(U, None, 'haiku', 0, nid)
+        # step 4 drops a COMMAND marker; step 3 pops a remote-control flag;
+        # step 5 applies a queued switch
+        org.node('cmd')['inflight'] = {'at': '2026-09-26T10:00:00Z', 'text': '/x',
+                                       'view': '/x', 'cmd': '/x'}
+        org.node('rc')['remote_controlled'] = {'pid': 424242}
+        org.node('sw')['pending_switch'] = {'tier': 'sonnet', 'seq': 1}
+        store.save_org(org)
+        self.kills = []
+        self.p = [patch.object(supervisor, '_condemnable', return_value=False),
+                  patch.object(supervisor, '_reconcile_kill', self._kill),
+                  patch.object(supervisor, 'send_message', return_value={})]
+        for x in self.p:
+            x.start()
+
+    def tearDown(self):
+        for x in self.p:
+            x.stop()
+        store._POOL.close_all(self.slug)
+
+    def _kill(self, pid):
+        # what is on disk at the moment of the kill
+        self.kills.append((pid, 'remote_controlled' in store.load_org(self.slug).node('rc')))
+
+    def test_a_failing_step_keeps_the_steps_before_it_and_none_of_itself(self):
+        def boom(org, slug, nid, **kw):
+            org.node(nid)['half_applied'] = True        # a partial write, then
+            raise RuntimeError('switch apply died')     # the step raises
+
+        with patch.object(supervisor, '_apply_pending_switch_locked', boom):
+            with self.assertRaisesRegex(RuntimeError, 'switch apply died'):
+                supervisor.reconcile(self.slug)
+        org = store.load_org(self.slug)
+        self.assertNotIn('remote_controlled', org.node('rc'), 'step 3 was not committed')
+        self.assertNotIn('inflight', org.node('cmd'), 'step 4 was not committed')
+        self.assertNotIn('half_applied', org.node('sw'), "step 5's partial write committed")
+        self.assertIn('pending_switch', org.node('sw'))
+
+    def test_a_failing_first_step_commits_nothing(self):
+        def boom(org):
+            org.node('rc').pop('remote_controlled', None)
+            raise RuntimeError('halt recovery died')
+
+        with patch.object(supervisor.halt, 'recover', boom):
+            with self.assertRaisesRegex(RuntimeError, 'halt recovery died'):
+                supervisor.reconcile(self.slug)
+        org = store.load_org(self.slug)
+        self.assertIn('remote_controlled', org.node('rc'))
+        self.assertIn('inflight', org.node('cmd'))
+
+    def test_the_kill_precedes_the_pop(self):
+        supervisor.reconcile(self.slug)
+        self.assertEqual(self.kills, [(424242, True)])
+        self.assertNotIn('remote_controlled', store.load_org(self.slug).node('rc'))
+
+    def test_a_flag_written_after_the_read_is_killed_after_the_commit(self):
+        with patch.object(supervisor, '_reconcile_remote_pids', return_value={}):
+            supervisor.reconcile(self.slug)
+        self.assertEqual(self.kills, [(424242, False)])
+
+    def test_the_block_runs_in_one_whole_transaction(self):
+        seen = []
+        real = orgtx.org_tx_call
+
+        def spy(slug, fn, **kw):
+            seen.append(kw)
+            return real(slug, fn, **kw)
+
+        with patch.object(orgtx, 'org_tx_call', spy),                 patch.object(supervisor, '_apply_pending_switch_locked'):
+            supervisor.reconcile(self.slug)
+        self.assertEqual(seen, [{'whole': True}])
+
+
 if __name__ == '__main__':
     unittest.main()
