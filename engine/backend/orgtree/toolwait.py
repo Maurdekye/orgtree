@@ -105,7 +105,10 @@ def _publish_rows(nid):
     return {"nodes": [nid],
             "sections": ["tool_result_receipts", "mail", "notices", "audiences", "lifecycle"],
             "logs": ["events", "notice_log", "user_mail_log", "user_outbox", "org_inbox",
-                     ("mail_log", nid)]}
+                     ("mail_log", nid)],
+            # the halt gate's own rows: the seat is already held FOR UPDATE,
+            # the killswitch FOR SHARE (halt._gate_blocked decides from both)
+            "share_sections": ["killswitch"]}
 
 
 def _publish(row):
@@ -140,7 +143,7 @@ def _publish(row):
                         msg = org.post_mail(ledger.SYSTEM, nid, body)
                         receipts[row['id']] = msg['id']
                         maildrain.request(org, nid)
-                        if halt.blocked(row['org'], nid):
+                        if halt._gate_blocked(org, nid):
                             maildrain.suspend(org, nid)
                 # Checkpoint before removing the org marker. Recovery can
                 # now finish cleanup without recreating the message, even
