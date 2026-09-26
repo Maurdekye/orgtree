@@ -165,12 +165,12 @@ class OrgTxOnJson(unittest.TestCase):
         self.assertEqual(store.load_org(self.slug).d['nodes']['a']['name'], 'B')
 
     def test_a_reorder_only_body_still_saves(self) -> None:
-        with orgtx.org_tx(self.slug, sections=['nodes']) as tx:
+        with orgtx.org_tx(self.slug, nodes=orgtx.ALL) as tx:
             tx.d['nodes']['b'] = {'id': 'b', 'name': 'b', 'parent': None, 'children': []}
         before = list(store.load_org(self.slug).d['nodes'])
         self.assertEqual(before, ['a', 'b'])
         with patch.object(store, '_save_json', wraps=store._save_json) as save:
-            with orgtx.org_tx(self.slug, sections=['nodes']) as tx:
+            with orgtx.org_tx(self.slug, nodes=orgtx.ALL) as tx:
                 nodes = tx.d['nodes']
                 reordered = {k: nodes[k] for k in reversed(list(nodes))}
                 nodes.clear()
