@@ -802,7 +802,8 @@ def state_access_diagnostics(reset: bool = False) -> dict[str, Any]:
     privacy boundary as the route-timing sink: labels are templates and
     verbs, never a path, an argument or content. `?reset=1` returns the
     aggregate and clears it, for clean before/after windows."""
-    return stateprobe.snapshot(reset=reset)
+    return {**stateprobe.snapshot(reset=reset),
+            "doc_lock_tripwire": store.doc_lock_tripwire_report()}
 
 
 @app.post("/api/diagnostics/state-access", dependencies=[Depends(_profile_operator_only)])
@@ -1493,6 +1494,9 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
     store.on_save = hub_changed
     # Awaiting the worker here would put fleet size back on readiness. The
     # ASGI mutation barrier preserves repair-before-new-turn ordering instead.
+    # S8: from here on a DOC_LOCK acquisition is a live legacy writer (the
+    # recovery below included) — the tripwire counts it per call site
+    store.arm_doc_lock_tripwire_from_env()
     startup.recovery.start(_recover_startup)
 
 
