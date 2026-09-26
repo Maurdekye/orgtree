@@ -734,11 +734,10 @@ export default function App() {
         // swarm's continuous patch traffic every bounded attempt raced
         // one, refreshes starved, and lifecycle state sat visibly stale
         // for over a minute while the backend was already correct. Any
-        // buffered patch frames NEWER than the body's sync_rev replay on
-        // top of it in rev order; replaying values the body already
-        // carries is an idempotent overwrite. With zero newer frames the
-        // body is applied by reference, so an unchanged 304 keeps React's
-        // Object.is render bail.
+        // buffered patch frames NEWER than the body's sync_rev replay in
+        // rev order onto its metadata snapshots before desks are notified.
+        // The structural body is applied by reference, so an unchanged 304
+        // keeps React's Object.is render bail even during metadata traffic.
         // ⚠ THE SAME APPLICABILITY TEST THAT DECIDES WHETHER TO PAINT IT IS
         // WHAT CERTIFIES IT. A null body, or one for the organization we have
         // since left, is not evidence about the tree on screen — so it must

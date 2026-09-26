@@ -125,7 +125,7 @@ test('the singular is used for exactly one tool', async () => {
 
 test('App applies MCP websocket inventory directly without a refetch', () => {
   // Since the base+patch protocol (2026-09-19, treesync.ts) the three patch
-  // kinds share ONE handler branch that applies via applyPatchFrame; the
+  // kinds share ONE handler branch that publishes subscribed metadata; the
   // only fetch it may contain is the rev-GAP catch-up, which fires solely
   // when frames were missed — never as the ordinary update path.
   const src = readFileSync(path.join(__SRC_DIR__, 'App.tsx'), 'utf8')
@@ -195,7 +195,7 @@ test('readiness websocket transitions repaint the unique gated label', async () 
 
 test('App applies readiness websocket transitions directly without polling', () => {
   // Same merged branch as inventory (base+patch protocol): the direct
-  // application is via applyPatchFrame; only the gap catch-up may fetch.
+  // application is via publishNodeMetadata; only the gap catch-up may fetch.
   const src = readFileSync(path.join(__SRC_DIR__, 'App.tsx'), 'utf8')
   // anchor inside handleWs: applyPatchFrame's own dispatch uses the same
   // kind checks earlier in the file

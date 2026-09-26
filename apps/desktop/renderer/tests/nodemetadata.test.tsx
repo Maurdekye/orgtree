@@ -6,7 +6,7 @@ import { clearNodeMetadata, publishNodeMetadata, replaceNodeMetadata, useNodeMet
 import { newSync, onBase, onFrame } from '../src/treesync'
 import { DeskChat } from '../src/canvas/desk'
 import type { CanvasNode } from '../src/canvas/shared'
-import type { TreeNode, WsEvent } from '../src/types'
+import type { CacheForecast, TreeNode, WsEvent } from '../src/types'
 
 const node = (id: string, generation = 1): TreeNode => ({ id, generation,
   state: 'live', tier: 'haiku', children: [], parent: null, seat: 1, grant: 0, free: 0,
@@ -94,4 +94,22 @@ test('real desk displays live count/reset and readiness without new node props',
   await inAct(() => publishNodeMetadata(org, { type: 'node_stream', node: a.id, kind: 'mcp_readiness',
     waiting: false, state: 'ready', reason: null }))
   assert.doesNotMatch(label() ?? '', /missing alpha/)
+})
+
+test('cache forecasts reset to null and never cross organization boundaries', async t => {
+  const a = node('same-id'), left = 'metadata-left', right = 'metadata-right'
+  replaceNodeMetadata(left, [a]); replaceNodeMetadata(right, [a])
+  function Forecast({ org }: { org: string }) {
+    const current = useNodeMetadata(org, a)
+    return <span data-org={org}>{current.cache_forecast?.reason ?? 'none'}</span>
+  }
+  const view = await mountView(<><Forecast org={left} /><Forecast org={right} /></>, el => el)
+  t.after(async () => { await view.unmount(); clearNodeMetadata(left); clearNodeMetadata(right) })
+  const text = (org: string) => view.el.querySelector(`[data-org="${org}"]`)?.textContent
+  const forecast = { generation: 'process-one', reason: 'prefix changed' } as CacheForecast
+  await inAct(() => publishNodeMetadata(left, { type: 'node_stream', node: a.id, kind: 'cache_forecast', forecast }))
+  assert.equal(text(left), 'prefix changed')
+  assert.equal(text(right), 'none')
+  await inAct(() => publishNodeMetadata(left, { type: 'node_stream', node: a.id, kind: 'cache_forecast', forecast: null }))
+  assert.equal(text(left), 'none', 'explicit null clears the previous forecast')
 })
