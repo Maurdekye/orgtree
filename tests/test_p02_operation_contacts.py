@@ -1499,8 +1499,14 @@ class OperationContacts(unittest.TestCase):
                     r = self.rows(variant=variant, condition=condition)[0]
                     self.assertEqual(r["http_status"], 200, r["detail"])
                     self.assertEqual(r["census"]["records"], 1)
-                    self.assertGreater(r["census"]["statements"], 0)
-                    self.assertEqual(set(r["harness"]["statement_stores"]), {"data:org-db:own"})
+                    if variant.startswith("work.item-list") and condition == "warm":
+                        # the shared docket-list cache (3a40d15) answers a warm list
+                        # for an unchanged org seq without touching the store
+                        self.assertEqual(r["census"]["statements"], 0)
+                        self.assertEqual(set(r["harness"]["statement_stores"]), set())
+                    else:
+                        self.assertGreater(r["census"]["statements"], 0)
+                        self.assertEqual(set(r["harness"]["statement_stores"]), {"data:org-db:own"})
                     self.assertEqual((r["harness"]["writes"], r["agents"]["logical"],
                                       r["agents"]["physical_written"], r["guard_refusals"]),
                                      (0, {}, [], {}))

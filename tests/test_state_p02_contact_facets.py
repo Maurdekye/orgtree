@@ -1041,15 +1041,23 @@ class ContactFacets(unittest.TestCase):
 
     def test_work_reads_load_the_whole_org_fresh_and_stay_in_this_org(self):
         for contract, variant in self.WORK_READS:
-            for condition, statements in (("cold", 25), ("warm", 23)):
+            # 26/24 (were 25/23): every load now probes the `lifecycle` list log,
+            # which PG-3d made a log_l section (4ca96a2)
+            for condition, statements in (("cold", 26), ("warm", 24)):
                 with self.subTest(variant=variant, condition=condition):
                     r = self.exact(contract, variant, condition)
                     h, agents = r["harness"], r["agents"]
                     self.assertEqual((r["http_status"], r["unknown_contacts"], r["census"]["records"]), (200, [], 1))
                     self.assertIs(h["matches_census"], True)
-                    # outside DOC_LOCK every load is a fresh private one: warm reads the same five tables
-                    self.assertEqual((self.read(r), r["census"]["statements"]), (self.FULL, statements))
-                    self.assertEqual(set(h["statement_stores"]), {"data:org-db:own"})
+                    if contract == "work.item-list" and condition == "warm":
+                        # the shared docket-list cache (3a40d15) answers a warm list
+                        # for an unchanged org seq without touching the store
+                        self.assertEqual((self.read(r), r["census"]["statements"]), (None, 0))
+                        self.assertEqual(set(h["statement_stores"]), set())
+                    else:
+                        # outside DOC_LOCK every load is a fresh private one: warm reads the same five tables
+                        self.assertEqual((self.read(r), r["census"]["statements"]), (self.FULL, statements))
+                        self.assertEqual(set(h["statement_stores"]), {"data:org-db:own"})
                     self.assertEqual((self.written(r), h["writes"], h["sidecars_touched"]), ([], 0, {}))
                     self.assertEqual((agents["logical"], agents["physical_nodes"], agents["targets"]), ({}, {}, []))
                     self.assertEqual(r["wakes"], {"send_message": 0, "mail_notify": 0})
