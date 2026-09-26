@@ -168,19 +168,26 @@ class LockFreeLedger(unittest.TestCase):
                 at_commit.set()
                 go.wait(10)
         orgtx.set_pause_hook(hold)
-        t = threading.Thread(target=lambda: lifecycle.prune(self.slug))
+        t = threading.Thread(target=lambda: lifecycle.prune(self.slug), daemon=True)
         t.start()
+        done = threading.Event()
+
+        def commit() -> None:
+            with orgtx.org_tx(self.slug, logs=['lifecycle']) as tx:
+                _rec(tx.d, 'quick')
+            done.set()                             # set only once the call has returned
         try:
             self.assertTrue(at_commit.wait(10))
             lifecycle._due.add(self.slug)
-            t0 = time.monotonic()
-            with orgtx.org_tx(self.slug, logs=['lifecycle']) as tx:
-                _rec(tx.d, 'quick')
-            self.assertLess(time.monotonic() - t0, 1.0)
+            c = threading.Thread(target=commit, daemon=True)
+            c.start()
+            finished = done.wait(2.0)
         finally:
             go.set()
-            t.join(10)
+            t.join(15)
             orgtx.set_pause_hook(None)
+        c.join(15)
+        self.assertTrue(finished, 'a commit waited for a prune on the request path')
         self.assertTrue(lifecycle.idle.wait(15))
 
     def test_the_plain_dict_path_is_unchanged(self) -> None:
