@@ -410,6 +410,39 @@ class OrgTxConcurrency(unittest.TestCase):
         self.assertEqual(got, 'got')
         self.assertLess(waited, 1.0)
 
+    def test_lifecycle_writers_serialize(self) -> None:
+        # decision 38 condition: lifecycle.record COALESCES onto an existing
+        # row, so two writers that both name the log must not interleave —
+        # the second waits for the first, and no count is lost
+        from orgtree import lifecycle
+        with orgtx.org_tx(self.slug, logs=['lifecycle']) as tx:
+            lifecycle.record(tx.d, operation_id='op', kind='k', state='s', at='t0')
+        self.assertIn(('serial', 'lifecycle', True), orgtx._lock_plan(tx))
+        entered = threading.Event()
+        errs: list[BaseException] = []
+
+        def first() -> None:
+            try:
+                with orgtx.org_tx(self.slug, logs=['lifecycle']) as t1:
+                    lifecycle.record(t1.d, operation_id='op', kind='k', state='s', at='t1')
+                    entered.set()
+                    time.sleep(0.3)
+            except BaseException as e:                     # noqa: BLE001
+                errs.append(e)
+        t = threading.Thread(target=first)
+        t.start()
+        self.assertTrue(entered.wait(5))
+        try:
+            # the old spelling, through MOVED_TO_LOGS, takes the same lock
+            with orgtx.org_tx(self.slug, sections=['lifecycle'], lock_timeout=5) as t2:
+                lifecycle.record(t2.d, operation_id='op', kind='k', state='s', at='t2')
+        except BaseException as e:                         # noqa: BLE001
+            errs.append(e)
+        t.join(10)
+        self.assertEqual(errs, [])
+        rows = [r for r in store.load_org(self.slug).d['lifecycle'] if r['operation_id'] == 'op']
+        self.assertEqual([r['count'] for r in rows], [3])
+
     def test_multi_org_locks_and_commits_both(self) -> None:
         other = _fresh_org(f'cc2-{self._testMethodName}')
         entered, release = threading.Event(), threading.Event()

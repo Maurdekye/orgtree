@@ -125,6 +125,13 @@ SectionName = str | tuple[str, str]
 #: `lifecycle`). Still accepted in `sections=` / `share_sections=` so a
 #: declaration written before the move keeps working; name them in `logs=`.
 MOVED_TO_LOGS: frozenset[str] = frozenset({"lifecycle"})
+#: S8 (decision 38 condition, p01/lead): list logs whose writers EDIT or
+#: EVICT existing rows — `lifecycle.record` coalesces a repeated state onto
+#: its row and prunes at MAX_RECORDS — so an append-without-lock is not safe
+#: for them. Naming one in `logs=` (or, through MOVED_TO_LOGS, in
+#: `sections=`) takes an EXCLUSIVE pseudo-row for it, last in the lock plan:
+#: every writer of that log serializes, whichever way it was declared.
+SERIAL_LOGS: frozenset[str] = frozenset({"lifecycle"})
 
 #: `after_commit` runs once the COMMIT has succeeded: raising there is how a
 #: test models a connection lost after the server committed (RT6).
@@ -422,6 +429,8 @@ def _lock_plan(tx: OrgTx, node_ids: Iterable[str] = ()) -> list[tuple[str, str, 
     for lg in sorted((x for x in tx.logs if not isinstance(x, str)),
                      key=lambda x: "\0".join(x)):
         plan.append(("log", json.dumps([lg[0], lg[1]]), True))
+    for name in sorted(x for x in tx.logs if isinstance(x, str) and x in SERIAL_LOGS):
+        plan.append(("serial", name, True))
     return plan
 
 
@@ -841,7 +850,7 @@ class PgBackend:
                               else "pg_advisory_xact_lock_shared")
                         raw.execute(f"SELECT {fn}(%s, hashtext(%s))",
                                     (conn.org_id, f"{kind}:{name}"))
-                        if name == _ALL_NODES_KEY:
+                        if name == _ALL_NODES_KEY or kind == "serial":
                             continue                   # a pseudo-row: no table row
                         args = tuple(json.loads(name)) if kind == "log" else (name,)
                         raw.execute(sel[kind] + (" FOR UPDATE" if exclusive else " FOR SHARE"),
