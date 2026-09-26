@@ -219,6 +219,31 @@ def child(args) -> int:
                              "stacks": frames[k].most_common(3) if k in frames else []}
                             for d, k in rows]}
 
+    @api.app.get("/scale/profile")
+    def _scale_profile(target: str, top: int = 30) -> dict:
+        """cProfile ONE call of a zero-argument engine function named
+        `module.func` (e.g. supervisor._abandoned_docket_recovery_pass).
+        Throwaway roots only: the call has its real side effects."""
+        import cProfile
+        import importlib
+        import io
+        import pstats
+        mod, _, fn = target.rpartition(".")
+        f = getattr(importlib.import_module(f"orgtree.{mod}"), fn)
+        pr = cProfile.Profile()
+        t0 = time.perf_counter(); c0 = time.process_time()
+        pr.enable()
+        try:
+            f()
+        finally:
+            pr.disable()
+        wall = time.perf_counter() - t0
+        buf = io.StringIO()
+        pstats.Stats(pr, stream=buf).sort_stats("cumulative").print_stats(top)
+        return {"target": target, "wall_s": round(wall, 3),
+                "thread_cpu_s_approx": round(time.process_time() - c0, 3),
+                "stats": buf.getvalue()}
+
     import uvicorn
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=args.port, lifespan="on",
                                            access_log=False, log_level="warning",
