@@ -5896,16 +5896,19 @@ def node_message(slug: str, nid: str, body: Message,
                 org.user_deep_reach(nid, stripped[:160], kind="command")
         if halted_send:
             # A halted node retains the command (send_message's halt queue).
-            # CHANGED FAILURE BEHAVIOUR (fence-off S2, p01 d / lead C2): the
-            # deep-reach notices above are COMMITTED before this send, where
-            # the old single write_org hold discarded them when the send
-            # raised. A failed send is reported, not retried: the user sees
-            # it, and the chain was truthfully told the user spoke.
+            # CHANGED FAILURE BEHAVIOUR (fence-off S2, p01 d / lead C2, R1):
+            # the deep-reach notices above are COMMITTED before this send,
+            # where the old single write_org hold discarded them when the
+            # send raised — the chain was truthfully told the user spoke. The
+            # failure itself is still an ERROR STATUS, never a 200 (the
+            # composer's failure path must run): an HTTPException passes
+            # through unchanged, anything else is a 502. Nothing retries it.
             try:
                 return supervisor.send_message(slug, nid, stripped, command=True)
+            except HTTPException:
+                raise
             except Exception as e:                         # noqa: BLE001
-                return {"accepted": False, "command": True,
-                        "warnings": [f"the command was not delivered: {e}"]}
+                raise HTTPException(502, f"the command was not delivered: {e}")
         if stripped.split()[0] == "/compact":
             # review C4: one word, one meaning. The hinted /compact used to
             # compact the CLI session IN PLACE — same desk, same word as the
