@@ -7401,7 +7401,15 @@ def _status_note(org: Org, rid: str, now: float) -> str:
 def _render_chart(org: Org, root_ids: list[str], mark: str, indent: int = 0,
                   include_archived: bool = True,
                   stats: dict[str, int] | None = None,
-                  now: float | None = None) -> list[str]:
+                  now: float | None = None,
+                  index: dict[str | None, list[str]] | None = None) -> list[str]:
+    """`index` (Org.children_index) is built ONCE per chart and threaded
+    through: without it every row re-scanned the whole node table, O(N²) for a
+    full-visibility chart — 184 ms at N=2000 on every such agent's turn
+    (scale-runtime, 2026-09-26). It changes only where the candidates come
+    from; `children` still filters and orders them, so the text is identical."""
+    if index is None:
+        index = org.children_index()
     lines = []
     hidden = bearers = 0
     # ONE clock for the whole chart: two rows rendered a second apart must not
@@ -7411,7 +7419,7 @@ def _render_chart(org: Org, root_ids: list[str], mark: str, indent: int = 0,
     for rid in root_ids:
         n = org.nodes[rid]
         if not include_archived and n["state"] == "archived":
-            span = _subtree_ids(org, rid)
+            span = _subtree_ids(org, rid, index)
             # ⚠ hide only a subtree that is dead THROUGHOUT. `retire` dissolves
             # a manager's reports so this should not arise, but "should not"
             # is not "cannot", and hiding a live agent because an archived one
@@ -7458,8 +7466,8 @@ def _render_chart(org: Org, root_ids: list[str], mark: str, indent: int = 0,
         note = f" · {note}" if note else ""
         lines.append(
             f"{'  ' * indent}- {rid} [{n['model']}]{state}{note}{star}")
-        lines += _render_chart(org, org.children(rid, live_only=False), mark,
-                               indent + 1, include_archived, stats, now)
+        lines += _render_chart(org, org.children(rid, live_only=False, index=index),
+                               mark, indent + 1, include_archived, stats, now, index)
     if hidden:
         # D-178: the pointer sits at the HIDDEN NODES' OWN indent, under the
         # parent that retired them — not as one global tally at the foot of
@@ -7474,10 +7482,13 @@ def _render_chart(org: Org, root_ids: list[str], mark: str, indent: int = 0,
     return lines
 
 
-def _subtree_ids(org: Org, rid: str) -> list[str]:
+def _subtree_ids(org: Org, rid: str,
+                 index: dict[str | None, list[str]] | None = None) -> list[str]:
+    if index is None:
+        index = org.children_index()
     out = [rid]
-    for k in org.children(rid, live_only=False):
-        out += _subtree_ids(org, k)
+    for k in org.children(rid, live_only=False, index=index):
+        out += _subtree_ids(org, k, index)
     return out
 
 
@@ -7538,7 +7549,16 @@ def org_state_block(org: Org, nid: str, include_archived: bool = False, *,
     ⚠ SO DO NOT MOVE ANY OF THIS BACK, and do not add a new live-org field to
     `identity_prompt` because it is "just one line". One line is all it takes;
     the whole defect was one line's worth of drift."""
-    roster, chart, tail = _org_state_parts(org, nid, include_archived)
+    return _block_from_parts(_org_state_parts(org, nid, include_archived),
+                             seq=seq, chart_ref=chart_ref)
+
+
+def _block_from_parts(parts: tuple[str, str, str], *, seq: int | None,
+                      chart_ref: int | None) -> str:
+    """`org_state_block`'s assembly, for a caller that already rendered the
+    parts: the turn path renders them ONCE and uses the chart both for D-223's
+    change check and for the block (it used to render the whole thing twice)."""
+    roster, chart, tail = parts
     header = (f"{ORG_STATE_OPEN}{'' if seq is None else f' #{seq}'} — "
               f"current as of {now_iso()}. Newest wins; EARLIER COPIES IN "
               f"THIS CONVERSATION ARE STALE.]")
@@ -7575,12 +7595,14 @@ def _org_state_parts(org: Org, nid: str,
     n = org.node(nid)
     sc = n["scope"]
     vis = sc.get("org_visibility", "team")
-    kids = org.children(nid) or ["none yet"]
+    # one pass over the node table for this whole block (see _render_chart)
+    idx = org.children_index()
+    kids = org.children(nid, index=idx) or ["none yet"]
 
     if vis == "self":
         roster = f"Your reports: {', '.join(kids)}."
     else:
-        sibs = [s for s in org.children(n["parent"]) if s != nid] or ["none"]
+        sibs = [s for s in org.children(n["parent"], index=idx) if s != nid] or ["none"]
         roster = (f"Your reports: {', '.join(kids)}. "
                   f"Your peers: {', '.join(sibs)}.")
     stats: dict[str, int] = {}
@@ -7588,12 +7610,12 @@ def _org_state_parts(org: Org, nid: str,
     if vis == "subtree":
         chart = ("\nYour full suborganization:" + _CHART_LEGEND + "\n"
                  + "\n".join(_render_chart(org, [nid], nid, 0,
-                                           include_archived, stats)))
+                                           include_archived, stats, index=idx)))
     elif vis == "full":
         chart = ("\nThe full organization chart (root = the user):"
                  + _CHART_LEGEND + "\n- user (overseer)\n"
-                 + "\n".join(_render_chart(org, org.children(None, live_only=False),
-                                           nid, 1, include_archived, stats)))
+                 + "\n".join(_render_chart(org, org.children(None, live_only=False, index=idx),
+                                           nid, 1, include_archived, stats, index=idx)))
     if stats.get("hidden"):
         # ⚠ THE POINTER IS LOAD-BEARING — do not "tidy" it away (D-178).
         # Hiding the archived list is presentation; making it UNFINDABLE is
@@ -7665,7 +7687,7 @@ def _org_state_parts(org: Org, nid: str,
                "never restart speculatively."))
     guidance_line = f"\n{live_guidance}" if live_guidance else ""
     tail = (f"Credits: seat {org.seat_cost(nid):g}, grant {n['grant']:g}, "
-            f"free {org.free(nid):g} — credits bound concurrent agent "
+            f"free {org.free(nid, index=idx):g} — credits bound concurrent agent "
             f"capacity, not tokens."
             f"{guidance_line}{fable_line}{ask_line}")
     return roster, chart, tail
@@ -7866,7 +7888,8 @@ def _envelope_state_block(org: Org, nid: str, now: float,
     if out is not None:
         out.update({"seq": None, "chart": "", "chart_ref": None})
     try:
-        chart = org_state_chart(org, nid)
+        parts = _org_state_parts(org, nid, False)
+        chart = parts[1]
         if out is not None:
             out["chart"] = chart
         if len(chart) < _CHART_SUPPRESS_MIN:
@@ -7877,14 +7900,14 @@ def _envelope_state_block(org: Org, nid: str, now: float,
             # floor the block is simply rendered as it always was, and no
             # snapshot is recorded: if the org later grows past the floor, the
             # absent record reads as "first" and sends a full chart anyway.
-            return org_state_block(org, nid)
+            return _block_from_parts(parts, seq=None, chart_ref=None)
         full, seq = _envelope_decide(org, nid, envelope.ORG_STATE,
                                      envelope.digest(chart), now, pending)
         if out is not None:
             out.update({"seq": seq, "chart": chart if full else "",
                         "chart_ref": None if full else seq})
-        return org_state_block(org, nid, seq=seq,
-                               chart_ref=None if full else seq)
+        return _block_from_parts(parts, seq=seq,
+                                 chart_ref=None if full else seq)
     except Exception:                                      # noqa: BLE001
         # The roster and the credit balance are not optional. If anything in
         # the suppression path misbehaves, fall all the way back to the block
