@@ -1170,10 +1170,12 @@ class SwitchModel(unittest.TestCase):
     def build(self, slug):
         org = store.create_org(slug)
         org.hire(ledger.USER, None, "luna", 12, "root")
-        # mid holds EXACTLY w's seat, so w's upgrade shortfall must be
-        # acquired through mid's row from root (mid's grant is rewritten)
-        org.hire(ledger.USER, "root", "luna", 0.1, "mid")
+        # mid starts with no grant, so hiring w under it acquires EXACTLY w's
+        # seat from root: mid then has zero free, and w's upgrade shortfall
+        # must be acquired through mid's row (mid's grant is rewritten)
+        org.hire(ledger.USER, "root", "luna", 0, "mid")
         org.hire(ledger.USER, "mid", "luna", 0, "w")
+        assert org.free("mid") == 0, org.free("mid")
         org.hire(ledger.USER, "root", "gpt-reserve", 0, "p")
         store.save_org(org)
 
