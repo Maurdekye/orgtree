@@ -544,7 +544,10 @@ def retire_deleted(org_id: int) -> None:
     under the org's exclusive lock, so it must not wait long on public.orgs;
     the caller logs a failure and retire_unmarked finishes the job."""
     with connect() as c:
-        c.execute("SET LOCAL lock_timeout = '5s'")
+        # a session SET, not SET LOCAL: connect() is autocommit, where SET
+        # LOCAL only warns and does nothing (review p01). The connection
+        # closes with the block, so the setting cannot leak.
+        c.execute("SET lock_timeout = '5s'")
         c.execute("UPDATE public.orgs SET slug = slug || '@deleted-' || org_id, "
                   "deleted_at = now() WHERE org_id = %s AND deleted_at IS NULL", (org_id,))
 
@@ -599,7 +602,10 @@ def refuse_duplicate(slug: str, org_id: int) -> None:
     """Raise DuplicateMarker if `slug`'s marker shares `org_id` with another
     marker still in orgs/. Once the others are gone (moved to the trash, or
     deleted in the app — delete_org does not call this), the slug is cleared
-    and opens normally."""
+    and opens normally. Deleting one of the pair in the app retires the SHARED
+    org_id's registry row, so the survivor keeps working on a row that reads
+    retired until the next claim's revive_marked restores it under the
+    survivor's name — the same limit as a restore while the engine runs."""
     with _duplicates_lock:
         entry = _duplicates.get(slug)
     if entry is None or entry[0] != org_id:

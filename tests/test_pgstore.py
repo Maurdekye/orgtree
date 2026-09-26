@@ -375,6 +375,47 @@ class Seam(unittest.TestCase):
         self.assertEqual(self._pg('SELECT deleted_at IS NOT NULL FROM orgs WHERE org_id = %s', org_id),
                          [(True,)])
 
+    def test_a_locked_registry_row_bounds_the_delete(self) -> None:
+        # review p01: retire_deleted runs under the org's exclusive lock, so a
+        # registry row locked elsewhere must cost ~5 s, not hang the delete
+        from unittest.mock import patch
+        slug = _fresh_org('del-locked')
+        org_id = pgstore.read_marker(store.org_path(slug))
+        holder = psycopg.connect(os.environ['ORGTREE_PG_URL'])
+        logged: list = []
+        done = threading.Event()
+        errors: list = []
+
+        def delete() -> None:
+            try:
+                store.delete_org(slug)
+            except BaseException as e:             # pragma: no cover - asserted below
+                errors.append(e)
+            finally:
+                done.set()
+        try:
+            holder.execute('SELECT 1 FROM orgs WHERE org_id = %s FOR UPDATE', (org_id,))
+            t0 = time.monotonic()
+            with patch.object(store, '_log', side_effect=logged.append):
+                t = threading.Thread(target=delete)
+                t.start()
+                finished = done.wait(15)
+            took = time.monotonic() - t0
+        finally:
+            holder.rollback()                      # lets a hung mutant finish
+            holder.close()
+            t.join(20)
+        self.assertTrue(finished, 'delete_org hung behind the locked registry row')
+        self.assertEqual(errors, [])
+        self.assertLess(took, 12, f'took {took:.1f}s')
+        self.assertFalse(os.path.exists(store.org_path(slug)), 'the delete happened')
+        self.assertEqual(pgstore.read_marker(self._trash_marker(slug)), org_id)
+        self.assertTrue(any('not retired now' in m for m in logged), logged)
+        self.assertEqual(self._pg('SELECT deleted_at FROM orgs WHERE org_id = %s', org_id), [(None,)])
+        self._claim_sweep()                        # the next start retires it
+        self.assertEqual(self._pg('SELECT deleted_at IS NOT NULL FROM orgs WHERE org_id = %s', org_id),
+                         [(True,)])
+
     def test_many_orgs_share_a_bounded_connection_pool(self) -> None:
         slugs = [_fresh_org(f'pool-{i}') for i in range(30)]
         for s in slugs:
