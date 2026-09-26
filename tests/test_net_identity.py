@@ -427,11 +427,12 @@ def sec_defaults() -> None:
         i = src.find("def orgs_create")
         assert i > 0
         window = src[i:i + 12000]      # V2's orgs_create is longer than V1's
+        # PG-3f: the update runs in create_org's `prepare` hook, on `o`
         assert 'dflt.pop("net_hub_address"' in window, (
             "orgs_create no longer POPS net_hub_address out of the defaults "
-            "before org.d.update(dflt) — re-read §4 of this suite")
+            "before o.d.update(dflt) — re-read §4 of this suite")
         assert window.index('dflt.pop("net_hub_address"') \
-            < window.index("org.d.update(dflt)"), \
+            < window.index("o.d.update(dflt)"), \
             "the pop must happen BEFORE the doc update, not after"
     check("the pop-before-update is still in orgs_create (drift guard)",
           _pop_is_still_there)
