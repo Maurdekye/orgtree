@@ -6897,8 +6897,8 @@ def _quick_staff_undo(slug: str, wid: str, request_id: str, nid: str,
         try:
             return bool(pgdoor.op_tx(
                 slug, "quick_staff_undo", None,
-                {"wid": wid, "request_id": request_id, "nid": nid,
-                 "undo": undo}, pgdoor.BODIES["quick_staff_undo"]))
+                {"wid": wid, "org_slug": slug, "request_id": request_id,
+                 "nid": nid, "undo": undo}, pgdoor.BODIES["quick_staff_undo"]))
         except pgdoor._Replay:
             return False
     with store.DOC_LOCK:
@@ -7074,7 +7074,7 @@ def _quick_staff_door(slug: str, wid: str, body: "QuickStaffSelection",
     commit, so a rolled-back attempt drives nobody."""
     try:
         result, undo, woken = pgdoor.op_tx(
-            slug, "quick_staff", body, {"wid": wid},
+            slug, "quick_staff", body, {"wid": wid, "org_slug": slug},
             pgdoor.BODIES["quick_staff"],
             pre={"request_id": request_id, "selection": selection,
                  "snap": snap, "harness": harness})
