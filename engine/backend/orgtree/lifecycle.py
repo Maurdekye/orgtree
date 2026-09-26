@@ -8,6 +8,7 @@ correlation without turning status polling into an unbounded append log.
 
 from __future__ import annotations
 
+import threading
 import uuid
 from typing import Any, Mapping
 
@@ -20,6 +21,30 @@ PRUNE_TO = 448
 # unrelated observations, but the ring must still have a hard bound.
 _STICKY_STATES = frozenset({"delay_reported"})
 
+# S8 (lead decision 7, superseding 5; decision 29's lock-free appends kept).
+# On the ROW store the ledger is a list log (store.LIST_LOGS) that writers
+# only APPEND to, without a lock, so every mail send stays parallel. Safe
+# because a writer never edits a row another transaction may hold: it
+# coalesces only onto a row appended in ITS OWN transaction (not yet
+# committed), and eviction is not done inline — one serialized pruner
+# (`prune`, which takes `PRUNE_LOCK` FOR UPDATE) deletes whole rows from the
+# committed set it loaded, so an append committed meanwhile is never touched.
+# A repeated state seen by two transactions is therefore two rows, not one
+# row with count 2; `latest` / `has_state` read the same either way, and no
+# caller reads `count`. On a plain dict (the JSON backend's whole-document
+# cycle under DOC_LOCK, `Org.create`, fixtures) the old in-place behaviour
+# stays: that cycle is serialized.
+#: the pruner's own row: a doc key no writer uses, locked FOR UPDATE only by
+#: `prune`, so two pruners serialize while appends take no lock at all
+PRUNE_LOCK = "lifecycle_prune"
+#: row-store appends by THIS process per org before a prune is due; the prune
+#: runs after the next org_tx on that org commits (a commit listener)
+PRUNE_EVERY = 64
+_due_lock = threading.Lock()
+_appended: dict[str, int] = {}
+_due: set[str] = set()
+_listening = False
+
 
 def identity(kind: str, value: Any) -> str:
     """Return the stable, non-secret identity used by a lifecycle record."""
@@ -28,6 +53,75 @@ def identity(kind: str, value: Any) -> str:
 
 def new_operation(kind: str) -> str:
     return identity(kind, uuid.uuid4().hex)
+
+
+def _fresh(doc: Any) -> list[dict[str, Any]] | None:
+    """The ledger rows this transaction appended itself (never committed),
+    or None for a plain-dict document (the serialized whole-document cycle).
+    Rows loaded from the store are never returned: another transaction may
+    hold them, so they are not ours to edit."""
+    from . import store
+    if not isinstance(doc, store.LazyDoc):
+        return None
+    if dict.__contains__(doc, "lifecycle"):       # materialized: loaded + fresh
+        rows = dict.__getitem__(doc, "lifecycle")
+        ids = getattr(rows, "_row_ids", None)
+        if not isinstance(rows, list) or ids is None or len(ids) != len(rows):
+            return []                             # identity unknown: coalesce nothing
+        return [r for r, i in zip(rows, ids) if i is None and isinstance(r, dict)]
+    pending = doc._pending.get("lifecycle") or []  # pyright: ignore[reportPrivateUsage]
+    return [r for r in pending if isinstance(r, dict)]
+
+
+def _note_append(slug: str) -> None:
+    """Count one row-store append; mark the org due for a prune."""
+    global _listening
+    with _due_lock:
+        _appended[slug] = _appended.get(slug, 0) + 1
+        if _appended[slug] >= PRUNE_EVERY:
+            _appended[slug] = 0
+            _due.add(slug)
+        if _listening:
+            return
+        _listening = True
+    from . import orgtx
+    orgtx.commit_listeners.append(_after_commit)
+
+
+def _after_commit(committed: Any) -> None:
+    """orgtx commit listener: run a due prune once the org's tx committed
+    (locks released). A failure leaves it due for the next commit."""
+    slug = committed.slug
+    with _due_lock:
+        if slug not in _due:
+            return
+        _due.discard(slug)
+    try:
+        prune(slug)
+    except Exception:                                      # noqa: BLE001
+        with _due_lock:
+            _due.add(slug)
+
+
+def prune(slug: str) -> int:
+    """THE pruner: past MAX_RECORDS, delete down to PRUNE_TO, oldest
+    non-sticky rows first (the sticky ones only if nothing else is left).
+    Serialized by `PRUNE_LOCK`; it deletes only rows of the committed set it
+    loaded, so rows appended concurrently are never lost. Returns how many
+    rows it removed."""
+    from . import orgtx
+    with orgtx.org_tx(slug, logs=["lifecycle"], sections=[PRUNE_LOCK]) as tx:
+        rows = tx.d.get("lifecycle")
+        if not isinstance(rows, list) or len(rows) <= MAX_RECORDS:
+            return 0
+        removed = 0
+        while len(rows) > PRUNE_TO:
+            index = next((i for i, item in enumerate(rows)
+                          if not isinstance(item, dict)
+                          or item.get("state") not in _STICKY_STATES), 0)
+            rows.pop(index)
+            removed += 1
+        return removed
 
 
 def _records(doc: dict[str, Any]) -> list[dict[str, Any]]:
@@ -45,7 +139,26 @@ def record(doc: dict[str, Any], *, operation_id: str, kind: str,
     Different observed boundaries must remain visible: only the same
     ``operation_id`` and ``state`` coalesce, and the row keeps a count plus the
     most recent observation.  The returned mapping is the stored row.
+
+    On the row store only a row appended in THIS transaction coalesces, and
+    no eviction is done here (see the module note and `prune`).
     """
+    fresh = _fresh(doc)
+    if fresh is not None:
+        found = next((r for r in reversed(fresh)
+                      if r.get("operation_id") == operation_id
+                      and r.get("state") == state), None)
+        if found is not None:
+            found["count"] = int(found.get("count") or 1) + 1
+            found["last_at"] = at
+            found.update(fields)
+            return found
+        from . import store
+        row = {"operation_id": operation_id, "kind": kind, "state": state,
+               "at": at, "count": 1, **fields}
+        store.log_append(doc, "lifecycle", row)
+        _note_append(str(dict.get(doc, "slug") or doc._slug))   # pyright: ignore[reportPrivateUsage]
+        return row
     rows = _records(doc)
     found = next((r for r in reversed(rows)
                   if r.get("operation_id") == operation_id
