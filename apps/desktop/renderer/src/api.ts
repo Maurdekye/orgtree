@@ -183,6 +183,7 @@ export const req = <T,>(path: string, init?: RequestInit,
       // revision itself, which is the only thing that can see a write made in
       // ANOTHER window or by an agent, where this tab issues no request at all.
       forgetNodeDetail()
+      forgetWorkInflight()
       bumpLive()
     }
     // A 2xx whose body is not JSON is still our bug to report readably, not
@@ -534,13 +535,48 @@ export const dismissDocument = (slug: string, did: string):
   req(`/api/orgs/${slug}/documents/${did}`, { method: 'DELETE' })
 // LOCKED docket wire contract v3 (luna-reserve/evidence/docket-wire-
 // contract-v3.md) — see types.ts's "work docket" section.
+//
+// CONDITIONAL AND SHARED (mem-leak-probe, 2026-09-26). Five surfaces poll this
+// list with both groups, the attention queue every 5 s, and on the operator's
+// org each answer was ~38 MB — parsed on the main thread that must also drain
+// the engine's websocket (a window that stopped reading it grew the engine by
+// GB per hour). The server stamps the list with an ETag and answers 304 while
+// nothing moved; the 304 path returns the SAME object the last 200 produced,
+// and concurrent pollers of one URL share one request. A mutation drops the
+// shared in-flight request (see req), so a refetch after a write is never
+// answered by a request that started before it.
+const workCache = new Map<string, { etag: string; body: WorkItemsPayload }>()
+const workInflight = new Map<string, Promise<WorkItemsPayload>>()
+export const forgetWorkInflight = (): void => { workInflight.clear() }
 export const getWorkItems = (slug: string, archived = false,
-                             backlogged = false): Promise<WorkItemsPayload> =>
-  req(`/api/orgs/${slug}/work-items`
+                             backlogged = false): Promise<WorkItemsPayload> => {
+  const path = `/api/orgs/${slug}/work-items`
     + (archived || backlogged
       ? '?' + [archived ? 'archived=1' : '', backlogged ? 'backlogged=1' : '']
         .filter(Boolean).join('&')
-      : ''))
+      : '')
+  const pending = workInflight.get(path)
+  if (pending) return pending
+  const hit = workCache.get(path)
+  const p: Promise<WorkItemsPayload> = fetch(u(path), {
+    signal: timeoutSignal(DEFAULT_TIMEOUT_MS),
+    ...(hit ? { headers: { 'If-None-Match': hit.etag } } : {}),
+  }).then((r) => {
+    noteInstance(r)
+    if (r.status === 304 && hit) return hit.body
+    if (!r.ok) return failure(r).then((e) => { throw e })
+    const etag = r.headers.get('ETag')
+    return (r.json() as Promise<WorkItemsPayload>).then((body) => {
+      if (etag) workCache.set(path, { etag, body })
+      else workCache.delete(path)
+      return body
+    })
+  }).finally(() => {
+    if (workInflight.get(path) === p) workInflight.delete(path)
+  })
+  workInflight.set(path, p)
+  return p
+}
 export const getWorkItem = (slug: string, id: string): Promise<WorkItemPayload> =>
   req(`/api/orgs/${slug}/work-items/${id}`)
 export const replyWorkItem = (slug: string, id: string, body: string, to?: string,

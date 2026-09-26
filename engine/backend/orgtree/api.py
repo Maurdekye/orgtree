@@ -7067,15 +7067,29 @@ def work_identity_migrate(slug: str) -> dict[str, Any]:
     return {"already": False, **report}
 
 
-@app.get("/api/orgs/{slug}/work-items")
-def work_items_list(slug: str, archived: int = 0,
-                    backlogged: int = 0, compact: int = 0) -> dict[str, Any]:
-    """Every item, split by the DERIVED archive and backlog rules, newest
-    docket update first; `counts` over the full set for the toolbar badge.
-    `?archived=1` adds the archived group and `?backlogged=1` the backlog
-    group — the modal's two independent header checkboxes, each of which only
-    APPENDS its group below the main list. Read-only: the physical archive
-    sweep runs on the next docket write, never here."""
+# ── the docket list is CONDITIONAL (mem-leak-probe, 2026-09-26) ─────────────
+# Five renderer surfaces poll this list with both groups included, the attention
+# queue every 5 s, and on the operator's org the body is ~38 MB (measured
+# 2026-09-25: 37,969,616 bytes; ~170 GB served in 1 h 40 min). Every poll paid a
+# full document parse plus the build, and the renderer paid a 38 MB JSON parse
+# on the same main thread that must drain the websocket. The list derives only
+# from the document and the clock (the archive/backlog rules are time-based), so
+# `store.org_seq` plus a clock bucket is a complete validator: an unchanged org
+# answers 304 with no body, and the one build after a change is shared by every
+# poller through the body cache below.
+_WORK_STALE_BUCKET_S = 30.0
+_work_list_cache: dict[tuple[str, int, int, int], tuple[str, bytes]] = {}
+_work_list_cache_lock = threading.Lock()
+_work_list_build_locks: dict[tuple[str, int, int, int], threading.Lock] = {}
+
+
+def _work_list_etag(slug: str, key: tuple[str, int, int, int]) -> str:
+    parts = (store.org_seq(slug), key[1:], int(time.time() // _WORK_STALE_BUCKET_S))
+    return '"w' + hashlib.sha1(repr(parts).encode()).hexdigest()[:20] + '"'
+
+
+def _work_list_build(slug: str, archived: int, backlogged: int,
+                     compact: int) -> dict[str, Any]:
     try:
         org = store.load_org(slug)
     except LedgerError as e:
@@ -7084,6 +7098,45 @@ def work_items_list(slug: str, archived: int = 0,
     return _work_refs(slug, org.work_list(
         USER, include_archived=bool(archived),
         include_backlogged=bool(backlogged), compact=bool(compact)))
+
+
+@app.get("/api/orgs/{slug}/work-items")
+def work_items_list(slug: str, archived: int = 0,
+                    backlogged: int = 0, compact: int = 0,
+                    request: Request = cast(Request, None)) -> Any:
+    """Every item, split by the DERIVED archive and backlog rules, newest
+    docket update first; `counts` over the full set for the toolbar badge.
+    `?archived=1` adds the archived group and `?backlogged=1` the backlog
+    group — the modal's two independent header checkboxes, each of which only
+    APPENDS its group below the main list. Read-only: the physical archive
+    sweep runs on the next docket write, never here.
+
+    HTTP callers get an ETag and a 304 while nothing moved (see above); a
+    DIRECT in-process caller (`request is None`) keeps the plain dict."""
+    flags = (1 if archived else 0, 1 if backlogged else 0, 1 if compact else 0)
+    if request is None:
+        return _work_list_build(slug, *flags)
+    key = (slug, *flags)
+    etag = _work_list_etag(slug, key)
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag})
+    with _work_list_cache_lock:
+        hit = _work_list_cache.get(key)
+        lock = _work_list_build_locks.setdefault(key, threading.Lock())
+    if hit is None or hit[0] != etag:
+        with lock:
+            # a concurrent poller may have built this very version while we queued
+            with _work_list_cache_lock:
+                hit = _work_list_cache.get(key)
+            if hit is None or hit[0] != etag:
+                body = _dump_tree(_work_list_build(slug, *flags))
+                # the seq may have moved during the build: stamp what it was
+                # BEFORE, so a stale build can only cause one extra refetch
+                hit = (etag, body)
+                with _work_list_cache_lock:
+                    _work_list_cache[key] = hit
+    return Response(content=hit[1], media_type="application/json",
+                    headers={"ETag": hit[0]})
 
 
 @app.get("/api/orgs/{slug}/work-items/{wid}")
