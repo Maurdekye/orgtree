@@ -824,6 +824,61 @@ class Door(unittest.TestCase):
             supervisor.export_after_commit(self.slug, org, "x", bearer_sid, "r")
         self.assertEqual(dst.read_text(), "newer predecessor, retried" + chr(10))
 
+    def marker_export(self, dst, generation, content):
+        """The real file half on a snapshot whose predecessor generation is
+        `generation` (the seat's generation minus one), from a real source."""
+        src = dst.parent / "marker-source.jsonl"
+        snapshot = copy.deepcopy(store.load_org(self.slug))
+        snapshot.node("x")["generation"] = generation + 1
+        src.write_text(content, encoding="utf-8")
+        with patch.object(supervisor, "transcript_path",
+                          return_value=str(src)):
+            return supervisor.export_predecessor_transcript_deferred(
+                snapshot, "x", "marker-session", "review", strict=True)
+
+    def test_a_failed_marker_write_keeps_the_ordering_fence(self):
+        # review f8 (review-astra's probe): g2 is published; g3's marker write
+        # fails after writing '{'. The g2 marker must survive whole, so a
+        # delayed g1 is still refused and g2's transcript stays.
+        self.crossing_seat(state="live")
+        dst = Path(self.real_copy())
+        self.marker_export(dst, 2, "newer predecessor")
+        self.assertEqual(supervisor._exported_generation(str(dst)), 2)
+        self.assertEqual(dst.read_text(), "newer predecessor")
+
+        def disk_full(obj, stream, **kw):
+            stream.write("{")
+            stream.flush()
+            raise OSError("disk full during marker write")
+        with patch.object(supervisor.json, "dump", disk_full):
+            with self.assertRaisesRegex(OSError, "disk full"):
+                self.marker_export(dst, 3, "newest export failed")
+        self.assertEqual(dst.read_text(), "newer predecessor",
+                         "a failed export published")
+        self.assertEqual(supervisor._exported_generation(str(dst)), 2)
+        self.marker_export(dst, 1, "older delayed predecessor")
+        self.assertEqual(dst.read_text(), "newer predecessor",
+                         "a failed marker write admitted an older export")
+        self.assertEqual([f for f in os.listdir(dst.parent)
+                          if f.endswith(".part")], [], "no private file left")
+
+    def test_an_unreadable_marker_fails_closed(self):
+        # review f8: a marker that exists but cannot be read is never taken
+        # for 'no ordering yet' — strict raises (the caller's warning), the
+        # inline export copies nothing, and the transcript is untouched
+        self.crossing_seat(state="live")
+        dst = Path(self.real_copy())
+        self.marker_export(dst, 2, "newer predecessor")
+        Path(str(dst) + ".generation").write_text("{", encoding="utf-8")
+        with self.assertRaises(supervisor.ExportMarkerUnreadable):
+            self.marker_export(dst, 1, "older delayed predecessor")
+        org = store.load_org(self.slug)
+        with patch.object(supervisor, "transcript_path",
+                          return_value=str(dst.parent / "marker-source.jsonl")):
+            self.assertEqual(supervisor.export_predecessor_transcript_deferred(
+                org, "x", "s", "r"), (None, None))
+        self.assertEqual(dst.read_text(), "newer predecessor")
+
     def test_finish_switch_binding_can_hand_the_export_to_the_caller(self):
         self.crossing_seat(state="live")
         for export in (True, False):

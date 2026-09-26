@@ -4103,8 +4103,10 @@ def export_predecessor_transcript_deferred(
     per-destination lock, it replaces transcript.jsonl only when its
     predecessor generation is not older than the one already there (recorded
     in transcript.jsonl.generation). A stale export returns (None, None) and
-    publishes nothing. The handoff record reads the private copy, never the
-    shared destination.
+    publishes nothing. The marker is swapped in whole, so a failed write
+    keeps the old one, and an unreadable marker FAILS CLOSED (review f8). The
+    handoff record is built only after the transcript is published, still
+    under the lock.
 
     `strict` (PG-3a review f6): a copy or record FAILURE raises instead of
     returning (None, None), for an after-commit caller that discloses it as
@@ -4134,12 +4136,6 @@ def export_predecessor_transcript_deferred(
                 print(f"[orgtree] {org.d['slug']}/{nid}: transcript export "
                       f"g{gen} skipped — a newer generation is already there")
                 return None, None
-            record_error: Exception | None = None
-            try:
-                out = _publish_handoff_record(org, nid, tmp, sid, reason,
-                                              gen=gen, strict=strict)
-            except Exception as e:                           # noqa: BLE001
-                out, record_error = None, e
             _set_exported_generation(dst, gen, sid)
             try:
                 os.replace(tmp, dst)
@@ -4147,6 +4143,14 @@ def export_predecessor_transcript_deferred(
                 # Windows: a reader holding transcript.jsonl open refuses a
                 # rename over it, but not an in-place overwrite
                 shutil.copyfile(tmp, dst)
+            # the record only for a transcript that was published. It reads
+            # dst still UNDER the lock, where no other export can replace it
+            record_error: Exception | None = None
+            try:
+                out = _publish_handoff_record(org, nid, dst, sid, reason,
+                                              gen=gen, strict=strict)
+            except Exception as e:                           # noqa: BLE001
+                out, record_error = None, e
     except OSError:
         if strict:
             raise
@@ -4183,19 +4187,38 @@ def _predecessor_generation(org: Org, nid: str, sid: str) -> int:
     return int(org.node(nid).get("generation") or 0) - 1
 
 
+class ExportMarkerUnreadable(OSError):
+    """transcript.jsonl.generation exists but cannot be read: the export
+    FAILS CLOSED (review f8) — guessing a generation could let an older copy
+    replace a newer one. Deleting the marker resets the ordering."""
+
+
 def _exported_generation(dst: str) -> int:
+    marker = f"{dst}.generation"
     try:
-        with open(f"{dst}.generation", encoding="utf-8") as f:
+        with open(marker, encoding="utf-8") as f:
             return int(json.load(f)["generation"])
-    except (OSError, ValueError, KeyError, TypeError):
+    except FileNotFoundError:
         return -1       # no record: a copy from before the ordering existed
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        raise ExportMarkerUnreadable(
+            f"transcript export refused: its ordering marker {marker} is "
+            f"unreadable ({type(e).__name__}: {e}); delete it to reset") from e
 
 
 def _set_exported_generation(dst: str, gen: int, sid: str) -> None:
-    # written BEFORE the replace: a crash between the two leaves a marker
-    # that only the same or a newer boundary can pass, never an older one
-    with open(f"{dst}.generation", "w", encoding="utf-8") as f:
-        json.dump({"generation": gen, "session": sid}, f)
+    # written BEFORE the transcript replace: a crash between the two leaves a
+    # marker that only the same or a newer boundary can pass. Written to a
+    # private sibling and swapped in whole (review f8): a failed write leaves
+    # the previous marker exactly as it was.
+    marker = f"{dst}.generation"
+    tmp = f"{marker}.{uuid.uuid4().hex[:8]}.part"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"generation": gen, "session": sid}, f)
+        os.replace(tmp, marker)
+    finally:
+        _remove_quietly(tmp)
 
 
 def _remove_quietly(path: str) -> None:
