@@ -9,8 +9,13 @@ What these prove, on PG-0's SeamBackend fake over a throwaway SQLite root:
     set widens, and the retry commits exactly once (nothing written twice);
   * RT2 same-item edit: two writers forced to interleave on ONE item both
     land with no field lost, and with `expected_rev` exactly one wins. The
-    NEGATIVE CONTROL runs the same interleaving without row locks and must
-    LOSE a field, which proves the scenario can detect a lost update;
+    interleaving is forced and PROVEN by PG-5's `racekit` with the org_tx
+    transition fence OFF (`pair="converted"`): the lock manager itself must
+    report B waiting on A's row lock, and A must commit before B takes its
+    locks. With the fence on, DOC_LOCK would order them and the test would
+    say nothing about the row locks. The NEGATIVE CONTROL runs the same
+    interleaving without row locks and must LOSE a field, which proves the
+    scenario can detect a lost update;
   * decision 13 (d): the sweep racing a reopen of the same item never loses
     the reopen.
 
@@ -35,6 +40,7 @@ import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside thi
 
 from orgtree import events, events_render  # noqa: E402,F401
 from orgtree import orgtx, store, worktx  # noqa: E402
+import racekit  # noqa: E402
 from orgtree.ledger import USER, StaleRevError  # noqa: E402
 
 _n = 0
@@ -72,6 +78,10 @@ def get(slug, item):
 
 class Base(unittest.TestCase):
     def setUp(self):
+        # the races here are org_tx against org_tx: they run with PG-0b's
+        # transition fence OFF (plan decision 19; racekit refuses it on)
+        self.addCleanup(setattr, orgtx, 'TRANSITION_FENCE', orgtx.TRANSITION_FENCE)
+        orgtx.TRANSITION_FENCE = False
         orgtx.use_backend(orgtx.SeamBackend())
         orgtx.set_pause_hook(None)
         self.slug, self.item = fixture()
@@ -177,48 +187,26 @@ class DocketOnOrgTx(Base):
 
 
 def _race(slug, a_fn, b_fn, *, locked=True):
-    """Force A and B to interleave on one item. With row locks, A holds its
-    locks paused at `before_commit` while B starts; B must then wait. Returns
-    ({'a': exc|None, 'b': exc|None}, b_blocked_while_a_held)."""
-    a_in = threading.Event()
-    release = threading.Event()
-    out = {}
-    b_started = threading.Event()
-    b_done = threading.Event()
-
-    def hook(point, tx):
-        if point == 'before_commit' and threading.current_thread().name == 'A':
-            a_in.set()
-            release.wait(10)
-
-    def wrap(name, fn):
-        def go():
-            try:
-                if name == 'B':
-                    b_started.set()
-                fn()
-                out[name] = None
-            except Exception as e:  # noqa: BLE001
-                out[name] = e
-            finally:
-                if name == 'B':
-                    b_done.set()
-        return go
-
+    """Force A and B to interleave on one item. With row locks (racekit): A
+    is held at `before_commit` with every lock taken, B starts and the LOCK
+    MANAGER must report it waiting on a row lock, then A commits before B
+    takes its locks. Returns ({'A': exc|None, 'B': exc|None}, how B waited);
+    any forcing that did not happen raises racekit.RaceFailure."""
     if locked:
-        orgtx.set_pause_hook(hook)
-        ta = threading.Thread(target=wrap('A', lambda: worktx.run(slug, a_fn)), name='A')
-        tb = threading.Thread(target=wrap('B', lambda: worktx.run(slug, b_fn)), name='B')
-        ta.start()
-        assert a_in.wait(10), 'A never reached before_commit'
-        tb.start()
-        b_started.wait(10)
-        b_blocked = not b_done.wait(0.5)
-        release.set()
-        ta.join(10)
-        tb.join(10)
-        orgtx.set_pause_hook(None)
-        return out, b_blocked
+        with racekit.Race(pair="converted") as race:
+            a = race.actor("A", worktx.run, slug, a_fn, may_raise=True)
+            b = race.actor("B", worktx.run, slug, b_fn, may_raise=True)
+            held = race.hold(a, "before_commit")
+            race.start(a)
+            race.reached(held)
+            race.start(b)
+            how = race.blocked(b)
+            race.release(held)
+            race.join(a, b)
+            race.expect_order("A.before_commit", "B.blocked", "A.after_commit",
+                              "B.after_lock")
+            return {'A': a.error, 'B': b.error}, how
+    out = {}
     # NEGATIVE CONTROL: the same interleaving with no lock at all — both load,
     # A changes and saves, B (holding a stale load) changes and saves.
     oa, ob = store.load_org(slug), store.load_org(slug)
