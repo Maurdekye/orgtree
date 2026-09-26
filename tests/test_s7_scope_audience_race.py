@@ -14,10 +14,17 @@ row lock and the decision always matches the committed audience state:
   * request first — the grant parks until the request commits; the request
     saw no audience and ROUTED to the superior (nothing is filed).
 
+FINDING (reported to p01): with today's writers the two are ordered by the
+superior's NODE row first (maildoor's grant locks the caller; the routed
+request locks its superior), and a user-route grant locks the grantee's node
+row, which the request's caller row also is. So the audiences FOR SHARE is a
+second guarantee for them; the third test pins it on its own, with a writer
+that holds nothing but the audiences row.
+
 Each wait is proven from the lock manager (racekit.blocked), never slept for,
 and the achieved order is checked. Converted racers, so the transition fence
 is off (plan decision 19). Negative control: drop `audiences` from the door's
-FOR SHARE set and the second racer is never blocked — racekit fails the run.
+FOR SHARE set and the third test's request is never blocked — racekit fails.
 
 Run:  python tools/run-python-verification.py tests/test_s7_scope_audience_race.py
 """
@@ -130,7 +137,10 @@ class ScopeRequestVsAudienceGrant(unittest.TestCase):
             race.join(g, r)
             race.expect_order('G.before_commit', 'R.blocked', 'G.after_commit',
                               'R.after_lock', 'R.after_commit')
-        self.assertIn('audiences', str(on), f'blocked on {on}, not the audiences row')
+        # FINDING: the real grant and the (routed-at-plan) request are ordered
+        # by the superior's NODE row, which both lock before any section —
+        # the audiences FOR SHARE is a second guarantee here, not the first
+        self.assertEqual(on, ((self.slug, 'node', 'boss'), True), on)
         self.assertNotIn('routed', r.result, r.result)
         self.assertIn('requested', r.result, r.result)
         audience, filed, mailed = self._state()
@@ -152,12 +162,42 @@ class ScopeRequestVsAudienceGrant(unittest.TestCase):
             race.join(r, g)
             race.expect_order('R.before_commit', 'G.blocked', 'R.after_commit',
                               'G.after_lock', 'G.after_commit')
-        self.assertIn('audiences', str(on), f'blocked on {on}, not the audiences row')
+        self.assertEqual(on, ((self.slug, 'node', 'boss'), True), on)
         self.assertEqual(r.result.get('routed'), 'boss', r.result)
         audience, filed, mailed = self._state()
         self.assertTrue(audience)                  # granted, after the request
         self.assertEqual(filed, [])
         self.assertEqual(len(mailed), 1)
+
+    def test_a_writer_of_only_the_audiences_row_still_orders_the_request(self):
+        """No current audience writer is ordered against request_scope by the
+        audiences row alone (each also locks a party's node row). This pins
+        the FOR SHARE lock itself, for a future writer that touches nothing
+        else: a transaction holding ONLY `audiences` FOR UPDATE that grants
+        the worker a user audience."""
+        def grant_only_audiences():
+            with orgtx.org_tx(self.slug, sections=['audiences']) as tx:
+                tx.org.d['audiences'].append({'grantee': 'worker', 'grantor': U})
+
+        with racekit.Race(wait=STEP_S, pair='converted') as race, self._watch_keys():
+            g = race.actor('G', grant_only_audiences)
+            r = race.actor('R', self._request)
+            gg = race.hold(g, 'before_commit')
+            race.start(g)
+            race.reached(gg)
+            race.start(r)
+            race.blocked(r)
+            on = self._waited_on(r)
+            race.release(gg)
+            race.join(g, r)
+            race.expect_order('G.before_commit', 'R.blocked', 'G.after_commit',
+                              'R.after_lock', 'R.after_commit')
+        self.assertEqual(on[0][1:], ('section', 'audiences'), on)
+        self.assertFalse(on[1], 'the request must hold audiences SHARED')
+        self.assertNotIn('routed', r.result, r.result)
+        _audience, filed, mailed = self._state()
+        self.assertEqual(len(filed), 1)
+        self.assertEqual(mailed, [])
 
 
 if __name__ == '__main__':
