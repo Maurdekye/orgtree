@@ -893,10 +893,30 @@ def release_data_root() -> None:
 
 
 def _orgs_dir() -> str:
-    _assert_synced_data_root()
-    d = os.path.join(DATA_ROOT, "orgs")
+    """`<root>/orgs`, CREATED if missing. For the cold callers (listings,
+    scans) and every site that creates a file there; the per-load/save path
+    uses `_orgs_path` instead."""
+    d = _orgs_path()
     os.makedirs(d, exist_ok=True)
     return d
+
+
+def _orgs_path() -> str:
+    """`<root>/orgs` as a string: the root guard, NO filesystem call.
+
+    Slice D (v3 scale, 2026-09-26): `_safe_slug`, `_db_path` and `_json_path`
+    run on every org load and save, and each used to call `_orgs_dir()` —
+    a `makedirs` (mkdir attempt + FileExistsError + stat) per call, up to
+    three per load. At 20 active seats that was the top non-idle leaf (2579
+    of 10164 stack samples). Naming a path does not need the directory to
+    exist: a READ of a missing file fails the same way either way ("no such
+    org"). What needs it is CREATING a file there, so every creator calls
+    `_orgs_dir()` itself — `_ConnPool.acquire(create=True)` when it opens a
+    connection (SQLite `save_org`, a PostgreSQL marker), `_save_json`, and
+    `migrate_org`'s candidate — and a directory deleted at runtime is
+    recreated by the next write, as before."""
+    _assert_synced_data_root()
+    return os.path.join(DATA_ROOT, "orgs")
 
 
 #: Slugs whose containment check already passed, keyed with the orgs dir
@@ -920,7 +940,7 @@ def _safe_slug(slug: str) -> str:
     the second check is what keeps this correct if the slug charset ever
     widens."""
     _slug_shape(slug)
-    orgs_dir = _orgs_dir()
+    orgs_dir = _orgs_path()
     if not _SAFE_SLUG_OK.get((slug, orgs_dir)):
         if not _slug_contained(slug, orgs_dir):
             raise LedgerError(f"invalid org slug: {slug!r}")
@@ -961,11 +981,11 @@ def _slug_shape(slug: str) -> None:
 
 
 def _json_path(slug: str) -> str:
-    return os.path.join(_orgs_dir(), _safe_slug(slug) + ".json")
+    return os.path.join(_orgs_path(), _safe_slug(slug) + ".json")
 
 
 def _db_path(slug: str) -> str:
-    return os.path.join(_orgs_dir(), _safe_slug(slug) + db_ext())
+    return os.path.join(_orgs_path(), _safe_slug(slug) + db_ext())
 
 
 def _premigration_path(slug: str) -> str:
@@ -1557,6 +1577,8 @@ class _Pool:
         keep = False
         try:
             if conn is None:
+                if create:
+                    _orgs_dir()        # a minting open writes into orgs/ (slice D)
                 if STORE_BACKEND == "postgres":
                     from . import pgstore
                     conn = cast("sqlite3.Connection",
@@ -3820,6 +3842,7 @@ def migrate_org(slug: str) -> dict[str, Any]:
     t0 = time.perf_counter()
     conn: sqlite3.Connection | None = None
     try:
+        _orgs_dir()                    # the candidate is created in orgs/ (slice D)
         conn = _open_conn(tmpdb, create=True)
         conn.execute("BEGIN IMMEDIATE")
         try:
@@ -5569,6 +5592,7 @@ def _save_json(org: Org) -> None:
     # non-serialisable value used to raise halfway through json.dump and
     # strand a half-written .tmp in orgs/ for good.
     blob = json.dumps(org.d, indent=2).encode("utf-8")
+    _orgs_dir()                        # the temp file is created in orgs/ (slice D)
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(p), suffix=".tmp")
     try:
         with os.fdopen(fd, "wb") as f:
