@@ -92,3 +92,44 @@ test('large graph keeps its unmeasured preview bounded and reveals remaining car
     assert.ok(view.el.querySelector('.sq[data-copy-agent-name="node-119"]'), 'previously omitted card appears inside the measured viewport')
   } finally { await view.unmount(); resetConvos(); localStorage.clear(); setCrowdPilesOn(true) }
 })
+
+test('user credit controls stay mounted when a manual pan puts the eye outside the measured viewport', async () => {
+  localStorage.clear(); resetConvos(); setCrowdPilesOn(false); installFetch(new FakeServer())
+  const tree = { slug: 'user-exemption-fixture', name: 'fixture', roots: [], tiers: { haiku: 1 },
+    audit: { live_nodes: 0, top_level_holds: 0, no_overdraft: true, problems: [] },
+    dirs: [], audiences: [], audience_requests: [], credit_requests: [], max_top_grant: 1000,
+    default_top_grant: 10, compact_at: 0, user_inbox_count: 0, org_inbox: null, net: null,
+  } as unknown as TreePayload
+  const view = await mountView(<OrgCanvas tree={tree} slug={tree.slug} op={async () => ({})}
+    toast={() => {}} mailEvt={null} />, el => el)
+  try {
+    await inAct(async () => { await flush(5) })
+    const viewport = view.el.querySelector<HTMLElement>('.viewport')!
+    viewport.getBoundingClientRect = () => ({ x: 0, y: 0, width: 800, height: 600,
+      top: 0, left: 0, right: 800, bottom: 600, toJSON: () => ({}) })
+    viewport.setPointerCapture = viewport.releasePointerCapture = () => {}
+    viewport.hasPointerCapture = () => false
+    await inAct(async () => { fireResize(viewport) })
+    assert.equal(viewport.dataset.culling, 'active')
+    const eye = view.el.querySelector<HTMLElement>('.sq.user')!
+    assert.ok(eye, 'the eye was mounted before the pan')
+    const position = /translate\(([-\d.e+]+)px,\s*([-\d.e+]+)px\)/.exec(eye.style.transform)!
+    assert.ok(position, `eye position is observable: ${eye.style.transform}`)
+    await inAct(async () => {
+      for (const [type, x, y] of [['pointerdown', 400, 300], ['pointermove', 100000, 100000],
+        ['pointerup', 100000, 100000]] as const) viewport.dispatchEvent(new window.PointerEvent(type, {
+        bubbles: true, cancelable: true, pointerId: 1, pointerType: 'mouse', isPrimary: true,
+        button: type === 'pointermove' ? -1 : 0, buttons: 1, clientX: x, clientY: y,
+      }))
+    })
+    const transform = view.el.querySelector<HTMLElement>('.space')!.style.transform
+    const camera = /translate\(([-\d.e+]+)px,\s*([-\d.e+]+)px\) scale\(([-\d.e+]+)\)/.exec(transform)!
+    assert.ok(camera, `camera is observable: ${transform}`)
+    const rect = worldViewport({ x: +camera[1], y: +camera[2], z: +camera[3] }, 800, 600)
+    assert.ok(rect)
+    assert.equal(intersectsViewport({ x: +position[1], y: +position[2],
+      w: parseFloat(eye.style.width), h: parseFloat(eye.style.height) }, rect), false,
+    'positive control: the eye is actually outside the measured viewport, including overscan')
+    assert.ok(view.el.querySelector('.sq.user'), 'offscreen eye remains mounted for its credit controls')
+  } finally { await view.unmount(); resetConvos(); localStorage.clear(); setCrowdPilesOn(true) }
+})
