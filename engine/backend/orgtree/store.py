@@ -3630,7 +3630,10 @@ def _save_sqlite(org: Org) -> None:
 #: every suffix an org can occupy under one trash stem. The free-stem search
 #: must clear ALL of them: the artefacts travel together, so a stem is only
 #: free when nothing of a previous org is sitting under any of it.
-_TRASH_SUFFIXES: tuple[str, ...] = (".db", ".db-wal", ".db-shm",
+# ".pg" is PostgreSQL's marker: without it a delete → recreate → delete in
+# one second overwrote the first org's trash marker, the only pointer to its
+# kept rows (found 2026-09-26, docket postgresql-delete-org-leaves-the-org-s-schema-ro)
+_TRASH_SUFFIXES: tuple[str, ...] = (".db", ".db-wal", ".db-shm", ".pg",
                                     ".json", ".json.premigration")
 
 

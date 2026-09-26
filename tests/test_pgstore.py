@@ -302,6 +302,12 @@ class Seam(unittest.TestCase):
         self.assertNotEqual(first, second)
         self.assertEqual(_node(slug, 'a')['name'], 'a', 'the new org does not meet the old rows')
         store.delete_org(slug)
+        # the same second: the second delete must not overwrite the first's marker
+        self.assertEqual(pgstore.read_marker(old_marker), first, 'trash marker overwritten')
+        trash = os.path.join(str(data), 'deleted')
+        ids = sorted(pgstore.read_marker(os.path.join(trash, n)) for n in os.listdir(trash)
+                     if n.startswith(slug + '-') and n.endswith(pgstore.MARKER_EXT))
+        self.assertEqual(ids, sorted([first, second]))
         os.replace(old_marker, store.org_path(slug))                   # restore the FIRST
         self.assertEqual(self._claim_sweep(), [slug])
         live = self._pg("SELECT org_id FROM orgs WHERE slug = %s AND deleted_at IS NULL", slug)
