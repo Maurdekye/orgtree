@@ -150,6 +150,44 @@ def child(args) -> int:
         return {nid: agentauth.child_env(slug, nid)["ORGTREE_AGENT_TOKEN"]
                 for nid, n in org.nodes.items() if n.get("state") == "live"}
 
+    @api.app.get("/scale/stacks")
+    def _scale_stacks(seconds: float = 20.0, interval_ms: float = 10.0, top: int = 40) -> dict:
+        """A poor man's sampling profiler (no py-spy on this machine): sample
+        every thread's Python stack every `interval_ms` for `seconds` and count
+        (a) the innermost orgtree frame, (b) the full orgtree call path. A thread
+        blocked in a lock or socket counts where it waits, so read `waiting` too."""
+        import collections
+        import traceback
+        me = threading.get_ident()
+        names = {t.ident: t.name for t in threading.enumerate()}
+        leaf: collections.Counter = collections.Counter()
+        path: collections.Counter = collections.Counter()
+        waiting: collections.Counter = collections.Counter()
+        samples = 0
+        end = time.time() + min(seconds, 120)
+        while time.time() < end:
+            for tid, frame in sys._current_frames().items():
+                if tid == me:
+                    continue
+                st = traceback.extract_stack(frame)
+                ours = [f for f in st if "orgtree" in f.filename.replace(os.sep, "/")
+                        and "tools/scale" not in f.filename.replace(os.sep, "/")]
+                if not ours:
+                    continue
+                top_frame = st[-1]
+                blocked = top_frame.name in ("wait", "acquire", "_wait_for_tstate_lock", "select",
+                                             "recv", "recv_into", "sleep", "get", "_worker")
+                inner = ours[-1]
+                key = f"{os.path.basename(inner.filename)}:{inner.name}"
+                (waiting if blocked else leaf)[key] += 1
+                if not blocked:
+                    path[" > ".join(f"{os.path.basename(f.filename)}:{f.name}" for f in ours[-6:])] += 1
+            samples += 1
+            time.sleep(interval_ms / 1000)
+        return {"samples": samples, "threads": len(names),
+                "running_leaf": leaf.most_common(top), "running_path": path.most_common(top),
+                "waiting_leaf": waiting.most_common(top)}
+
     import uvicorn
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=args.port, lifespan="on",
                                            access_log=False, log_level="warning",
