@@ -15,6 +15,7 @@ import { pathToFileURL } from 'node:url'
 import { REQUIRED_PACKAGE_INPUTS } from './preflight-lib.mjs'
 import { runVerification } from './release-verification.mjs'
 import { assertPublicReleaseAllowed } from './private-alpha-policy.mjs'
+import { assertPostgresRuntime } from './postgres-layout.mjs'
 import {
   assertRuntimeImports, assertRuntimeLayout, extractInstallerEngine,
   REPRESENTATIVE_RUNTIME_IMPORTS, RuntimeLayoutError, runtimeTreeDigest,
@@ -477,6 +478,9 @@ function assertRuntimeLayoutOrFail(runtimeDir, label) {
  *    representative backend dependencies from inside the payload.
  */
 export function verifyPackagedRuntime({ root, resources, spawnSyncImpl = spawnSync }) {
+  const sourcePostgres = assertPostgresRuntime(path.join(root, 'engine'), { sourceRoot: root })
+  const packagedPostgres = assertPostgresRuntime(path.join(resources, 'engine'))
+  if (sourcePostgres.manifestSha256 !== packagedPostgres.manifestSha256) fail('Packaged PostgreSQL differs from source')
   const packagedRuntime = path.join(resources, 'engine', 'runtime')
   assertRuntimeLayoutOrFail(packagedRuntime, 'packaged engine/runtime')
   const sourceDigest = runtimeTreeDigest(nativeRelative(root, 'engine/runtime'))
@@ -507,6 +511,7 @@ export function verifyInstallerPayloadRuntime({ root, installer, workDir, expect
   try {
     extracted = extractInstallerEngine({ root, installer, workDir, spawnSyncImpl })
     assertRuntimeLayoutOrFail(extracted.runtime, 'installer payload engine/runtime')
+    assertPostgresRuntime(extracted.engine)
     const digest = runtimeTreeDigest(extracted.runtime)
     if (expectedDigest && (digest.sha256 !== expectedDigest.sha256 || digest.files !== expectedDigest.files)) {
       fail(`Installer payload runtime differs from the verified packaged runtime `

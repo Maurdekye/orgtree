@@ -46,49 +46,67 @@ exactly what to do.
 - **Event log**: the Windows Application event log. When Orgtree refuses to
   start on PostgreSQL it writes one line there, source `Orgtree P03`.
 
-## 2. What you are given
+## 2. Load the installed app's paths
 
-The person who hands you this file must fill these in. If any is missing,
-stop and ask for it.
+The v3 package includes Python, its binary psycopg driver, PostgreSQL 18.6,
+pg-custodian and pgimport. No source checkout or separate PostgreSQL install
+is needed. On launch the desktop writes `%APPDATA%\Orgtree v2\engine-paths.json`
+with its actual installation and selected data paths. Launch the approved v3
+build once before doing this cutover; existing stores remain on their current
+backend. A genuinely fresh install already starts on PostgreSQL and does not
+need this migration.
 
-| Name | What it is | Value |
-|---|---|---|
-| `REPO` | a folder holding the Orgtree source code at a commit that contains this file | |
-| `PY` | the Python to run pgimport with: `<REPO>\engine\runtime\python.exe` | |
-| `PG` | full path of `pg-custodian.exe` | |
-| `PGBIN` | the PostgreSQL 18.6 `bin` folder (it contains `postgres.exe`, `pg_ctl.exe`, `initdb.exe`) | |
-| `DATA` | the data folder, normally `%APPDATA%\Orgtree v2\data` | |
+Open **PowerShell from the Start menu**, outside Orgtree, and run:
+
+```powershell
+$paths = Get-Content "$env:APPDATA\Orgtree v2\engine-paths.json" -Raw -ErrorAction Stop | ConvertFrom-Json
+if ($paths.schema -ne 'orgtree.engine-paths/v1') { throw 'Unexpected engine path descriptor' }
+foreach ($file in @($paths.python, $paths.custodian, $paths.importer, (Join-Path $paths.pgBin 'postgres.exe'))) {
+  if (-not [IO.Path]::IsPathRooted($file) -or -not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Missing installed file: $file" }
+}
+if (-not [IO.Path]::IsPathRooted($paths.data)) { throw 'Invalid data path' }
+$env:PY = $paths.python
+$env:PG = $paths.custodian
+$env:PGBIN = $paths.pgBin
+$env:DATA = $paths.data
+$env:IMPORTER = $paths.importer
+$env:RESOURCES = Split-Path $paths.engine
+cmd.exe
+```
+
+Keep this terminal for the commands below. These variables affect this
+terminal only; no `setx` or registry changes are needed. If the descriptor or a
+file is missing, stop and ask the team to verify the installed build. Do not
+substitute another Python or custodian. For a separate Dev installation, use
+its own user-data descriptor rather than this production one.
 
 ## 3. Things that must be in place first
 
-Some of these do not ship yet. They are the Orgtree team's job, not yours.
 Check each one. If one fails, stop at this point: nothing has changed yet.
 
 1. **The installed Orgtree must be a build that can run on PostgreSQL.**
-   It must include the PG-0, PG-1 and PG-2 work. *Not shipped yet: the team
-   must install that build first.* Ask for the build's version and confirm
-   it before continuing.
+   It must include the PG-0, PG-1, PG-2 and bundled-runtime work. Ask the team
+   for the approved build's version and confirm it before continuing.
 2. **psycopg** (the Python library that talks to PostgreSQL) must be
-   importable by `PY`, and by the installed Orgtree's own Python. *Not shipped
-   yet: the team stages it into the packaged runtime.* Check `PY`:
+   importable by `PY`, which is the installed app's own Python. Check it:
 
    ```bat
-   "%PY%" -c "import psycopg; print(psycopg.__version__, psycopg.__file__)"
+   "%PY%" -c "import psycopg; print(psycopg.__version__, psycopg.__file__, psycopg.pq.__impl__)"
    ```
 
-   Expected: a version (3.x) and a path. `ModuleNotFoundError` means it is
-   missing: stop.
+   Expected: a version (3.x), a path under the installed runtime, and `binary`.
+   `ModuleNotFoundError` or another implementation means stop.
 3. **pg-custodian.exe and the PostgreSQL binaries** exist at `PG` and
-   `PGBIN`. *Neither ships with Orgtree yet: the team provides them.*
+   `PGBIN` inside the installed package.
 
    ```bat
    dir "%PG%"
    dir "%PGBIN%\postgres.exe"
    ```
 
-4. **Orgtree must be told where those two are** when it starts. *Until the
-   packaged app does this itself,* the interim way is two user environment
-   variables, set in step 9. Anything Orgtree starts afterwards inherits them.
+4. **The packaged desktop supplies both executable paths automatically.**
+   Backend selection and connection details belong to the engine. Do not set
+   `ORGTREE_STORE` or `ORGTREE_PG_CONNINFO` globally.
 5. **Enough free disk** for a full copy of `DATA` (step 5 makes one).
 
 ## 4. Stop Orgtree completely
@@ -115,7 +133,7 @@ pgimport checks this again itself. It takes the data folder's lock file
 ## 5. Back up the data folder
 
 ```bat
-robocopy "%APPDATA%\Orgtree v2\data" "%APPDATA%\Orgtree v2\data-backup-pre-postgres" /E /COPY:DAT /R:0 /W:0
+robocopy "%DATA%" "%DATA%-backup-pre-postgres" /E /COPY:DAT /R:0 /W:0
 ```
 
 Expected: robocopy's exit code is 0 or 1 (it uses 0-7 for success), with 0
@@ -123,19 +141,19 @@ files `FAILED` in its summary. Keep this copy until the user says it can go.
 
 ## 6. Open a clean terminal
 
-Use a new `cmd.exe` started from the Start menu, not from inside Orgtree.
-Then run these lines, with the values from section 2:
+Use the terminal from section 2, which was opened outside Orgtree. If it was
+closed, repeat section 2 to load the recorded paths. Then run:
 
 ```bat
-set DATA=%APPDATA%\Orgtree v2\data
-set ORGTREE_DATA=%DATA%
+set "ORGTREE_DATA=%DATA%"
 set ORGTREE_AGENT_PARENT_DATA=
 set ORGTREE_AGENT_LEGACY_DATA=
 set ORGTREE_STORE=
-set ORGTREE_P03_PG_BIN=<PGBIN>
-set PY=<REPO>\engine\runtime\python.exe
-set PG=<full path of pg-custodian.exe>
-cd /d <REPO>
+set ORGTREE_PG_BOOTSTRAP=
+set ORGTREE_PG_CONNINFO=
+set ORGTREE_PG_URL=
+set "ORGTREE_P03_PG_BIN=%PGBIN%"
+cd /d "%RESOURCES%"
 ```
 
 `set NAME=` with nothing after the `=` removes that variable. The two
@@ -145,7 +163,7 @@ are set, both pgimport and pg-custodian refuse on purpose.
 ## 7. Dry run (reads only, changes nothing)
 
 ```bat
-"%PY%" tools\pypg\pgimport.py dry-run --root "%DATA%" --out "%USERPROFILE%\pgimport-dry-run.json"
+"%PY%" "%IMPORTER%" dry-run --root "%DATA%" --out "%USERPROFILE%\pgimport-dry-run.json"
 echo exit=%ERRORLEVEL%
 ```
 
@@ -156,9 +174,9 @@ Check the report `%USERPROFILE%\pgimport-dry-run.json`:
 - `"importable": true` and `"refused": []`.
 - `"orgs"` has one entry per org file in `DATA\orgs\`. Each entry has
   `manifest_sha256` and a `manifest` with row counts.
-- `provenance.store` is a path inside `<REPO>\engine\backend\`. If it points
-  anywhere else (for example into `C:\Program Files\Orgtree`), the wrong code
-  was loaded: stop.
+- `provenance.store` is inside `%RESOURCES%\engine\backend\`, the same
+  installed package as `PY` and `IMPORTER`. Any other checkout or installation
+  means the wrong code was loaded: stop.
 
 `exit=3` means **refused**. Nothing was written. The `refused` list says which
 org and why. See section 12, "Refused unknown data". Stop here.
@@ -166,7 +184,7 @@ org and why. See section 12, "Refused unknown data". Stop here.
 ## 8. Prepare (writes the product binding)
 
 ```bat
-"%PY%" tools\pypg\pgimport.py prepare --root "%DATA%" --custodian "%PG%"
+"%PY%" "%IMPORTER%" prepare --root "%DATA%" --custodian "%PG%"
 echo exit=%ERRORLEVEL%
 ```
 
@@ -178,7 +196,7 @@ guard refuses").
 ## 9. Import and cut over
 
 ```bat
-"%PY%" tools\pypg\pgimport.py import --root "%DATA%" --custodian "%PG%" --cutover --out "%USERPROFILE%\pgimport-import.json"
+"%PY%" "%IMPORTER%" import --root "%DATA%" --custodian "%PG%" --cutover --out "%USERPROFILE%\pgimport-import.json"
 echo exit=%ERRORLEVEL%
 ```
 
@@ -205,13 +223,8 @@ command again**. Orgs already copied with an identical checksum are skipped. A
 cutover that wrote its record but did not finish moving files is finished;
 that re-run prints `{"cutover_completed": true, "moved": K}`.
 
-Then set the two variables Orgtree needs. `setx` stores them for programs
-started from now on:
-
-```bat
-setx ORGTREE_PG_CUSTODIAN "%PG%"
-setx ORGTREE_P03_PG_BIN "%ORGTREE_P03_PG_BIN%"
-```
+No persistent environment changes follow the import. On the next launch the
+desktop supplies the bundled paths, and the engine reads the cutover record.
 
 ## 10. Success checks (before starting Orgtree)
 
@@ -245,8 +258,7 @@ All of these must hold. If one does not, go to section 13 (abort).
 
 ## 11. Start Orgtree and check it
 
-1. Start Orgtree from the Start menu. It must be started after the `setx` in
-   step 9; a program started earlier does not see the new variables.
+1. Start Orgtree from the Start menu.
 2. **Orgtree is running on PostgreSQL.** Within a minute or two of start:
 
    ```powershell
@@ -339,10 +351,10 @@ moves the remaining files), and start Orgtree again. Or abort (section 13).
 
 **`ORGTREE_STORE=postgres needs ORGTREE_PG_CUSTODIAN`** or
 **`ORGTREE_PG_CUSTODIAN=... is not an existing absolute file`** (Orgtree
-refuses at start; the text is in the event log). Orgtree cannot see the
-variables from step 9. Most often it was started before the `setx`, or it
-was never fully quit. Quit it completely (section 4), check with
-`reg query HKCU\Environment`, and start it again from the Start menu.
+refuses at start; the text is in the event log). The installed build has
+missing runtime wiring or a missing payload file. Quit completely (section 4),
+retain the descriptor and exact error, and ask the team to verify the build.
+Do not point the app at another PostgreSQL installation to repair it.
 
 **Orgtree does not come up after cutover, or shows a white window.** Look in
 the event log (step 11.3). It does not fall back to SQLite by itself, by
@@ -363,8 +375,8 @@ To put SQLite back in charge:
 1. Quit Orgtree and confirm nothing is running (section 4).
 2. If `DATA\store-backend.json` exists, rename it:
    `ren "%DATA%\store-backend.json" store-backend.json.aborted`.
-   Without that file Orgtree uses SQLite. PostgreSQL is then never started,
-   even if the variables from step 9 are still set.
+   Keep Orgtree stopped until the source files and explicit SQLite selection
+   below are restored.
 3. If `DATA\pre-postgres\orgs\` holds files, move them back:
 
    ```bat
@@ -376,19 +388,27 @@ To put SQLite back in charge:
    `move "%DATA%\orgs\*.pg" "%DATA%\pre-postgres\markers\"`.
 5. Check: `dir /b "%DATA%\orgs"` shows the `.db` (and any `.json`) files again
    and no `.pg`, and `store-backend.json` is gone.
-6. Remove the two variables: `reg delete HKCU\Environment /v ORGTREE_PG_CUSTODIAN /f`
-   and `reg delete HKCU\Environment /v ORGTREE_P03_PG_BIN /f`.
+6. Record the rollback explicitly, including when the original store had no
+   orgs. This prevents the fresh-install logic from treating the leftover
+   PostgreSQL folder as unexplained data:
+
+   ```bat
+   "%PY%" -c "import json,os,pathlib; p=pathlib.Path(os.environ['DATA'])/'store-backend.json'; t=p.with_suffix('.json.tmp'); t.write_text(json.dumps({'schema':'orgtree.store-backend/v1','backend':'sqlite','via':'external-rollback'}),encoding='utf-8'); os.replace(t,p)"
+   ```
+
+   Expected: `type "%DATA%\store-backend.json"` names `sqlite`. No user
+   environment variables were created by this runbook, so none need deleting.
 7. Start Orgtree. It runs on SQLite. Ask the user to confirm the orgs look as
    before.
 
-Leave `DATA\pg\` and `DATA\orgtree-product-root.json` alone. They do nothing
-without the cutover record, and the team may want to examine them.
+Leave `DATA\pg\` and `DATA\orgtree-product-root.json` alone. The explicit
+SQLite record keeps them inactive; the team may want to examine them.
 
 Anything written in Orgtree **after** it switched to PostgreSQL exists only in
 PostgreSQL, and going back loses it. This is accepted. If steps 1-7 fail or
 the data still looks wrong, restore the step 5 backup:
 1. With Orgtree stopped, rename `DATA` to `data-failed-<date>`.
-2. Copy `data-backup-pre-postgres` back to `DATA`.
+2. Copy `%DATA%-backup-pre-postgres` back to the original data path.
 3. Start Orgtree.
 
 ## 14. What to send back
@@ -404,8 +424,8 @@ Put these in one folder and give it to the user for the Orgtree team:
 - `"%PG%" status --root "%DATA%" --product` output;
 - the event log lines from step 11.3, and any Orgtree crash reports in
   `%APPDATA%\Orgtree v2\Crashpad\reports\`;
-- the Orgtree version and the `REPO` commit
-  (`git -C <REPO> rev-parse HEAD`);
+- the Orgtree version and installed commit from
+  `%RESOURCES%\build-info.json`, plus the `engine-paths.json` descriptor;
 - which step you stopped at, and whether you aborted.
 
 Do not send the contents of `DATA\pg\` or any `.db` file unless asked. They

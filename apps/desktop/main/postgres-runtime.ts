@@ -1,9 +1,30 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
+/** Installed apps always use bundled paths and may bootstrap a fresh root.
+ * A developer's path opt-in alone must never enable first-run initialization. */
+export function postgresLaunchOptions(packaged: boolean, env: NodeJS.ProcessEnv) {
+  return { packagedPostgres: packaged || env.ORGTREE_DESKTOP_PACKAGED_PG === '1', bootstrapPostgres: packaged }
+}
+
+export function writeEnginePaths(file: string, options: { directory: string; python: string; dataRoot: string }) {
+  const locations = postgresRuntimeEnvironment(options.directory, true)
+  const importer = path.resolve(options.directory, '..', 'tools', 'pypg', 'pgimport.py')
+  for (const target of [options.python, importer]) {
+    if (!path.isAbsolute(target) || !fs.statSync(target, { throwIfNoEntry: false })?.isFile()) throw new Error(`Packaged engine file is missing: ${target}`)
+  }
+  if (!path.isAbsolute(options.dataRoot)) throw new Error('Engine data root must be absolute')
+  const descriptor = { schema: 'orgtree.engine-paths/v1', engine: options.directory,
+    python: options.python, data: options.dataRoot, custodian: locations.ORGTREE_PG_CUSTODIAN,
+    pgBin: locations.ORGTREE_P03_PG_BIN, importer }
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file + '.tmp', JSON.stringify(descriptor, null, 2) + '\n')
+  fs.renameSync(file + '.tmp', file)
+}
+
 /** Supply executable locations only. PG-1 owns backend selection from the
  * cutover record and creates connection details after validating the cluster.
- * Disabled until the packaged runtime is explicitly enabled by the operator. */
+ * Development builds can opt in to paths without enabling bootstrap. */
 export function postgresRuntimeEnvironment(directory: string, enabled = false): NodeJS.ProcessEnv {
   if (!enabled) return {}
   if (!path.isAbsolute(directory)) throw new Error('Packaged PostgreSQL requires an absolute engine directory')

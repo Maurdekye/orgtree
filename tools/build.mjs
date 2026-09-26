@@ -66,7 +66,8 @@ try {
 const files = ['dist/main/index.cjs', 'dist/preload/index.cjs', 'dist/renderer/index.html',
   ...fs.readdirSync('dist/renderer/assets').map(name => 'dist/renderer/assets/' + name),
   'engine/launch.py', 'engine/mailhub/mailhub/app.py', 'engine/mailhub/mailhub/serve.py',
-  'engine/runtime/python.exe', 'engine/runtime/python313._pth', 'engine/runtime/runtime-manifest.json']
+  'engine/runtime/python.exe', 'engine/runtime/python313._pth', 'engine/runtime/runtime-manifest.json',
+  'engine/postgres-runtime-manifest.json', 'engine/pg-custodian.exe', 'tools/pypg/pgimport.py']
 // Every build starts as the release channel; `npm run package:dev` rewrites
 // this file with channel 'dev' and a commit-stamped version before packing.
 // Rebuilding always resets it, so a development stamp cannot leak forward into

@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto'
 import { execFile, spawn as spawnProcess } from 'node:child_process'
 import { autoUpdater } from 'electron-updater'
 import { Engine, ENGINE_REFUSED, INSTALLER_UPGRADE_STOP_BUDGET_MS, QUIT_STOP_BUDGET_MS, refreshTrayEngineMenu, type EngineOptions, type RuntimeStats } from './engine'
+import { postgresLaunchOptions, writeEnginePaths } from './postgres-runtime'
 import { Preferences } from './preferences'
 import { WindowPlacement } from './window-placement'
 import { configureTaskbar } from './taskbar'
@@ -1708,9 +1709,7 @@ else {
     const directory = path.join(base, 'engine')
     try {
       const engineOptions = { directory,
-        // Temporary opt-in while the v3 runtime delivery decision is pending.
-        // This supplies paths; it does not select a backend or run a cutover.
-        packagedPostgres: process.env.ORGTREE_DESKTOP_PACKAGED_PG === '1',
+        ...postgresLaunchOptions(app.isPackaged, process.env),
         python: app.isPackaged ? path.join(directory, 'runtime', 'python.exe') : process.env.ORGTREE_V2_PYTHON ?? '',
         dataRoot: resolveDataRoot(process.env.ORGTREE_V2_DATA, app.getPath('userData'), identity),
         forbiddenRoot: process.env.ORGTREE_DATA || path.join(os.homedir(), 'orgtree'),
@@ -1718,6 +1717,7 @@ else {
       // The tray's restart entry restarts THIS engine, with the runtime,
       // data root and UI directory it was started with - never a set of its own.
       engineRestartOptions = engineOptions
+      if (app.isPackaged) writeEnginePaths(path.join(app.getPath('userData'), 'engine-paths.json'), engineOptions)
       // A boot-host engine (operator's scheduled task) publishes a verified
       // attach descriptor; adopt it instead of racing it for the root lock.
       if (!await engine.attach(engineOptions)) {

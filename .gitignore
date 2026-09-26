@@ -11,6 +11,10 @@ __pycache__/
 *.log
 test-results/
 engine/runtime/
+engine/postgresql/
+engine/pg-custodian.exe
+engine/pg-custodian.exe.tmp
+engine/postgres-runtime-manifest.json*
 .runtime-cache/
 
 # regenerated on every cardlayout probe run — evidence artifact, not source

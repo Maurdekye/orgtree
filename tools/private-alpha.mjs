@@ -15,6 +15,7 @@ import {
 } from './release-windows.mjs'
 import { assertMailhubSubmodule, REQUIRED_PACKAGE_INPUTS } from './preflight-lib.mjs'
 import { assertRuntimeLayout, assertRuntimeImports, bundledSevenZip, runtimeTreeDigest } from './runtime-layout.mjs'
+import { assertPostgresRuntime } from './postgres-layout.mjs'
 import { runVerification } from './release-verification.mjs'
 
 export const APPROVAL_SCHEMA = 'orgtree.private-alpha-approval/v1'
@@ -180,6 +181,7 @@ export function verifyPrivateInstaller({ root, installer, resources, info, engin
   const actual = runtimeTreeDigest(path.join(extracted, 'engine/runtime'))
   if (actual.sha256 !== expected.sha256 || actual.files !== expected.files) fail('Installer runtime differs from win-unpacked')
   assertRuntimeLayout(path.join(extracted, 'engine/runtime'))
+  assertPostgresRuntime(path.join(extracted, 'engine'))
   const probe = assertRuntimeImports(path.join(extracted, 'engine/runtime'))
   return { ...verified, productVersion: VERSION, runtime: actual, python: probe.python, installerExecuted: false }
 }
@@ -256,6 +258,7 @@ export async function buildPrivateAlpha(options, dependencies = {}) {
   assertLockfileVersion(pkg.version, json(path.join(root, 'package-lock.json')))
   assertLocalPath(root, path.join(root, 'node_modules'), { directory: true })
   assertRuntimeLayout(path.join(root, 'engine/runtime'))
+  assertPostgresRuntime(path.join(root, 'engine'), { sourceRoot: root })
   for (const file of REQUIRED_PACKAGE_INPUTS.filter(file => !file.startsWith('dist/'))) assertLocalPath(root, path.join(root, file))
   assertLocalPath(root, path.join(root, 'dist'), { directory: true, absent: true })
   const output = path.join(root, OUTPUT)

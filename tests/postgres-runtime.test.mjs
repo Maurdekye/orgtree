@@ -10,7 +10,7 @@ const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-pg-paths-'))
 const output = path.join(scratch, 'postgres-runtime.cjs')
 await build({ entryPoints: ['apps/desktop/main/postgres-runtime.ts'], outfile: output,
   bundle: true, platform: 'node', format: 'cjs' })
-const { postgresRuntimeEnvironment } = createRequire(import.meta.url)(output)
+const { postgresRuntimeEnvironment, postgresLaunchOptions, writeEnginePaths } = createRequire(import.meta.url)(output)
 test.after(() => fs.rmSync(scratch, { recursive: true, force: true }))
 
 test('disabled by default: no paths or storage selectors are supplied', () => {
@@ -45,4 +45,34 @@ test('enabled payload resolves both executable locations without changing storag
 test('enabled payload refuses absent and relative locations', () => {
   assert.throws(() => postgresRuntimeEnvironment('relative', true), /absolute engine directory/)
   assert.throws(() => postgresRuntimeEnvironment(path.join(scratch, 'missing'), true), /pg-custodian\.exe/)
+})
+
+test('packaged launches enable bootstrap while development path opt-in cannot', () => {
+  assert.deepEqual(postgresLaunchOptions(true, {}), { packagedPostgres: true, bootstrapPostgres: true })
+  assert.deepEqual(postgresLaunchOptions(false, {}), { packagedPostgres: false, bootstrapPostgres: false })
+  assert.deepEqual(postgresLaunchOptions(false, { ORGTREE_DESKTOP_PACKAGED_PG: '1' }),
+    { packagedPostgres: true, bootstrapPostgres: false })
+  assert.deepEqual(postgresLaunchOptions(true, { ORGTREE_DESKTOP_PACKAGED_PG: '0' }),
+    { packagedPostgres: true, bootstrapPostgres: true })
+})
+
+test('installed path descriptor follows custom install/data paths and contains no credentials', () => {
+  const resources = path.join(scratch, 'custom install', 'resources')
+  const directory = path.join(resources, 'engine')
+  const python = path.join(directory, 'runtime', 'python.exe')
+  const importer = path.join(resources, 'tools', 'pypg', 'pgimport.py')
+  const tools = ['pg-custodian.exe', 'postgresql/bin/postgres.exe', 'postgresql/bin/pg_ctl.exe',
+    'postgresql/bin/initdb.exe', 'postgresql/bin/psql.exe', 'postgresql/bin/pg_controldata.exe']
+  for (const file of [python, importer, ...tools.map(tool => path.join(directory, tool))]) {
+    fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, '')
+  }
+  const dataRoot = path.join(scratch, 'selected data')
+  const file = path.join(scratch, 'profile', 'engine-paths.json')
+  writeEnginePaths(file, { directory, python, dataRoot })
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), {
+    schema: 'orgtree.engine-paths/v1', engine: directory, python, data: dataRoot,
+    custodian: path.join(directory, 'pg-custodian.exe'), pgBin: path.join(directory, 'postgresql', 'bin'), importer,
+  })
+  assert.equal(fs.existsSync(file + '.tmp'), false)
+  assert.equal(fs.existsSync(dataRoot), false, 'recording paths must not initialize the database')
 })

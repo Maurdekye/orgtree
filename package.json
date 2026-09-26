@@ -25,7 +25,8 @@
     "package:dev": "npm run build && node tools/package-dev.mjs",
     "test:electron": "node tools/test-electron.mjs",
     "runtime:provision": "python tools/provision-runtime.py",
-    "runtime:stage": "node tools/stage-runtime.mjs"
+    "runtime:stage": "node tools/stage-runtime.mjs",
+    "postgres:provision": "python tools/provision-postgres.py"
   },
   "dependencies": {
     "react": "18.3.1",
@@ -73,6 +74,11 @@
           "!**/__pycache__/**",
           "!native/**/target/**"
         ]
+      },
+      {
+        "from": "tools/pypg",
+        "to": "tools/pypg",
+        "filter": ["pgimport.py"]
       },
       {
         "from": "dist/renderer",

@@ -53,7 +53,7 @@ import type { EngineStatus } from '../../../packages/contracts/index'
 import { maintenanceRequest, type MaintenanceRequest } from './maintenance'
 import { orgActivityRows, type OrgActivityRow } from './traylist'
 
-export interface EngineOptions { python: string; directory: string; dataRoot: string; forbiddenRoot: string; uiDirectory: string; timeoutMs?: number; packagedPostgres?: boolean }
+export interface EngineOptions { python: string; directory: string; dataRoot: string; forbiddenRoot: string; uiDirectory: string; timeoutMs?: number; packagedPostgres?: boolean; bootstrapPostgres?: boolean }
 /** The bundled mail hub's live state, as /api/desktop/status reports it —
  *  feeds the tray's right-click status line (user requirement 2026-09-15). */
 export interface MailhubStats { running: boolean; healthy: boolean; port: number; exposed: boolean; error?: string }
@@ -194,6 +194,10 @@ export class Engine extends EventEmitter {
       ORGTREE_V2_UI_DIR: options.uiDirectory, ORGTREE_V2_PARENT_PID: String(process.pid), PYTHONUNBUFFERED: '1' }
     // Never inherit a v1 backend port or root selector.
     delete env['ORGTREE_PORT' as keyof typeof env]
+    // Fresh bootstrap is an installed-app capability, never inherited from a
+    // shell or from the development executable-path opt-in.
+    delete env['ORGTREE_PG_BOOTSTRAP' as keyof typeof env]
+    if (options.bootstrapPostgres) Object.assign(env, { ORGTREE_PG_BOOTSTRAP: '1' })
     const child = spawn(options.python, [path.join(options.directory, 'launch.py')], { cwd: options.directory, env, windowsHide: true, stdio: 'pipe' })
     this.child = child
     child.stderr.on('data', () => { /* Engine owns on-disk diagnostics; avoid reflecting arbitrary secrets. */ })
