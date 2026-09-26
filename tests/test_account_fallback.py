@@ -313,7 +313,11 @@ class AccountFallbackSettingsTests(unittest.TestCase):
         self.org.d["auto_resume"] = False
         self.org.node("worker")["scope"]["account_fallback"] = False
         self.store.save_org(self.org)
-        with patch.object(self.store, "_load_sqlite_org", wraps=self.store._load_sqlite_org) as load, \
+        # PG-3e-A: the tick's one read is its one org transaction. Counting
+        # `_load_sqlite_org` would count orgtx's own internals (the row read
+        # plus a first-use heal), not the tick's reads.
+        from engine.backend.orgtree import orgtx
+        with patch.object(orgtx, "org_tx", wraps=orgtx.org_tx) as load, \
              patch.object(fallback, "read_board") as read:
             supervisor._auto_resume_org("fallback-settings")
             self.assertEqual(load.call_count, 1)
