@@ -71,7 +71,9 @@ lock timeout) over the existing SQLite seam — a fresh private load, then one
   * the locks are per PROCESS (enough for threads in tests; not for two
     engines on one root);
   * receipts are kept in memory, not durably;
-  * the JSON backend is refused (it has no change set to check);
+  * on ORGTREE_STORE=json it hands over to `JsonBackend` (plan decision 39):
+    DOC_LOCK plus a whole-document load and save, row declarations ignored,
+    receipts BEST-EFFORT (in memory only), no change set;
   * unconverted DOC_LOCK code takes no row locks, so it can still overwrite
     a row an org_tx wrote (the same limit the PostgreSQL backend closes with
     a per-row version check on the legacy `save_org` path).
@@ -179,6 +181,9 @@ class Committed:
     revision: int
     changes: SaveChanges
     op_key: str | None
+    #: False on the JSON fallback: it rewrites the whole document and has no
+    #: change set, so `changes` is empty and says nothing (full-reload)
+    changes_known: bool = True
 
 
 @dataclass
@@ -464,8 +469,12 @@ class SeamBackend:
 
     @contextlib.contextmanager
     def transaction_many(self, txs: list[OrgTx], lock_timeout: float) -> Iterator[None]:
+        if store.STORE_BACKEND == "json":
+            with _json_fallback().transaction_many(txs, lock_timeout):
+                yield
+            return
         if store.STORE_BACKEND != "sqlite":
-            raise OrgTxError(f"org_tx needs ORGTREE_STORE=sqlite or postgres, "
+            raise OrgTxError(f"org_tx needs ORGTREE_STORE=sqlite, postgres or json, "
                              f"not {store.STORE_BACKEND!r}")
         order = sorted(txs, key=lambda t: t.slug)
         owner = object()
@@ -533,6 +542,89 @@ class SeamBackend:
 
     def read(self, slug: str, sections: tuple[str, ...]) -> Org:
         return store.load_org_snapshot(slug, sections)
+
+
+class JsonBackend:
+    """The JSON-store fallback (plan decision 39): the legacy cycle behind the
+    org_tx interface, so a converted route still works on ORGTREE_STORE=json.
+
+    `_run` holds store.DOC_LOCK for the whole transaction on this backend
+    (fence or no fence); each org is loaded whole, the body runs, and each is
+    saved whole. Row declarations are IGNORED — nothing is row-locked and no
+    UnlockedWrite is raised. Its limits:
+      * receipts are BEST-EFFORT: kept in this process's memory, so a replay
+        is recognised only until the engine restarts;
+      * `Committed.changes` is empty and `changes_known` is False (the store
+        publishes the save as unknown; readers full-reload);
+      * a multi-org transaction saves the orgs one after another (slug order),
+        not atomically."""
+
+    def __init__(self) -> None:
+        self.receipts: dict[tuple[str, str], tuple[str | None, Any]] = {}
+        self.revisions: dict[str, int] = {}
+
+    def revision(self, slug: str) -> int:
+        return self.revisions.get(slug, 0)
+
+    def transaction(self, tx: OrgTx, lock_timeout: float) -> contextlib.AbstractContextManager[None]:
+        return self.transaction_many([tx], lock_timeout)
+
+    @contextlib.contextmanager
+    def transaction_many(self, txs: list[OrgTx], lock_timeout: float) -> Iterator[None]:
+        order = sorted(txs, key=lambda t: t.slug)
+        with store.DOC_LOCK:                       # held by _run already: re-entrant
+            for tx in order:
+                _pause("before_lock", tx)
+            for tx in order:
+                _pause("after_lock", tx)
+            for tx in order:
+                if tx.op_key is not None:
+                    hit = self.receipts.get((tx.slug, tx.op_key))
+                    if hit is not None:
+                        if hit[0] != tx.fingerprint:
+                            raise ReceiptConflict(
+                                f"op_key {tx.op_key!r} was used with another fingerprint")
+                        tx.replayed = True
+                        tx.result = hit[1]
+                tx.org = store.load_org(tx.slug)
+            _refuse_mixed_replay(order)
+            yield
+            if any(tx.replayed for tx in order):
+                for tx in order:
+                    tx.revision = self.revision(tx.slug)
+                return
+            for tx in order:
+                _pause("before_commit", tx)
+            loc = store._orgtx_local                   # pyright: ignore[reportPrivateUsage]
+            for tx in order:
+                loc.defer_hooks = tx.deferred_hooks
+                try:
+                    store.save_org(tx.org)
+                finally:
+                    loc.defer_hooks = None
+                self.revisions[tx.slug] = self.revision(tx.slug) + 1
+                if tx.op_key is not None:
+                    self.receipts[(tx.slug, tx.op_key)] = (tx.fingerprint, tx.result)
+                tx.revision = self.revision(tx.slug)
+                tx.committed = Committed(tx.slug, tx.revision, SaveChanges(), tx.op_key,
+                                         changes_known=False)
+            for tx in order:
+                _pause("after_commit", tx)
+
+    def read(self, slug: str, sections: tuple[str, ...]) -> Org:
+        return store.load_org(slug)            # a fresh whole-document parse
+
+
+_json_backend: JsonBackend | None = None
+
+
+def _json_fallback() -> JsonBackend:
+    """The one process-wide JSON fallback (its receipts must be shared)."""
+    global _json_backend
+    with _backend_lock:
+        if _json_backend is None:
+            _json_backend = JsonBackend()
+        return _json_backend
 
 
 _PG_RETRY = {"40001": SerializationFailure, "40P01": DeadlockDetected}
@@ -838,8 +930,11 @@ def _run(make: Callable[[], list[OrgTx]], lock_timeout: float | None,
     timeout = DEFAULT_LOCK_TIMEOUT_S if lock_timeout is None else lock_timeout
     b = backend()
     txs = first
+    # the JSON fallback's only lock is DOC_LOCK, so it is taken here, before
+    # any row-lock bookkeeping, whether or not the fence is on (decision 39)
     fence: contextlib.AbstractContextManager[Any] = (
-        store.DOC_LOCK if TRANSITION_FENCE else contextlib.nullcontext())
+        store.DOC_LOCK if TRANSITION_FENCE or store.STORE_BACKEND == "json"
+        else contextlib.nullcontext())
     with fence:
         txs = yield from _attempts(b, txs, make, slugs, open_slugs, timeout, retries)
     # save hooks deferred out of the transaction: after COMMIT, with the row
