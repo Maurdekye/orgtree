@@ -628,23 +628,26 @@ class Door(unittest.TestCase):
                       [w.get("step") for w in r.get("warnings") or []
                        if isinstance(w, dict)])
 
-    def crossing_seat(self, state="archived"):
+    def crossing_seat(self, state="archived", slug=None):
         """x on a luna tier, bound to another account, its session run: a
         rebind to 'primary' crosses a session boundary."""
+        slug = slug or self.slug
         if state == "archived":
-            self.archive("x")
-        org = store.load_org(self.slug)
+            org = store.load_org(slug)
+            org.retire(U, "x")
+            store.save_org(org)
+        org = store.load_org(slug)
         org.nodes["x"]["account"] = "old-review-account"
         org.nodes["x"]["session_unrun"] = False
         store.save_org(org)
 
-    def real_copy(self):
+    def real_copy(self, slug=None):
         """The real file half, with a real source transcript (the handoff
         record stubbed out): returns the path a copy lands at."""
         src = os.path.join(tempfile.mkdtemp(dir=_root.name), "old.jsonl")
         with open(src, "w", encoding="utf-8") as f:
             f.write('{"type": "user"}' + chr(10))
-        dst = os.path.join(supervisor.scratch_dir(self.slug, "x"),
+        dst = os.path.join(supervisor.scratch_dir(slug or self.slug, "x"),
                            "transcript.jsonl")
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         for c in (patch.object(supervisor, "transcript_path",
@@ -655,31 +658,85 @@ class Door(unittest.TestCase):
             self.addCleanup(c.stop)
         return dst
 
+    def rehire_on(self, path, slug):
+        args = {"node": "x", "account": "primary"}
+        if path == "door":
+            return self.call(slug, "boss", "orgtree_rehire", args)
+        with patch.object(pgdoor, "enabled", lambda: False):
+            return self.call(slug, "boss", "orgtree_rehire", args)
+
     def test_a_rolled_back_rebind_leaves_no_copied_transcript(self):
         # pg-supervisor-a's condition: the copy is a FILE effect, so it must
-        # not happen for a rebind whose transaction rolls back. Positive
+        # not happen for a rebind whose transaction rolls back — on the door
+        # AND on the DOC_LOCK cycle (api's generic account step). Positive
         # control first: the same rebind, committed, does copy.
-        self.crossing_seat()
-        dst = self.real_copy()
-        self.call(self.slug, "boss", "orgtree_rehire",
-                  {"node": "x", "account": "primary"})
-        self.assertTrue(os.path.isfile(dst), "control: a committed rebind copies")
-        self.tearDown()
-        self.setUp()
-        self.crossing_seat()
-        dst = self.real_copy()
-        self.assertFalse(os.path.isfile(dst))
-        real = supervisor.assign_account
+        for path in ("door", "cycle"):
+            with self.subTest(path):
+                self.tearDown()
+                self.setUp()
+                self.crossing_seat()
+                dst = self.real_copy()
+                self.rehire_on(path, self.slug)
+                self.assertTrue(os.path.isfile(dst),
+                                "control: a committed rebind copies")
+                self.tearDown()
+                self.setUp()
+                self.crossing_seat()
+                dst = self.real_copy()
+                self.assertFalse(os.path.isfile(dst))
+                real = supervisor.assign_account
 
-        def then_refused(*a, **k):
-            real(*a, **k)                  # the rebind ran inside the tx ...
-            raise ValueError("refused after the rebind")   # ... then rolled back
-        with patch.object(supervisor, "assign_account", then_refused):
-            with self.assertRaises(HTTPException):
-                self.call(self.slug, "boss", "orgtree_rehire",
-                          {"node": "x", "account": "primary"})
-        self.assertEqual(store.load_org(self.slug).nodes["x"]["state"], "archived")
+                def then_refused(*a, **k):
+                    real(*a, **k)          # the rebind ran inside the tx ...
+                    raise ValueError("refused after the rebind")  # ... rolled back
+                with patch.object(supervisor, "assign_account", then_refused):
+                    with self.assertRaises(HTTPException):
+                        self.rehire_on(path, self.slug)
+                self.assertEqual(store.load_org(self.slug).nodes["x"]["state"],
+                                 "archived")
+                self.assertFalse(os.path.isfile(dst),
+                                 "a rolled-back rebind copied")
+
+    def test_assign_accounts_own_transaction_copies_only_after_its_commit(self):
+        # (a) org=None: assign_account owns _assign_tx. A raise inside it
+        # AFTER the session archive rolls the rebind back and copies nothing;
+        # the committed rebind copies once, after the commit.
+        self.crossing_seat(state="live")
+        dst = self.real_copy()
+        with patch.object(ledger.Org, "_fold_notices",
+                          side_effect=RuntimeError("after the archive")):
+            with self.assertRaises(RuntimeError):
+                supervisor.assign_account(self.slug, "x", "primary",
+                                          actor="boss", notify_change=False)
+        self.assertEqual(store.load_org(self.slug).nodes["x"].get("account"),
+                         "old-review-account")
         self.assertFalse(os.path.isfile(dst), "a rolled-back rebind copied")
+        seen = []
+        real = supervisor.export_after_commit
+
+        def spy(slug, *a, **k):
+            seen.append(pgdoor.current(slug) is not None)
+            return real(slug, *a, **k)
+        with patch.object(supervisor, "export_after_commit", spy):
+            out = supervisor.assign_account(self.slug, "x", "primary",
+                                             actor="boss", notify_change=False)
+        self.assertEqual(seen, [False])     # once, with no transaction open
+        self.assertTrue(os.path.isfile(dst), "control: a committed rebind copies")
+        self.assertNotIn("_export_old_sid", out)
+        self.assertNotIn("warnings", out)
+
+    def test_a_failed_copy_after_assign_accounts_commit_is_a_warning(self):
+        self.crossing_seat(state="live")
+
+        def boom(*a, **k):
+            raise OSError("disk gone")
+        with patch.object(supervisor, "export_predecessor_transcript_deferred",
+                          boom):
+            out = supervisor.assign_account(self.slug, "x", "primary",
+                                             actor="boss", notify_change=False)
+        self.assertIsNone(store.load_org(self.slug).nodes["x"].get("account"))
+        self.assertEqual([w["step"] for w in out.get("warnings") or []],
+                         ["account_export"])
 
     def test_finish_switch_binding_can_hand_the_export_to_the_caller(self):
         self.crossing_seat(state="live")

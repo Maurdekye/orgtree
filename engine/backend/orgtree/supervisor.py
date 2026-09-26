@@ -15869,10 +15869,16 @@ def assign_account(slug: str, nid: str, account_id: str, *,
                 or bool(node.get("codex_thread"))):
             if bool(node.get("codex_thread")) or not node.get("session_unrun"):
                 pred_id, old_sid = org._archive_session_in_place(nid)
-                if export:
+                if export and _caller_owns_save:
+                    # a caller that owns the commit and did not opt out
+                    # (account_fallback, account_removal: decision-41
+                    # follow-ups) still copies inline
                     export_predecessor_transcript(org, nid, old_sid=old_sid,
                                                   reason="account_assign")
                 else:
+                    # the copy is a FILE effect: never inside the rebind's
+                    # transaction (lead decision 41; pg-supervisor-a) — after
+                    # this call's own commit below, or the caller's
                     deferred_export = old_sid
                 org._moot_asks(nid, "the asking session was replaced by a "
                                     "provider account switch — the "
@@ -15958,10 +15964,19 @@ def assign_account(slug: str, nid: str, account_id: str, *,
             **({"auth_thawed": True} if auth_thawed else {}),
         }
         org._log("account_assign", actor, {**disclosure, "via": via}, [])
-        if deferred_export:
-            # export=False (a row-transaction door): the caller runs
-            # export_after_commit with this after ITS commit; never logged
+        if deferred_export and _caller_owns_save:
+            # export=False: the caller runs export_after_commit with this
+            # after ITS commit; never logged
             disclosure["_export_old_sid"] = deferred_export
+    if deferred_export and not _caller_owns_save:
+        # this call owned the transaction, and it has committed: copy now.
+        # A failure is disclosed, never raised — the rebind stands.
+        try:
+            export_after_commit(slug, org, nid, deferred_export,
+                                "account_assign")
+        except Exception as e:                               # noqa: BLE001
+            disclosure.setdefault("warnings", []).append(
+                {"step": "account_export", "error": f"{type(e).__name__}: {e}"})
     if notify_change:
         notify(slug, nid, "account")
     # state-audit SH-2 (state-review fix 2026-09-12): the park is gone and the

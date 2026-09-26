@@ -12482,6 +12482,9 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
     account_notify: str | None = None
     account_unpark: str | None = None   # a node an assignment just un-parked (SH-2)
     account_thawed: str | None = None   # a node a rebind just auth-thawed (2026-09-16)
+    # (node, archived session) whose transcript a rebind owes AFTER the save
+    # (lead decision 41: the copy is a file effect, never inside the tx)
+    account_export: tuple[str, str] | None = None
     effort_live: str | None = None      # a node whose effort a retool changed
     effort_before: str | None = None    # …and the level it resolved to before
     drive: list[str] = []      # nodes whose turn should run after we release the lock
@@ -13150,7 +13153,10 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                     # clobbered by that later save of the stale copy
                     result = supervisor.assign_account(
                         body.org, target, str(a.get("account") or ""),
-                        actor=body.node, org=org)
+                        actor=body.node, org=org, export=False)
+                    _xsid = result.pop("_export_old_sid", None)
+                    if _xsid:
+                        account_export = (target, str(_xsid))
                     # SH-2 (state-review fix): this caller owns the save, so
                     # assign_account did NOT drive the unpark wake — do it
                     # after the save below on the flag it returned.
@@ -13397,9 +13403,12 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 try:
                     disclosure = supervisor.assign_account(
                         body.org, target, account, actor=body.node, org=org,
-                        via=via, notify_change=False)
+                        via=via, notify_change=False, export=False)
                 except (RuntimeError, ValueError) as e:
                     raise LedgerError(str(e)) from e
+                _xsid = disclosure.pop("_export_old_sid", None)
+                if _xsid:
+                    account_export = (target, str(_xsid))
                 result["account"] = disclosure["account"]
                 result["account_binding"] = disclosure
                 account_notify = target
@@ -13433,6 +13442,13 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             # below it is a rewind (opreceipts.witness)
             opreceipts.witness(store.DATA_ROOT, body.org,
                                opreceipts.seq(cast("dict[str, Any]", org.d)))
+    if account_export is not None:
+        # saved now: the rebind's transcript copy, off DOC_LOCK's window of
+        # risk (a failure is disclosed, never raised — the rebind stands)
+        pgdoor.after_commit(result, "account_export",
+                            supervisor.export_after_commit, body.org, org,
+                            account_export[0], account_export[1],
+                            "account_assign")
     if account_notify is not None:
         supervisor.notify(body.org, account_notify, "account")
     if account_unpark is not None:
