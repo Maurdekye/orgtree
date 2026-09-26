@@ -230,6 +230,32 @@ class WatchdogRoute(unittest.TestCase):
         self.refused(wid, 'supersede', 'why not')    # a persistent dog
         self.assertEqual(self.hub.call_count, 0)
 
+    def test_remove_at_the_lifecycle_cap_commits_the_eviction(self) -> None:
+        # p01 note 1: lifecycle is a row log (MOVED_TO_LOGS) but record() also
+        # EVICTS at its cap — a delete of existing rows, not only an append
+        from orgtree import lifecycle
+        wid = self.dog()
+        org = store.load_org(self.slug)
+        rows = org.d.setdefault('lifecycle', [])
+        while len(rows) < lifecycle.MAX_RECORDS:
+            rows.append({'operation_id': f'filler:{len(rows)}', 'kind': 'filler',
+                         'state': 'seen', 'at': '2026-01-01T00:00:00Z', 'count': 1})
+        store.save_org(org)
+        self.assertEqual(len(self.durable()['lifecycle']), lifecycle.MAX_RECORDS)
+        r, n, c = self.post(wid, 'remove', 'cap test')
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual((n, c), (1, 1), 'remove at the cap widened')
+        after = self.durable()['lifecycle']
+        self.assertEqual(len(after), lifecycle.PRUNE_TO, 'the eviction did not persist')
+        self.assertEqual(after[-1].get('watchdog_id'), wid, 'the new row is not last')
+        self.assertNotIn('filler:0', [x.get('operation_id') for x in after])
+
+    def test_unknown_org_is_422(self) -> None:
+        # p01 note 2: the DOC_LOCK route answered 422 (load_org's LedgerError)
+        r = self.client.post('/api/orgs/no-such-org/watchdogs',
+                             json={'id': 'x', 'action': 'pause'}, headers=OP)
+        self.assertEqual(r.status_code, 422, r.text)
+
     # ------------------------------------------------------------- agent door
 
     def test_tool_supersede_by_an_ancestor_is_one_transaction(self) -> None:
