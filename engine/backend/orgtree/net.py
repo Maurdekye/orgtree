@@ -410,11 +410,28 @@ def _set_status(slug: str, hub_id: str, connected: bool,
             pass
 
 
+class _NetDoc:
+    """The org-level net settings `_participants` reads, as an `Org`-shaped
+    stand-in (`.d` only). Every write path below still rebinds `org` to the
+    transaction's real Org."""
+
+    def __init__(self, d: dict[str, Any]) -> None:
+        self.d = d
+
+
+#: every top-level key `_participants` reads. `kiosk` is only tested for
+#: None, which Org.__init__'s kiosk normalization never changes.
+_PARTICIPANT_KEYS = ("kiosk", "net_identity", "net_hubs", "net_autoconnect",
+                     "net_state", "net_spool", "name")
+
+
 def _participants() -> dict[str, dict[str, Any]]:
-    """Snapshot which orgs talk to which hubs. Loads docs (cheap at this
-    scale, and the storage watchdog already does the same each 20 s); mints
-    missing identities/backfills hub lists for pre-F-06 orgs in org_tx
-    (the chatq precedent: existing orgs join automatically)."""
+    """Snapshot which orgs talk to which hubs; mints missing
+    identities/backfills hub lists for pre-F-06 orgs in org_tx (the chatq
+    precedent: existing orgs join automatically). It runs on EVERY
+    store.REVISION change, for every org, so it reads only the net settings
+    it needs (store.read_doc_sections), not the whole document (scale,
+    hot-paths-off-full-org-reads; was a full load_org per org per save)."""
     from . import orgtx, store
     out: dict[str, dict[str, Any]] = {}
     for o in store.list_orgs():
@@ -422,7 +439,8 @@ def _participants() -> dict[str, dict[str, Any]]:
         if o.get("kiosk"):
             continue
         try:
-            org = store.load_org(slug)
+            doc = store.read_doc_sections(slug, _PARTICIPANT_KEYS)
+            org: Any = _NetDoc(doc) if doc is not None else store.load_org(slug)
         except Exception:                                        # noqa: BLE001
             continue
         if org.d.get("kiosk") is not None:
