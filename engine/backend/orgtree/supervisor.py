@@ -35063,110 +35063,165 @@ def _reconcile_mail_journal(org: Org, *,
     return frozenset(all_folded)
 
 
-def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -> list[str]:
-    """№31 eager pass at startup: any ledger-live node that has demonstrably run
-    before (cost > 0) but whose transcript is gone cannot resume — say so now,
-    not on the next message."""
-    marked = []
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
-        inventory = NativeInventory()
-        if halt.recover(org):
-            store.save_org(org)
-        # (Only explicit import recovery may dispatch unresolved imported
-        # work. That hold is per node and per marker — `_import_recovery_hold`
-        # below — never a whole-org stop on this pass.)
-        # ONE walk for the whole pass — see transcript_index. The per-node
-        # `transcript_path` this replaces re-listed the user's entire
-        # `projects/` directory for every node, once per org, at startup.
-        seen = _transcript_evidence(org, inventory=inventory)
-        healed = False
-        if seen is None:
-            print(f"[orgtree] {slug}: transcript store unreadable — the №31 "
-                  f"sweep is skipped (nothing condemned)")
+class _ReconcileStepFailed(Exception):
+    """A step of reconcile's first block raised (S7 L3). `step` is its
+    1-based position; `exc` is the original exception."""
+
+    def __init__(self, step: int, exc: BaseException) -> None:
+        super().__init__(step, exc)
+        self.step, self.exc = step, exc
+
+
+class _ReconcileStop(Exception):
+    """Internal: the replay pass stops before the step that failed."""
+
+
+def _reconcile_remote_pids(org: Org) -> dict[str, Any]:
+    """FR-01: the recorded remote-control server pid per node that carries a
+    `remote_controlled` flag (None when the flag has no pid)."""
+    out: dict[str, Any] = {}
+    for nid, n in org.nodes.items():
+        rc = n.get("remote_controlled")
+        if rc is not None:
+            out[nid] = rc.get("pid") if isinstance(rc, dict) else None
+    return out
+
+
+def _reconcile_kill(pid: Any) -> None:
+    """Belt-and-braces (redteam note): if the leash silently failed, the
+    recorded pid may still be alive with a phone attached to a session
+    orgtree is about to treat as free — kill it by pid."""
+    if not pid:
+        return
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                capture_output=True, timeout=15,
+                creationflags=subprocess.CREATE_NO_WINDOW)  # type: ignore[attr-defined]
         else:
-            for nid, n in org.nodes.items():
-                if _native_context_hold(org, nid, inventory=inventory) \
-                        or _import_recovery_unsettled(org, nid):
-                    continue  # Ambiguous/unvalidated import is held, not lost.
-                # self-heal, so the never-run pardon can never be permanent:
-                # the transcript EXISTS, therefore the session ran, therefore
-                # the pardon is spent — the same rule spend_unrun_pardon
-                # applies at every turn's end, re-checked here because a
-                # transcript can appear (or the backend die) out of band.
-                if n["session_id"] in seen and "session_unrun" in n:
-                    n.pop("session_unrun", None)
-                    healed = True
-                if _condemnable(n, seen):
-                    org.mark_unrecoverable(nid,
-                                           "transcript missing at startup (№31)")
-                    marked.append(nid)
-        # ── state-audit SH-4 (user ruling 2026-09-12): a condemned node is a
-        # TERMINAL state and its superior must be TOLD, not merely noticed.
-        # `mark_unrecoverable` writes a passive notice, which an idle parent
-        # may not read for days (and a TOP-LEVEL condemnation reached nobody
-        # at all — `_notify_ev([None])` is a no-op). Durable mail here, under
-        # the same save; the DRIVE happens after the lock, batched one per
-        # superior (a whole-org condemnation must not cost a turn per node).
-        _unrec_by_sup: dict[str, list[str]] = {}
-        for _un in marked:
-            _n = org.nodes.get(_un) or {}
-            _uname = str(_n.get("name") or _un)
-            _usup = str(_n.get("parent") or "")
-            _udoor = ("its session transcript was missing at startup — it "
-                      "was marked UNRECOVERABLE (№31); re-seed it to give "
-                      "it a fresh session, or retire it")
-            if _usup and _usup in org.nodes \
-                    and org.nodes[_usup]["state"] == "live":
-                org.append_system_mail(
-                    _usup, events.mint(
+            os.kill(int(pid), 15)
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        pass
+
+
+def _reconcile_block(org: Org, slug: str, *, recovery_observer: Any,
+                     inventory: Any, stop: int | None = None) -> dict[str, Any]:
+    """reconcile's first block (S7 L3), on the org held by ONE
+    `org_tx(slug, whole=True)` (plan decision 23), in its legacy step order.
+
+    Steps 1-6 are the legacy save points (under DOC_LOCK, each ended in its
+    own `store.save_org`); step 7 writes nothing. A step that raises becomes
+    `_ReconcileStepFailed(step)`: the caller lets this transaction roll back,
+    commits a replay with `stop=step` (steps 1..step-1 re-run, nothing after
+    them), and re-raises the original. So a failure leaves exactly what the
+    legacy pass had saved when it raised (p01's review, S7 decision 1, Q5
+    (b)). Retryable errors pass through untouched for `org_tx_call` to re-run
+    the whole body, which is why the body keeps no state of its own between
+    runs. No step opens a transaction or runs a process: the FR-01 kill and
+    the runtime settle run outside (`reconcile`)."""
+    out: dict[str, Any] = {
+        "marked": [], "unrec_by_sup": {}, "rc_popped": {}, "inflight": [],
+        "recovery_seats": set(), "switch_wake": [], "account_wake": [],
+        "manual_net": [], "settle": False, "revive": [], "latched": False}
+    marked: list[str] = out["marked"]
+
+    @contextlib.contextmanager
+    def _step(k: int) -> Iterator[None]:
+        if stop is not None and k >= stop:
+            raise _ReconcileStop
+        try:
+            yield
+        except (_ReconcileStop, _ReconcileStepFailed, orgtx.Retryable):
+            raise
+        except Exception as e:                               # noqa: BLE001
+            raise _ReconcileStepFailed(k, e) from e
+
+    try:
+        # ── 1. halt recovery
+        with _step(1):
+            halt.recover(org)
+        # ── 2. №31 condemn + heal, and the condemned nodes' durable mail
+        with _step(2):
+            # (Only explicit import recovery may dispatch unresolved imported
+            # work. That hold is per node and per marker — `_import_recovery_hold`
+            # below — never a whole-org stop on this pass.)
+            # ONE walk for the whole pass — see transcript_index. The per-node
+            # `transcript_path` this replaces re-listed the user's entire
+            # `projects/` directory for every node, once per org, at startup.
+            seen = _transcript_evidence(org, inventory=inventory)
+            if seen is None:
+                print(f"[orgtree] {slug}: transcript store unreadable — the №31 "
+                      f"sweep is skipped (nothing condemned)")
+            else:
+                for nid, n in org.nodes.items():
+                    if _native_context_hold(org, nid, inventory=inventory) \
+                            or _import_recovery_unsettled(org, nid):
+                        continue  # Ambiguous/unvalidated import is held, not lost.
+                    # self-heal, so the never-run pardon can never be permanent:
+                    # the transcript EXISTS, therefore the session ran, therefore
+                    # the pardon is spent — the same rule spend_unrun_pardon
+                    # applies at every turn's end, re-checked here because a
+                    # transcript can appear (or the backend die) out of band.
+                    if n["session_id"] in seen and "session_unrun" in n:
+                        n.pop("session_unrun", None)
+                    if _condemnable(n, seen):
+                        org.mark_unrecoverable(nid,
+                                               "transcript missing at startup (№31)")
+                        marked.append(nid)
+            # ── state-audit SH-4 (user ruling 2026-09-12): a condemned node is a
+            # TERMINAL state and its superior must be TOLD, not merely noticed.
+            # `mark_unrecoverable` writes a passive notice, which an idle parent
+            # may not read for days (and a TOP-LEVEL condemnation reached nobody
+            # at all — `_notify_ev([None])` is a no-op). Durable mail here, in
+            # the same step; the DRIVE happens after the commit, batched one per
+            # superior (a whole-org condemnation must not cost a turn per node).
+            _unrec_by_sup: dict[str, list[str]] = out["unrec_by_sup"]
+            for _un in marked:
+                _n = org.nodes.get(_un) or {}
+                _uname = str(_n.get("name") or _un)
+                _usup = str(_n.get("parent") or "")
+                _udoor = ("its session transcript was missing at startup — it "
+                          "was marked UNRECOVERABLE (№31); re-seed it to give "
+                          "it a fresh session, or retire it")
+                if _usup and _usup in org.nodes \
+                        and org.nodes[_usup]["state"] == "live":
+                    org.append_system_mail(
+                        _usup, events.mint(
+                            "runtime.report_stalled", _SYSTEM_ACTOR,
+                            _node_ref(org, _un), report=_un, report_name=_uname,
+                            cause="terminal", audience="superior",
+                            attempts=None, classified=None, door=_udoor, err=""),
+                        kind="message", sender="@system",
+                        relationship="the orgtree engine")
+                    _unrec_by_sup.setdefault(_usup, []).append(_un)
+                else:
+                    _uev = events.mint(
                         "runtime.report_stalled", _SYSTEM_ACTOR,
                         _node_ref(org, _un), report=_un, report_name=_uname,
-                        cause="terminal", audience="superior",
-                        attempts=None, classified=None, door=_udoor, err=""),
-                    kind="message", sender="@system",
-                    relationship="the orgtree engine")
-                _unrec_by_sup.setdefault(_usup, []).append(_un)
-            else:
-                _uev = events.mint(
-                    "runtime.report_stalled", _SYSTEM_ACTOR,
-                    _node_ref(org, _un), report=_un, report_name=_uname,
-                    cause="terminal", audience="user",
-                    attempts=None, classified=None, door=_udoor, err="")
-                org.to_user_inbox({
-                    "id": uuid_hex8(), "from": SYSTEM, "kind": STOPPED_WORK_KIND,
-                    "at": now_iso(), "body": events.render_agent(_uev)}, _uev)
-        if marked or healed:
-            store.save_org(org)
-        # FR-01: a remote-control server is leashed to the backend, so after
-        # a restart none can be running — a surviving flag is stale and
-        # would park the node forever. Belt-and-braces (redteam note): if
-        # the leash silently failed, the recorded pid may still be alive
-        # with a phone attached to a session orgtree is about to treat as
-        # free — kill it by pid before clearing.
-        rc_cleared = False
-        for n in org.nodes.values():
-            rc = n.pop("remote_controlled", None)
-            if rc is not None:
-                rc_cleared = True
-                pid = rc.get("pid") if isinstance(rc, dict) else None
-                if pid:
-                    try:
-                        if os.name == "nt":
-                            subprocess.run(
-                                ["taskkill", "/PID", str(pid), "/T", "/F"],
-                                capture_output=True, timeout=15,
-                                creationflags=subprocess.CREATE_NO_WINDOW)  # type: ignore[attr-defined]
-                        else:
-                            os.kill(int(pid), 15)
-                    except (OSError, subprocess.TimeoutExpired, ValueError):
-                        pass
-        if rc_cleared:
-            store.save_org(org)
-        # agents that were MID-TURN when orgtree went down auto-resume from
-        # where they left off (user ruling) — the interrupted turn text was
-        # persisted at turn start
-        inflight = []
+                        cause="terminal", audience="user",
+                        attempts=None, classified=None, door=_udoor, err="")
+                    org.to_user_inbox({
+                        "id": uuid_hex8(), "from": SYSTEM, "kind": STOPPED_WORK_KIND,
+                        "at": now_iso(), "body": events.render_agent(_uev)}, _uev)
+        # ── 3. FR-01: a remote-control server is leashed to the backend, so
+        # after a restart none can be running — a surviving flag is stale and
+        # would park the node forever. The pids read before this transaction
+        # were killed BEFORE it (`reconcile`), so for every flag present then
+        # the kill still precedes the pop. A flag written between that read and
+        # this lock is popped here and its pid killed right after the commit
+        # (p01's review, S7 Q4): the only reordering, for a window of
+        # milliseconds.
+        with _step(3):
+            for nid, n in org.nodes.items():
+                rc = n.pop("remote_controlled", None)
+                if rc is not None:
+                    out["rc_popped"][nid] = (rc.get("pid") if isinstance(rc, dict)
+                                             else None)
+        # ── 4. agents that were MID-TURN when orgtree went down auto-resume
+        # from where they left off (user ruling) — the interrupted turn text
+        # was persisted at turn start
+        inflight: list[tuple[str, Any]] = out["inflight"]
         # Which of those seats the RECOVERY observer owns. It is
         # desktop_recovery's callback and it looks each node up in
         # `recovery_attempts`, which only ever holds the imported agents — so
@@ -35174,68 +35229,64 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
         # after every marker had already been taken. Measured 2026-09-11: an
         # operator pressing resume-import while any ordinary agent was
         # mid-turn lost that agent's turn outright.
-        recovery_seats: set[str] = set()
+        recovery_seats: set[str] = out["recovery_seats"]
         deferred_input: list[str] = []
-        dropped_cmd = False
-        for nid, n in org.nodes.items():
-            if n.get("halt"):
-                continue
-            if recovery_observer is None and (
-                    _native_context_hold(org, nid, inventory=inventory)
-                    or _import_recovery_hold(org, nid, n.get("inflight"))):
-                continue  # Retain interrupted intent until explicit resolution.
-            if n["state"] == "live" and nid not in marked and not n.get("frozen"):
-                inf = n.get("inflight")
-                if inf and "mail_input" in inf:
-                    ready = mailruntime.replay_ready(org, nid, inf)
-                    if ready is None:
-                        # Input outcome unresolved; preserve the original
-                        # marker. A restart fold below may settle it.
-                        deferred_input.append(nid)
-                        continue
-                    inf = ready
-                # a command turn can't replay honestly (the restart preamble
-                # would bury the "/" mid-prose and the CLI would run it as
-                # text) — a lost command is dropped, not degraded (review)
-                if inf and not inf.get("cmd"):
-                    # ⚠ READ, NOT POPPED — and this is the whole fix for the
-                    # 2026-09-18 stranding. This loop used to `pop` every
-                    # replayable marker and `save_org` that erasure BEFORE the
-                    # dispatch loop below ran a single turn. The dispatch loop
-                    # runs OUTSIDE the lock and each iteration is a whole turn,
-                    # so a backend killed partway through it lost every
-                    # not-yet-dispatched marker permanently: the `finally` that
-                    # put them back cannot run when the process is killed, and
-                    # no later boot replays a marker that is already off disk.
-                    # Worse, the marker is also what renders the node as
-                    # died-mid-turn, so the stranded agent read as merely IDLE
-                    # — invisible precisely because the evidence was erased.
-                    # Reproduced with a real `taskkill /T /F`:
-                    # tests/restart_reconcile_kill_probe.py.
-                    # Each marker is now spent immediately before ITS OWN
-                    # dispatch instead (see the loop below), so a kill can cost
-                    # at most the single marker in flight — which is the one
-                    # the "spent by its dispatch" rule below already treats as
-                    # gone — and never the ones the loop has not reached.
-                    inflight.append((nid, inf))
-                    if recovery_observer is not None \
-                            and _import_recovery_unsettled(org, nid):
-                        recovery_seats.add(nid)
-                elif inf:
-                    # A COMMAND marker is still dropped HERE, because dropping
-                    # it is the outcome — there is no dispatch later to hang it
-                    # on. ⚠ the pop is IN MEMORY. Saving only when something
-                    # is replayable meant an org whose only in-flight turn was
-                    # a COMMAND never wrote the drop back: the marker survived
-                    # on disk, every later restart re-dropped it, and the tree
-                    # kept reporting `inflight_at` — "running for 6 days" on an
-                    # idle node. Measured 2026-08-04 (test_turn_lifecycle
-                    # "reconcile · its inflight marker is cleared").
-                    n.pop("inflight", None)
-                    dropped_cmd = True
-        if dropped_cmd:
-            store.save_org(org)
-        # D-234: a switch queued behind a turn the backend's death ended
+        with _step(4):
+            for nid, n in org.nodes.items():
+                if n.get("halt"):
+                    continue
+                if recovery_observer is None and (
+                        _native_context_hold(org, nid, inventory=inventory)
+                        or _import_recovery_hold(org, nid, n.get("inflight"))):
+                    continue  # Retain interrupted intent until explicit resolution.
+                if n["state"] == "live" and nid not in marked and not n.get("frozen"):
+                    inf = n.get("inflight")
+                    if inf and "mail_input" in inf:
+                        ready = mailruntime.replay_ready(org, nid, inf)
+                        if ready is None:
+                            # Input outcome unresolved; preserve the original
+                            # marker. A restart fold below may settle it.
+                            deferred_input.append(nid)
+                            continue
+                        inf = ready
+                    # a command turn can't replay honestly (the restart preamble
+                    # would bury the "/" mid-prose and the CLI would run it as
+                    # text) — a lost command is dropped, not degraded (review)
+                    if inf and not inf.get("cmd"):
+                        # ⚠ READ, NOT POPPED — and this is the whole fix for the
+                        # 2026-09-18 stranding. This loop used to `pop` every
+                        # replayable marker and `save_org` that erasure BEFORE the
+                        # dispatch loop below ran a single turn. The dispatch loop
+                        # runs OUTSIDE the lock and each iteration is a whole turn,
+                        # so a backend killed partway through it lost every
+                        # not-yet-dispatched marker permanently: the `finally` that
+                        # put them back cannot run when the process is killed, and
+                        # no later boot replays a marker that is already off disk.
+                        # Worse, the marker is also what renders the node as
+                        # died-mid-turn, so the stranded agent read as merely IDLE
+                        # — invisible precisely because the evidence was erased.
+                        # Reproduced with a real `taskkill /T /F`:
+                        # tests/restart_reconcile_kill_probe.py.
+                        # Each marker is now spent immediately before ITS OWN
+                        # dispatch instead (see the loop below), so a kill can cost
+                        # at most the single marker in flight — which is the one
+                        # the "spent by its dispatch" rule below already treats as
+                        # gone — and never the ones the loop has not reached.
+                        inflight.append((nid, inf))
+                        if recovery_observer is not None \
+                                and _import_recovery_unsettled(org, nid):
+                            recovery_seats.add(nid)
+                    elif inf:
+                        # A COMMAND marker is still dropped HERE, because dropping
+                        # it is the outcome — there is no dispatch later to hang
+                        # it on. The drop must reach disk: an org whose only
+                        # in-flight turn was a COMMAND once never wrote it back,
+                        # every later restart re-dropped it, and the tree kept
+                        # reporting `inflight_at` — "running for 6 days" on an
+                        # idle node. Measured 2026-08-04 (test_turn_lifecycle
+                        # "reconcile · its inflight marker is cleared").
+                        n.pop("inflight", None)
+        # ── 5. D-234: a switch queued behind a turn the backend's death ended
         # applies NOW, before that turn is replayed below — the replay is the
         # successor's first turn, on the lane the user asked for
         # (state-audit F1: `switch_wake` collects nodes whose stale provider
@@ -35244,84 +35295,147 @@ def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -
         # and its freeze then popped here with nobody left to drive it. The
         # dispatch below wakes them, unconditionally like the inflight
         # replays — active_only gates only the generic mail revive.)
-        switch_wake: list[str] = []
-        account_wake: list[tuple[str, str]] = []
-        queued = [k for k, n in org.nodes.items()
-                  if n["state"] == "live"
-                  and (n.get("pending_switch") or n.get("pending_account"))]
-        if queued:
+        # (PG-3e-A: turn end applies a queued switch in a SECOND pass after its
+        # marker pop, so a death between the two leaves the switch for here.)
+        with _step(5):
+            queued = [k for k, n in org.nodes.items()
+                      if n["state"] == "live"
+                      and (n.get("pending_switch") or n.get("pending_account"))]
             for nid in queued:
-                _apply_pending_switch_locked(org, slug, nid, wake=switch_wake,
-                                             account_wake=account_wake)
-            store.save_org(org)
-        # Positive recorded delivery is applied first. Remaining journal rows
-        # pass through the same ownership rules used by runtime recovery;
+                _apply_pending_switch_locked(org, slug, nid,
+                                             wake=out["switch_wake"],
+                                             account_wake=out["account_wake"])
+        # ── 6. Positive recorded delivery is applied first. Remaining journal
+        # rows pass through the same ownership rules used by runtime recovery;
         # process death alone cannot release a claim or uncertain input.
-        recorded = 0
-        try:
-            recorded = _reconcile_steer_records(org)
-        except Exception:                                    # noqa: BLE001
-            pass
-        # P08c: a manual read whose every chunk the runtime echoed is
-        # confirmed from that durable evidence before the fold could return it.
-        manual = 0
-        manual_net: list[str] = []
-        try:
-            manual = _reconcile_manual_records(org, net_ids=manual_net)
-        except Exception:                                    # noqa: BLE001
-            pass
-        restart_changed: list[str] = []
-        folded = _reconcile_mail_journal(org, owners_gone=_restart_owners_gone(),
-                                         changed=restart_changed)
-        if recorded or manual or folded or restart_changed:
-            store.save_org(org)
-            if manual_net:
-                try:
-                    net.note_read(slug, manual_net)
-                except Exception:                            # noqa: BLE001
-                    pass
-            for dnid in org.nodes:
-                rst = state(slug, dnid)
-                with _state_lock:
-                    mailruntime.resolve_reclaims(org, rst, nid=dnid)
-                    mailruntime.settle_confirmation(org, rst, dnid)
-                    _retry_mail_publications(rst)
-        # decision33: a marker held above only because its mail input was
-        # uncertain replays its authored base once that mail is back in the
-        # mailbox (the fold rewrote the stored marker to that base).
-        for nid in deferred_input:
-            _dn = org.nodes.get(nid)
-            _dinf = _dn.get("inflight") if _dn is not None else None
-            if _dinf and "mail_input" in _dinf:
-                _ready = mailruntime.replay_ready(org, nid, _dinf)
-                if _ready is not None and _ready == _dinf and not _ready.get("cmd"):
-                    inflight.append((nid, _ready))
-                    if recovery_observer is not None \
-                            and _import_recovery_unsettled(org, nid):
-                        recovery_seats.add(nid)
-        # drain-on-start (user clarification 2026-08-06 — an earlier reading
-        # briefly retired this; the actual ruling is about mail never being
-        # LOST in program state across a refresh, not about suppressing the
-        # startup drive): undelivered mail persists in the org doc, so any
-        # live node with a waiting mailbox simply gets driven again. The
-        # doc + the delivery journal are the durable carriers; RAM is not.
-        resumed = {k for k, _ in inflight}
-        # An org whose KILLSWITCH is latched gets NO restart drives of any
-        # kind (user redesign 2026-09-13). The admission gate would refuse
-        # each send anyway — but every refused inflight replay would SPEND
-        # its turn marker into a retained carrier, and every refused revive
-        # nudge would litter halt_queue. Skipping keeps markers, mailboxes
-        # and queues exactly as the latch found them, for after the release.
-        latched = bool(org.d.get("killswitch"))
-        # waking_mail, not mere non-emptiness: a mailbox holding only
-        # kind="notice" entries (orgtree_send_notice) is exactly the state
-        # "parked until the next turn", and a restart is not a turn
-        revive = [] if latched else [nid for nid, n in org.nodes.items()
-                  if n["state"] == "live" and nid not in marked
-                  and nid not in resumed and not n.get("frozen") and not n.get("halt")
-                  and not (recovery_observer is None
-                           and _import_recovery_unsettled(org, nid))
-                  and org.waking_mail(nid)]
+        with _step(6):
+            recorded = 0
+            try:
+                recorded = _reconcile_steer_records(org)
+            except Exception:                                # noqa: BLE001
+                pass
+            # P08c: a manual read whose every chunk the runtime echoed is
+            # confirmed from that durable evidence before the fold could
+            # return it.
+            manual = 0
+            try:
+                manual = _reconcile_manual_records(org, net_ids=out["manual_net"])
+            except Exception:                                # noqa: BLE001
+                pass
+            restart_changed: list[str] = []
+            folded = _reconcile_mail_journal(org, owners_gone=_restart_owners_gone(),
+                                             changed=restart_changed)
+            # the runtime settle ran right after this step's save under
+            # DOC_LOCK; it now runs right after the commit (`reconcile`)
+            out["settle"] = bool(recorded or manual or folded or restart_changed)
+        # ── 7. (writes nothing) decision33: a marker held above only because
+        # its mail input was uncertain replays its authored base once that
+        # mail is back in the mailbox (the fold rewrote the stored marker to
+        # that base).
+        with _step(7):
+            for nid in deferred_input:
+                _dn = org.nodes.get(nid)
+                _dinf = _dn.get("inflight") if _dn is not None else None
+                if _dinf and "mail_input" in _dinf:
+                    _ready = mailruntime.replay_ready(org, nid, _dinf)
+                    if _ready is not None and _ready == _dinf and not _ready.get("cmd"):
+                        inflight.append((nid, _ready))
+                        if recovery_observer is not None \
+                                and _import_recovery_unsettled(org, nid):
+                            recovery_seats.add(nid)
+            # drain-on-start (user clarification 2026-08-06 — an earlier
+            # reading briefly retired this; the actual ruling is about mail
+            # never being LOST in program state across a refresh, not about
+            # suppressing the startup drive): undelivered mail persists in the
+            # org doc, so any live node with a waiting mailbox simply gets
+            # driven again. The doc + the delivery journal are the durable
+            # carriers; RAM is not.
+            resumed = {k for k, _ in inflight}
+            # An org whose KILLSWITCH is latched gets NO restart drives of any
+            # kind (user redesign 2026-09-13). The admission gate would refuse
+            # each send anyway — but every refused inflight replay would SPEND
+            # its turn marker into a retained carrier, and every refused revive
+            # nudge would litter halt_queue. Skipping keeps markers, mailboxes
+            # and queues exactly as the latch found them, for after the release.
+            out["latched"] = latched = bool(org.d.get("killswitch"))
+            # waking_mail, not mere non-emptiness: a mailbox holding only
+            # kind="notice" entries (orgtree_send_notice) is exactly the state
+            # "parked until the next turn", and a restart is not a turn
+            out["revive"] = [] if latched else [
+                nid for nid, n in org.nodes.items()
+                if n["state"] == "live" and nid not in marked
+                and nid not in resumed and not n.get("frozen") and not n.get("halt")
+                and not (recovery_observer is None
+                         and _import_recovery_unsettled(org, nid))
+                and org.waking_mail(nid)]
+    except _ReconcileStop:
+        pass
+    return out
+
+
+def reconcile(slug: str, *, active_only: bool = False, recovery_observer=None) -> list[str]:
+    """№31 eager pass at startup: any ledger-live node that has demonstrably run
+    before (cost > 0) but whose transcript is gone cannot resume — say so now,
+    not on the next message."""
+    # S7 L3 (plan decision 23): the first block is ONE org_tx(whole=True), in
+    # its legacy step order (`_reconcile_block`); it was DOC_LOCK with a save
+    # after each step. Nothing in it runs a process: the FR-01 kill of every
+    # remote-control pid flagged NOW happens here, BEFORE the transaction pops
+    # those flags, so the kill still precedes the pop (p01's review, S7 Q4).
+    inventory = NativeInventory()
+    _rc_pre = _reconcile_remote_pids(orgtx.org_read(slug))
+    for _pid in _rc_pre.values():
+        _reconcile_kill(_pid)
+
+    def _block(tx: orgtx.OrgTx, stop: int | None = None) -> dict[str, Any]:
+        blk = _reconcile_block(tx.org, slug, recovery_observer=recovery_observer,
+                               inventory=inventory, stop=stop)
+        blk["org"] = tx.org
+        return blk
+
+    def _kill_late(blk: dict[str, Any]) -> None:
+        # a flag written between the read above and the lock: popped, then
+        # killed here after the commit
+        for _pid in blk["rc_popped"].values():
+            if _pid and _pid not in _rc_pre.values():
+                _reconcile_kill(_pid)
+
+    try:
+        blk = orgtx.org_tx_call(slug, _block, whole=True)
+    except _ReconcileStepFailed as failed:
+        # legacy parity (p01, S7 Q5 (b)): the steps before the failing one had
+        # each been saved when it raised, and nothing of it had. This
+        # transaction rolled back whole, so commit a replay of exactly those
+        # steps, then raise the original error as the legacy pass did.
+        if failed.step > 1:
+            _kill_late(orgtx.org_tx_call(
+                slug, lambda tx: _block(tx, stop=failed.step), whole=True))
+        raise failed.exc
+    _kill_late(blk)
+    org = blk["org"]
+    marked: list[str] = blk["marked"]
+    _unrec_by_sup: dict[str, list[str]] = blk["unrec_by_sup"]
+    inflight: list[tuple[str, Any]] = blk["inflight"]
+    recovery_seats: set[str] = blk["recovery_seats"]
+    switch_wake: list[str] = blk["switch_wake"]
+    account_wake: list[tuple[str, str]] = blk["account_wake"]
+    revive: list[str] = blk["revive"]
+    latched: bool = blk["latched"]
+    resumed = {k for k, _ in inflight}
+    if blk["settle"]:
+        # the runtime half of step 6, after its commit (it ran after that
+        # step's save): in-memory mail state only, never the document
+        if blk["manual_net"]:
+            try:
+                net.note_read(slug, blk["manual_net"])
+            except Exception:                                # noqa: BLE001
+                pass
+        for dnid in org.nodes:
+            rst = state(slug, dnid)
+            with _state_lock:
+                mailruntime.resolve_reclaims(org, rst, nid=dnid)
+                mailruntime.settle_confirmation(org, rst, dnid)
+                _retry_mail_publications(rst)
     dispatched = 0
     try:
         for nid, inf in ([] if latched else inflight):
