@@ -1071,5 +1071,97 @@ class InsertParent(unittest.TestCase):
         self.assertEqual(self.view(self.slug), before)
 
 
+class Split(unittest.TestCase):
+    """cheap_compact / reseed: lineage splits on `_split_rows`."""
+
+    def build(self, slug):
+        org = store.create_org(slug)
+        org.hire(ledger.USER, None, "luna", 4, "root")
+        org.hire(ledger.USER, "root", "luna", 1, "w")
+        org.hire(ledger.USER, "w", "luna", 0, "w1")
+        store.save_org(org)
+        with store.DOC_LOCK:
+            o = store.load_org(slug)
+            o.ask_user("root", "still there?")
+            store.save_org(o)
+
+    def setUp(self):
+        self.slug = "pg3a-sp-" + str(time.time_ns())
+        self.build(self.slug)
+
+    def tearDown(self):
+        store._POOL.close_all(self.slug)
+
+    def view(self, slug):
+        o = store.load_org(slug)
+        return ({k: (v["parent"], v["grant"], v["state"], v.get("generation"),
+                     v.get("successor"), v.get("predecessor"), v.get("bearer_state"))
+                 for k, v in o.nodes.items()},
+                sorted((k, len(v)) for k, v in (o.d.get("notices") or {}).items()),
+                sorted((a["node"], a["status"]) for a in o.d.get("asks") or []),
+                [e["op"] for e in o.d["events"]][-2:])
+
+    def twin_do(self, fn):
+        twin = "pg3a-sp-twin-" + str(time.time_ns())
+        self.build(twin)
+        with store.DOC_LOCK:
+            o = store.load_org(twin)
+            legacy = fn(o)
+            store.save_org(o)
+        return twin, legacy
+
+    def strip(self, r):
+        return {k: v for k, v in r.items() if k not in ("old_session",)}
+
+    def test_cheap_compact_matches_the_legacy_method(self):
+        twin, legacy = self.twin_do(lambda o: o.cheap_compact(ledger.USER, "root"))
+        mine = lifecycle_tx.cheap_compact(self.slug, ledger.USER, "root")
+        self.assertEqual(self.strip(mine), self.strip(legacy))
+        self.assertEqual(self.view(self.slug), self.view(twin))
+        o = store.load_org(self.slug)
+        self.assertEqual(o.node("root@0")["successor"], "root")
+        self.assertEqual([a["status"] for a in o.d["asks"]], ["pending"])   # kept
+        store._POOL.close_all(twin)
+
+    def test_reseed_of_an_unrecoverable_node(self):
+        def prep(o):
+            o.mark_unrecoverable("w", "gone")
+        for slug in (self.slug,):
+            with store.DOC_LOCK:
+                o = store.load_org(slug)
+                prep(o)
+                store.save_org(o)
+        twin, legacy = self.twin_do(lambda o: (prep(o), o.reseed(ledger.USER, "w", "sid-x"))[1])
+        mine = lifecycle_tx.reseed(self.slug, ledger.USER, "w", "sid-x")
+        self.assertEqual(mine, legacy)
+        self.assertEqual(self.view(self.slug), self.view(twin))
+        o = store.load_org(self.slug)
+        self.assertEqual((o.node("w")["state"], o.node("w@0")["bearer_state"]),
+                         ("live", "lost"))
+        store._POOL.close_all(twin)
+
+    def test_plan(self):
+        o = store.load_org(self.slug)
+        self.assertEqual(lifecycle_tx._split_rows(o, ledger.USER, "w"),
+                         ({"w", "w@0"}, {"root"}))
+
+    def test_the_bearer_row_is_needed(self):
+        spec = lifecycle_tx.SPECS["cheap_compact"]
+        with self.assertRaises(orgtx.UnlockedWrite):
+            with halt.txn(self.slug, nodes=["root"], sections=spec.sections,
+                          share_sections=spec.share_sections, logs=spec.logs) as tx:
+                tx.org.cheap_compact(ledger.USER, "root")
+        self.assertNotIn("root@0", store.load_org(self.slug).nodes)
+
+    def test_every_section_the_split_writes_is_needed(self):
+        spec = lifecycle_tx.SPECS["cheap_compact"]
+        smaller = lifecycle_tx.Spec(sections=(), share_sections=spec.share_sections,
+                                    logs=spec.logs)
+        with patch.dict(lifecycle_tx.SPECS, {"cheap_compact": smaller}):
+            with self.assertRaises(orgtx.UnlockedWrite):
+                lifecycle_tx.cheap_compact(self.slug, ledger.USER, "root")
+        self.assertNotIn("root@0", store.load_org(self.slug).nodes)
+
+
 if __name__ == "__main__":
     unittest.main()
