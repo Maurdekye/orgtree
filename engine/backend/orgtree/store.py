@@ -5416,6 +5416,11 @@ def create_org(name: str, extra_dirs: list[str] | None = None,
     os.makedirs(ws, exist_ok=True)
     dirs = [ws] + [os.path.normpath(d) for d in (extra_dirs or []) if d.strip()]
     org = Org.create(name, dirs, permission_mode, workspace=ws)
+    if row_store():
+        # PG-0b (decision 34): an org is BORN with its singleton rows, so
+        # its first operation writes only what that operation changes
+        for k, v in ALWAYS_ROWS.items():
+            org.d.setdefault(k, json.loads(v))
     save_org(org)
     return org
 
