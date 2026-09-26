@@ -1257,6 +1257,53 @@ def _run(make: Callable[[], list[OrgTx]], lock_timeout: float | None,
                     pass
 
 
+#: MEMORY CAP (mem-leak-probe, 2026-09-26): every attempt loads a WHOLE Org
+#: (eager doc + every node) and holds it until commit. At N=100 agents about
+#: 24 were in flight at once, the largest remaining holder of org copies. This
+#: bounds how many attempts per process hold one at a time; the rest wait
+#: BEFORE loading anything. 0 = unbounded. Re-entrant per thread: a nested
+#: org_tx on another org, from inside a body, never takes a second slot (that
+#: would deadlock at a small cap). Waiting is bounded by the lock timeout and
+#: fails as a LockTimeout, like a row lock that was not granted.
+MAX_CONCURRENT = int(os.environ.get("ORGTREE_ORGTX_MAX_CONCURRENT", "8") or 0)
+_slot_mu = threading.Lock()
+_slot_sem: "tuple[int, threading.BoundedSemaphore] | None" = None
+
+
+def _slots() -> "threading.BoundedSemaphore | None":
+    """The semaphore for the CURRENT cap (a test may change MAX_CONCURRENT;
+    a slot is always released to the semaphore it was taken from)."""
+    global _slot_sem
+    cap = MAX_CONCURRENT
+    if cap <= 0:
+        return None
+    with _slot_mu:
+        if _slot_sem is None or _slot_sem[0] != cap:
+            _slot_sem = (cap, threading.BoundedSemaphore(cap))
+        return _slot_sem[1]
+
+
+def _slot_acquire(timeout: float) -> "threading.BoundedSemaphore | None":
+    """Take this thread's whole-org slot; None when none was taken (no cap,
+    or this thread already holds one)."""
+    depth = getattr(_open, "slot_depth", 0)
+    if depth:
+        _open.slot_depth = depth + 1
+        return None
+    sem = _slots()
+    if sem is not None and not sem.acquire(timeout=max(timeout, 0.0)):
+        raise LockTimeout(f"no org_tx slot within {timeout}s "
+                          f"({MAX_CONCURRENT} whole-org transactions in flight)")
+    _open.slot_depth = 1
+    return sem
+
+
+def _slot_release(sem: "threading.BoundedSemaphore | None") -> None:
+    _open.slot_depth = getattr(_open, "slot_depth", 1) - 1
+    if sem is not None:
+        sem.release()
+
+
 def _attempts(b: Backend, txs: list[OrgTx], make: Callable[[], list[OrgTx]],
               slugs: list[str], open_slugs: set[str], timeout: float,
               retries: int) -> Iterator[list[OrgTx]]:
@@ -1272,6 +1319,9 @@ def _attempts(b: Backend, txs: list[OrgTx], make: Callable[[], list[OrgTx]],
             _heal(heal_next)
             heal_next = None
             txs = make()
+        # memory cap: taken BEFORE any row lock or open-org bookkeeping,
+        # so a LockTimeout here leaves nothing to undo
+        slot = _slot_acquire(timeout)
         body_ran = False
         open_slugs.update(slugs)
         _open.slugs = open_slugs
@@ -1301,6 +1351,7 @@ def _attempts(b: Backend, txs: list[OrgTx], make: Callable[[], list[OrgTx]],
             txs = make()
             continue
         finally:
+            _slot_release(slot)
             loc.rowlock_depth -= 1
             for sl in slugs:
                 open_slugs.discard(sl)
