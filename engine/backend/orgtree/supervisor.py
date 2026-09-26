@@ -13382,7 +13382,9 @@ def _idle_docket_reminder_reserve(
     """
     from . import worktx
     rows = worktx.Rows(
-        sections={"mail"}, nodes={nid}, logs={"mail_log"},
+        # this seat's own box and mail_log rows (PG-3d splits `mail` per
+        # owner), not every agent's mail
+        sections={("mail", nid)}, nodes={nid}, logs={("mail_log", nid)},
         share_sections={"work_items", "asks", "delivering", "spend_frozen",
                         "storage_blocked"})
     return worktx.tx(slug, lambda org: _idle_docket_reminder_reserve_body(

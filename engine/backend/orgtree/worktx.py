@@ -18,8 +18,8 @@ TWO TRANSACTIONS PER DOCKET WRITE (plan decision 13, p03-lead 2026-09-25):
 
 WHICH ROWS. A docket write always locks `work_items` and `asks` and appends to
 `events`. What else it touches depends on what the ledger decides while it
-runs: an assignment mails the new owner (the `mail` section, the owner's
-node row, and a send's sections and logs from `mailtx`), a delete writes `user_outbox` and
+runs: an assignment mails the new owner (the owner's own `("mail", nid)`
+box and node row, and a send's sections and logs from `mailtx`), a delete writes `user_outbox` and
 `work_deleted_names`, a review request writes `user_inbox`. Those notification
 writes were inside the same DOC_LOCK save, so they stay inside the same
 `org_tx` (§3 step 3, p01 do-not-split list) — they are NOT split out.
@@ -51,16 +51,13 @@ T = TypeVar("T")
 BASE_SECTIONS: tuple[str, ...] = ("work_items", "asks")
 #: `_log` appends to `events` on almost every docket write.
 BASE_LOGS: tuple[str, ...] = ("events",)
-#: Sections a notification (assignment, participant, review, delete) writes:
-#: a send's own (`mailtx.SEND_SECTIONS`, the single source), plus the WHOLE
-#: `mail` section. PG-3d stores `mail` one row per owner and `mailtx.send_rows`
-#: names `("mail", nid)`; the docket still locks the container because a
-#: recipient the arguments do not predict must be widened into, and pgdoor
-#: cannot yet widen an owner row (it passes `mailnid` back as a plain
-#: section name, which org_tx refuses). Narrow to `send_rows` once it can.
-NOTIFY_SECTIONS: tuple[str, ...] = ("mail", *mailtx.SEND_SECTIONS)
-#: `lifecycle` is a list log since PG-3d (decision 38), in `SEND_LOGS`.
-NOTIFY_LOGS: tuple[str, ...] = (*mailtx.SEND_LOGS, "mail_log")
+#: A notification (assignment, participant, review, delete) is a mail send:
+#: its rows are `mailtx.send_rows(*recipients)` — the single source — which
+#: names each PREDICTED recipient's own box `("mail", nid)` and
+#: `("mail_log", nid)`, never the whole `mail` section, so a docket write that
+#: mails one agent does not queue behind mail to every other agent in the org.
+#: A recipient the arguments do not predict is refused at commit as
+#: `mailnid` and widened into as exactly that owner row (`widen`).
 
 #: How many times `run` may widen the row set before giving up.
 MAX_WIDEN = 4
@@ -77,20 +74,30 @@ class Rows:
     """The rows one docket transaction names."""
     sections: set[Any] = field(default_factory=lambda: set(BASE_SECTIONS))
     nodes: set[str] = field(default_factory=lambda: set())
-    logs: set[str] = field(default_factory=lambda: set(BASE_LOGS))
+    logs: set[Any] = field(default_factory=lambda: set(BASE_LOGS))
     share_nodes: set[str] = field(default_factory=lambda: set())
     share_sections: set[Any] = field(default_factory=lambda: set())
 
     def notify(self, *nodes: str | None) -> Rows:
         """Name the rows a notification to `nodes` writes."""
-        self.sections |= set(NOTIFY_SECTIONS)
-        self.logs |= set(NOTIFY_LOGS)
-        self.nodes |= {n for n in nodes if n}
+        r = mailtx.send_rows(*[n for n in nodes if n])
+        self.sections |= set(r["sections"])
+        self.logs |= set(r["logs"])
+        self.nodes |= set(r["nodes"])
         return self
 
     def widen(self, refused: Iterable[tuple[str, str]]) -> bool:
         """Add refused rows; True when anything was actually new."""
         grew = False
+        refused = list(refused)
+        # A split section's CONTAINER refused beside one of its own owner
+        # rows was only created by that owner's write (an empty container is
+        # allowed under the owner lock), so widen by the owner row alone —
+        # taking the container FOR UPDATE would lock every owner's box.
+        owned = {n.split(store.SPLIT_SEP, 1)[0] for k, n in refused
+                 if k == "section" and store.SPLIT_SEP in n}
+        refused = [(k, n) for k, n in refused
+                   if not (k == "section" and n in owned)]
         for kind, name in refused:
             if kind == "section" and store.SPLIT_SEP in name:
                 # an owner row of a split section (PG-3d): org_tx names it

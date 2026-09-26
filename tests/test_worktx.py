@@ -316,5 +316,81 @@ class SweepRacesReopen(Base):
         self.assertEqual(it['done_so_far'], ['back'])
 
 
+
+class PerOwnerMail(Base):
+    """A docket write that mails one agent locks THAT agent's box
+    (`("mail", nid)`, PG-3d's per-owner rows), never the whole `mail` section,
+    so it does not hold up mail work on another agent's box."""
+
+    def _lock_sets(self):
+        seen = []
+        orgtx.set_pause_hook(lambda p, tx: seen.append(set(tx.lock_sections))
+                             if p == 'after_lock' else None)
+        return seen
+
+    def test_predicted_assign_locks_only_the_new_owners_box(self):
+        seen = self._lock_sets()
+        worktx.run(self.slug, lambda o: o.work_assign('own', self.item, 'sub'),
+                   rows=worktx.rows_for('assign', {'owner': 'sub'}))
+        self.assertEqual(len(seen), 1, 'the prediction should need no widening')
+        self.assertIn('mailsub', seen[-1])
+        self.assertNotIn('mail', seen[-1], 'the whole mail section was locked')
+
+    def test_unpredicted_recipient_widens_into_its_box_only(self):
+        seen = self._lock_sets()
+        worktx.run(self.slug, lambda o: o.work_assign('own', self.item, 'sub'))
+        self.assertGreaterEqual(len(seen), 2, 'the thin first attempt should widen')
+        self.assertIn('mailsub', seen[-1])
+        self.assertNotIn('mail', seen[-1], 'the widening took the whole mail section')
+        mails = store.load_org(self.slug).d['mail'].get('sub') or []
+        self.assertEqual(sum(1 for m in mails if self.item in str(m)), 1)
+
+    def test_other_agents_box_is_not_blocked_by_a_docket_assign(self):
+        a_in, release, b_done = threading.Event(), threading.Event(), threading.Event()
+        out = {}
+
+        def hook(p, tx):
+            if p == 'after_lock' and threading.current_thread().name == 'A':
+                a_in.set()
+                release.wait(10)
+        orgtx.set_pause_hook(hook)
+
+        def a():
+            try:
+                worktx.run(self.slug, lambda o: o.work_assign('own', self.item, 'sub'),
+                           rows=worktx.rows_for('assign', {'owner': 'sub'}))
+                out['A'] = None
+            except Exception as e:  # noqa: BLE001
+                out['A'] = e
+
+        def b():
+            # the rows mailtx.retract_rows('peer') names: peer's own box
+            try:
+                worktx.tx(self.slug, lambda o: None,
+                          rows=worktx.Rows(sections={('mail', 'peer')},
+                                           logs={('mail_log', 'peer')}))
+                out['B'] = None
+            except Exception as e:  # noqa: BLE001
+                out['B'] = e
+            finally:
+                b_done.set()
+        ta = threading.Thread(target=a, name='A')
+        tb = threading.Thread(target=b, name='B')
+        ta.start()
+        try:
+            self.assertTrue(a_in.wait(10), 'A never took its locks')
+            tb.start()
+            b_ran_while_a_held = b_done.wait(2)
+        finally:
+            release.set()
+            ta.join(10)
+            tb.join(10)
+            orgtx.set_pause_hook(None)
+        self.assertEqual(out, {'A': None, 'B': None})
+        self.assertTrue(b_ran_while_a_held,
+                        "a transaction on peer's box waited for a docket "
+                        "assign to sub (the whole mail section is locked)")
+        self.assertEqual(get(self.slug, self.item)[0]['owner']['node'], 'sub')
+
 if __name__ == '__main__':
     unittest.main()
