@@ -171,6 +171,35 @@ class ControllerControls(unittest.TestCase):
         self.assertNotIn("chat", [h.name for h, _ in clock.ready(2.5)])
         self.assertEqual(clock.active["chat"], 2)
 
+    def test_work_hooks_use_current_foreground_route_and_reject_wrong_format(self):
+        for window in (0, 1, 2):
+            hook = next(h for h in hooks("test", "worker", window) if h.name == "work_items")
+            self.assertEqual(hook.url, "/api/orgs/test/work-items-foreground?backlogged=0&archive_limit=0")
+        cache = Conditional("orgtree.work-foreground/v1")
+        with self.assertRaisesRegex(ValueError, "foreground work format"):
+            cache.accept(200, {"etag": "wrong"}, {"items": []})
+        self.assertIsNone(cache.etag)
+        cache.accept(200, {"etag": "right"}, {"format": "orgtree.work-foreground/v1", "items": []})
+        cache.accept(304, {}, None)
+        self.assertEqual(cache.body["items"], [])
+
+    def test_older_chat_answer_cannot_replace_busy_state_or_hold_new_heartbeat(self):
+        clock = HookClock(hooks("test", "worker", 1))
+        first = next(h for h, _ in clock.ready(0) if h.name == "chat")
+        clock.event(dict(type="node_event", node="worker"), .1, "worker")
+        second = next(h for h, _ in clock.ready(.1) if h.name == "chat")
+        clock.complete("chat", {"busy": True}, second.request_serial)
+        self.assertTrue(clock.busy)
+        # The newest request has settled; an older forced fetch cannot keep
+        # the heartbeat latched. A later stale answer cannot change busy.
+        third = next(h for h, _ in clock.ready(2.5) if h.name == "chat")
+        clock.complete("chat", {"busy": False}, first.request_serial)
+        self.assertTrue(clock.busy)
+        self.assertTrue(clock.chat_inflight)
+        clock.complete("chat", {"busy": False}, third.request_serial)
+        self.assertFalse(clock.busy)
+        self.assertFalse(clock.chat_inflight)
+
 
 ADMIN = os.environ.get("ORGTREE_TEST_PG_ADMIN_URL")
 
