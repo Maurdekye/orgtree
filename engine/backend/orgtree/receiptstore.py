@@ -119,7 +119,8 @@ def delete(raw: Any, org_id: int, owner: str, operation: str, *, expected: str) 
 
 
 def replace_owners(raw: Any, org_id: int,
-                   changes: dict[str, tuple[int | None, dict[str, Any] | None]]) -> None:
+                   changes: dict[str, tuple[int | None, dict[str, Any] | None]],
+                   *, move_to_end: set[str] | frozenset[str] = frozenset()) -> None:
     """Explicit purge/rekey/replacement, guarded by each complete owner version.
 
     None as the replacement deletes an owner; an empty dict retains it. Rename
@@ -133,6 +134,8 @@ def replace_owners(raw: Any, org_id: int,
     ready = raw.execute("SELECT format FROM receipt_format WHERE singleton").fetchone()
     if ready != (1,):
         raise receiptrows.Unsupported("receipt conversion incomplete")
+    if not move_to_end <= changes.keys():
+        raise ValueError("receipt owner move missing from replacement")
     prepared = {}
     for owner, (version, value) in changes.items():
         # Validate everything before touching any owner. The codec also checks
@@ -155,6 +158,9 @@ def replace_owners(raw: Any, org_id: int,
             raw.execute("DELETE FROM receipt_owners WHERE owner=%s", (owner,))
             continue
         count = len(converted.receipts)
+        if owner in move_to_end and version is not None:
+            raw.execute("DELETE FROM receipt_owners WHERE owner=%s", (owner,))
+            version = None
         if version is None:
             raw.execute("INSERT INTO receipt_owners(owner,nrows,next_ord) VALUES(%s,%s,%s)", (owner,count,count))
         else:
