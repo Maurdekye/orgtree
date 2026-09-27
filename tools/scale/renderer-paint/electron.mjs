@@ -331,10 +331,13 @@ app.whenReady().then(async () => {
         await sleep(1000)
         return badge()
       }
-      let zoomed = await zoom(300, 4)
-      if (zoomed.h < first.h * 1.5) zoomed = await zoom(-300, 8)
-      journal({ pileZoom: { first, zoomed } })
-      if (zoomed.h < 24) throw Error('pile badge could not be enlarged for a reliable click')
+      // ORGTREE_PAINT_ZOOM_NOTCHES (default 4) sets how far in; fewer
+      // notches keep the camera near the pile without desk zoom.
+      const notches = run.zoomNotches ?? 4
+      let zoomed = await zoom(300, notches)
+      if (zoomed.h < first.h * 1.3) zoomed = await zoom(-300, notches * 2)
+      journal({ pileZoom: { first, zoomed, notches } })
+      if (zoomed.h < 18) throw Error('pile badge could not be enlarged for a reliable click')
       for (let i = 0; i < run.repeats; i++) {
         const suffix = '-' + i
         const pileTotal = await js(`(()=>{const c=[...document.querySelectorAll('.pile-count')].sort((a,b)=>+b.textContent - +a.textContent)[0];c.dataset.paintPile='chosen';return c.textContent.trim()})()`)
