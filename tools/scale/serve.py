@@ -2,20 +2,20 @@
 
     engine\\runtime\\python.exe tools/scale/serve.py --root <root> [--port P]
 
-Runs the production app (`engine.launch.load_app` → TokenGate(api.app)) with its
+Runs the production app (`engine.launch.load_app` â†’ TokenGate(api.app)) with its
 lifespan ON, so the startup recovery, watchdog engine, maildrain and the hub's
 websocket wiring all run as they do in the product. What cannot run:
 - every external process is refused by an audit hook (counted in
-  `<root>/metrics/serve-refused.jsonl`) — no claude / codex / git write;
+  `<root>/metrics/serve-refused.jsonl`) â€” no claude / codex / git write;
 - ORGTREE_CLAUDE / ORGTREE_CODEX point at a path that does not exist;
 - the warm pool is off (ORGTREE_WARM=0).
 
 Harness-only route (not product code; exists only in this process):
-  POST /scale/stream {"frames": [{"node", "text", "reset"?}]} — hands live-text
+  POST /scale/stream {"frames": [{"node", "text", "reset"?}]} â€” hands live-text
   frames to `supervisor.stream`, the exact function the CLI reader calls for a
   text delta, so they are captured and broadcast to every open window like
   real streaming.
-  GET /scale/tokens — the live agents' real agent tokens (minted in-process).
+  GET /scale/tokens â€” the live agents' real agent tokens (minted in-process).
 
 On readiness it writes `origin`, `token`, `pid` and startup timings into
 `<root>/scale-descriptor.json` and runs until killed.
@@ -89,7 +89,8 @@ def parent(args) -> int:
                                        "spawned_at": time.time(), "fence": args.fence,
                                        "env": extra}})
     try:
-        return proc.wait()
+        from control import guarded_wait
+        return guarded_wait(proc, report=root / "metrics" / "serve-guard.json")
     except KeyboardInterrupt:
         proc.terminate()
         return proc.wait(timeout=30)

@@ -8,8 +8,8 @@ What it builds (v3-scale-qualification-stay-responsive-with-hund):
 - a fresh PostgreSQL database on a LOOPBACK dev cluster (default: `devdb` cluster
   of agent mem-leak-probe), dropped only by `--drop`;
 - `<root>/data` (ORGTREE_DATA), `<root>/home` (HOME/USERPROFILE), `<root>/temp`;
-- ONE org with N LIVE agents in a realistic tree (coordinators → leads → workers)
-  plus `archived-per-live × N` retired agents;
+- ONE org with N LIVE agents in a realistic tree (coordinators â†’ leads â†’ workers)
+  plus `archived-per-live Ã— N` retired agents;
 - per live agent, sizes drawn from the live org's shape profile
   (`live-shape-profile.json`, measured 2026-09-26 on an online-backup copy of the
   operator org: 24 live / 971 nodes): node `turns` history, MCP tool list,
@@ -21,7 +21,7 @@ What it builds (v3-scale-qualification-stay-responsive-with-hund):
 
 The org document, nodes and docket go through the real store (`store.save_org`).
 The bulky append-only log rows are then COPY'd straight into the org schema's
-`log_d` / `log_l` tables — the same rows `save_org` would write — so seeding 2000
+`log_d` / `log_l` tables â€” the same rows `save_org` would write â€” so seeding 2000
 agents does not need the whole history in one Python process.
 
 Safety: the root must be a new or empty directory outside every live Orgtree
@@ -62,7 +62,7 @@ PROFILE = {
 
 
 def quantile_draw(rng: random.Random, q: tuple) -> int:
-    """Piecewise-linear draw through (p50, p90, p99[, max]) — a heavy tail
+    """Piecewise-linear draw through (p50, p90, p99[, max]) â€” a heavy tail
     like the live distributions, without inventing a parametric fit."""
     pts = [(0.0, max(1, q[0] // 8)), (0.5, q[0]), (0.9, q[1]), (0.99, q[2]),
            (1.0, q[3] if len(q) > 3 else q[2])]
@@ -160,8 +160,10 @@ def parent(args) -> int:
            "--active-items", str(args.active_items),
            "--archived-items-per-live", str(args.archived_items_per_live)]
     t0 = time.time()
-    r = subprocess.run(cmd, cwd=REPO, env=child_env(root, pg_url), text=True,
-                       encoding="utf-8", errors="replace")
+    from control import guarded_wait
+    r = subprocess.Popen(cmd, cwd=REPO, env=child_env(root, pg_url), text=True,
+                         encoding="utf-8", errors="replace")
+    guarded_wait(r, floor_gb=args.min_free_commit_gb, report=root / "seed-guard.json")
     if r.returncode:
         print(f"seed child failed ({r.returncode}); database {db} left for inspection", file=sys.stderr)
         return r.returncode
@@ -368,7 +370,7 @@ def child(args) -> int:
                                         "mail_ids": [did[:12]], "delivery_ids": [did],
                                         "acked_ids": [did], "recorded_ids": [did], "attempts": 1,
                                         "retried": False, "confirmed_duplicate": False,
-                                        "text": "[MAIL — 1 message(s)]\n" + body,
+                                        "text": "[MAIL â€” 1 message(s)]\n" + body,
                                         "visible_id": f"steer:{did}:1",
                                         "segments": [{"kind": "mail", "rows": [
                                             {"id": did[:12], "from": "coordinator", "kind": "message",

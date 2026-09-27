@@ -166,3 +166,44 @@ class Feed:
                             self.latencies[w].append(ms)
                             self.counts[w]["over_1s"] += ms > 1000
                 del self.pending[marker]
+
+
+def guarded_wait(proc, *, floor_gb=10, cap_gb=8, report=None):
+    """Monitor an owned subprocess family during startup/seeding as well as load."""
+    import json
+    import time
+    import psutil
+    parent = psutil.Process()
+    child = psutil.Process(proc.pid)
+    try:
+        while proc.poll() is None:
+            family = [child] + child.children(recursive=True)
+            total = 0
+            for process in [parent] + family:
+                try:
+                    info = process.memory_info()
+                    total += getattr(info, "private", info.rss)
+                except psutil.NoSuchProcess:
+                    pass
+            free = free_commit_gb()
+            reason = memory_breach(free, 0, total, floor_gb=floor_gb, total_cap_gb=cap_gb)
+            if reason:
+                if report:
+                    report.write_text(json.dumps(dict(at=time.time(), reason=reason,
+                                                      private_bytes=total, free_commit_gb=free)))
+                raise RuntimeError(reason)
+            time.sleep(1)
+        return proc.returncode
+    finally:
+        if proc.poll() is None:
+            try:
+                family = child.children(recursive=True)
+            except psutil.NoSuchProcess:
+                family = []
+            for process in reversed(family):
+                try:
+                    process.kill()
+                except psutil.NoSuchProcess:
+                    pass
+            proc.kill()
+            proc.wait(timeout=30)
