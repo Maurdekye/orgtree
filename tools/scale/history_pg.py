@@ -125,11 +125,11 @@ def source_hash(raw):
     """
     h = hashlib.sha256()
     queries = {
-        "doc": "SELECT key,val FROM doc ORDER BY key",
-        "nodes": "SELECT id,ord,val FROM nodes WHERE id NOT LIKE 'hist-%' ORDER BY id",
-        "log_d": "SELECT sect,owner,at,val FROM log_d WHERE seq>=%s ORDER BY sect,owner,seq",
-        "log_l": "SELECT sect,at,val FROM log_l WHERE seq>=%s ORDER BY sect,seq",
-        "meta": "SELECT key,val FROM meta WHERE key='key_order' OR key LIKE 'owners:%%' ORDER BY key",
+        "doc": 'SELECT key,val FROM doc ORDER BY key COLLATE "C"',
+        "nodes": 'SELECT id,ord,val FROM nodes WHERE id NOT LIKE \'hist-%\' ORDER BY id COLLATE "C"',
+        "log_d": 'SELECT sect,owner,at,val FROM log_d WHERE seq>=%s ORDER BY sect COLLATE "C",owner COLLATE "C",seq',
+        "log_l": 'SELECT sect,at,val FROM log_l WHERE seq>=%s ORDER BY sect COLLATE "C",seq',
+        "meta": 'SELECT key,val FROM meta WHERE key=\'key_order\' OR key LIKE \'owners:%\' ORDER BY key COLLATE "C"',
     }
     counts = {}
     table_hashes = {}
