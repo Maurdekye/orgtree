@@ -1,6 +1,7 @@
 """First-use statistics, actual runtime role and transactional import controls."""
-import json
 import os
+import threading
+import time
 import unittest
 import uuid
 from unittest.mock import patch
@@ -133,6 +134,36 @@ class Statistics(fixture.Base):
         before = self.mark()
         pgstats.bootstrap(self.raw)
         self.assertEqual(self.mark(), before)
+
+    def test_concurrent_initializers_wait_then_skip_completed_analysis(self):
+        second = pgstore.connect(self.url)
+        result = []
+        errors = []
+        def run():
+            try:
+                result.append(pgstats.analyze(second, self.oid))
+            except Exception as exc:
+                errors.append(exc)
+        worker = threading.Thread(target=run)
+        try:
+            with self.raw.transaction():
+                self.assertGreater(pgstats.analyze(self.raw, self.oid), 0)
+                worker.start()
+                deadline = time.monotonic() + 3
+                while time.monotonic() < deadline:
+                    waiting = self.raw.execute('SELECT wait_event_type FROM pg_stat_activity WHERE pid=%s',
+                                               (second.info.backend_pid,)).fetchone()
+                    if waiting and waiting[0] == 'Lock': break
+                    self.raw.execute('SELECT pg_stat_clear_snapshot()')
+                    time.sleep(.01)
+                else: self.fail('second initializer never exercised lock wait')
+            worker.join(5)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(errors, [])
+            self.assertEqual(result, [0])
+        finally:
+            if worker.is_alive(): second.cancel(); worker.join(5)
+            second.close()
 
 
 if __name__ == '__main__': unittest.main()
