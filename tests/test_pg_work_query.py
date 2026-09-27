@@ -11,7 +11,7 @@ from unittest.mock import patch
 import test_pgstore as f
 import test_pg_work_read as fixture
 from orgtree import pgstore, store, workrows, workread, workquery
-from orgtree.ledger import USER
+from orgtree.ledger import USER, Org
 
 
 def tearDownModule():
@@ -66,7 +66,7 @@ class Queries(unittest.TestCase):
                     self.assertTrue(all('evidence' not in r.summary and '_query' not in r.summary for r in rows))
 
     def test_exact_detail_reads_one_body_at_small_and_tenfold_history(self):
-        self.add(self.item()); retained=[]
+        self.add(self.item()); retained=[]; old_rows=[]; new_rows=[]
         for start, end in ((0,40),(40,400)):
             with self.c.transaction():
                 for n in range(start,end):
@@ -81,13 +81,22 @@ class Queries(unittest.TestCase):
                 with patch.object(workquery.json,'loads',observe):
                     body,physical=query.detail('old-17')
                 self.assertEqual(decoded,['old-17'])
+                new_rows.append(len(decoded))
                 self.assertTrue(physical); self.assertEqual(body['evidence'],['x'*1000])
                 retained.append([r.summary for r in query.foreground()])
                 self.assertIsNone(query.lookup('missing'))
             with self.read('stranger') as query:
                 self.assertIsNone(query.detail('old-17'))
                 self.assertIsNone(query.detail('missing'))
+            # The prior lookup really materializes the entire source archive.
+            original_archive=Org._work_archive
+            def observe_archive(org):
+                values=original_archive(org); old_rows.append(len(values)); return values
+            with patch.object(Org,'_work_archive',observe_archive):
+                legacy,physical=store.load_org(self.slug)._work_find('old-17')
+            self.assertTrue(physical); self.assertEqual(legacy,body)
         self.assertEqual(retained[0],retained[1])
+        self.assertEqual(old_rows,[40,400]); self.assertEqual(new_rows,[1,1])
 
     def test_archive_pages_match_exact_order_without_gaps(self):
         for name,stamp in [('a',''),('z','same'),('é','same'),('😀','same'),('fallback',None),('new','zzz')]:
@@ -202,6 +211,12 @@ class Upgrade(unittest.TestCase):
                 c.execute('INSERT INTO org_1.doc VALUES(%s,%s)',(workrows.PREFIX+'old',body))
                 self.assertTrue(workread.refresh(c,1))
                 self.assertTrue(c.execute('SELECT initialized FROM org_1.work_read_state').fetchone()[0])
+                c.execute("UPDATE org_1.work_index SET body_sha256=decode('00','hex')")
+                with self.assertRaisesRegex(Exception,'query migration reconciliation failed'):
+                    pgstore.migrate(c)
+                self.assertIsNone(c.execute("SELECT to_regclass('org_1.work_query_order')").fetchone()[0])
+                self.assertIsNone(c.execute("SELECT to_regprocedure('public.orgtree_work_summary_before_query(text)')").fetchone()[0])
+                c.execute("UPDATE org_1.work_index SET body_sha256=sha256(convert_to(%s,'UTF8'))",(body,))
                 self.assertIn('0009_work_query.sql',pgstore.migrate(c)['applied'])
                 self.assertIsNone(workread.counts_raw(c,1,viewer=USER,now_ts=2e9))
                 workread.bootstrap(c)
