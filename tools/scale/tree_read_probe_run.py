@@ -16,6 +16,7 @@ from control import free_commit_gb, guarded_wait
 
 p = argparse.ArgumentParser()
 p.add_argument('--reuse-base', type=Path)
+p.add_argument('--pg-checks', action='store_true')
 args = p.parse_args()
 label = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d-%H%M%S')
 allowed = (Path(os.environ['TEMP']) / 'scale-ui-astra').resolve()
@@ -63,6 +64,10 @@ try:
     pg('start')
     started = True
     admin = pg('urls')['urls']['P03_PG_ADMIN_URL']
+    if args.pg_checks:
+        env = dict(os.environ, ORGTREE_TEST_PG_ADMIN_URL=admin)
+        run('pg-controls', [sys.executable, 'tools/run-python-verification.py', '--pycache-dir', 'off',
+                            'tests/test_pg_tree_ui.py', '--json-output', str(packet / 'pg-controls.json')], env)
     if args.reuse_base:
         descriptor_path = root / 'scale-descriptor.json'
         descriptor = json.loads(descriptor_path.read_text(encoding='utf-8'))

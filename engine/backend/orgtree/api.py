@@ -2840,12 +2840,15 @@ async def _org_tree_route(slug: str, request: Request, response: Response,
 def _org_tree_transport(slug: str, request: Request) -> Response:
     from . import tree_ui
     compressed = tree_ui.accepts_gzip(request.headers.get("accept-encoding", ""))
-    etag, body, watermarks = tree_ui.read(
-        slug, _public_slug(request) is not None,
-        request.headers.get("if-none-match", ""),
-        stamp=lambda: _tree_etag(slug),
-        build=lambda: _org_view(slug, request, None), feed=_REV_FEED,
-        compressed=compressed)
+    try:
+        etag, body, watermarks = tree_ui.read(
+            slug, _public_slug(request) is not None,
+            request.headers.get("if-none-match", ""),
+            stamp=lambda: _tree_etag(slug),
+            build=lambda: _org_view(slug, request, None), feed=_REV_FEED,
+            compressed=compressed)
+    except LedgerError as error:
+        raise HTTPException(404, str(error))
     headers = {"ETag": etag, "Vary": "Accept-Encoding",
                "Cache-Control": "private, no-cache", **watermarks}
     if body is None:
