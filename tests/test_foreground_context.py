@@ -184,4 +184,28 @@ class ContextTests(unittest.TestCase):
                         self.assertTrue(actual['public'])
                         self.assertNotIn('max_scope',actual['kiosk'])
 
+
+    def test_modern_forecast_inputs_match_without_swallowing_adapter_errors(self):
+        from orgtree import supervisor, warmpool
+        from contextlib import ExitStack
+        org,args=fixture(('parent','a'))
+        org.node('parent')['team_charter']='Inherited standing rule'
+        view=ForegroundContext(**args)
+        # Stub external CLI/filesystem observations, not the Org-consuming
+        # identity, argv or cache-snapshot functions. Call snapshot directly:
+        # cache_forecast_public deliberately catches preview errors.
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(supervisor,'_claude_argv',return_value=['fixture-claude']))
+            stack.enter_context(patch.object(supervisor,'cli_capable',return_value=False))
+            stack.enter_context(patch.object(supervisor,'cli_version',return_value='2.1.300'))
+            stack.enter_context(patch.object(supervisor,'transcript_path',return_value=None))
+            stack.enter_context(patch.object(supervisor,'registered_mcp_servers',return_value={}))
+            stack.enter_context(patch.object(supervisor,'_cache_claude_namespace',return_value=('fixture','claude_subscription')))
+            stack.enter_context(patch.object(warmpool,'native_startup_context_digest',return_value='fixture-files'))
+            kwargs=dict(now=1234567890,env={'fixture':'1'},include_history=False)
+            expected=supervisor._cache_snapshot(org,'a',**kwargs)
+            actual=supervisor._cache_snapshot(view,'a',**kwargs)
+            self.assertEqual(actual,expected)
+            self.assertTrue(actual['components']['system'])
+
 if __name__=='__main__':unittest.main()

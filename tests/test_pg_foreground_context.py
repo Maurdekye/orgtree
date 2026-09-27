@@ -107,4 +107,15 @@ class ContextPG(unittest.TestCase):
         with patch.object(warmpool,'eligible',return_value=(True,'')):
             self.assertEqual(warmpool._warm_eligible(view,'boss'),(False,'delivery-in-progress'))
 
+
+    def test_wire_preparation_accepts_real_projection_context(self):
+        from orgtree import foreground_view, api
+        def project(raw,graph):
+            view=ctx.build(raw,self.slug,graph)
+            return foreground_view.prepare(view,graph,detail_token=api._archived_detail_rev,
+                                           sync_rev=0,primed_restart=None)
+        prepared=fg.read_foreground(self.slug,project=project)
+        self.assertEqual(prepared['tree']['roots'][0]['id'],'boss')
+        self.assertEqual(prepared['tree']['roots'][0]['children'][0]['id'],'leaf')
+
 if __name__=='__main__':unittest.main()
