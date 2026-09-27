@@ -172,14 +172,37 @@ def install_waits(trace):
             if getattr(trace.local, 'marker', None) is None:
                 return original(*args, **kwargs)
             key = label(*args)
+            previous = getattr(trace.local, 'pg_operation', None)
+            if name in ('_checkout', '_release'):
+                trace.local.pg_operation = name[1:]
             wall, cpu = time.monotonic_ns(), time.thread_time_ns()
             try:
                 return original(*args, **kwargs)
             finally:
                 trace.wait_cost(key, time.monotonic_ns() - wall, time.thread_time_ns() - cpu)
+                trace.local.pg_operation = previous
         setattr(module, name, measured)
     wrap(census_contacts, '_run', lambda conn, sql, *a:
          'sqlite:' + str(type(conn)._census_label) + ':' + str(sql).strip().split()[0].upper())
     wrap(pgstore.PgConn, 'execute', lambda conn, sql, *a: 'pg:' + str(sql).strip().split()[0].upper())
     wrap(pgstore, '_checkout', lambda: 'pg:checkout')
     wrap(pgstore, '_release', lambda raw: 'pg:release')
+    wrap(pgstore, 'connect', lambda *args: 'pg:connect')
+
+    class PoolLock:
+        def __init__(self, lock):
+            self.lock = lock
+
+        def __enter__(self):
+            if getattr(trace.local, 'marker', None) is None:
+                return self.lock.__enter__()
+            wall, cpu = time.monotonic_ns(), time.thread_time_ns()
+            result = self.lock.__enter__()
+            trace.wait_cost('pg:' + str(getattr(trace.local, 'pg_operation', None)) + ':pool-lock',
+                            time.monotonic_ns() - wall, time.thread_time_ns() - cpu)
+            return result
+
+        def __exit__(self, *args):
+            return self.lock.__exit__(*args)
+
+    pgstore._idle_lock = PoolLock(pgstore._idle_lock)

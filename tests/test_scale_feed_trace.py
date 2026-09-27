@@ -3,12 +3,58 @@ import asyncio
 import json
 from types import SimpleNamespace
 import unittest
+from contextlib import ExitStack
+import threading
+from unittest.mock import patch
 
 import import_provenance  # noqa: F401
-from tools.scale.feed_trace import Trace, install, marker
+from tools.scale.feed_trace import Trace, install, install_waits, marker
 
 
 class FeedTraceTests(unittest.IsolatedAsyncioTestCase):
+    def test_checkout_subspans_distinguish_pool_wait_and_connection_creation(self):
+        from orgtree import census_contacts, pgstore
+        trace = Trace()
+        raw = SimpleNamespace(closed=False)
+        lock = threading.Lock()
+        entered = threading.Event()
+        result = []
+        with ExitStack() as stack:
+            for obj, name in ((census_contacts, '_run'), (pgstore.PgConn, 'execute'),
+                              (pgstore, '_checkout'), (pgstore, '_release'),
+                              (pgstore, 'connect'), (pgstore, '_idle_lock')):
+                stack.enter_context(patch.object(obj, name, getattr(obj, name)))
+            stack.enter_context(patch.object(pgstore, '_idle', []))
+            stack.enter_context(patch.object(pgstore, '_idle_lock', lock))
+            stack.enter_context(patch.object(pgstore, 'url', return_value='fixture'))
+            connect = stack.enter_context(patch.object(pgstore, 'connect', return_value=raw))
+            install_waits(trace)
+            def checkout():
+                trace.local.marker, trace.local.stage = 7, 'identity'
+                entered.set()
+                result.append(pgstore._checkout())
+            lock.acquire()
+            worker = threading.Thread(target=checkout)
+            try:
+                worker.start()
+                self.assertTrue(entered.wait(1))
+            finally:
+                lock.release()
+                worker.join(2)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(result, [raw])
+            connect.assert_called_once_with('fixture')
+            costs = trace.snapshot()['waits'][7]
+            self.assertEqual(costs['identity:pg:connect']['calls'], 1)
+            self.assertEqual(costs['identity:pg:checkout:pool-lock']['calls'], 1)
+            self.assertGreaterEqual(costs['identity:pg:checkout']['wall_ns'],
+                                    costs['identity:pg:connect']['wall_ns'])
+            # Idle reuse is observed separately and does not pretend to connect.
+            pgstore._idle.append(('fixture', raw))
+            trace.local.marker, trace.local.stage = 8, 'identity'
+            self.assertIs(pgstore._checkout(), raw)
+            self.assertNotIn('identity:pg:connect', trace.snapshot()['waits'][8])
+
     def test_wait_totals_are_bounded_and_snapshot_is_detached(self):
         trace = Trace(limit=1)
         trace.wait_cost('ignored', 5, 1)

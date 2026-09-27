@@ -35,6 +35,7 @@ memory trend, and the offered vs achieved rates (equal-demand check).
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import hashlib
 import os
@@ -51,6 +52,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from serve import share_dir, update_descriptor  # noqa: E402
 from control import BoundedPool, Workload, Feed, free_commit_gb, memory_breach
 from ui_mix import WINDOWS, polls as ui_polls
+from streaming import drive_streams, send_frames
 
 MARK = re.compile(r"\[\[m(\d+)\]\]")
 
@@ -151,6 +153,8 @@ def main(argv=None) -> int:
     p.add_argument("--stream-frac", type=float, default=0.05)
     p.add_argument("--stream-nodes", type=int, default=None)
     p.add_argument("--stream-hz", type=float, default=8.0)
+    p.add_argument("--stream-mode", choices=("independent", "batch"), default="independent",
+                   help="batch preserves the old cross-agent barrier for diagnostic comparison only")
     p.add_argument("--workers", type=int, default=64)
     p.add_argument("--label", default=None)
     p.add_argument("--seed", type=int, default=7)
@@ -227,6 +231,7 @@ def main(argv=None) -> int:
                          "chat_window": 8, "changed_events": "120ms coalesced refresh",
                          "limits": "Visible idle views; no clicks, scrolling or hidden-window simulation"},
               "stream_nodes": len(stream_nodes), "stream_hz": args.stream_hz,
+              "stream_mode": args.stream_mode,
               "duration_s": args.duration, "workers": args.workers,
               "derivation": {"turn_rate_per_agent": args.turn_rate_per_agent,
                              "calls_per_turn": args.calls_per_turn, "explicit_rate": args.rate},
@@ -464,40 +469,38 @@ def main(argv=None) -> int:
     def streamer():
         if not stream_nodes:
             return
-        c = httpx.Client(base_url=origin, headers=H, timeout=30)
         seq = 0
-        period = 1.0 / args.stream_hz
-        nxt = t0
-        first = True
-        while not stop.is_set() and time.time() - t0 < args.duration:
+
+        async def submit(c, nodes, first, due):
+            nonlocal seq
             frames = []
             now = time.time()
-            for node in stream_nodes:
+            for node in nodes:
                 seq += 1
                 feed_tracker.emit(seq, now)
                 emitted_count[0] += 1
                 rec.write("markers", {"m": seq, "emit": now, "node": node})
                 frames.append({"node": node, "reset": first,
                                "text": f"[[m{seq}]] " + stream_ctx.text(40) + " "})
-            first = False
-            begun = time.time()
-            err = None
-            try:
-                r = c.post("/scale/stream", json={"frames": frames})
-                if r.status_code != 200 or not r.json().get("ok"):
-                    err = r.text[:200]
-            except Exception as e:                           # noqa: BLE001
-                err = f"{type(e).__name__}: {e}"[:200]
-            feed_tracker.acknowledge(range(seq - len(frames) + 1, seq + 1), not err)
-            feed_tracker.retire(time.time())
-            rec.write("stream", {"t": round(begun - t0, 3), "frames": len(frames), "err": err,
-                                 "ms": round((time.time() - begun) * 1000, 1),
-                                 "first_seq": seq - len(frames) + 1, "emit": now,
-                                 "late_ms": round((begun - nxt) * 1000, 1)})
-            nxt += period
-            d = nxt - time.time()
-            if d > 0:
-                stop.wait(d)
+            # Other producers may advance seq while this request awaits I/O.
+            # Keep each submission's IDs local for acknowledgement and logs.
+            first_seq = seq - len(frames) + 1
+            await send_frames(c, frames, first_seq=first_seq, emit=now, due=due,
+                              started=t0, feed=feed_tracker, rec=rec)
+
+        async def run():
+            # A shared connection limit below the producer count would add
+            # another artificial cross-agent admission queue in the client.
+            limits = httpx.Limits(max_connections=len(stream_nodes),
+                                 max_keepalive_connections=len(stream_nodes))
+            async with httpx.AsyncClient(base_url=origin, headers=H, timeout=30, limits=limits) as c:
+                await drive_streams(stream_nodes, lambda nodes, first, due: submit(c, nodes, first, due),
+                    started=t0, duration=args.duration, hz=args.stream_hz, stop=stop, mode=args.stream_mode)
+        try:
+            asyncio.run(run())
+        except Exception as exc:  # fail qualification if a producer itself dies
+            rec.write("stream", {"t": time.time() - t0, "frames": 0,
+                                 "err": f"stream driver: {type(exc).__name__}: {exc}"[:200]})
 
     # ---------------- sampler -----------------------------------------------
     def sampler():
