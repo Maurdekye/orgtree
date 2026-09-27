@@ -19,7 +19,7 @@ publishers might still reference them.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, MutableMapping
 from typing import Any
 
 from . import mailownership as own
@@ -992,7 +992,8 @@ def compact_receipts(org: Any, st: dict[str, Any], nid: str, *,
     """
     import json
     records = (org.d.get("mail_transitions") or {}).get(nid)
-    if not isinstance(records, dict) or not records:
+    # MutableMapping: a converted org's owner is row-backed, not a dict
+    if not isinstance(records, MutableMapping) or not records:
         return 0
     pending = set(st.get("mail_reclaim_intents") or {}) | set(keep)
     live = journal_tokens(org, nid)

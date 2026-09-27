@@ -42,7 +42,7 @@ import os
 import re
 import time as _time
 import uuid
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, MutableMapping
 from datetime import datetime, timedelta, timezone
 from typing import Any, Final, Literal, cast
 
@@ -5760,7 +5760,7 @@ class Org:
                 continue
             sec = self.d.get(key)
             n = 0
-            if field is None and isinstance(sec, dict):
+            if field is None and isinstance(sec, MutableMapping):
                 for k in doomed:
                     if k in sec:
                         sec.pop(k, None)
@@ -9145,14 +9145,21 @@ class Org:
             if cls != "rekey" or shape != "by_node" or key == "nodes":
                 continue
             box = cast("dict[str, Any] | None", self.d.get(key))
-            if isinstance(box, dict):
+            if isinstance(box, MutableMapping):
                 for old_k, new_k in renamed.items():
                     if old_k in box:
                         box[new_k] = box.pop(old_k)
         # a transition receipt also names its node, and the settle/compact
         # readers require that name to equal the key it is filed under
-        for receipts in cast("dict[str, Any]", self.d.get("mail_transitions") or {}).values():
-            for receipt in receipts.values() if isinstance(receipts, dict) else ():
+        transitions = self.d.get("mail_transitions") or {}
+        naming = getattr(transitions, "owners_naming", None)
+        # a row-backed section finds the owners holding such receipts in the
+        # database instead of materialising every owner's history
+        owners = (naming(list(renamed)) if naming is not None
+                  else list(cast("dict[str, Any]", transitions)))
+        for owner in owners:
+            receipts = transitions.get(owner)
+            for receipt in receipts.values() if isinstance(receipts, Mapping) else ():
                 if isinstance(receipt, dict) and receipt.get("node") in renamed:
                     receipt["node"] = renamed[receipt["node"]]
         for a in self.d.get("asks", []):

@@ -232,6 +232,19 @@ class ReceiptSection(_LazyMapping):
             self.materialize(); return len(self._data)>0
         return bool(_read(self.slug,self.revision,'SELECT 1 FROM receipt_owners LIMIT 1',(),self.bound))
 
+    def owners_naming(self,nodes):
+        """Owners that may hold a receipt whose `node` is one of `nodes`:
+        every stored owner with such a row plus every owner exposed in memory
+        (unsaved edits). Answers rename without materialising history."""
+        stored=[] if self.complete else [row[0] for row in _read(self.slug,self.revision,
+            "SELECT DISTINCT owner FROM receipts WHERE (val::json->>'node') = ANY(%s) ORDER BY owner",
+            (list(nodes),),self.bound)]
+        seen=set(); out=[]
+        for owner in [*stored,*self._data.keys()]:
+            if owner not in seen and owner not in self.deleted:
+                seen.add(owner); out.append(owner)
+        return out
+
     def __setitem__(self,owner,value):
         if not isinstance(value,Mapping): raise receiptrows.Unsupported('receipt owner must contain a mapping')
         if owner not in self.versions: self.get(owner)
