@@ -54,6 +54,49 @@ class MergeTests(fixture.DrainTxTests):
         self.assertEqual(len([n for n in store.load_org(self.slug).nodes.values()
                               if n.get('successor') == 'worker']), 1)
 
+    def test_s1_compaction_rechecks_locked_gates(self):
+        for gate in ('halt', 'frozen', 'killswitch'):
+            with self.subTest(gate=gate):
+                real = sup._admission_rows
+                flipped = []
+                def rows(slug, nid, *, compact=False):
+                    if compact:
+                        flipped.append(gate)
+                        args = {'sections': [halt.KILLSWITCH]} if gate == 'killswitch' else {'nodes': [nid]}
+                        with halt.txn(slug, **args) as tx:
+                            if gate == 'killswitch':
+                                tx.org.d[halt.KILLSWITCH] = {'reason': 'test'}
+                            else:
+                                tx.org.node(nid)[gate] = {'phase': 'halting', 'limit': True}
+                    return real(slug, nid, compact=compact)
+                with patch.object(sup, '_admission_rows', side_effect=rows), \
+                     patch.object(sup, '_turn_forecast', return_value=self.forecast()) as forecast, \
+                     patch.object(sup, '_auto_cheap_cfg', return_value={'occ': .25}), \
+                     patch.object(sup, '_auto_cheap_ready', return_value=True), \
+                     patch.object(sup, '_take_delivery_mail') as drain:
+                    self.admit()
+                self.assertEqual(flipped, [gate])
+                self.assertEqual(forecast.call_count, 1, 'compaction forecast passed a locked refusal')
+                self.assertFalse(drain.called)
+                with halt.txn(self.slug, nodes=['worker'], sections=[halt.KILLSWITCH]) as tx:
+                    tx.org.node('worker').pop('halt', None)
+                    tx.org.node('worker').pop('frozen', None)
+                    tx.org.d.pop(halt.KILLSWITCH, None)
+
+    def test_s1_failed_drain_does_not_undo_compaction(self):
+        before = store.load_org(self.slug).node('worker')['session_id']
+        with patch.object(sup, '_turn_forecast', return_value=self.forecast()), \
+             patch.object(sup, '_auto_cheap_cfg', return_value={'occ': .25}), \
+             patch.object(sup, '_auto_cheap_ready', return_value=True), \
+             patch.object(sup, 'export_predecessor_transcript'), \
+             patch.object(sup, '_take_delivery_mail', side_effect=RuntimeError('drain failure')) as drain:
+            self.admit()
+        self.assertEqual(drain.call_count, 1)
+        self.assertEqual(self.reached, 0)
+        saved = store.load_org(self.slug)
+        self.assertNotEqual(saved.node('worker')['session_id'], before)
+        self.assertIn(self.mail_id, [str(m['id']) for m in saved.d['mail']['worker']])
+
     def test_s1_forecast_failure_still_drains(self):
         with patch.object(sup, '_cache_forecast_now', side_effect=ValueError('no evidence')):
             self.admit()
