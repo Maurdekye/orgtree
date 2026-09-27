@@ -1606,7 +1606,8 @@ def boundary_check(slug: str, nid: str,
     if node_excluded(slug, nid):
         return False, label, "excluded-by-flag"
     try:
-        org = store.load_org(slug)
+        from . import identity_context
+        org = identity_context.load(slug, nid)
         ok, why = eligible(org, nid)
         if not ok:
             return False, label, why or "not-eligible"
@@ -1644,7 +1645,8 @@ def current_hash(slug: str, nid: str) -> str | None:
     if not warm_enabled() or node_excluded(slug, nid):
         return None
     try:
-        org = store.load_org(slug)
+        from . import identity_context
+        org = identity_context.load(slug, nid)
         ok, _why = eligible(org, nid)
         if not ok:
             return None
