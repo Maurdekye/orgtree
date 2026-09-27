@@ -43,6 +43,10 @@ def main():
     sys.path.insert(0, str(REPO / "tools"))
     from assert_repo_import import assert_repo_import
     provenance = assert_repo_import(str(REPO))
+    from launch_guard import LaunchAudit, pin_git
+    git = shutil.which("git")
+    subprocess.Popen = pin_git(subprocess.Popen, git)
+    sys.addaudithook(LaunchAudit(root, git=git, providers=[]))
     from orgtree import appsettings, store, supervisor
     org = store.load_org(desc["org"])
     sources = []
