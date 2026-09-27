@@ -61,22 +61,22 @@ class ForegroundTreeControls(unittest.TestCase):
                                 reply(304, headers={"x-orgtree-catalog-rev": "c1"})]})
         tree = ForegroundTree("test")
         legacy = lambda: self.fail("no legacy read expected")
-        tree.read(server, legacy)
+        tree.read(server, legacy, legacy)
         self.assertEqual([(r, u) for r, u, _ in server.sent], [
             ("org_tree", BASE), ("org_tree_page", BASE + "/children?parent=lead&limit=1"),
             ("org_tree_page", BASE + "/children?parent=lead&limit=1&edge=last"),
             ("org_tree", BASE + "?include=g1&include=gone")])
         self.assertEqual(tree.plan, (["g1", "gone"], "c1"))
         server.sent.clear()
-        tree.read(server, legacy)
+        tree.read(server, legacy, legacy)
         self.assertEqual(server.sent, [("org_tree", BASE + "?include=g1&include=gone", "e2")])
 
     def test_compatibility_uses_legacy_and_holds_it_for_the_inferred_window(self):
         server = Server({BASE: [reply(404, {"detail": "no route"})]})
         tree, calls = ForegroundTree("test"), []
-        tree.read(server, lambda: calls.append("legacy"))
-        tree.read(server, lambda: calls.append("legacy"))
-        self.assertEqual(calls, ["legacy", "legacy"])
+        tree.read(server, lambda: calls.append("full"), lambda: calls.append("held"))
+        tree.read(server, lambda: calls.append("full"), lambda: calls.append("held"))
+        self.assertEqual(calls, ["full", "held"], "first fallback is the full read; held reads follow")
         self.assertEqual(len(server.sent), 1, "the inferred compatibility answer is remembered")
         self.assertAlmostEqual(tree.unavailable_until - ui_hooks.time.time(), 30, delta=2)
 
@@ -90,10 +90,10 @@ class ForegroundTreeControls(unittest.TestCase):
                                 reply(200, snapshot("r3", "c2", nodes=flat), "e3"), reply(304), reply(304)]})
         tree = ForegroundTree("test")
         # A first plan always re-reads (App does too); here that re-read is the delta.
-        tree.read(server, lambda: self.fail("legacy"))
+        tree.read(server, lambda: self.fail("full"), lambda: self.fail("held"))
         self.assertEqual(sorted(tree.snapshot["nodes"]), ["lead", "new"])
         self.assertEqual([e for _, _, e in server.sent], [None, "e1"])
-        tree.read(server, lambda: self.fail("legacy"))
+        tree.read(server, lambda: self.fail("full"), lambda: self.fail("held"))
         self.assertEqual(tree.plan, ([], "c2"), "a changed catalog re-plans from explicit targets")
         self.assertEqual(len(server.sent), 5)
 
@@ -101,6 +101,51 @@ class ForegroundTreeControls(unittest.TestCase):
         nodes = {"lead": node("lead", children=["a", "b"]), "a": node("a", "archived", ["x"]),
                  "b": node("b", "archived", ["y"]), "x": node("x"), "y": node("y", hidden=2)}
         self.assertEqual(visible_parents(snapshot(nodes=nodes)), ["lead", "y"], "b holds no pile; y has two hidden retirees")
+
+    def driver_with(self, answer):
+        """A real WindowDriver whose HTTP client answers by URL and records headers."""
+        sent = []
+
+        def get(url, headers):
+            sent.append((url, headers.get("If-None-Match")))
+            return answer(url)
+        client = SimpleNamespace(get=get, close=lambda: None)
+        with patch("httpx.Client", return_value=client):
+            driver = WindowDriver("test", "worker", 0, "http://localhost", {},
+                                  SimpleNamespace(write=lambda name, row: None), threading.Event())
+        driver.started = 1
+        self.addCleanup(driver.pool.shutdown)
+        return driver, sent
+
+    def read(self, driver, times):
+        for _ in range(times):
+            driver.clock.active["org_tree"] += 1
+            driver.fetch(driver.clock.specs["org_tree"], 1)
+
+    def test_over_128_requested_pays_the_full_uncached_history_every_read(self):
+        # Review f3: getCompleteTree carries no usable cache between reads.
+        legacy = "/api/orgs/test?view=delta"
+        driver, sent = self.driver_with(lambda url: reply(200, {"roots": []}, "L1"))
+        driver.tree_view = ForegroundTree("test", [f"id{i}" for i in range(129)])
+        driver.cache["org_tree"].etag = "stale"            # even a warm legacy cache is dropped
+        self.read(driver, 3)
+        self.assertEqual(sent, [(legacy, "stale"), (legacy, None), (legacy, None)])
+        self.assertIsNone(driver.tree_view.plan)
+
+    def test_compatibility_first_read_is_full_then_held_reads_are_conditional(self):
+        legacy = "/api/orgs/test?view=delta"
+        driver, sent = self.driver_with(lambda url: reply(404, {"detail": "none"}) if "foreground" in url
+                                        else reply(200, {"roots": []}, "L1"))
+        self.read(driver, 3)
+        self.assertEqual(sent, [(BASE, None), (legacy, None), (legacy, None), (legacy, "L1")])
+
+    def test_two_resets_fall_back_after_exactly_two_foreground_reads(self):
+        server = Server({BASE: [reply(409, {"kind": "reset"}), reply(409, {"kind": "reset"})]})
+        tree, calls = ForegroundTree("test"), []
+        tree.read(server, lambda: calls.append("full"), lambda: calls.append("held"))
+        self.assertEqual(len(server.sent), 2)
+        self.assertEqual(calls, ["full"])
+        self.assertEqual(tree.unavailable_until, 0., "a reset is not a compatibility answer")
 
     def test_driver_records_every_request_and_fails_closed_on_a_bad_answer(self):
         rows = []

@@ -277,7 +277,9 @@ class ForegroundTree:
     def invalidate(self):                               # invalidateTreeCache: reader cache only
         self.etag = self.snapshot = self.key = None
 
-    def get(self, send, include):
+    def get(self, send, include, full):
+        """ForegroundTreeReader.get. Returns None once it has fallen back to `full`
+        (getCompleteTree): a compatibility answer, or two failed attempts."""
         names = sorted(set(include))
         key, hit = tuple(names), self.key == tuple(names)
         for _ in range(2):
@@ -292,8 +294,9 @@ class ForegroundTree:
             try:
                 body = foreground_answer(response)
             except ForegroundControl as exc:
-                if exc.kind != "reset":
-                    raise
+                if exc.kind == "compatibility":
+                    self.unavailable_until = time.time() + (30 if exc.inferred else 600)
+                    break
                 hit = False
                 continue
             if body.get("kind") == "delta":
@@ -314,24 +317,38 @@ class ForegroundTree:
             etag = response.headers.get("etag")
             self.etag, self.snapshot, self.key = (etag, body, key) if etag else (None, None, None)
             return body
-        raise ForegroundControl("reset")
+        full()
+        return None
 
     def page(self, send, parent, edge=None):
         url = f"{self.base}/children?parent={quote(parent, safe='')}&limit=1" + ("&edge=last" if edge else "")
         return foreground_answer(send("org_tree_page", url, None))
 
-    def read(self, send, legacy):
+    def read(self, send, full, held):
+        """getAppTree -> TreeViewReader.get. `full` is getCompleteTree: an uncached
+        whole-history read. `held` is the conditional getTree used only while a
+        compatibility answer is remembered."""
         if time.time() < self.unavailable_until:
-            return legacy()
+            return held()
+
+        def full_view():                                # TreeViewReader.full drops its plan
+            self.plan = None
+            return full()
+        plan = self.plan
         for attempt in range(2):
             try:
                 requested = set(self.include)
-                plan = self.plan if attempt == 0 else None
-                answer = self.get(send, plan[0] if plan else requested)
-                if plan and plan[1] == answer["catalog_revision"]:
+                if len(requested) > 128:
+                    return full_view()
+                answer = self.get(send, plan[0] if attempt == 0 and plan else requested, full)
+                if answer is None:
+                    return None
+                if attempt == 0 and plan and plan[1] == answer["catalog_revision"]:
                     return answer
-                if plan:
-                    answer = self.get(send, requested)
+                if attempt == 0 and plan:
+                    answer = self.get(send, requested, full)
+                    if answer is None:
+                        return None
                 catalog, resolved = answer["catalog_revision"], set()
                 while True:
                     for parent in [p for p in visible_parents(answer) if p not in resolved]:
@@ -342,8 +359,10 @@ class ForegroundTree:
                                 raise ForegroundControl("reset")
                             requested.update(page["matches"])
                     if len(requested) > 128:
-                        return legacy()
-                    answer = self.get(send, requested)
+                        return full_view()
+                    answer = self.get(send, requested, full)
+                    if answer is None:
+                        return None
                     if answer["catalog_revision"] != catalog:
                         raise ForegroundControl("reset")
                     if all(p in resolved for p in visible_parents(answer)):
@@ -351,12 +370,9 @@ class ForegroundTree:
                 self.plan = (sorted(requested), catalog)
                 return answer
             except ForegroundControl as exc:
-                if exc.kind == "compatibility":
-                    self.unavailable_until = time.time() + (30 if exc.inferred else 600)
-                    return legacy()
-                self.plan = None
-        return legacy()
-
+                if exc.kind == "compatibility":         # from a page read: no hold is set there
+                    return full_view()
+        return full_view()                              # catalog churn across both attempts
 
 class WindowDriver:
     def __init__(self, slug, watch, window, origin, headers, rec, stop, *, workers=16):
@@ -430,7 +446,16 @@ class WindowDriver:
                     "total_ms": (ended - mark[0]) * 1000})
                 mark[0] = ended
 
-        def legacy():
+        def full():
+            # api.getCompleteTree: getTree (conditional only if a held read left a
+            # cache entry) and then treeCache.delete in finally, so the NEXT read -
+            # full or held - carries no If-None-Match and pays the whole history.
+            try:
+                return send("org_tree_legacy", hook.url, self.cache["org_tree"].etag)
+            finally:
+                self.cache["org_tree"] = Conditional()
+
+        def held():
             cache = self.cache["org_tree"]
             response = send("org_tree_legacy", hook.url, cache.etag)
             body = response.json() if response.status_code == 200 else None
@@ -438,7 +463,7 @@ class WindowDriver:
             return body
 
         try:
-            self.tree_view.read(send, legacy)
+            self.tree_view.read(send, full, held)
         except Exception as exc:
             # A read the App would not accept fails the run; never a silent pass.
             self.rec.write("ui", {"t": time.time() - self.started, "w": self.window,
