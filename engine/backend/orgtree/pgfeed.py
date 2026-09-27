@@ -79,6 +79,11 @@ class RevisionFeed:
         self.poll_s = poll_s
         self.retry_s = retry_s
         self._last: dict[str, int] = {}
+        # Tree readers distinguish receipt of a revision from completion of
+        # its invalidation callback. The initial catch-up is only a baseline:
+        # it does not prove that a snapshot built BEFORE it was refreshed.
+        self._baseline: dict[str, int] = {}
+        self._applied: dict[str, int] = {}
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -92,6 +97,13 @@ class RevisionFeed:
         with self._lock:
             return self._last.get(org)
 
+    def applied_since(self, org: str, after: int) -> int:
+        """A contiguous observed range whose callbacks have finished."""
+        with self._lock:
+            if self._baseline.get(org, after + 1) > after:
+                return after
+            return max(after, self._applied.get(org, after))
+
     def observe(self, org: str, revision: int, *, source: str) -> bool:
         """Record ``revision`` for ``org``; True if it moved forward. A gap is a
         forward move that skipped revisions, or any forward move found by a
@@ -102,6 +114,7 @@ class RevisionFeed:
                 return False
             self._last[org] = revision
             if last is None:
+                self._baseline[org] = revision
                 # first sight of this org: the baseline, not a change, unless it
                 # came from a notification (then it is a real commit)
                 gap = False
@@ -115,6 +128,12 @@ class RevisionFeed:
                 self.stats.changes += 1
         if changed:
             self._on_change(org, revision, gap)
+        with self._lock:
+            # Concurrent observe callers may complete out of order. Refusing
+            # to advance across an unfinished callback is conservative; the
+            # tree reader then does a committed refresh instead of trusting it.
+            if last is None or self._applied.get(org) == last:
+                self._applied[org] = revision
         return changed
 
     # ------------------------------------------------------------- loop
@@ -215,6 +234,25 @@ def note_local(slug: str, revision: int) -> None:
 def local_revision(slug: str) -> int:
     with _local_lock:
         return _local.get(slug, 0)
+
+
+def snapshot_changes_published(feed: "RevisionFeed | None", slug: str,
+                               after: int | None, through: int) -> bool:
+    """Can a tree safely use cached_org up to this committed revision?
+
+    Exact local revision membership closes the foreign-N/local-N+1 hole.
+    Missing/pruned evidence costs a refresh; it never establishes freshness.
+    """
+    if after is None or through < after:
+        return False
+    applied = feed.applied_since(slug, after) if feed is not None else after
+    if applied >= through:
+        return True
+    if through - applied > _LOCAL_CAP:
+        return False
+    with _local_lock:
+        local = _local_set.get(slug, set())
+        return all(rev in local for rev in range(applied + 1, through + 1))
 
 
 def _take_local(slug: str, revision: int) -> bool:

@@ -12,6 +12,8 @@ class UIMix(unittest.TestCase):
                 self.assertEqual({row[0] for row in rows}, names)
                 self.assertFalse(any("archived=1" in row[1] or "backlogged=1" in row[1] for row in rows))
                 self.assertEqual(rows, polls("org", "agent", index + 4))
+                tree = next(row for row in rows if row[0] == "org_tree")
+                self.assertEqual(tree[1], "/api/orgs/org?view=delta")
 
     def test_chat_window_and_idle_busy_cadences_match_convo(self):
         for streaming, period in ((True, 2.5), (False, 7.0)):

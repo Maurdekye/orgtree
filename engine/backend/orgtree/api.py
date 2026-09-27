@@ -2830,8 +2830,29 @@ def _tree_etag(slug: str) -> str:
 
 
 @app.get("/api/orgs/{slug}")
-async def _org_tree_route(slug: str, request: Request, response: Response) -> Any:
+async def _org_tree_route(slug: str, request: Request, response: Response,
+                          view: str = "") -> Any:
+    if view == "delta":
+        return await _run_ui_read(_org_tree_transport, slug, request)
     return await _run_ui_read(org_tree, slug, request, response)
+
+
+def _org_tree_transport(slug: str, request: Request) -> Response:
+    from . import tree_ui
+    compressed = tree_ui.accepts_gzip(request.headers.get("accept-encoding", ""))
+    etag, body, watermarks = tree_ui.read(
+        slug, _public_slug(request) is not None,
+        request.headers.get("if-none-match", ""),
+        stamp=lambda: _tree_etag(slug),
+        build=lambda: _org_view(slug, request, None), feed=_REV_FEED,
+        compressed=compressed)
+    headers = {"ETag": etag, "Vary": "Accept-Encoding",
+               "Cache-Control": "private, no-cache", **watermarks}
+    if body is None:
+        return Response(status_code=304, headers=headers)
+    if compressed:
+        headers["Content-Encoding"] = "gzip"
+    return Response(content=body, media_type="application/json", headers=headers)
 
 
 def org_tree(slug: str, request: Request,

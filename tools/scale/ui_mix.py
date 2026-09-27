@@ -10,7 +10,7 @@ WINDOWS = ("docket", "desk", "attention", "org-chooser")
 
 def polls(slug: str, watch: str, window: int, streaming: bool = True):
     base = f"/api/orgs/{slug}"
-    rows = [("org_tree", base, 6.0, True)]
+    rows = [("org_tree", base + "?view=delta", 6.0, True)]
     kind = WINDOWS[window % len(WINDOWS)]
     if kind == "org-chooser":
         rows.append(("org_list", "/api/orgs", 3.0, False))

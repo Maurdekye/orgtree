@@ -10,6 +10,7 @@ import { backendRestart } from './windowlife'
 import { desktop } from './desktop'
 import { applyWorkDelta } from './workdelta'
 import type { WorkDelta } from './workdelta'
+import { decodeTree, type TreeWire } from './treedelta'
 import type {
   AudiencesPayload, CharterTemplateDirsPayload, ChartersPayload, ChatPayload, DefaultsPayload,
   DiskDeleteResult, DiskDirPayload, DiskPayload, EventsPayload, FsPayload,
@@ -228,7 +229,7 @@ export const createOrg = (
 // re-render entirely (Object.is on the unchanged reference). Bespoke fetch
 // rather than req(): req treats every non-2xx as an error, and 304 is the
 // success case here.
-const treeCache = new Map<string, { etag: string; tree: TreePayload }>()
+const treeCache = new Map<string, { etag: string; tree: TreePayload; raw: TreePayload; revision: string }>()
 // Per-slug invalidation stamp. Deleting the cache entry is not enough for a
 // request already IN FLIGHT (perf-review round 3): its captured `hit` would
 // still resolve a 304 to the pre-patch tree, and its 200 would re-install a
@@ -264,7 +265,7 @@ export const invalidateTreeCache = (slug: string): void => {
 export const getTree = (slug: string): Promise<TreePayload | null> => {
   const gen = treeCacheGen.get(slug) ?? 0
   const hit = treeCache.get(slug)
-  return fetch(u(`/api/orgs/${slug}`), {
+  return fetch(u(`/api/orgs/${slug}?view=delta`), {
     signal: timeoutSignal(DEFAULT_TIMEOUT_MS),
     ...(hit ? { headers: { 'If-None-Match': hit.etag } } : {}),
   }).then((r) => {
@@ -272,22 +273,42 @@ export const getTree = (slug: string): Promise<TreePayload | null> => {
     if (r.status === 304 && hit) {
       // the cached body is unchanged server-side; newer patches replay on
       // top of it in the caller, so returning it is always safe now
-      return hit.tree
+      const raw = treeWatermarks(hit.raw, r)
+      if (raw === hit.raw) return hit.tree
+      const tree = hydrateTree(raw)
+      if ((treeCacheGen.get(slug) ?? 0) === gen) treeCache.set(slug, { ...hit, raw, tree })
+      return tree
     }
     if (!r.ok) {
       return failure(r).then((e) => { throw e })
     }
     const etag = r.headers.get('ETag')
-    return r.json().then((raw: TreePayload) => {
+    return r.json().then((wire: TreePayload | TreeWire) => {
+      const raw = treeWatermarks(decodeTree(wire, hit), r)
       const tree = hydrateTree(raw)
       if ((treeCacheGen.get(slug) ?? 0) === gen && etag) {
-        treeCache.set(slug, { etag, tree })
+        const revision = 'format' in wire && wire.format === 'orgtree.tree/v1'
+          ? (wire as TreeWire).revision : etag
+        treeCache.set(slug, { etag, tree, raw, revision })
       } else if (!etag) {
         treeCache.delete(slug)
       }
       return tree
     })
   })
+}
+
+/** An unchanged content token can advance its replay boundary without a body.
+ * Never alter a shared cached tree: in-flight readers may still be using it. */
+function treeWatermarks(raw: TreePayload, response: Response): TreePayload {
+  let result = raw
+  for (const [header, key] of [['X-Orgtree-Sync-Rev', 'sync_rev'], ['X-Orgtree-Org-Rev', 'org_rev']] as const) {
+    const value = response.headers.get(header)
+    if (value === null) continue
+    const rev = Number(value)
+    if (Number.isSafeInteger(rev) && rev >= 0 && rev !== raw[key]) result = { ...result, [key]: rev }
+  }
+  return result
 }
 /** §4.8: the fields a summarised (archived) seat does not carry — full
  *  charter, scope, lineage, turn history. Fetched when a seat is opened. */

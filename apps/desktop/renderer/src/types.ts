@@ -818,6 +818,8 @@ export interface TreePayload {
    *  frames with rev > this replay on top of the payload; absent from an
    *  older engine, in which case nothing replays */
   sync_rev?: number
+  /** Conservative committed PG boundary carried alongside sync_rev. */
+  org_rev?: number
   slug: string
   name: string
   workspace: string | null
