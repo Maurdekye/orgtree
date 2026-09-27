@@ -134,9 +134,9 @@ class TurnInputsPG(unittest.TestCase):
                 pc.execute('DELETE FROM doc WHERE key=?',('mail'+store.SPLIT_SEP+'worker',))
                 pc.execute('INSERT INTO doc(key,val) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET val=excluded.val',
                            ('mail',store._dumps({'worker':[self.message]})))
-                pc.commit()
+                pc.execute('COMMIT')
             except BaseException:
-                pc.rollback();raise
+                pc.execute('ROLLBACK');raise
         with patch.object(store,'load_runtime_org',wraps=store.load_runtime_org) as fallback:
             view=turn_inputs.load(self.slug,'worker',mail=True)
             fallback.assert_called_once_with(self.slug)
