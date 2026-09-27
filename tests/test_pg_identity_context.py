@@ -1,4 +1,4 @@
-"""Actual PostgreSQL controls for foreground warm identity inputs."""
+﻿"""Actual PostgreSQL controls for foreground warm identity inputs."""
 import copy
 import threading
 import unittest
@@ -55,7 +55,7 @@ class IdentityPG(unittest.TestCase):
     def test_external_changes_are_fresh_and_prior_context_detached(self):
         before=ctx.load(self.slug,'leaf')
         org=store.load_org(self.slug);org.node('boss')['team_charter']='New charter'
-        org.node('leaf')['halt_requested']=True;org.d['killswitch']={'reason':'stop'}
+        org.node('leaf')['halt']=True;org.d['killswitch']={'reason':'stop'}
         store.save_org(org)
         after=ctx.load(self.slug,'leaf')
         self.assertEqual(before.node('boss')['team_charter'],'Inherited rules')
@@ -138,9 +138,10 @@ class IdentityPG(unittest.TestCase):
         with patch.object(store,'load_org',side_effect=AssertionError('whole org')):
             self.assertEqual(warmpool.current_hash(self.slug,'leaf'),want)
             self.assertEqual(warmpool.boundary_check(self.slug,'leaf',want),(True,True,''))
-        org=store.load_org(self.slug);org.node('leaf')['halt_requested']=True;store.save_org(org)
+        org=store.load_org(self.slug);org.node('leaf')['halt']=True;store.save_org(org)
         self.assertFalse(warmpool.boundary_check(self.slug,'leaf',want)[0])
-        org.node('leaf').pop('halt_requested');org.d['killswitch']={'reason':'stop'};store.save_org(org)
+        org.node('leaf').pop('halt');org.d['killswitch']={'reason':'stop'};store.save_org(org)
         self.assertIsNone(warmpool.current_hash(self.slug,'leaf'))
 
 if __name__ == '__main__': unittest.main()
+
