@@ -41,6 +41,7 @@ class LoopVolume(unittest.TestCase):
         results = []
         for archived in (1154, 11540):
             with store._POOL.acquire(self.slug) as conn:
+                conn.execute('BEGIN')
                 conn.execute("DELETE FROM nodes WHERE id<>'worker'")
                 rows = []
                 for i in range(29 + archived):
@@ -48,6 +49,7 @@ class LoopVolume(unittest.TestCase):
                                 seat_id=f'seat-{i}', charter='retained content ' * 64)
                     rows.append((f'node-{i:05}', i+10, json.dumps(node)))
                 conn.executemany('INSERT INTO nodes(id,ord,val) VALUES(?,?,?)', rows)
+                conn.execute('COMMIT')
                 conn.execute('ANALYZE nodes')
                 conn.execute('ANALYZE doc')
             loops = {
@@ -62,10 +64,12 @@ class LoopVolume(unittest.TestCase):
             for mode in ('legacy_cold', 'projected'):
                 for name, run in loops.items():
                     count = {'rows': 0, 'bytes': 0}
+                    scalars = []
                     one, many = psycopg.Cursor.fetchone, psycopg.Cursor.fetchall
                     def record(rows):
                         count['rows'] += len(rows)
                         count['bytes'] += sum(len(json.dumps(r, default=str, ensure_ascii=False).encode()) for r in rows)
+                        scalars.extend(r for r in rows if len(r)==1 and isinstance(r[0], (int, float)))
                     def fetchone(cur):
                         row = one(cur)
                         if row is not None: record([row])
@@ -97,16 +101,18 @@ class LoopVolume(unittest.TestCase):
                         run()
                         for action in (reserve, remind, repair, resume): action.assert_not_called()
                     self.assertGreater(count['rows'], 0, (mode, name))
-                    results.append(dict(archived=archived, live=30, mode=mode, loop=name, **count))
-        for name in loops:
-            tip = [r for r in results if r['mode']=='projected' and r['loop']==name]
-            self.assertEqual(tip[0]['rows'], tip[1]['rows'], (name, tip))
-            self.assertEqual(tip[0]['bytes'], tip[1]['bytes'], (name, tip))
-            old = [r for r in results if r['mode']=='legacy_cold' and r['loop']==name]
-            self.assertGreater(old[1]['bytes'], old[0]['bytes'] * 5)
+                    results.append(dict(archived=archived, live=30, mode=mode, loop=name, scalar_reads=scalars, **count))
         dest = os.environ.get('POLICY_LOOP_VOLUME_OUTPUT')
         if dest: Path(dest).write_text(json.dumps(results, indent=2), encoding='utf-8')
         print('POLICY_LOOP_VOLUME ' + json.dumps(results), flush=True)
+        for name in loops:
+            tip = [r for r in results if r['mode']=='projected' and r['loop']==name]
+            self.assertEqual(tip[0]['rows'], tip[1]['rows'], (name, tip))
+            # Revision/count scalar decimal widths can move; no source bodies
+            # or result cardinality may grow with unrelated node history.
+            self.assertLessEqual(abs(tip[0]['bytes']-tip[1]['bytes']), 32, (name, tip))
+            old = [r for r in results if r['mode']=='legacy_cold' and r['loop']==name]
+            self.assertGreater(old[1]['bytes'], old[0]['bytes'] * 5)
 
 
 if __name__ == '__main__': unittest.main()
