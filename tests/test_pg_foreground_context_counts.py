@@ -73,7 +73,8 @@ class ContextCounts(unittest.TestCase):
             raw.execute(f"UPDATE org_{self.oid}.work_read_state SET ready=false")
         with self.assertRaises(ctx.CompatibilityRequired):self.read()
         with pgstore.connect() as raw,raw.transaction():
-            self.assertTrue(workread.refresh(raw,self.oid))
+            self.assertFalse(workread.refresh(raw,self.oid))  # ordinary saves never repair explicit invalidation
+            self.assertTrue(workread.reconcile(raw,self.oid))
         self.assertEqual(self.read().work_counts(),self.oracle(ledger.USER))
 
 if __name__=='__main__':unittest.main()

@@ -7,6 +7,7 @@ import types
 import unittest
 from unittest.mock import patch
 import test_pgstore as fixture
+import orgtree
 from orgtree import foreground_store as fg, foreground_context as ctx, ledger, store
 
 
@@ -32,6 +33,8 @@ class ContextPG(unittest.TestCase):
             return {'active':0,'attention':0,'archived':0,'backlogged':0}
         module.counts_raw=counts
         self.count_patch=patch.dict(sys.modules,{'orgtree.workread':module});self.count_patch.start();self.addCleanup(self.count_patch.stop)
+        self.package_patch=patch.object(orgtree,'workread',module,create=True)
+        self.package_patch.start();self.addCleanup(self.package_patch.stop)
 
     def context(self):
         return fg.read_foreground(self.slug,project=lambda raw,g:ctx.build(raw,self.slug,g))
