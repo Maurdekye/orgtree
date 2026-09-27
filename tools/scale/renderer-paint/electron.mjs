@@ -255,21 +255,34 @@ app.whenReady().then(async () => {
       // lands on empty space. Pan the pile to the middle first with a real
       // drag that starts on verified empty canvas.
       const middle = await js('(()=>{const r=document.querySelector(".viewport").getBoundingClientRect();return{x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}})()')
-      const start = await js(`(()=>{for(let y=140;y<880;y+=30)for(let x=120;x<1380;x+=30){const e=document.elementFromPoint(x,y);if(e&&(e.classList.contains('space')||e.classList.contains('viewport')))return{x,y}}return null})()`)
-      if (!start) throw Error('no empty canvas point to pan from')
-      const before = await badge()
-      const end = { x: start.x + middle.x - before.x, y: start.y + middle.y - before.y }
-      win.webContents.sendInputEvent({ type: 'mouseMove', ...start })
-      win.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...start })
-      for (let k = 1; k <= 10; k++) {
-        win.webContents.sendInputEvent({ type: 'mouseMove', button: 'left',
-          x: Math.round(start.x + (end.x - start.x) * k / 10), y: Math.round(start.y + (end.y - start.y) * k / 10) })
-        await sleep(30)
+      const pans = []
+      for (let step = 0; step < 6; step++) {
+        const at = await badge()
+        const dx = Math.max(-400, Math.min(400, middle.x - at.x)), dy = Math.max(-300, Math.min(300, middle.y - at.y))
+        if (Math.abs(middle.x - at.x) <= 40 && Math.abs(middle.y - at.y) <= 40) break
+        // an empty start whose end also stays inside the viewport
+        const start = await js(`(()=>{const v=document.querySelector('.viewport').getBoundingClientRect();
+          const inside=(x,y)=>x>v.left+20&&x<v.right-20&&y>v.top+20&&y<v.bottom-20
+          for(let y=v.top+30;y<v.bottom-30;y+=30)for(let x=v.left+30;x<v.right-30;x+=30){
+            if(!inside(x+${dx},y+${dy}))continue
+            const e=document.elementFromPoint(x,y);if(e&&(e.classList.contains('space')||e.classList.contains('viewport')))return{x:Math.round(x),y:Math.round(y)}}
+          return null})()`)
+        if (!start) throw Error('no empty canvas point to pan from')
+        const end = { x: start.x + dx, y: start.y + dy }
+        win.webContents.sendInputEvent({ type: 'mouseMove', ...start })
+        win.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...start })
+        for (let k = 1; k <= 10; k++) {
+          win.webContents.sendInputEvent({ type: 'mouseMove', button: 'left',
+            x: Math.round(start.x + dx * k / 10), y: Math.round(start.y + dy * k / 10) })
+          await sleep(30)
+        }
+        win.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, ...end })
+        await sleep(600)
+        pans.push({ at, start, end })
       }
-      win.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, ...end })
-      await sleep(1000)
+      await sleep(400)
       const first = await badge()
-      journal({ pilePan: { middle, start, before, after: first } })
+      journal({ pilePan: { middle, pans, after: first } })
       if (Math.abs(first.x - middle.x) > 80 || Math.abs(first.y - middle.y) > 80) throw Error('pile could not be panned to the middle')
       const zoom = async (delta, notches) => {
         for (let k = 0; k < notches; k++) {
