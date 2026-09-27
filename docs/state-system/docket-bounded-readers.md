@@ -114,3 +114,40 @@ check this index and the existing access/index health together, and apply
 canonical viewer permissions, current actor identities, attention and archive
 aging inside one snapshot. Missing or unsupported metadata requests the whole
 exact compatibility path. Existing full-list and single-item routes are intact.
+
+## Opt-in desktop foreground routes
+
+The `/work-items-foreground?backlogged=1` route returns `format:
+orgtree.work-foreground/v1`, canonical light `items`, optional `backlogged`,
+viewer `counts`, `now`, `attention`, `references`, and a content `revision`.
+The row shape is exactly the existing work-items-view light row. References
+contain only returned rows. Hidden archives are neither projected nor retained.
+Attention-held physical archives remain foreground. The existing full routes,
+agent list contract, and work-items-view stay unchanged in this stage.
+
+`/work-items-archive-page?limit=50&cursor=...` returns at most 100 light rows
+in `archived`, their `references`, `next_cursor` (null at the end), and an opaque
+catalog. The existing order and classification rules apply. Cursors expire in
+60 seconds and bind viewer, org, page size, body/access revisions, and the list
+revision (including scope and actor identity changes). A 409 `kind: reset`
+requires restarting the page chain. Invalid limits return 400.
+
+`/work-item-reference/{wid}` returns `found` and one `reference` or null. Missing
+and unauthorized names are indistinguishable. This resolves historical links
+on demand; absence from the foreground reference array never means not found.
+The existing exact single-item GET remains the detail reader.
+
+All three use one repeatable-read read-only transaction and refuse writer
+connection reuse. Canonical ledger projection applies dynamic identity,
+recipients, pointer visibility and attention; only history-derived fields use
+maintained metadata. The result is explicitly a light list, never a full item.
+Unsupported/dirty metadata returns 409 `kind: compatibility` and `legacy_url`:
+the client must switch its complete reader to the legacy path, not mix an empty
+fallback or an old page into a new snapshot. Unexpected database errors remain
+errors. Foreground content supports ETag/304; no server-side historical result
+cache is created. A 304 still performs bounded foreground selection.
+
+This stage enables the routes but does not switch the renderer. Archive search,
+page lifecycle and on-demand references must preserve visible behavior in that
+subsequent client stage. Cardinality controls are not loaded latency/memory
+qualification; the <=5% history gate remains open.

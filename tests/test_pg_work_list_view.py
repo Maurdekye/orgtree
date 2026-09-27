@@ -105,6 +105,18 @@ class Lists(unittest.TestCase):
         self.c.execute(f'DELETE FROM {self.s}.work_list_summary')
         self.assertIsNone(self.foreground())
 
+    def test_scope_only_invalidation_refuses_list_until_writer_refresh(self):
+        self.add(self.item(scope_logged=1,scope_rolled=1))
+        self.c.execute(f"INSERT INTO {self.s}.log_d(sect,owner,val) VALUES('work_scope_log','one',%s)",
+            (json.dumps({'seq':1,'at':'before'}),))
+        self.refresh(); before=self.foreground()
+        self.c.execute(f"UPDATE {self.s}.log_d SET val=%s WHERE sect='work_scope_log' AND owner='one'",
+            (json.dumps({'seq':1,'at':'after'}),))
+        self.assertIsNone(self.foreground())
+        self.refresh(); after=self.foreground()
+        self.assertNotEqual(before['revision'],after['revision'])
+        self.assertEqual(after['items'],self.oracle()['items'])
+
     def test_same_snapshot_keeps_counts_questions_and_actor_identity(self):
         self.add(self.item('archive',status='done'),True); self.asks(); self.refresh()
         with pgstore.connect() as raw,raw.transaction():
