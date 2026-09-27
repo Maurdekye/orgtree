@@ -34,7 +34,7 @@ os.environ.pop('ORGTREE_DESKTOP_MANAGED', None)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine/backend'))
 import import_provenance  # noqa: F401,E402
 from fastapi import HTTPException  # noqa: E402
-from orgtree import api, ledger, orgtx, pgdoor, store, supervisor, workdoor  # noqa: E402
+from orgtree import api, ledger, orgtx, pgdoor, store, supervisor, workdoor, worktx  # noqa: E402
 
 REQUEST = SimpleNamespace(state=SimpleNamespace())
 U = ledger.USER
@@ -73,8 +73,12 @@ class WorkDoor(unittest.TestCase):
         for x in self.p:
             x.start()
         self.sections = []
+        self.share_sections = []
+        self.logs = []
         orgtx.set_pause_hook(lambda p, tx: (
             self.locked.append(set(tx.lock_nodes)),
+            self.share_sections.append(set(tx.share_sections)),
+            self.logs.append(set(tx.logs)),
             self.sections.append(set(tx.lock_sections)))
             if p == 'after_lock' else None)
 
@@ -112,6 +116,82 @@ class WorkDoor(unittest.TestCase):
         self.assertEqual(sum(1 for m in box if self.wid in str(m)), 1)
         self.assertEqual(self.notified.count('sub'), 1)
         self.assertEqual([t for t, wake in self.sent if wake], ['sub'])
+
+    def test_self_create_holds_admission_but_no_notification_locks(self):
+        result = self.call('boss', action='create', title='Self owned create',
+                           objective='Avoid unused notification locks.', owner='boss')
+        self.assertEqual(len(self.sections), 1, 'self-create must not need widening')
+        self.assertEqual(self.sections[0], {'asks', 'work_items'})
+        self.assertEqual(self.locked[0], {'boss'}, 'keep the caller admission lock')
+        self.assertIn('killswitch', self.share_sections[0])
+        self.assertEqual(self.logs[0], {'events'})
+        org = store.load_org(self.slug)
+        self.assertEqual(org.d['work_items'][-1]['owner']['node'], 'boss')
+        self.assertFalse(result.get('notified'))
+        self.assertFalse(result.get('noticed'))
+        self.assertFalse(self.notified)
+        self.assertFalse(self.sent)
+
+    def _create_with_notifications(self, owner):
+        result = self.call('boss', action='create', title='Create with real recipients',
+                           objective='Keep real notifications and transaction safety.',
+                           owner=owner, participants=['peer', 'boss'])
+        wid = result['created']
+        org = store.load_org(self.slug)
+        self.assertEqual(sum(it['slug'] == wid for it in org.d['work_items']), 1)
+        recipients = ['peer'] + (['sub'] if owner == 'sub' else [])
+        for recipient in recipients:
+            box = org.d['mail'].get(recipient) or []
+            self.assertEqual(sum(wid in str(m) for m in box), 1,
+                             f'{recipient} must receive exactly one durable notification')
+            self.assertEqual(self.notified.count(recipient), 1)
+        self.assertFalse(any(wid in str(m) for m in org.d['mail'].get('boss', [])))
+        self.assertEqual(self.sent.count(('peer', False)), 1)
+        self.assertNotIn(('peer', True), self.sent)
+        if owner == 'sub':
+            self.assertEqual(self.sent.count(('sub', True)), 1)
+        else:
+            self.assertFalse(any(wake for _, wake in self.sent))
+        return recipients
+
+    def test_create_preserves_real_owner_and_participant_notifications(self):
+        recipients = self._create_with_notifications('sub')
+        self.assertEqual(len(self.sections), 1, 'real recipients must be predicted')
+        for recipient in recipients:
+            self.assertIn('mail\x1f' + recipient, self.sections[0])
+            self.assertIn(recipient, self.locked[0])
+        self.assertNotIn('mail\x1fboss', self.sections[0])
+        self.assertTrue({'notices', 'audiences'} <= self.sections[0])
+
+    def test_self_create_keeps_real_participant_notification(self):
+        self._create_with_notifications('boss')
+        self.assertEqual(len(self.sections), 1)
+        self.assertIn('mail\x1fpeer', self.sections[0])
+        self.assertNotIn('mail\x1fboss', self.sections[0])
+
+    def test_wrong_create_prediction_widens_and_delivers_once(self):
+        # Deliberately omit every notification row. The real ledger still
+        # writes the mail: the first transaction must roll back, the door must
+        # widen, and only the committed attempt may publish effects.
+        with patch.object(worktx, 'rows_for', return_value=worktx.Rows()):
+            recipients = self._create_with_notifications('sub')
+        self.assertGreaterEqual(len(self.sections), 2, 'wrong prediction never widened')
+        self.assertEqual(self.sections[0], {'asks', 'work_items'})
+        for recipient in recipients:
+            self.assertIn('mail\x1f' + recipient, self.sections[-1])
+
+    def test_self_create_still_refuses_halt_on_the_locked_caller(self):
+        org = store.load_org(self.slug)
+        org.d['nodes']['boss']['halt'] = {'at': 'now'}
+        store.save_org(org)
+        count = len(org.d['work_items'])
+        with patch.object(supervisor.halt, 'blocked', lambda *a, **k: None):
+            with self.assertRaises(HTTPException) as cm:
+                self.call('boss', action='create', title='Refused self create',
+                          objective='Keep admission after trimming prediction.', owner='boss')
+        self.assertEqual(cm.exception.status_code, 422)
+        self.assertIn('halted', str(cm.exception.detail))
+        self.assertEqual(len(store.load_org(self.slug).d['work_items']), count)
 
     def test_assign_on_the_door_locks_only_the_new_owners_mail_box(self):
         self.call('boss', action='assign', slug=self.wid, owner='sub')

@@ -166,7 +166,7 @@ def _names(v: Any) -> list[str]:
     return []
 
 
-def rows_for(action: str, a: dict[str, Any]) -> Rows:
+def rows_for(action: str, a: dict[str, Any], *, actor: str | None = None) -> Rows:
     """The rows an `orgtree_work` action is PREDICTED to write, from its
     arguments alone (measured per action, breadcrumbs 16:25Z). A prediction,
     not a promise: anything the ledger reaches beyond it is caught at commit
@@ -174,6 +174,11 @@ def rows_for(action: str, a: dict[str, Any]) -> Rows:
     r = Rows()
     if action == "create":
         who = _names(a.get("owner")) + _names(a.get("participants"))
+        # work_create suppresses assignment mail and participation notices to
+        # the actor itself. With no caller identity, keep the conservative
+        # prediction. Do not call notify() with an empty set: it still names
+        # the shared notices/audiences rows even when there are no recipients.
+        who = [n for n in who if n.strip() != actor]
         if who:
             r.notify(*who)
     elif action == "assign":

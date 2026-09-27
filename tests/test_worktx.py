@@ -76,6 +76,33 @@ def get(slug, item):
     raise KeyError(item)
 
 
+class CreateNotificationPrediction(unittest.TestCase):
+    def test_self_create_omits_all_notification_rows(self):
+        for args in ({'owner': 'own'}, {'owner': ' own '}, {},
+                     {'owner': 'own', 'participants': ['own']}):
+            with self.subTest(args=args):
+                rows = worktx.rows_for('create', args, actor='own')
+                self.assertEqual(rows.kwargs(), worktx.Rows().kwargs())
+
+    def test_other_owner_and_participants_keep_their_notification_rows(self):
+        for args, recipients in (
+            ({'owner': 'sub'}, ['sub']),
+            ({'owner': 'own', 'participants': ['peer', 'own']}, ['peer']),
+            ({'owner': 'sub', 'participants': ['own', 'peer']}, ['sub', 'peer']),
+        ):
+            with self.subTest(args=args):
+                rows = worktx.rows_for('create', args, actor='own')
+                self.assertEqual(rows.kwargs(), worktx.Rows().notify(*recipients).kwargs())
+
+    def test_unknown_caller_keeps_conservative_notification_prediction(self):
+        rows = worktx.rows_for('create', {'owner': 'own', 'participants': ['peer']})
+        self.assertEqual(rows.kwargs(), worktx.Rows().notify('own', 'peer').kwargs())
+
+    def test_noncreate_notification_prediction_is_unchanged(self):
+        rows = worktx.rows_for('assign', {'owner': 'own'}, actor='own')
+        self.assertEqual(rows.kwargs(), worktx.Rows().notify('own').kwargs())
+
+
 class Base(unittest.TestCase):
     def setUp(self):
         # the races here are org_tx against org_tx: they run with PG-0b's

@@ -39,9 +39,9 @@ def before(call: Any, _a: dict[str, Any]) -> None:
     worktx.sweep(call.org, snapshot=pgdoor._snapshot(call.org))  # pyright: ignore[reportPrivateUsage]
 
 
-def spec(_snapshot: Any, _call: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
+def spec(_snapshot: Any, call: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
     """The rows one `orgtree_work` call locks, from its arguments."""
-    k = worktx.rows_for(str(a.get("action") or ""), a).kwargs()
+    k = worktx.rows_for(str(a.get("action") or ""), a, actor=call.node).kwargs()
     return pgdoor.TxSpec(**{n: tuple(v) for n, v in k.items()})
 
 
