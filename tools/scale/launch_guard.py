@@ -35,6 +35,8 @@ def argv_of(value):
 
 def identity(value):
     # No PATH search, basename match, shell wrapper or command-content match.
+    if value is None:
+        return None
     value = os.fsdecode(value)
     return os.path.normcase(os.path.realpath(value)) if os.path.isabs(value) else None
 
@@ -53,8 +55,10 @@ class LaunchAudit:
     def classify(self, event, args):
         if event != "subprocess.Popen" or len(args) < 2:
             return "unexpected"
-        exe = identity(args[0])
         words = argv_of(args[1])
+        # Windows Popen normally passes applicationName=None; CreateProcess
+        # then uses argv[0]. Still require its absolute, exact known identity.
+        exe = identity(args[0] if args[0] is not None else (words[0] if words else None))
         if exe is None or not words or identity(words[0]) != exe:
             return "unexpected"
         tail = words[1:]
@@ -92,7 +96,7 @@ class LaunchAudit:
             if kind == "git_reads":
                 return
             row = {"at": time.time(), "event": event, "cmd": str(args[1] if len(args) > 1 else args),
-                   "executable": os.fsdecode(args[0]) if args else None,
+                   "executable": os.fsdecode(args[0]) if args and args[0] is not None else None,
                    "argv": argv_of(args[1]) if event == "subprocess.Popen" and len(args) > 1 else None,
                    "capability_probe": kind == "capability_probes"}
             with (self.root / "metrics" / "serve-refused.jsonl").open("a", encoding="utf-8") as f:

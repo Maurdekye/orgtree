@@ -43,13 +43,16 @@ class LaunchGuardTests(unittest.TestCase):
         for exe, tail in cases:
             with self.assertRaises(FileNotFoundError):
                 self.audit("subprocess.Popen", self.event(exe, *tail, string=True))
-        self.assertEqual(self.audit.snapshot()["capability_probes"], 4)
+        with self.assertRaises(FileNotFoundError):
+            self.audit("subprocess.Popen", (None, subprocess.list2cmdline([self.agy, "--version"]), None, None))
+        self.assertEqual(self.audit.snapshot()["capability_probes"], 5)
         self.assertEqual(self.audit.snapshot()["unexpected"], 0)
         self.assertFalse((self.root / "metrics/qualification-invalid.json").exists())
 
     def test_unknown_version_prompt_suffix_shell_and_spoofed_argv_fail(self):
         cases = [self.event(self.unknown, "--version"),
                  self.event(self.claude, "-p", "say --version"),
+                 (None, subprocess.list2cmdline([self.unknown, "exec", "git status"]), None, None),
                  self.event(self.unknown, "exec", "agy", "models"),
                  self.event(self.git, "-c", "alias.x=!provider", "status"),
                  self.event(self.git, "status", "&&", self.unknown),
