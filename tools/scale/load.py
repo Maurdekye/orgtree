@@ -275,11 +275,13 @@ def main(argv=None) -> int:
         begun = time.time()
         response_at = begun
         status, err, state, receipt = None, None, None, None
+        size, wire = 0, 0
         try:
             r = client().post("/api/agent", json={"org": slug, "node": me, "tool": tool, "args": targs},
                               headers={"X-Orgtree-Agent-Token": tokens[me],
                                        "X-Scale-Kind": tool + ":" + targs.get("action", "")})
             status = r.status_code
+            size, wire = len(r.content), r.num_bytes_downloaded
             response_at = time.time()
             if status != 200:
                 err = r.text[:300]
@@ -310,6 +312,7 @@ def main(argv=None) -> int:
                             "request_id": request_id, "actor": me, "receipt": receipt,
                             "action": targs.get("action"), "status": status, "state": state,
                             "err": err, "lag_ms": round((begun - due) * 1000, 1),
+                            "bytes": size, "wire_bytes": wire,
                             "http_ms": round((response_at - begun) * 1000, 1),
                             "verification_ms": round((end - response_at) * 1000, 1),
                             "total_ms": round((response_at - due) * 1000, 1), "end_t": round(response_at - t0, 3)})
@@ -700,6 +703,17 @@ def main(argv=None) -> int:
             rec.close()
             raise RuntimeError("all websocket windows must connect before measuring")
     steady = (desc["serve"].get("env_orgtree") or {}).get("ORGTREE_SCALE_SIMULATED_PROVIDER") == "1"
+    if args.renderer_hooks:
+        # Mount-only requests from App are outside the continuous traffic
+        # window. Native IPC and compositor work are not simulated here.
+        with httpx.Client(base_url=origin, headers=H, timeout=30) as startup:
+            for path in ("/api/host", f"/api/orgs/{slug}/staffing-options"):
+                start = time.time()
+                response = startup.get(path)
+                response.raise_for_status()
+                rec.write("ui-startup", dict(url=path, status=response.status_code,
+                    bytes=len(response.content), wire_bytes=response.num_bytes_downloaded,
+                    ms=(time.time()-start)*1000))
     activity_before = httpx.get(origin + "/scale/activity", headers=H, timeout=30).raise_for_status().json()
     t0 = time.time()
     config["started"] = t0
