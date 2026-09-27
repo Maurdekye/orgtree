@@ -192,6 +192,7 @@ class Meter:
         def execute(cursor, query, *args, **kwargs):
             if not self.enabled: return original(cursor,query,*args,**kwargs)
             conn=cursor.connection
+            pid=conn.info.backend_pid
             text=str(query)
             start=time.time(); cpu=time.thread_time(); state=None
             try: return original(cursor,query,*args,**kwargs)
@@ -203,7 +204,7 @@ class Meter:
                 # Every SQL boundary is retained so per-PID transaction spans
                 # and save/load sequences can be reconstructed without values.
                 self.event(dict(type='sql',start=start,end=end,cpu_s=time.thread_time()-cpu,
-                    pid=conn.info.backend_pid,native_id=threading.get_native_id(),request=CTX.get(),
+                    pid=pid,native_id=threading.get_native_id(),request=CTX.get(),
                     sql=' '.join(text.split())[:700], asks='section:asks' in text,
                     lock='pg_advisory_xact_lock' in text,state=state))
         psycopg.Cursor.execute=execute

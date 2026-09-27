@@ -6,22 +6,22 @@
         [--label name] [--workers 64]
 
 Four drivers run together (fixed DEMAND, open loop: a call is issued at its
-scheduled time whether or not earlier ones returned — that is what agents do):
+scheduled time whether or not earlier ones returned â€” that is what agents do):
 
-1. AGENT TOOL CALLS — POST /api/agent as real agents (real agent tokens from
+1. AGENT TOOL CALLS â€” POST /api/agent as real agents (real agent tokens from
    the served process), random live agent, mix derived from the live org's last
    48 h (events 2026-09-24..26: mail 64 %, docket ops ~24 %, watchdog ~7 %)
-   plus status and reads. Default rate = 0.039 × N × 2 calls/s: the live
+   plus status and reads. Default rate = 0.039 Ã— N Ã— 2 calls/s: the live
    fleet's peak aggregate turn rate (0.936 Hz over 24 live agents, relayed
-   charter figure) scaled per agent, × an ASSUMED 2 orgtree calls per turn
-   (measured ≈1.1 write events per turn; reads/status are not logged).
-2. UI WINDOWS — W windows each polling as the renderer does: org tree every
+   charter figure) scaled per agent, Ã— an ASSUMED 2 orgtree calls per turn
+   (measured â‰ˆ1.1 write events per turn; reads/status are not logged).
+2. UI WINDOWS â€” W windows each polling as the renderer does: org tree every
    6 s (If-None-Match), org list every 3 s, docket list every 5 s
    (If-None-Match), and the chat of one streaming node every 2.5 s.
-3. SCREEN FEED — each window holds the org websocket (?win=scale-w<i>) and
+3. SCREEN FEED â€” each window holds the org websocket (?win=scale-w<i>) and
    times every numbered stream marker it receives.
-4. LIVE TEXT — K streaming nodes (default 5 % of N) emit a frame at
-   --stream-hz, each carrying a unique marker `[[m<seq>]]`; the marker → emit
+4. LIVE TEXT â€” K streaming nodes (default 5 % of N) emit a frame at
+   --stream-hz, each carrying a unique marker `[[m<seq>]]`; the marker â†’ emit
    time map is written to metrics/<label>/markers.jsonl.
 
 A sampler records engine private/RSS bytes, CPU, threads, handles, and
@@ -52,7 +52,7 @@ from control import BoundedPool, Workload, Feed, free_commit_gb, memory_breach
 
 MARK = re.compile(r"\[\[m(\d+)\]\]")
 
-# (weight, tool, args-builder) — args-builder(me, ctx) -> dict
+# (weight, tool, args-builder) â€” args-builder(me, ctx) -> dict
 MIX = [
     (0.30, "orgtree_message", lambda me, c: {"to": c.superior(me), "kind": "message",
                                              "body": c.text(300)}),
@@ -437,6 +437,7 @@ def main(argv=None) -> int:
             due[name] = max(due[name] + period, time.time())
 
     def ws_window(w: int):
+        recorded_markers = set()
         url = origin.replace("http", "ws") + f"/api/orgs/{slug}/ws?win=scale-w{w}"
         while not stop.is_set():
             try:
@@ -455,7 +456,10 @@ def main(argv=None) -> int:
                         if "[[m" in raw:
                             for m in MARK.finditer(raw):
                                 feed_tracker.receive(w, int(m.group(1)), now)
-                                rec.write("marker-receipts", {"w": w, "m": int(m.group(1)), "received": now})
+                                marker_id = int(m.group(1))
+                                if marker_id not in recorded_markers:
+                                    recorded_markers.add(marker_id)
+                                    rec.write("marker-receipts", {"w": w, "m": marker_id, "received": now})
             except Exception as e:                           # noqa: BLE001
                 rec.write("ws", {"t": round(time.time() - t0, 3), "w": w, "ev": "close",
                                  "why": f"{type(e).__name__}: {e}"[:200]})
