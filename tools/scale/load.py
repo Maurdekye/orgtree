@@ -377,6 +377,14 @@ def main(argv=None) -> int:
     import psycopg
     observer = psycopg.connect(desc["pg_url"], autocommit=True, connect_timeout=5,
         application_name="scale-sampler", options="-c statement_timeout=5000")
+    boundary_observer = None
+    if oracle:
+        from baseline_oracle import table_snapshot
+        boundary_observer = psycopg.connect(desc["pg_url"], autocommit=True, connect_timeout=5,
+            application_name="scale-boundary-observer",
+            options="-c default_transaction_read_only=on -c statement_timeout=120000")
+        config["database_before"] = table_snapshot(boundary_observer, oracle.schema)
+        config["instrumentation_connections"] = 3
     pools = {"calls": BoundedPool(args.workers), "steer": BoundedPool(max(8, args.workers // 2))}
 
     def run_plan(name, driver, call):
@@ -781,7 +789,10 @@ def main(argv=None) -> int:
     valid = valid and not any(c["rejected"] or c["worker_errors"] or c["cancelled"]
                              for c in ui_counters.values())
     oracle_counts = dict(oracle.counts) if oracle else None
+    database_after = None
     if oracle:
+        database_after = table_snapshot(boundary_observer, oracle.schema)
+        boundary_observer.close()
         valid = valid and not oracle_counts["failed"] and oracle_counts["acknowledged"] == oracle_counts["checked"]
         oracle.close()
     valid = valid and not (root / "metrics" / "qualification-invalid.json").exists()
@@ -790,6 +801,7 @@ def main(argv=None) -> int:
                "qualification": "Per-target assessment required; this field does not certify renderer or 60-minute stability.",
                "client_counters": counters, "ui_counters": ui_counters,
                "write_oracle": oracle_counts, "workload_substitutions": workload.substitutions,
+               "database_after": database_after,
                "achieved": {"calls": len(calls), "calls_per_s": round(completed_in_window / elapsed, 2),
                             "completed_in_window": completed_in_window, "drain_finished_s": time.time() - t0,
                             "offered_calls_per_s": rate, "steer_polls": len(steer_latencies),

@@ -185,13 +185,12 @@ def child(args) -> int:
     prov = assert_repo_import(str(REPO))
     receipt = prov.receipt()
 
-    def forbid(event, a):
-        if event in {"subprocess.Popen", "os.system", "os.startfile", "os.posix_spawn", "os.spawn"}:
-            cmd = a[1] if len(a) > 1 else a
-            if "git" in str(cmd).lower() and ("rev-parse" in str(cmd) or "status" in str(cmd)):
-                return
-            raise RuntimeError(f"scale seed forbids external process: {event} {str(cmd)[:120]}")
-    sys.addaudithook(forbid)
+    import shutil
+    from launch_guard import LaunchAudit, pin_git
+    git = shutil.which("git")
+    subprocess.Popen = pin_git(subprocess.Popen, git)
+    (root / "metrics").mkdir(exist_ok=True)
+    sys.addaudithook(LaunchAudit(root, git=git, providers=[]))
 
     from orgtree import ledger, pgstore, store
     if Path(store.DATA_ROOT).resolve() != (root / "data").resolve():
