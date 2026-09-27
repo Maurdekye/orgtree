@@ -25,7 +25,7 @@ class CpuControls(unittest.TestCase):
             try: meter.measured('worker',busy)
             finally: CTX.reset(token)
             self.assertGreaterEqual(meter.cpu['worker:tool:control'],.04)
-            self.assertTrue(any(i[2]=='busy' for i in meter.functions['worker:tool:control']))
+
 
     def test_overlapping_workers_keep_running_when_sample_busy(self):
         with tempfile.TemporaryDirectory() as root:
@@ -40,10 +40,39 @@ class CpuControls(unittest.TestCase):
                 def external_only(): seen.append('second finished')
                 meter.measured('worker',external_only)
                 self.assertEqual(seen,['second finished'])
-                self.assertEqual(meter.skipped_samples['worker:background'],1)
+                self.assertEqual(meter.count['worker:background'],2)
             finally:
                 release.set(); thread.join(3)
-            self.assertFalse(any(i[2]=='external_only' for i in meter.functions['worker:background']))
+
+
+    def test_yappi_separates_thread_tags_and_excludes_sleep(self):
+        with tempfile.TemporaryDirectory() as root:
+            meter=Meter(root); meter.setup_yappi()
+            entered=threading.Event(); release=threading.Event()
+            def sleeping_first():
+                token=CTX.set({'kind':'first'})
+                try:
+                    entered.set(); release.wait(2)
+                finally: CTX.reset(token)
+            def busy_second():
+                begun=time.thread_time()
+                while time.thread_time()-begun<.05: sum(range(100))
+            thread=threading.Thread(target=sleeping_first)
+            meter.yappi.start(builtins=True,profile_threads=True)
+            try:
+                thread.start(); self.assertTrue(entered.wait(1))
+                token=CTX.set({'kind':'second'})
+                try: busy_second()
+                finally: CTX.reset(token)
+            finally:
+                release.set(); thread.join(3); meter.yappi.stop()
+            first=list(meter.yappi.get_func_stats(tag=meter.tags['first']))
+            second=list(meter.yappi.get_func_stats(tag=meter.tags['second']))
+            self.assertFalse(any(r.name=='busy_second' for r in first))
+            busy=next(r for r in second if r.name=='busy_second')
+            self.assertGreaterEqual(busy.ttot,.035)
+            self.assertLess(sum(r.tsub for r in first),.03)
+            meter.yappi.clear_stats()
 
     def test_cached_windows_thread_clock_counts_cpu_and_closes(self):
         clocks=ThreadClocks(); tid=threading.get_native_id()

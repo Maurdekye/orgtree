@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import collections
 import contextvars
-import cProfile
+
 import functools
 import json
 import os
@@ -61,8 +61,11 @@ class Meter:
         self.every = every
         self.enabled = False
         self.seq = 0
-        self.profile_lock = threading.Lock()
-        self.skipped_samples = collections.Counter()
+        self.tags = {}
+        self.windows = []
+        self.profile_on = False
+        self.profile_epoch = 0
+        self.cpu_modes = collections.Counter()
         self.count = collections.Counter()
         self.cpu = collections.Counter()
         self.sample_cpu = collections.Counter()
@@ -86,56 +89,75 @@ class Meter:
         ctx = CTX.get()
         key = where + ':' + label(ctx)
         self.count[key] += 1
-        # Sample first and each Nth operation independently within each class.
-        sampled = (self.count[key]-1) % (self.every if where == 'worker' else self.every*5) == 0
-        acquired = sampled and self.profile_lock.acquire(blocking=False)
-        profile = cProfile.Profile(time.thread_time) if acquired else None
-        if sampled and not acquired: self.skipped_samples[key] += 1
         self.local.depth = 1
         start = time.thread_time()
-        if profile:
-            try: profile.enable()
-            except ValueError:
-                # Another in-process profiler may own CPython's monitoring ID.
-                # Missing a sample must never change request behavior.
-                self.skipped_samples[key] += 1
-                profile = None
-                self.profile_lock.release()
-                acquired = False
+        epoch = self.profile_epoch
+        mode = 'profiled' if self.profile_on else 'plain'
         try:
             return fn(*args, **kwargs)
         finally:
-            if profile: profile.disable()
-            spent = time.thread_time()-start
-            self.cpu[key] += spent
-            self.local.depth = 0
-            if profile:
-                self.sample_cpu[key] += spent
-                rows = self.functions.setdefault(key, {})
-                for ident, stat in pstats.Stats(profile).stats.items():
-                    dest = rows.setdefault(ident, [0, 0, 0.0, 0.0])
-                    for i in range(4): dest[i] += stat[i]
-            if acquired: self.profile_lock.release()
+            spent=time.thread_time()-start
+            self.cpu[key]+=spent
+            self.cpu_modes[(mode if epoch==self.profile_epoch else 'mixed')+':'+key]+=spent
+            self.local.depth=0
+
+    def setup_yappi(self):
+        sys.path.insert(0,os.environ.get('ORGTREE_SCALE_YAPPI_PATH',
+            r'C:\Users\ncola_k8bx\AppData\Local\Temp\orgtree-e-rows-scale\profiler313-deps'))
+        import yappi
+        yappi.clear_stats(); yappi.set_clock_type('cpu')
+        def tag():
+            ctx=CTX.get()
+            key=label(ctx) if ctx else 'background:'+threading.current_thread().name
+            value=self.tags.get(key)
+            if value is None:
+                value=len(self.tags)+1; self.tags[key]=value
+            return value
+        yappi.set_tag_callback(tag)
+        self.yappi=yappi
+
+    def sample_windows(self):
+        # Sparse process-wide windows preserve actual concurrency, and Yappi's
+        # native per-thread CPU clocks do not contaminate each other.
+        if self.stop.wait(5): return
+        while not self.stop.is_set():
+            self.profile_epoch+=1; self.profile_on=True
+            window=dict(start=time.time(),process_start=time.process_time())
+            self.yappi.start(builtins=True,profile_threads=True)
+            self.stop.wait(3)
+            self.yappi.stop()
+            self.profile_on=False; self.profile_epoch+=1
+            window.update(end=time.time(),process_end=time.process_time())
+            self.windows.append(window)
+            if self.stop.wait(17): return
 
     def start(self):
         if self.started: raise RuntimeError('one profile window per engine')
+        self.setup_yappi()
         self.started = dict(wall=time.time(), process=time.process_time())
         self.enabled = True
         threading.Thread(target=self.sampler, name='scale-cpu-sampler', daemon=True).start()
+        self.prof_thread=threading.Thread(target=self.sample_windows,name='scale-function-profiler',daemon=True)
+        self.prof_thread.start()
         return self.started
 
     def finish(self):
         self.finished = dict(wall=time.time(), process=time.process_time())
         self.enabled = False
         self.stop.set()
+        self.prof_thread.join(timeout=5)
+        self.yappi.stop()
+        function_stats={}
+        for key,tag in list(self.tags.items()):
+            function_stats[key]=[dict(file=r.module,line=r.lineno,function=r.name,
+                calls=r.ncall,self_s=r.tsub,cumulative_s=r.ttot) for r in
+                self.yappi.get_func_stats(tag=tag).sort('tsub')[:160]]
         data = dict(start=self.started, finish=self.finished, every=self.every,
             count=dict(self.count), cpu=dict(self.cpu), sampled_cpu=dict(self.sample_cpu),
-            skipped_samples=dict(self.skipped_samples),
+            cpu_modes=dict(self.cpu_modes),windows=self.windows,profiler="yappi1.7.6-cpu",
             thread_cpu=dict(self.thread_cpu), thread_names=self.thread_names,
             weighted_stacks=[dict(key=k, cpu_s=v) for k,v in self.stack_cpu.most_common(300)],
-            functions={key: [dict(file=i[0], line=i[1], function=i[2], primitive_calls=v[0],
-                calls=v[1], self_s=v[2], cumulative_s=v[3]) for i,v in sorted(rows.items(),
-                    key=lambda x: x[1][2], reverse=True)[:160]] for key,rows in self.functions.items()},
+            functions=function_stats,
             event_count=len(self.events), event_cap=150000)
         (self.root/'metrics'/'loaded-cpu.json').write_text(json.dumps(data,indent=2),encoding='utf8')
         with (self.root/'metrics'/'loaded-trace.jsonl').open('w',encoding='utf8') as out:
