@@ -67,15 +67,19 @@ def _read(raw, slug, nid):
         'SELECT key,val FROM doc WHERE key=ANY(%s)', (list(SETTINGS),)).fetchall()}
     if settings.get('slug') != slug:
         raise CompatibilityRequired('organization identity changed')
-    if raw.execute("SELECT EXISTS(SELECT 1 FROM doc WHERE key IN ('audiences','nodes'))").fetchone()[0]:
-        raise CompatibilityRequired('legacy node or audience document')
+    if raw.execute("SELECT EXISTS(SELECT 1 FROM doc WHERE key='nodes')").fetchone()[0]:
+        raise CompatibilityRequired('legacy node document')
     # Identity only asks for USER and EXTERN audiences. Do not decode other
     # grants or any audience-request/history bodies.
     settings['audiences'] = [dict(grantee=nid, grantor=grantor)
         for grantor, in raw.execute(
-            "SELECT DISTINCT val::jsonb->>'grantor' FROM log_l "
-            "WHERE sect='audiences' AND val::jsonb->>'grantee'=%s "
-            "AND val::jsonb->>'grantor'=ANY(%s)", (nid, [USER, EXTERN])).fetchall()]
+            "WITH grants(value) AS ("
+            "SELECT jsonb_array_elements(val::jsonb) FROM doc WHERE key='audiences' "
+            "UNION ALL SELECT val::jsonb FROM log_l WHERE sect='audiences' "
+            "AND NOT EXISTS(SELECT 1 FROM doc WHERE key='audiences')) "
+            "SELECT DISTINCT value->>'grantor' FROM grants "
+            "WHERE value->>'grantee'=%s AND value->>'grantor'=ANY(%s)",
+            (nid, [USER, EXTERN])).fetchall()]
     rows = raw.execute(
         "WITH RECURSIVE wanted(id,parent) AS ("
         "SELECT id,meta->>'parent' FROM node_index WHERE id=%s OR id=("
