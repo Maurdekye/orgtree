@@ -117,7 +117,9 @@ class TurnInputsPG(unittest.TestCase):
     def test_actual_pinned_writer_preserves_read_your_writes_and_rollback(self):
         with self.assertRaisesRegex(RuntimeError,'rollback canary'):
             with orgtx.org_tx(self.slug,nodes=['worker']) as tx:
-                tx.conn.execute("UPDATE nodes SET val=json_set(val,'$.charter',?) WHERE id=?",('uncommitted','worker'))
+                with store._POOL.acquire(self.slug) as pc:
+                    self.assertTrue(pc.pinned)
+                    pc.execute("UPDATE nodes SET val=jsonb_set(val::jsonb,'{charter}',to_jsonb(%s::text))::text WHERE id='worker'",('uncommitted',))
                 view=turn_inputs.load(self.slug,'worker',mail=True)
                 self.assertNotIsInstance(view,identity_context.IdentityContext)
                 self.assertEqual(view.node('worker')['charter'],'uncommitted')
