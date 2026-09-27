@@ -252,7 +252,7 @@ class Controller:
             self.pg("init")
             # The custodian owns layout. This single setting is a declared
             # private-cluster capacity, not a product default change.
-            conf = self.root / "pg/cluster/data/postgresql.conf"
+            conf = self.root / "pg/pg/cluster/data/postgresql.conf"
             with conf.open("a", encoding="utf-8") as target:
                 target.write("\nmax_connections = 128\n")
             self.pg("start")
