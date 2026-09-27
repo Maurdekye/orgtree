@@ -118,10 +118,16 @@ def refresh(raw, org_id):
 
 
 def reconcile(raw, org_id):
-    """Recompute from raw source under locks; mismatch fails loud and closed."""
+    """Recompute under the shared writer fence; mismatch fails loud and closed.
+
+    Do not request source-table locks here. A writer can already hold a table's
+    RowExclusive lock while its AFTER trigger waits for this state row. Taking
+    SHARE after that row would deadlock with it. Relevant raw writers cannot
+    commit past the state-row fence, and MVCC reads their previous committed
+    values without waiting on their uncommitted source rows.
+    """
     schema = f'org_{int(org_id)}'
     with raw.transaction():
-        raw.execute(f'LOCK TABLE {schema}.doc,{schema}.log_l,{schema}.log_d IN SHARE MODE')
         raw.execute(f'SELECT singleton FROM {schema}.work_read_state WHERE singleton FOR UPDATE')
         valid = bool(raw.execute('SELECT public.orgtree_check_work_index(%s)', (org_id,)).fetchone()[0])
         count = 0

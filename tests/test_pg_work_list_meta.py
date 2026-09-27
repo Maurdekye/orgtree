@@ -208,6 +208,59 @@ class Metadata(unittest.TestCase):
             self.assertEqual(sink.conn.execute(f'SELECT count(*) FROM org_{oid}.work_list_summary').fetchone()[0],1)
         finally: sink.close()
 
+    def test_initial_refresh_bootstrap_and_reconcile_do_not_deadlock_scope_writer(self):
+        import threading
+        import time
+        self.add(self.item(scope_logged=1,scope_rolled=1))
+        self.c.execute(f"INSERT INTO {self.s}.log_d(sect,owner,val) VALUES('work_scope_log','one',%s)",
+                       (json.dumps({'seq':1,'at':'old'}),))
+        self.refresh()
+        for mode in ('refresh','bootstrap','reconcile'):
+            with self.subTest(mode=mode):
+                self.c.execute(f'UPDATE {self.s}.work_list_state SET initialized=false')
+                if mode!='reconcile':
+                    self.c.execute(f"INSERT INTO {self.s}.work_list_dirty VALUES('one')")
+                writer=pgstore.connect(); errors=[]; original=worklistmeta.reconcile
+                new_value='committed-'+mode
+                def change_scope():
+                    try:
+                        writer.execute(f"UPDATE {self.s}.log_d SET val=%s WHERE sect='work_scope_log' AND owner='one'",
+                                       (json.dumps({'seq':1,'at':new_value}),))
+                    except Exception as exc: errors.append(str(exc))
+                thread=threading.Thread(target=change_scope)
+                def interleave(raw,oid):
+                    # Caller already holds the state fence. The writer must
+                    # reach its real trigger and wait, not just be scheduled.
+                    thread.start()
+                    for _ in range(200):
+                        raw.execute('SELECT pg_stat_clear_snapshot()')
+                        row=raw.execute('SELECT wait_event_type FROM pg_stat_activity WHERE pid=%s',
+                                        (writer.info.backend_pid,)).fetchone()
+                        if row and row[0]=='Lock': break
+                        time.sleep(.01)
+                    else: self.fail('scope writer did not reach DB lock wait')
+                    return original(raw,oid)
+                try:
+                    try:
+                        with patch.object(worklistmeta,'reconcile',interleave):
+                            with self.c.transaction():
+                                if mode=='refresh': self.refresh()
+                                elif mode=='bootstrap': workread.bootstrap(self.c)
+                                else:
+                                    self.c.execute(f'SELECT singleton FROM {self.s}.work_read_state FOR UPDATE')
+                                    self.assertTrue(worklistmeta.reconcile(self.c,self.oid))
+                    except Exception as exc: errors.append(str(exc))
+                    thread.join(5)
+                    self.assertFalse(thread.is_alive())
+                    self.assertEqual(errors,[])
+                    self.assertFalse(worklistmeta.ready(self.c,self.oid))
+                    self.refresh()
+                    self.assertEqual(self.read()['scope_archive_summary']['first_at'],new_value)
+                    self.assertTrue(worklistmeta.ready(self.c,self.oid))
+                finally:
+                    if thread.is_alive(): writer.cancel(); thread.join(5)
+                    writer.close()
+
 
 @unittest.skipUnless(f.ADMIN, 'disposable PG not configured: NOT RUN')
 class Upgrade(unittest.TestCase):

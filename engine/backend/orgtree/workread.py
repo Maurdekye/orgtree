@@ -208,12 +208,14 @@ def _refresh(raw, org_id: int) -> bool:
 def reconcile(raw, org_id: int) -> bool:
     """Explicit migration/test control. Recompute from raw bodies, not index.
 
-    Nested callers retain source-table locks until their transaction ends. A mismatch emits
-    ERROR and keeps readiness false; no read performs this full-history scan.
+    The same state-row fence used by every relevant raw writer prevents a
+    concurrent source commit. Do not upgrade to source-table locks after taking
+    it: a writer can hold RowExclusive while its AFTER trigger waits on us.
+    A mismatch emits ERROR and keeps readiness false; ordinary reads never scan.
     """
     schema=f'org_{int(org_id)}'
     with raw.transaction():
-        raw.execute(f'LOCK TABLE {schema}.doc,{schema}.nodes,{schema}.log_l IN SHARE MODE')
+        raw.execute(f'SELECT singleton FROM {schema}.work_read_state WHERE singleton FOR UPDATE')
         return _reconcile_locked(raw,org_id)
 
 
@@ -257,7 +259,7 @@ def bootstrap(raw) -> None:
         from . import worklistmeta
         if state[0] and not state[1] and not state[2] and not worklistmeta.pending(raw,org_id): continue
         with raw.transaction():
-            raw.execute(f'LOCK TABLE {schema}.doc,{schema}.nodes,{schema}.log_l IN SHARE MODE')
+            raw.execute(f'SELECT singleton FROM {schema}.work_read_state WHERE singleton FOR UPDATE')
             refresh(raw,org_id)
 
 
