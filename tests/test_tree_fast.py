@@ -1,5 +1,6 @@
 """Status-only updates must be proved complete or rebuild the ordinary view."""
 import json
+import threading
 import unittest
 from unittest.mock import patch
 import test_tree_ui as fixture
@@ -91,6 +92,39 @@ class StatusProjection(unittest.TestCase):
             self.read(self.tag)
         self.assertTrue(fired)
         self.assertEqual(self.builds, 2)
+
+    def test_visible_sequence_waits_for_change_journal_publication(self):
+        entered, release, read_done = threading.Event(), threading.Event(), threading.Event()
+        slug = self.slug + '-atomic'
+        original = tree_changes.commit
+        def held(root, key, seq):
+            if key == slug:
+                entered.set()
+                release.wait(3)
+            original(root, key, seq)
+        errors = []
+        def reader():
+            try:
+                store.org_seq(slug)
+                read_done.set()
+            except BaseException as error:
+                errors.append(error)
+        with patch.object(tree_changes, 'commit', side_effect=held):
+            writer = threading.Thread(target=lambda:store._bump_org_seq(slug))
+            writer.start()
+            self.assertTrue(entered.wait(2))
+            reading = threading.Thread(target=reader)
+            reading.start()
+            try:
+                self.assertFalse(read_done.wait(.05), 'new sequence escaped before journal publication')
+            finally:
+                release.set()
+                writer.join(3)
+                reading.join(3)
+        self.assertFalse(writer.is_alive())
+        self.assertFalse(reading.is_alive())
+        self.assertTrue(read_done.is_set())
+        self.assertEqual(errors, [])
 
 
 if __name__ == '__main__':
