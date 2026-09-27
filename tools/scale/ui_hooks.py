@@ -136,6 +136,8 @@ class WindowDriver:
         self.pool = BoundedPool(workers)
         self.cache = {h.name: Conditional() for h in self.clock.specs.values() if h.conditional}
         self.started = 0
+        self.local = threading.local()
+        self.clients = []
 
     def event(self, frame):
         with self.lock:
@@ -157,6 +159,8 @@ class WindowDriver:
                 self.stop.wait(.01)
         finally:
             self.pool.shutdown(cancel_pending=self.stop.is_set())
+            for client in self.clients:
+                client.close()
 
     def fetch(self, hook, due):
         import httpx
@@ -167,16 +171,20 @@ class WindowDriver:
         if cache and cache.etag:
             headers["If-None-Match"] = cache.etag
         try:
-            with httpx.Client(base_url=self.origin, headers=headers, timeout=30) as client:
-                response = client.get(hook.url)
-                status, size = response.status_code, len(response.content)
-                wire = response.num_bytes_downloaded
-                if status == 200:
-                    payload = response.json()
-                elif status != 304:
-                    err = response.text[:200]
-                if cache:
-                    cache.accept(status, response.headers, payload)
+            client = getattr(self.local, "client", None)
+            if client is None:
+                client = self.local.client = httpx.Client(base_url=self.origin, timeout=30)
+                with self.lock:
+                    self.clients.append(client)
+            response = client.get(hook.url, headers=headers)
+            status, size = response.status_code, len(response.content)
+            wire = response.num_bytes_downloaded
+            if status == 200:
+                payload = response.json()
+            elif status != 304:
+                err = response.text[:200]
+            if cache:
+                cache.accept(status, response.headers, payload)
         except Exception as exc:
             err = f"{type(exc).__name__}: {exc}"[:200]
         finally:
