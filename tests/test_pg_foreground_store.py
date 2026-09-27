@@ -336,8 +336,13 @@ class ForegroundUpgrade(unittest.TestCase):
                 schema = conn.execute('SELECT public.orgtree_create_org_schema(%s)', (oid,)).fetchone()[0]
                 raw = '{ "state": "archived", "parent": "", "cost_usd": 12.500, "unknown": [1, 2] }'
                 conn.execute(f'INSERT INTO {schema}.nodes(id,ord,val) VALUES(%s,%s,%s)', ('retired', 9, raw))
+                legacy = '[ {"id":"legacy","status":"open","questions":[{"work_item":"one"}]}, {"id":"no-status","node":null} ]'
+                conn.execute(f'INSERT INTO {schema}.doc(key,val) VALUES(%s,%s)', ('asks', legacy))
                 pgstore.migrate(conn)
                 self.assertEqual(conn.execute(f'SELECT val FROM {schema}.nodes').fetchone()[0], raw)
+                self.assertEqual(conn.execute(f"SELECT val FROM {schema}.doc WHERE key='asks'").fetchone()[0], legacy)
+                self.assertEqual(conn.execute(f'SELECT node,status FROM {schema}.foreground_asks ORDER BY ord').fetchall(),
+                                 [('', 'open'), ('', '')])
                 self.assertEqual(conn.execute(f'SELECT node_count,retired_axis_count,cost FROM {schema}.foreground_meta').fetchone(), (1, 1, 12.5))
                 self.assertEqual(conn.execute(f'SELECT parent,retired_children FROM {schema}.foreground_parents').fetchone(), ('', 1))
                 self.assertEqual(pgstore.migrate(conn)['applied'], [])

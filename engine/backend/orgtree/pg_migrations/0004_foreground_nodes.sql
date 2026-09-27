@@ -156,7 +156,12 @@ BEGIN
    ELSE
      EXECUTE format($sql$
        INSERT INTO %I.foreground_asks(sect,ord,node,status,stamp,val)
-       SELECT $1,ord,v->>'node',v->>'status',coalesce(v->>'resolved_at',v->>'at',''),v::text
+       -- These are derivative lookup keys, not new source constraints.
+       -- Legacy asks may omit node/status; preserve their raw value so the
+       -- canonical reader can request exact compatibility instead of aborting
+       -- a save or a populated-root backfill with NOT NULL violation.
+       SELECT $1,ord,coalesce(v->>'node',''),coalesce(v->>'status',''),
+              coalesce(v->>'resolved_at',v->>'at',''),v::text
        FROM jsonb_array_elements($2::jsonb) WITH ORDINALITY AS r(v,ord)
        ON CONFLICT(sect,ord) DO UPDATE SET node=excluded.node,status=excluded.status,
          stamp=excluded.stamp,val=excluded.val

@@ -56,6 +56,28 @@ class ForegroundWindows(unittest.TestCase):
             conn.execute('COMMIT')
         self.assertGreater(fg.read_foreground(self.slug)['stamp']['view_revision'], changed['view_revision'])
 
+    def test_incomplete_legacy_asks_keep_raw_fields_and_header_visibility(self):
+        rows = [dict(id='missing-node', status='open'),
+                dict(id='null-node', node=None, status='pending'),
+                dict(id='missing-status', node='leaf'),
+                dict(id='null-status', node='leaf', status=None)]
+        original = json.dumps(rows, indent=2)
+        with store._POOL.acquire(self.slug) as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            for section in fg.ASK_SECTIONS:
+                conn.execute('INSERT INTO doc(key,val) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET val=excluded.val',
+                             (section, original))
+            conn.execute('COMMIT')
+        # The derivative key may use an empty sentinel, but never repair or
+        # invent fields in the source value returned to legacy consumers.
+        with fg._snapshot(self.slug) as (raw, stamp):
+            windows = fg.read_card_windows(raw, ['leaf'], header=True)
+            for section in fg.ASK_SECTIONS:
+                self.assertEqual(raw.execute('SELECT val FROM doc WHERE key=%s', (section,)).fetchone()[0], original)
+                self.assertEqual(windows['asks'][section], rows)
+                self.assertEqual(raw.execute('SELECT node,status FROM foreground_asks WHERE sect=%s ORDER BY ord',
+                                            (section,)).fetchall(), [('', 'open'), ('', 'pending'), ('leaf', ''), ('leaf', '')])
+
     def test_direct_pending_mail_and_audience_changes_invalidate_but_read_history_does_not(self):
         def revision():
             return fg.read_foreground(self.slug)['stamp']['view_revision']
