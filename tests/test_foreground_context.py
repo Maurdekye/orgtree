@@ -129,4 +129,19 @@ class ContextTests(unittest.TestCase):
         self.assertEqual(view.tree_node('parent'),org.tree_node('parent',descend=False,lineage=False))
         self.assertEqual(view.tree_header([]),org.tree_header([]))
 
+    def test_pending_mail_ids_and_expired_global_lock_require_compatibility(self):
+        for field,value in (('user_inbox',[{'body':'old'}]),('mail',{'parent':[{'body':'old'}]}),
+                            ('fable_lock',{'until_ts':1})):
+            org,args=fixture();args['settings'][field]=value
+            with self.subTest(field=field),self.assertRaises(CompatibilityRequired):ForegroundContext(**args)
+
+    def test_kiosk_with_existing_ceiling_preserves_legacy_defaults(self):
+        org,args=fixture()
+        kiosk={'credits':10,'max_scope':{'tools':{},'add_dirs':[],
+             'org_visibility':'self','permission_mode':'plan'}}
+        org.d['kiosk']=copy.deepcopy(kiosk);args['settings']['kiosk']=copy.deepcopy(kiosk)
+        expected=ledger.Org(copy.deepcopy(org.d));view=ForegroundContext(**args)
+        self.assertEqual(view.tree_header([]),expected.tree_header([]))
+        self.assertEqual(view.d['kiosk'],expected.d['kiosk'])
+
 if __name__=='__main__':unittest.main()
