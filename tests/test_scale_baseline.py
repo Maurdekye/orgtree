@@ -18,6 +18,14 @@ import sql_counts
 
 
 class ControllerControls(unittest.TestCase):
+    def test_drain_retains_passive_mail_but_refuses_waking_or_unaccounted_mail(self):
+        from settlement import settled
+        row = dict(mail=1, waking_mail=0, passive_mail=1, delivering=0, inflight=0, busy=0, queued=0)
+        self.assertTrue(settled(row))
+        self.assertFalse(settled({**row, "waking_mail": 1, "passive_mail": 0}))
+        self.assertFalse(settled({**row, "mail": 2}))
+        self.assertFalse(settled({**row, "delivering": 1}))
+        self.assertFalse(settled({}))
     def test_database_identity_excludes_connection_options(self):
         self.assertEqual(baseline.database_name("postgresql://localhost:5432/orgtree_scale_small?sslmode=disable"),
                          "orgtree_scale_small")
