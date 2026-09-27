@@ -93,6 +93,40 @@ class ControllerControls(unittest.TestCase):
         cache.accept(304, {}, None)
         self.assertEqual(cache.revision, "r2")
 
+    def test_work_delta_requires_every_ordered_row(self):
+        cache = Conditional()
+        cache.accept(200, {"etag": "a"}, {"revision": "r1", "items": [{"slug": "one", "value": 1}]})
+        cache.accept(200, {"etag": "b"}, {"revision": "r2", "base": "r1", "delta": {
+            "items": {"order": ["two"], "upsert": [{"slug": "two", "value": 2}]}}})
+        self.assertEqual(cache.body["items"], [{"slug": "two", "value": 2}])
+        with self.assertRaisesRegex(ValueError, "missing row"):
+            cache.accept(200, {"etag": "c"}, {"revision": "r3", "base": "r2", "delta": {
+                "items": {"order": ["missing"], "upsert": []}}})
+        self.assertEqual(cache.revision, "r2")
+
+    def test_tree_patch_removes_nodes_and_rejects_unreachable_data(self):
+        cache = Conditional()
+        cache.accept(200, {"etag": "a"}, {"format": "orgtree.tree/v1", "revision": "r1",
+            "tree": {"roots": [{"id": "a", "children": [{"id": "b", "children": []}]}]}})
+        patch = {"format": "orgtree.tree/v1", "revision": "r2", "base": "r1",
+            "top": {"set": {}, "remove": []}, "nodes": {
+                "a": {"set": {"children": []}, "remove": []}}, "removed": []}
+        with self.assertRaisesRegex(ValueError, "unreachable"):
+            cache.accept(200, {"etag": "b"}, patch)
+        patch["removed"] = ["b"]
+        cache.accept(200, {"etag": "b", "x-orgtree-sync-rev": "7"}, patch)
+        cache.accept(304, {"x-orgtree-sync-rev": "9"}, None)
+        self.assertEqual(cache.body, {"roots": [{"id": "a", "children": []}], "sync_rev": 9})
+
+    def test_stream_revision_gap_triggers_tree_without_live_poll_storm(self):
+        clock = HookClock(hooks("test", "worker", 0))
+        for hook, _ in clock.ready(0):
+            clock.complete(hook.name)
+        clock.event(dict(type="node_stream", node="worker", kind="delta", rev=1), .1, "worker")
+        self.assertEqual(clock.ready(.1), [])
+        clock.event(dict(type="node_stream", node="worker", kind="delta", rev=3), .2, "worker")
+        self.assertEqual([h.name for h, _ in clock.ready(.2)], ["org_tree"])
+
 
 ADMIN = os.environ.get("ORGTREE_TEST_PG_ADMIN_URL")
 
@@ -176,6 +210,25 @@ class StorageControls(unittest.TestCase):
         self.assertEqual(counts["value_bytes"], 15)
         self.assertEqual(counts["parameter_bytes"], 3)
         self.assertEqual(counts["write_parameter_bytes"], 3)
+
+    def test_sql_batch_counts_each_statement_and_each_bound_byte(self):
+        undo = sql_counts.install()
+        self.addCleanup(undo)
+        counts = sql_counts.empty()
+        token = sql_counts.current.set(counts)
+        try:
+            with self.writer.cursor() as cursor:
+                cursor.executemany("INSERT INTO org_1.nodes VALUES(%s,%s)", [("a", "é"), ("b", "xyz")])
+            self.assertEqual(self.writer.execute("SELECT id,val FROM org_1.nodes ORDER BY id").fetchall(),
+                             [("a", "é"), ("b", "xyz")])
+        finally:
+            sql_counts.current.reset(token)
+        self.assertEqual(counts["statements"], 3)
+        self.assertEqual(counts["rows"], 2)
+        self.assertEqual(counts["write_parameter_bytes"], 7)
+        self.assertEqual(counts["value_bytes"], 7)
+        self.assertEqual(counts["executemany_batches"], 1)
+        self.assertEqual(counts["unsupported_operations"], 0)
 
 
 if __name__ == "__main__":

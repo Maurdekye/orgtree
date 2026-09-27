@@ -7,6 +7,7 @@ No SQL text, payloads or stacks are retained.
 """
 import contextvars
 import json
+import re
 import threading
 import time
 
@@ -34,19 +35,27 @@ def install():
             counts = current.get()
             if counts is None or muted.get():
                 return original(self, *args, **kwargs)
-            if name == "execute":
-                counts["statements"] += 1
-                params = args[1] if len(args) > 1 else kwargs.get("params")
-                values = params.values() if isinstance(params, dict) else (params or ())
-                size = sum(value_bytes(v) for v in values)
+            if name in ("execute", "executemany"):
+                params = args[1] if len(args) > 1 else kwargs.get("params" if name == "execute" else "params_seq")
+                batches = [params] if name == "execute" else list(params)
+                if name == "executemany":
+                    args = (args[0], batches, *args[2:])
+                counts["statements"] += len(batches)
+                counts["executemany_batches"] += name == "executemany"
+                size = sum(value_bytes(v) for batch in batches for v in (
+                    batch.values() if isinstance(batch, dict) else (batch or ())))
                 counts["parameter_bytes"] += size
                 query = args[0] if args else kwargs.get("query", "")
                 if not isinstance(query, (str, bytes)):
                     query = query.as_string(self.connection)
                 if isinstance(query, bytes):
                     query = query.decode("utf-8")
-                if query.lstrip().split(" ", 1)[0].upper() in ("INSERT", "UPDATE", "DELETE"):
+                # The product uses bound values: literals cannot disguise
+                # keywords in the observed DML/CTE statements.
+                if re.search(r"\b(INSERT|UPDATE|DELETE|MERGE)\b", query, re.I):
                     counts["write_parameter_bytes"] += size
+            elif name in ("copy", "stream"):
+                counts["unsupported_operations"] += 1
             token = muted.set(True)
             try:
                 result = original(self, *args, **kwargs)
@@ -56,20 +65,21 @@ def install():
                 raise
             finally:
                 muted.reset(token)
-            if name != "execute":
+            if name in ("fetchone", "fetchmany", "fetchall", "__next__"):
                 rows = ([result] if result is not None else []) if name in ("fetchone", "__next__") else result
                 counts["rows"] += len(rows)
                 counts["value_bytes"] += sum(sum(value_bytes(v) for v in row) for row in rows)
             return result
         setattr(psycopg.Cursor, name, measured)
-    for name in ("execute", "fetchone", "fetchmany", "fetchall", "__next__"):
+    for name in ("execute", "executemany", "fetchone", "fetchmany", "fetchall", "__next__", "copy", "stream"):
         wrap(name)
     return lambda: [setattr(psycopg.Cursor, name, fn) for name, fn in originals.items()]
 
 
 def empty():
     return dict(statements=0, rows=0, value_bytes=0, parameter_bytes=0,
-                write_parameter_bytes=0, lock_timeout_55P03=0)
+                write_parameter_bytes=0, lock_timeout_55P03=0, executemany_batches=0,
+                unsupported_operations=0)
 
 
 class Boundary:

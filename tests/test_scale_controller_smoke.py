@@ -39,6 +39,10 @@ class ControllerSmoke(unittest.TestCase):
             self.assertGreater(summary["write_oracle"]["checked"], 0)
             self.assertEqual(summary["write_oracle"]["failed"], 0)
             self.assertGreater(summary["activity_after"]["provider"]["booked"], 0)
+            self.assertEqual(summary["measurement"]["begin_s"], 3)
+            self.assertEqual(summary["measurement"]["end_s"], 11)
+            primer = json.loads((root / f"receipts/{arm}-prime.json").read_text(encoding="utf-8"))
+            self.assertEqual(primer["writes"], {"acknowledged": 10, "checked": 10, "failed": 0})
             self.assertTrue((root / f"receipts/{arm}-verify.json").is_file())
             readiness = json.loads((root / f"receipts/{arm}-readiness.json").read_text(encoding="utf-8"))
             self.assertTrue(readiness["verified"])
@@ -46,6 +50,7 @@ class ControllerSmoke(unittest.TestCase):
             counters = [json.loads(line) for line in (root / f"receipts/{arm}/sql-counts.jsonl").read_text().splitlines()]
             self.assertTrue(any(row["rows"] > 0 for row in counters))
             self.assertTrue(any(row["write_parameter_bytes"] > 0 for row in counters))
+            self.assertFalse(any(row["unsupported_operations"] for row in counters))
 
 
 if __name__ == "__main__":
