@@ -4,10 +4,10 @@ export function installHookTrace() {
   const now = () => performance.timeOrigin + performance.now()
   const native = { fetch: window.fetch, json: Response.prototype.json, ws: window.WebSocket,
     timeout: window.setTimeout, interval: window.setInterval,
-    clearTimeout: window.clearTimeout, clearInterval: window.clearInterval }
+    clearTimeout: window.clearTimeout, clearInterval: window.clearInterval, finally: Promise.prototype.finally }
   const responses = new WeakMap(), timers = new Map(), stacks = new Map()
   const rows = [], errors = []
-  let sequence = 0, request = 0, socket = 0, timer = 0, context = null, totalBytes = 0
+  let sequence = 0, request = 0, socket = 0, timer = 0, settlement = 0, context = null, totalBytes = 0
   const counts = {}
   function record(kind, fields = {}) {
     if (errors.length) return
@@ -47,6 +47,20 @@ export function installHookTrace() {
         format: body.format, truncated: body.truncated, next_offset: body.next_offset } : {}) })
       return body
     }, error => { if (id) record('http-json-error', { id, error: String(error) }); throw error })
+  }
+  // Decoding ends before a hook's finally releases its request latch. Observe
+  // that actual callback boundary too, without replacing the hook or promise.
+  Promise.prototype.finally = function(callback) {
+    if (typeof callback !== 'function') return native.finally.call(this, callback)
+    const id = ++settlement
+    record('finally-register', { id, stack: stack(), context })
+    return native.finally.call(this, function() {
+      const previous = context
+      context = { settlement: id }
+      record('finally-enter', { id })
+      try { return callback.apply(this, arguments) }
+      finally { record('finally-exit', { id }); context = previous }
+    })
   }
   window.WebSocket = class extends native.ws {
     constructor(...args) {
