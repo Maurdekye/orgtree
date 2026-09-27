@@ -19,7 +19,7 @@ class PolicyLoops(fixture.PolicyInputs):
         org.work_create('worker', 'Blocked task', 'Blocked task', kind='non-code',
                         status='blocked', blocked_reason='external reply')
         org.d['audiences'].append({'grantee': 'worker', 'grantor': ledger.EXTERN})
-        org.node('worker').update(status='working', working_activity_at='2020-01-01T00:00:00+00:00')
+        org.node('worker').update(last_status={'status': 'working'}, working_activity_at='2020-01-01T00:00:00+00:00')
         store.save_org(org)
         full, got = store.load_org(self.slug), self.projected(docket=True)
         self.assertTrue(got._has_audience('worker', ledger.EXTERN))
@@ -27,6 +27,7 @@ class PolicyLoops(fixture.PolicyInputs):
             self.assertEqual(getattr(got, method)('worker'), getattr(full, method)('worker'))
             self.assertTrue(getattr(got, method)('worker'))
         self.assertEqual(got.work_org_all_blocked(), full.work_org_all_blocked())
+        self.assertEqual(sup._working_checkup_decision(got, 'worker', 1900000000), 'checkup')
         self.assertEqual(sup._working_checkup_decision(got, 'worker', 1900000000),
                          sup._working_checkup_decision(full, 'worker', 1900000000))
         self.assertEqual(sup.identity_prompt(got, 'worker'), sup.identity_prompt(full, 'worker'))
@@ -34,7 +35,7 @@ class PolicyLoops(fixture.PolicyInputs):
     def test_retirement_after_projection_prevents_actual_locked_reservation(self):
         org = store.load_org(self.slug)
         org.work_create('worker', 'Action due', 'An actionable task', kind='non-code')
-        org.node('worker').update(status='working', working_activity_at='2020-01-01T00:00:00+00:00')
+        org.node('worker').update(last_status={'status': 'working'}, working_activity_at='2020-01-01T00:00:00+00:00')
         store.save_org(org)
         real = sup._working_checkup_reserve
         calls = []
