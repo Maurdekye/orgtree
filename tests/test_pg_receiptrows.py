@@ -317,6 +317,8 @@ class ReceiptStorage(unittest.TestCase):
         with self.assertRaises(receiptmapping.StaleReceipts):
             with self.raw() as raw: receiptwriter.apply(raw,self.oid,plan)
         from dataclasses import replace
+        fresh=self.mapped(); fresh['z']['new']=receipt('z','new','fresh')
+        plan=receiptwriter.prepare(fresh)
         with self.assertRaises(receiptmapping.StaleReceipts):
             with self.raw() as raw: receiptwriter.apply(raw,self.oid,replace(plan,slug='wrong-org'))
         with self.raw() as raw:
