@@ -56,6 +56,28 @@ class ForegroundWindows(unittest.TestCase):
             conn.execute('COMMIT')
         self.assertGreater(fg.read_foreground(self.slug)['stamp']['view_revision'], changed['view_revision'])
 
+    def test_direct_pending_mail_and_audience_changes_invalidate_but_read_history_does_not(self):
+        def revision():
+            return fg.read_foreground(self.slug)['stamp']['view_revision']
+        before = revision()
+        for section in ('mail_log', 'mail'):
+            with store._POOL.acquire(self.slug) as conn:
+                conn.execute('BEGIN IMMEDIATE')
+                conn.execute('INSERT INTO log_d(sect,owner,seq,val) VALUES(?,?,?,?)',
+                             (section, 'boss', 10000, '{"id":"direct","body":"new"}'))
+                conn.execute('COMMIT')
+            if section == 'mail_log':
+                self.assertEqual(revision(), before)
+            else:
+                self.assertGreater(revision(), before)
+        before = revision()
+        with store._POOL.acquire(self.slug) as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            conn.execute('INSERT INTO log_l(sect,seq,val) VALUES(?,?,?)',
+                         ('audiences', 10000, '{"grantee":"boss","grantor":"@user"}'))
+            conn.execute('COMMIT')
+        self.assertGreater(revision(), before)
+
     def test_ask_batch_linger_and_header_match_shared_ledger_with_large_history(self):
         org = store.load_org(self.slug)
         stamp = ledger.now()
