@@ -1,4 +1,5 @@
 import './harness'
+import { compatibilityWorkFixture } from './workcompat.fixture'
 import { FakeServer, installFetch, flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -48,7 +49,7 @@ const fixture = () => {
     const { evidence: _ev, history: _history, acceptance: _acceptance, ...row } = v
     return { ...row, view: 'list', view_revision: `${v.slug}-${v.rev}` }
   }
-  globalThis.fetch = ((url: string, init?: RequestInit) => {
+  globalThis.fetch = compatibilityWorkFixture(((url: string, init?: RequestInit) => {
     const path = String(url)
     calls.push(path)
     const ok = (body: unknown) => ({ ok: true, status: 200, headers: new Headers(), json: async () => body })
@@ -65,7 +66,7 @@ const fixture = () => {
       return Promise.resolve(answer)
     }
     return original(url, init)
-  }) as typeof fetch
+  }) as typeof fetch)
   return { slug, item, hidden, node, tree, refs, calls, pending, setHold: (value: boolean) => { hold = value } }
 }
 const settle = () => inAct(() => flush(10))

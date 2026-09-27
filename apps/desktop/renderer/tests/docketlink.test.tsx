@@ -14,6 +14,7 @@
 // Run: cd frontend && node tests/run.mjs docketlink
 
 import { flush, inAct, mountView, realClock, useFakeClock } from './harness'
+import { compatibilityWorkFixture } from './workcompat.fixture'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
@@ -102,7 +103,7 @@ const tree = () => ({
 
 function serve(items: WorkItem[], backlogged: WorkItem[] = []) {
   ;(globalThis as unknown as { fetch: typeof fetch }).fetch =
-    ((url: string) => {
+    compatibilityWorkFixture(((url: string) => {
       const path = String(url)
       const ok = (p: unknown) => Promise.resolve({
         ok: true, status: 200, headers: new Headers(),
@@ -124,7 +125,7 @@ function serve(items: WorkItem[], backlogged: WorkItem[] = []) {
         })
       }
       return ok({})
-    }) as unknown as typeof fetch
+    }) as unknown as typeof fetch)
 }
 
 function uiTest(name: string, body: (mount: (v: React.ReactElement)

@@ -19,6 +19,7 @@
 // Run:  node apps/desktop/renderer/tests/run.mjs attentionview
 
 import './harness'
+import { compatibilityWorkFixture } from './workcompat.fixture'
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -52,7 +53,7 @@ const toast = () => {}
 
 /** the two feeds this view polls, answered with nothing waiting */
 function installQuietServer() {
-  ;(globalThis as unknown as { fetch: unknown }).fetch = (url: string) => {
+  ;(globalThis as unknown as { fetch: unknown }).fetch = compatibilityWorkFixture((url: string) => {
     const path = new URL(String(url), 'http://localhost').pathname
     const body = /\/work-items(?:-view)?$/.test(path)
       ? { items: [], archived: [], backlogged: [],
@@ -64,7 +65,7 @@ function installQuietServer() {
       ok: true, status: 200, headers: new Headers(),
       json: () => Promise.resolve(body),
     })
-  }
+  })
 }
 
 const reset = () => {

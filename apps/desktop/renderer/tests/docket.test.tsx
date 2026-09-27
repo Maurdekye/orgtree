@@ -1,5 +1,6 @@
 // docket.test.tsx — test suite for the native work docket and inbox navigation.
 import './harness'
+import { compatibilityWorkFixture } from './workcompat.fixture'
 import { advance, flush, inAct, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
@@ -22,7 +23,7 @@ function mockWorkItems(activeItems: WorkItem[], archivedItems: WorkItem[] = [],
                        extraCalls?: Call[], backlogItems: WorkItem[] = []): Call[] {
   const calls: Call[] = extraCalls ?? [];
   (globalThis as unknown as { fetch: typeof fetch }).fetch =
-    ((url: string, init?: RequestInit) => {
+    compatibilityWorkFixture(((url: string, init?: RequestInit) => {
       const method = init?.method ?? 'GET'
       const path = String(url)
       // allow-attachments-in-contextual-reply-composers: `uploadFile` posts
@@ -95,7 +96,7 @@ function mockWorkItems(activeItems: WorkItem[], archivedItems: WorkItem[] = [],
         return ok({ pending: [], delivered: [], sent: [] })
       }
       return ok({})
-    }) as typeof fetch
+    }) as typeof fetch)
   return calls
 }
 
@@ -514,7 +515,7 @@ uiTest('§11 dismiss manual attention button calls endpoint with set_rev and upd
   const headers = new Headers()
   const ok = (body: unknown) => Promise.resolve({ ok: true, status: 200, headers, json: () => Promise.resolve(body) })
 
-  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = ((url: string, init?: RequestInit) => {
+  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = compatibilityWorkFixture(((url: string, init?: RequestInit) => {
     const path = String(url)
     const method = init?.method ?? 'GET'
     const body = init?.body ? JSON.parse(String(init.body)) : undefined
@@ -536,7 +537,7 @@ uiTest('§11 dismiss manual attention button calls endpoint with set_rev and upd
       })
     }
     return ok({})
-  }) as typeof fetch
+  }) as typeof fetch)
 
   const { el } = await mount(docketModal({ toast: (t) => { toasted = t } }))
   await flush()
@@ -594,7 +595,7 @@ uiTest('§11b question+manual attention item stays in attention state after manu
   const headers = new Headers()
   const ok = (body: unknown) => Promise.resolve({ ok: true, status: 200, headers, json: () => Promise.resolve(body) })
 
-  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = ((url: string, init?: RequestInit) => {
+  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = compatibilityWorkFixture(((url: string, init?: RequestInit) => {
     const path = String(url)
     if (path.includes('/dismiss-attention')) {
       itemState = {
@@ -613,7 +614,7 @@ uiTest('§11b question+manual attention item stays in attention state after manu
       })
     }
     return ok({})
-  }) as typeof fetch
+  }) as typeof fetch)
 
   const { el } = await mount(docketModal({ toast: (t) => { toasted = t } }))
   await flush()
@@ -824,7 +825,7 @@ uiTest('§13f the ticket reply toast says ORDINARY when the server refuses the '
     owner: { node: 'owner-agent', generation: 1 } })], [], calls)
   const realFetch = globalThis.fetch
   ;(globalThis as unknown as { fetch: typeof fetch }).fetch =
-    ((url: string, init?: RequestInit) => {
+    compatibilityWorkFixture(((url: string, init?: RequestInit) => {
       if ((init?.method ?? 'GET') === 'POST' && String(url).includes('/reply')) {
         calls.push({ method: 'POST', url: String(url),
           body: init?.body ? JSON.parse(String(init.body)) : undefined })
@@ -833,7 +834,7 @@ uiTest('§13f the ticket reply toast says ORDINARY when the server refuses the '
             deferred: false, notice: false }) })
       }
       return realFetch(url as never, init as never)
-    }) as typeof fetch
+    }) as typeof fetch)
 
   const { el } = await mount(docketModal({ toast: (t) => { toasted = t } }))
   await flush()
@@ -895,7 +896,7 @@ uiTest('§13b reply box preserves draft on HTTP failure and clears on successful
     json: () => Promise.resolve({ detail }),
   })
 
-  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = ((url: string, init?: RequestInit) => {
+  ;(globalThis as unknown as { fetch: typeof fetch }).fetch = compatibilityWorkFixture(((url: string, init?: RequestInit) => {
     const path = String(url)
     const method = init?.method ?? 'GET'
     const body = init?.body ? JSON.parse(String(init.body)) : undefined
@@ -919,7 +920,7 @@ uiTest('§13b reply box preserves draft on HTTP failure and clears on successful
       })
     }
     return ok({})
-  }) as typeof fetch
+  }) as typeof fetch)
 
   const { el } = await mount(docketModal({ toast: (t) => { toasted = t } }))
   await flush()
@@ -963,14 +964,14 @@ uiTest('§14 InboxPanel sender chip is clickable agent jump that closes inbox', 
   const tree = mkTree({
     roots: [{ id: 'worker-1', tier: 'sonnet', state: 'live', parent: null, children: [] } as unknown as TreeNode],
   });
-  (globalThis as unknown as { fetch: typeof fetch }).fetch = (() => Promise.resolve({
+  (globalThis as unknown as { fetch: typeof fetch }).fetch = compatibilityWorkFixture((() => Promise.resolve({
     ok: true, status: 200, headers: new Headers(),
     json: () => Promise.resolve({
       pending: [{ id: 'm1', from: 'worker-1', to: '@user', at: '2026-09-05T09:00:00.000Z', body: 'Hello user' }],
       delivered: [],
       sent: [],
     }),
-  })) as typeof fetch
+  })) as typeof fetch)
 
   const { el } = await mount(
     <InboxPanel slug="org1" tree={tree} toast={noop} jumpTo={null}
@@ -992,14 +993,14 @@ uiTest('§14 InboxPanel sender chip is clickable agent jump that closes inbox', 
 
 uiTest('§15 InboxPanel system and user senders are NOT clickable jumps', async (mount) => {
   const tree = mkTree();
-  (globalThis as unknown as { fetch: typeof fetch }).fetch = (() => Promise.resolve({
+  (globalThis as unknown as { fetch: typeof fetch }).fetch = compatibilityWorkFixture((() => Promise.resolve({
     ok: true, status: 200, headers: new Headers(),
     json: () => Promise.resolve({
       pending: [{ id: 'm-sys', from: 'system', to: '@user', at: '2026-09-05T09:00:00.000Z', body: 'System note' }],
       delivered: [],
       sent: [],
     }),
-  })) as typeof fetch
+  })) as typeof fetch)
 
   const { el } = await mount(
     <InboxPanel slug="org1" tree={tree} toast={noop} jumpTo={null}
@@ -1018,14 +1019,14 @@ uiTest('§16 NodeInboxModal counterparty is clickable agent jump that closes mod
   let focused: string | null = null
   let closed = false
   const node: CanvasNode = { id: 'agent-a', tier: 'sonnet', state: 'live', role: 'Worker', x: 0, y: 0 } as CanvasNode
-  (globalThis as unknown as { fetch: typeof fetch }).fetch = (() => Promise.resolve({
+  (globalThis as unknown as { fetch: typeof fetch }).fetch = compatibilityWorkFixture((() => Promise.resolve({
     ok: true, status: 200, headers: new Headers(),
     json: () => Promise.resolve({
       pending: [{ id: 'm1', from: 'agent-peer', to: 'agent-a', at: '2026-09-05T09:00:00.000Z', body: 'Peer message' }],
       delivered: [],
       sent: [],
     }),
-  })) as typeof fetch
+  })) as typeof fetch)
 
   const { el } = await mount(
     <NodeInboxModal node={node} slug="org1" jumpTo={null}
@@ -1054,7 +1055,7 @@ uiTest('§17 OrgInboxModal inbox sender is external peer and stays plain (no age
   let focused: string | null = null
   let closed = false
   const map = new Map<string, CanvasNode>();
-  (globalThis as unknown as { fetch: typeof fetch }).fetch = ((url: string) => {
+  (globalThis as unknown as { fetch: typeof fetch }).fetch = compatibilityWorkFixture(((url: string) => {
     const path = String(url)
     const headers = new Headers()
     const ok = (body: unknown) => Promise.resolve({ ok: true, status: 200, headers, json: () => Promise.resolve(body) })
@@ -1068,7 +1069,7 @@ uiTest('§17 OrgInboxModal inbox sender is external peer and stays plain (no age
       })
     }
     return ok({})
-  }) as typeof fetch
+  }) as typeof fetch)
 
   const orgInbox: TreePayload['org_inbox'] = {
     unread: 1,
@@ -1102,7 +1103,7 @@ uiTest('§18 OrgInboxModal outbox @by links resolvable local agent, while recipi
   const map = new Map<string, CanvasNode>([
     ['agent-sender', { id: 'agent-sender', tier: 'sonnet', state: 'live', x: 0, y: 0, w: 100, h: 100, rx: 0, ry: 0, text: '' } as unknown as CanvasNode],
   ]);
-  (globalThis as unknown as { fetch: typeof fetch }).fetch = ((url: string) => {
+  (globalThis as unknown as { fetch: typeof fetch }).fetch = compatibilityWorkFixture(((url: string) => {
     const path = String(url)
     const headers = new Headers()
     const ok = (body: unknown) => Promise.resolve({ ok: true, status: 200, headers, json: () => Promise.resolve(body) })
@@ -1116,7 +1117,7 @@ uiTest('§18 OrgInboxModal outbox @by links resolvable local agent, while recipi
       })
     }
     return ok({})
-  }) as typeof fetch
+  }) as typeof fetch)
 
   const orgInbox: TreePayload['org_inbox'] = {
     unread: 0,
@@ -1746,7 +1747,7 @@ uiTest('§32 switching org drops the previous org rows and selection', async (mo
   const a = mkItem({ id: 'wA', title: 'Org one item', status: 'done', archived: true })
   const b = mkItem({ id: 'wB', title: 'Org two item', status: 'open' })
   ;(globalThis as unknown as { fetch: typeof fetch }).fetch =
-    ((url: string) => {
+    compatibilityWorkFixture(((url: string) => {
       const path = String(url)
       const two = path.includes('/orgs/org2/')
       const headers = new Headers()
@@ -1759,7 +1760,7 @@ uiTest('§32 switching org drops the previous org rows and selection', async (mo
           now: '2026-09-05T10:00:00.000Z',
         }),
       })
-    }) as typeof fetch
+    }) as typeof fetch)
 
   forgetGroupChoice()
   const { el, render } = await mount(docketModal({ slug: 'org1' }))
@@ -1792,7 +1793,7 @@ uiTest('§32b switching org never auto-opens an item the user did not click', as
     status: 'done', archived: true })
   const two = mkItem({ slug: 'same-name', title: 'Org two item', status: 'open' })
   ;(globalThis as unknown as { fetch: typeof fetch }).fetch =
-    ((url: string) => {
+    compatibilityWorkFixture(((url: string) => {
       const path = String(url)
       const isTwo = path.includes('/orgs/org2/')
       return Promise.resolve({
@@ -1804,7 +1805,7 @@ uiTest('§32b switching org never auto-opens an item the user did not click', as
           now: '2026-09-05T10:00:00.000Z',
         }),
       })
-    }) as typeof fetch
+    }) as typeof fetch)
 
   forgetGroupChoice()
   const { el, render } = await mount(docketModal({ slug: 'org1' }))

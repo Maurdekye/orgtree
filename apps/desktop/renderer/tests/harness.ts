@@ -17,6 +17,7 @@
 //     desk uses, so subscription-gated liveness is exercised rather than faked
 
 import { JSDOM } from 'jsdom'
+import { compatibilityWorkFixture } from './workcompat.fixture'
 import { mock } from 'node:test'
 import type { ChatMessage, ChatPayload, LiveRowPayload, PendingMail } from '../src/types'
 
@@ -301,7 +302,7 @@ export function installFetch(server: FakeServer): Transport {
       if (f) f()
     },
   }
-  g.fetch = (url: string, _init?: unknown): Promise<unknown> => {
+  g.fetch = compatibilityWorkFixture((url: string, _init?: unknown): Promise<unknown> => {
     const u = new URL(String(url), 'http://localhost')
     t.requests++
     const last = u.searchParams.get('last')
@@ -389,7 +390,7 @@ export function installFetch(server: FakeServer): Transport {
       else go()
       void reject
     })
-  }
+  })
   return t
 }
 

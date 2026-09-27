@@ -618,7 +618,8 @@ const readWorkResponse = async (path: string, etag?: string): Promise<Response> 
 // Compatibility reads are whole answers and deliberately uncached: retaining
 // an explicitly opened archive here would outlive the view that requested it.
 const legacyWorkRead = (slug: string, archived: boolean, backlogged: boolean): Promise<WorkItemsPayload> =>
-  req(`/api/orgs/${encodeURIComponent(slug)}/work-items-view?archived=${archived ? 1 : 0}&backlogged=${backlogged ? 1 : 0}`)
+  req(`/api/orgs/${encodeURIComponent(slug)}/work-items-view`
+    + (archived || backlogged ? '?' + [archived ? 'archived=1' : '', backlogged ? 'backlogged=1' : ''].filter(Boolean).join('&') : ''))
 const foregroundWorkReader = new ForegroundWorkReader(readWorkResponse, legacyWorkRead)
 export const getForegroundWorkItems = (slug: string, archived = false, backlogged = false): Promise<WorkItemsPayload> =>
   foregroundWorkReader.get(slug, archived, backlogged)

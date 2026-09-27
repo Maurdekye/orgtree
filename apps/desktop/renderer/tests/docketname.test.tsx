@@ -21,6 +21,7 @@
 // Run: cd frontend && node tests/run.mjs docketname
 
 import { flush, inAct, mountView, realClock, useFakeClock } from './harness'
+import { compatibilityWorkFixture } from './workcompat.fixture'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
@@ -69,7 +70,7 @@ const mkTree = (): TreePayload => ({
 
 function mockServer(items: WorkItem[]) {
   ;(globalThis as unknown as { fetch: typeof fetch }).fetch =
-    ((url: string) => {
+    compatibilityWorkFixture(((url: string) => {
       const ok = (payload: unknown) => Promise.resolve({
         ok: true, status: 200, headers: new Headers(),
         json: () => Promise.resolve(payload),
@@ -82,7 +83,7 @@ function mockServer(items: WorkItem[]) {
         })
       }
       return ok({})
-    }) as unknown as typeof fetch
+    }) as unknown as typeof fetch)
 }
 
 test('agent docket excludes canonical archived rows by default and includes them when requested', () => {

@@ -18,6 +18,7 @@
 //   4. WHAT A KEYSTROKE COSTS — no request, and no re-normalising of any
 //      description. The item text is built once per item and reused.
 import './harness'
+import { compatibilityWorkFixture } from './workcompat.fixture'
 import { flush, inAct, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
@@ -60,7 +61,7 @@ function mock(active: WorkItem[], archived: WorkItem[] = [],
               backlogged: WorkItem[] = []): Call[] {
   const calls: Call[] = [];
   (globalThis as unknown as { fetch: typeof fetch }).fetch =
-    ((url: string, init?: RequestInit) => {
+    compatibilityWorkFixture(((url: string, init?: RequestInit) => {
       const method = init?.method ?? 'GET'
       const path = String(url)
       calls.push({ method, url: path })
@@ -76,7 +77,7 @@ function mock(active: WorkItem[], archived: WorkItem[] = [],
         })
       }
       return ok({})
-    }) as typeof fetch
+    }) as typeof fetch)
   return calls
 }
 

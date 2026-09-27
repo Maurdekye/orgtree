@@ -15,6 +15,7 @@
 // Run:  node apps/desktop/renderer/tests/run.mjs attentionqueue
 
 import './harness'
+import { compatibilityWorkFixture } from './workcompat.fixture'
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -80,7 +81,7 @@ const tree = (o: { ask?: AskInfo; isPublic?: boolean } = {}): TreePayload => ({
 
 function installServer(initial: Partial<Server> = {}) {
   server = { items: [], pending: [], delivered: [], posts: [], ...initial }
-  ;(globalThis as unknown as { fetch: unknown }).fetch = (url: string, init?: { method?: string; body?: string }) => {
+  ;(globalThis as unknown as { fetch: unknown }).fetch = compatibilityWorkFixture((url: string, init?: { method?: string; body?: string }) => {
     const path = new URL(String(url), 'http://localhost').pathname
     if (init?.method === 'POST') {
       server.posts.push({ path, body: init.body ? JSON.parse(init.body) : null })
@@ -96,7 +97,7 @@ function installServer(initial: Partial<Server> = {}) {
       ok: true, status: 200, headers: new Headers(),
       json: () => Promise.resolve(body),
     })
-  }
+  })
 }
 
 const titles = (el: HTMLElement) =>
@@ -350,15 +351,15 @@ const text = (el: HTMLElement) => el.textContent ?? ''
  *  `textContent`, or an attribute; put the meaning in the message. */
 const present = (el: HTMLElement, sel: string) => !!el.querySelector(sel)
 const failAll = () => {
-  ;(globalThis as unknown as { fetch: unknown }).fetch = () => Promise.resolve({
+  ;(globalThis as unknown as { fetch: unknown }).fetch = compatibilityWorkFixture(() => Promise.resolve({
     ok: false, status: 503, statusText: 'HTTP 503', headers: new Headers(),
     json: () => Promise.resolve({ detail: 'down' }),
-  })
+  }))
 }
 /** fail only one of the two feeds; the other keeps answering from `server` */
 const failOnly = (which: 'work-items' | 'inbox') => {
   const good = (globalThis as unknown as { fetch: (u: string, i?: unknown) => unknown }).fetch
-  ;(globalThis as unknown as { fetch: unknown }).fetch = (url: string, init?: unknown) => {
+  ;(globalThis as unknown as { fetch: unknown }).fetch = compatibilityWorkFixture((url: string, init?: unknown) => {
     const path = new URL(String(url), 'http://localhost').pathname
     const hit = which === 'work-items' ? /\/work-items(?:-view)?$/.test(path) : /\/inbox$/.test(path)
     if (!hit) return good(url, init)
@@ -366,7 +367,7 @@ const failOnly = (which: 'work-items' | 'inbox') => {
       ok: false, status: 503, statusText: 'HTTP 503', headers: new Headers(),
       json: () => Promise.resolve({ detail: 'down' }),
     })
-  }
+  })
 }
 
 test('§7 a first load that FAILED says unavailable — not loading forever', async () => {
@@ -427,11 +428,11 @@ test('§7.2 one feed fails and the other still has rows — shown, and the gap n
 /** hold one feed's FIRST request open for ever; the other answers from `server` */
 const hangOnly = (which: 'work-items' | 'inbox') => {
   const good = (globalThis as unknown as { fetch: (u: string, i?: unknown) => unknown }).fetch
-  ;(globalThis as unknown as { fetch: unknown }).fetch = (url: string, init?: unknown) => {
+  ;(globalThis as unknown as { fetch: unknown }).fetch = compatibilityWorkFixture((url: string, init?: unknown) => {
     const path = new URL(String(url), 'http://localhost').pathname
     const hit = which === 'work-items' ? /\/work-items(?:-view)?$/.test(path) : /\/inbox$/.test(path)
     return hit ? new Promise(() => {}) : good(url, init)
-  }
+  })
 }
 
 test('§7.2a usable rows AND a feed still on its first read — the rows show and '

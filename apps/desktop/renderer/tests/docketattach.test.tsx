@@ -4,6 +4,7 @@
 // the attach-chip download link; adding posts the raw file to the item's
 // attachments route and refetches, removal DELETEs by record id.
 import './harness'
+import { compatibilityWorkFixture } from './workcompat.fixture'
 import { flush, inAct, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
@@ -40,7 +41,7 @@ const TREE: TreePayload = {
 function mock(items: WorkItem[]): Call[] {
   const calls: Call[] = [];
   (globalThis as unknown as { fetch: typeof fetch }).fetch =
-    ((url: string, init?: RequestInit) => {
+    compatibilityWorkFixture(((url: string, init?: RequestInit) => {
       const method = init?.method ?? 'GET'
       const path = String(url)
       calls.push({ method, url: path })
@@ -60,7 +61,7 @@ function mock(items: WorkItem[]): Call[] {
           archived: 0, backlogged: 0 }, now: '2026-09-05T10:00:00.000Z' })
       }
       return ok({})
-    }) as typeof fetch
+    }) as typeof fetch)
   return calls
 }
 

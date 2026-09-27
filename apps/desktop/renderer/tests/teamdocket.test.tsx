@@ -25,6 +25,7 @@
 import {
   advance, flush, inAct, mountView, realClock, useFakeClock,
 } from './harness'
+import { compatibilityWorkFixture } from './workcompat.fixture'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
@@ -290,11 +291,11 @@ test('§6 the viewer\'s own tree is the boundary — an invisible agent contribu
 async function mountPanel(t: TestContext, roots: TreeNode[], nid: string,
   payload: Record<string, unknown>) {
   const had = (globalThis as { fetch?: typeof fetch }).fetch;
-  (globalThis as unknown as { fetch: typeof fetch }).fetch = ((url: string) => {
+  (globalThis as unknown as { fetch: typeof fetch }).fetch = compatibilityWorkFixture(((url: string) => {
     const headers = new Headers()
     const body = String(url).includes('/work-items') ? payload : {}
     return Promise.resolve({ ok: true, status: 200, headers, json: () => Promise.resolve(body) })
-  }) as typeof fetch
+  }) as typeof fetch)
   t.after(() => { (globalThis as { fetch?: typeof fetch }).fetch = had })
   let closed = 0
   const v = await mountView(
@@ -404,12 +405,12 @@ async function mountCanvas(t: TestContext, roots: TreeNode[], items: WorkItem[])
   t.after(() => { (globalThis as { fetch?: typeof fetch }).fetch = had });
   // zoomdocket.test.tsx's shape: the canvas asks for very little, and the one
   // route this file cares about is the docket poll
-  (globalThis as unknown as { fetch: typeof fetch }).fetch = (async (url: string) => {
+  (globalThis as unknown as { fetch: typeof fetch }).fetch = compatibilityWorkFixture((async (url: string) => {
     const body = String(url).includes('/work-items')
       ? { items, archived: [], backlogged: [], counts: { active: items.length, archived: 0, attention: 0, backlogged: 0 }, now: '2026-09-07T06:45:00Z' }
       : {}
     return new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } })
-  }) as unknown as typeof fetch
+  }) as unknown as typeof fetch)
   const v = await mountView(
     <OrgCanvas tree={tree(roots)} slug="mine" op={async () => ({} as never)}
       toast={noop} mailEvt={null} />, (h) => h)
@@ -546,13 +547,13 @@ panelTest('§12 the FULL work docket still shows every item, whoever owns it', a
   const items = [owned('lead-task', 'lead'), owned('deep-task', 'deep'),
                  owned('outsider-task', 'outsider'), mkItem({ slug: 'orphan', title: 'orphan', owner: null })]
   const had = (globalThis as { fetch?: typeof fetch }).fetch;
-  (globalThis as unknown as { fetch: typeof fetch }).fetch = ((url: string) => {
+  (globalThis as unknown as { fetch: typeof fetch }).fetch = compatibilityWorkFixture(((url: string) => {
     const headers = new Headers()
     const body = String(url).includes('/work-items')
       ? { items, counts: { active: items.length, archived: 0, attention: 0, backlogged: 0 }, now: '2026-09-07T06:45:00Z' }
       : {}
     return Promise.resolve({ ok: true, status: 200, headers, json: () => Promise.resolve(body) })
-  }) as typeof fetch
+  }) as typeof fetch)
   t.after(() => { (globalThis as { fetch?: typeof fetch }).fetch = had })
   const v = await mountView(
     <DocketModal slug="mine" toast={noop} close={noop} tree={tree(ORG)} />, (h) => h)

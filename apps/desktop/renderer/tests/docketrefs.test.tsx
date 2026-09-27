@@ -14,6 +14,7 @@
 // Run: cd frontend && node tests/run.mjs docketrefs
 
 import { flush, inAct, mountView, realClock, useFakeClock } from './harness'
+import { compatibilityWorkFixture } from './workcompat.fixture'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
@@ -170,7 +171,7 @@ function mockServer(s: Served) {
   const urls: string[] = []
   const docUrls: string[] = []
   ;(globalThis as unknown as { fetch: typeof fetch }).fetch =
-    ((url: string) => {
+    compatibilityWorkFixture(((url: string) => {
       const path = String(url)
       const ok = (payload: unknown) => Promise.resolve({
         ok: true, status: 200, headers: new Headers(),
@@ -210,7 +211,7 @@ function mockServer(s: Served) {
         })
       }
       return ok({})
-    }) as unknown as typeof fetch
+    }) as unknown as typeof fetch)
   return Object.assign(urls, { docUrls })
 }
 
