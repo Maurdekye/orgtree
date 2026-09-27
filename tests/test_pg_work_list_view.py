@@ -139,6 +139,44 @@ class Lists(unittest.TestCase):
         response=asyncio.run(api._work_references_route(self.slug,names='historical,missing'))
         self.assertEqual([row['slug'] for row in json.loads(response.body)['references']],['historical'])
 
+    def test_archived_edit_refreshes_references_with_unchanged_active_answer(self):
+        from orgtree import api
+        self.add(self.item('active'))
+        self.add(self.item('old-ticket', status='done', title='Before'), True)
+        self.refresh()
+        before = self.foreground()
+        self.c.execute(f"UPDATE {self.s}.log_l SET val=jsonb_set(val::jsonb,'{{title}}','\"After\"')::text WHERE sect='work_items_archive'")
+        self.refresh()
+        with (patch.object(store, 'load_org', side_effect=AssertionError('whole history')),
+              patch.object(workquery.Snapshot, 'detail', side_effect=AssertionError('raw body'))):
+            after = self.foreground()
+            lookup = worklist.lookup_many(self.slug, USER, ['old-ticket'], now_ts=self.now)
+            response = api._bounded_work_response(self.slug, 'foreground', since=before['revision'])
+        self.assertEqual(lookup['references'][0]['title'], 'After')
+        for field in ('items', 'references', 'counts', 'attention'):
+            self.assertEqual(before[field], after[field], field)
+        self.assertNotIn('archived', after)
+        self.assertNotEqual(before['revision'], after['revision'])
+        self.assertEqual(response.status_code, 200, 'remote edit must not reuse cached foreground')
+        self.assertEqual(self.foreground()['revision'], after['revision'], 'stable without another write')
+
+    def test_archived_rename_invalidates_positive_and_negative_reference_keys(self):
+        self.add(self.item('active'))
+        self.add(self.item('old-ticket', status='done'), True)
+        self.refresh()
+        before = self.foreground()
+        names = ['old-ticket', 'new-ticket']
+        old = worklist.lookup_many(self.slug, USER, names, now_ts=self.now)
+        self.assertEqual([row['slug'] for row in old['references']], ['old-ticket'])
+        self.c.execute(f"UPDATE {self.s}.log_l SET val=jsonb_set(val::jsonb,'{{slug}}','\"new-ticket\"')::text WHERE sect='work_items_archive'")
+        self.refresh()
+        after = self.foreground()
+        new = worklist.lookup_many(self.slug, USER, names, now_ts=self.now)
+        self.assertEqual([row['slug'] for row in new['references']], ['new-ticket'])
+        for field in ('items', 'references', 'counts', 'attention'):
+            self.assertEqual(before[field], after[field], field)
+        self.assertNotEqual(before['revision'], after['revision'])
+
     def test_dirty_stamp_and_missing_metadata_require_whole_compatibility(self):
         self.add(self.item()); self.assertIsNone(self.foreground()); self.refresh()
         self.assertIsNotNone(self.foreground())

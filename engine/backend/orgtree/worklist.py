@@ -123,7 +123,12 @@ def foreground(slug, viewer=USER, *, backlogged=False, archive_limit=0, now_ts=N
             body['references'].extend(reference(row) for row in body['archived'])
             body['next_cursor'] = following
             body['catalog'] = q.catalog
-        body['revision'] = work_ui._hash({k: v for k, v in body.items() if k != 'now'})
+        # The revision also keys on-demand historical references in mounted
+        # views. Remote archive-only edits must invalidate positive/negative
+        # lookups even when active rows and counts are unchanged. Hash the
+        # same-snapshot catalog without returning hidden rows or raw counters.
+        body['revision'] = work_ui._hash([
+            {k: v for k, v in body.items() if k != 'now'}, q.catalog])
         return body
     return _read(slug, viewer, build, now_ts)
 
