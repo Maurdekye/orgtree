@@ -51,6 +51,9 @@ class ForegroundIndex(unittest.TestCase):
         self.assertEqual(graph['hidden_retired_children']['boss'], 1)
         self.assertEqual(graph['missing_ancestors'], [])
         self.assertEqual(graph['stamp']['node_count'], 5)
+        # This global count includes the archived connector even though its
+        # row is visible. Per-parent hidden counts subtract that row separately.
+        self.assertEqual(graph['stamp']['retired_axis_count'], 2)
 
     def test_revealed_identity_subtracts_only_its_direct_hidden_root(self):
         self.add(old={}, nested={'parent': 'old'}, other={})
