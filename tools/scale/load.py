@@ -549,6 +549,8 @@ def main(argv=None) -> int:
                 breach = "unexpected external launch; inspect serve-refused.jsonl"
             if breach:
                 guard["breach"] = {"t": time.time() - t0, "why": breach}
+                # Critical stop evidence must survive driver exceptions/termination.
+                (out / "guard-stop.json").write_text(json.dumps(guard["breach"]), encoding="utf-8")
                 rec.write("guard-stop", guard["breach"])
                 stop.set()
                 try:
