@@ -117,19 +117,18 @@ class Meter:
         self.yappi=yappi
 
     def sample_windows(self):
-        # Sparse process-wide windows preserve actual concurrency, and Yappi's
-        # native per-thread CPU clocks do not contaminate each other.
-        if self.stop.wait(5): return
-        while not self.stop.is_set():
-            self.profile_epoch+=1; self.profile_on=True
-            window=dict(start=time.time(),process_start=time.process_time())
-            self.yappi.start(builtins=True,profile_threads=True)
-            self.stop.wait(3)
-            self.yappi.stop()
-            self.profile_on=False; self.profile_epoch+=1
-            window.update(end=time.time(),process_end=time.process_time())
-            self.windows.append(window)
-            if self.stop.wait(17): return
+        # One contiguous interval: stop/start gaps can be accrued to open
+        # native profiler frames, so never resume an earlier profile stack.
+        if self.stop.wait(25): return
+        self.yappi.clear_stats()
+        self.profile_epoch+=1; self.profile_on=True
+        window=dict(start=time.time(),process_start=time.process_time())
+        self.yappi.start(builtins=True,profile_threads=True)
+        self.stop.wait(30)
+        self.yappi.stop()
+        self.profile_on=False; self.profile_epoch+=1
+        window.update(end=time.time(),process_end=time.process_time())
+        self.windows.append(window)
 
     def start(self):
         if self.started: raise RuntimeError('one profile window per engine')
@@ -152,7 +151,10 @@ class Meter:
             function_stats[key]=[dict(file=r.module,line=r.lineno,function=r.name,
                 calls=r.ncall,self_s=r.tsub,cumulative_s=r.ttot) for r in
                 self.yappi.get_func_stats(tag=tag).sort('tsub')[:160]]
-        data = dict(start=self.started, finish=self.finished, every=self.every,
+        sampled_self=sum(row['self_s'] for rows in function_stats.values() for row in rows)
+        window_cpu=sum(w['process_end']-w['process_start'] for w in self.windows)
+        conservation=sampled_self <= window_cpu*1.15+.1
+        data = dict(function_cpu_valid=conservation, sampled_self_s=sampled_self, window_cpu_s=window_cpu, start=self.started, finish=self.finished, every=self.every,
             count=dict(self.count), cpu=dict(self.cpu), sampled_cpu=dict(self.sample_cpu),
             cpu_modes=dict(self.cpu_modes),windows=self.windows,profiler="yappi1.7.6-cpu",
             thread_cpu=dict(self.thread_cpu), thread_names=self.thread_names,
@@ -168,7 +170,7 @@ class Meter:
         clocks=ThreadClocks()
         previous={}
         try:
-            while not self.stop.wait(.1):
+            while not self.stop.wait(.25):
                 frames=sys._current_frames()
                 threads={t.native_id:t for t in threading.enumerate() if t.native_id}
                 for tid,value in clocks.read(threads).items():

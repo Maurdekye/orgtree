@@ -74,6 +74,25 @@ class CpuControls(unittest.TestCase):
             self.assertLess(sum(r.tsub for r in first),.03)
             meter.yappi.clear_stats()
 
+    def test_single_window_cpu_does_not_charge_stopped_gap(self):
+        with tempfile.TemporaryDirectory() as root:
+            meter=Meter(root); meter.setup_yappi()
+            token=CTX.set({'kind':'single'})
+            def work():
+                start=time.thread_time()
+                while time.thread_time()-start<.05: sum(range(100))
+            try:
+                start=time.process_time()
+                meter.yappi.start(builtins=True,profile_threads=True)
+                work(); meter.yappi.stop()
+                cpu=time.process_time()-start
+                work()  # deliberately outside the ONLY profiling interval
+                rows=list(meter.yappi.get_func_stats(tag=meter.tags['single']))
+                self.assertLessEqual(sum(r.tsub for r in rows),cpu+.025)
+                self.assertGreater(sum(r.tsub for r in rows),.025)
+            finally:
+                CTX.reset(token); meter.yappi.stop(); meter.yappi.clear_stats()
+
     def test_cached_windows_thread_clock_counts_cpu_and_closes(self):
         clocks=ThreadClocks(); tid=threading.get_native_id()
         try:
