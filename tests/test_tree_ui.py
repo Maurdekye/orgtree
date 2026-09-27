@@ -84,6 +84,7 @@ class TreeCache(unittest.TestCase):
         with patch.object(self, 'build', side_effect=racing):
             tag, _, _ = self.read()
         _, body, _ = self.read(tag)
+        self.assertIsNotNone(body, 'raced stamp must not revalidate the old view')
         self.assertEqual(json.loads(body)['nodes']['boss']['set']['title'], 'new committed')
 
     def test_cache_budget_and_expiry_release_bases(self):
