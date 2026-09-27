@@ -150,6 +150,20 @@ class Index(unittest.TestCase):
         self.assertEqual(self.c.execute(f"SELECT summary->'participants' FROM {self.s}.work_index WHERE slug='one'").fetchone()[0],['c'])
         self.check()
 
+    def test_runtime_role_creates_and_writes_through_wrapped_creator(self):
+        if not self.c.execute("SELECT 1 FROM pg_roles WHERE rolname='orgtree_runtime'").fetchone():
+            self.skipTest('runtime role absent: NOT RUN')
+        with self.c.transaction():
+            self.c.execute('SET LOCAL ROLE orgtree_runtime')
+            oid=self.c.execute("INSERT INTO public.orgs(slug) VALUES('runtime-index') RETURNING org_id").fetchone()[0]
+            schema=self.c.execute('SELECT public.orgtree_create_org_schema(%s)',(oid,)).fetchone()[0]
+            body=self.source('runtime')
+            self.c.execute(f'INSERT INTO {schema}.doc VALUES(%s,%s)',('work_items',workrows.header(['runtime'])))
+            self.c.execute(f'INSERT INTO {schema}.doc VALUES(%s,%s)',(workrows.PREFIX+'runtime',body))
+            self.assertTrue(workindex.reconcile(self.c,oid))
+            self.assertTrue(workindex.ready(self.c,oid))
+            self.assertEqual(self.c.execute(f'SELECT active_rows FROM {schema}.work_index_state').fetchone()[0],1)
+
     def test_tenfold_archive_keeps_active_answer_and_exact_lookup_one_row(self):
         self.add(self.source()); active=[]
         for size in (40,400):
