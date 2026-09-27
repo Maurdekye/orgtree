@@ -22,6 +22,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--build', required=True, type=Path)
 parser.add_argument('--output', required=True, type=Path)
 parser.add_argument('--archive-multiplier', type=int, default=1)
+parser.add_argument('--retired-multiplier', type=int, default=0)
 args = parser.parse_args()
 packet = args.output.resolve()
 packet.mkdir(parents=True, exist_ok=False)
@@ -112,7 +113,7 @@ try:
     wait(launch('seed', [sys.executable, '-I', '-B', str(REPO / 'tools/scale/seed.py'),
         '--root', str(root), '--agents', '10', '--admin-url', admin]))
     wait(launch('prepare', [sys.executable, '-I', '-B', str(Path(__file__).with_name('prepare.py')), '--root', str(root),
-        '--archive-multiplier', str(args.archive_multiplier)]))
+        '--archive-multiplier', str(args.archive_multiplier), '--retired-multiplier', str(args.retired_multiplier)]))
     shutil.copy2(root / 'prepared.json', packet / 'prepared.json')
     server = launch('server', [sys.executable, '-I', '-B', str(REPO / 'tools/scale/serve.py'),
         '--root', str(root), '--env', 'ORGTREE_SCALE_ASSERT_NO_TURNS=1', '--env', 'ORGTREE_SCALE_TRACE_GIT=1'])
@@ -127,7 +128,7 @@ try:
     # Declared warmup only; load and renderer have their own complete receipts.
     for _ in range(10): check(); time.sleep(1)
     load = launch('load', [sys.executable, '-I', '-B', str(REPO / 'tools/scale/load.py'), '--root', str(root),
-        '--duration', '120', '--rate', '2', '--steer-rate', '3.9', '--windows', '1', '--stream-nodes', '1',
+        '--duration', '150' if os.environ.get('ORGTREE_PAINT_TREE') == '1' else '120', '--rate', '2', '--steer-rate', '3.9', '--windows', '1', '--stream-nodes', '1',
         '--stream-hz', '4', '--max-engine-gb', '6', '--min-free-commit-gb', '10', '--label', 'renderer'])
     config = root / 'metrics/renderer/config.json'
     deadline = time.monotonic() + 60
@@ -149,6 +150,10 @@ try:
         samples = json.loads((paint / 'archive.json').read_text())['samples']
         if len(samples) != 3 or any(int(row['archivedCount']) != 20 * args.archive_multiplier for row in samples):
             raise RuntimeError('archive measurement did not exercise expected full history')
+    if os.environ.get('ORGTREE_PAINT_TREE') == '1':
+        samples = json.loads((paint / 'tree.json').read_text())['samples']
+        if len(samples) != 3 or any(int(row['pileTotal']) != 20 * args.retired_multiplier for row in samples):
+            raise RuntimeError('tree measurement did not exercise the expected retired pile')
     load_code = wait(load, 240, allow_failure=True)
     report = launch('report', ['node', str(REPO / 'tools/scale/renderer-paint.mjs'), 'report', '--output', str(paint)])
     report_code = wait(report, 30, allow_failure=True)

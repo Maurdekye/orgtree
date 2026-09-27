@@ -9,6 +9,7 @@ import sys
 p = argparse.ArgumentParser()
 p.add_argument('--root', required=True)
 p.add_argument('--archive-multiplier', type=int, default=1)
+p.add_argument('--retired-multiplier', type=int, default=0)
 args = p.parse_args()
 repo = Path(__file__).resolve().parents[3]
 root = Path(args.root).resolve()
@@ -51,6 +52,24 @@ for copy in range(1, args.archive_multiplier):
         item['slug'] = f"{original['slug']}-history-{copy}"
         if item.get('ref'): item['ref'] = f"@item:{desc['org']}/{item['slug']}"
         org.d['work_items_archive'].append(item)
+# Retired AGENTS for the paired tree measurement: 20 per multiplier step,
+# all archived children of one live top-level agent, with no session and so
+# no transcript. Live agents, active work and all other history are equal.
+retired_parent = None
+if args.retired_multiplier:
+    if not 1 <= args.retired_multiplier <= 10:
+        raise ValueError('retired multiplier must be1..10 for the bounded N10 experiment')
+    tops = sorted(nid for nid, n in org.nodes.items() if n.get('state') == 'live' and not n.get('parent'))
+    retired_parent = tops[0]
+    prototype = json.loads(json.dumps(org.nodes[retired_parent]))
+    stamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    for n in range(20 * args.retired_multiplier):
+        nid = f'retired-{n:04d}'
+        assert nid not in org.nodes
+        org.nodes[nid] = {**prototype, 'id': nid, 'title': nid, 'parent': retired_parent,
+                          'state': 'archived', 'archived_at': stamp, 'grant': 0, 'free': 0,
+                          'session_id': None, 'successor': None, 'lineage': [], 'turns': [],
+                          'mail_pending': 0}
 store.save_org(org)
 live = {nid: n for nid, n in org.nodes.items() if n.get('state') == 'live'}
 parents = sorted({n['parent'] for n in live.values() if n.get('parent')})
@@ -63,7 +82,7 @@ for nid in org.nodes:
     path = supervisor.transcript_path_for_node(org, nid)
     if path:
         sources.append((source_key(org, nid), path))
-assert len(sources) == desc['agents'], len(sources)
+assert len(sources) == desc['agents'], len(sources)   # retired seats carry no session
 stats = {'bytes_read': 0}
 for source, path in sources:
     records.ingest(source, path, 1 << 50, stats)
@@ -74,6 +93,8 @@ assert pending == 0
 out = dict(halted_parents=parents, callers=sorted(set(live) - set(parents)), sources=len(sources),
            records=count, bytes_read=stats['bytes_read'], synthetic_keepalive_suppression_until=keepalive_until,
            archive_multiplier=args.archive_multiplier, archive_items=len(original_archive) * args.archive_multiplier,
+           retired_multiplier=args.retired_multiplier, retired_agents=20 * args.retired_multiplier,
+           retired_parent=retired_parent,
            active_work=[{'slug': it['slug'], 'status': it['status'], 'owner': it.get('owner')}
                         for it in org.d.get('work_items') or []])
 prov.write_result(root / 'prepared.json', out)

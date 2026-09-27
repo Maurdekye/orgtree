@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import http from 'node:http'
 import net from 'node:net'
+import zlib from 'node:zlib'
 import { installPaintProbe } from './instrument.mjs'
 import { decodePixel, percentiles, validateLoad } from './model.mjs'
 
@@ -17,7 +18,7 @@ app.commandLine.appendSwitch('disable-background-timer-throttling')
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
 let win, proxy, descriptor, agent
 const sockets = new Set(), paintTimes = new Map(), actions = [], errors = [], ipcCalls = {}
-const archiveSamples = []
+const archiveSamples = [], treeSamples = [], treeReads = []
 let paints = 0, clock, controls, finishing = false
 let startupDeadline = setTimeout(() => {
   save('renderer.json', { complete: false, error: 'Electron startup exceeded45s', paints, actions, errors });finish(1)
@@ -122,7 +123,34 @@ async function makeProxy() {
           res.writeHead(502);res.end('redirect refused');response.resume();return
         }
         let bytes = 0; response.on('data', b => { bytes += b.length })
-        response.on('end', () => journal({ http: req.url, status: response.statusCode, bytes, at: begin, ms: epoch() - begin }))
+        // Tree reads only: keep the wire body to count the rows it carried.
+        const orgPath = '/api/orgs/' + encodeURIComponent(run.org)
+        const treePath = new URL(req.url, 'http://x').pathname
+        const isTree = run.treeMeasurement && (treePath === orgPath || treePath.startsWith(orgPath + '/foreground-tree'))
+        const chunks = []
+        if (isTree) response.on('data', b => { chunks.push(b) })
+        response.on('end', () => {
+          journal({ http: req.url, status: response.statusCode, bytes, at: begin, ms: epoch() - begin })
+          if (!isTree) return
+          let rows = null, kind = null, decoded = 0
+          try {
+            let body = Buffer.concat(chunks)
+            if (/gzip/.test(response.headers['content-encoding'] || '')) body = zlib.gunzipSync(body)
+            decoded = body.length
+            if (response.statusCode === 200 && body.length) {
+              const value = JSON.parse(body.toString('utf8'))
+              kind = value.kind || value.format || 'legacy'
+              const count = nodes => (nodes || []).reduce((n, node) => n + 1 + count(node.children), 0)
+              rows = value.nodes ? Object.keys(value.nodes).length
+                : value.references ? Object.keys(value.references).length
+                  : Array.isArray(value.tree?.roots) ? count(value.tree.roots)
+                    : Array.isArray(value.roots) && typeof value.roots[0] === 'object' ? count(value.roots) : null
+            }
+          } catch (error) { kind = 'unparsed:' + String(error).slice(0, 80) }
+          const row = { url: treePath, query: new URL(req.url, 'http://x').search.length, status: response.statusCode,
+            wireBytes: bytes, decodedBytes: decoded, rows, kind, at: begin }
+          treeReads.push(row); journal({ treeRead: row })
+        })
         res.writeHead(response.statusCode, response.headers); response.pipe(res)
       })
       request.setTimeout(30000, () => request.destroy(Error('upstream deadline')))
@@ -207,6 +235,39 @@ app.whenReady().then(async () => {
     await until(() => js('!!document.querySelector(".shell-mode")'))
     // Label stable mode controls locally without changing behavior or React state.
     await js(`document.querySelectorAll('.shell-mode').forEach(e=>e.dataset.paintMode=e.textContent.trim().startsWith('Attention')?'attention':'canvas')`)
+    if (run.treeMeasurement) {
+      // Canvas at rest: the selected tree, the steady heap after forced GC,
+      // and the retired pile's click-to-feedback paint. Observation only.
+      const memory = async () => {
+        await win.webContents.debugger.sendCommand('HeapProfiler.collectGarbage')
+        return { heap: await win.webContents.debugger.sendCommand('Runtime.getHeapUsage'),
+          processes: app.getAppMetrics() }
+      }
+      await until(() => js('!!document.querySelector(".pile-count")'))
+      await sleep(3000)   // declared settle: startup reads and first heartbeat
+      const startupReads = treeReads.length
+      for (let i = 0; i < run.repeats; i++) {
+        const suffix = '-' + i
+        const pileTotal = await js(`(()=>{const c=[...document.querySelectorAll('.pile-count')].sort((a,b)=>+b.textContent - +a.textContent)[0];c.dataset.paintPile='chosen';return c.textContent.trim()})()`)
+        const steady = await memory()
+        const open = await action('open-pile' + suffix, '[data-paint-pile=chosen]', 'visible(document.querySelector(".pile-picker"))')
+        await until(() => js('document.querySelectorAll(".pile-picker .pile-row").length > 0 && !document.querySelector(".pile-picker [role=status]")'))
+        const readyAt = epoch()
+        const rowsShown = await js('document.querySelectorAll(".pile-picker .pile-row").length')
+        const opened = await memory()
+        win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
+        await until(() => js('!document.querySelector(".pile-picker")'))
+        await sleep(1000)
+        const closed = await memory()
+        treeSamples.push({ suffix, pileTotal, rowsShown, steady, opened, closed,
+          inputAt: open.start, feedbackPaintMs: open.ms, completeViewObservedMs: readyAt - open.start })
+      }
+      save('tree.json', { samples: treeSamples, startupReads: treeReads.slice(0, startupReads), reads: treeReads,
+        limitations: ['Heap samples force GC outside click timing; process memory also includes non-JS allocations.',
+          'Complete-view observation polls DOM at25ms; feedback latency has compositor proof.',
+          'Tree rows are counted from the wire body the proxy relayed (nodes, references or legacy roots).',
+          'N10 queued-mail synthetic demand; not N1000 or completed provider turns.'] })
+    }
     for (let i = 0; i < run.repeats; i++) {
       const suffix = '-' + i
       await action('open-attention' + suffix, '[data-paint-mode=attention]', 'document.querySelector(".attn-stage")?.dataset.attentionActive === "yes" && visible(document.querySelector(".attn-desk .desk-body"))')
