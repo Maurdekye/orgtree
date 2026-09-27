@@ -175,7 +175,8 @@ class CodexBatchDrainTests(unittest.TestCase):
                 fired.append(str(exc))
         self.assertFalse(armed[0], "the injected failure never ran")
         # from the absorption on, a halt capture retains the WIDENED carrier
-        all_ids = {str(m["id"]) for m in (orgtx.org_read(self.slug).d.get("mail") or {}).get("worker") or []}
+        all_ids = {str(m["id"]) for m in (orgtx.org_read(self.slug).d.get("mail") or {}).get("worker") or []
+                   if m.get("body") in bodies}   # the failure itself may box a notice
         self.assertIn(all_ids, pending_at_failure,
                       "the worker's pending carrier must name every absorbed pointer's mail")
         stored = orgtx.org_read(self.slug)
@@ -195,6 +196,8 @@ class CodexBatchDrainTests(unittest.TestCase):
                     named.update(box)          # an unrestricted carrier drains all
                 named.update(str(i) for i in c.get("mail_ids") or [])
         for mid, body in box.items():
+            if body not in bodies:
+                continue
             self.assertTrue(mid in named or body in delivered,
                             f"{body!r} is boxed with no carrier or drain demand naming it")
         for body in bodies:
