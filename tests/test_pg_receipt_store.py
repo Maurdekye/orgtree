@@ -64,6 +64,33 @@ class ReceiptStore(unittest.TestCase):
         self.assertEqual(list(full), self.order)
         self.assertEqual(full['mail_transitions'], self.value)
 
+    def test_conversion_marks_the_org_and_an_off_switch_load_refuses(self):
+        with self.raw() as raw:
+            self.assertEqual(raw.execute("SELECT val FROM meta WHERE key='receipt_rows'").fetchone(),
+                             ('1',))
+        with patch.object(store, 'RECEIPT_ROWS', False):
+            with self.assertRaisesRegex(ledger.LedgerError, 'ORGTREE_RECEIPT_ROWS'):
+                store.load_org(self.slug)
+
+    def test_an_absent_section_is_left_unconverted(self):
+        org = store.create_org('receipt-absent-' + uuid.uuid4().hex[:8])
+        store.save_org(org)
+        with pgstore.connect() as raw:
+            oid = raw.execute('SELECT org_id FROM public.orgs WHERE slug=%s',
+                              (org.d['slug'],)).fetchone()[0]
+        with pgstore.connect() as raw:
+            raw.execute('BEGIN')
+            raw.execute(f'SET LOCAL search_path TO org_{oid},public')
+            self.assertIsNone(receiptstore.convert(raw, oid))
+            self.assertIsNone(raw.execute("SELECT 1 FROM receipt_format").fetchone())
+            self.assertIsNone(raw.execute("SELECT 1 FROM meta WHERE key='receipt_rows'").fetchone())
+            raw.execute('ROLLBACK')
+        # the legacy path still takes the first receipt
+        org = store.load_org(org.d['slug'])
+        org.d.setdefault('mail_transitions', {}).setdefault('n', {})['op'] = receipt('n', 'op', 'c')
+        store.save_org(org)
+        self.assertIn('op', store.load_org(org.d['slug']).d['mail_transitions']['n'])
+
     # -- standalone save --------------------------------------------------
     def test_standalone_save_writes_changed_rows_and_adopts_for_the_next_save(self):
         org = store.load_org(self.slug)
