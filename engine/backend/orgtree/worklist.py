@@ -16,6 +16,7 @@ FORMAT = 'orgtree.work-foreground/v1'
 
 class Context(workdetail.Context):
     """Only FIELDS below are a public view; omitted history is never a detail."""
+    WORK_BACKLOG = Org.WORK_BACKLOG
     _work_backlogged = Org._work_backlogged
 
     def __init__(self, query):
