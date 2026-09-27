@@ -77,14 +77,14 @@ class ForegroundReferencesPG(unittest.TestCase):
         with patch.object(fg, 'read_references', side_effect=AssertionError('unauthorized storage')):
             self.assertEqual(self.client.get(self.path).status_code, 401)
         public = TestClient(api.PublicGateway(api.app))
-        with patch.object(api, '_kiosk_token_map', return_value={'valid': self.slug}):
-            result = public.get('/k/valid' + self.path + '?include=old&include=gone')
+        with patch.object(api, '_kiosk_token_map', return_value={'validtoken': self.slug}):
+            result = public.get('/k/validtoken' + self.path + '?include=old&include=gone')
             self.assertEqual(result.status_code, 200, result.text)
             self.assertEqual(set(result.json()['references']['old']),
                              {'id', 'tier', 'state', 'generation', 'axis', 'successor'})
             self.assertNotIn('PRIVATE', result.text)
-            self.assertEqual(public.get('/k/invalid' + self.path).status_code, 404)
-            self.assertEqual(public.get('/k/valid/api/orgs/another/foreground-tree/references?include=old').status_code, 404)
+            self.assertEqual(public.get('/k/invalidtoken' + self.path).status_code, 404)
+            self.assertEqual(public.get('/k/validtoken/api/orgs/another/foreground-tree/references?include=old').status_code, 404)
         # Exercise the route's own defense too, rather than letting the outer
         # gateway mask a broken cross-org check in foreground_api.read.
         request = Request({'type': 'http', 'method': 'GET', 'path': self.path,
