@@ -36,7 +36,7 @@ import type {
 import { openAppSettings } from './settingskit'
 import {
   audienceAction, BASE, compactNode, fileBase, fileUrl, getChat, getHistory,
-  getScratch, getWorkItems, interruptNode, processControl, retractMail,
+  getScratch, interruptNode, processControl, retractMail,
   saveScope, sendMessage,
   unstickNode, uploadFile,
 } from '../api'
@@ -70,6 +70,7 @@ import type {
 import { ConfirmModal, PilePicker } from './modals'
 import { InboxView, RetiredFold } from './mail'
 import { AskCard } from './asks'
+import { useWorkItems } from './useworkitems'
 import { AgentDocketView, actionableAssignedCount, agentItems } from './docket'
 import { AgentGalleryView } from './gallery'
 import { PanelCorner } from './panelcorner'
@@ -2159,9 +2160,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage, onConf
   const [workBump, setWorkBump] = useState(0)
   const [showArchivedDocket, setShowArchivedDocket] = useState(false)
   const [showBacklogDocket, setShowBacklogDocket] = useState(false)
-  const work = usePolled(() => getWorkItems(slug, view === 'docket' && showArchivedDocket,
-                                            view === 'docket' && showBacklogDocket),
-    [slug], 15000, `${workBump}-${view}-${showArchivedDocket}-${showBacklogDocket}`)
+  const work = useWorkItems(slug, view === 'docket' && showArchivedDocket,
+    view === 'docket' && showBacklogDocket, 15000, workBump).value
   const myWork = useMemo(() => agentItems(work, node.id, showArchivedDocket),
     [work, node.id, showArchivedDocket])
   const docketCount = useMemo(() => actionableAssignedCount(work, node.id),
@@ -3729,7 +3729,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage, onConf
           showArchived={showArchivedDocket}
           onShowArchived={setShowArchivedDocket}
           onShowBacklog={setShowBacklogDocket}
-          references={work?.references}
+          references={work?.references} boundedReferences workRevision={work?.revision}
           refs={deskRefs}
           onChanged={() => setWorkBump((n) => n + 1)} />
       </div>}

@@ -46,7 +46,8 @@ export class ForegroundWorkReader {
     if (waiting) return waiting
     const generation = this.generation
     const hit = archived ? undefined : this.cache.get(key)
-    const task: Promise<WorkItemsPayload> = (async () => {
+    let task!: Promise<WorkItemsPayload>
+    task = (async () => {
       // One retry absorbs an ordinary write. Continuing churn switches the
       // entire read to the coherent legacy projection, never individual pages.
       for (let attempt = 0; attempt < 2; ++attempt) {

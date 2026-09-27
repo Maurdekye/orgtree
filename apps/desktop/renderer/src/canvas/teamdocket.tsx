@@ -23,12 +23,12 @@
 // See `teamNodeIds` in docket.tsx for why an unknown root is a team of one.
 
 import { useMemo, useState } from 'react'
-import { getWorkItems } from '../api'
+import { useWorkItems } from './useworkitems'
 import type { ToastFn, TreePayload } from '../types'
 import { DocketIcon } from '../icons'
 import { AgentDocketView, buildNodeFacts, teamItems } from './docket'
 import { PinFrame, closeIfCentred } from './modalpin'
-import { flatten, withDraftTree, usePolled } from './shared'
+import { flatten, withDraftTree } from './shared'
 import type { RefRoutes } from './reflinks'
 import { resolveRef } from './reflinks'
 
@@ -47,8 +47,7 @@ export function TeamDocketModal({ slug, nid, tree, toast, close, refs }: {
   // EVERY RENDER from the current items and the current tree, so a
   // reassignment, a hire, a retirement or a reparent lands in this view at the
   // next refresh without any cache to invalidate
-  const work = usePolled(() => getWorkItems(slug, showArchived, showBacklog),
-    [slug], 15000, `${bump}-${showArchived}-${showBacklog}`)
+  const work = useWorkItems(slug, showArchived, showBacklog, 15000, bump).value
   const team = useMemo(() => teamItems(work, nid, tree.roots, showArchived),
     [work, nid, tree.roots, showArchived])
   const facts = useMemo(() => buildNodeFacts(tree.roots), [tree.roots])
@@ -61,7 +60,7 @@ export function TeamDocketModal({ slug, nid, tree, toast, close, refs }: {
     <AgentDocketView slug={slug} nid={nid} mine={team} facts={facts} toast={toast}
       showArchived={showArchived} onShowArchived={setShowArchived}
       onShowBacklog={setShowBacklog}
-      references={work?.references}
+      references={work?.references} boundedReferences workRevision={work?.revision}
       onChanged={() => setBump(n => n + 1)} refs={routes}
       emptyText={<>
         no docket items are assigned to {nid} or to any agent below it —

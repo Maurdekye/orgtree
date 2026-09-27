@@ -32,7 +32,7 @@ import type {
   AskInfo, ToastFn, TreeNode, TreePayload, WorkActor, WorkItem, WorkItemsPayload, WorkReceipt,
 } from '../types'
 import {
-  deleteWorkItemAttachment, dismissWorkItemAttention, getWorkItems, getWorkItem,
+  deleteWorkItemAttachment, dismissWorkItemAttention, getWorkReferences, getWorkItem,
   replyWorkItem, uploadWorkItemAttachment, workItemArtifactUrl,
   workItemAttachmentUrl,
   req,
@@ -46,7 +46,8 @@ import { revealDetachedDocument } from '../windowlife'
 import { closeIfCentred, PinFrame } from './modalpin'
 import { AgentName } from './identity'
 import { MailReplyBox } from './mail'
-import { ago, jumpKey, useEsc, usePolled } from './shared'
+import { ago, jumpKey, useEsc } from './shared'
+import { useWorkItems, useSelectedWork } from './useworkitems'
 import { fmtFull } from '../timefmt'
 import { buildMentionIndex } from './workrefs'
 import type { MentionIndex } from './workrefs'
@@ -760,36 +761,23 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
   // URL (Astra review 2026-09-05). Comparing the tag during RENDER rather than
   // clearing in an effect also means there is no frame in which the stale rows
   // are still on screen.
-  const [cache, setCache] = useState<{ slug: string; archived: WorkItem[]; backlog: WorkItem[] }>(
-    { slug, archived: [], backlog: [] })
   const [sel, setSel] = useState<{ slug: string; id: string } | null>(null)
-  const archivedCache = cache.slug === slug ? cache.archived : []
-  const backlogCache = cache.slug === slug ? cache.backlog : []
-
-  // Groups load on demand. The small all-group reference index lets a link
-  // reveal a hidden row. Keep slug as the only reset dependency so toggling
-  // groups never unmounts the selected detail pane or discards a reply draft.
-  const data = usePolled(() => getWorkItems(slug, showArchived, showBacklog),
-    [slug], 5000, `${bump}-${showArchived}-${showBacklog}`)
-
-  useEffect(() => {
-    if (!data?.archived && !data?.backlogged) return
-    setCache((c) => ({
-      slug,
-      archived: data.archived ?? (c.slug === slug ? c.archived : []),
-      backlog: data.backlogged ?? (c.slug === slug ? c.backlog : []),
-    }))
-  }, [slug, data?.archived, data?.backlogged])
+  const work = useWorkItems(slug, showArchived, showBacklog, 5000, bump)
+  const data = work.value
+  const navigation = useRef({ slug, sequence: 0 })
+  if (navigation.current.slug !== slug) navigation.current = { slug, sequence: 0 }
+  useEffect(() => () => { ++navigation.current.sequence }, [])
+  const [located, setLocated] = useState<{ slug: string; item: WorkItem } | null>(null)
 
   const facts = useMemo(() => buildNodeFacts(tree?.roots), [tree?.roots])
 
   const active = data?.items ?? EMPTY_ITEMS
   // while a toggle's first fetch is in flight the cached group keeps showing,
   // so the list grows once and never blinks
-  const archived = showArchived ? (data?.archived ?? archivedCache) : EMPTY_ITEMS
-  const backlog = showBacklog ? (data?.backlogged ?? backlogCache) : EMPTY_ITEMS
-  const archivedCount = data?.counts?.archived ?? archivedCache.length
-  const backlogCount = data?.counts?.backlogged ?? backlogCache.length
+  const archived = showArchived ? (data?.archived ?? EMPTY_ITEMS) : EMPTY_ITEMS
+  const backlog = showBacklog ? (data?.backlogged ?? EMPTY_ITEMS) : EMPTY_ITEMS
+  const archivedCount = data?.counts?.archived ?? 0
+  const backlogCount = data?.counts?.backlogged ?? 0
 
   const ownerName = useCallback((it: WorkItem) => it.owner?.node ?? UNASSIGNED, [])
 
@@ -840,11 +828,15 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
   // standing it would reappear the moment the reader deselected a row, long
   // after the reference that caused it.
   const setSelId = useCallback((id: string | null) => {
+    ++navigation.current.sequence
     setMissedJump(null)
+    setLocated(null)
     setSel(id ? { slug, id } : null)
   }, [slug])
   const pickRow = useCallback((id: string) => {
+    ++navigation.current.sequence
     setMissedJump(null)
+    setLocated(null)
     setSel(previous => previous?.slug === slug && previous.id === id ? null : { slug, id })
   }, [slug])
   // ⚠ ORDER IS THE POINT. The CURRENT response is written LAST, so it wins over
@@ -860,16 +852,18 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
     // Reference-only selections enter DocketPane's hydration branch; they
     // never render as full rows or details until the group/item read returns.
     for (const item of data?.references ?? []) map.set(item.slug, { ...item, view: 'list' } as unknown as WorkItem)
-    if (!data?.references) {
-      for (const item of archivedCache) map.set(item.slug, item)
-      for (const item of backlogCache) map.set(item.slug, item)
-    }
     for (const item of (data?.archived ?? [])) map.set(item.slug, item)
     for (const item of (data?.backlogged ?? [])) map.set(item.slug, item)
     for (const item of active) map.set(item.slug, item)
     return map
-  }, [active, data?.references, data?.archived, data?.backlogged, archivedCache, backlogCache])
-  const cur = allKnown.get(selId ?? '')
+  }, [active, data?.references, data?.archived, data?.backlogged])
+  const selected = allKnown.get(selId ?? '') ?? (located?.slug === slug
+    && located.item.slug === selId ? located.item : undefined)
+  const cur = useSelectedWork(slug, selId, selected, showArchived, showBacklog)
+  useEffect(() => {
+    if (located && (located.slug !== slug || located.item.slug !== selId
+        || allKnown.has(located.item.slug))) setLocated(null)
+  }, [located, slug, selId, allKnown])
   const asksById = new Map<string, AskInfo>((tree.asks ?? []).map((a) => [a.id, a]))
 
   // ---- names in prose become links to the item or the agent they name
@@ -920,9 +914,9 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
     if (onOpenMail) handles.add('mail')
     return {
       org: slug,
-      items: data
-        ? new Map([...allKnown.keys()].map((s) => [s, s]))
-        : 'loading',
+      items: data ? undefined : 'loading',
+      boundedItems: true,
+      workRevision: data?.revision,
       itemTitles: new Map([...allKnown].map(([s, item]) => [s, item.title])),
       agents: new Map([...facts.keys()].map((id) => [id, id])),
       // ⚠ A NODE'S INBOX IS ONLY REAL IF THE NODE IS. The user's box and the
@@ -969,33 +963,54 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
     })
   }, [])
 
-  const goToItem = useCallback((id: string) => {
-    const it = allKnown.get(id)
-    if (!it) return           // not ours to show — never a broken selection
-    // REVEAL BEFORE SELECT. A backlogged or archived item has no row while its
-    // group is filtered out, and selecting an invisible row would look like
-    // the link did nothing.
-    if (it.archived) setShowArchived(true)
-    else if (it.status === 'backlogged') setShowBacklog(true)
-    // ⚠ AND OPEN ITS ANCESTORS: a collapsed parent means the row is not on
-    // screen, so the link would appear to do nothing.
-    const line = ancestorsOf([...allKnown.values()], id)
-    if (line.length) {
-      setCollapsed((c) => {
-        if (!line.some((a) => c.has(a))) return c   // no needless re-render
+  const goToItem = useCallback(async (id: string) => {
+    const owner = navigation.current
+    const sequence = ++owner.sequence
+    const usable = () => navigation.current === owner && sequence === owner.sequence
+    setMissedJump(null)
+    try {
+      let it = allKnown.get(id)
+      const known = new Map(allKnown)
+      if (!it) {
+        const found = (await getWorkReferences(slug, data?.revision ?? '', [id])).get(id)
+        if (!usable()) return
+        if (!found) { setMissedJump(id); return }
+        it = { ...found, view: 'list' } as unknown as WorkItem
+        known.set(id, it)
+      }
+      // Only the visible parent chain is needed to reveal a collapsed target.
+      let parent = it.parent_visible === false ? null : it.parent
+      const visited = new Set([id])
+      while (parent && !visited.has(parent)) {
+        visited.add(parent)
+        let row = known.get(parent)
+        if (!row) {
+          const found = (await getWorkReferences(slug, data?.revision ?? '', [parent])).get(parent)
+          if (!usable()) return
+          if (!found) break
+          row = { ...found, view: 'list' } as unknown as WorkItem
+          known.set(parent, row)
+        }
+        parent = row.parent_visible === false ? null : row.parent
+      }
+      if (!usable()) return
+      if (it.archived) setShowArchived(true)
+      else if (it.status === 'backlogged') setShowBacklog(true)
+      const line = ancestorsOf([...known.values()], id)
+      setCollapsed(c => {
+        if (!line.some(a => c.has(a))) return c
         const next = new Set(c)
         for (const a of line) next.delete(a)
         return next
       })
+      setCollapsedCategories(c => c.size ? new Set<string>() : c)
+      setLocated({ slug, item: it })
+      setSel({ slug, id })
+      setFlash(id)
+    } catch (error) {
+      if (usable()) toast([`Could not open ${id}: ${error instanceof Error ? error.message : String(error)}`])
     }
-    // A category fold is another way the target can be off-screen. Reveal all
-    // category rows before selecting a referenced item, just as the ancestor
-    // fold above does for nested ticket rows. This is panel-local posture, not
-    // docket data, and clearing it keeps every jump visibly actionable.
-    setCollapsedCategories((c) => c.size ? new Set<string>() : c)
-    setSel({ slug, id })
-    setFlash(id)
-  }, [allKnown, slug])
+  }, [allKnown, slug, data?.revision, toast])
 
   /** a canonical reference clicked. ONLY the kinds `refWorld.handles` admits
    *  can arrive here — anything else was rendered inert and never became a
@@ -1055,11 +1070,10 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
   const doneJump = useRef<string | null>(null)
   const [missedJump, setMissedJump] = useState<string | null>(null)
   useEffect(() => {
-    const key = jumpKey(jumpTo, jumpSeq)
+    const key = slug + ':' + jumpKey(jumpTo, jumpSeq)
     if (!jumpTo || !data || doneJump.current === key) return
     doneJump.current = key
-    if (allKnown.has(jumpTo)) { setMissedJump(null); goToItem(jumpTo) }
-    else setMissedJump(jumpTo)
+    void goToItem(jumpTo)
     onJumpHandled?.()
   }, [jumpTo, jumpSeq, data, allKnown, goToItem, onJumpHandled])
 
@@ -1230,10 +1244,12 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
         </div>
           </div>
         </div>
+        {work.status.loading && data && <div role="status" className="dim">Loading docket…</div>}
+        {work.status.failed && <div role="status" className="dim">Could not refresh docket: {work.status.error}</div>}
         <div className="mailpane">
-          {!data
+          {!data && !cur
             ? <div className="dim pad">loading…</div>
-            : rowCount === 0
+            : rowCount === 0 && !cur && !missedJump
               // ⚠ "NOTHING MATCHED" IS NOT "NOTHING EXISTS". Left as the one
               // message, a query that found nothing would claim the org has no
               // work at all — and the reader would have no way to tell that
@@ -1337,7 +1353,7 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
                   </div>
                   <div className="mailer-read">
                     {cur
-                      ? <DocketPane key={cur.slug} slug={slug} item={cur} toast={toast}
+                      ? <DocketPane key={slug + ":" + cur.slug} slug={slug} item={cur} toast={toast}
                           asksById={asksById} onDismiss={onDismiss}
                           close={navClose} onFocusAgent={onFocusAgent} facts={facts}
                           refIndex={refIndex} onGoToItem={goToItem}
@@ -1505,7 +1521,7 @@ export function actionableAssignedCount(data: {
  *  the work is yours. */
 export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
   onChanged, showArchived = false, onShowArchived = () => {}, refs,
-  emptyText, onShowBacklog, references }: {
+  emptyText, onShowBacklog, references, boundedReferences = false, workRevision }: {
   slug: string
   nid: string
   /** this agent's items, already selected by `agentItems` — null while the
@@ -1521,6 +1537,8 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
   onShowArchived?: (show: boolean) => void
   onShowBacklog?: (show: boolean) => void
   references?: WorkItemsPayload['references']
+  boundedReferences?: boolean
+  workRevision?: string
   /** THE DESK'S OWN REFERENCE WIRING, passed down whole rather than rebuilt.
    *  Required, not optional: a fallback world here would be a second answer to
    *  the same question on the same desk, and the two would drift. */
@@ -1539,7 +1557,10 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
   useEffect(() => { onShowBacklog?.(showBacklog) }, [showBacklog, onShowBacklog])
   const [sortMode, setSortMode] = useState<DocketSortMode>(readSortMode)
   const [groupMode, setGroupMode] = useState<DocketGroupMode>(readGroupMode)
-  const [selId, setSelId] = useState<string | null>(null)
+  const [selection, setSelection] = useState<{ scope: string; id: string } | null>(null)
+  const selectionScope = JSON.stringify([slug, nid])
+  const selId = selection?.scope === selectionScope ? selection.id : null
+  const setSelId = (id: string | null) => setSelection(id ? { scope: selectionScope, id } : null)
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
     () => new Set<string>())
   const [collapsedCategories, setCollapsedCategories] = useState<ReadonlySet<string>>(
@@ -1557,8 +1578,8 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
                             [...facts].map(([id, f]) => [id, f.tier] as const)),
     [byName, facts, references])
   const hiddenSelection = references?.find(it => it.slug === selId)
-  const cur = byName.get(selId ?? '') ?? (hiddenSelection
-    ? { ...hiddenSelection, view: 'list' } as unknown as WorkItem : undefined)
+  const cur = useSelectedWork(selectionScope, selId, byName.get(selId ?? '') ?? (hiddenSelection
+    ? { ...hiddenSelection, view: 'list' } as unknown as WorkItem : undefined), showArchived, showBacklog)
   /** THE DESK'S WORLD, WITH EXACTLY ONE ROUTE TAKEN OVER.
    *
    *  ⚠ THIS TAB USED TO BUILD ITS OWN NARROW WORLD (`handles` = item + agent),
@@ -1581,13 +1602,15 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
    *  anything else through the desk's work route. */
   const refWorld = useMemo<RefWorld>(() => ({
     ...refs.world,
+    boundedItems: boundedReferences || refs.world.boundedItems,
+    workRevision: workRevision ?? refs.world.workRevision,
     itemTitles: new Map([...(refs.world.itemTitles ?? []),
       ...(references ?? []).map(it => [it.slug, it.title] as const),
       ...rows.map(it => [it.slug, it.title] as const)]),
     handles: refs.world.handles
       ? new Set<RefKind>([...refs.world.handles, 'item'])
       : undefined,
-  }), [refs.world, mine, references])
+  }), [refs.world, mine, references, boundedReferences, workRevision])
   /** An item this tab HOLDS selects in place — the row is right there, and
    *  navigating the whole canvas to the Work panel to show a row already on
    *  screen is the surprising behaviour. Anything else is the desk's, which is
@@ -1628,7 +1651,7 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
       })
       .catch((e: Error) => toast([`error: ${e.message}`]))
   }, [slug, toast, onChanged])
-  const pickRow = useCallback((id: string) => setSelId(previous => previous === id ? null : id), [])
+  const pickRow = (id: string) => setSelId(selId === id ? null : id)
   const windowSections = useMemo(() => sections.map(section => ({ ...section,
     rows: nestRows(section.items, collapsed),
     folded: Boolean(section.heading && collapsedCategories.has(section.key)),
@@ -1662,7 +1685,7 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
         <span className="dim docket-sort-why">{SORT_MODES.find(mode => mode.value === sortMode)?.why}
           {groupMode !== 'none' && ', inside each group'}</span>
       </div>
-      {mine === null
+      {mine === null && !cur
         ? <div className="dim pad">loading…</div>
         : sections.length === 0 && !cur
           ? <div className="dim pad">
@@ -1716,7 +1739,7 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
               </div>
               <div className="mailer-read">
                 {cur
-                  ? <DocketPane key={cur.slug} slug={slug} item={cur} toast={toast}
+                  ? <DocketPane key={slug + ":" + cur.slug} slug={slug} item={cur} toast={toast}
                       asksById={new Map()} onDismiss={onDismiss}
                       close={() => setSelId(null)} onFocusAgent={onFocusAgent}
                       facts={facts} refIndex={refIndex}

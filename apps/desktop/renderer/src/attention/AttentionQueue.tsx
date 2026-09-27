@@ -21,7 +21,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
-import { dismissWorkItemAttention, fileBase, getInbox, getWorkItems, markRead } from '../api'
+import { useWorkItems } from '../canvas/useworkitems'
+import { dismissWorkItemAttention, fileBase, getInbox, markRead } from '../api'
 import { sendLinkedReply } from '../events/reply'
 import { DocketIcon, MailIcon, NotificationsActiveIcon, PsychologyIcon } from '../icons'
 import type { MailEntry, ToastFn, TreeNode, TreePayload, WorkItem } from '../types'
@@ -118,7 +119,7 @@ export function AttentionQueue({
   // other exists. `usePolled` also wakes on the livebus, so a mutation made
   // HERE lands in well under a poll interval.
   const [bump, setBump] = useState(0)
-  const workFeed = usePolledStatus(() => getWorkItems(slug), [slug], 5000, bump)
+  const workFeed = useWorkItems(slug, false, false, 5000, bump)
   const boxFeed = usePolledStatus(() => getInbox(slug), [slug], 5000, bump)
   const work = workFeed.value
   const box = boxFeed.value
