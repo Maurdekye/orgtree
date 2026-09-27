@@ -225,6 +225,24 @@ class MailArchiveBounds(unittest.TestCase):
             conn.execute('COMMIT')
         self.assertEqual(tuple(map(int, self.bound())), (9, 50, 0))
 
+    def test_runtime_role_can_send_using_existing_archive_bounds(self):
+        with self.tx() as tx:
+            conn = store._orgtx_local.pinned[self.slug]
+            conn.execute('SET LOCAL ROLE orgtree_runtime')
+            self.assertEqual(tx.org.deposit_mail('worker', {'id': 'runtime'})['recv_seq'], 10)
+        self.assertEqual(tuple(map(int, self.bound())), (10, 10, 0))
+
+    def test_runtime_role_can_create_schema_and_write_its_bound(self):
+        with psycopg.connect(os.environ['ORGTREE_PG_URL']) as conn:
+            conn.execute('SET LOCAL ROLE orgtree_runtime')
+            org_id = conn.execute("INSERT INTO public.orgs(slug) VALUES('runtime-fixture') RETURNING org_id").fetchone()[0]
+            schema = conn.execute('SELECT public.orgtree_create_org_schema(%s)', (org_id,)).fetchone()[0]
+            conn.execute(f"INSERT INTO {schema}.log_d(sect,owner,val) VALUES('mail_log','runtime',%s)",
+                         (json.dumps({'id': 'a', 'recv_seq': 3}),))
+            self.assertEqual(tuple(map(int, conn.execute(f'SELECT nrows,assigned_max FROM {schema}.mail_archive_bounds '
+                                                        "WHERE owner='runtime'").fetchone())), (1, 3))
+            conn.rollback()
+
 
 if __name__ == '__main__':
     unittest.main()

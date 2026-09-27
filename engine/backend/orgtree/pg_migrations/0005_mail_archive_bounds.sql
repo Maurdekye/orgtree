@@ -93,6 +93,9 @@ BEGIN
                  'unknown_rows bigint NOT NULL CHECK(unknown_rows>=0 AND unknown_rows<=nrows),'
                  'assigned_max numeric NOT NULL CHECK(assigned_max>=0),'
                  'version bigint NOT NULL,format integer NOT NULL)',s);
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='orgtree_runtime') THEN
+    EXECUTE format('GRANT SELECT,INSERT,UPDATE,DELETE ON %I.mail_archive_bounds TO orgtree_runtime',s);
+  END IF;
   EXECUTE format('CREATE INDEX IF NOT EXISTS ix_mail_ordinal ON %I.log_d '
                  '(owner,public.orgtree_mail_ordinal(val) DESC) WHERE sect=''mail_log''',s);
   EXECUTE format('DROP TRIGGER IF EXISTS mail_archive_bounds ON %I.log_d',s);
@@ -146,7 +149,7 @@ BEGIN
 END
 $wrap$;
 CREATE OR REPLACE FUNCTION public.orgtree_create_org_schema(p_org_id bigint) RETURNS text
-LANGUAGE plpgsql AS $fn$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $fn$
 DECLARE s text;
 BEGIN
   s := public.orgtree_create_org_schema_before_mail_bounds(p_org_id);
@@ -154,3 +157,11 @@ BEGIN
   RETURN s;
 END
 $fn$;
+REVOKE ALL ON FUNCTION public.orgtree_create_org_schema(bigint) FROM PUBLIC;
+DO $grants$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='orgtree_runtime') THEN
+    GRANT EXECUTE ON FUNCTION public.orgtree_create_org_schema(bigint) TO orgtree_runtime;
+  END IF;
+END
+$grants$;
