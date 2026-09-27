@@ -34,6 +34,7 @@ but it catches you after the fact, and one grep catches you before.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import json
 import math
@@ -808,6 +809,12 @@ class Org:
 
     def __init__(self, doc: OrgDoc) -> None:
         self.d: OrgDoc = doc
+        nodes = dict.get(doc, "nodes")
+        construction = getattr(nodes, "construction", contextlib.nullcontext)
+        with construction():
+            self._initialize_doc(doc)
+
+    def _initialize_doc(self, doc: OrgDoc) -> None:
         # migrate older docs in place: dir grants gain modes; scopes gain tool sets
         # (pre-schema docs — the loop handles keys NodeDoc no longer declares)
         #

@@ -2137,6 +2137,154 @@ class SectionMap(dict[str, Any]):
         return super().__reduce_ex__(protocol)
 
 
+class _NodeMutation:
+    """Shared by a loaded node and its nested containers, including old refs.
+
+    Construction can read without exposing a row to the save. Mutations still
+    mark it. A newly assigned mutable object may have an external alias, so
+    its row stays exposed until reload; resetting a mark cannot lose that alias.
+    """
+    def __init__(self) -> None:
+        self.dirty = False
+        self.aliased = False
+        self.constructing = False
+
+    def assigned(self, value: Any) -> None:
+        self.dirty = True
+        if isinstance(value, (dict, list)):
+            self.aliased = True
+
+
+def _track_node_value(value: Any, mark: _NodeMutation) -> Any:
+    if type(value) is dict:
+        out = _NodeDict(mark)
+        for k, v in value.items():
+            dict.__setitem__(out, k, _track_node_value(v, mark))
+        return out
+    if type(value) is list:
+        out = _NodeList(mark)
+        list.extend(out, (_track_node_value(v, mark) for v in value))
+        return out
+    return value
+
+
+class _NodeDict(dict):
+    def __init__(self, mark: _NodeMutation) -> None:
+        super().__init__()
+        self._mutation = mark
+
+    def __setitem__(self, key: Any, value: Any) -> None:
+        # Normalization assigns equal scope dicts on every construction.
+        # Keep the tracked value in that internal, value-preserving case.
+        if self._mutation.constructing and key in self and self[key] == value:
+            return
+        self._mutation.assigned(value)
+        dict.__setitem__(self, key, value)
+
+    def __delitem__(self, key: Any) -> None:
+        dict.__delitem__(self, key)
+        self._mutation.dirty = True
+
+    def setdefault(self, key: Any, default: Any = None) -> Any:
+        if key not in self:
+            self[key] = default
+        return self[key]
+
+    def pop(self, key: Any, *default: Any) -> Any:
+        if key in self:
+            self._mutation.dirty = True
+        return dict.pop(self, key, *default)
+
+    def popitem(self) -> Any:
+        value = dict.popitem(self)
+        self._mutation.dirty = True
+        return value
+
+    def clear(self) -> None:
+        if self:
+            self._mutation.dirty = True
+        dict.clear(self)
+
+    def update(self, *args: Any, **kwargs: Any) -> None:
+        for key, value in dict(*args, **kwargs).items():
+            self[key] = value
+
+    def __ior__(self, other: Any) -> Any:
+        self.update(other)
+        return self
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> Any:
+        out = _NodeDict(copy.deepcopy(self._mutation, memo))
+        memo[id(self)] = out
+        for key, value in dict.items(self):
+            dict.__setitem__(out, key, copy.deepcopy(value, memo))
+        return out
+
+
+class _NodeList(list):
+    def __init__(self, mark: _NodeMutation) -> None:
+        super().__init__()
+        self._mutation = mark
+
+    def __setitem__(self, index: Any, value: Any) -> None:
+        self._mutation.assigned(value)
+        list.__setitem__(self, index, value)
+
+    def __delitem__(self, index: Any) -> None:
+        list.__delitem__(self, index)
+        self._mutation.dirty = True
+
+    def append(self, value: Any) -> None:
+        self._mutation.assigned(value)
+        list.append(self, value)
+
+    def extend(self, values: Any) -> None:
+        # Preserve ordinary alias semantics for inserted values.
+        for value in values:
+            self.append(value)
+
+    def insert(self, index: Any, value: Any) -> None:
+        self._mutation.assigned(value)
+        list.insert(self, index, value)
+
+    def pop(self, index: Any = -1) -> Any:
+        value = list.pop(self, index)
+        self._mutation.dirty = True
+        return value
+
+    def remove(self, value: Any) -> None:
+        list.remove(self, value)
+        self._mutation.dirty = True
+
+    def clear(self) -> None:
+        if self:
+            self._mutation.dirty = True
+        list.clear(self)
+
+    def reverse(self) -> None:
+        self._mutation.dirty = True
+        list.reverse(self)
+
+    def sort(self, *args: Any, **kwargs: Any) -> None:
+        self._mutation.dirty = True
+        list.sort(self, *args, **kwargs)
+
+    def __iadd__(self, values: Any) -> Any:
+        self.extend(values)
+        return self
+
+    def __imul__(self, count: Any) -> Any:
+        self._mutation.dirty = True
+        list.__imul__(self, count)
+        return self
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> Any:
+        out = _NodeList(copy.deepcopy(self._mutation, memo))
+        memo[id(self)] = out
+        list.extend(out, (copy.deepcopy(v, memo) for v in self))
+        return out
+
+
 class NodesMap(dict[str, Any]):
     """The `nodes` section with PER-NODE read barriers (rearchitecture
     Phase B). A real dict of node id → node doc; the only addition is
@@ -2155,7 +2303,7 @@ class NodesMap(dict[str, Any]):
     keeps working."""
 
     _STATE_DEFAULTS: dict[str, Callable[[], Any]] = {
-        "_touched": set, "_touched_all": bool,
+        "_touched": set, "_touched_all": bool, "_constructing": bool,
     }
 
     def __getattr__(self, name: str) -> Any:
@@ -2171,13 +2319,47 @@ class NodesMap(dict[str, Any]):
         self._touched: set[str] = set()
         self._touched_all: bool = False
 
+    @contextlib.contextmanager
+    def construction(self) -> Iterator[None]:
+        if not ORGTX_RESCOPE:
+            yield
+            return
+        marks = []
+        for nid, value in list(dict.items(self)):
+            if not isinstance(value, _NodeDict):
+                value = _track_node_value(value, _NodeMutation())
+                dict.__setitem__(self, nid, value)
+            if isinstance(value, _NodeDict):
+                value._mutation.constructing = True
+                marks.append(value._mutation)
+        self._constructing = True
+        try:
+            yield
+        finally:
+            self._constructing = False
+            for mark in marks:
+                mark.constructing = False
+
+    def _changed(self) -> set[str]:
+        changed = set(self._touched)
+        for nid, value in dict.items(self):
+            if isinstance(value, _NodeDict):
+                mark = value._mutation
+                if mark.dirty or mark.aliased:
+                    changed.add(nid)
+        return changed
+
     def _mark_clear(self) -> None:
         self._touched = set()
         self._touched_all = False
+        for value in dict.values(self):
+            if isinstance(value, _NodeDict):
+                value._mutation.dirty = False
 
     def __getitem__(self, nid: str) -> Any:
         v = dict.__getitem__(self, nid)
-        self._touched.add(nid)
+        if not self._constructing:
+            self._touched.add(nid)
         return v
 
     def get(self, nid: str, default: Any = None) -> Any:  # pyright: ignore[reportIncompatibleMethodOverride]
@@ -2187,8 +2369,9 @@ class NodesMap(dict[str, Any]):
             return default
 
     def setdefault(self, nid: str, default: Any = None) -> Any:  # pyright: ignore[reportIncompatibleMethodOverride]
-        self._touched.add(nid)
-        return dict.setdefault(self, nid, default)
+        if nid not in self:
+            self[nid] = default
+        return self[nid]
 
     def __setitem__(self, nid: str, v: Any) -> None:
         self._touched.add(nid)
@@ -2220,11 +2403,13 @@ class NodesMap(dict[str, Any]):
         dict.clear(self)
 
     def values(self):  # pyright: ignore[reportIncompatibleMethodOverride]
-        self._touched_all = True
+        if not self._constructing:
+            self._touched_all = True
         return dict.values(self)
 
     def items(self):  # pyright: ignore[reportIncompatibleMethodOverride]
-        self._touched_all = True
+        if not self._constructing:
+            self._touched_all = True
         return dict.items(self)
 
     def copy(self) -> dict[str, Any]:  # pyright: ignore[reportIncompatibleMethodOverride]
@@ -3391,7 +3576,7 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
         if touched is not None and isinstance(nodes, NodesMap) \
                 and not nodes._touched_all and db_ids is None \
                 and snap_nodes is not None:
-            node_touched = nodes._touched
+            node_touched = nodes._changed()
         # ⚠ dict.items, NOT nodes.items(): the differ itself must not trip
         # the read barrier it consumes
         for nid, nv in dict.items(nodes):
@@ -5480,7 +5665,7 @@ def _settle_marks(d: LazyDoc) -> None:
     nodes = dict.get(d, "nodes")
     if isinstance(nodes, NodesMap):
         nids = (set(dict.keys(nodes)) if nodes._touched_all
-                else set(nodes._touched))
+                else nodes._changed())
         real: set[str] = set()
         for nid in nids:
             if not dict.__contains__(nodes, nid):
@@ -5622,11 +5807,9 @@ def _rescope_clean(d: Any) -> None:
     returned [] (every touched value equals its adopted baseline)."""
     if not isinstance(d, LazyDoc):
         return
-    d._touched.clear()
     nodes = dict.get(d, "nodes")
     if isinstance(nodes, NodesMap):
-        nodes._touched_all = False
-        nodes._touched.clear()
+        nodes._mark_clear()
 
 
 def _resident_dirty(d: LazyDoc) -> list[str]:
@@ -5645,7 +5828,7 @@ def _resident_dirty(d: LazyDoc) -> list[str]:
     nodes = dict.get(d, "nodes")
     if isinstance(nodes, NodesMap):
         nids = (set(dict.keys(nodes)) | set(d._snap_nodes)
-                if nodes._touched_all else set(nodes._touched))
+                if nodes._touched_all else nodes._changed())
         for nid in nids:
             if dict.__contains__(nodes, nid):
                 if d._snap_nodes.get(nid) != _dumps(dict.__getitem__(nodes, nid)):
