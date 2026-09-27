@@ -10,7 +10,7 @@ import unittest
 
 REPO=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(REPO/'tools/scale'))
-from loaded_cpu import Meter, CTX
+from loaded_cpu import Meter, CTX, ThreadClocks
 
 class CpuControls(unittest.TestCase):
     def test_cpu_excludes_sleep_and_records_busy_work(self):
@@ -37,11 +37,25 @@ class CpuControls(unittest.TestCase):
             thread.start()
             try:
                 self.assertTrue(entered.wait(1))
-                meter.measured('worker',lambda:seen.append('second finished'))
+                def external_only(): seen.append('second finished')
+                meter.measured('worker',external_only)
                 self.assertEqual(seen,['second finished'])
                 self.assertEqual(meter.skipped_samples['worker:background'],1)
             finally:
                 release.set(); thread.join(3)
+            self.assertFalse(any(i[2]=='external_only' for i in meter.functions['worker:background']))
+
+    def test_cached_windows_thread_clock_counts_cpu_and_closes(self):
+        clocks=ThreadClocks(); tid=threading.get_native_id()
+        try:
+            before=clocks.read([tid])[tid]
+            begun=time.thread_time()
+            while time.thread_time()-begun<.05: sum(range(100))
+            after=clocks.read([tid])[tid]
+            self.assertGreaterEqual(after-before,.04)
+            self.assertLess(after-before,.15)
+        finally: clocks.close()
+        self.assertFalse(clocks.handles)
 
     def test_nested_boundary_does_not_double_count(self):
         with tempfile.TemporaryDirectory() as root:

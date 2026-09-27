@@ -25,6 +25,36 @@ def label(ctx):
     return ctx.get('kind', 'unknown') if ctx else 'background'
 
 
+class ThreadClocks:
+    """Cache Windows thread handles; avoid enumerating all OS threads at10Hz."""
+    def __init__(self):
+        import ctypes
+        from ctypes import wintypes
+        self.ctypes=ctypes; self.ft=wintypes.FILETIME
+        self.kernel=ctypes.WinDLL('kernel32',use_last_error=True)
+        self.kernel.OpenThread.argtypes=[wintypes.DWORD,wintypes.BOOL,wintypes.DWORD]
+        self.kernel.OpenThread.restype=wintypes.HANDLE
+        self.kernel.GetThreadTimes.argtypes=[wintypes.HANDLE]+[ctypes.POINTER(self.ft)]*4
+        self.kernel.GetThreadTimes.restype=wintypes.BOOL
+        self.kernel.CloseHandle.argtypes=[wintypes.HANDLE]
+        self.handles={}
+    def read(self,ids):
+        out={}
+        for tid in ids:
+            handle=self.handles.get(tid)
+            if not handle:
+                handle=self.kernel.OpenThread(0x0800,False,tid)
+                if not handle: continue
+                self.handles[tid]=handle
+            values=[self.ft() for _ in range(4)]
+            if self.kernel.GetThreadTimes(handle,*[self.ctypes.byref(v) for v in values]):
+                out[tid]=sum((v.dwHighDateTime<<32)|v.dwLowDateTime for v in values[2:])*1e-7
+        return out
+    def close(self):
+        for handle in self.handles.values(): self.kernel.CloseHandle(handle)
+        self.handles.clear()
+
+
 class Meter:
     def __init__(self, root, every=10):
         self.root = Path(root)
@@ -113,27 +143,23 @@ class Meter:
         return dict(events=len(self.events), classes=len(self.cpu), start=self.started, finish=self.finished)
 
     def sampler(self):
-        import psutil
-        proc = psutil.Process()
-        previous = {t.id:t.user_time+t.system_time for t in proc.threads()}
-        while not self.stop.wait(.1):
-            frames = sys._current_frames()
-            threads = {t.native_id:t for t in threading.enumerate()}
-            for t in proc.threads():
-                value = t.user_time+t.system_time
-                delta = max(0, value-previous.get(t.id,value))
-                previous[t.id] = value
-                th = threads.get(t.id)
-                name = th.name if th else 'unknown-native'
-                key = str(t.id)+':'+name
-                self.thread_names[str(t.id)] = name
-                self.thread_cpu[key] += delta
-                frame = frames.get(th.ident) if th else None
-                stack = []
-                while frame and len(stack)<16:
-                    stack.append(f'{os.path.basename(frame.f_code.co_filename)}:{frame.f_code.co_name}:{frame.f_lineno}')
-                    frame = frame.f_back
-                if delta: self.stack_cpu[key+'|'+';'.join(stack)] += delta
+        clocks=ThreadClocks()
+        previous={}
+        try:
+            while not self.stop.wait(.1):
+                frames=sys._current_frames()
+                threads={t.native_id:t for t in threading.enumerate() if t.native_id}
+                for tid,value in clocks.read(threads).items():
+                    delta=max(0,value-previous.get(tid,value)); previous[tid]=value
+                    th=threads[tid]; key=str(tid)+':'+th.name
+                    self.thread_names[str(tid)]=th.name
+                    self.thread_cpu[key]+=delta
+                    frame=frames.get(th.ident); stack=[]
+                    while frame and len(stack)<16:
+                        stack.append(f'{os.path.basename(frame.f_code.co_filename)}:{frame.f_code.co_name}:{frame.f_lineno}')
+                        frame=frame.f_back
+                    if delta: self.stack_cpu[key+'|'+';'.join(stack)]+=delta
+        finally: clocks.close()
 
     def install(self, app, api_app):
         import anyio.to_thread
