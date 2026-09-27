@@ -13,7 +13,7 @@ type Boundary = { format: typeof FOREGROUND_TREE_FORMAT; revision: string
   catalog_revision: string; org_rev: number; sync_rev: number }
 export type ForegroundSnapshot = Boundary & { kind: 'snapshot'
   nodes: Record<string, FlatTreeNode>; roots: string[]; missing_requested: string[]
-  header: Omit<TreePayload, 'roots' | 'sync_rev' | 'org_rev'> & {
+  header: Omit<TreePayload, 'roots' | 'sync_rev' | 'org_rev' | 'foreground'> & {
     hidden_retired_roots: number; retired_total: number }
 }
 type Change = { set: Record<string, unknown>; unset: string[] }
@@ -98,6 +98,8 @@ export function projectForeground(snapshot: ForegroundSnapshot): TreePayload {
     throw new Error('Foreground tree contradicts requested absence')
   }
   return hydrateTree({ ...snapshot.header, roots,
+    foreground: { catalog_revision: snapshot.catalog_revision,
+      present: Object.keys(nodes), missing: [...snapshot.missing_requested] },
     sync_rev: snapshot.sync_rev, org_rev: snapshot.org_rev })
 }
 

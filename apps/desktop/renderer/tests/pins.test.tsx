@@ -42,8 +42,40 @@ import {
 import type { PinRect } from '../src/canvas/pins'
 import type { TreePayload } from '../src/types'
 import { setModalOverlap } from '../src/canvas/pinoverlap'
+import { draftKey, storeAttachments } from '../src/draftstore'
+import { readHistory } from '../src/composerhistory'
 
 const noop = () => {}
+
+uiTest('foreground omission preserves pinned identity and drafts until explicit absence', async ({ mount }) => {
+  const { setTree, toasts } = await mountCanvas(mount, ['ceo', 'cto'])
+  await inAct(() => addPin('mine', 'cto', { x: 10, y: 10, w: 400, h: 400 }))
+  const key = draftKey('mine', 'cto', 0)
+  localStorage.setItem(key, 'Unsent retired instruction')
+  storeAttachments(key, [{ name: 'note', path: 'note.txt', bytes: 42 }])
+  localStorage.setItem(`${key}-reply`, 'reply context')
+  localStorage.setItem('orgtree-eyemin-mine', JSON.stringify(['cto']))
+  localStorage.setItem('orgtree-eyeseen-mine', JSON.stringify(['cto']))
+  localStorage.setItem('orgtree-pile-mine', JSON.stringify({ ceo: 'cto' }))
+  const partial = (missing: string[]): TreePayload => ({ ...tree(['ceo']),
+    foreground: { catalog_revision: 'c1', present: ['ceo'], missing } })
+  await inAct(() => setTree(partial([])))
+  await flush()
+  assert.equal(readPins('mine').length, 1, 'omitted pin remains persisted')
+  assert.equal(localStorage.getItem(key), 'Unsent retired instruction')
+  assert.equal(localStorage.getItem(`${key}-reply`), 'reply context')
+  assert.ok(localStorage.getItem(`${key}-attachments`))
+  assert.deepEqual(JSON.parse(localStorage.getItem('orgtree-eyemin-mine')!), ['cto'])
+  assert.deepEqual(JSON.parse(localStorage.getItem('orgtree-eyeseen-mine')!), ['cto'])
+  assert.deepEqual(JSON.parse(localStorage.getItem('orgtree-pile-mine')!), { ceo: 'cto' })
+  assert.equal(toasts.length, 0)
+  await inAct(() => setTree(partial(['cto'])))
+  await flush()
+  assert.equal(readPins('mine').length, 0, 'confirmed absence still closes the pin')
+  assert.equal(localStorage.getItem(key), null)
+  assert.deepEqual(readHistory('mine', 'cto'), [{ text: 'Unsent retired instruction', delivered: false }])
+  assert.ok(toasts.some(t => /cto is gone/.test(t.join(' '))))
+})
 
 uiTest('pinned desks share the optional overlap fading treatment', async ({mount}) => {
   const rig = await mountCanvas(mount,['worker'])
