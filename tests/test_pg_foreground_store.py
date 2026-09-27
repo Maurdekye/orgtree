@@ -1,10 +1,14 @@
 """Committed foreground discovery, including direct writes and feed lag."""
 import json
+from pathlib import Path
+import shutil
+import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
 import test_pgstore as fixture
-from orgtree import foreground_store as fg, ledger, store
+from orgtree import foreground_store as fg, ledger, pgstore, store
 
 
 def tearDownModule():
@@ -173,6 +177,87 @@ class ForegroundIndex(unittest.TestCase):
         self.assertEqual(len(large['rows']), 1)
         self.assertEqual(small['hidden_retired_children']['boss'], 10)
         self.assertEqual(large['hidden_retired_children']['boss'], 100)
+
+    def test_copy_and_multiple_changes_in_one_transaction_use_final_committed_state(self):
+        with store._POOL.acquire(self.slug) as conn:
+            conn.execute('BEGIN')
+            with conn.raw.cursor().copy('COPY nodes(id,ord,val) FROM STDIN') as copy:
+                copy.write_row(('copied', 500, store._dumps({**self.prototype,
+                    'parent': 'boss', 'state': 'archived', 'cost_usd': 5})))
+            value = {**self.prototype, 'parent': 'boss', 'state': 'live', 'cost_usd': 7}
+            conn.execute('UPDATE nodes SET val=? WHERE id=?', (store._dumps(value), 'copied'))
+            conn.execute('COMMIT')
+        graph = fg.read_foreground(self.slug)
+        self.assertEqual(set(graph['rows']), {'boss', 'copied'})
+        self.assertEqual(graph['hidden_retired_children']['boss'], 0)
+        self.assertEqual(float(graph['stamp']['cost']), 7)
+
+    def test_concurrent_disjoint_writes_do_not_take_counter_lock_during_body(self):
+        self.add(a={}, b={})
+        barrier = threading.Barrier(2, timeout=5)
+        results = []
+        def writer(nid):
+            try:
+                with store._POOL.acquire(self.slug) as conn:
+                    conn.execute('BEGIN')
+                    conn.execute('SET LOCAL statement_timeout=8000')
+                    value = {**self.prototype, 'parent': 'boss', 'state': 'live', 'cost_usd': 1.5}
+                    conn.execute('UPDATE nodes SET val=? WHERE id=?', (store._dumps(value), nid))
+                    # An immediate counter trigger blocks writer2 here; this
+                    # barrier proves both bodies ran before either COMMIT.
+                    barrier.wait()
+                    conn.execute('COMMIT')
+                results.append(nid)
+            except BaseException as exc:
+                results.append(exc)
+        threads = [threading.Thread(target=writer, args=(nid,)) for nid in ('a', 'b')]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(12)
+        self.assertTrue(all(not thread.is_alive() for thread in threads))
+        self.assertCountEqual(results, ['a', 'b'])
+        graph = fg.read_foreground(self.slug)
+        self.assertEqual(graph['hidden_retired_children']['boss'], 0)
+        self.assertEqual(float(graph['stamp']['cost']), 3)
+
+    def test_predecessor_cycle_is_finite_and_deleted_link_drops_summary(self):
+        self.add(a={'predecessor': 'b'}, b={'predecessor': 'a'})
+        self.assertEqual(fg.read_exact(self.slug, 'a')['rows']['a']['lineage_count'], 1)
+        self.assertEqual(fg.read_exact(self.slug, 'b')['rows']['b']['lineage_count'], 1)
+        with store._POOL.acquire(self.slug) as conn:
+            conn.execute('BEGIN')
+            conn.execute('DELETE FROM nodes WHERE id=?', ('b',))
+            conn.execute('COMMIT')
+        self.assertEqual(fg.read_exact(self.slug, 'a')['rows']['a']['lineage_count'], 0)
+
+
+@unittest.skipUnless(fixture.ADMIN, 'disposable PG not configured: NOT RUN')
+class ForegroundUpgrade(unittest.TestCase):
+    def test_upgrade_preserves_node_bytes_and_backfills_existing_org(self):
+        import psycopg
+        database = fixture.DBNAME + '_fg_upgrade'
+        url = fixture._with_db(fixture.ADMIN, database)
+        with psycopg.connect(fixture.ADMIN, autocommit=True) as admin:
+            admin.execute(f'CREATE DATABASE {database}')
+        try:
+            with tempfile.TemporaryDirectory() as folder:
+                for path in pgstore.MIGRATIONS_DIR.glob('000[1-3]_*.sql'):
+                    shutil.copyfile(path, Path(folder) / path.name)
+                pgstore.migrate(url, Path(folder))
+            with psycopg.connect(url, autocommit=True) as conn:
+                oid = conn.execute("INSERT INTO public.orgs(slug) VALUES('before') RETURNING org_id").fetchone()[0]
+                schema = conn.execute('SELECT public.orgtree_create_org_schema(%s)', (oid,)).fetchone()[0]
+                raw = '{ "state": "archived", "parent": "", "cost_usd": 12.500, "unknown": [1, 2] }'
+                conn.execute(f'INSERT INTO {schema}.nodes(id,ord,val) VALUES(%s,%s,%s)', ('retired', 9, raw))
+                pgstore.migrate(conn)
+                self.assertEqual(conn.execute(f'SELECT val FROM {schema}.nodes').fetchone()[0], raw)
+                self.assertEqual(conn.execute(f'SELECT node_count,retired_axis_count,cost FROM {schema}.foreground_meta').fetchone(), (1, 1, 12.5))
+                self.assertEqual(conn.execute(f'SELECT parent,retired_children FROM {schema}.foreground_parents').fetchone(), ('', 1))
+                self.assertEqual(pgstore.migrate(conn)['applied'], [])
+        finally:
+            with psycopg.connect(fixture.ADMIN, autocommit=True) as admin:
+                admin.execute(f'DROP DATABASE {database} WITH (FORCE)')
 
 
 if __name__ == '__main__':

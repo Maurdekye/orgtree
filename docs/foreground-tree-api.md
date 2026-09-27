@@ -60,6 +60,64 @@ the explicit include set. An unavailable exact base returns a full foreground
 projection. Archive growth must not enlarge the cached graph or status patches.
 Runtime annotations and public scrubbing retain the current route's rules.
 
+### Wire shapes for the client implementation
+
+The following field names are the version-1 contract. `nodes` is a flat map;
+`children` and `roots` contain IDs, not recursively hydrated objects. A node is
+the current display projection with these explicit additions/changes:
+`parent: string|null`, `axis: "org"|"lineage"`,
+`hidden_retired_children: number`, `lineage_count: number`,
+`lineage_loaded: false`, `consultable_predecessor: {id,generation}|null`.
+It omits the full `lineage` array. Existing archived `detail:false` and
+`detail_rev` keep their meanings. **Live nodes also need lineage hydration:**
+`lineage_loaded:false` is independent of the old archived-detail marker, so a
+client must not let the live/full-node shortcut bypass an explicit lineage open.
+
+```json
+{
+  "format": "orgtree.foreground-tree/v1",
+  "kind": "snapshot", "revision": "opaque-content-token",
+  "catalog_revision": "org-incarnation:catalog-counter",
+  "org_rev": 42, "sync_rev": 19,
+  "header": {"slug":"example", "hidden_retired_roots":2},
+  "roots": ["boss"],
+  "nodes": {
+    "boss": {"id":"boss", "parent":null, "axis":"org",
+             "children":["worker"], "hidden_retired_children":8,
+             "lineage_loaded":false, "lineage_count":3,
+             "consultable_predecessor":{"id":"boss@2","generation":2}}
+  },
+  "missing_requested": []
+}
+```
+
+The example elides current display fields and header fields for readability;
+it is not an allowlist that removes them. The complete header preserves the old
+tree header after bounded dependencies are available. A compatible delta uses
+`kind:"delta"`, `base:<exact token>`, `revision:<new token>`, replacement
+`roots`, `header:{set:{...},unset:[...]}`,
+`nodes:{id:{set:{...},unset:[...]}}`, and `removed:[id,...]`.
+Watermarks and `catalog_revision` are always supplied. An unknown base sends a
+snapshot. Unchanged content is HTTP304 with current watermark headers.
+
+Children/search return `kind:"page"`, `catalog_revision`, `org_rev`, `matches`
+(ordered IDs), `nodes` (matching projected rows plus ancestor rows), and
+`next_cursor` (string or null). Ancestors that are not matches are ghost rows in
+search; they are not false matches. Pages are not implicitly merged into the
+background graph. Search pages have a deterministic ID order; each displayed
+page's matching forest uses the existing hierarchy and local sibling position.
+
+Exact lookup returns `kind:"lookup"`, `requested:<id>`, `found:true|false`,
+`path:[root,...,requested]`, `nodes`, `catalog_revision` and `org_rev`.
+An absent identity returns HTTP200 with `found:false`, empty path/map; a lookup
+in flight is not absence. Off-axis results have `axis:"lineage"` plus their
+stored parent and successor; clients must not insert them as ordinary root
+children. A stale cursor is HTTP409 with
+`{format,kind:"reset",reason:"catalog_changed",catalog_revision}`.
+Malformed cursors/limits are HTTP400. Scope/authorization failures use the
+existing route policy. Invalid ancestor cycles or index corruption are explicit
+errors, never an apparently complete tree with silently missing agents.
+
 ## Indexed storage and boundaries
 
 `foreground_store.py` owns the PostgreSQL node projection, migration 0004 and
