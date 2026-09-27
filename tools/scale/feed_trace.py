@@ -19,6 +19,7 @@ class Trace:
         self.limit = limit
         self.rows = []
         self.dropped = 0
+        self.costs = {}
         self.lock = threading.Lock()
         self.local = threading.local()
 
@@ -26,7 +27,8 @@ class Trace:
         if marker is None:
             return
         row = {"stage": stage, "m": marker, "wall_ns": time.time_ns(),
-               "mono_ns": time.monotonic_ns(), "thread": threading.get_ident()}
+               "mono_ns": time.monotonic_ns(), "thread_cpu_ns": time.thread_time_ns(),
+               "thread": threading.get_ident()}
         if window is not None:
             row['w'] = window
         with self.lock:
@@ -37,7 +39,16 @@ class Trace:
 
     def snapshot(self):
         with self.lock:
-            return {"rows": list(self.rows), "dropped": self.dropped, "limit": self.limit}
+            return {"rows": list(self.rows), "dropped": self.dropped, "limit": self.limit,
+                    "costs": {key: dict(value) for key, value in self.costs.items()},
+                    "process_cpu_ns": time.process_time_ns(), "wall_ns": time.time_ns()}
+
+    def cost(self, name, wall_ns, cpu_ns):
+        with self.lock:
+            row = self.costs.setdefault(name, {'calls': 0, 'wall_ns': 0, 'thread_cpu_ns': 0})
+            row['calls'] += 1
+            row['wall_ns'] += wall_ns
+            row['thread_cpu_ns'] += cpu_ns
 
 
 def marker(text):
@@ -80,6 +91,25 @@ def install(api, supervisor, assistant_messages, reply_events):
     stage(assistant_messages, 'scope_ident', 'scope')
     stage(assistant_messages, 'observe', 'observe')
     stage(reply_events, 'annotate_ident', 'annotate')
+    # CPU attribution without retaining frames or polling threads. Aggregate
+    # all calls as well as the stream subset: the shared snapshot may still
+    # be built by a different reader after a stream avoids waiting for it.
+    store = getattr(reply_events, 'store', None)
+    for name in ('cached_org', 'read_stream_identity'):
+        original = getattr(store, name, None)
+        if original is None:
+            continue
+        def measured(*args, _name=name, _original=original, **kwargs):
+            wall, cpu = time.monotonic_ns(), time.thread_time_ns()
+            in_stream = getattr(trace.local, 'marker', None) is not None
+            try:
+                return _original(*args, **kwargs)
+            finally:
+                elapsed_wall, elapsed_cpu = time.monotonic_ns() - wall, time.thread_time_ns() - cpu
+                trace.cost(_name + ':all', elapsed_wall, elapsed_cpu)
+                if in_stream:
+                    trace.cost(_name + ':stream', elapsed_wall, elapsed_cpu)
+        setattr(store, name, measured)
     send = api.hub._send
 
     async def traced_send(slug, payload):
