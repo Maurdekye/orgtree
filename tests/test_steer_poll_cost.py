@@ -184,6 +184,23 @@ class SteerPollCostTests(unittest.TestCase):
             org.d["killswitch"] = {"at": sup.now_iso(), "by": ledger.USER}
         self._blocked_gets_nothing(kill)
 
+    def test_real_halt_freezes_waiting_mail_and_the_poll_hands_out_none(self):
+        """FREEZE: the real `halt.halt` on a proven-idle seat with mail
+        waiting captures the carrier into the durable halt queue; the poll
+        (fast path or not) hands out nothing and the mail is not lost."""
+        from orgtree import halt
+        self.poll()
+        self.assertTrue(sup._steer_attempts_clear(self.st))
+        self.carrier("frozen mail")
+        token = self.token()
+        self.assertTrue(halt.halt(self.slug, W)["halted"])
+        r = self.poll(token)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["messages"], [], "a halted seat was handed frozen mail")
+        queued = [c.get("text") for c in store.load_org(self.slug).node(W).get("halt_queue") or []]
+        self.assertTrue(any("frozen mail" in str(t) for t in queued),
+                        f"the waiting mail was not frozen durably: {queued}")
+
     def test_stale_generation_is_refused_after_the_save(self):
         old = self.token()
         self.assertEqual(self.poll(old).status_code, 200)   # warms the shared snapshot
