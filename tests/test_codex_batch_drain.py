@@ -178,10 +178,12 @@ class CodexBatchDrainTests(unittest.TestCase):
             self.st["limit_probe_key"] = "fixture"
         sup._run_turn(self.slug, "worker", first)
         texts = self.adapter.texts
-        self.assertEqual(len(texts), 2, "pointers | probe carrier (+ what follows it)")
+        # a non-plain carrier absorbs nothing itself, so p4 follows alone
+        self.assertEqual(len(texts), 3, "pointers | probe carrier | next pointer")
         self.assertTrue(all(b in texts[0] for b in bodies[:2]))
         self.assertNotIn(bodies[2], texts[0], "the probe carrier's mail must not ride an earlier turn")
         self.assertIn(bodies[2], texts[1])
+        self.assertIn(bodies[3], texts[2])
         self.assertIsNone(self.st.get("limit_probe_token"), "the probe claim must be released")
         self.assert_all_delivered_once(bodies)
 
@@ -199,10 +201,11 @@ class CodexBatchDrainTests(unittest.TestCase):
         store.save_org(org)
         sup._run_turn(self.slug, "worker", first)
         texts = self.adapter.texts
-        self.assertEqual(len(texts), 2, "own pointer | restored carrier (+ what follows it)")
+        self.assertEqual(len(texts), 3, "own pointer | restored carrier | next pointer")
         self.assertIn(bodies[0], texts[0])
         self.assertNotIn(bodies[1], texts[0], "the restored carrier's mail must not ride an earlier turn")
         self.assertIn(bodies[1], texts[1])
+        self.assertIn(bodies[2], texts[2])
         self.assertFalse(orgtx.org_read(self.slug).node("worker").get("halt_queue"),
                          "the restored carrier's durable halt_queue row must be spent")
         self.assert_all_delivered_once(bodies)
