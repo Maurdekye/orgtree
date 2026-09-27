@@ -34,6 +34,7 @@ class Statistics(fixture.Base):
     def setUp(self):
         super().setUp()
         self.raw = pgstore.connect(self.url)
+        self.raw.add_notice_handler(lambda diagnostic: print(diagnostic.message_primary, flush=True))
         self.addCleanup(self.raw.close)
         self.slug = 'stats-' + uuid.uuid4().hex
         self.oid = self.raw.execute('INSERT INTO public.orgs(slug) VALUES(%s) RETURNING org_id', (self.slug,)).fetchone()[0]
