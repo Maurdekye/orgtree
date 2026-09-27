@@ -808,6 +808,8 @@ class Org:
     """
 
     def __init__(self, doc: OrgDoc) -> None:
+        from .readonly_projection import reject_projection
+        reject_projection(doc)
         self.d: OrgDoc = doc
         nodes = dict.get(doc, "nodes")
         construction = getattr(nodes, "construction", contextlib.nullcontext)
@@ -815,90 +817,7 @@ class Org:
             self._initialize_doc(doc)
 
     def _initialize_doc(self, doc: OrgDoc) -> None:
-        # migrate older docs in place: dir grants gain modes; scopes gain tool sets
-        # (pre-schema docs — the loop handles keys NodeDoc no longer declares)
-        #
-        # `_normalized_nodes` is the section-granular snapshot rebuild's seam
-        # (store._assemble_snapshot): those node dicts are the SAME objects a
-        # previous construction already normalized in this process, so
-        # re-deriving their scopes would only spend the milliseconds the
-        # rebuild exists to save. Everything below the loop still runs — the
-        # once-per-document migrations are marker-gated and the rest is cheap.
-        _normalized: set[str] = getattr(doc, "_normalized_nodes", None) or set()
-        for i, (_nid, n) in enumerate(cast("dict[str, dict[str, Any]]",
-                                           self.d.get("nodes", {})).items()):
-            if _nid in _normalized:
-                continue
-            sc = n.setdefault("scope", {})
-            sc["add_dirs"] = norm_dirs(sc.get("add_dirs"))
-            if "tools" not in sc:
-                sc["tools"] = norm_tools({"bash": sc.pop("bash", True), "mcp": []})
-            else:
-                sc["tools"] = norm_tools(sc["tools"])
-            # Cache-aware compaction replaced the editable idle timeout. A
-            # node row that contained only the legacy timeout becomes a clean
-            # inherit; enabled/off and the occupancy threshold survive.
-            _node_acc = sc.get("auto_cheap_compact")
-            if isinstance(_node_acc, dict):
-                _node_acc.pop("idle_s", None)
-                if not _node_acc:
-                    sc.pop("auto_cheap_compact", None)
-            # default leans toward visibility, not opaque invisibility (user ruling)
-            sc.setdefault("org_visibility", "full")
-            sc.setdefault("permission_mode", self.d.get("permission_mode", "acceptEdits"))
-            n.setdefault("ui_order", float(i))
-            # user ruling 2026-07-31: `purpose` is dropped — charter is the one
-            # role statement. Migration folds an old purpose into an empty
-            # charter (dropping it silently would strip live agents' identity)
-            old_purpose = n.pop("purpose", None)
-            if old_purpose and not n.get("charter"):
-                n["charter"] = old_purpose
-            n.setdefault("charter", None)
-            # pre-unification relic: queued texts now persist as mailbox mail
-            n.pop("queued_msgs", None)
-        if self.d.get("fable_limit_policy") in (None, "retire"):
-            self.d["fable_limit_policy"] = "halt"   # 'retire' dropped by user ruling
-        # machine-local account routing (user redesign 2026-08-25): the
-        # per-org account selection is gone — routing is per model tier,
-        # machine-global (accounts.py). Old docs shed the stale key here so
-        # nothing can appear selected while nothing reads it.
-        self.d.pop("account_token_uuid", None)
-        _org_acc = self.d.get("auto_cheap_compact")
-        if isinstance(_org_acc, dict):
-            # Migration is deliberately ignore-and-remove: old idle duration
-            # is not converted into a TTL because only an authoritative
-            # provider/auth receipt may start the new expiry clock.
-            _org_acc.pop("idle_s", None)
-        if self.d.get("fable_filter_policy") not in ("halt", "opus", "auto-autopsy"):
-            self.d["fable_filter_policy"] = "halt"  # content-filter flags (user spec)
-        if "fable_filter_model" not in self.d or self.d.get("fable_filter_model") == "fable":
-            self.d["fable_filter_model"] = "opus"
-        # V1 org-key fields are RETIRED (user redesign 2026-09-12): API keys
-        # are registry ACCOUNTS now, their consent machine-level. No default
-        # is seeded and no heal runs here — the startup cutover
-        # (registry_migration.run_apikey_cutover) is what moves a stored key
-        # into the account registry and pops the org's V1 fields, and it
-        # needs to READ them first, so the load path leaves them untouched.
-        # org-wide agent defaults for hires that don't state them (user hires):
-        # every capability enabled — all switches + all MCP servers + full org
-        # visibility + the org's folders (user ruling)
-        self.d["default_tools"] = norm_tools(
-            self.d.get("default_tools", {"mcp": ["*"]}))
-        if self.d.get("default_visibility") not in VIS_LEVELS:
-            self.d["default_visibility"] = "full"
-        self.d.pop("default_dirs", None)   # superseded: org dirs carry modes now
-        self.d.setdefault("default_top_grant", 50)   # user ruling: 50 by default
-        # §4.6 cost-bubbling toggles (user spec, both ON by default): hires /
-        # allocations may pull shortfalls up the chain; off = the payer must
-        # afford the action from its own free credits
-        self.d.setdefault("cascade_hire", True)
-        self.d.setdefault("cascade_alloc", True)
-        self.d.setdefault("credit_requests", [])     # top-level asks to the user
-        self.d.setdefault("compact_at", 0.80)        # compaction ratio, ≤ 0.95 hard
-        # kiosk v2 (user vision): per-org public exposure via a preauthenticated
-        # secret-URL token; caps live here, not in env vars. None = never a kiosk.
-        self.d.setdefault("kiosk", None)             # {enabled, token, credits,
-                                                     #  spend_limit, storage_limit_mb}
+        self._normalize_display_basics()
         # kiosk permission ceiling (consensus spec §3): pre-ceiling kiosk docs
         # get one MINTED = "what this org already does" — the union of every
         # node's scope ∪ the org's dirs ∪ default_tools. Nothing running is
@@ -998,168 +917,8 @@ class Org:
         self._migrate_extern_multi_holder()
         self._backfill_seat_ids()
 
-        # ☞ NEW TIERS REACH EXISTING ORGS. `Org.create` COPIES the module
-        # tables into the doc (`"tiers": dict(TIERS)`), so every org carries
-        # its own frozen set and adding a tier to the constant does nothing for
-        # any org that already exists — `switch_model` refuses with "unknown
-        # tier 'X'; know [...]" while the constant plainly has it. Found live
-        # 2026-08-04, the first time a tier was added since the per-org copy
-        # was introduced; every test builds fresh orgs, so nothing caught it.
-        # (That tier became a model VERSION instead — see MODEL_VERSIONS — but
-        # the migration is the general fix and stands on its own.)
-        #
-        # ⚠ ADD ONLY, never overwrite. The per-org copy is what lets an org
-        # price its own seats, and a plain `update` would silently reset a
-        # customised table to the shipped defaults on the next load.
-        # cast first: OrgDoc is a TypedDict, so a DYNAMIC key is not
-        # expressible against it (`setdefault` wants a literal).
+        self._normalize_display_models()
         _doc = cast("dict[str, Any]", self.d)
-        for key, table in (("tiers", TIERS), ("models", MODELS)):
-            cur = cast("dict[str, Any]", _doc.setdefault(key, {}))
-            for k, v in table.items():
-                cur.setdefault(k, v)
-        # ☞ …and the DYNAMIC half of the vocabulary (2026-09-02): OpenRouter
-        # favorites are tiers the user mints at runtime (openrouter.py — tier
-        # `or-<model>`, seat by the same §3.1 rule), so they reach every org
-        # through THIS hook, by the same add-only rule and for the same
-        # reason: a favorite added after an org was created must be hireable
-        # in it, and a favorite later DESELECTED must keep its row (a node
-        # hired on it still holds that seat at that price). Deferred import:
-        # openrouter imports store only, but ledger's own import graph stays
-        # minimal (the providers precedent below).
-        from . import openrouter as _orr        # noqa: PLC0415
-        for key, table in (("tiers", _orr.tiers()), ("models", _orr.models())):
-            cur = cast("dict[str, Any]", _doc.setdefault(key, {}))
-            for k, v in table.items():
-                cur.setdefault(k, v)
-        # ☞ a price CHANGE (not an addition) needs its own migration under
-        # the add-only rule: sonnet 3 → 2 (user ruling 2026-08-12, $2/M input
-        # locked in). Only the OLD SHIPPED DEFAULT migrates — any other value
-        # is an operator customisation and stays. Effect on a live org is
-        # strictly loosening: committed drops by 1 per live sonnet seat, so
-        # free rises and no invariant tightens.
-        _t = cast("dict[str, Any]", _doc.get("tiers") or {})
-        if _t.get("sonnet") == 3:
-            _t["sonnet"] = 2
-        # Opus 5.5: user-authorized $4/M input -> four-credit tier (2026-09-22).
-        # Only the old shipped price migrates; custom prices remain. Grants
-        # and bindings are unchanged, while a parent's free allocation rises
-        # by one per live Opus child. Versions still share one tier/seat.
-        if _t.get("opus") == 5:
-            _t["opus"] = 4
-        # User ruling 2026-09-22: one tier price follows the latest version,
-        # including existing 5.6 selections. No version-specific seat ledger.
-        # Migrate only shipped defaults; custom prices, grants and IDs stay.
-        for _tier, _old in (("sol", 5), ("luna", 0.2)):
-            if _t.get(_tier) == _old:
-                _t[_tier] = TIERS[_tier]
-        # ☞ …and the SUB-$1 REPRICING, by the same rule and for the same
-        # reason (user ruling 2026-09-03: "if we are supporting fractional
-        # credts we should reprice agents that are under $1/m"). gpt-reserve
-        # and luna are $0.20/M and used to floor to 1; they now cost 0.2.
-        #
-        # WITHOUT THIS BLOCK THE REPRICING REACHES NOBODY. `Org.create`
-        # snapshots the module table into the doc and the merge above is
-        # `setdefault`, so editing the constant is invisible to every org
-        # that already exists — measured 2026-09-03: all three live docs on
-        # the dev machine carried `gpt-reserve: 1, luna: 1`. That is the same
-        # silent no-op the tier-ADD migration above was written for, in its
-        # price-change costume.
-        #
-        # Only the OLD SHIPPED DEFAULT (1) migrates; any other value is an
-        # operator's own price and stays. Nothing else has to move with it:
-        # a node records `model` and `grant`, NEVER a seat (`seat_cost` reads
-        # this very table on every call), so `committed`/`free` re-derive from
-        # the new number the moment it lands — there is no stored holding to
-        # backfill and no credit quantity is rewritten here.
-        for _cheap in ("gpt-reserve", "luna"):
-            if _t.get(_cheap) == 1:
-                _t[_cheap] = TIERS[_cheap]
-        # ☞ …and the SAME REPRICING FOR THE DYNAMIC HALF (user ask 2026-09-04,
-        # verbatim: "i was suggesting they be changed to accommodate the new
-        # sub-1 credit cost scheme that luna (and reserve) abide by"). An
-        # `or-*` favorite adopted before the ruling snapshotted `max(1,
-        # floor(p))`, so every OpenRouter model under $1/M was frozen at 1 —
-        # measured 2026-09-04 across all three live documents: deepseek-v4-
-        # flash-latest ($0.05/M) and glm-5.3-flash ($0.075/M) both sat at 1,
-        # while grok-4.6 ($2/M) at 2 and kimi-k3 ($3/M) at 3 were already
-        # right. That is the same silent no-op yet again, now in its
-        # OpenRouter costume.
-        #
-        # ⚠ THIS BLOCK IS GENERAL AND THE ONE ABOVE IS NOT, deliberately. The
-        # hard-coded `("gpt-reserve", "luna")` pair is exactly why the `or-*`
-        # rows were missed: a repricing rule that must be edited every time a
-        # tier is added is a rule that will be forgotten every time a tier is
-        # added. `stale_seats` is handed this document's OWN tier and model
-        # tables and re-derives each row from its model's price, so a favorite
-        # minted tomorrow needs no new code here. It cannot be written that
-        # way for the static half — those tiers have no price in the document
-        # to re-derive from, only a name.
-        #
-        # It stays a DROP, so the budget half is safe for the same reason the
-        # block above is (committed falls, free rises). The ORDERING half is
-        # not automatic — see the ⚠ in `_check_tier_ceiling`: an `or-*` tier
-        # leaving 1 stops tying with haiku and flash. Verified 2026-09-04, as
-        # on 2026-09-03: no live org has a kiosk ceiling set at all.
-        _t.update(_orr.stale_seats(_t, cast("dict[str, str]",
-                                            _doc.get("models") or {})))
-        # ☞ …and a MODEL-ID change needs one for exactly the same reason: the
-        # add-only rule above means `MODELS["fable"] = claude-fable-5-1` reaches
-        # NO org that already exists — `setdefault` finds the key present and
-        # leaves 5.0 there forever, so the new default would ship to nobody and
-        # the only evidence would be an org card still reading "claude-fable-5".
-        # Same discipline as the sonnet price: migrate ONLY the OLD SHIPPED
-        # DEFAULT. Any other string is an operator's own pin (a fixed id in
-        # `models` is how you hold a tier still) and is left alone.
-        # This is a DEFAULT, not a lock: a node that recorded model_version "5"
-        # keeps getting 5.0 through `model_for`, and a machine whose CLI is too
-        # old to know the new id is handed 5.0 anyway by
-        # `supervisor.claude_model_for`. So the migration is safe to apply
-        # before the CLI pin has caught up on any given machine — which it must
-        # be, because the two move on different clocks (the doc migrates the
-        # instant the new code loads; the CLI migrates when a deploy runs).
-        _m = cast("dict[str, Any]", _doc.get("models") or {})
-        if _m.get("fable") == clipin.FABLE_5:
-            _m["fable"] = clipin.FABLE_5_1
-        # Upgrade only the shipped Opus default; custom organization ids and
-        # explicit per-node version pins remain intact. Opus 5.5 is passed
-        # verbatim to the CLI, never silently substituted with Opus 5.
-        if _m.get("opus") == "claude-opus-5":
-            _m["opus"] = MODELS["opus"]
-        # Fold the short-lived GPT-6 tier spelling into Sol/Luna's version
-        # selector. Existing unpinned Sol/Luna nodes advance with the default;
-        # explicitly pinned choices keep their selected version. A former
-        # GPT-6-tier node keeps its exact model.
-        # Custom organization model IDs are never overwritten.
-        for _tier, _six in (("sol", "gpt-6-sol"), ("luna", "gpt-6-luna")):
-            _old = f"gpt-5.6-{_tier}"
-            for _node in self.nodes.values():
-                if _node.get("model") == _six:
-                    _node["model"] = _tier
-                    _node.setdefault("scope", {})["model_version"] = "6"
-            if _m.get(_tier) == _old:
-                _m[_tier] = MODELS[_tier]
-            # The alias is no longer a tier, including in old saved orgs.
-            _m.pop(_six, None)
-            _t.pop(_six, None)
-        # ☞ the flash/pro rows moved with the provider lane (2026-09-02: the
-        # Antigravity CLI replaced the previous Google lane, and the ids its
-        # registry knows are not the ones the old lane pinned). Same rule:
-        # only the OLD SHIPPED DEFAULTS migrate — an operator's own pin stays.
-        # An org left on the old id would fail every flash/pro turn loudly
-        # ("invalid model selection"), so this is what keeps a pre-existing
-        # org's flash agents runnable the moment the new code loads.
-        if _m.get("flash") == "gemini-3.5-flash":
-            _m["flash"] = MODELS["flash"]
-        if _m.get("pro") == "gemini-3.1-pro-preview-customtools":
-            _m["pro"] = MODELS["pro"]
-        # …and the previous lane's resume marker is dead: no lane can resume
-        # what it recorded, and `session_id` equal to it would otherwise be
-        # taken for a live handle by nothing — dropped so the doc carries no
-        # stale marker (the antigravity leg only ever resumes a conversation
-        # id it harvested ITSELF, under its own marker).
-        for _n in self.nodes.values():
-            _n.pop("gemini_session", None)
         # ☞ …and the GRANTS THEMSELVES, for the same reason every migration
         # above exists: the forward fix in `_chain_acquire` reaches only new
         # cascades, and the operator's own coordinator is sitting on 104.2
@@ -1324,6 +1083,258 @@ class Org:
         # content still decodes and runs this legacy initialization normally.
         if "work_items" not in getattr(self.d, "_deferred_doc", {}):
             reconcile_attention(self.d, initialize_only=True)
+
+    def _normalize_display_basics(self) -> None:
+        """Pure selected-node/small-settings normalization shared with read views."""
+        # migrate older docs in place: dir grants gain modes; scopes gain tool sets
+        # (pre-schema docs — the loop handles keys NodeDoc no longer declares)
+        #
+        # `_normalized_nodes` is the section-granular snapshot rebuild's seam
+        # (store._assemble_snapshot): those node dicts are the SAME objects a
+        # previous construction already normalized in this process, so
+        # re-deriving their scopes would only spend the milliseconds the
+        # rebuild exists to save. Everything below the loop still runs — the
+        # once-per-document migrations are marker-gated and the rest is cheap.
+        _normalized: set[str] = getattr(self.d, "_normalized_nodes", None) or set()
+        for i, (_nid, n) in enumerate(cast("dict[str, dict[str, Any]]",
+                                           self.d.get("nodes", {})).items()):
+            if _nid in _normalized:
+                continue
+            sc = n.setdefault("scope", {})
+            sc["add_dirs"] = norm_dirs(sc.get("add_dirs"))
+            if "tools" not in sc:
+                sc["tools"] = norm_tools({"bash": sc.pop("bash", True), "mcp": []})
+            else:
+                sc["tools"] = norm_tools(sc["tools"])
+            # Cache-aware compaction replaced the editable idle timeout. A
+            # node row that contained only the legacy timeout becomes a clean
+            # inherit; enabled/off and the occupancy threshold survive.
+            _node_acc = sc.get("auto_cheap_compact")
+            if isinstance(_node_acc, dict):
+                _node_acc.pop("idle_s", None)
+                if not _node_acc:
+                    sc.pop("auto_cheap_compact", None)
+            # default leans toward visibility, not opaque invisibility (user ruling)
+            sc.setdefault("org_visibility", "full")
+            sc.setdefault("permission_mode", self.d.get("permission_mode", "acceptEdits"))
+            n.setdefault("ui_order", float(i))
+            # user ruling 2026-07-31: `purpose` is dropped — charter is the one
+            # role statement. Migration folds an old purpose into an empty
+            # charter (dropping it silently would strip live agents' identity)
+            old_purpose = n.pop("purpose", None)
+            if old_purpose and not n.get("charter"):
+                n["charter"] = old_purpose
+            n.setdefault("charter", None)
+            # pre-unification relic: queued texts now persist as mailbox mail
+            n.pop("queued_msgs", None)
+        if self.d.get("fable_limit_policy") in (None, "retire"):
+            self.d["fable_limit_policy"] = "halt"   # 'retire' dropped by user ruling
+        # machine-local account routing (user redesign 2026-08-25): the
+        # per-org account selection is gone — routing is per model tier,
+        # machine-global (accounts.py). Old docs shed the stale key here so
+        # nothing can appear selected while nothing reads it.
+        self.d.pop("account_token_uuid", None)
+        _org_acc = self.d.get("auto_cheap_compact")
+        if isinstance(_org_acc, dict):
+            # Migration is deliberately ignore-and-remove: old idle duration
+            # is not converted into a TTL because only an authoritative
+            # provider/auth receipt may start the new expiry clock.
+            _org_acc.pop("idle_s", None)
+        if self.d.get("fable_filter_policy") not in ("halt", "opus", "auto-autopsy"):
+            self.d["fable_filter_policy"] = "halt"  # content-filter flags (user spec)
+        if "fable_filter_model" not in self.d or self.d.get("fable_filter_model") == "fable":
+            self.d["fable_filter_model"] = "opus"
+        # V1 org-key fields are RETIRED (user redesign 2026-09-12): API keys
+        # are registry ACCOUNTS now, their consent machine-level. No default
+        # is seeded and no heal runs here — the startup cutover
+        # (registry_migration.run_apikey_cutover) is what moves a stored key
+        # into the account registry and pops the org's V1 fields, and it
+        # needs to READ them first, so the load path leaves them untouched.
+        # org-wide agent defaults for hires that don't state them (user hires):
+        # every capability enabled — all switches + all MCP servers + full org
+        # visibility + the org's folders (user ruling)
+        self.d["default_tools"] = norm_tools(
+            self.d.get("default_tools", {"mcp": ["*"]}))
+        if self.d.get("default_visibility") not in VIS_LEVELS:
+            self.d["default_visibility"] = "full"
+        self.d.pop("default_dirs", None)   # superseded: org dirs carry modes now
+        self.d.setdefault("default_top_grant", 50)   # user ruling: 50 by default
+        # §4.6 cost-bubbling toggles (user spec, both ON by default): hires /
+        # allocations may pull shortfalls up the chain; off = the payer must
+        # afford the action from its own free credits
+        self.d.setdefault("cascade_hire", True)
+        self.d.setdefault("cascade_alloc", True)
+        self.d.setdefault("credit_requests", [])     # top-level asks to the user
+        self.d.setdefault("compact_at", 0.80)        # compaction ratio, ≤ 0.95 hard
+        # kiosk v2 (user vision): per-org public exposure via a preauthenticated
+        # secret-URL token; caps live here, not in env vars. None = never a kiosk.
+        self.d.setdefault("kiosk", None)             # {enabled, token, credits,
+                                                     #  spend_limit, storage_limit_mb}
+
+    def _normalize_display_models(self) -> None:
+        """Additive model vocabulary and local node aliases; no history reads."""
+        # ☞ NEW TIERS REACH EXISTING ORGS. `Org.create` COPIES the module
+        # tables into the doc (`"tiers": dict(TIERS)`), so every org carries
+        # its own frozen set and adding a tier to the constant does nothing for
+        # any org that already exists — `switch_model` refuses with "unknown
+        # tier 'X'; know [...]" while the constant plainly has it. Found live
+        # 2026-08-04, the first time a tier was added since the per-org copy
+        # was introduced; every test builds fresh orgs, so nothing caught it.
+        # (That tier became a model VERSION instead — see MODEL_VERSIONS — but
+        # the migration is the general fix and stands on its own.)
+        #
+        # ⚠ ADD ONLY, never overwrite. The per-org copy is what lets an org
+        # price its own seats, and a plain `update` would silently reset a
+        # customised table to the shipped defaults on the next load.
+        # cast first: OrgDoc is a TypedDict, so a DYNAMIC key is not
+        # expressible against it (`setdefault` wants a literal).
+        _doc = cast("dict[str, Any]", self.d)
+        for key, table in (("tiers", TIERS), ("models", MODELS)):
+            cur = cast("dict[str, Any]", _doc.setdefault(key, {}))
+            for k, v in table.items():
+                cur.setdefault(k, v)
+        # ☞ …and the DYNAMIC half of the vocabulary (2026-09-02): OpenRouter
+        # favorites are tiers the user mints at runtime (openrouter.py — tier
+        # `or-<model>`, seat by the same §3.1 rule), so they reach every org
+        # through THIS hook, by the same add-only rule and for the same
+        # reason: a favorite added after an org was created must be hireable
+        # in it, and a favorite later DESELECTED must keep its row (a node
+        # hired on it still holds that seat at that price). Deferred import:
+        # openrouter imports store only, but ledger's own import graph stays
+        # minimal (the providers precedent below).
+        from . import openrouter as _orr        # noqa: PLC0415
+        for key, table in (("tiers", _orr.tiers()), ("models", _orr.models())):
+            cur = cast("dict[str, Any]", _doc.setdefault(key, {}))
+            for k, v in table.items():
+                cur.setdefault(k, v)
+        # ☞ a price CHANGE (not an addition) needs its own migration under
+        # the add-only rule: sonnet 3 → 2 (user ruling 2026-08-12, $2/M input
+        # locked in). Only the OLD SHIPPED DEFAULT migrates — any other value
+        # is an operator customisation and stays. Effect on a live org is
+        # strictly loosening: committed drops by 1 per live sonnet seat, so
+        # free rises and no invariant tightens.
+        _t = cast("dict[str, Any]", _doc.get("tiers") or {})
+        if _t.get("sonnet") == 3:
+            _t["sonnet"] = 2
+        # Opus 5.5: user-authorized $4/M input -> four-credit tier (2026-09-22).
+        # Only the old shipped price migrates; custom prices remain. Grants
+        # and bindings are unchanged, while a parent's free allocation rises
+        # by one per live Opus child. Versions still share one tier/seat.
+        if _t.get("opus") == 5:
+            _t["opus"] = 4
+        # User ruling 2026-09-22: one tier price follows the latest version,
+        # including existing 5.6 selections. No version-specific seat ledger.
+        # Migrate only shipped defaults; custom prices, grants and IDs stay.
+        for _tier, _old in (("sol", 5), ("luna", 0.2)):
+            if _t.get(_tier) == _old:
+                _t[_tier] = TIERS[_tier]
+        # ☞ …and the SUB-$1 REPRICING, by the same rule and for the same
+        # reason (user ruling 2026-09-03: "if we are supporting fractional
+        # credts we should reprice agents that are under $1/m"). gpt-reserve
+        # and luna are $0.20/M and used to floor to 1; they now cost 0.2.
+        #
+        # WITHOUT THIS BLOCK THE REPRICING REACHES NOBODY. `Org.create`
+        # snapshots the module table into the doc and the merge above is
+        # `setdefault`, so editing the constant is invisible to every org
+        # that already exists — measured 2026-09-03: all three live docs on
+        # the dev machine carried `gpt-reserve: 1, luna: 1`. That is the same
+        # silent no-op the tier-ADD migration above was written for, in its
+        # price-change costume.
+        #
+        # Only the OLD SHIPPED DEFAULT (1) migrates; any other value is an
+        # operator's own price and stays. Nothing else has to move with it:
+        # a node records `model` and `grant`, NEVER a seat (`seat_cost` reads
+        # this very table on every call), so `committed`/`free` re-derive from
+        # the new number the moment it lands — there is no stored holding to
+        # backfill and no credit quantity is rewritten here.
+        for _cheap in ("gpt-reserve", "luna"):
+            if _t.get(_cheap) == 1:
+                _t[_cheap] = TIERS[_cheap]
+        # ☞ …and the SAME REPRICING FOR THE DYNAMIC HALF (user ask 2026-09-04,
+        # verbatim: "i was suggesting they be changed to accommodate the new
+        # sub-1 credit cost scheme that luna (and reserve) abide by"). An
+        # `or-*` favorite adopted before the ruling snapshotted `max(1,
+        # floor(p))`, so every OpenRouter model under $1/M was frozen at 1 —
+        # measured 2026-09-04 across all three live documents: deepseek-v4-
+        # flash-latest ($0.05/M) and glm-5.3-flash ($0.075/M) both sat at 1,
+        # while grok-4.6 ($2/M) at 2 and kimi-k3 ($3/M) at 3 were already
+        # right. That is the same silent no-op yet again, now in its
+        # OpenRouter costume.
+        #
+        # ⚠ THIS BLOCK IS GENERAL AND THE ONE ABOVE IS NOT, deliberately. The
+        # hard-coded `("gpt-reserve", "luna")` pair is exactly why the `or-*`
+        # rows were missed: a repricing rule that must be edited every time a
+        # tier is added is a rule that will be forgotten every time a tier is
+        # added. `stale_seats` is handed this document's OWN tier and model
+        # tables and re-derives each row from its model's price, so a favorite
+        # minted tomorrow needs no new code here. It cannot be written that
+        # way for the static half — those tiers have no price in the document
+        # to re-derive from, only a name.
+        #
+        # It stays a DROP, so the budget half is safe for the same reason the
+        # block above is (committed falls, free rises). The ORDERING half is
+        # not automatic — see the ⚠ in `_check_tier_ceiling`: an `or-*` tier
+        # leaving 1 stops tying with haiku and flash. Verified 2026-09-04, as
+        # on 2026-09-03: no live org has a kiosk ceiling set at all.
+        _t.update(_orr.stale_seats(_t, cast("dict[str, str]",
+                                            _doc.get("models") or {})))
+        # ☞ …and a MODEL-ID change needs one for exactly the same reason: the
+        # add-only rule above means `MODELS["fable"] = claude-fable-5-1` reaches
+        # NO org that already exists — `setdefault` finds the key present and
+        # leaves 5.0 there forever, so the new default would ship to nobody and
+        # the only evidence would be an org card still reading "claude-fable-5".
+        # Same discipline as the sonnet price: migrate ONLY the OLD SHIPPED
+        # DEFAULT. Any other string is an operator's own pin (a fixed id in
+        # `models` is how you hold a tier still) and is left alone.
+        # This is a DEFAULT, not a lock: a node that recorded model_version "5"
+        # keeps getting 5.0 through `model_for`, and a machine whose CLI is too
+        # old to know the new id is handed 5.0 anyway by
+        # `supervisor.claude_model_for`. So the migration is safe to apply
+        # before the CLI pin has caught up on any given machine — which it must
+        # be, because the two move on different clocks (the doc migrates the
+        # instant the new code loads; the CLI migrates when a deploy runs).
+        _m = cast("dict[str, Any]", _doc.get("models") or {})
+        if _m.get("fable") == clipin.FABLE_5:
+            _m["fable"] = clipin.FABLE_5_1
+        # Upgrade only the shipped Opus default; custom organization ids and
+        # explicit per-node version pins remain intact. Opus 5.5 is passed
+        # verbatim to the CLI, never silently substituted with Opus 5.
+        if _m.get("opus") == "claude-opus-5":
+            _m["opus"] = MODELS["opus"]
+        # Fold the short-lived GPT-6 tier spelling into Sol/Luna's version
+        # selector. Existing unpinned Sol/Luna nodes advance with the default;
+        # explicitly pinned choices keep their selected version. A former
+        # GPT-6-tier node keeps its exact model.
+        # Custom organization model IDs are never overwritten.
+        for _tier, _six in (("sol", "gpt-6-sol"), ("luna", "gpt-6-luna")):
+            _old = f"gpt-5.6-{_tier}"
+            for _node in self.nodes.values():
+                if _node.get("model") == _six:
+                    _node["model"] = _tier
+                    _node.setdefault("scope", {})["model_version"] = "6"
+            if _m.get(_tier) == _old:
+                _m[_tier] = MODELS[_tier]
+            # The alias is no longer a tier, including in old saved orgs.
+            _m.pop(_six, None)
+            _t.pop(_six, None)
+        # ☞ the flash/pro rows moved with the provider lane (2026-09-02: the
+        # Antigravity CLI replaced the previous Google lane, and the ids its
+        # registry knows are not the ones the old lane pinned). Same rule:
+        # only the OLD SHIPPED DEFAULTS migrate — an operator's own pin stays.
+        # An org left on the old id would fail every flash/pro turn loudly
+        # ("invalid model selection"), so this is what keeps a pre-existing
+        # org's flash agents runnable the moment the new code loads.
+        if _m.get("flash") == "gemini-3.5-flash":
+            _m["flash"] = MODELS["flash"]
+        if _m.get("pro") == "gemini-3.1-pro-preview-customtools":
+            _m["pro"] = MODELS["pro"]
+        # …and the previous lane's resume marker is dead: no lane can resume
+        # what it recorded, and `session_id` equal to it would otherwise be
+        # taken for a live handle by nothing — dropped so the doc carries no
+        # stale marker (the antigravity leg only ever resumes a conversation
+        # id it harvested ITSELF, under its own marker).
+        for _n in self.nodes.values():
+            _n.pop("gemini_session", None)
 
     # ---------------------------------------------------------------- factory
     @staticmethod

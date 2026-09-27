@@ -3890,6 +3890,8 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
 
     Returns (snap_doc, snap_nodes, snap_logs, key_order) describing the
     database as it is after the commit, for the LazyDoc to adopt."""
+    from .readonly_projection import reject_projection
+    reject_projection(d)
     snap_doc = lazy._snap_doc if lazy is not None else None
     snap_nodes = lazy._snap_nodes if lazy is not None else None
     # storage view: for a LazyDoc, the raw dict contents (no materialisation —
@@ -4176,6 +4178,8 @@ def _verify_scoped_save(d: dict[str, Any], lazy: LazyDoc) -> None:
 
 
 def _save_sqlite(org: Org) -> None:
+    from .readonly_projection import reject_projection
+    reject_projection(org)
     slug = _safe_slug(org.d["slug"])
     d = cast("dict[str, Any]", org.d)
     lazy = d if isinstance(d, LazyDoc) and d._slug == slug else None
@@ -6645,6 +6649,8 @@ def cached_list() -> list[dict[str, Any]]:
 
 
 def _save_json(org: Org) -> None:
+    from .readonly_projection import reject_projection
+    reject_projection(org)
     p = _json_path(org.d["slug"])
     # serialise BEFORE creating the temp file: a doc carrying a
     # non-serialisable value used to raise halfway through json.dump and
@@ -6688,11 +6694,15 @@ def save_org(org: Org) -> None:
     `BEGIN IMMEDIATE` transaction writing only what changed (§4.5). Either
     way the save IS the change: `REVISION`, `on_save` and `save_hooks` fire
     exactly as they always have."""
+    from .readonly_projection import reject_projection
+    reject_projection(org)
     with profiling.stage("org_save_ms"):
         _save_org(org)
 
 
 def _save_org(org: Org) -> None:
+    from .readonly_projection import reject_projection
+    reject_projection(org)
     _assert_synced_data_root()
     if (_TRIPWIRE.mode != "off" and not getattr(_orgtx_local, "rowlock_depth", 0)
             and org.d.get("slug") not in (getattr(_orgtx_local, "exclusive_slugs", None) or ())):
