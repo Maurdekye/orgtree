@@ -5605,6 +5605,30 @@ def write_org(slug: str) -> Generator[Org]:
         yield load_org(slug)
 
 
+#: (E) (pg-per-call-cost, DEFAULT OFF until reviewed): after an org_tx's
+#: heal check has proved every touched row still equals its baseline, clear
+#: the touched marks, so the commit's scoped save re-serializes only what the
+#: body touches afterwards. Org construction walks every node through the
+#: read barrier (NodesMap._touched_all), which made each org_tx dump every node
+#: twice: once in the heal check and once in the save (measured: 614 dumps for
+#: a one-node write on a 300-node org). SAFE ONLY IF nothing holds a node or
+#: section object from before the reset and mutates it later without passing
+#: the barrier; ORGTREE_SCOPED_SAVE_VERIFY=1 is the check for that.
+ORGTX_RESCOPE = os.environ.get("ORGTREE_ORGTX_RESCOPE", "").strip() == "1"
+
+
+def _rescope_clean(d: Any) -> None:
+    """Clear `d`'s touched marks; call ONLY right after `_resident_dirty(d)`
+    returned [] (every touched value equals its adopted baseline)."""
+    if not isinstance(d, LazyDoc):
+        return
+    d._touched.clear()
+    nodes = dict.get(d, "nodes")
+    if isinstance(nodes, NodesMap):
+        nodes._touched_all = False
+        nodes._touched.clear()
+
+
 def _resident_dirty(d: LazyDoc) -> list[str]:
     """Touched entries whose serialization no longer matches the adopted
     baseline — i.e. mutations that were never saved. Cost is proportional
