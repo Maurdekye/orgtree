@@ -55,7 +55,7 @@ class ForegroundContext:
     _read_only_projection = True
     # Only composed display/query methods, never mutation or persistence methods.
     _READ_METHODS = frozenset(('node', 'parent', 'ancestors', 'is_ancestor',
-        'children_index', 'effective_effort', 'node_ask', '_scope_item_label', '_tomb_expired',
+        'children_index', 'model_for', 'versions_for', 'harness_for', 'prefer_reserve_for', 'effective_effort', 'node_ask', '_scope_item_label', '_tomb_expired',
         'seat_cost', 'free', 'is_kiosk', 'multi_holder_enabled', '_boot_at', 'account_fallback_for'))
 
     def __init__(self, *, settings, graph, funding, windows, inbox, work_counts):
@@ -158,28 +158,33 @@ class ForegroundContext:
 def build(raw, slug: str, graph: dict, *, header: bool = True,
           viewer: str = USER, now_ts: float | None = None) -> ForegroundContext:
     """Consume the graph's still-open committed snapshot; never open another."""
-    from . import foreground_store
+    from . import foreground_store, store
     check = raw.execute("SELECT current_setting('transaction_isolation'), "
                         "current_setting('transaction_read_only'), revision FROM public.orgs "
                         "WHERE org_id=%s", (graph['stamp']['org_id'],)).fetchone()
     if check != ('repeatable read', 'on', graph['stamp']['org_revision']):
         raise CompatibilityRequired('graph/context must share one committed read-only snapshot')
+    ids = list(graph['rows'])
+    owner_sections = ('mail', 'delivering')
+    keys = list(SETTINGS + CURRENT_LISTS + owner_sections)
+    keys += [sect + store.SPLIT_SEP + nid for sect in owner_sections for nid in ids]
     blobs = {key: json.loads(val) for key, val in raw.execute(
-        'SELECT key,val FROM doc WHERE key=ANY(%s)', (list(SETTINGS + CURRENT_LISTS + ('mail',)),)).fetchall()}
+        'SELECT key,val FROM doc WHERE key=ANY(%s)', (keys,)).fetchall()}
     if blobs.get('slug') != slug:
         raise CompatibilityRequired('organization identity changed')
     for sect in CURRENT_LISTS:
         if sect not in blobs:
             blobs[sect] = [json.loads(row[0]) for row in raw.execute(
                 'SELECT val FROM log_l WHERE sect=%s ORDER BY seq', (sect,)).fetchall()]
-    ids = list(graph['rows'])
-    if 'mail' not in blobs:
-        blobs['mail'] = {}
-        for owner, val in raw.execute(
-                "SELECT owner,val FROM log_d WHERE sect='mail' AND owner=ANY(%s) ORDER BY seq", (ids,)).fetchall():
-            blobs['mail'].setdefault(owner, []).append(json.loads(val))
-    else:
-        blobs['mail'] = {nid: rows for nid, rows in blobs['mail'].items() if nid in graph['rows']}
+    for sect in owner_sections:
+        legacy = blobs.get(sect) or {}
+        selected = {}
+        for nid in ids:
+            key = sect + store.SPLIT_SEP + nid
+            rows = blobs.pop(key, legacy.get(nid, []))
+            if rows:
+                selected[nid] = rows
+        blobs[sect] = selected
     try:
         from . import workread
     except ImportError as exc:
