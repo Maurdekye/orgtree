@@ -116,8 +116,8 @@ class ForegroundWindows(unittest.TestCase):
             self.assertEqual(len(scans), 1, plan)
             scan = scans[0]
             self.assertIn(scan['Node Type'], ('Index Scan', 'Index Only Scan'), plan)
-            expected = 'foreground_asks_resolved' if index == 0 else 'foreground_asks_resolved_visible'
-            self.assertEqual(scan['Index Name'], expected, plan)
+            # PostgreSQL may use the primary key backwards when that is just
+            # as bounded. Assert the work, not the planner's index preference.
             self.assertLessEqual(scan['Actual Rows'], ledger.ASK_HISTORY_KEEP, plan)
             self.assertEqual(scan.get('Rows Removed by Filter', 0), 0, plan)
         self.assertTrue(all(row['status'] != 'withdrawn' for row in result['asks']['credit_requests']))
