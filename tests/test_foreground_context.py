@@ -208,4 +208,19 @@ class ContextTests(unittest.TestCase):
             self.assertEqual(actual,expected)
             self.assertTrue(actual['components']['system'])
 
+    def test_modern_forecast_missing_separate_predecessor_falls_back(self):
+        org,args=fixture(('parent','a'))
+        row=args['graph']['rows']['a']['node']
+        row['cache_continuity']={'public':{},'forecast':{}}
+        row['predecessor']='hidden-bearer@0'
+        with self.assertRaisesRegex(CompatibilityRequired,'omitted predecessor'):
+            ForegroundContext(**args)
+        row['predecessor']='a@0'  # own folder never needs the archived row
+        ForegroundContext(**args)
+        row['predecessor']='parent'  # present separate bearer is exact
+        ForegroundContext(**args)
+        row['predecessor']='hidden-bearer@0'
+        row['cache_continuity']={'public':{}}  # persisted legacy badge, no preview
+        ForegroundContext(**args)
+
 if __name__=='__main__':unittest.main()

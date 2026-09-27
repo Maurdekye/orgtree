@@ -47,6 +47,15 @@ def _compatible(settings, nodes):
     if lock and not lock.get('no_reset') and (
             not lock.get('until_ts') or time.time() >= float(lock['until_ts'])):
         raise CompatibilityRequired('expired fable lock requires whole-org normalization')
+    for nid, row in nodes.items():
+        book = row.get('cache_continuity') or {}
+        pred = row.get('predecessor')
+        if (isinstance(book, dict) and isinstance(book.get('public'), dict)
+                and isinstance(book.get('forecast'), dict) and pred
+                and pred not in nodes and pred.split('@')[0] != nid.split('@')[0]):
+            # _build_cmd grants a separate predecessor's scratch only when its
+            # row exists. A subset cannot decide that membership for a preview.
+            raise CompatibilityRequired('cache forecast needs omitted predecessor identity')
     if any(not row.get('seat_id') for row in nodes.values()):
         raise CompatibilityRequired('legacy seat identity requires whole lineage')
 
