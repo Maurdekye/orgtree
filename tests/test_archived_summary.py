@@ -23,6 +23,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 _root = tempfile.TemporaryDirectory(prefix='v2-archived-summary-')
@@ -103,6 +104,15 @@ class ArchivedSummaryTests(unittest.TestCase):
         return out
 
     # -- the contract -----------------------------------------------------
+    def test_single_node_projection_does_not_walk_descendants_or_lineage(self):
+        org = store.load_org(self.slug)
+        index = org.children_index()
+        full = org.tree()['roots'][0]
+        with patch.object(org, 'org_children', side_effect=AssertionError('descendant traversal')):
+            with patch.object(org, 'lineage_stack', side_effect=AssertionError('lineage traversal')):
+                single = org.tree_node('boss', children_index=index, descend=False, lineage=False)
+        self.assertEqual(single, {**full, 'children': [], 'lineage': []})
+
     def test_summary_plus_detail_is_the_whole_node(self):
         ns = self.nodes(self.tree())
         live, arch = ns['boss'], ns['gone']

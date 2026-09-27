@@ -11511,6 +11511,196 @@ class Org:
         }
 
     # ------------------------------------------------------------------- view
+    def tree_node(self, nid: str, *, children_index: dict | None = None,
+                  descend: bool = True, lineage: bool = True) -> dict[str, Any]:
+        """The shared display projection; bounded readers select its children separately."""
+        if children_index is None:
+            children_index = self.children_index()
+        n = self.nodes[nid]
+        _cc = n.get("cache_continuity")
+        _cc_public = (_cc.get("public") if isinstance(_cc, dict) else None)
+        return {
+            "id": nid,
+            "title": n["title"],
+            "tier": n["model"],
+            "model_id": self.d["models"].get(n["model"], n["model"]),
+            # multi-account: the node's bound account id (or the
+            # missing:<provider> park sentinel) — the UI resolves tint
+            # and label from /api/accounts; absent pre-cutover
+            "account": n.get("account"),
+            "state": n["state"],
+            "seat": self.d["tiers"][n["model"]],
+            "grant": n["grant"],
+            "free": None if n["state"] != "live" else self.free(nid, index=children_index),
+            "session_id": n["session_id"],
+            "scope": n["scope"],
+            # what a turn would ACTUALLY launch with — scope.effort is
+            # only half the answer (the org default supplies the rest)
+            "effort_effective": self.effective_effort(nid),
+            "ui_order": n.get("ui_order", 0),
+            "cost_usd": round(float(n.get("cost_usd") or 0.0), 4),
+            "cost_usd_unknown": bool(n.get("cost_usd_unknown")),
+            "occupancy": n.get("occupancy"),
+            # a compaction fills this in before anything has measured the
+            # new session — the card says so rather than implying precision
+            "occupancy_est": bool(n.get("occupancy_est")),
+            # …and this one is why the compact button is not offered: the
+            # session holds only its summary until the next turn
+            "compacted_unrun": bool(n.get("compacted_unrun")),
+            "context_window": n.get("context_window"),
+            # Safe atomic forecast only. Private fingerprints, provider
+            # account/session evidence and component hashes never cross
+            # this view boundary.
+            "cache_forecast": (dict(_cc_public)
+                               if isinstance(_cc_public, dict) else None),
+            "charter": n.get("charter"),
+            "team_charter": n.get("team_charter"),
+            "mail_pending": len((self.d.get("mail") or {}).get(nid, [])),
+            "limit_locked": bool(n.get("limit_locked")),
+            "halt": ({k: n["halt"][k] for k in ("phase", "requested_at", "at", "by")
+                      if k in n["halt"]} if n.get("halt") else None),
+            "halt_queued": len(n.get("halt_queue") or []),
+            "last_status": n.get("last_status"),
+            "prev_status": n.get("prev_status"),
+            "inflight_at": (n.get("inflight") or {}).get("at"),
+            # D-234: a switch queued behind the running turn — the card
+            # wears it until the boundary applies (or a cancel clears) it
+            "pending_switch": n.get("pending_switch"),
+            # account rebind queued behind the running turn; applied by
+            # the same boundary finalizer as pending_switch
+            "pending_account": n.get("pending_account"),
+            "last_denials": n.get("last_denials") or [],
+            # codex lane (2026-09-05): approvals the seam answered
+            # "accept". Absent when the lane cannot report it — a `[]`
+            # here would read as "seam ran, approved nothing"
+            **({"last_approvals": n["last_approvals"]}
+               if "last_approvals" in n else {}),
+            "turns": (n.get("turns") or [])[-8:],
+            # the `if n.get("frozen")` guard proves the key present — the
+            # Any view sidesteps pyright's NotRequired-[] access flag
+            "frozen": ({**{k: cast(Any, n)["frozen"].get(k)
+                           for k in ("at", "until", "until_ts",
+                                     # the badge label needs the KIND
+                                     # (a network freeze is not a
+                                     # "usage limit", 2026-08-06);
+                                     # `limit` rides along for D-122 —
+                                     # the banner promises "retrying
+                                     # automatically" only for a PURE
+                                     # connection freeze, and a record
+                                     # carrying both flags waits on the
+                                     # auto_resume toggle
+                                     "connection", "limit",
+                                     # D-241: the API projection needs the
+                                     # freeze-time pool and deadline source
+                                     # to avoid erasing a valid retry when
+                                     # an unmarked fallback is merely
+                                     # eligible. These are non-secret
+                                     # scheduling facts.
+                                     "pool", "schedule_kind", "reset_src",
+                                     # user ruling 2026-09-12: the frozen
+                                     # badge must AGREE WITH THE USAGE
+                                     # MODAL, which prints "(inferred)"
+                                     # beside a mark it did not measure.
+                                     # `cards.tsx` and `desk.tsx` both
+                                     # render this and both were dead —
+                                     # the filter below dropped it, so a
+                                     # ride-along guess wore the same
+                                     # words as a provider-stated time.
+                                     # `account` rides with it because the
+                                     # badge's title names WHOSE lane the
+                                     # wait belongs to — the same registry
+                                     # id already projected on the node
+                                     # itself for the account tint.
+                                     "provenance", "account",
+                                     # review round 5: the deadline this
+                                     # freeze was already PROMISED
+                                     # (`supervisor._committed_wake`). The
+                                     # badge and the wake timer both read
+                                     # it off the record so they cannot
+                                     # disagree once it comes due — which
+                                     # only works if it survives this
+                                     # key-by-key rebuild.
+                                     "wake",
+                                     # D-156: WHY, when the answer is not
+                                     # "capacity ran out". "auth" = the
+                                     # credential was rejected, so the
+                                     # record is a usage-limit freeze in
+                                     # SHAPE only — the count includes it
+                                     # (▶ really will act on it) but the
+                                     # words "usage limit" do not describe
+                                     # it. A reader that cannot see this
+                                     # field cannot help over-claiming.
+                                     # the kiosk SPEND kind. It rode the
+                                     # org-level `spend_frozen` flag alone
+                                     # for a long time, which is why the
+                                     # org banner was right and the NODE
+                                     # BADGE was not: the badge has no
+                                     # org flag to consult, so a
+                                     # spend-frozen agent wore the words
+                                     # "usage limit" (2026-08-26).
+                                     "spend",
+                                     "cause")},
+                        # ⚠⚠ THIS LIST IS A FILTER, AND WHAT IT OMITS IT
+                        # DESTROYS SILENTLY. `frozen` is rebuilt key by
+                        # key, so a kind flag or qualifier added to
+                        # FrozenInfo does NOT reach the client until it is
+                        # named HERE — and the symptom is never a crash or
+                        # a blank. It is a display confidently saying the
+                        # wrong thing, because every reader falls to the
+                        # `else` branch of a test it cannot make.
+                        # It has now cost exactly that twice in one day:
+                        # `cause` (auth freezes labelled "usage limit hit"
+                        # — and `_rederive_freeze_reset` additionally
+                        # OVERWROTE their "replace the credential" text
+                        # with "capacity available", the opposite of the
+                        # fix) and `spend` (the node badge above).
+                        # ⚠ IF YOU ADD A FREEZE KIND, ADD IT HERE IN THE
+                        # SAME COMMIT, and give it a label branch in
+                        # App.tsx's resume-note, desk.tsx's badge and
+                        # cards.tsx's compact badge — all three fall
+                        # through to "usage limit" by default.
+                        # №41: freeze kinds are commutative — surface
+                        # whichever reason(s) exist without overwriting
+                        "error": " · ".join(
+                            x for x in (cast(Any, n)["frozen"].get("error"),
+                                        cast(Any, n)["frozen"].get("spend_error"))
+                            if x) or None}
+                       if n.get("frozen") else None),
+            "audiences_held": [a["grantor"] for a in self.d["audiences"]
+                               if a["grantee"] == nid],
+            # @mcp: response handles STORED on this node before @mcp:
+            # was retired (2026-09-25). Served as stored data only —
+            # nothing honours them any more — and never cleared on load
+            # (no silent data rewrite). ⚠ _scrub_public still drops this
+            # for kiosk visitors: a peer id is an outside channel's name.
+            "external_handles": n.get("external_handles") or [],
+            # F-04/F-05: the ask card this node's desk shows — open, or
+            # freshly nulled (the nulled card carries its reason)
+            "ask": self.node_ask(nid),
+            # FR-01: parked under user remote control (supervisor sets it)
+            "remote_controlled": n.get("remote_controlled") or None,
+            # FR-03: presented documents — METADATA only (the reader
+            # fetches the body on open; bodies are up to 64 KB and would
+            # bloat every tree payload)
+            "documents_count": sum(1 for x in self.d.get("documents", []) if x["node"] == nid),
+            "documents": [{"id": x["id"], "title": x["title"],
+                           "at": x["at"],
+                           "format": x.get("format") or "markdown"}
+                          for x in self.d.get("documents", [])
+                          if x["node"] == nid][-10:] or None,
+            "bearer_state": n["bearer_state"],
+            "generation": n["generation"],
+            "children": ([self.tree_node(c, children_index=children_index, lineage=lineage)
+                          for c in self.org_children(nid, children_index)] if descend else []),
+            "lineage": ([{
+                "id": k,
+                "generation": self.nodes[k].get("generation", 0),
+                "state": self.nodes[k]["state"],
+                "bearer_state": self.nodes[k].get("bearer_state"),
+                "tier": self.nodes[k]["model"],
+            } for k in self.lineage_stack(nid)] if lineage else []),
+        }
+
     def tree(self) -> dict[str, Any]:
         """Derived view for the API/UI: nested nodes with computed fields."""
         # ONE parent partition for the whole walk. `build` recurses over
@@ -11519,189 +11709,7 @@ class Org:
         _kids = self.children_index()
 
         def build(nid: str) -> dict[str, Any]:
-            n = self.nodes[nid]
-            _cc = n.get("cache_continuity")
-            _cc_public = (_cc.get("public") if isinstance(_cc, dict) else None)
-            return {
-                "id": nid,
-                "title": n["title"],
-                "tier": n["model"],
-                "model_id": self.d["models"].get(n["model"], n["model"]),
-                # multi-account: the node's bound account id (or the
-                # missing:<provider> park sentinel) — the UI resolves tint
-                # and label from /api/accounts; absent pre-cutover
-                "account": n.get("account"),
-                "state": n["state"],
-                "seat": self.d["tiers"][n["model"]],
-                "grant": n["grant"],
-                "free": None if n["state"] != "live" else self.free(nid, index=_kids),
-                "session_id": n["session_id"],
-                "scope": n["scope"],
-                # what a turn would ACTUALLY launch with — scope.effort is
-                # only half the answer (the org default supplies the rest)
-                "effort_effective": self.effective_effort(nid),
-                "ui_order": n.get("ui_order", 0),
-                "cost_usd": round(float(n.get("cost_usd") or 0.0), 4),
-                "cost_usd_unknown": bool(n.get("cost_usd_unknown")),
-                "occupancy": n.get("occupancy"),
-                # a compaction fills this in before anything has measured the
-                # new session — the card says so rather than implying precision
-                "occupancy_est": bool(n.get("occupancy_est")),
-                # …and this one is why the compact button is not offered: the
-                # session holds only its summary until the next turn
-                "compacted_unrun": bool(n.get("compacted_unrun")),
-                "context_window": n.get("context_window"),
-                # Safe atomic forecast only. Private fingerprints, provider
-                # account/session evidence and component hashes never cross
-                # this view boundary.
-                "cache_forecast": (dict(_cc_public)
-                                   if isinstance(_cc_public, dict) else None),
-                "charter": n.get("charter"),
-                "team_charter": n.get("team_charter"),
-                "mail_pending": len((self.d.get("mail") or {}).get(nid, [])),
-                "limit_locked": bool(n.get("limit_locked")),
-                "halt": ({k: n["halt"][k] for k in ("phase", "requested_at", "at", "by")
-                          if k in n["halt"]} if n.get("halt") else None),
-                "halt_queued": len(n.get("halt_queue") or []),
-                "last_status": n.get("last_status"),
-                "prev_status": n.get("prev_status"),
-                "inflight_at": (n.get("inflight") or {}).get("at"),
-                # D-234: a switch queued behind the running turn — the card
-                # wears it until the boundary applies (or a cancel clears) it
-                "pending_switch": n.get("pending_switch"),
-                # account rebind queued behind the running turn; applied by
-                # the same boundary finalizer as pending_switch
-                "pending_account": n.get("pending_account"),
-                "last_denials": n.get("last_denials") or [],
-                # codex lane (2026-09-05): approvals the seam answered
-                # "accept". Absent when the lane cannot report it — a `[]`
-                # here would read as "seam ran, approved nothing"
-                **({"last_approvals": n["last_approvals"]}
-                   if "last_approvals" in n else {}),
-                "turns": (n.get("turns") or [])[-8:],
-                # the `if n.get("frozen")` guard proves the key present — the
-                # Any view sidesteps pyright's NotRequired-[] access flag
-                "frozen": ({**{k: cast(Any, n)["frozen"].get(k)
-                               for k in ("at", "until", "until_ts",
-                                         # the badge label needs the KIND
-                                         # (a network freeze is not a
-                                         # "usage limit", 2026-08-06);
-                                         # `limit` rides along for D-122 —
-                                         # the banner promises "retrying
-                                         # automatically" only for a PURE
-                                         # connection freeze, and a record
-                                         # carrying both flags waits on the
-                                         # auto_resume toggle
-                                         "connection", "limit",
-                                         # D-241: the API projection needs the
-                                         # freeze-time pool and deadline source
-                                         # to avoid erasing a valid retry when
-                                         # an unmarked fallback is merely
-                                         # eligible. These are non-secret
-                                         # scheduling facts.
-                                         "pool", "schedule_kind", "reset_src",
-                                         # user ruling 2026-09-12: the frozen
-                                         # badge must AGREE WITH THE USAGE
-                                         # MODAL, which prints "(inferred)"
-                                         # beside a mark it did not measure.
-                                         # `cards.tsx` and `desk.tsx` both
-                                         # render this and both were dead —
-                                         # the filter below dropped it, so a
-                                         # ride-along guess wore the same
-                                         # words as a provider-stated time.
-                                         # `account` rides with it because the
-                                         # badge's title names WHOSE lane the
-                                         # wait belongs to — the same registry
-                                         # id already projected on the node
-                                         # itself for the account tint.
-                                         "provenance", "account",
-                                         # review round 5: the deadline this
-                                         # freeze was already PROMISED
-                                         # (`supervisor._committed_wake`). The
-                                         # badge and the wake timer both read
-                                         # it off the record so they cannot
-                                         # disagree once it comes due — which
-                                         # only works if it survives this
-                                         # key-by-key rebuild.
-                                         "wake",
-                                         # D-156: WHY, when the answer is not
-                                         # "capacity ran out". "auth" = the
-                                         # credential was rejected, so the
-                                         # record is a usage-limit freeze in
-                                         # SHAPE only — the count includes it
-                                         # (▶ really will act on it) but the
-                                         # words "usage limit" do not describe
-                                         # it. A reader that cannot see this
-                                         # field cannot help over-claiming.
-                                         # the kiosk SPEND kind. It rode the
-                                         # org-level `spend_frozen` flag alone
-                                         # for a long time, which is why the
-                                         # org banner was right and the NODE
-                                         # BADGE was not: the badge has no
-                                         # org flag to consult, so a
-                                         # spend-frozen agent wore the words
-                                         # "usage limit" (2026-08-26).
-                                         "spend",
-                                         "cause")},
-                            # ⚠⚠ THIS LIST IS A FILTER, AND WHAT IT OMITS IT
-                            # DESTROYS SILENTLY. `frozen` is rebuilt key by
-                            # key, so a kind flag or qualifier added to
-                            # FrozenInfo does NOT reach the client until it is
-                            # named HERE — and the symptom is never a crash or
-                            # a blank. It is a display confidently saying the
-                            # wrong thing, because every reader falls to the
-                            # `else` branch of a test it cannot make.
-                            # It has now cost exactly that twice in one day:
-                            # `cause` (auth freezes labelled "usage limit hit"
-                            # — and `_rederive_freeze_reset` additionally
-                            # OVERWROTE their "replace the credential" text
-                            # with "capacity available", the opposite of the
-                            # fix) and `spend` (the node badge above).
-                            # ⚠ IF YOU ADD A FREEZE KIND, ADD IT HERE IN THE
-                            # SAME COMMIT, and give it a label branch in
-                            # App.tsx's resume-note, desk.tsx's badge and
-                            # cards.tsx's compact badge — all three fall
-                            # through to "usage limit" by default.
-                            # №41: freeze kinds are commutative — surface
-                            # whichever reason(s) exist without overwriting
-                            "error": " · ".join(
-                                x for x in (cast(Any, n)["frozen"].get("error"),
-                                            cast(Any, n)["frozen"].get("spend_error"))
-                                if x) or None}
-                           if n.get("frozen") else None),
-                "audiences_held": [a["grantor"] for a in self.d["audiences"]
-                                   if a["grantee"] == nid],
-                # @mcp: response handles STORED on this node before @mcp:
-                # was retired (2026-09-25). Served as stored data only —
-                # nothing honours them any more — and never cleared on load
-                # (no silent data rewrite). ⚠ _scrub_public still drops this
-                # for kiosk visitors: a peer id is an outside channel's name.
-                "external_handles": n.get("external_handles") or [],
-                # F-04/F-05: the ask card this node's desk shows — open, or
-                # freshly nulled (the nulled card carries its reason)
-                "ask": self.node_ask(nid),
-                # FR-01: parked under user remote control (supervisor sets it)
-                "remote_controlled": n.get("remote_controlled") or None,
-                # FR-03: presented documents — METADATA only (the reader
-                # fetches the body on open; bodies are up to 64 KB and would
-                # bloat every tree payload)
-                "documents_count": sum(1 for x in self.d.get("documents", []) if x["node"] == nid),
-                "documents": [{"id": x["id"], "title": x["title"],
-                               "at": x["at"],
-                               "format": x.get("format") or "markdown"}
-                              for x in self.d.get("documents", [])
-                              if x["node"] == nid][-10:] or None,
-                "bearer_state": n["bearer_state"],
-                "generation": n["generation"],
-                "children": [build(c) for c in self.org_children(nid, _kids)],
-                "lineage": [{
-                    "id": k,
-                    "generation": self.nodes[k].get("generation", 0),
-                    "state": self.nodes[k]["state"],
-                    "bearer_state": self.nodes[k].get("bearer_state"),
-                    "tier": self.nodes[k]["model"],
-                } for k in self.lineage_stack(nid)],
-            }
+            return self.tree_node(nid, children_index=_kids)
         # F-04 history, capped by what the DESK ACTUALLY RENDERS. The full
         # list was shipped at `[-60:]` and measured 122,692 B on the live org
         # — 15% of an 844 KB payload refetched every 6 s and on every save —

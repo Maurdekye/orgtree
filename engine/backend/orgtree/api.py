@@ -2995,6 +2995,14 @@ def _org_view(slug: str, request: Request,
               f"one-second threshold is crossed; the O(n²) children scan "
               f"is now relevant (see the 2026-08-06 ruling)", flush=True)
 
+    return _annotate_org_view(org, tree, request, detail_node, profile=profile)
+
+
+def _annotate_org_view(org: Org, tree: dict[str, Any], request: Request,
+                       detail_node: str | None = None, *,
+                       profile: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Shared runtime annotations and public scrubbing for tree projections."""
+    slug = org.d["slug"]
     # one roster read per TIER per render, not per frozen node
     _cap_cache: dict[str, dict[str, Any]] = {}
 
