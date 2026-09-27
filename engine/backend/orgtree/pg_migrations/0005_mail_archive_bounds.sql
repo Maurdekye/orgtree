@@ -37,8 +37,9 @@ DECLARE recipient text; old_n bigint; old_bad bigint; old_max numeric; found_for
         delta_n bigint; delta_bad bigint; added numeric; removed numeric; high numeric;
 BEGIN
   -- A mailbox advisory lock also covers the first row, absent from the summary.
-  -- This runs after the source mutation; a waiter recomputes from a fresh SQL
-  -- snapshot after the previous writer commits, never from a pre-wait aggregate.
+  -- Before each source mutation: COPY can expose a whole statement to AFTER
+  -- row triggers, so rebuilding there then adding later rows double-counts.
+  -- A waiter reads again after the previous writer commits.
   FOR recipient IN
     SELECT DISTINCT x FROM unnest(ARRAY[
       CASE WHEN TG_OP <> 'INSERT' AND OLD.sect='mail_log' THEN OLD.owner END,
@@ -51,7 +52,9 @@ BEGIN
       INTO old_n,old_bad,old_max,found_format USING recipient;
     IF old_n IS NULL OR found_format <> 1 THEN
       PERFORM public.orgtree_reconcile_mail_owner(TG_TABLE_SCHEMA,recipient);
-      CONTINUE;
+      EXECUTE format('SELECT nrows,unknown_rows,assigned_max FROM %I.mail_archive_bounds '
+                     'WHERE owner=$1',TG_TABLE_SCHEMA)
+        INTO old_n,old_bad,old_max USING recipient;
     END IF;
     delta_n:=0; delta_bad:=0; added:=0; removed:=0;
     IF TG_OP <> 'INSERT' AND OLD.sect='mail_log' AND OLD.owner=recipient THEN
@@ -65,16 +68,16 @@ BEGIN
     high:=greatest(old_max,added);
     IF removed >= high AND removed > 0 THEN
       EXECUTE format('SELECT public.orgtree_mail_ordinal(val) FROM %I.log_d '
-                     'WHERE sect=''mail_log'' AND owner=$1 '
+                     'WHERE sect=''mail_log'' AND owner=$1 AND seq<>$2 '
                      'ORDER BY public.orgtree_mail_ordinal(val) DESC LIMIT 1',TG_TABLE_SCHEMA)
-        INTO high USING recipient;
-      high:=coalesce(high,0);
+        INTO high USING recipient,OLD.seq;
+      high:=greatest(coalesce(high,0),added);
     END IF;
     EXECUTE format('UPDATE %I.mail_archive_bounds SET nrows=nrows+$2,unknown_rows=unknown_rows+$3,'
                    'assigned_max=$4,version=version+1 WHERE owner=$1',TG_TABLE_SCHEMA)
       USING recipient,delta_n,delta_bad,high;
   END LOOP;
-  RETURN NULL;
+  IF TG_OP='DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
 END
 $fn$;
 
@@ -91,7 +94,7 @@ BEGIN
   EXECUTE format('CREATE INDEX IF NOT EXISTS ix_mail_ordinal ON %I.log_d '
                  '(owner,public.orgtree_mail_ordinal(val) DESC) WHERE sect=''mail_log''',s);
   EXECUTE format('DROP TRIGGER IF EXISTS mail_archive_bounds ON %I.log_d',s);
-  EXECUTE format('CREATE TRIGGER mail_archive_bounds AFTER INSERT OR UPDATE OR DELETE ON %I.log_d '
+  EXECUTE format('CREATE TRIGGER mail_archive_bounds BEFORE INSERT OR UPDATE OR DELETE ON %I.log_d '
                  'FOR EACH ROW EXECUTE FUNCTION public.orgtree_track_mail_archive()',s);
   EXECUTE format('DROP TRIGGER IF EXISTS mail_archive_truncate ON %I.log_d',s);
   EXECUTE format('CREATE TRIGGER mail_archive_truncate AFTER TRUNCATE ON %I.log_d '
