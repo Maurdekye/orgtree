@@ -114,7 +114,7 @@ class ForegroundTreeControls(unittest.TestCase):
             driver.fetch(driver.clock.specs["org_tree"], 1)
         finally:
             driver.pool.shutdown()
-        self.assertEqual([r["url"] for _, r in rows], [BASE + "?include=worker", "<tree read>"])
+        self.assertEqual([r["url"] for _, r in rows], [BASE, "<tree read>"])
         self.assertIn("boundary", rows[-1][1]["err"])
         self.assertEqual(driver.clock.active["org_tree"], 0)
 

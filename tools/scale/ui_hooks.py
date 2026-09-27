@@ -369,8 +369,9 @@ class WindowDriver:
         self.pool = BoundedPool(workers)
         self.cache = {h.name: Conditional("orgtree.work-foreground/v1" if h.name == "work_items" else None)
                       for h in self.clock.specs.values() if h.conditional}
-        # App reads the selected tree; a desk's saved identity rides the selection.
-        self.tree_view = ForegroundTree(slug, [watch] if WINDOWS[window % len(WINDOWS)] == "desk" else [])
+        # App reads the selected tree. The captured 59c57f8 renderer sent no include
+        # even with a desk open (no pins, saved windows or piles), so neither do we.
+        self.tree_view = ForegroundTree(slug)
         self.started = 0
         # Chromium's HTTP/1 per-origin connection budget applies to all
         # independent hooks in a window, not a fresh pool for every worker.
