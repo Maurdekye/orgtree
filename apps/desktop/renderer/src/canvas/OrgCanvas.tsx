@@ -3921,6 +3921,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       )}
       {pileOpen && piles.get(pileOpen) && (
         <MaybePortal><PilePicker pile={piles.get(pileOpen)!} map={map} op={op} toast={toast}
+          ready={piles.get(pileOpen)!.kind !== 'a' || !(map.get(piles.get(pileOpen)!.parent)?.hidden_retired_children ?? 0)}
           onPick={(nid) => { setFront(pileOpen, nid); setPileOpen(null) }}
           close={() => setPileOpen(null)} /></MaybePortal>
       )}
@@ -3929,11 +3930,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           synthesized pile of the HIDDEN retirees under this parent. Picking
           one routes through centerOn, whose reveal hook shows the card and
           glides to it. */}
-      {retiredOpen && prunedView.retiredByParent.has(retiredOpen) && (
+      {retiredOpen && retiredCounts.has(retiredOpen) && (
         <MaybePortal><PilePicker map={map} op={op} toast={toast}
+          ready={!(map.get(retiredOpen)?.hidden_retired_children ?? 0)}
           pile={{ key: retiredOpen + '|h', parent: retiredOpen, kind: 'a',
-            list: prunedView.retiredByParent.get(retiredOpen)!.map((c) => c.id),
-            front: prunedView.retiredByParent.get(retiredOpen)![0]!.id }}
+            list: (prunedView.retiredByParent.get(retiredOpen) ?? []).map((c) => c.id),
+            total: retiredCounts.get(retiredOpen),
+            front: prunedView.retiredByParent.get(retiredOpen)?.[0]?.id ?? '' }}
           onPick={(nid) => { setRetiredOpen(null); centerOn(nid) }}
           close={() => setRetiredOpen(null)} /></MaybePortal>
       )}
