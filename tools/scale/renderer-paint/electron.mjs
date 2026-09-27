@@ -81,7 +81,7 @@ async function action(name, selector, ready, { delayMs = 0, timeout = 15000, sup
 // Opt-in attribution for a measured click: CPU profile, renderer counters,
 // long tasks and resource loads between arming and the painted proof. The
 // sampling profiler adds overhead, so these timings attribute, not qualify.
-async function profiled(tag, run, cpu = true) {
+async function profiled(tag, click, cpu = true) {
   const cdp = (method, params) => win.webContents.debugger.sendCommand(method, params)
   await cdp('Performance.enable', { timeDomain: 'timeTicks' })
   if (cpu) { await cdp('Profiler.enable'); await cdp('Profiler.setSamplingInterval', { interval: 100 }) }
@@ -97,7 +97,7 @@ async function profiled(tag, run, cpu = true) {
       'disabled-by-default-devtools.timeline.frame', 'blink.user_timing', 'v8.execute', 'cc', 'viz'],
     excludedCategories: ['*'] } })
   let row
-  try { row = await run() } finally {
+  try { row = await click() } finally {
     if (run.trace) {
       const done = new Promise(resolve => {
         const on = (_e, method, params) => { if (method === 'Tracing.tracingComplete') {
