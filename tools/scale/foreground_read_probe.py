@@ -69,6 +69,14 @@ def decode(reply):
     return json.loads(body)
 
 
+def flat_nodes(tree):
+    pending = list(tree['roots'])
+    while pending:
+        row = pending.pop()
+        pending.extend(row['children'])
+        yield row
+
+
 def seed(history, active_template=None):
     org = store.create_org(f'foreground-probe-{history}')
     org.hire(ledger.USER, None, 'luna', 10, 'boss', charter='Visible charter ' * 40)
@@ -120,7 +128,7 @@ def arm(slug, history, ordinal):
     results = []
     # Real clock/runtime stamp remains active. Report any full fallback caused
     # by its boundary; do not suppress it to make the status result look better.
-    for mode in ('legacy_full', 'foreground_cold', 'foreground_304', 'foreground_status'):
+    for mode in ('legacy_rebuild', 'legacy_status', 'foreground_cold', 'foreground_304', 'foreground_status'):
         guard()
         foreground_cache._cache.clear()
         prime = foreground_api.read(slug, request())
@@ -129,8 +137,10 @@ def arm(slug, history, ordinal):
         expected = decode(prime)
         if set(expected['nodes']) != {'boss', 'worker-0', 'worker-1', 'worker-2', 'worker-3'}:
             raise AssertionError('history leaked into foreground identities')
-        if expected['header']['work_counts'] != dict(active=1, attention=0, archived=history, backlogged=0):
-            raise AssertionError(('wrong real counts', expected['header']['work_counts']))
+        if expected['header']['work_items_summary'] != dict(active=1, attention=0):
+            raise AssertionError(('wrong real counts', expected['header']['work_items_summary']))
+        if expected['header']['retired_total'] != history or expected['header']['org_inbox']['total'] != history:
+            raise AssertionError('historical totals differ from fixture')
         tag = prime.headers['etag']
         samples = []
         kinds = {}
@@ -139,7 +149,7 @@ def arm(slug, history, ordinal):
             status = None
             if mode == 'foreground_cold':
                 foreground_cache._cache.clear()
-            if mode == 'foreground_status':
+            if mode in ('legacy_status', 'foreground_status'):
                 status = {'status': 'working', 'summary': f'arm-{ordinal}-status-{i}', 'at': ledger.now()}
                 with orgtx.org_tx(slug, nodes=['worker-0']) as org:
                     org.nodes['worker-0']['last_status'] = status
@@ -150,7 +160,8 @@ def arm(slug, history, ordinal):
                         raise AssertionError('status did not persist')
             req = request(tag if mode in ('foreground_304', 'foreground_status') else '')
             cpu, wall = time.thread_time_ns(), time.perf_counter_ns()
-            reply = api.org_tree(slug, req, Response()) if mode == 'legacy_full' else foreground_api.read(slug, req)
+            reply = (Response(api._dump_tree(api._org_view(slug, req)), media_type='application/json')
+                     if mode.startswith('legacy_') else foreground_api.read(slug, req))
             elapsed = {'cpu_ms': (time.thread_time_ns() - cpu) / 1e6,
                        'wall_ms': (time.perf_counter_ns() - wall) / 1e6,
                        'bytes': len(reply.body), 'status': reply.status_code}
@@ -160,8 +171,9 @@ def arm(slug, history, ordinal):
                 wire = decode(reply)
                 kind = wire.get('kind', 'legacy')
                 if status:
-                    observed = (wire['nodes']['worker-0']['set']['last_status'] if kind == 'delta'
-                                else wire['nodes']['worker-0']['last_status'])
+                    observed = (next(n for n in flat_nodes(wire) if n['id'] == 'worker-0')['last_status']
+                                if kind == 'legacy' else wire['nodes']['worker-0']['set']['last_status']
+                                if kind == 'delta' else wire['nodes']['worker-0']['last_status'])
                     if observed != status:
                         raise AssertionError('status response differs from persisted write')
             else:
