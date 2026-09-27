@@ -1,4 +1,4 @@
-﻿"""Prepare and apply selective receipt writes inside the caller's transaction.
+"""Prepare and apply selective receipt writes inside the caller's transaction.
 
 Preparation captures immutable JSON and exact compare baselines. Applying never
 commits or cleans the source mapping: rollback must leave every edit pending.
@@ -35,7 +35,9 @@ def prepare(section: receiptmapping.ReceiptSection) -> Prepared:
             plain = value.plain() if isinstance(value, receiptmapping.ReceiptOwner) else value
             # Validate the whole replacement before entering the write path.
             receiptrows.split(receiptrows.dumps({owner: plain}))
-            replacements.append((owner, receiptrows.dumps(plain), owner in section.reinserted))
+            encoded = receiptrows.dumps(plain)
+            if encoded != section.replacement_baselines.get(owner) or owner in section.reinserted:
+                replacements.append((owner, encoded, owner in section.reinserted))
             continue
         if not isinstance(value, receiptmapping.ReceiptOwner) or value.owner != owner:
             raise receiptrows.Unsupported('receipt owner mapping identity mismatch')
@@ -93,3 +95,88 @@ def apply(raw: Any, org_id: int, plan: Prepared) -> frozenset[str]:
             old = None
         receiptstore.put(raw, org_id, owner, token, receiptrows.loads(new), expected=old)
     return plan.owners
+
+
+@dataclass(frozen=True)
+class Adoption:
+    plan: Prepared
+    revision: int
+    summaries: tuple[tuple[str, int, int], ...]
+
+    def install(self, section: receiptmapping.ReceiptSection) -> None:
+        """Update baselines in place; existing mutable references stay attached."""
+        if prepare(section) != self.plan:
+            raise receiptmapping.StaleReceipts('receipt mapping changed before adoption')
+        summaries = {owner: (count, version) for owner, count, version in self.summaries}
+        for owner, encoded, _ in self.plan.replacements:
+            if encoded is None:
+                section.versions[owner] = None
+                section.missing.add(owner)
+                section.replacement_baselines.pop(owner, None)
+                continue
+            value = section._data[owner]
+            count, version = summaries[owner]
+            section.versions[owner] = version
+            if isinstance(value, receiptmapping.ReceiptOwner):
+                # Explicit owner replacement/move materialized it during prepare.
+                value.baselines = {key: receiptrows.dumps(row)
+                                   for key, row in receiptrows.loads(encoded).items()}
+                value.deleted.clear()
+                value.reinserted.clear()
+                value.count, value.version, value.complete = count, version, True
+                section.replaced.discard(owner)
+                section.replacement_baselines.pop(owner, None)
+            else:
+                # Leave a caller's plain dict exactly where it is. A future edit,
+                # including direct pop/update through an old alias, is compared
+                # as an explicit complete-owner replacement.
+                section.replacement_baselines[owner] = encoded
+        for owner, token, _ in self.plan.deletes:
+            value = section._data[owner]
+            value.baselines[token] = None
+            value.deleted.discard(token)
+        for owner, token, encoded, _, _ in self.plan.writes:
+            value = section._data[owner]
+            value.baselines[token] = encoded
+            value.reinserted.discard(token)
+        for owner, count, version in self.summaries:
+            section.versions[owner] = version
+            value = section._data[owner]
+            if isinstance(value, receiptmapping.ReceiptOwner):
+                value.count, value.version = count, version
+        section.deleted.clear()
+        section.reinserted.clear()
+        section.revision = self.revision
+        for value in section._data.values():
+            if isinstance(value, receiptmapping.ReceiptOwner):
+                value.revision = self.revision
+
+
+def adoption_after_revision(conn: Any, section: receiptmapping.ReceiptSection,
+                            plan: Prepared) -> Adoption:
+    """Capture adoption after on_save_commit, BEFORE the real COMMIT.
+
+    A consecutive revision proves that no other org commit was missed between
+    the original snapshot and our revision update. On a gap refuse while the
+    enclosing transaction can still roll back; never retag stale cached owners.
+    The caller queues install through receiptcommit, or calls it after its own
+    successful standalone COMMIT. Merely constructing this value cleans nothing.
+    """
+    receiptstore._transaction(conn.raw)
+    conn.use()
+    if conn.slug != plan.slug or prepare(section) != plan:
+        raise receiptmapping.StaleReceipts('receipt mapping changed before commit')
+    row = conn.raw.execute('SELECT slug,revision FROM public.orgs WHERE org_id=%s',
+                           (conn.org_id,)).fetchone()
+    expected = plan.revision + (1 if conn.last_revision is not None else 0)
+    if row != (plan.slug, expected) or (conn.last_revision is not None and conn.last_revision != expected):
+        raise receiptmapping.StaleReceipts('receipt snapshot missed an intervening commit')
+    if plan.owners and conn.last_revision is None:
+        raise RuntimeError('receipt writes require revision publication before adoption')
+    summaries = tuple(conn.raw.execute(
+        'SELECT owner,nrows,version FROM receipt_owners WHERE owner=ANY(%s) ORDER BY owner',
+        (sorted(plan.owners),)).fetchall()) if plan.owners else ()
+    removed = {owner for owner, value, _ in plan.replacements if value is None}
+    if {owner for owner, _, _ in summaries} != plan.owners - removed:
+        raise receiptmapping.StaleReceipts('receipt owner missing from adoption snapshot')
+    return Adoption(plan, expected, summaries)

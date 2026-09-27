@@ -167,6 +167,8 @@ class ReceiptSection(_LazyMapping):
         self.missing:set[str]=set(); self.deleted:set[str]=set(); self.replaced:set[str]=set()
         self.reinserted:set[str]=set()
         self.versions:dict[str,int|None]={}
+        # Keep externally held replacement dictionaries alive across saves.
+        self.replacement_baselines:dict[str,str]={}
 
     def __getitem__(self,owner):
         if (owner in self._data): return self._data[owner]
