@@ -199,7 +199,10 @@ class ForegroundIndex(unittest.TestCase):
         def writer(nid):
             try:
                 with store._POOL.acquire(self.slug) as conn:
-                    conn.execute('BEGIN')
+                    # Use the product writer isolation, not the adapter's
+                    # plain-BEGIN repeatable-read *reader* translation.
+                    conn.execute('BEGIN IMMEDIATE')
+                    self.assertEqual(conn.raw.execute('SHOW transaction_isolation').fetchone()[0], 'read committed')
                     conn.execute('SET LOCAL statement_timeout=8000')
                     value = {**self.prototype, 'parent': 'boss', 'state': 'live', 'cost_usd': 1.5}
                     conn.execute('UPDATE nodes SET val=? WHERE id=?', (store._dumps(value), nid))
