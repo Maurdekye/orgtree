@@ -68,7 +68,11 @@ def require_go(args, source):
                     seconds=.05, warmup=3, measured=8, tool_rate=2, steer_rate=3,
                     recipe=asdict(Recipe(retired_agents=2, archived_items=2, read_mail=2,
                         old_transcripts=2, payload_profile="fixed", node_chars=128,
-                        item_chars=128, mail_chars=128, transcript_chars=128)),
+                        # Tiny 128-character mail needs ~89k generated rows
+                        # to cover the seed's fixed byte tails. Use realistic
+                        # 4KiB bodies so this remains a controller control;
+                        # the generator still proves BOTH 10x count and bytes.
+                        item_chars=128, mail_chars=4096, transcript_chars=128)),
                     disk_gib=2, commit_gib=12, readiness_s=90)
     if not args.go_file:
         raise ValueError("large root/seed/run requires coordinator GO file")
