@@ -20875,7 +20875,15 @@ def _run_one_turn_recorded(slug: str, nid: str,
                     _want = (None if carrier_mail_ids is None
                              else {str(i) for i in carrier_mail_ids})
                     from . import turn_inputs
-                    _box = [m for m in ((turn_inputs.load(slug, nid, mail=True).d.get("mail") or {})
+                    _pre = turn_inputs.load(slug, nid, mail=True)
+                    # a codex plain pointer may absorb the queued pointers
+                    # behind it (see the drain site): pre-load the whole box
+                    # so their images do not load inside the admission tx
+                    if (carrier_in is not None and nid in _pre.nodes
+                            and codex_harness_turn(
+                                _pre, nid, str(_pre.node(nid).get("model") or ""))):
+                        _want = None
+                    _box = [m for m in ((_pre.d.get("mail") or {})
                                         .get(nid) or [])
                             if _want is None or str(m.get("id")) in _want]
                     if _box:

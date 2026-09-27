@@ -166,6 +166,66 @@ class CodexBatchDrainTests(unittest.TestCase):
         self.assertIn("after the held batch", texts[2])
         self.assert_all_delivered_once(bodies + ["held batch mail", "after the held batch"])
 
+    def test_a_probe_carrier_is_not_absorbed_and_keeps_its_probe(self):
+        """The limit replay stamps `_limit_probe_token` on a queued pointer
+        (the probe turn). It must get its own turn and release its probe the
+        way a probe turn does; absorbed, the claim would never be released."""
+        bodies, first = self.burst(4)                 # queue: [p2, p3, p4]
+        token = "probe-" + uuid.uuid4().hex[:8]
+        with sup._state_lock:
+            self.st["queue"][1] = {**self.st["queue"][1], "_limit_probe_token": token}
+            self.st["limit_probe_token"] = token
+            self.st["limit_probe_key"] = "fixture"
+        sup._run_turn(self.slug, "worker", first)
+        texts = self.adapter.texts
+        self.assertEqual(len(texts), 2, "pointers | probe carrier (+ what follows it)")
+        self.assertTrue(all(b in texts[0] for b in bodies[:2]))
+        self.assertNotIn(bodies[2], texts[0], "the probe carrier's mail must not ride an earlier turn")
+        self.assertIn(bodies[2], texts[1])
+        self.assertIsNone(self.st.get("limit_probe_token"), "the probe claim must be released")
+        self.assert_all_delivered_once(bodies)
+
+    def test_a_halt_restored_carrier_is_not_absorbed_and_its_row_is_spent(self):
+        """A pointer restored from the node's durable halt_queue carries a
+        `_halt_id`. It must run as its own carrier so its turn spends the
+        durable row; absorbed, the row would be orphaned (and replayed)."""
+        bodies, first = self.burst(3)                 # queue: [p2, p3]
+        ident = uuid.uuid4().hex
+        with sup._state_lock:
+            restored = {**self.st["queue"][0], "_halt_id": ident}
+            self.st["queue"][0] = restored
+        org = orgtx.org_read(self.slug)
+        org.node("worker")["halt_queue"] = [dict(restored)]
+        store.save_org(org)
+        sup._run_turn(self.slug, "worker", first)
+        texts = self.adapter.texts
+        self.assertEqual(len(texts), 2, "own pointer | restored carrier (+ what follows it)")
+        self.assertIn(bodies[0], texts[0])
+        self.assertNotIn(bodies[1], texts[0], "the restored carrier's mail must not ride an earlier turn")
+        self.assertIn(bodies[1], texts[1])
+        self.assertFalse(orgtx.org_read(self.slug).node("worker").get("halt_queue"),
+                         "the restored carrier's durable halt_queue row must be spent")
+        self.assert_all_delivered_once(bodies)
+
+    def test_image_preload_covers_the_mail_it_will_absorb(self):
+        """Images are loaded BEFORE the admission tx (turn-tx-merge f1), keyed
+        by the mail the carrier will drain. The first `_mail_block` of the
+        turn is that pre-load: it must see every mail the batch absorbs, or
+        their image I/O lands inside the org-wide locked transaction."""
+        bodies, first = self.burst(4)
+        calls = []
+        real = sup._mail_block
+
+        def spy(mail, *a, **kw):
+            calls.append([m.get("body") for m in mail])
+            return real(mail, *a, **kw)
+        with patch.object(sup, "_mail_block", spy):
+            sup._run_turn(self.slug, "worker", first)
+        self.assertEqual(self.adapter.snapshot()["started"], 1)
+        self.assertTrue(calls, "the pre-load never ran")
+        self.assertEqual(sorted(calls[0]), sorted(bodies),
+                         "the pre-admission image load must cover the whole absorbed batch")
+
     def test_halt_before_the_turn_keeps_every_pointed_mail(self):
         bodies, first = self.burst(5)
         org = orgtx.org_read(self.slug)
