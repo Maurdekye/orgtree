@@ -7,7 +7,7 @@ from unittest.mock import patch
 import test_pgstore as fixture
 from fastapi.testclient import TestClient
 from engine.launch import TokenGate
-from orgtree import api, foreground_cache, foreground_store as fg, ledger, orgtx, store, tree_changes
+from orgtree import api, foreground_cache, foreground_store as fg, ledger, orgtx, pgfeed, store, tree_changes
 
 
 def tearDownModule():
@@ -112,7 +112,11 @@ class ForegroundRoutePG(unittest.TestCase):
         self.assertNotIn('session_id', response.json()['nodes']['boss'])
 
     def test_native_row_transaction_status_keeps_changed_node_read_bound(self):
-        with patch.object(api, '_tree_runtime_stamp', return_value=('fixed',)):
+        # TestClient omits lifespan. Install the same post-commit listener as
+        # startup without starting provider/feed workers.
+        listener = lambda c: pgfeed.note_local(c.slug, c.revision)
+        with patch.object(api, '_tree_runtime_stamp', return_value=('fixed',)), \
+             patch.object(orgtx, 'commit_listeners', [*orgtx.commit_listeners, listener]):
             first = self.get()
             self.assertEqual(first.status_code, 200, first.text)
             before = fg.read_foreground(self.slug)['stamp']

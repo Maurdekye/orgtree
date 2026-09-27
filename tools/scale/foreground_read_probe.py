@@ -26,6 +26,7 @@ from control import free_commit_gb
 parser = argparse.ArgumentParser()
 parser.add_argument('--output', type=Path, required=True)
 parser.add_argument('--rounds', type=int, default=100)
+parser.add_argument('--status-only', action='store_true')
 args = parser.parse_args()
 if args.rounds < 20:
     raise ValueError('aggregate CPU needs at least 20 repetitions')
@@ -42,7 +43,7 @@ subprocess.Popen = pin_git(subprocess.Popen, git)
 audit = LaunchAudit(root, git=git, providers=[os.environ['ORGTREE_CLAUDE'], os.environ['ORGTREE_CODEX']],
                     agy=shutil.which('agy'))
 sys.addaudithook(audit)
-from orgtree import api, foreground_api, foreground_cache, ledger, orgtx, store
+from orgtree import api, foreground_api, foreground_cache, foreground_store, ledger, orgtx, pgfeed, store
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -128,7 +129,9 @@ def arm(slug, history, ordinal):
     results = []
     # Real clock/runtime stamp remains active. Report any full fallback caused
     # by its boundary; do not suppress it to make the status result look better.
-    for mode in ('legacy_rebuild', 'legacy_status', 'foreground_cold', 'foreground_304', 'foreground_status'):
+    modes = ('foreground_status',) if args.status_only else (
+        'legacy_rebuild', 'legacy_status', 'foreground_cold', 'foreground_304', 'foreground_status')
+    for mode in modes:
         guard()
         foreground_cache._cache.clear()
         prime = foreground_api.read(slug, request())
@@ -144,6 +147,12 @@ def arm(slug, history, ordinal):
         tag = prime.headers['etag']
         samples = []
         kinds = {}
+        builds = []
+        original_select = foreground_store.select_foreground
+        def selected(*args):
+            builds.append(1)
+            return original_select(*args)
+        foreground_store.select_foreground = selected
         for i in range(args.rounds):
             guard()
             status = None
@@ -184,18 +193,23 @@ def arm(slug, history, ordinal):
             tag = reply.headers.get('etag', tag)
             samples.append(elapsed)
         entry = dict(arm=ordinal, history=history, mode=mode, count=len(samples), kinds=kinds,
+                     selected_graph_rebuilds=len(builds),
                      cpu_ms_mean=sum(r['cpu_ms'] for r in samples) / len(samples),
                      wall_ms_mean=sum(r['wall_ms'] for r in samples) / len(samples),
                      bytes_mean=sum(r['bytes'] for r in samples) / len(samples),
                      cache=cache_shape(), samples=samples)
         results.append(entry)
+        foreground_store.select_foreground = original_select
         print(json.dumps({k: v for k, v in entry.items() if k != 'samples'}), flush=True)
     return results
 
 
 result = dict(scope='Serial direct route calls; no HTTP/lifespan/renderer/load or 5% qualification',
               history_order=[100, 1000, 1000, 100], rounds_per_mode=args.rounds,
+              local_commit_listener='same post-commit note_local listener as api startup',
               manifest=[], arms=[], complete=False)
+listener = lambda c: pgfeed.note_local(c.slug, c.revision)
+orgtx.commit_listeners.append(listener)
 try:
     guard()
     store.claim_data_root()
@@ -211,6 +225,7 @@ try:
         result['arms'].extend(arm(fixtures[history], history, ordinal))
     result['complete'] = True
 finally:
+    orgtx.commit_listeners.remove(listener)
     result['audit'] = audit.snapshot()
     result['free_commit_gb_final'] = free_commit_gb()
     provenance.write_result(args.output, result)
