@@ -85,6 +85,27 @@ def check_root(root):
     return root
 
 
+def source_files():
+    names = subprocess.check_output(["git", "ls-files", "engine", "apps/desktop/renderer", "tools/scale"],
+                                     cwd=REPO, text=True).splitlines()
+    return {name: sha_file(REPO / name) for name in names}
+
+
+def require_slots(small):
+    """Do not trust a stale holder file: it must identify a live ancestor."""
+    import psutil
+    parents = {p.pid for p in psutil.Process().parents()}
+    lockdir = REPO.parent.parent / "artifacts/machine-test-run"
+    # Worktrees live under the repository's .worktrees directory.
+    owned = []
+    for name in ("holder.json", "holder2.json"):
+        row = read(lockdir / name)
+        if not row.get("released") and row.get("pid") in parents and row.get("agent") == "scale-ui-astra":
+            owned.append(row)
+    if len(owned) < (1 if small else 2) or (not small and any(r.get("small") for r in owned)):
+        raise ValueError("controller must run inside the owned p03 slots")
+
+
 class Controller:
     def __init__(self, root, config, args):
         self.root, self.config, self.args = root, config, args
@@ -162,6 +183,8 @@ class Controller:
             self.check()
             if result:
                 raise RuntimeError(f"{name} exited {result}; retained {name}.log")
+            if (self.run_root / "metrics/qualification-invalid.json").exists():
+                raise RuntimeError(f"unexpected process launch during {name}")
         finally:
             self.kill(proc)
 
@@ -177,6 +200,15 @@ class Controller:
         value = json.loads(result.stdout)
         write(self.root / "receipts" / ("pg-" + action + ".json"), value)
         return value
+
+    def drop_database(self, admin, name):
+        import psycopg
+        from psycopg import sql
+        if not name.startswith("orgtree_scale_") or any(p.poll() is None for p in self.children):
+            raise ValueError("database removal requires owned disposable name and stopped children")
+        with psycopg.connect(admin, autocommit=True) as conn:
+            conn.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)))
+        write(self.root / "receipts" / ("dropped-" + name + ".json"), dict(database=name, dropped=True))
 
     def clear_run(self):
         """Only the exact owned run path, after every engine/stage child exits."""
@@ -200,6 +232,8 @@ class Controller:
         self.token = uuid.uuid4().hex
         self.root.mkdir()
         write(self.root / "controller.json", dict(token=self.token, config=self.config, source=self.source))
+        capsule = source_files()
+        write(self.root / "source-files.json", capsule)
         guard = threading.Thread(target=self.guard, name="baseline-independent-guard")
         guard.start()
         outcome = {"complete": False}
@@ -230,11 +264,16 @@ class Controller:
             if shutil.disk_usage(self.root).free / 2**30 < reserve:
                 raise RuntimeError(f"actual frozen estimate needs {reserve:.2f} GiB")
             self.script("baseline.py", "bundle", "--child", "bundle", "--root", self.root, env=env)
+            self.drop_database(admin, desc["pg_database"])
             plans = self.root / "plans"
             for arm in ("small", "large"):
+                if source_files() != capsule:
+                    raise RuntimeError("source changed between baseline phases")
                 self.clear_run()
                 from seed import _create_db
                 url = _create_db(admin, "orgtree_scale_" + self.token + "_" + arm)
+                from history_pg import authorize_empty_destination
+                authorize_empty_destination(self.run_root, desc["org"], url)
                 for name in ("data", "home", "temp"):
                     (self.run_root / name).mkdir(parents=True, exist_ok=True)
                 write(self.run_root / "controller-owner.json", dict(root=str(self.root), token=self.token))
@@ -282,6 +321,7 @@ class Controller:
                     self.engine_pid = None
                     shutil.copytree(self.run_root / "metrics", self.root / "receipts" / arm, dirs_exist_ok=True)
                 self.check()
+                self.drop_database(admin, url.rsplit("/", 1)[-1])
             if outcome["small"]["config"]["plans"] != outcome["large"]["config"]["plans"]:
                 raise RuntimeError("unequal demand between arms")
             outcome["complete"] = True
@@ -289,16 +329,30 @@ class Controller:
             outcome["error"] = f"{type(exc).__name__}: {exc}"
             raise
         finally:
+            errors = []
             for proc in self.children:
-                self.kill(proc)
+                try:
+                    self.kill(proc)
+                except BaseException as exc:
+                    errors.append(str(exc))
             self.engine_pid = None
-            if self.pg_started:
-                self.pg("stop")
-            self.stop_guard.set()
-            guard.join(timeout=5)
+            stopped = not self.pg_started
+            try:
+                if self.pg_started:
+                    self.pg("stop")
+                    stopped = self.pg("status")["cluster"]["state"] == "stopped"
+            except BaseException as exc:
+                errors.append(str(exc))
+            finally:
+                self.stop_guard.set()
+                guard.join(timeout=5)
             outcome["cleanup"] = dict(children_exited=all(p.poll() is not None for p in self.children),
-                                      pg_stopped=not self.pg_started or self.pg("status")["cluster"]["state"] == "stopped")
+                                      pg_stopped=stopped, errors=errors)
+            if errors or not stopped:
+                outcome["complete"] = False
             write(self.root / "result.json", outcome)
+            if errors or not stopped:
+                raise RuntimeError("controller cleanup incomplete: " + repr(outcome["cleanup"]))
 
 
 def child(args):
@@ -307,6 +361,11 @@ def child(args):
     sys.path.insert(0, str(REPO / "tools"))
     from assert_repo_import import assert_repo_import
     provenance = assert_repo_import(REPO)
+    from launch_guard import LaunchAudit, pin_git
+    git = shutil.which("git")
+    subprocess.Popen = pin_git(subprocess.Popen, git)
+    (run / "metrics").mkdir(exist_ok=True)
+    sys.addaudithook(LaunchAudit(run, git=git, providers=[]))
     from orgtree import store, pgstore
     if Path(store.DATA_ROOT).resolve() != run / "data":
         raise ValueError("child data root escaped")
@@ -339,7 +398,6 @@ def child(args):
         provenance.write_result(root / "receipts/bundle.json", manifest)
     elif args.child == "restore":
         desc = read(root / "frozen/descriptor.json")
-        authorize_empty_destination(run, desc["org"], pgstore.url())
         receipt = restore(root / "bundle", args.arm, run)
         provenance.write_result(root / f"receipts/{args.arm}-restore.json", receipt)
     elif args.child == "files":
@@ -376,6 +434,7 @@ def main():
         return child(args)
     source = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
     config = require_go(args, source)
+    require_slots(args.small_control)
     root = check_root(args.root)
     if free_commit_gb() < config["commit_gib"] or shutil.disk_usage(root.parent).free < config["disk_gib"] * 2**30:
         raise RuntimeError("insufficient free commit or disk for admission")

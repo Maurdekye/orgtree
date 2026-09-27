@@ -15,6 +15,19 @@ def is_write(tool, args):
         tool == "orgtree_work" and args.get("action") in ("update", "evidence", "create"))
 
 
+def table_snapshot(conn, schema):
+    """Cold boundary totals only; not a substitute for per-request counters."""
+    result = {}
+    for table in ("doc", "nodes", "log_d", "log_l"):
+        row = conn.execute(sql.SQL("SELECT count(*),coalesce(sum(octet_length(val)),0) FROM {}.{}")
+                           .format(schema, sql.Identifier(table))).fetchone()
+        result[table] = dict(rows=row[0], value_bytes=row[1])
+    return dict(tables=result, database_bytes=conn.execute(
+        "SELECT pg_database_size(current_database())").fetchone()[0], settings={key: conn.execute(
+        "SHOW " + key).fetchone()[0] for key in ("max_connections", "shared_buffers", "work_mem",
+                                                 "autovacuum", "default_statistics_target")})
+
+
 class WriteOracle:
     def __init__(self, descriptor):
         self.mutex = threading.Lock()
