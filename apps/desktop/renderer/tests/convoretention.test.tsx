@@ -138,9 +138,35 @@ test('assistant snapshots and committed rows awaiting reconciliation survive pre
   const row = { role: 'user', text: 'durable steer', steered: true,
     row_id: 'u', ts: '2026-09-27T10:00:00Z' }
   ingestStream(f.slug, { node: 'committed', kind: 'steered', committed_row: row } as never)
+  // Refresh with idle server snapshots lacking these rows: retain the
+  // reconciliation maps themselves, not merely the initial busy flag.
+  f.bodies.set('assistant', { assistant_scope: 's', assistant_identity: 1 })
+  await refreshConvo(f.slug, 'assistant')
+  await refreshConvo(f.slug, 'committed')
   await f.pressure()
-  assert.equal((await f.view('assistant')).now().chat?.messages[0]?.text, 'partial answer')
-  assert.equal((await f.view('committed')).now().chat?.messages[0]?.text, 'durable steer')
+  assert.ok((await f.view('assistant')).now().chat?.messages.some(row => row.text === 'partial answer'))
+  assert.ok((await f.view('committed')).now().chat?.messages.some(row => row.text === 'durable steer'))
+})
+
+test('known active turns and queued mail remain protected until a settled snapshot', async t => {
+  const f = setup(t)
+  for (const [id, state] of Object.entries({ busy: { busy: true },
+    responding: { responding: true }, queued: { queued: 1 }, mail: { mail_pending: 1 } })) {
+    f.bodies.set(id, state)
+    await refreshConvo(f.slug, id)
+  }
+  await f.pressure()
+  for (const id of ['busy', 'responding', 'queued', 'mail']) {
+    const v = await f.view(id)
+    assert.equal(v.now().loaded, true, id)
+    await v.unmount()
+    f.bodies.delete(id)
+    await refreshConvo(f.slug, id)
+  }
+  await f.pressure()
+  for (const id of ['busy', 'responding', 'queued', 'mail']) {
+    assert.equal((await f.view(id)).now().loaded, false, id)
+  }
 })
 
 test('older outstanding refresh remains protected after newer refresh fails', async t => {
