@@ -134,7 +134,9 @@ def connect(conninfo: str | None = None) -> Any:
     explicit, as store.py's are). Never, from an agent, the live cluster."""
     target = conninfo or url()
     refuse_live_cluster(target)
-    raw = _psycopg().connect(target, autocommit=True)
+    # Disable automatic preparation and its per-query counting/cache work.
+    # This connection setting also survives pooled checkouts and RESET ALL.
+    raw = _psycopg().connect(target, autocommit=True, prepare_threshold=None)
     raw._ot_path = None           # see "Session state" below
     return raw
 

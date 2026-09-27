@@ -1381,6 +1381,29 @@ class SessionRoundTrips(unittest.TestCase):
     def _show(raw, name: str) -> str:
         return str(raw.execute(f'SHOW {name}').fetchone()[0])
 
+    def test_new_connection_does_not_prepare_repeated_statements(self) -> None:
+        with pgstore.connect() as raw:
+            self.assertIsNone(raw.prepare_threshold)
+            for i in range(10):
+                self.assertEqual(raw.execute('SELECT %s::integer', (i,)).fetchone()[0], i)
+            self.assertEqual(raw.execute('SELECT count(*) FROM pg_prepared_statements').fetchone()[0], 0)
+
+    def test_reused_connection_keeps_preparation_disabled(self) -> None:
+        c = self._open(self.a)
+        raw = c.raw
+        try:
+            self.assertIsNone(raw.prepare_threshold)
+            self.assertEqual(c.execute('SELECT 17').fetchone()[0], 17)
+        finally:
+            c.close()
+        c = self._open(self.b)
+        try:
+            self.assertIs(c.raw, raw, 'exercise release and reuse of the same connection')
+            self.assertIsNone(c.raw.prepare_threshold)
+            self.assertEqual(c.execute('SELECT 23').fetchone()[0], 23)
+        finally:
+            c.close()
+
     def test_same_org_again_runs_no_set(self) -> None:
         c = self._open(self.a)
         raw = c.raw
