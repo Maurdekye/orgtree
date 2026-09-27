@@ -198,8 +198,12 @@ def install_waits(trace):
                 return self.lock.__enter__()
             wall, cpu = time.monotonic_ns(), time.thread_time_ns()
             result = self.lock.__enter__()
-            trace.wait_cost('pg:' + str(getattr(trace.local, 'pg_operation', None)) + ':pool-lock',
-                            time.monotonic_ns() - wall, time.thread_time_ns() - cpu)
+            try:
+                trace.wait_cost('pg:' + str(getattr(trace.local, 'pg_operation', None)) + ':pool-lock',
+                                time.monotonic_ns() - wall, time.thread_time_ns() - cpu)
+            except BaseException:
+                self.lock.__exit__(None, None, None)
+                raise
             return result
 
         def __exit__(self, *args):

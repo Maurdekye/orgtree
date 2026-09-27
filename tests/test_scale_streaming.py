@@ -5,6 +5,7 @@ import threading
 import time
 import unittest
 
+import import_provenance  # noqa: F401
 from tools.scale.control import Feed
 from tools.scale.streaming import drive_streams, send_frames
 
