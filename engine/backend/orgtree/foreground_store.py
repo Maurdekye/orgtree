@@ -15,7 +15,7 @@ import os
 from typing import Any, Iterator
 
 from . import store
-from .ledger import LedgerError
+from .ledger import ASK_HISTORY_KEEP, LedgerError
 
 MAX_PAGE = 100
 MAX_INCLUDE = 128
@@ -170,12 +170,12 @@ def read_card_windows(raw: Any, ids: list[str], *, header: bool = False) -> dict
     for section in ASK_SECTIONS:
         visible = " AND status<>'withdrawn'" if section != 'asks' else ''
         if header:
-            # At most eight per section suffice for the final shared ledger
+            # At most ASK_HISTORY_KEEP per section suffice for the shared ledger
             # header cap; its order is asks, credits, scope, each in source order.
             for row in raw.execute(
                     'SELECT sect,ord,val FROM foreground_asks WHERE sect=%s '
                     "AND status NOT IN ('open','pending')" + visible +
-                    ' ORDER BY ord DESC LIMIT 8', (section,)).fetchall():
+                    ' ORDER BY ord DESC LIMIT %s', (section, ASK_HISTORY_KEEP)).fetchall():
                 rows[row[:2]] = row
         for row in raw.execute(
                 'SELECT q.sect,q.ord,q.val FROM unnest(%s::text[]) node(id) '
