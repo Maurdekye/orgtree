@@ -113,10 +113,11 @@ def pin_git(popen, executable):
     executable overrides are never rewritten or allowed by this adapter.
     """
     trusted = identity(executable) if executable else None
-    def launch(args, *pos, **kwargs):
-        if (trusted and isinstance(args, (list, tuple)) and args
-                and args[0] in ("git", "git.exe") and len(pos) < 2
-                and not kwargs.get("shell") and not kwargs.get("executable")):
-            args = [trusted, *args[1:]]
-        return popen(args, *pos, **kwargs)
-    return launch
+    class PinnedPopen(popen):
+        def __init__(self, args, *pos, **kwargs):
+            if (trusted and isinstance(args, (list, tuple)) and args
+                    and args[0] in ("git", "git.exe") and len(pos) < 2
+                    and not kwargs.get("shell") and not kwargs.get("executable")):
+                args = [trusted, *args[1:]]
+            super().__init__(args, *pos, **kwargs)
+    return PinnedPopen

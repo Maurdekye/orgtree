@@ -67,7 +67,11 @@ class LaunchGuardTests(unittest.TestCase):
 
     def test_git_pinning_only_rewrites_literal_argv_without_overrides(self):
         calls = []
-        launch = pin_git(lambda *a, **k: calls.append((a, k)), self.git)
+        class FakePopen:
+            def __init__(self, *a, **k):
+                calls.append((a, k))
+        launch = pin_git(FakePopen, self.git)
+        self.assertTrue(issubclass(launch, FakePopen))
         launch(["git", "status"])
         actual = calls[-1][0][0]
         self.assertEqual(Path(actual[0]).resolve(), Path(self.git).resolve())
