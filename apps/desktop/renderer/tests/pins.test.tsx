@@ -32,7 +32,8 @@ import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { useState } from 'react'
-import { NODE_H, NODE_W, Z_DESK, Z_MINI } from '../src/canvas/shared'
+import { NODE_H, NODE_W, Z_DESK, Z_MINI, setHideRetiredOn } from '../src/canvas/shared'
+import { treeSelections } from '../src/treeselection'
 import {
   addPin, clampRect, forgetPins, PIN_MAX, PIN_MIN_H, PIN_MIN_W,
   PIN_Z_BASE, PIN_Z_TOP, pinsKey, planUnpin, prunePins, raisePin,
@@ -46,6 +47,29 @@ import { draftKey, storeAttachments } from '../src/draftstore'
 import { readHistory } from '../src/composerhistory'
 
 const noop = () => {}
+
+uiTest('foreground collapsed pile and hidden token count omitted siblings without constructing their cards', async ({ mount }) => {
+  setHideRetiredOn(false)
+  const { el, setTree, unmount } = await mountCanvas(mount, ['first', 'live', 'last'])
+  const selected = tree(['first', 'live', 'last'], { first: 'archived', last: 'archived' })
+  selected.foreground = { catalog_revision: 'c1', present: ['first', 'live', 'last'], missing: [],
+    hidden_retired_roots: 198, retired_total: 200 }
+  try {
+    await inAct(() => setTree(selected))
+    await flush()
+    assert.equal(el.querySelector('.pile-count')?.textContent, '200')
+    assert.equal(el.querySelectorAll('.pile-layer').length, 3)
+    assert.ok(el.querySelector('[data-copy-agent-name="last"]'), 'last selected sibling stays the front')
+    await inAct(() => setHideRetiredOn(true))
+    await flush()
+    assert.equal(el.querySelector('.pile-count'), null)
+    assert.equal(el.querySelector('.retired-token')?.textContent?.trim(), '200 retired')
+    const selectedState = treeSelections.read('mine', { include: [], hideRetired: false, fronts: {} })
+    assert.equal(selectedState.selection.hideRetired, true, 'mounted view publishes the preference')
+    await unmount()
+    assert.equal(treeSelections.version('mine'), 0, 'unmounted view releases selected identity ownership')
+  } finally { setHideRetiredOn(false) }
+})
 
 uiTest('foreground omission preserves pinned identity and drafts until explicit absence', async ({ mount }) => {
   const { setTree, toasts } = await mountCanvas(mount, ['ceo', 'cto'])
