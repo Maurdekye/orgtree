@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 import subprocess
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -26,6 +27,12 @@ class HistoryStorage(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         store.claim_data_root()
+
+    def tearDown(self):
+        # The test module owns this one throwaway root and creates a distinct
+        # org for each case. Production never removes these receipts to retry.
+        for name in ("RESTORING", "RESTORE_COMPLETE", "history-restore.json"):
+            (fixture.data.parent / name).unlink(missing_ok=True)
 
     def test_restore_and_independent_source_validation_with_analyzed_indexes(self):
         root = fixture.data.parent
@@ -122,6 +129,39 @@ class HistoryStorage(unittest.TestCase):
             # This test module shares a throwaway home across two separate orgs.
             # Remove only our failed-attempt marker before the other test.
             (root / "RESTORING").unlink()
+
+    def test_small_profile_bundle_size_and_restore_measurement(self):
+        root = fixture.data.parent
+        base = ledger.Org.create("History measurement", dirs=[], workspace=str(root / "data/workspaces/history-measurement"))
+        base.hire(ledger.USER, None, "haiku", 0, "boss")
+        base.hire(ledger.USER, "boss", "haiku", 0, "worker")
+        frozen = hf.prepare_base(base.d)
+        recipe = hf.Recipe(retired_agents=10, archived_items=20, read_mail=100, old_transcripts=10)
+        with tempfile.TemporaryDirectory(prefix="history-small-measure-") as folder:
+            bundle = Path(folder) / "pair"
+            start = time.perf_counter()
+            manifest = hf.build_pair(frozen, bundle, recipe)
+            build_and_verify = time.perf_counter() - start
+            (root / "history-destination.json").write_text(json.dumps(dict(
+                format=hf.FORMAT, root=str(root.resolve()), slug=base.d["slug"],
+                database_sha256=hashlib.sha256(pgstore.url().encode()).hexdigest())))
+            receipt = hp.restore(bundle, "large", root)
+            self.assertTrue(hp.verify_restored(bundle, "large", root, require_complete=True)["verified"])
+            # Source records also pass the normal transcript record ingester.
+            from orgtree import transcript_records
+            transcript = next(iter(receipt["files"]))
+            transcript_path = root / "home" / transcript
+            stats = {}
+            transcript_records.ingest("history-fixture-test", str(transcript_path), 8, stats)
+            self.assertGreaterEqual(len(transcript_records.tail("history-fixture-test", 8)), 2)
+            report = dict(source_commit=os.environ.get("ORGTREE_HISTORY_CANDIDATE"),
+                          measured_live_nodes=2, recipe=hf.asdict(recipe),
+                          manifest=manifest, build_including_verify_seconds=build_and_verify,
+                          restore=receipt, full_history_estimate=hf.estimate(frozen),
+                          limits="small serial preparation only; full estimate excludes the future N1000 active base and its current files")
+            out = os.environ.get("ORGTREE_HISTORY_REPORT")
+            if out:
+                Path(out).write_text(json.dumps(report, indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":
