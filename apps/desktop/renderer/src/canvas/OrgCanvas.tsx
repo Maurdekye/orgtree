@@ -651,7 +651,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   // the retired-list token's open menu: the parent id whose list is showing
   const [retiredOpen, setRetiredOpen] = useState<string | null>(null)
   const map = useMemo(() => flatten(vrootFull, seats), [vrootFull])   // eslint-disable-line
-  const presence = useMemo(() => treePresence(tree, slug, map), [tree, slug, map])
+  const nodeKnowledge = useMemo(() => treePresence(tree, slug, map), [tree, slug, map])
   usePersistedModalOpen('node-config', slug, configId !== null, configId ? { agent: configId, generation: map.get(configId)?.generation } : undefined)
   usePersistedModalOpen('lineage', slug, lineageId !== null, lineageId ? { agent: lineageId, generation: map.get(lineageId)?.generation } : undefined)
   usePersistedModalOpen('node-inbox', slug, inboxId !== null, inboxId ? { agent: inboxId, generation: map.get(inboxId)?.generation } : undefined)
@@ -669,7 +669,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     // Do not consume the one-shot restoration while protected identities are
     // still omitted. Generation checks run only after exact resolution.
     if ([...rows, ...pinned].some(row => row.restore?.agent
-      && !map.has(row.restore.agent) && !presence.absent(row.restore.agent))) return
+      && !map.has(row.restore.agent) && !nodeKnowledge.absent(row.restore.agent))) return
     restoredModalOrg.current = slug
     const pinnedKind = (kind: string) => pinned.some(r => r.kind === kind && isModalPinned(kind, slug))
     const agent = (kind: string) => restoredAgent(rows.find(r => r.kind === kind), map)
@@ -697,7 +697,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     setRestoredDocs(rows.filter(r => r.kind !== 'doc' && r.restore?.document))
     const unavailable = rows.filter(r => r.restore?.agent && !restoredAgent(r, map))
     if (unavailable.length) toast(['Some saved windows refer to an agent generation that is no longer available.'])
-  }, [slug, map, presence, tree.slug])
+  }, [slug, map, nodeKnowledge, tree.slug])
   // the mail-link router — STABLE identity (Msg is memoized on its props;
   // the ref carries the fresh closure). user_inbox → the eye's mailbox
   // (marking the glow seen, same as its ✉); @ext:/@org:/@mcp: → the org
@@ -1299,7 +1299,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     }
     for (const [id, n] of previous) {
       const sid = sessionOf(n)
-      if (sid && presence.absent(id)) oldBySession.set(sid, id)
+      if (sid && nodeKnowledge.absent(id)) oldBySession.set(sid, id)
     }
     for (const [id, n] of map) {
       const sid = sessionOf(n)
@@ -1308,7 +1308,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       migrateRename(from, id)
     }
     previousMapRef.current = map
-  }, [map, migrateRename, slug, tree.slug, presence])
+  }, [map, migrateRename, slug, tree.slug, nodeKnowledge])
 
   // composer drafts are keyed per node id and freed slugs are re-minted by
   // later hires (review): sweep drafts whose node no longer exists at all,
@@ -1321,8 +1321,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     // sweep in that window prunes the NEW org's storage against the OLD org's
     // node set — nearly everything. Only sweep when the two agree.
     if (tree.slug !== slug) return
-    sweepAbsentDrafts(slug, presence.absent)
-  }, [map, slug, tree.slug, presence])
+    sweepAbsentDrafts(slug, nodeKnowledge.absent)
+  }, [map, slug, tree.slug, nodeKnowledge])
 
   // G6: the SAME sweep for every other id-keyed client store. `orgtree-eyemin-`
   // (which direct lines are collapsed), `-eyeseen-` (which ones have been seen,
@@ -1334,15 +1334,15 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   useEffect(() => {
     if (!map.size) return              // never prune against a not-yet-loaded tree
     if (tree.slug !== slug) return     // mismatched-props window — see the draft sweep
-    sweepAbsentPreferences(slug, presence.absent)
+    sweepAbsentPreferences(slug, nodeKnowledge.absent)
     // `orgtree-pins-<slug>` (FR-3): a pinned window whose agent was DISSOLVED
     // (gone from the tree — a retired agent stays in `map` and keeps its
     // window). Same two guards above; a window vanishing deserves a word.
-    for (const id of prunePins(slug, (id) => !presence.absent(id))) {
+    for (const id of prunePins(slug, (id) => !nodeKnowledge.absent(id))) {
       dropConvo(slug, id)
       toast([`${id} is gone from the org — its pinned window closed`])
     }
-  }, [map, slug, tree.slug, toast, presence])
+  }, [map, slug, tree.slug, toast, nodeKnowledge])
 
   // ------------------------------------------------------- the spring engine
   useEffect(() => {
