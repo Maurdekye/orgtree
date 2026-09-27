@@ -85,13 +85,13 @@ def _snapshot(slug: str) -> Iterator[tuple[Any, dict]]:
         try:
             row = conn.raw.execute(
                 'SELECT o.org_id,o.revision,f.node_revision,f.catalog_revision,'
-                'f.node_count,f.retired_axis_count,f.cost,f.cost_unknown '
+                'f.node_count,f.retired_axis_count,f.cost,f.cost_unknown,f.view_revision '
                 'FROM public.orgs o CROSS JOIN foreground_meta f '
                 'WHERE o.org_id=%s AND f.singleton=1', (conn.org_id,)).fetchone()
             if row is None:
                 raise LedgerError('foreground index is incomplete')
             names = ('org_id', 'org_revision', 'node_revision', 'catalog_revision',
-                     'node_count', 'retired_axis_count', 'cost', 'cost_unknown')
+                     'node_count', 'retired_axis_count', 'cost', 'cost_unknown', 'view_revision')
             stamp = dict(zip(names, row))
             stamp['cost'] = str(stamp['cost'])  # exact decimal across cursor/JSON boundaries
             yield conn.raw, stamp
@@ -239,15 +239,27 @@ def _project(raw: Any, graph: dict, project: Projector | None) -> Any:
     return project(raw, graph) if project is not None else graph
 
 
+def read_snapshot(slug: str, read: Callable[[Any, dict], Any]) -> Any:
+    """Run a bounded view/cache decision inside one committed snapshot."""
+    with _snapshot(slug) as (raw, stamp):
+        return read(raw, stamp)
+
+
+def select_foreground(raw: Any, stamp: dict, include=()) -> dict:
+    """Select the foreground using an already-open snapshot, e.g. on cache miss."""
+    wanted = _wanted(include)
+    ids = [row[0] for row in raw.execute(
+        "SELECT id FROM node_index WHERE meta->>'state'<>'archived' ORDER BY ord,id").fetchall()]
+    ids.extend(wanted)
+    return _graph(raw, stamp, ids, wanted)
+
+
 def read_foreground(slug: str, include=(), *, project: Projector | None = None) -> Any:
     wanted = _wanted(include)
     with _snapshot(slug) as (raw, stamp):
         # This predicate has its own partial index. It must never be replaced
         # by a full-row scan followed by a Python filter.
-        ids = [row[0] for row in raw.execute(
-            "SELECT id FROM node_index WHERE meta->>'state'<>'archived' ORDER BY ord,id").fetchall()]
-        ids.extend(wanted)
-        return _project(raw, _graph(raw, stamp, ids, wanted), project)
+        return _project(raw, select_foreground(raw, stamp, wanted), project)
 
 
 def read_exact(slug: str, nid: str, *, project: Projector | None = None) -> Any:
