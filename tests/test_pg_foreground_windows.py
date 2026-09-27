@@ -33,6 +33,29 @@ class ForegroundWindows(unittest.TestCase):
         with fg._snapshot(self.slug) as (raw, stamp):
             return fg.read_org_inbox_window(raw)
 
+    def test_direct_header_writes_invalidate_only_after_commit(self):
+        before = fg.read_foreground(self.slug)['stamp']
+        with store._POOL.acquire(self.slug) as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            conn.execute('INSERT INTO doc(key,val) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET val=excluded.val',
+                         ('name', '"changed directly"'))
+            conn.execute('ROLLBACK')
+        self.assertEqual(fg.read_foreground(self.slug)['stamp'], before)
+        with store._POOL.acquire(self.slug) as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            conn.execute('INSERT INTO doc(key,val) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET val=excluded.val',
+                         ('name', '"changed directly"'))
+            conn.execute('COMMIT')
+        changed = fg.read_foreground(self.slug)['stamp']
+        self.assertEqual(changed['org_revision'], before['org_revision'])
+        self.assertGreater(changed['view_revision'], before['view_revision'])
+        with store._POOL.acquire(self.slug) as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            conn.execute('INSERT INTO log_l(sect,seq,val) VALUES(?,?,?)',
+                         ('user_inbox', 10000, '{"from":"@user","body":"new"}'))
+            conn.execute('COMMIT')
+        self.assertGreater(fg.read_foreground(self.slug)['stamp']['view_revision'], changed['view_revision'])
+
     def test_ask_batch_linger_and_header_match_shared_ledger_with_large_history(self):
         org = store.load_org(self.slug)
         stamp = ledger.now()

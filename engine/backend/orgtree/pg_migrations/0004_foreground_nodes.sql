@@ -200,6 +200,10 @@ LANGUAGE plpgsql SET search_path=pg_catalog,public AS $fn$
 BEGIN
  IF TG_OP='UPDATE' AND (OLD.key,OLD.val) IS NOT DISTINCT FROM (NEW.key,NEW.val)
  THEN RETURN NULL; END IF;
+ -- A direct committed settings write must invalidate a response even when
+ -- it does not use the Python save hook/public org revision. This counter is
+ -- cheap and conservative; content revisions still suppress unchanged wire.
+ EXECUTE format('UPDATE %I.foreground_meta SET view_revision=view_revision+1 WHERE singleton=1',TG_TABLE_SCHEMA);
  IF TG_OP='DELETE' OR (TG_OP='UPDATE' AND OLD.key<>NEW.key) THEN
    PERFORM public.orgtree_foreground_doc(TG_TABLE_SCHEMA,OLD.key,NULL);
  END IF;
@@ -216,6 +220,10 @@ DECLARE s text:=TG_TABLE_SCHEMA; os text; ns text; oo text; no text; ov jsonb; n
 BEGIN
  IF TG_OP='UPDATE' AND (OLD.sect,OLD.seq,OLD.val) IS NOT DISTINCT FROM (NEW.sect,NEW.seq,NEW.val)
  THEN RETURN NULL; END IF;
+ IF (TG_OP<>'INSERT' AND OLD.sect IN ('documents','org_inbox','user_inbox','work_items_archive','work_scope_log'))
+    OR (TG_OP<>'DELETE' AND NEW.sect IN ('documents','org_inbox','user_inbox','work_items_archive','work_scope_log')) THEN
+   EXECUTE format('UPDATE %I.foreground_meta SET view_revision=view_revision+1 WHERE singleton=1',s);
+ END IF;
  IF TG_OP<>'INSERT' AND OLD.sect IN ('documents','org_inbox') THEN
    os:=OLD.sect;
    oo:=CASE WHEN os='documents' THEN OLD.val::jsonb->>'node' ELSE '' END;
@@ -259,10 +267,11 @@ BEGIN
  EXECUTE format('CREATE TABLE %I.foreground_parents(parent text PRIMARY KEY,retired_children bigint NOT NULL)',s);
  EXECUTE format('CREATE TABLE %I.foreground_meta(singleton integer PRIMARY KEY CHECK(singleton=1), '
    'node_revision bigint NOT NULL,catalog_revision bigint NOT NULL,node_count bigint NOT NULL, '
+   'view_revision bigint NOT NULL DEFAULT 0, '
    'retired_axis_count bigint NOT NULL,cost numeric NOT NULL,cost_unknown bigint NOT NULL)',s);
  EXECUTE format('INSERT INTO %I.node_index(id,ord,meta) '
    'SELECT id,ord,public.orgtree_foreground_meta(val::jsonb) FROM %I.nodes',s,s);
- EXECUTE format('INSERT INTO %I.foreground_meta SELECT 1,0,0,count(*), '
+ EXECUTE format('INSERT INTO %I.foreground_meta SELECT 1,0,0,count(*),0, '
    'count(*) FILTER (WHERE meta->>''state''=''archived'' AND meta->>''successor''=''''), '
    'coalesce(sum((meta->>''cost'')::numeric),0),count(*) FILTER (WHERE meta->>''cost_unknown''=''true'') '
    'FROM %I.node_index',s,s);
