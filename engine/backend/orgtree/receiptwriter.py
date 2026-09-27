@@ -19,6 +19,9 @@ class Prepared:
     replacements: tuple[tuple[str, str | None, bool], ...]
     deletes: tuple[tuple[str, str, str], ...]
     writes: tuple[tuple[str, str, str, str | None, bool], ...]
+    # Set for a view loaded inside an org_tx: freshness comes from that
+    # transaction's locks and owner versions, not from the org revision.
+    bound: receiptmapping.TxBinding | None = None
 
     @property
     def owners(self) -> frozenset[str]:
@@ -51,7 +54,7 @@ def prepare(section: receiptmapping.ReceiptSection) -> Prepared:
     owners = {row[0] for rows in (replacements, deletes, writes) for row in rows}
     return Prepared(section.slug, section.revision,
                     tuple((owner, section.versions[owner]) for owner in sorted(owners)),
-                    tuple(replacements), tuple(deletes), tuple(writes))
+                    tuple(replacements), tuple(deletes), tuple(writes), section.bound)
 
 
 def apply(raw: Any, org_id: int, plan: Prepared) -> frozenset[str]:
@@ -65,7 +68,14 @@ def apply(raw: Any, org_id: int, plan: Prepared) -> frozenset[str]:
         raise RuntimeError('receipt write organization/schema mismatch')
     current = raw.execute('SELECT slug,revision FROM public.orgs WHERE org_id=%s',
                           (org_id,)).fetchone()
-    if current != (plan.slug, plan.revision):
+    if plan.bound is not None:
+        # Concurrent disjoint org_tx commits legitimately advance the revision.
+        # The plan must be applied in the transaction that loaded it; owner
+        # versions below still refuse any concurrent change to these owners.
+        if (plan.bound.conn(plan.slug).raw is not raw or current is None
+                or current[0] != plan.slug):
+            raise receiptmapping.StaleReceipts('receipt write outside its transaction')
+    elif current != (plan.slug, plan.revision):
         raise receiptmapping.StaleReceipts('receipt write view changed')
     if not plan.owners:
         return frozenset()
@@ -156,9 +166,12 @@ def adoption_after_revision(conn: Any, section: receiptmapping.ReceiptSection,
                             plan: Prepared) -> Adoption:
     """Capture adoption after on_save_commit, BEFORE the real COMMIT.
 
-    A consecutive revision proves that no other org commit was missed between
-    the original snapshot and our revision update. On a gap refuse while the
-    enclosing transaction can still roll back; never retag stale cached owners.
+    For a snapshot view, a consecutive revision proves that no other org commit
+    was missed between the original snapshot and our revision update. A
+    transaction-bound view needs no such proof: its owners were read and written
+    under this transaction's locks, and owner versions guarded the write. On a
+    gap refuse while the enclosing transaction can still roll back; never retag
+    stale cached owners.
     The caller queues install through receiptcommit, or calls it after its own
     successful standalone COMMIT. Merely constructing this value cleans nothing.
     """
@@ -166,11 +179,18 @@ def adoption_after_revision(conn: Any, section: receiptmapping.ReceiptSection,
     conn.use()
     if conn.slug != plan.slug or prepare(section) != plan:
         raise receiptmapping.StaleReceipts('receipt mapping changed before commit')
-    row = conn.raw.execute('SELECT slug,revision FROM public.orgs WHERE org_id=%s',
-                           (conn.org_id,)).fetchone()
-    expected = plan.revision + (1 if conn.last_revision is not None else 0)
-    if row != (plan.slug, expected) or (conn.last_revision is not None and conn.last_revision != expected):
-        raise receiptmapping.StaleReceipts('receipt snapshot missed an intervening commit')
+    if plan.bound is not None:
+        # A transaction-bound view is not a revision-tagged cache: it keeps its
+        # load revision and refuses lazy reads once the transaction ends.
+        if plan.bound.conn(plan.slug) is not conn:
+            raise receiptmapping.StaleReceipts('receipt adoption outside its transaction')
+        expected = plan.revision
+    else:
+        row = conn.raw.execute('SELECT slug,revision FROM public.orgs WHERE org_id=%s',
+                               (conn.org_id,)).fetchone()
+        expected = plan.revision + (1 if conn.last_revision is not None else 0)
+        if row != (plan.slug, expected) or (conn.last_revision is not None and conn.last_revision != expected):
+            raise receiptmapping.StaleReceipts('receipt snapshot missed an intervening commit')
     if plan.owners and conn.last_revision is None:
         raise RuntimeError('receipt writes require revision publication before adoption')
     summaries = tuple(conn.raw.execute(
