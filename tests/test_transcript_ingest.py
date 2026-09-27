@@ -92,8 +92,7 @@ class CaptureTests(unittest.TestCase):
         self.assertTrue(self.backfill());self.assertFalse(self.backfill())
         vpath=Path(sup._prompt_view_path(slug,sid));vpath.parent.mkdir(parents=True,exist_ok=True)
         with vpath.open('a',encoding='utf8') as f:
-            f.write(json.dumps({'v':1,'sha256':'0'*64,'chars':1,'visible':'x','at':'2026-09-27T00:00:00Z'})+'
-')
+            f.write(json.dumps({'v':1,'sha256':'0'*64,'chars':1,'visible':'x','at':'2026-09-27T00:00:00Z'})+'\n')
         self.assertTrue(self.backfill(),'a grown sidecar was skipped')
         self.assertFalse(self.backfill())
     def test_a_fresh_source_is_never_skipped(self):
