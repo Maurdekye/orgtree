@@ -22,6 +22,9 @@ class Prepared:
     # Set for a view loaded inside an org_tx: freshness comes from that
     # transaction's locks and owner versions, not from the org revision.
     bound: receiptmapping.TxBinding | None = None
+    # Owner-version view: freshness is each written owner's version (checked
+    # FOR UPDATE below), not the org revision.
+    versioned: bool = False
 
     @property
     def owners(self) -> frozenset[str]:
@@ -54,7 +57,8 @@ def prepare(section: receiptmapping.ReceiptSection) -> Prepared:
     owners = {row[0] for rows in (replacements, deletes, writes) for row in rows}
     return Prepared(section.slug, section.revision,
                     tuple((owner, section.versions[owner]) for owner in sorted(owners)),
-                    tuple(replacements), tuple(deletes), tuple(writes), section.bound)
+                    tuple(replacements), tuple(deletes), tuple(writes), section.bound,
+                    section.versioned)
 
 
 def apply(raw: Any, org_id: int, plan: Prepared) -> frozenset[str]:
@@ -75,6 +79,9 @@ def apply(raw: Any, org_id: int, plan: Prepared) -> frozenset[str]:
         if (plan.bound.conn(plan.slug).raw is not raw or current is None
                 or current[0] != plan.slug):
             raise receiptmapping.StaleReceipts('receipt write outside its transaction')
+    elif plan.versioned:
+        if current is None or current[0] != plan.slug:
+            raise receiptmapping.StaleReceipts('receipt write view changed')
     elif current != (plan.slug, plan.revision):
         raise receiptmapping.StaleReceipts('receipt write view changed')
     if not plan.owners:
@@ -154,6 +161,15 @@ class Adoption:
             value = section._data[owner]
             if isinstance(value, receiptmapping.ReceiptOwner):
                 value.count, value.version = count, version
+        if section.snapshot is not None:
+            for owner, encoded, _ in self.plan.replacements:
+                if encoded is None:
+                    section.snapshot.pop(owner, None)
+            for owner, count, version in self.summaries:
+                section.snapshot[owner] = (count, version)
+                value = section._data.get(owner)
+                if isinstance(value, receiptmapping.ReceiptOwner):
+                    value.versioned = True
         section.deleted.clear()
         section.reinserted.clear()
         section.revision = self.revision
@@ -184,6 +200,10 @@ def adoption_after_revision(conn: Any, section: receiptmapping.ReceiptSection,
         # load revision and refuses lazy reads once the transaction ends.
         if plan.bound.conn(plan.slug) is not conn:
             raise receiptmapping.StaleReceipts('receipt adoption outside its transaction')
+        expected = plan.revision
+    elif plan.versioned:
+        # Per-owner views: the written owners' new versions are read below in
+        # this transaction; every other owner keeps its own checked version.
         expected = plan.revision
     else:
         row = conn.raw.execute('SELECT slug,revision FROM public.orgs WHERE org_id=%s',

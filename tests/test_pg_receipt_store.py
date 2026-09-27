@@ -153,11 +153,49 @@ class ReceiptStore(unittest.TestCase):
             refreshed = store.cached_org(self.slug)
         self.assertIn('seen', refreshed.d['mail_transitions']['empty'])
 
-    def test_snapshot_view_refuses_a_lazy_read_after_a_later_commit(self):
+    def other_writer_puts(self, owner, token):
+        with self.raw() as raw:
+            receiptstore.put(raw, self.oid, owner, token, receipt(owner, token, token))
+
+    def test_snapshot_view_reads_exactly_after_an_unrelated_commit(self):
         snapshot = store.cached_org(self.slug)
+        self.assertTrue(snapshot.d['mail_transitions'].versioned)
         self.unrelated_save(2)
+        self.other_writer_puts('empty', 'later')     # another owner changes too
+        self.assertEqual(snapshot.d['mail_transitions']['z']['op'], self.value['z']['op'])
+        self.assertNotIn('ghost', snapshot.d['mail_transitions'])
+
+    def test_snapshot_view_refuses_an_owner_changed_after_it_was_taken(self):
+        snapshot = store.cached_org(self.slug)
+        self.other_writer_puts('z', 'later')
+        with self.assertRaisesRegex(receiptmapping.StaleReceipts, 'owner changed'):
+            snapshot.d['mail_transitions']['z']['op']
+
+    def test_missing_owner_is_answered_from_the_loaded_summary(self):
+        org = store.load_org(self.slug)
+        with patch.object(receiptmapping, '_read', side_effect=AssertionError('query')):
+            self.assertIsNone(org.d['mail_transitions'].get('ghost'))
+            self.assertEqual(org.d['mail_transitions'].owner_keys(), ['z', 'empty'])
+
+    def test_standalone_save_survives_an_unrelated_concurrent_commit(self):
+        org = store.load_org(self.slug)
+        org.d['mail_transitions']['z']['op']['extension']['note'] = 'after commit'
+        self.other_writer_puts('empty', 'concurrent')
+        store.save_org(org)
+        self.assertEqual(self.export()['z']['op']['extension']['note'], 'after commit')
+        self.assertEqual(store._resident_dirty(org.d), [])
+
+    def test_standalone_save_refuses_a_concurrent_change_to_the_same_owner(self):
+        org = store.load_org(self.slug)
+        org.d['mail_transitions']['z']['op']['extension']['note'] = 'mine'
+        self.other_writer_puts('z', 'theirs')
         with self.assertRaises(receiptmapping.StaleReceipts):
-            snapshot.d['mail_transitions']['empty']
+            store.save_org(org)
+        self.assertEqual(store._resident_dirty(org.d), ['mail_transitions'],
+                         'a refused write must stay pending')
+        actual = self.export()
+        self.assertIn('theirs', actual['z'])
+        self.assertEqual(actual['z']['op'], self.value['z']['op'])
 
     # -- resident ---------------------------------------------------------
     def test_resident_advance_retags_a_clean_view(self):

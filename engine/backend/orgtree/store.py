@@ -3937,7 +3937,13 @@ def _receipt_view(conn: sqlite3.Connection, slug: str, *, bind: bool
         raise LedgerError(f"no such org: {slug!r}")
     bound = (receiptmapping.binding(slug)
              if bind and getattr(conn, "pinned", False) else None)
-    return (True, receiptmapping.ReceiptSection(slug, int(rev[0]), bound))
+    # An unbound view preloads every owner's summary in THIS transaction
+    # (O(owners), never receipts): its later reads check that owner's version,
+    # so unrelated commits do not invalidate a cached or resident view.
+    owners = None if bound is not None else [
+        (cast(str, o), int(n), int(v)) for o, n, v in conn.execute(
+            "SELECT owner, nrows, version FROM receipt_owners ORDER BY ord").fetchall()]
+    return (True, receiptmapping.ReceiptSection(slug, int(rev[0]), bound, owners))
 
 
 def _is_receipt_view(v: Any) -> bool:
