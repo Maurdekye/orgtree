@@ -124,6 +124,7 @@ if (mode === 'build') {
     injectContentVisibility: process.env.ORGTREE_PAINT_INJECT_CV === '1',
     trace: process.env.ORGTREE_PAINT_TRACE === '1',
     zoomNotches: Number(process.env.ORGTREE_PAINT_ZOOM_NOTCHES || 4),
+    treeFirst: process.env.ORGTREE_PAINT_TREE_FIRST === '1',
     descriptor: descriptorPath, descriptorSummary: descriptor && publicDescriptor(descriptor),
     org: descriptor?.org, label: options.label, loadDir, started: Date.now() }
   write(path.join(output, 'run.json'), run)

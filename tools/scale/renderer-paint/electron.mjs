@@ -1,4 +1,4 @@
-import { app, BrowserWindow, contentTracing, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import http from 'node:http'
@@ -89,14 +89,33 @@ async function profiled(tag, run, cpu = true) {
   const metrics = async () => Object.fromEntries((await cdp('Performance.getMetrics')).metrics.map(m => [m.name, m.value]))
   const before = await metrics()
   if (cpu) await cdp('Profiler.start')
-  // Opt-in timeline trace (no CPU sampling): tasks, style, layout, paint,
-  // raster and frames across renderer and GPU processes.
-  if (run.trace) await contentTracing.startRecording({ included_categories: ['toplevel', 'devtools.timeline',
-    'disabled-by-default-devtools.timeline', 'disabled-by-default-devtools.timeline.frame', 'blink', 'blink.user_timing',
-    'cc', 'viz', 'gpu', 'v8.execute'], excluded_categories: ['*'] })
+  // Opt-in timeline trace (no CPU sampling) through this page's own CDP
+  // session, returned as a stream on stop: tasks, style, layout, paint and
+  // frames. (Electron contentTracing blocked shutdown in 1d.)
+  if (run.trace) await cdp('Tracing.start', { transferMode: 'ReturnAsStream', traceConfig: {
+    includedCategories: ['toplevel', 'devtools.timeline', 'disabled-by-default-devtools.timeline',
+      'disabled-by-default-devtools.timeline.frame', 'blink.user_timing', 'v8.execute', 'cc', 'viz'],
+    excludedCategories: ['*'] } })
   let row
   try { row = await run() } finally {
-    if (run.trace) await contentTracing.stopRecording(path.join(run_output(), `trace-${tag}.json`))
+    if (run.trace) {
+      const done = new Promise(resolve => {
+        const on = (_e, method, params) => { if (method === 'Tracing.tracingComplete') {
+          win.webContents.debugger.off('message', on); resolve(params.stream) } }
+        win.webContents.debugger.on('message', on)
+      })
+      await cdp('Tracing.end')
+      const handle = await Promise.race([done, sleep(15000).then(() => null)])
+      if (!handle) throw Error('trace stream did not complete within15s')
+      const chunks = []
+      for (;;) {
+        const part = await cdp('IO.read', { handle, size: 1 << 20 })
+        chunks.push(part.base64Encoded ? Buffer.from(part.data, 'base64').toString('utf8') : part.data)
+        if (part.eof) break
+      }
+      await cdp('IO.close', { handle })
+      fs.writeFileSync(path.join(run_output(), `trace-${tag}.json`), chunks.join(''))
+    }
     if (cpu) {
       const { profile } = await cdp('Profiler.stop')
       fs.writeFileSync(path.join(run_output(), `profile-${tag}.cpuprofile`), JSON.stringify(profile))
@@ -270,7 +289,11 @@ app.whenReady().then(async () => {
     await until(() => js('!!document.querySelector(".shell-mode")'))
     // Label stable mode controls locally without changing behavior or React state.
     await js(`document.querySelectorAll('.shell-mode').forEach(e=>e.dataset.paintMode=e.textContent.trim().startsWith('Attention')?'attention':'canvas')`)
-    if (run.treeMeasurement) {
+    // ⚠ ORDER: by default this block runs AFTER the Attention clicks, so its
+    // pan/zoom/pile state cannot precede them (it raised the first select to
+    // ~140 ms in half the runs). ORGTREE_PAINT_TREE_FIRST=1 restores the old
+    // order, for that diagnosis only.
+    const treeBlock = async () => {
       // Canvas at rest: the selected tree, the steady heap after forced GC,
       // and the retired pile's click-to-feedback paint. Observation only.
       const memory = async () => {
@@ -374,6 +397,7 @@ app.whenReady().then(async () => {
           'Tree rows are counted from the wire body the proxy relayed (nodes, references or legacy roots).',
           'N10 queued-mail synthetic demand; not N1000 or completed provider turns.'] })
     }
+    if (run.treeMeasurement && run.treeFirst) await treeBlock()
     // 1c arms, harness only. B: an unmeasured real click on the canvas's own
     // fit control. C: the candidate rule injected as a page style (no product
     // source change); `.canvas-world` is display:contents, so it targets the
@@ -474,6 +498,11 @@ app.whenReady().then(async () => {
         save('return.json', { samples: returnSamples, arms: { fitBeforeAttention: !!run.fitBeforeAttention,
           injectContentVisibility: !!run.injectContentVisibility } })
       }
+    }
+    if (run.treeMeasurement && !run.treeFirst) {
+      if (await js('document.querySelector(".attn-stage")?.dataset.attentionActive === "yes"'))
+        await action('tree-canvas', '[data-paint-mode=canvas]', 'document.querySelector(".attn-stage")?.dataset.attentionActive !== "yes" && !document.querySelector(".canvas-world-hidden")', { measured: false })
+      await treeBlock()
     }
     loadNow()
     const from = await js('window.__paintProbe.feedStart()')
