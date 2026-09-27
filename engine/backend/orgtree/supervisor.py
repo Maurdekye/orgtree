@@ -20049,7 +20049,8 @@ def _admission_rows(slug: str, nid: str, *, compact: bool = False
                 "share_sections": share, "logs": own["logs"]}
     gen, parent = 0, None
     try:
-        n = store.cached_org(slug).nodes.get(nid)
+        from .foreground_reads import node_gates
+        n = node_gates(slug, nid)["node"]
         gen = int((n or {}).get("generation") or 0)
         parent = (n or {}).get("parent")
     except Exception:                                    # noqa: BLE001
@@ -20150,7 +20151,8 @@ def _report_plans(slug: str, nid: str, *, attempts: int = 3
     storm only costs retries."""
     for _ in range(attempts):
         try:
-            n = store.cached_org(slug).nodes.get(nid) or {}
+            from .foreground_reads import node_gates
+            n = node_gates(slug, nid)["node"] or {}
             sup = str(n.get("parent") or "")
         except Exception:                                # noqa: BLE001
             sup = ""
@@ -26380,7 +26382,11 @@ def _after_turn(slug: str, nid: str, org: Org, res: dict[str, Any],
         # `org` is intentionally not trusted here: it predates that tool call.
         # Manual /compact is unaffected; only this automatic split stands down.
         try:
-            if _reported_working(store.load_org(slug).node(nid)):
+            from .foreground_reads import node_gates
+            current = node_gates(slug, nid, fresh=True)["node"]
+            if current is None:
+                raise LedgerError(f"no such node: {nid!r}")
+            if _reported_working(current):
                 return
         except LedgerError:
             return

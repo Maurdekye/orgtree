@@ -471,7 +471,8 @@ SETTLER_POLL_MAX = 5.0    # …backing off to this, so a long settle is not a sp
 # own copy under the lock, because everything below this block writes.
 def _node(slug: str, nid: str):
     try:
-        return store.cached_org(slug).nodes.get(nid)
+        from .foreground_reads import node_gates
+        return node_gates(slug, nid)["node"]
     except LedgerError:
         return None
 

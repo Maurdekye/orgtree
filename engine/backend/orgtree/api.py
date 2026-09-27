@@ -12815,15 +12815,22 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             # document. Nothing in here saves — `send_file` is filesystem-only
             # and the rest render a payload — so the read-only contract on
             # `store.cached_org` holds. It is `org_seq`-guarded, not time-based.
-            org = store.cached_org(body.org)
-            org.node(body.node)
+            if body.tool in ("orgtree_list_orgs", "orgtree_list_tiers"):
+                from .foreground_reads import node_gates
+                pre = node_gates(body.org, body.node, ("killswitch",))
+                seat = pre["node"]
+                if seat is None:
+                    raise LedgerError(f"no such node: {body.node!r}")
+            else:
+                org = store.cached_org(body.org)
+                org.node(body.node)
             if body.tool == "orgtree_list_orgs":
                 # fence-off S5: off the write cycle, with the two refusals
                 # the cycle gave it (same words)
-                if org.node(body.node).get("halt"):
+                if seat.get("halt"):
                     raise LedgerError("agent is halted — tools cannot "
                                       "execute until unhalt")
-                if org.d.get("killswitch"):
+                if pre.get("killswitch"):
                     raise LedgerError("the org killswitch is latched — tools "
                                       "cannot execute until the user "
                                       "releases it")
@@ -12831,7 +12838,8 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             if body.tool == "orgtree_list_tiers":
                 # Provider discovery may probe a CLI or API behind its own
                 # short cache. Keep that I/O outside the global document lock.
-                org._require_live(body.node)
+                if seat["state"] != "live":
+                    raise LedgerError(f"{body.node} is {seat['state']}, not live")
                 try:
                     return _tier_discovery_payload()
                 except RuntimeError as e:
