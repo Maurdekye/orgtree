@@ -2,6 +2,7 @@
 from dataclasses import dataclass, replace
 import threading
 import time
+from urllib.parse import quote
 
 WINDOWS = ("docket", "desk", "attention", "org-chooser")
 
@@ -212,6 +213,151 @@ def tree_delta(base, wire):
     return top
 
 
+FOREGROUND_FORMAT = "orgtree.foreground-tree/v1"
+
+
+class ForegroundControl(Exception):
+    def __init__(self, kind, inferred=False):
+        super().__init__(kind)
+        self.kind, self.inferred = kind, inferred
+
+
+def foreground_answer(response):
+    """foregroundtree.ts `answer`: route-less or non-foreground servers are compatibility."""
+    if response.status_code == 404:
+        raise ForegroundControl("compatibility", True)
+    try:
+        body = response.json()
+    except ValueError:
+        if response.is_success:
+            raise ForegroundControl("compatibility", True)
+        raise RuntimeError(f"foreground request failed ({response.status_code})")
+    if response.status_code == 409 and isinstance(body, dict) and body.get("kind") in ("reset", "compatibility"):
+        raise ForegroundControl(body["kind"])
+    response.raise_for_status()
+    if not isinstance(body, dict) or "format" not in body:
+        raise ForegroundControl("compatibility", True)
+    if body["format"] != FOREGROUND_FORMAT:
+        raise ValueError("invalid foreground tree boundary")
+    return body
+
+
+def visible_parents(snapshot):
+    """treeview.ts `visibleParents` with no saved fronts: the LAST retired sibling fronts each pile."""
+    out, nodes = [], snapshot["nodes"]
+    stack = [(snapshot["roots"], "", snapshot["header"].get("hidden_retired_roots", 0))]
+    while stack:
+        ids, parent, omitted = stack.pop()
+        rows = [nodes[i] for i in ids]
+        retired = [row for row in rows if row.get("state") == "archived"]
+        if omitted + len(retired) > 0:
+            out.append(parent)
+        front = retired[-1] if retired else None
+        stack += [(row.get("children", []), row["id"], row.get("hidden_retired_children", 0))
+                  for row in reversed(rows) if row.get("state") != "archived" or row is front]
+    return out
+
+
+class ForegroundTree:
+    """App's tree read since e1be6a2: api.getAppTree -> TreeViewReader -> ForegroundTreeReader.
+
+    Selection is the saved desk identity only, hideRetired off (the product
+    default), no saved fronts, no browse. A (re)plan costs one first-child and
+    one last-child page per visible pile parent, then a re-read; later reads are
+    one conditional GET while the catalog holds. A compatibility answer falls
+    back to the legacy conditional full read for 30 s (inferred) or 600 s.
+    """
+    def __init__(self, slug, include=()):
+        self.base = f"/api/orgs/{slug}/foreground-tree"
+        self.include = set(include)
+        self.plan = None                                # (include, catalog)
+        self.unavailable_until = 0.
+        self.invalidate()
+
+    def invalidate(self):                               # invalidateTreeCache: reader cache only
+        self.etag = self.snapshot = self.key = None
+
+    def get(self, send, include):
+        names = sorted(set(include))
+        key, hit = tuple(names), self.key == tuple(names)
+        for _ in range(2):
+            query = "&".join("include=" + quote(i, safe="") for i in names)
+            response = send("org_tree", self.base + ("?" + query if query else ""), self.etag if hit else None)
+            if response.status_code == 304:
+                catalog = response.headers.get("x-orgtree-catalog-rev")
+                if hit and self.snapshot and not (catalog and catalog != self.snapshot["catalog_revision"]):
+                    return self.snapshot
+                hit = False
+                continue
+            try:
+                body = foreground_answer(response)
+            except ForegroundControl as exc:
+                if exc.kind != "reset":
+                    raise
+                hit = False
+                continue
+            if body.get("kind") == "delta":
+                base = self.snapshot if hit else None
+                if not base or base["revision"] != body.get("base"):
+                    hit = False
+                    continue
+                nodes = dict(base["nodes"])
+                for i in body["removed"]:
+                    nodes.pop(i, None)
+                for i, patch in body["nodes"].items():
+                    nodes[i] = {k: v for k, v in {**nodes.get(i, {}), **patch["set"]}.items() if k not in patch["unset"]}
+                header = {k: v for k, v in {**base["header"], **body["header"]["set"]}.items()
+                          if k not in body["header"]["unset"]}
+                body = {**body, "kind": "snapshot", "nodes": nodes, "header": header}
+            elif body.get("kind") != "snapshot":
+                raise ValueError("unexpected foreground tree response")
+            etag = response.headers.get("etag")
+            self.etag, self.snapshot, self.key = (etag, body, key) if etag else (None, None, None)
+            return body
+        raise ForegroundControl("reset")
+
+    def page(self, send, parent, edge=None):
+        url = f"{self.base}/children?parent={quote(parent, safe='')}&limit=1" + ("&edge=last" if edge else "")
+        return foreground_answer(send("org_tree_page", url, None))
+
+    def read(self, send, legacy):
+        if time.time() < self.unavailable_until:
+            return legacy()
+        for attempt in range(2):
+            try:
+                requested = set(self.include)
+                plan = self.plan if attempt == 0 else None
+                answer = self.get(send, plan[0] if plan else requested)
+                if plan and plan[1] == answer["catalog_revision"]:
+                    return answer
+                if plan:
+                    answer = self.get(send, requested)
+                catalog, resolved = answer["catalog_revision"], set()
+                while True:
+                    for parent in [p for p in visible_parents(answer) if p not in resolved]:
+                        resolved.add(parent)
+                        for edge in (None, "last"):
+                            page = self.page(send, parent, edge)
+                            if page["catalog_revision"] != catalog:
+                                raise ForegroundControl("reset")
+                            requested.update(page["matches"])
+                    if len(requested) > 128:
+                        return legacy()
+                    answer = self.get(send, requested)
+                    if answer["catalog_revision"] != catalog:
+                        raise ForegroundControl("reset")
+                    if all(p in resolved for p in visible_parents(answer)):
+                        break
+                self.plan = (sorted(requested), catalog)
+                return answer
+            except ForegroundControl as exc:
+                if exc.kind == "compatibility":
+                    self.unavailable_until = time.time() + (30 if exc.inferred else 600)
+                    return legacy()
+                self.plan = None
+        return legacy()
+
+
 class WindowDriver:
     def __init__(self, slug, watch, window, origin, headers, rec, stop, *, workers=16):
         from control import BoundedPool
@@ -223,6 +369,8 @@ class WindowDriver:
         self.pool = BoundedPool(workers)
         self.cache = {h.name: Conditional("orgtree.work-foreground/v1" if h.name == "work_items" else None)
                       for h in self.clock.specs.values() if h.conditional}
+        # App reads the selected tree; a desk's saved identity rides the selection.
+        self.tree_view = ForegroundTree(slug, [watch] if WINDOWS[window % len(WINDOWS)] == "desk" else [])
         self.started = 0
         # Chromium's HTTP/1 per-origin connection budget applies to all
         # independent hooks in a window, not a fresh pool for every worker.
@@ -234,6 +382,7 @@ class WindowDriver:
             if frame.get("type") == "node_stream" and frame.get("kind") in (
                     "cache_forecast", "mcp_tool_count", "mcp_readiness"):
                 self.cache["org_tree"] = Conditional()
+                self.tree_view.invalidate()
             if self.started:
                 self.clock.event(frame, time.time() - self.started, self.watch)
 
@@ -254,7 +403,54 @@ class WindowDriver:
             self.pool.shutdown(cancel_pending=self.stop.is_set())
             self.client.close()
 
+    def fetch_tree(self, hook, due):
+        """One App tree read: every HTTP request it costs is its own `ui` row."""
+        mark = [due]
+
+        def send(route, url, etag):
+            headers = dict(self.headers, **{"X-Scale-Kind": "ui:" + route})
+            if etag:
+                headers["If-None-Match"] = etag
+            begun, status, err, size, wire = time.time(), None, None, 0, 0
+            try:
+                response = self.client.get(url, headers=headers)
+                status, size, wire = response.status_code, len(response.content), response.num_bytes_downloaded
+                if status not in (200, 304) and not (route != "org_tree_legacy" and status in (404, 409)):
+                    err = response.text[:200]
+                return response
+            except Exception as exc:
+                err = f"{type(exc).__name__}: {exc}"[:200]
+                raise
+            finally:
+                ended = time.time()
+                self.rec.write("ui", {"t": begun - self.started, "w": self.window, "route": route,
+                    "url": url, "status": status, "bytes": size, "wire_bytes": wire, "err": err,
+                    "ms": (ended - begun) * 1000, "late_ms": (begun - mark[0]) * 1000,
+                    "total_ms": (ended - mark[0]) * 1000})
+                mark[0] = ended
+
+        def legacy():
+            cache = self.cache["org_tree"]
+            response = send("org_tree_legacy", hook.url, cache.etag)
+            body = response.json() if response.status_code == 200 else None
+            cache.accept(response.status_code, response.headers, body)
+            return body
+
+        try:
+            self.tree_view.read(send, legacy)
+        except Exception as exc:
+            # A read the App would not accept fails the run; never a silent pass.
+            self.rec.write("ui", {"t": time.time() - self.started, "w": self.window,
+                "route": "org_tree", "url": "<tree read>", "status": None, "bytes": 0,
+                "wire_bytes": 0, "err": f"{type(exc).__name__}: {exc}"[:200],
+                "ms": 0, "late_ms": 0, "total_ms": (time.time() - due) * 1000})
+        finally:
+            with self.lock:
+                self.clock.complete(hook.name, None, hook.request_serial)
+
     def fetch(self, hook, due):
+        if hook.name == "org_tree":
+            return self.fetch_tree(hook, due)
         begun = time.time()
         status, err, size, wire, payload = None, None, 0, 0, None
         headers = dict(self.headers)
