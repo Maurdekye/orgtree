@@ -562,6 +562,7 @@ def _begin_create(raw: Any, slug: str) -> int:
                       (slug,)).fetchone()
     org_id = int(row[0])
     raw.execute("SELECT orgtree_create_org_schema(%s)", (org_id,))
+    raw.execute("SELECT public.orgtree_install_mail_bounds(%s)", (org_id,))
     return org_id
 
 

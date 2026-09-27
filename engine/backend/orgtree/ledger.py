@@ -2704,7 +2704,7 @@ class Org:
         and then ask this what the value is."""
         return value if isinstance(value, str) and value else None
 
-    def _assigned_recv_max(self, to: str) -> int:
+    def _assigned_recv_max(self, to: str, *, bounded: bool = False) -> int:
         """The largest ordinal ALREADY assigned anywhere this mailbox's rows
         can still be seen: pending box, archive, and the delivery journal.
 
@@ -2715,9 +2715,13 @@ class Org:
         hand out an ordinal already in use. It can also sit AHEAD of them, and
         allocating from this value alone would let those rows silently rewind
         the counter. Allocation takes the maximum of both."""
-        best = 0
-        for rows in (((self.d.get("mail") or {}).get(to) or []),
-                     ((self.d.get("mail_log") or {}).get(to) or [])):
+        from . import store
+        archived = store.mail_archive_max(self.d, to) if bounded else None
+        best = archived or 0
+        sources = [((self.d.get("mail") or {}).get(to) or [])]
+        if archived is None:
+            sources.append((self.d.get("mail_log") or {}).get(to) or [])
+        for rows in sources:
             for m in rows:
                 if isinstance(m, dict):
                     seq = self._recv_ordinal(m.get("recv_seq"))
@@ -2792,7 +2796,7 @@ class Org:
         if n is None:
             return []
         base = max(self._stored_high_water(n.get("mail_seq")) or 0,
-                   self._assigned_recv_max(to))
+                   self._assigned_recv_max(to, bounded=True))
         seqs = list(range(base + 1, base + 1 + max(0, int(count))))
         if seqs:
             n["mail_seq"] = seqs[-1]
@@ -2854,6 +2858,9 @@ class Org:
         else:
             box[at] = row
         if archive:
+            from . import store
+            if archive_keep is None and supersede is None and store.mail_archive_append(self.d, to, dict(row)):
+                return row
             log = cast("dict[str, list[dict[str, Any]]]",
                        self.d.setdefault("mail_log", {})).setdefault(to, [])
             log.append(dict(row))

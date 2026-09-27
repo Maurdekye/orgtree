@@ -72,14 +72,17 @@ def _dedupe(xs: Iterable[Any]) -> list[Any]:
 
 def send_rows(*recipients: str) -> dict[str, list[Any]]:
     """The `org_tx` names for a send (mail or notice) to `recipients`:
-    each agent recipient's node row, pending box and mail_log owner; the
+    each agent recipient's node row and pending box, plus archive append permission; the
     user inbox for mail to the user. (A recipient here is a node id — which
     is also its name, so `post_mail`'s resolution maps it to itself.)"""
     nodes = [r for r in recipients if r and r != USER and not r.startswith("@")]
     sections: list[Any] = [*SEND_SECTIONS, *(("mail", r) for r in nodes)]
     if USER in recipients:
         sections.append("user_inbox")
-    logs: list[Any] = list(SEND_LOGS) + [("mail_log", r) for r in nodes]
+    # Recipients serialize on their node rows. A plain log name permits the
+    # bounded append without locking every historical archive row. Edits on
+    # legacy/fallback paths retain the store's row CAS checks.
+    logs: list[Any] = list(SEND_LOGS) + (["mail_log"] if nodes else [])
     return {"nodes": _dedupe(nodes), "sections": _dedupe(sections), "logs": _dedupe(logs)}
 
 

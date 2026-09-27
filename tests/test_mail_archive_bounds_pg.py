@@ -1,0 +1,169 @@
+"""Actual PostgreSQL assignment, append, migration and rollback controls."""
+import json
+import os
+import threading
+import unittest
+import uuid
+from unittest.mock import patch
+from urllib.parse import urlsplit, urlunsplit
+
+ADMIN = os.environ.get('ORGTREE_TEST_PG_ADMIN_URL', '').strip()
+DBNAME = f'orgtree_mail_bounds_t{os.getpid()}'
+if ADMIN:
+    import psycopg
+    with psycopg.connect(ADMIN, autocommit=True) as conn:
+        conn.execute(f'CREATE DATABASE {DBNAME}')
+    url = urlsplit(ADMIN)
+    os.environ['ORGTREE_PG_URL'] = urlunsplit((url.scheme, url.netloc, '/' + DBNAME, url.query, url.fragment))
+    os.environ['ORGTREE_STORE'] = 'postgres'
+
+import import_provenance  # noqa: E402,F401
+from orgtree import ledger, mailtx, orgtx, pgstore, store  # noqa: E402
+
+
+def tearDownModule():
+    if ADMIN:
+        pgstore.close_idle()
+        with psycopg.connect(ADMIN, autocommit=True) as conn:
+            conn.execute(f'DROP DATABASE {DBNAME} WITH (FORCE)')
+
+
+@unittest.skipUnless(ADMIN, 'ORGTREE_TEST_PG_ADMIN_URL not set: NOT RUN')
+class MailArchiveBounds(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        pgstore.migrate(os.environ['ORGTREE_PG_URL'])
+
+    def setUp(self):
+        org = store.create_org('mail-bounds-' + uuid.uuid4().hex[:8])
+        org.hire(ledger.USER, None, 'luna', 0, 'worker')
+        self.slug = org.d['slug']
+        for i in range(1, 10):
+            org.deposit_mail('worker', {'id': f'm{i}', 'from': 'sender', 'at': f'{i:02}', 'body': 'old'})
+        org.d['mail']['worker'] = []
+        org.node('worker')['mail_seq'] = 0  # deliberately behind its archive
+        store.save_org(org)
+        self.addCleanup(lambda: store._POOL.close_all(self.slug))
+
+    def tx(self):
+        return orgtx.org_tx(self.slug, **mailtx.send_rows('worker'))
+
+    def query(self, sql, args=()):
+        with store._POOL.acquire(self.slug) as conn:
+            return conn.execute(sql, args).fetchall()
+
+    def bound(self):
+        return self.query("SELECT nrows,assigned_max,unknown_rows FROM mail_archive_bounds WHERE owner='worker'")[0]
+
+    def send(self, body='new'):
+        with self.tx() as tx:
+            return dict(tx.org.deposit_mail('worker', {'id': uuid.uuid4().hex, 'body': body}))
+
+    def test_ordinary_send_never_materializes_archive_and_advances_both_floors(self):
+        original = store.SectionMap._load_owner
+        def guarded(log, owner):
+            if log._sect == 'mail_log':
+                raise AssertionError('send loaded retained mail')
+            return original(log, owner)
+        with patch.object(store.SectionMap, '_load_owner', guarded):
+            self.assertEqual(self.send()['recv_seq'], 10)
+            self.assertEqual(self.send()['recv_seq'], 11)
+        self.assertEqual(tuple(map(int, self.bound())), (11, 11, 0))
+
+    def test_read_after_buffered_append_materializes_once_without_double_append(self):
+        with self.tx() as tx:
+            tx.org.deposit_mail('worker', {'id': 'a'})
+            tx.org.deposit_mail('worker', {'id': 'b'})
+            rows = tx.d['mail_log']['worker']
+            self.assertEqual([r['recv_seq'] for r in rows][-2:], [10, 11])
+        self.assertEqual(tuple(map(int, self.bound())), (11, 11, 0))
+        self.assertEqual(len(self.query("SELECT seq FROM log_d WHERE sect='mail_log' AND owner='worker'")), 11)
+
+    def test_rollback_leaves_source_summary_and_counter_unchanged(self):
+        with self.assertRaisesRegex(RuntimeError, 'abort'):
+            with self.tx() as tx:
+                tx.org.deposit_mail('worker', {'id': 'never'})
+                raise RuntimeError('abort')
+        self.assertEqual(tuple(map(int, self.bound())), (9, 9, 0))
+        self.assertEqual(self.send()['recv_seq'], 10)
+
+    def test_unvalidated_summary_falls_back_to_observed_history(self):
+        for invalid in ('missing', 'future', 'unknown'):
+            with self.subTest(invalid=invalid):
+                with store._POOL.acquire(self.slug) as conn:
+                    conn.execute('BEGIN')
+                    if invalid == 'missing':
+                        conn.execute("DELETE FROM mail_archive_bounds WHERE owner='worker'")
+                    else:
+                        conn.execute("UPDATE mail_archive_bounds SET " +
+                            ('format=99' if invalid == 'future' else 'unknown_rows=1') + " WHERE owner='worker'")
+                    conn.execute('COMMIT')
+                seen = []
+                original = store.SectionMap._load_owner
+                def measured(log, owner):
+                    seen.append((log._sect, owner))
+                    return original(log, owner)
+                with patch.object(store.SectionMap, '_load_owner', measured):
+                    self.send(invalid)
+                self.assertIn(('mail_log', 'worker'), seen)
+                self.reconcile()
+
+    def reconcile(self):
+        with store._POOL.acquire(self.slug) as conn:
+            conn.execute('BEGIN')
+            conn.execute('SELECT public.orgtree_install_mail_bounds(?)', (conn.org_id,))
+            conn.execute('COMMIT')
+
+    def test_migration_reconciles_counts_and_restarts_without_changing_source(self):
+        before = self.query("SELECT seq,owner,val FROM log_d ORDER BY seq")
+        self.reconcile()
+        self.reconcile()
+        self.assertEqual(self.query("SELECT seq,owner,val FROM log_d ORDER BY seq"), before)
+        self.assertEqual(tuple(map(int, self.bound())), (9, 9, 0))
+        self.assertEqual(self.send()['recv_seq'], 10)
+
+    def test_changed_or_deleted_maximum_is_reflected_without_counter_rewind(self):
+        with store._POOL.acquire(self.slug) as conn:
+            conn.execute('BEGIN')
+            seq, raw = conn.execute("SELECT seq,val FROM log_d WHERE sect='mail_log' AND owner='worker' ORDER BY seq LIMIT 1").fetchone()
+            row = json.loads(raw); row['recv_seq'] = 99
+            conn.execute('UPDATE log_d SET val=? WHERE seq=?', (json.dumps(row), seq))
+            conn.execute('COMMIT')
+        self.assertEqual(self.send()['recv_seq'], 100)
+        with store._POOL.acquire(self.slug) as conn:
+            conn.execute('BEGIN')
+            conn.execute("DELETE FROM log_d WHERE sect='mail_log' AND owner='worker'")
+            conn.execute('COMMIT')
+        self.assertEqual(tuple(map(int, self.bound())), (0, 0, 0))
+        self.assertEqual(self.send()['recv_seq'], 101)
+
+    def test_archive_change_after_read_refuses_stale_buffer_atomically(self):
+        with self.assertRaises(store.StaleWrite):
+            with self.tx() as tx:
+                tx.org.deposit_mail('worker', {'id': 'stale'})
+                conn = store._orgtx_local.pinned[self.slug]
+                conn.execute("UPDATE mail_archive_bounds SET version=version+1 WHERE owner='worker'")
+        self.assertEqual(tuple(map(int, self.bound())), (9, 9, 0))
+        self.assertEqual(self.send()['recv_seq'], 10)
+
+    def test_concurrent_senders_keep_unique_monotone_receive_order(self):
+        gate = threading.Barrier(3)
+        result, errors = [], []
+        def sender():
+            try:
+                gate.wait(3)
+                result.append(self.send()['recv_seq'])
+            except BaseException as exc:
+                errors.append(exc)
+        threads = [threading.Thread(target=sender) for _ in range(2)]
+        for thread in threads: thread.start()
+        gate.wait(3)
+        for thread in threads: thread.join(10)
+        self.assertFalse(any(t.is_alive() for t in threads))
+        self.assertEqual(errors, [])
+        self.assertEqual(sorted(result), [10, 11])
+        self.assertEqual(tuple(map(int, self.bound())), (11, 11, 0))
+
+
+if __name__ == '__main__':
+    unittest.main()

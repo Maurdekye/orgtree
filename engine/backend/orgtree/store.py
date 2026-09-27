@@ -1941,6 +1941,7 @@ class SectionMap(dict[str, Any]):
     _STATE_DEFAULTS: dict[str, Callable[[], Any]] = {
         "_slug": str, "_sect": str, "_order": list, "_present": set,
         "_dropped": set, "_added": set, "_replaced": set, "_snaps": dict,
+        "_appends": dict, "_mail_bounds": dict,
     }
 
     def __getattr__(self, name: str) -> Any:
@@ -1962,6 +1963,8 @@ class SectionMap(dict[str, Any]):
         self._added: set[str] = set()
         self._replaced: set[str] = set()
         self._snaps: dict[str, list[tuple[int, str]]] = {}
+        self._appends: dict[str, list[Any]] = {}
+        self._mail_bounds: dict[str, tuple[int, int, int]] = {}
         # Never observable: it exists only to make CPython's C JSON encoder
         # call our items() instead of short-circuiting an empty backing dict.
         dict.__setitem__(self, cast(str, self._SEED), None)
@@ -1973,6 +1976,7 @@ class SectionMap(dict[str, Any]):
                 "SELECT seq, val FROM log_d WHERE sect=? AND owner=? ORDER BY seq",
                 (self._sect, owner)).fetchall()]
         log = AppendLog((json.loads(val) for _, val in rows), rows=rows)
+        log.extend(self._appends.pop(owner, []))
         stateprobe.record("lazy_owner", ms=(time.perf_counter() - t0) * 1000.0,
                           nbytes=sum(len(v) for _, v in rows),
                           section=f"{self._sect}[owner]")
@@ -2013,6 +2017,7 @@ class SectionMap(dict[str, Any]):
             for owner in missing:
                 rows = grouped[owner]
                 log = AppendLog((json.loads(val) for _, val in rows), rows=rows)
+                log.extend(self._appends.pop(owner, []))
                 self._snaps[owner] = log._rows
                 dict.__setitem__(self, owner,
                                  AttemptMap(log) if self._sect in KEYED_DICT_LOGS
@@ -2039,6 +2044,8 @@ class SectionMap(dict[str, Any]):
             return default
 
     def __setitem__(self, owner: str, value: Any) -> None:
+        self._appends.pop(owner, None)
+        self._mail_bounds.pop(owner, None)
         if (self._sect in KEYED_DICT_LOGS and isinstance(value, dict)
                 and not isinstance(value, AttemptMap)):
             # normalize a plain assignment ({} from setdefault, a fixture's
@@ -2059,6 +2066,8 @@ class SectionMap(dict[str, Any]):
             raise KeyError(owner)
         if dict.__contains__(self, owner):
             dict.__delitem__(self, owner)
+        self._appends.pop(owner, None)
+        self._mail_bounds.pop(owner, None)
         self._present.discard(owner)
         self._dropped.add(owner)
         self._replaced.discard(owner)
@@ -2083,6 +2092,8 @@ class SectionMap(dict[str, Any]):
         return owner, self.pop(owner)
 
     def clear(self) -> None:
+        self._appends.clear()
+        self._mail_bounds.clear()
         self._dropped |= self._present
         self._present.clear()
         self._added.clear()
@@ -3737,6 +3748,25 @@ def _write_dict_log(conn: sqlite3.Connection, sect: str, cur: dict[str, Any],
             incremental=row_log if isinstance(row_log, AppendLog)
             and owner not in cur._replaced else None,
             cas_old=snap.get(owner))
+    # Only the validated mail append door creates this buffer. Its owner node
+    # is locked by the transaction; the summary version also catches an archive
+    # edit/import that happened after its bounded read. The trigger advances the
+    # summary in the same transaction as every inserted source row.
+    for owner in sorted(cur._appends):
+        rows = cur._appends[owner]
+        if not rows:
+            continue
+        expected = cur._mail_bounds.get(owner)
+        if sect != "mail_log" or expected is None or STORE_BACKEND != "postgres":
+            raise StaleWrite("unvalidated buffered mail archive append")
+        actual = conn.execute("SELECT version,nrows,assigned_max FROM mail_archive_bounds "
+                              "WHERE owner=? AND format=1 AND unknown_rows=0 FOR UPDATE",
+                              (owner,)).fetchone()
+        if actual is None or tuple(int(v) for v in actual) != expected:
+            raise StaleWrite(f"mail archive changed before append for {owner!r}")
+        for row in rows:
+            conn.execute("INSERT INTO log_d(sect,owner,at,val) VALUES(?,?,?,?)",
+                         (sect, owner, _at_of(row), _dumps(row)))
     raw_old_owners = _meta_get(conn, _META_OWNERS + sect)
     # Owner names are a separate journal from loaded row snapshots. Merge
     # only this proxy's structural changes into the currently committed
@@ -4231,6 +4261,8 @@ def _save_sqlite(org: Org) -> None:
             value = dict.__getitem__(d, k)
             committed = new_logs.get(k)
             if isinstance(value, SectionMap) and isinstance(committed, dict):
+                value._appends.clear()
+                value._mail_bounds.clear()
                 value._snaps = committed
                 for owner in value._order:
                     if not dict.__contains__(value, owner):
@@ -5390,6 +5422,57 @@ def eager_sections(d: dict[str, Any]) -> dict[str, Any]:
             d[key]
     return {k: dict.__getitem__(d, k) for k in dict.keys(d)
             if k not in LAZY_SECTIONS}
+
+
+def mail_archive_max(d: dict[str, Any], owner: str) -> int | None:
+    """Validated archive maximum in an existing recipient write transaction.
+
+    None requires the old full scan. A materialized or replaced archive may
+    contain edits not yet in SQL and therefore never uses this projection.
+    Plain documents, imports and explicit audits keep the full path.
+    """
+    if STORE_BACKEND != "postgres" or not isinstance(d, LazyDoc):
+        return None
+    conn = (getattr(_orgtx_local, "pinned", None) or {}).get(d._slug)
+    if conn is None or "mail_log" in d._snap_doc or "mail_log" in d._dropped:
+        return None
+    archive = d.get("mail_log")
+    if (not isinstance(archive, SectionMap) or dict.__contains__(archive, owner)
+            or owner in archive._dropped or owner in archive._replaced):
+        return None
+    bound = archive._mail_bounds.get(owner)
+    if bound is None:
+        row = conn.execute("SELECT version,nrows,assigned_max FROM mail_archive_bounds "
+                           "WHERE owner=? AND format=1 AND unknown_rows=0 "
+                           "AND nrows>=0 AND assigned_max>=0", (owner,)).fetchone()
+        if row is None:
+            return None
+        bound = tuple(int(v) for v in row)
+        archive._mail_bounds[owner] = bound
+    high = bound[2]
+    for row in archive._appends.get(owner, []):
+        high = max(high, Org._recv_ordinal(row.get("recv_seq")) or 0)
+    return high
+
+
+def mail_archive_append(d: dict[str, Any], owner: str, row: Any) -> bool:
+    """Buffer one new archive row only behind a validated bound and node lock.
+
+    False leaves the caller on the unchanged materializing append path.
+    """
+    if mail_archive_max(d, owner) is None:
+        return False
+    from . import orgtx
+    tx = orgtx.current_tx(d._slug)
+    if tx is None or (not tx.whole and owner not in tx.lock_nodes):
+        return False
+    archive = dict.__getitem__(d, "mail_log")
+    if owner not in archive._present:
+        archive._present.add(owner)
+        archive._order.append(owner)
+        archive._added.add(owner)
+    archive._appends.setdefault(owner, []).append(row)
+    return True
 
 
 def log_append(d: dict[str, Any], sect: str, row: Any) -> None:
