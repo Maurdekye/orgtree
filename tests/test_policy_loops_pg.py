@@ -100,5 +100,20 @@ class PolicyLoops(fixture.PolicyInputs):
             expected = warmpool.identity_snapshot(full, 'worker', env={}, overrides={})
         self.assertEqual(projected, expected)
 
+    def test_archived_freeze_still_receives_locked_deadline_bookkeeping(self):
+        from orgtree import account_fallback
+        org = store.load_org(self.slug)
+        org.nodes['retired'] = dict(copy.deepcopy(org.node('worker')), state='archived',
+                                   frozen={'connection': True})
+        store.save_org(org)
+        with patch.object(store, 'cached_org', side_effect=AssertionError('full history fallback')), \
+                patch.object(sup, 'commit_node_wake') as stamp, \
+                patch.object(sup, 'auto_resume_ready', return_value=set()), \
+                patch.object(account_fallback, 'candidates', return_value={}):
+            self.assertTrue(sup._auto_resume_org(self.slug, now=1900000000))
+        stamp.assert_called_once()
+        self.assertEqual(stamp.call_args.args[0]['state'], 'archived')
+        self.assertEqual(stamp.call_args.args[0]['frozen'], {'connection': True})
+
 
 if __name__ == '__main__': unittest.main()
