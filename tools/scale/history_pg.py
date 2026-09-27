@@ -10,9 +10,11 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import sys
 import time
 from urllib.parse import urlsplit
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from history_fixture import (FAMILIES, FORMAT, PREFIX, compact, digest, read_rows,
                              regular_file, safe_relative, safe_root, sha_file, verify_pair)
 
@@ -103,6 +105,8 @@ def restore(bundle, arm, root, *, guard=lambda: None):
     base = json.loads((bundle / "base.json").read_text(encoding="utf-8"))
     slug = base["slug"]
     root = destination(root, slug, pgstore.url())
+    if (root / "RESTORING").exists() or (root / "RESTORE_COMPLETE").exists():
+        raise ValueError("destination already contains a restore attempt")
     if Path(store.DATA_ROOT).resolve() != (root / "data").resolve() or store.STORE_BACKEND != "postgres":
         raise ValueError("store is outside the owned destination")
     if Path(os.environ.get("HOME", "")).resolve() != (root / "home").resolve():

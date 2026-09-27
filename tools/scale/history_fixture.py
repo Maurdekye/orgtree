@@ -15,6 +15,7 @@ import json
 import math
 import os
 import shutil
+import sys
 from pathlib import Path, PurePosixPath
 import time
 import uuid
@@ -452,6 +453,7 @@ def main():
         return
     if args.action == "build":
         # CLI preparation is guarded independently of any future engine run.
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
         from control import free_commit_gb
         def guard():
             if free_commit_gb() < 10:

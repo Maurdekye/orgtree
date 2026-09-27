@@ -116,6 +116,11 @@ class HistoryStorage(unittest.TestCase):
             with store._POOL.acquire(base.d["slug"]) as conn:
                 conn.use()
                 self.assertEqual(conn.raw.execute("SELECT count(*) FROM nodes WHERE id LIKE 'hist-%'").fetchone()[0], 0)
+            with self.assertRaisesRegex(ValueError, "restore attempt"):
+                hp.restore(bundle, "large", root)
+            # This test module shares a throwaway home across two separate orgs.
+            # Remove only our failed-attempt marker before the other test.
+            (root / "RESTORING").unlink()
 
 
 if __name__ == "__main__":
