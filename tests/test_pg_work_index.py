@@ -136,6 +136,20 @@ class Index(unittest.TestCase):
         self.c.execute(f"DELETE FROM {self.s}.log_l WHERE sect='work_items_archive'")
         self.check()
 
+    def test_reader_keeps_source_and_index_in_one_snapshot(self):
+        self.add(self.source())
+        with pgstore.connect() as reader:
+            reader.execute('BEGIN ISOLATION LEVEL REPEATABLE READ')
+            before=reader.execute(f"SELECT summary FROM {self.s}.work_index WHERE slug='one'").fetchone()[0]
+            revised=json.loads(self.source()); revised['rev']=2; revised['participants']=['c']
+            self.c.execute(f'UPDATE {self.s}.doc SET val=%s WHERE key=%s',(json.dumps(revised),workrows.PREFIX+'one'))
+            old_body=reader.execute(f'SELECT val FROM {self.s}.doc WHERE key=%s',(workrows.PREFIX+'one',)).fetchone()[0]
+            self.assertEqual(before['rev'],json.loads(old_body)['rev'])
+            self.assertEqual(before['participants'],json.loads(old_body)['participants'])
+            reader.execute('COMMIT')
+        self.assertEqual(self.c.execute(f"SELECT summary->'participants' FROM {self.s}.work_index WHERE slug='one'").fetchone()[0],['c'])
+        self.check()
+
     def test_tenfold_archive_keeps_active_answer_and_exact_lookup_one_row(self):
         self.add(self.source()); active=[]
         for size in (40,400):
@@ -178,6 +192,8 @@ class Migration(unittest.TestCase):
         self.assertIn('0006_work_index.sql',result['applied'])
         self.assertEqual(self.c.execute('SELECT key,val FROM org_1.doc ORDER BY key').fetchall(),before)
         self.assertTrue(workindex.ready(self.c,1)); self.assertTrue(workindex.reconcile(self.c,1))
+        receipt=json.loads(self.c.execute("SELECT result FROM public.receipts WHERE op_key='work-index/v1'").fetchone()[0])
+        self.assertEqual(receipt['count'],1); self.assertEqual(len(receipt['source_sha256']),64)
         self.assertEqual(pgstore.migrate(self.c)['applied'],[])
 
     def test_migration_missing_header_member_refuses_and_rolls_back(self):

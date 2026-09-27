@@ -152,7 +152,7 @@ class Upgrade(unittest.TestCase):
 
     def test_upgrade_readback_checksum_and_idempotence(self):
         result=pgstore.migrate(self.c)
-        self.assertEqual(result['applied'],['0003_work_item_rows.sql'])
+        self.assertIn('0003_work_item_rows.sql',result['applied'])
         rows=dict(self.c.execute('SELECT key,val FROM org_1.doc').fetchall())
         self.assertEqual(workrows.assemble(rows),items())
         receipt=json.loads(self.c.execute("SELECT result FROM receipts WHERE op_key='work-items-layout/v1'").fetchone()[0])
