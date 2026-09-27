@@ -146,6 +146,20 @@ class Meter:
             finally: CTX.reset(token)
         asyncio.Handle._run = handle_run
         self.install_sql()
+        from orgtree import store, orgtx
+        for module, names in ((store, ('_load_sqlite_org', '_write_doc', '_load_section')),
+                              (orgtx, ('_check_heal',))):
+            for name in names:
+                original = getattr(module, name)
+                def phase(*args, _fn=original, _name=name, **kwargs):
+                    if not self.enabled: return _fn(*args, **kwargs)
+                    start=time.time(); cpu=time.thread_time()
+                    try: return _fn(*args, **kwargs)
+                    finally:
+                        self.event(dict(type='phase',name=_name,start=start,end=time.time(),
+                            cpu_s=time.thread_time()-cpu,request=CTX.get(),
+                            native_id=threading.get_native_id()))
+                setattr(module,name,functools.wraps(original)(phase))
 
         @api_app.get('/scale/cpu-start')
         async def cpu_start(): return self.start()
@@ -194,6 +208,16 @@ class Meter:
             conn=cursor.connection
             pid=conn.info.backend_pid
             text=str(query)
+            values=args[0] if args else kwargs.get('params')
+            values=values if isinstance(values,(tuple,list)) else ()
+            sizes=[len(v) if isinstance(v,(str,bytes)) else None for v in values]
+            section=None
+            upper=text.upper()
+            if 'UPDATE DOC SET VAL' in upper and len(values)>1:
+                section=values[1]
+            elif ('FROM LOG_D' in upper or 'FROM LOG_L' in upper) and 'SECT=' in upper and values:
+                section=values[0]
+            if not isinstance(section,str) or len(section)>64: section=None
             start=time.time(); cpu=time.thread_time(); state=None
             try: return original(cursor,query,*args,**kwargs)
             except BaseException as exc:
@@ -206,7 +230,7 @@ class Meter:
                 self.event(dict(type='sql',start=start,end=end,cpu_s=time.thread_time()-cpu,
                     pid=pid,native_id=threading.get_native_id(),request=CTX.get(),
                     sql=' '.join(text.split())[:700], asks='section:asks' in text,
-                    lock='pg_advisory_xact_lock' in text,state=state))
+                    lock='pg_advisory_xact_lock' in text,state=state,section=section,parameter_chars=sizes))
         psycopg.Cursor.execute=execute
 
 
