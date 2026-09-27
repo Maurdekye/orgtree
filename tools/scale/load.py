@@ -6,22 +6,22 @@
         [--label name] [--workers 64]
 
 Four drivers run together (fixed DEMAND, open loop: a call is issued at its
-scheduled time whether or not earlier ones returned — that is what agents do):
+scheduled time whether or not earlier ones returned â€” that is what agents do):
 
-1. AGENT TOOL CALLS — POST /api/agent as real agents (real agent tokens from
+1. AGENT TOOL CALLS â€” POST /api/agent as real agents (real agent tokens from
    the served process), random live agent, mix derived from the live org's last
    48 h (events 2026-09-24..26: mail 64 %, docket ops ~24 %, watchdog ~7 %)
-   plus status and reads. Default rate = 0.039 × N × 2 calls/s: the live
+   plus status and reads. Default rate = 0.039 Ã— N Ã— 2 calls/s: the live
    fleet's peak aggregate turn rate (0.936 Hz over 24 live agents, relayed
-   charter figure) scaled per agent, × an ASSUMED 2 orgtree calls per turn
-   (measured ≈1.1 write events per turn; reads/status are not logged).
-2. UI WINDOWS — W windows each polling as the renderer does: org tree every
+   charter figure) scaled per agent, Ã— an ASSUMED 2 orgtree calls per turn
+   (measured â‰ˆ1.1 write events per turn; reads/status are not logged).
+2. UI WINDOWS â€” W windows each polling as the renderer does: org tree every
    6 s (If-None-Match), org list every 3 s, docket list every 5 s
    (If-None-Match), and the chat of one streaming node every 2.5 s.
-3. SCREEN FEED — each window holds the org websocket (?win=scale-w<i>) and
+3. SCREEN FEED â€” each window holds the org websocket (?win=scale-w<i>) and
    times every numbered stream marker it receives.
-4. LIVE TEXT — K streaming nodes (default 5 % of N) emit a frame at
-   --stream-hz, each carrying a unique marker `[[m<seq>]]`; the marker → emit
+4. LIVE TEXT â€” K streaming nodes (default 5 % of N) emit a frame at
+   --stream-hz, each carrying a unique marker `[[m<seq>]]`; the marker â†’ emit
    time map is written to metrics/<label>/markers.jsonl.
 
 A sampler records engine private/RSS bytes, CPU, threads, handles, and
@@ -34,8 +34,8 @@ memory trend, and the offered vs achieved rates (equal-demand check).
 from __future__ import annotations
 
 import argparse
-import concurrent.futures as cf
 import json
+import hashlib
 import os
 import random
 import re
@@ -48,10 +48,11 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from serve import share_dir, update_descriptor  # noqa: E402
+from control import BoundedPool, Workload, Feed, free_commit_gb, memory_breach
 
 MARK = re.compile(r"\[\[m(\d+)\]\]")
 
-# (weight, tool, args-builder) — args-builder(me, ctx) -> dict
+# (weight, tool, args-builder) â€” args-builder(me, ctx) -> dict
 MIX = [
     (0.30, "orgtree_message", lambda me, c: {"to": c.superior(me), "kind": "message",
                                              "body": c.text(300)}),
@@ -156,6 +157,8 @@ def main(argv=None) -> int:
     p.add_argument("--max-engine-gb", type=float, default=5.0,
                    help="GUARD: stop the run and KILL the (throwaway) engine above this private size")
     args = p.parse_args(argv)
+    if args.duration <= 0 or args.workers < 1 or args.stream_hz <= 0:
+        p.error("duration, workers and stream-hz must be positive")
 
     sys.path.insert(0, str(REPO / "tools"))
     import httpx
@@ -173,53 +176,47 @@ def main(argv=None) -> int:
                   else args.turn_rate_per_agent * N * args.steer_per_turn)
     label = args.label or f"n{N}-r{rate:g}-w{args.windows}-{time.strftime('%H%M%S')}"
     out = root / "metrics" / label
-    out.mkdir(parents=True, exist_ok=True)
+    out.mkdir(parents=True, exist_ok=False)  # Never append a second run to old measurements.
     share = share_dir(root)
     rec = Recorder(out, {"markers": share / f"markers-{label}.jsonl"})
-    rng = random.Random(args.seed)
+    rng = random.Random(args.seed)  # Used only by tool request planning.
+    steer_rng = random.Random(args.seed + 1)
+    stream_rng = random.Random(args.seed + 2)
     H = {"X-Orgtree-Desktop-Token": token}
 
-    boot = httpx.Client(base_url=origin, headers=H, timeout=120)
+    boot = httpx.Client(base_url=origin, headers=H, timeout=30)
     tokens = boot.get("/scale/tokens").raise_for_status().json()
-    tree = boot.get(f"/api/orgs/{slug}").raise_for_status().json()
-    parents = {}
-    def walk(n, parent=None):
-        if isinstance(n, dict):
-            nid = n.get("id")
-            if nid:
-                parents[nid] = parent
-            for ch in n.get("children") or []:
-                walk(ch, nid or parent)
-    for r in (tree.get("roots") or tree.get("tree") or []):
-        walk(r)
-    wl = boot.get(f"/api/orgs/{slug}/work-items?backlogged=1").raise_for_status().json()
-    items: dict[str, list[str]] = {}
-    for it in (wl.get("items") or []) + (wl.get("backlogged") or []):
-        o = (it.get("owner") or {}).get("node") if isinstance(it.get("owner"), dict) else it.get("owner")
-        if o:
-            items.setdefault(o, []).append(it["slug"])
+    metadata = boot.get("/scale/workload").raise_for_status().json()
     live = [a for a in desc["live_agents"] if a in tokens]
+    if len(live) != N:
+        raise RuntimeError("missing live agent credentials")
+    workload = Workload(metadata, live)
+    parents = workload.parents
+    items = {}
+    for item in workload.items:
+        items.setdefault(item["owner"], []).append(item["slug"])
     ctx = Ctx(desc, items, parents, rng)
+    boot.close()
     K = args.stream_nodes if args.stream_nodes is not None else max(1, int(N * args.stream_frac))
-    stream_nodes = rng.sample(live, min(K, len(live)))
+    stream_nodes = stream_rng.sample(live, min(K, len(live)))
+    stream_ctx = Ctx(desc, items, parents, stream_rng)
     engine_pid = int(desc["serve"]["pid"])
     eproc = psutil.Process(engine_pid)
     stop = threading.Event()
+    guard_stop = threading.Event()
     guard: dict = {}
     t0 = time.time()
 
-    def free_commit_gb():
-        import subprocess
-        try:
-            out = subprocess.run(["powershell", "-NoProfile", "-Command",
-                                  "(Get-CimInstance Win32_OperatingSystem).FreeVirtualMemory"],
-                                 capture_output=True, text=True, timeout=30).stdout.strip()
-            return round(int(out) / 1024 / 1024, 2)
-        except Exception:                                    # noqa: BLE001
-            return None
-    fc0 = free_commit_gb()
-    if fc0 is not None and fc0 < args.min_free_commit_gb:
-        raise SystemExit(f"free commit {fc0} GB < floor {args.min_free_commit_gb} GB; not starting load")
+    command = eproc.cmdline()
+    if "--child" not in command or "--root" not in command or str(root) not in command:
+        raise RuntimeError("descriptor PID does not identify this disposable engine")
+    if not desc["serve"].get("provenance"):
+        raise RuntimeError("engine import provenance missing")
+    if (desc["serve"].get("env_orgtree") or {}).get("ORGTREE_SCALE_REQPROF") == "1":
+        raise RuntimeError("request profiler changes concurrency; disable it for load qualification")
+    fc0 = free_commit_gb()  # Fail closed: no load without observable commit headroom.
+    if fc0 < args.min_free_commit_gb:
+        raise SystemExit(f"free commit {fc0:.2f} GiB below floor; not starting load")
     config = {"label": label, "agents": N, "rate_calls_s": rate, "steer_polls_s": steer_rate,
               "windows": args.windows,
               "stream_nodes": len(stream_nodes), "stream_hz": args.stream_hz,
@@ -227,7 +224,12 @@ def main(argv=None) -> int:
               "derivation": {"turn_rate_per_agent": args.turn_rate_per_agent,
                              "calls_per_turn": args.calls_per_turn, "explicit_rate": args.rate},
               "parents_known": len(parents), "items_known": sum(len(v) for v in items.values()),
-              "engine_commit": desc.get("engine_commit"), "started": t0}
+              "engine_commit": desc.get("engine_commit"), "started": t0,
+              "provenance": desc["serve"]["provenance"],
+              "engine_environment": desc["serve"].get("env_orgtree"),
+              "workload_limits": "Finite evidence/create capacity becomes owned updates; substitutions reported.",
+              "simulation": "Real tool/admission paths; external provider launches refused; no LLM.",
+              "client_capacity_per_driver": "2 * workers, excess offered requests recorded as overload"}
     (out / "config.json").write_text(json.dumps(config, indent=1), encoding="utf-8")
     update_descriptor(root, {"agent": stream_nodes[0] if stream_nodes else None,
                              "load": {"running": True, "rate": rate, "since": t0, "label": label,
@@ -243,12 +245,12 @@ def main(argv=None) -> int:
     def client():
         c = getattr(local, "c", None)
         if c is None:
-            c = local.c = httpx.Client(base_url=origin, timeout=120)
+            c = local.c = httpx.Client(base_url=origin, timeout=30)
         return c
 
-    def one_call(due: float, me: str, tool: str, targs: dict) -> None:
+    def one_call(due: float, me: str, tool: str, targs: dict, request_id: int) -> None:
         begun = time.time()
-        status, err, state = None, None, None
+        status, err, state, receipt = None, None, None, None
         try:
             r = client().post("/api/agent", json={"org": slug, "node": me, "tool": tool, "args": targs},
                               headers={"X-Orgtree-Agent-Token": tokens[me]})
@@ -259,59 +261,101 @@ def main(argv=None) -> int:
                 try:
                     j = r.json()
                     state = j.get("state") if isinstance(j, dict) else None
+                    if isinstance(j, dict):
+                        receipt = {k: j[k] for k in ("id", "created", "slug", "state", "ok", "operation_id") if k in j}
+                    if tool in ("orgtree_message", "orgtree_send_notice", "orgtree_status") or (
+                            tool == "orgtree_work" and targs.get("action") in ("update", "evidence", "create")):
+                        rec.write("write-receipts", {"request_id": request_id, "actor": me,
+                                                     "tool": tool, "args": targs, "response": j})
                     if isinstance(j, dict) and j.get("error"):
                         err = str(j.get("error"))[:300]
                 except Exception:                            # noqa: BLE001
-                    pass
+                    err = "HTTP 200 response was not valid JSON"
         except Exception as e:                               # noqa: BLE001
             err = f"{type(e).__name__}: {e}"[:300]
         end = time.time()
         rec.write("calls", {"t": round(due - t0, 3), "tool": tool,
+                            "request_id": request_id, "actor": me, "receipt": receipt,
                             "action": targs.get("action"), "status": status, "state": state,
                             "err": err, "lag_ms": round((begun - due) * 1000, 1),
                             "http_ms": round((end - begun) * 1000, 1),
-                            "total_ms": round((end - due) * 1000, 1)})
+                            "total_ms": round((end - due) * 1000, 1), "end_t": round(end - t0, 3)})
+
+    # Plans are complete before the timed window and have byte hashes. Their
+    # size stays on disk, independent of duration and the response schedule.
+    def write_plan(name, source):
+        h, count = hashlib.sha256(), 0
+        with (out / f"{name}.jsonl").open("wb") as target:
+            for row in source:
+                line = (json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n").encode()
+                target.write(line)
+                h.update(line)
+                count += 1
+        return {"sha256": h.hexdigest(), "requests": count}
+
+    def tool_plan():
+        due, request_id = 0.0, 0
+        while rate > 0:
+            due += rng.expovariate(rate)
+            if due >= args.duration:
+                return
+            me = rng.choice(live)
+            _, tool, build = rng.choices(MIX, weights=weights)[0]
+            me, tool, targs = workload.select(me, tool, build(me, ctx), rng)
+            request_id += 1
+            marker = f"[scale:{args.seed}:{request_id}] "
+            for key in ("body", "summary", "note", "title"):
+                if key in targs:
+                    targs[key] = marker + targs[key]
+            for key in ("done_so_far", "working_on_next"):
+                if key in targs:
+                    targs[key] = [marker + text for text in targs[key]]
+            yield {"request_id": request_id, "t": due, "actor": me, "tool": tool, "args": targs}
+
+    def steer_plan():
+        due, request_id = 0.0, 0
+        while steer_rate > 0:
+            due += steer_rng.expovariate(steer_rate)
+            if due >= args.duration:
+                return
+            request_id += 1
+            yield {"request_id": request_id, "t": due, "actor": steer_rng.choice(live)}
+
+    config["plans"] = {"tools": write_plan("plan", tool_plan()),
+                       "steer": write_plan("steer-plan", steer_plan())}
+    pools = {"calls": BoundedPool(args.workers), "steer": BoundedPool(max(8, args.workers // 2))}
+
+    def run_plan(name, driver, call):
+        pool = pools[driver]
+        try:
+            with (out / f"{name}.jsonl").open(encoding="utf-8") as source:
+                for line in source:
+                    job = json.loads(line)
+                    due = t0 + job["t"]
+                    if stop.wait(max(0, due - time.time())):
+                        break
+                    values = [due, job["actor"]]
+                    if driver == "calls":
+                        values += [job["tool"], job["args"]]
+                    values += [job["request_id"]]
+                    if not pool.submit(call, *values):
+                        rec.write("overload", {"t": job["t"], "driver": driver,
+                                               "request_id": job["request_id"]})
+        finally:
+            pool.shutdown(cancel_pending=stop.is_set())
 
     def call_driver():
-        with cf.ThreadPoolExecutor(max_workers=args.workers) as pool:
-            i = 0
-            nxt = time.time()
-            while not stop.is_set() and time.time() - t0 < args.duration:
-                nxt += rng.expovariate(rate) if rate > 0 else 3600
-                d = nxt - time.time()
-                if d > 0:
-                    stop.wait(d)
-                me = rng.choice(live)
-                w, tool, build = rng.choices(MIX, weights=weights)[0]
-                targs = build(me, ctx)
-                if targs.get("slug") == "none":
-                    # this agent owns no active item (the docket is capped at
-                    # 200 per org): it reports status instead
-                    tool, targs = "orgtree_status", {"status": "working", "summary": ctx.text(80)}
-                pool.submit(one_call, nxt, me, tool, targs)
-                i += 1
+        run_plan("plan", "calls", one_call)
 
-    # ---------------- 1b. steer polls (the PostToolUse hook, every tool call)
-    sessions = {}
     def steer_driver():
-        if steer_rate <= 0:
-            return
-        with cf.ThreadPoolExecutor(max_workers=max(8, args.workers // 2)) as pool:
-            nxt = time.time()
-            while not stop.is_set() and time.time() - t0 < args.duration:
-                nxt += rng.expovariate(steer_rate)
-                d = nxt - time.time()
-                if d > 0:
-                    stop.wait(d)
-                me = rng.choice(live)
-                pool.submit(one_steer, nxt, me)
+        run_plan("steer-plan", "steer", one_steer)
 
-    def one_steer(due: float, me: str) -> None:
+    def one_steer(due: float, me: str, request_id: int) -> None:
         begun = time.time()
         status, err = None, None
         try:
             r = client().post(f"/api/orgs/{slug}/nodes/{me}/steer",
-                              json={"tool_use_id": "toolu_scale_" + os.urandom(6).hex()},
+                              json={"tool_use_id": f"toolu_scale_{args.seed}_{request_id}"},
                               headers={"X-Orgtree-Agent-Token": tokens[me]})
             status = r.status_code
             if status != 200:
@@ -320,23 +364,26 @@ def main(argv=None) -> int:
             err = f"{type(e).__name__}: {e}"[:200]
         end = time.time()
         rec.write("steer", {"t": round(due - t0, 3), "status": status, "err": err,
+                            "request_id": request_id, "actor": me,
                             "lag_ms": round((begun - due) * 1000, 1),
                             "http_ms": round((end - begun) * 1000, 1),
-                            "total_ms": round((end - due) * 1000, 1)})
+                            "total_ms": round((end - due) * 1000, 1), "end_t": round(end - t0, 3)})
 
     # ---------------- 2. UI windows + 3. screen feed -----------------------
-    received: dict[int, dict[int, float]] = {w: {} for w in range(args.windows)}
+    feed_tracker = Feed(0 if args.no_ui else args.windows)
+    ws_ready = {w: threading.Event() for w in range(0 if args.no_ui else args.windows)}
     ws_state = {w: {"connects": 0, "closes": 0, "frames": 0, "bytes": 0} for w in range(args.windows)}
 
     def ui_window(w: int):
-        c = httpx.Client(base_url=origin, headers=H, timeout=120)
+        c = httpx.Client(base_url=origin, headers=H, timeout=30)
         etags: dict[str, str] = {}
         watch = stream_nodes[w % len(stream_nodes)] if stream_nodes else live[0]
         polls = [("org_tree", f"/api/orgs/{slug}", 6.0, True),
                  ("org_list", "/api/orgs", 3.0, False),
                  ("work_items", f"/api/orgs/{slug}/work-items?archived=1&backlogged=1", 5.0, True),
                  ("chat", f"/api/orgs/{slug}/nodes/{watch}/chat?last=300", 2.5, False)]
-        due = {name: time.time() + rng.random() * period for name, _, period, _ in polls}
+        ui_rng = random.Random(args.seed + 100 + w)
+        due = {name: t0 + ui_rng.random() * period for name, _, period, _ in polls}
         while not stop.is_set() and time.time() - t0 < args.duration:
             name, url, period, cond = min(polls, key=lambda x: due[x[0]])
             d = due[name] - time.time()
@@ -359,17 +406,19 @@ def main(argv=None) -> int:
             end = time.time()
             rec.write("ui", {"t": round(begun - t0, 3), "w": w, "route": name, "status": status,
                              "bytes": size, "err": err, "ms": round((end - begun) * 1000, 1),
-                             "late_ms": round((begun - due[name]) * 1000, 1)})
+                             "late_ms": round((begun - due[name]) * 1000, 1),
+                             "total_ms": round((end - due[name]) * 1000, 1)})
             due[name] = max(due[name] + period, time.time())
 
     def ws_window(w: int):
         url = origin.replace("http", "ws") + f"/api/orgs/{slug}/ws?win=scale-w{w}"
-        while not stop.is_set() and time.time() - t0 < args.duration:
+        while not stop.is_set():
             try:
                 with ws_connect(url, additional_headers=H, max_size=None, open_timeout=30) as s:
                     ws_state[w]["connects"] += 1
+                    ws_ready[w].set()
                     rec.write("ws", {"t": round(time.time() - t0, 3), "w": w, "ev": "open"})
-                    while not stop.is_set() and time.time() - t0 < args.duration:
+                    while not stop.is_set():
                         try:
                             raw = s.recv(timeout=1.0)
                         except TimeoutError:
@@ -379,7 +428,7 @@ def main(argv=None) -> int:
                         ws_state[w]["bytes"] += len(raw)
                         if "[[m" in raw:
                             for m in MARK.finditer(raw):
-                                received[w].setdefault(int(m.group(1)), now)
+                                feed_tracker.receive(w, int(m.group(1)), now)
             except Exception as e:                           # noqa: BLE001
                 rec.write("ws", {"t": round(time.time() - t0, 3), "w": w, "ev": "close",
                                  "why": f"{type(e).__name__}: {e}"[:200]})
@@ -388,25 +437,26 @@ def main(argv=None) -> int:
                 stop.wait(1.5)                               # the renderer's reconnect delay
 
     # ---------------- 4. live text ------------------------------------------
-    emitted: dict[int, tuple[float, str]] = {}
+    emitted_count = [0]
 
     def streamer():
         if not stream_nodes:
             return
-        c = httpx.Client(base_url=origin, headers=H, timeout=120)
+        c = httpx.Client(base_url=origin, headers=H, timeout=30)
         seq = 0
         period = 1.0 / args.stream_hz
-        nxt = time.time()
+        nxt = t0
         first = True
         while not stop.is_set() and time.time() - t0 < args.duration:
             frames = []
             now = time.time()
             for node in stream_nodes:
                 seq += 1
-                emitted[seq] = (now, node)
+                feed_tracker.emit(seq, now)
+                emitted_count[0] += 1
                 rec.write("markers", {"m": seq, "emit": now, "node": node})
                 frames.append({"node": node, "reset": first,
-                               "text": f"[[m{seq}]] " + ctx.text(40) + " "})
+                               "text": f"[[m{seq}]] " + stream_ctx.text(40) + " "})
             first = False
             begun = time.time()
             err = None
@@ -416,9 +466,12 @@ def main(argv=None) -> int:
                     err = r.text[:200]
             except Exception as e:                           # noqa: BLE001
                 err = f"{type(e).__name__}: {e}"[:200]
+            feed_tracker.acknowledge(range(seq - len(frames) + 1, seq + 1), not err)
+            feed_tracker.retire(time.time())
             rec.write("stream", {"t": round(begun - t0, 3), "frames": len(frames), "err": err,
                                  "ms": round((time.time() - begun) * 1000, 1),
-                                 "first_seq": seq - len(frames) + 1, "emit": now})
+                                 "first_seq": seq - len(frames) + 1, "emit": now,
+                                 "late_ms": round((begun - nxt) * 1000, 1)})
             nxt += period
             d = nxt - time.time()
             if d > 0:
@@ -429,7 +482,7 @@ def main(argv=None) -> int:
         import psycopg
         pg = None
         try:
-            pg = psycopg.connect(desc["pg_url"], autocommit=True)
+            pg = psycopg.connect(desc["pg_url"], autocommit=True, connect_timeout=5, options="-c statement_timeout=5000")
         except Exception as e:                               # noqa: BLE001
             rec.write("samples", {"t": 0, "pg_error": str(e)[:200]})
         eproc.cpu_percent(None)
@@ -472,37 +525,64 @@ def main(argv=None) -> int:
                 except Exception as e:                       # noqa: BLE001
                     row["stats_error"] = str(e)[:120]
             rec.write("samples", row)
-            # GUARD (machine memory is tight): above the engine cap, or below the
-            # free-commit floor, stop the run and kill the throwaway engine
-            priv = row.get("private") or row.get("rss") or 0
-            breach = None
-            if priv > args.max_engine_gb * 2 ** 30:
-                breach = f"engine private {priv / 2 ** 30:.2f} GB > cap {args.max_engine_gb} GB"
-            elif int(row["t"]) % 10 == 0:
-                fc = free_commit_gb()
-                if fc is not None and fc < args.min_free_commit_gb:
-                    breach = f"free commit {fc} GB < floor {args.min_free_commit_gb} GB"
-            if breach:
-                guard["breach"] = {"t": row["t"], "why": breach}
-                rec.write("samples", {"t": row["t"], "guard": breach})
-                try:
-                    eproc.kill()
-                except Exception:                            # noqa: BLE001
-                    pass
-                stop.set()
-                break
             stop.wait(2.0)
+        if pg is not None:
+            pg.close()
+        sc.close()
 
-    threads = [threading.Thread(target=sampler, daemon=True, name="sampler"),
+    def memory_guard():
+        own = psutil.Process()
+        while not guard_stop.is_set():
+            try:
+                em, cm = eproc.memory_info(), own.memory_info()
+                free = free_commit_gb()
+                eng = getattr(em, "private", em.rss)
+                cli = getattr(cm, "private", cm.rss)
+                breach = memory_breach(free, eng, cli, floor_gb=args.min_free_commit_gb,
+                                       engine_cap_gb=args.max_engine_gb)
+                rec.write("guard", {"t": time.time() - t0, "free_commit_gb": free,
+                                    "engine_private": eng, "client_private": cli})
+            except Exception as exc:
+                breach = f"memory guard cannot observe process/headroom: {type(exc).__name__}"
+            if breach:
+                guard["breach"] = {"t": time.time() - t0, "why": breach}
+                stop.set()
+                try:
+                    eproc.kill()  # psutil checks process creation identity; PID verified above.
+                except psutil.NoSuchProcess:
+                    pass
+                return
+            guard_stop.wait(1)
+
+    threads = [threading.Thread(target=memory_guard, daemon=True, name="memory-guard"),
+               threading.Thread(target=sampler, daemon=True, name="sampler"),
                threading.Thread(target=call_driver, daemon=True, name="calls"),
                threading.Thread(target=steer_driver, daemon=True, name="steer"),
                threading.Thread(target=streamer, daemon=True, name="stream")]
     if not args.no_ui:
         for w in range(args.windows):
-            threads.append(threading.Thread(target=ws_window, args=(w,), daemon=True, name=f"ws{w}"))
             threads.append(threading.Thread(target=ui_window, args=(w,), daemon=True, name=f"ui{w}"))
+    sockets = [threading.Thread(target=ws_window, args=(w,), daemon=True, name=f"ws{w}")
+               for w in ws_ready]
+    guard_thread = threads.pop(0)
+    guard_thread.start()
+    for t in sockets:
+        t.start()
+    ready_deadline = time.monotonic() + 30
+    for ready in ws_ready.values():
+        if not ready.wait(max(0, ready_deadline - time.monotonic())):
+            stop.set()
+            guard_stop.set()
+            for t in sockets + [guard_thread]:
+                t.join(timeout=35)
+            rec.close()
+            raise RuntimeError("all websocket windows must connect before measuring")
+    t0 = time.time()
+    config["started"] = t0
+    (out / "config.json").write_text(json.dumps(config, indent=1), encoding="utf-8")
     for t in threads:
         t.start()
+    threads += sockets
     try:
         while time.time() - t0 < args.duration and not stop.is_set():
             time.sleep(1)
@@ -512,22 +592,45 @@ def main(argv=None) -> int:
                                        round(free.available / 2 ** 30, 2)})
     except KeyboardInterrupt:
         pass
-    time.sleep(3)                                            # let the last frames land
+    if not stop.is_set():
+        time.sleep(5)  # Final accepted frames get the same five-second delivery horizon.
+    feed_tracker.retire(time.time())
     stop.set()
+    drain_deadline = time.monotonic() + 90
     for t in threads:
-        t.join(timeout=150)
+        t.join(timeout=max(0, drain_deadline - time.monotonic()))
+    alive = [t.name for t in threads if t.is_alive()]
+    if alive:
+        (out / "incomplete.json").write_text(json.dumps({"unfinished_threads": alive}), encoding="utf-8")
+        eproc.kill()
+        raise RuntimeError(f"drivers did not finish; no qualification verdict: {alive}")
+    guard_stop.set()
+    guard_thread.join(timeout=5)
     rec.close()
 
     # ---------------- summary ------------------------------------------------
     def rows(name):
         f = out / f"{name}.jsonl"
-        return [json.loads(l) for l in f.read_text(encoding="utf-8").splitlines()] if f.exists() else []
-    calls, ui, samples, steers = rows("calls"), rows("ui"), rows("samples"), rows("steer")
+        if f.exists():
+            with f.open(encoding="utf-8") as source:
+                for line in source:
+                    yield json.loads(line)
+    calls, ui, samples = list(rows("calls")), list(rows("ui")), list(rows("samples"))
+    from array import array
+    steer_latencies, steer_errors, steer_error_examples = array("d"), 0, set()
+    for row in rows("steer"):
+        steer_latencies.append(row["total_ms"])
+        if row["err"]:
+            steer_errors += 1
+            if len(steer_error_examples) < 3:
+                steer_error_examples.add(str(row["err"])[:160])
     by_tool: dict[str, list] = {}
     for c in calls:
         by_tool.setdefault(c["tool"] + (":" + c["action"] if c.get("action") else ""), []).append(c)
     tools_summary = {k: {"total_ms": pct([c["total_ms"] for c in v]),
                          "http_ms": pct([c["http_ms"] for c in v]),
+                         "successful_total_ms": pct([c["total_ms"] for c in v
+                                                     if not c["err"] and c["status"] == 200]),
                          "errors": sum(1 for c in v if c["err"] or c["status"] != 200),
                          "running": sum(1 for c in v if c.get("state") == "running"),
                          "sample_errors": list({str(c["err"])[:160] for c in v if c["err"]})[:3]}
@@ -536,19 +639,16 @@ def main(argv=None) -> int:
     for u in ui:
         by_route.setdefault(u["route"], []).append(u)
     routes_summary = {k: {"ms": pct([u["ms"] for u in v]),
+                          "total_ms": pct([u["total_ms"] for u in v]),
                           "ms_200": pct([u["ms"] for u in v if u["status"] == 200]),
                           "n304": sum(1 for u in v if u["status"] == 304),
                           "errors": sum(1 for u in v if u["err"]),
                           "bytes_200": pct([u["bytes"] for u in v if u["status"] == 200])}
                       for k, v in sorted(by_route.items())}
-    feed = {}
-    horizon = max((e for e, _ in emitted.values()), default=0) - 5  # markers emitted >5 s before stop
-    for w in range(args.windows):
-        lat = [(received[w][s] - e) * 1000 for s, (e, _) in emitted.items() if s in received[w]]
-        due = [s for s, (e, _) in emitted.items() if e <= horizon]
-        missing = [s for s in due if s not in received[w]]
-        feed[w] = {"latency_ms": pct(lat), "emitted_due": len(due), "missing": len(missing),
-                   **ws_state[w]}
+    feed = {w: {"latency_ms": pct(feed_tracker.latencies[w]),
+                "emitted_due": c["due"], "missing_after_5s": c["missing"],
+                "over_1s": c["over_1s"], **ws_state[w]}
+            for w, c in feed_tracker.counts.items()}
     mem = [(s["t"], s["private"] or s["rss"]) for s in samples if s.get("private") or s.get("rss")]
     def slope(pts):
         if len(pts) < 3:
@@ -558,16 +658,33 @@ def main(argv=None) -> int:
         den = sum((x - mx) ** 2 for x in xs) or 1
         return sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / den
     half = mem[len(mem) // 2:]
-    elapsed = (max((c["t"] for c in calls), default=0) or 1)
+    elapsed = min(args.duration, time.time() - t0)
+    completed_in_window = sum(c["end_t"] <= args.duration for c in calls)
+    stream_errors = sum(bool(row["err"]) for row in rows("stream"))
+    counters = {name: dict(pool.counts) for name, pool in pools.items()}
+    valid = not guard and not steer_errors and not stream_errors and not any(c["err"] for c in calls + ui)
+    valid = valid and not any(v["rejected"] or v["cancelled"] or v["worker_errors"] for v in counters.values())
+    plan_counts = dict(calls=config["plans"]["tools"]["requests"], steer=config["plans"]["steer"]["requests"])
+    valid = valid and all(counters[name]["completed"] == count for name, count in plan_counts.items())
+    if not args.no_ui:
+        valid = valid and all(any(u["w"] == w for u in ui) for w in range(args.windows))
+    if stream_nodes:
+        valid = valid and emitted_count[0] > 0
+    if any(x["missing_after_5s"] or x["closes"] for x in feed.values()):
+        valid = False
     summary = {"config": config, "guard": guard or None,
-               "achieved": {"calls": len(calls), "calls_per_s": round(len(calls) / elapsed, 2),
-                            "offered_calls_per_s": rate, "steer_polls": len(steers),
+               "workload_completed_without_errors_or_overload": bool(valid),
+               "qualification": "Per-target assessment required; this field does not certify renderer or 60-minute stability.",
+               "client_counters": counters, "workload_substitutions": workload.substitutions,
+               "achieved": {"calls": len(calls), "calls_per_s": round(completed_in_window / elapsed, 2),
+                            "completed_in_window": completed_in_window, "drain_finished_s": time.time() - t0,
+                            "offered_calls_per_s": rate, "steer_polls": len(steer_latencies),
                             "offered_steer_per_s": steer_rate,
-                            "ui_requests": len(ui), "stream_markers": len(emitted)},
+                            "ui_requests": len(ui), "stream_markers": emitted_count[0],
+                            "stream_markers_failed_submit": feed_tracker.failed},
                "tools": tools_summary, "routes": routes_summary, "feed": feed,
-               "steer": {"total_ms": pct([x["total_ms"] for x in steers]),
-                         "errors": sum(1 for x in steers if x["err"]),
-                         "sample_errors": list({str(x["err"])[:160] for x in steers if x["err"]})[:3]},
+               "steer": {"total_ms": pct(steer_latencies), "errors": steer_errors,
+                         "sample_errors": list(steer_error_examples)},
                "memory": {"start_mb": round(mem[0][1] / 2 ** 20) if mem else None,
                           "end_mb": round(mem[-1][1] / 2 ** 20) if mem else None,
                           "max_mb": round(max(m for _, m in mem) / 2 ** 20) if mem else None,
@@ -585,7 +702,7 @@ def main(argv=None) -> int:
                                       "summary": str(out / "summary.json")}})
     print(json.dumps({"label": label, "achieved": summary["achieved"], "memory": summary["memory"],
                       "cpu": summary["cpu"]}, indent=1))
-    return 0
+    return 0 if valid else 2
 
 
 if __name__ == "__main__":

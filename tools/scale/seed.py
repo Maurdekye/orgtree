@@ -93,19 +93,6 @@ def iso(t: float) -> str:
 
 # ------------------------------------------------------------------ parent side
 
-def _devdb_admin_url() -> str:
-    tool = REPO.parents[1] / "artifacts" / "p03-tools" / "devdb.cmd" \
-        if (REPO.parents[1] / "artifacts").exists() else Path(r"E:\Libraries\Desktop\orgtree\artifacts\p03-tools\devdb.cmd")
-    subprocess.run(["cmd", "/c", str(tool), "up", "--agent", "mem-leak-probe"],
-                   capture_output=True, text=True, timeout=300, check=True)
-    out = subprocess.run(["cmd", "/c", str(tool), "env", "--agent", "mem-leak-probe"],
-                         capture_output=True, text=True, timeout=120, check=True).stdout
-    m = re.search(r"P03_PG_ADMIN_URL='([^']+)'", out)
-    if not m:
-        raise RuntimeError("devdb env printed no P03_PG_ADMIN_URL")
-    return m.group(1)
-
-
 def _check_root(root: Path) -> None:
     if not root.is_absolute():
         raise SystemExit("--root must be absolute")
@@ -118,18 +105,9 @@ def _check_root(root: Path) -> None:
         raise SystemExit(f"--root {root} exists and is not empty")
 
 
-def _free_commit_gb() -> float | None:
-    try:
-        import psutil
-        vm = psutil.virtual_memory()
-        # Windows commit charge: swap_memory is the page file; psutil has no
-        # direct commit counter, so ask the OS (same as pg5_load).
-        out = subprocess.run(["powershell", "-NoProfile", "-Command",
-                              "(Get-CimInstance Win32_OperatingSystem).FreeVirtualMemory"],
-                             capture_output=True, text=True, timeout=60).stdout.strip()
-        return round(int(out) / 1024 / 1024, 2)
-    except Exception:                                        # noqa: BLE001
-        return None
+def _free_commit_gb() -> float:
+    from control import free_commit_gb
+    return free_commit_gb()
 
 
 def _create_db(admin: str, name: str) -> str:
@@ -164,7 +142,9 @@ def parent(args) -> int:
         raise SystemExit(f"free commit {free} GB < floor {args.min_free_commit_gb} GB; not seeding")
     for d in ("data", "home", "temp"):
         (root / d).mkdir(parents=True, exist_ok=True)
-    admin = args.admin_url or os.environ.get("P03_PG_ADMIN_URL") or _devdb_admin_url()
+    admin = args.admin_url or os.environ.get("P03_PG_ADMIN_URL") or ""
+    if not admin:
+        raise SystemExit("Pass --admin-url or P03_PG_ADMIN_URL for your own disposable cluster")
     db = f"{DB_PREFIX}{re.sub(r'[^a-z0-9]', '', args.slug.lower())}_{args.agents}_{os.getpid()}"
     pg_url = _create_db(admin, db)
     desc = {"schema": SCHEMA, "agents": args.agents, "org": args.slug,

@@ -92,7 +92,14 @@ def parent(args) -> int:
         return proc.wait()
     except KeyboardInterrupt:
         proc.terminate()
-        return proc.wait()
+        return proc.wait(timeout=30)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=30)
+        log.close()
+        update_descriptor(root, {"serve": {"state": "stopped", "pid": proc.pid,
+                                           "exit_code": proc.returncode}})
 
 
 def _reqprof_wrap(app, root: Path):
@@ -336,9 +343,23 @@ def child(args) -> int:
         if "tokens" not in _tok:
             from orgtree import agentauth
             org = store.load_org(slug)
-            _tok["tokens"] = {nid: agentauth.child_env(slug, nid)["ORGTREE_AGENT_TOKEN"]
+            _tok["tokens"] = {nid: agentauth.node_env(slug, nid, n)["ORGTREE_AGENT_TOKEN"]
                               for nid, n in org.nodes.items() if n.get("state") == "live"}
         return _tok["tokens"]
+
+    @api.app.get("/scale/workload")
+    def _scale_workload() -> dict:
+        # Read actual node/item identities once before measurement. This avoids
+        # assuming the renderer tree's shape or silently sending forbidden mail.
+        org = store.load_org(slug)
+        nodes = {nid: n for nid, n in org.nodes.items() if n.get("state") == "live"}
+        active = list(org.d.get("work_items") or [])
+        return {"parents": {nid: n.get("parent") for nid, n in nodes.items()},
+                "active_items": len(active),
+                "items": [{"slug": it["slug"],
+                           "owner": it["owner"].get("node") if isinstance(it.get("owner"), dict) else it.get("owner"),
+                           "evidence": len(it.get("evidence") or [])}
+                          for it in active if it.get("status") not in ("done", "dropped")]}
 
     @api.app.get("/scale/stacks")
     def _scale_stacks(seconds: float = 20.0, interval_ms: float = 10.0, top: int = 40) -> dict:
