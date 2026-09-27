@@ -128,7 +128,11 @@ class ForegroundPrechecks(unittest.TestCase):
             try:store.cached_org(self.slug)
             except BaseException as e:errors.append(e)
         def prechecks():
-            try:self.test_actual_plans_and_discovery_avoid_full_read()
+            try:
+                self.assertIn('a@4',sup._admission_rows(self.slug,'a',compact=True)['nodes'])
+                self.assertEqual(next(sup._report_plans(self.slug,'a'))['_sup'],'b')
+                self.assertFalse(halt.requested(self.slug,'a'))
+                self.assertEqual(self.discovery('orgtree_list_tiers'),{'tiers':['fixture']})
             except BaseException as e:errors.append(e)
             finally:finished.set()
         with patch.object(store,'_assemble_snapshot',held):
