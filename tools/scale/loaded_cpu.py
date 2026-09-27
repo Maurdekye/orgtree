@@ -31,6 +31,8 @@ class Meter:
         self.every = every
         self.enabled = False
         self.seq = 0
+        self.profile_lock = threading.Lock()
+        self.skipped_samples = collections.Counter()
         self.count = collections.Counter()
         self.cpu = collections.Counter()
         self.sample_cpu = collections.Counter()
@@ -56,10 +58,20 @@ class Meter:
         self.count[key] += 1
         # Sample first and each Nth operation independently within each class.
         sampled = (self.count[key]-1) % (self.every if where == 'worker' else self.every*5) == 0
-        profile = cProfile.Profile(time.thread_time) if sampled else None
+        acquired = sampled and self.profile_lock.acquire(blocking=False)
+        profile = cProfile.Profile(time.thread_time) if acquired else None
+        if sampled and not acquired: self.skipped_samples[key] += 1
         self.local.depth = 1
         start = time.thread_time()
-        if profile: profile.enable()
+        if profile:
+            try: profile.enable()
+            except ValueError:
+                # Another in-process profiler may own CPython's monitoring ID.
+                # Missing a sample must never change request behavior.
+                self.skipped_samples[key] += 1
+                profile = None
+                self.profile_lock.release()
+                acquired = False
         try:
             return fn(*args, **kwargs)
         finally:
@@ -73,6 +85,7 @@ class Meter:
                 for ident, stat in pstats.Stats(profile).stats.items():
                     dest = rows.setdefault(ident, [0, 0, 0.0, 0.0])
                     for i in range(4): dest[i] += stat[i]
+            if acquired: self.profile_lock.release()
 
     def start(self):
         if self.started: raise RuntimeError('one profile window per engine')
@@ -87,6 +100,7 @@ class Meter:
         self.stop.set()
         data = dict(start=self.started, finish=self.finished, every=self.every,
             count=dict(self.count), cpu=dict(self.cpu), sampled_cpu=dict(self.sample_cpu),
+            skipped_samples=dict(self.skipped_samples),
             thread_cpu=dict(self.thread_cpu), thread_names=self.thread_names,
             weighted_stacks=[dict(key=k, cpu_s=v) for k,v in self.stack_cpu.most_common(300)],
             functions={key: [dict(file=i[0], line=i[1], function=i[2], primitive_calls=v[0],

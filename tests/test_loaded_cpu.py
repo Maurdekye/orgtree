@@ -27,6 +27,22 @@ class CpuControls(unittest.TestCase):
             self.assertGreaterEqual(meter.cpu['worker:tool:control'],.04)
             self.assertTrue(any(i[2]=='busy' for i in meter.functions['worker:tool:control']))
 
+    def test_overlapping_workers_keep_running_when_sample_busy(self):
+        with tempfile.TemporaryDirectory() as root:
+            meter=Meter(root); meter.enabled=True; meter.every=1
+            entered=threading.Event(); release=threading.Event(); seen=[]
+            def first():
+                entered.set(); release.wait(2)
+            thread=threading.Thread(target=lambda:meter.measured('worker',first))
+            thread.start()
+            try:
+                self.assertTrue(entered.wait(1))
+                meter.measured('worker',lambda:seen.append('second finished'))
+                self.assertEqual(seen,['second finished'])
+                self.assertEqual(meter.skipped_samples['worker:background'],1)
+            finally:
+                release.set(); thread.join(3)
+
     def test_nested_boundary_does_not_double_count(self):
         with tempfile.TemporaryDirectory() as root:
             meter=Meter(root); meter.enabled=True
