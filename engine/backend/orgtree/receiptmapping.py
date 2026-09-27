@@ -19,6 +19,9 @@ class StaleReceipts(RuntimeError):
 def _read(slug: str, revision: int, query: str, params: tuple[Any, ...]) -> list[Any]:
     from . import store
     with store._POOL.acquire(slug) as conn:
+        # A pinned multi-org transaction shares one raw connection. Select this
+        # org before bypassing the adapter for the native PostgreSQL query.
+        conn.use()
         pinned = conn.pinned
         if not pinned:
             conn.raw.execute('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY')
