@@ -13,6 +13,10 @@ import unittest
 import uuid
 from unittest.mock import patch
 
+# engine log lines carry non-ASCII; a cp1252 pipe must not fail the turn
+for _s in (sys.stdout, sys.stderr):
+    _s.reconfigure(encoding="utf-8", errors="replace")
+
 _root = tempfile.TemporaryDirectory(prefix="codex-batch-drain-")
 os.environ["ORGTREE_DATA"] = _root.name
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -49,6 +53,10 @@ class CodexBatchDrainTests(unittest.TestCase):
                         patch.object(sup, "spawn_env", return_value={}),
                         patch.object(sup, "_deployment_org_gate"),
                         patch.object(sup, "_phantom_log"),
+                        patch.object(sup, "_native_context_hold", return_value=None),
+                        patch.object(sup, "_cancel_working_cache"),
+                        patch.object(sup, "_note_working_activity"),
+                        patch.object(sup, "_hold_for_deploy", return_value=True),
                         patch.object(sup.subprocess, "Popen",
                                      side_effect=FileNotFoundError("external process forbidden"))]
         for item in self.patches:
@@ -95,7 +103,8 @@ class CodexBatchDrainTests(unittest.TestCase):
         bodies, first = self.burst(6)
         sup._run_turn(self.slug, "worker", first)
         self.assertEqual(self.adapter.snapshot()["started"], 1,
-                         "a burst of 6 queued pointers must drain in ONE codex turn")
+                         f"a burst of 6 queued pointers must drain in ONE codex turn "
+                         f"(last_error={self.st.get('last_error')!r})")
         self.assert_all_delivered_once(bodies)
 
     def test_batch_cap_is_max_batch_carriers_per_turn(self):
@@ -169,18 +178,27 @@ class ClaudeLaneUnchangedTests(unittest.TestCase):
         def spy(*a, **kw):
             calls.append(a)
             return real(*a, **kw)
+        drains = []
+        real_take = sup._take_delivery_mail
+
+        def take_spy(org, nid, mail_ids=None):
+            drains.append(list(mail_ids) if mail_ids is not None else None)
+            return real_take(org, nid, mail_ids)
         queued = [sup._mark_ping("(orgtree) new mail", mail_ids=ids[:k]) for k in (2, 3)]
         with sup._state_lock:
             st["busy"] = True
             st["queue"].extend(queued)
         try:
-            with patch.object(sup, "_absorb_queued_pointers", spy), \
+            with patch.object(sup, "_absorb_queued_pointers", spy),                     patch.object(sup, "_take_delivery_mail", take_spy),                     patch.object(sup, "_native_context_hold", return_value=None), \
                     patch.object(sup, "spawn_env", return_value={}), \
                     patch.object(sup, "_deployment_org_gate"), \
                     patch.object(sup.subprocess, "Popen",
                                  side_effect=FileNotFoundError("external process forbidden")):
                 sup._run_one_turn(slug, "worker",
                                   sup._mark_ping("(orgtree) new mail", mail_ids=ids[:1]))
+            # the control: admission really reached the drain, with the
+            # carrier's own ids only
+            self.assertEqual(drains[:1], [ids[:1]], "claude turn never reached the drain")
             self.assertEqual(calls, [], "claude admission must not absorb queued pointers")
         finally:
             with sup._state_lock:
