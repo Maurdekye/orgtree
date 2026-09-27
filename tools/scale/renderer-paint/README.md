@@ -80,3 +80,15 @@ turns. Valid but slow runs still produce a report; `clickTargetMet` and
 `feedTargetMet` are separate from `validMeasurement`.
 
 No N1000 performance or memory-stability result is implied by building this tool.
+
+For the bounded N10 validation only, `fixture.py --build <build-dir> --output
+<new-evidence-dir>` owns the whole disposable PG/server/load lifecycle. Run with
+the repository packaged Python under `p03-run`, after the standalone control
+passes. It uses only `LocalAppData/Temp/n1-review-astra/fixture-*`, guards 10GiB
+free commit, retains raw redacted measurement files, stops its processes and PG,
+and verifies the resolved cleanup target before deleting that fixture. Its
+queued-mail load has provider launches forbidden; no real provider turns are
+claimed. The 120-second demand window allows three click repeats and a 15-second
+feed measurement. `prepare.py` follows the scale team's queued-mail preparation:
+disabled providers, paused fixture watchdogs, declared keepalive suppression,
+halted parent recipients and pre-ingested synthetic transcript history.
