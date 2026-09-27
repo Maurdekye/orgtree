@@ -280,6 +280,46 @@ class ForegroundIndex(unittest.TestCase):
 
 @unittest.skipUnless(fixture.ADMIN, 'disposable PG not configured: NOT RUN')
 class ForegroundUpgrade(unittest.TestCase):
+    def test_late_foreground_migration_preserves_later_creator_wrappers_and_runtime_role(self):
+        import psycopg
+        database = fixture.DBNAME + '_fg_late'
+        url = fixture._with_db(fixture.ADMIN, database)
+        with psycopg.connect(fixture.ADMIN, autocommit=True) as admin:
+            if not admin.execute("SELECT 1 FROM pg_roles WHERE rolname='orgtree_runtime'").fetchone():
+                admin.execute('CREATE ROLE orgtree_runtime NOLOGIN')
+            admin.execute(f'CREATE DATABASE {database}')
+        try:
+            with tempfile.TemporaryDirectory() as folder:
+                for path in pgstore.MIGRATIONS_DIR.glob('*.sql'):
+                    if not path.name.startswith('0004_'):
+                        shutil.copyfile(path, Path(folder) / path.name)
+                pgstore.migrate(url, Path(folder))
+            with psycopg.connect(url, autocommit=True) as conn:
+                oid = conn.execute("INSERT INTO public.orgs(slug) VALUES('late-before') RETURNING org_id").fetchone()[0]
+                schema = conn.execute('SELECT public.orgtree_create_org_schema(%s)', (oid,)).fetchone()[0]
+                original = '{ "state":"archived", "parent":"", "cost_usd":3.125 }'
+                conn.execute(f'INSERT INTO {schema}.nodes(id,ord,val) VALUES(%s,0,%s)', ('old', original))
+                result = pgstore.migrate(conn)
+                self.assertEqual(result['applied'], ['0004_foreground_nodes.sql'])
+                self.assertEqual(conn.execute(f'SELECT val FROM {schema}.nodes').fetchone()[0], original)
+                self.assertEqual(conn.execute(f'SELECT node_count FROM {schema}.foreground_meta').fetchone()[0], 1)
+                # The final creator must invoke all previous wrappers, whether
+                # 0004 is first numerically or last chronologically.
+                conn.execute('SET ROLE orgtree_runtime')
+                new_oid = conn.execute("INSERT INTO public.orgs(slug) VALUES('late-after') RETURNING org_id").fetchone()[0]
+                fresh = conn.execute('SELECT public.orgtree_create_org_schema(%s)', (new_oid,)).fetchone()[0]
+                for table in ('foreground_meta', 'node_index', 'mail_archive_bounds',
+                              'mail_sent', 'work_index', 'work_read_state'):
+                    self.assertIsNotNone(conn.execute('SELECT to_regclass(%s)', (fresh + '.' + table,)).fetchone()[0], table)
+                    conn.execute(f'SELECT * FROM {fresh}.{table} LIMIT 0')
+                conn.execute(f'INSERT INTO {fresh}.nodes(id,ord,val) VALUES(%s,0,%s)', ('new', original))
+                self.assertEqual(conn.execute(f'SELECT node_count FROM {fresh}.foreground_meta').fetchone()[0], 1)
+                conn.execute('RESET ROLE')
+                self.assertEqual(pgstore.migrate(conn)['applied'], [])
+        finally:
+            with psycopg.connect(fixture.ADMIN, autocommit=True) as admin:
+                admin.execute(f'DROP DATABASE {database} WITH (FORCE)')
+
     def test_upgrade_preserves_node_bytes_and_backfills_existing_org(self):
         import psycopg
         database = fixture.DBNAME + '_fg_upgrade'
