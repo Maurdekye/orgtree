@@ -132,11 +132,9 @@ class ReceiptStorage(unittest.TestCase):
 
 
     def exported(self, raw):
-        result = {}
-        for owner, in raw.execute('SELECT owner FROM receipt_owners ORDER BY ord'):
-            result[owner] = {token: receiptrows.loads(text) for token,text in raw.execute(
-                'SELECT token,val FROM receipts WHERE owner=%s ORDER BY ord', (owner,))}
-        return result
+        present, value=receiptstore.export(raw)
+        self.assertTrue(present)
+        return value
 
     def version(self, raw, owner):
         row=raw.execute('SELECT version FROM receipt_owners WHERE owner=%s', (owner,)).fetchone()
@@ -226,6 +224,20 @@ class ReceiptStorage(unittest.TestCase):
         with self.raw() as raw:
             self.assertEqual(self.exported(raw)['z'],self.value['z'])
             self.assertIn('empty',self.exported(raw))
+
+
+
+    def test_export_refuses_lost_carrier_and_incorrect_count(self):
+        with self.raw() as raw:
+            receiptstore.convert(raw,self.oid)
+        for corruption in ["DELETE FROM receipt_carriers WHERE owner='z'",
+                           "UPDATE receipt_owners SET nrows=99 WHERE owner='z'"]:
+            with self.assertRaises(receiptrows.Unsupported):
+                with self.raw() as raw:
+                    raw.execute(corruption)
+                    receiptstore.export(raw)
+        with self.raw() as raw:
+            self.assertEqual(self.exported(raw),self.value)
 
 
 if __name__=='__main__':

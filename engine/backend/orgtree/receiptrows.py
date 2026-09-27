@@ -117,14 +117,20 @@ def assemble(converted: Converted) -> dict[str, Any]:
     if not converted.present and (converted.owners or converted.receipts or converted.carriers):
         raise Unsupported("absent section contains rows")
     value: dict[str, Any] = {}
-    for expected, (owner, ordinal) in enumerate(sorted(converted.owners, key=lambda row: row[1])):
+    previous_owner_ordinal = -1
+    positions: dict[str, int] = {}
+    for owner, ordinal in sorted(converted.owners, key=lambda row: row[1]):
         _key(owner, "owner")
-        if ordinal != expected or owner in value:
-            raise Unsupported("duplicate or discontinuous owner ordinal")
+        if not isinstance(ordinal, int) or ordinal <= previous_owner_ordinal or owner in value:
+            raise Unsupported("duplicate or invalid owner ordinal")
+        previous_owner_ordinal = ordinal
         value[owner] = {}
+        positions[owner] = -1
     for owner, operation, ordinal, text in sorted(converted.receipts, key=lambda row: (row[0], row[2])):
-        if owner not in value or ordinal != len(value[owner]) or operation in value[owner]:
-            raise Unsupported("orphaned, duplicate or discontinuous receipt row")
+        if (owner not in value or not isinstance(ordinal, int)
+                or ordinal <= positions[owner] or operation in value[owner]):
+            raise Unsupported("orphaned, duplicate or invalid receipt row")
+        positions[owner] = ordinal
         value[owner][operation] = validate_receipt(owner, operation, loads(text))
     expected_carriers = {(owner, token, operation) for owner, entries in value.items()
                          for operation, receipt in entries.items() for token in receipt["before"]}

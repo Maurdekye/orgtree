@@ -84,5 +84,13 @@ class ReceiptCodec(unittest.TestCase):
             rows.verify(dataclasses.replace(self.converted, receipts=(corrupt, *self.converted.receipts[1:])))
 
 
+    def test_ordinal_gaps_after_authorized_deletion_preserve_order(self):
+        gapped=dataclasses.replace(self.converted,
+            owners=tuple((owner,ordinal*10+2) for owner,ordinal in self.converted.owners),
+            receipts=tuple((owner,token,ordinal*10+2,text) for owner,token,ordinal,text in self.converted.receipts))
+        self.assertEqual(rows.assemble(gapped),self.value)
+        self.assertEqual(rows.verify(gapped),rows.verify(self.converted))
+
+
 if __name__ == "__main__":
     unittest.main()
