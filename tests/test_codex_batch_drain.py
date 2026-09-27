@@ -168,8 +168,7 @@ class CodexBatchDrainTests(unittest.TestCase):
         self.assertFalse(armed[0], "the injected failure never ran")
         stored = orgtx.org_read(self.slug)
         box = {str(m["id"]): m["body"] for m in (stored.d.get("mail") or {}).get("worker") or []}
-        delivered = "
-".join(self.adapter.texts)
+        delivered = chr(10).join(self.adapter.texts)
         named = set()
         carriers = list(self.st.get("queue") or [])
         carriers += list((self.st.get("halt_pending_carriers") or {}).values())
