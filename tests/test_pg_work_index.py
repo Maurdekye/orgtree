@@ -41,7 +41,7 @@ class Index(unittest.TestCase):
             return self.c.execute(f"INSERT INTO {self.s}.log_l(sect,val) VALUES('work_items_archive',%s) RETURNING seq", (body,)).fetchone()[0]
         self.c.execute(f'INSERT INTO {self.s}.doc VALUES(%s,%s)', (workrows.PREFIX+slug,body))
         ids = [r[0] for r in self.c.execute(f"SELECT slug FROM {self.s}.work_index WHERE location='active' ORDER BY slug")]
-        self.c.execute(f'UPDATE {self.s}.doc SET val=%s WHERE key=%s', (workrows.header(ids),'work_items'))
+        self.c.execute(f'INSERT INTO {self.s}.doc(key,val) VALUES(%s,%s) ON CONFLICT(key) DO UPDATE SET val=excluded.val', ('work_items',workrows.header(ids)))
 
     def check(self):
         self.assertTrue(workindex.reconcile(self.c,self.oid))

@@ -108,7 +108,8 @@ BEGIN
   EXECUTE format('SELECT val::json FROM %I.doc WHERE key=''work_items''',s) INTO header;
   IF header IS NOT NULL AND (json_typeof(header) IS DISTINCT FROM 'object'
     OR header->>'format' IS DISTINCT FROM 'orgtree.work-items/v1'
-    OR json_typeof(header->'ids') IS DISTINCT FROM 'array') THEN RETURN false; END IF;
+    OR json_typeof(header->'ids') IS DISTINCT FROM 'array'
+    OR (SELECT array_agg(key ORDER BY key) FROM json_object_keys(header) key) <> ARRAY['format','ids']) THEN RETURN false; END IF;
   EXECUTE format('SELECT count(*) FROM %I.doc WHERE key=''work_items_archive''',s) INTO bad;
   IF bad<>0 THEN RETURN false; END IF;
   IF EXISTS(SELECT 1 FROM json_array_elements(coalesce(header->'ids','[]'::json)) x
@@ -137,7 +138,7 @@ END
 $fn$;
 
 DO $migration$
-DECLARE org record; s text; row record; item json; n bigint;
+DECLARE org record; s text; row record; item json; receipt text;
 BEGIN
   FOR org IN SELECT org_id FROM public.orgs ORDER BY org_id LOOP
     s := 'org_' || org.org_id;
@@ -165,8 +166,14 @@ BEGIN
     -- Force deferred identity checks before marking the index usable.
     SET CONSTRAINTS ALL IMMEDIATE;
     EXECUTE format('UPDATE %I.work_index_state SET valid=true',s);
-    INSERT INTO public.receipts(org_id,op_key,result) VALUES(org.org_id,'work-index/v1',
-      json_build_object('format','orgtree.work-index/v1','reconciled',true)::text);
+    EXECUTE format('WITH raw AS ('
+      'SELECT ''active''::text location,key source_key,val FROM %1$I.doc WHERE starts_with(key,''work_items'' || chr(31)) '
+      'UNION ALL SELECT ''archive'',seq::text,val FROM %1$I.log_l WHERE sect=''work_items_archive'') '
+      'SELECT json_build_object(''format'',''orgtree.work-index/v1'',''reconciled'',true,''count'',count(*),'
+      '''source_sha256'',encode(sha256(convert_to(coalesce(string_agg('
+      'json_build_array(location,source_key,encode(sha256(convert_to(val,''UTF8'')),''hex''))::text,'
+      'chr(10) ORDER BY location,source_key),''''),''UTF8'')),''hex''))::text FROM raw',s) INTO receipt;
+    INSERT INTO public.receipts(org_id,op_key,result) VALUES(org.org_id,'work-index/v1',receipt);
   END LOOP;
   IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='orgtree_runtime') THEN
     GRANT EXECUTE ON FUNCTION public.orgtree_install_work_index(bigint) TO orgtree_runtime;
