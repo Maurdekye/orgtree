@@ -58,7 +58,7 @@ class ForegroundWindows(unittest.TestCase):
                 self.assertEqual(projected.node_ask(nid), expected.node_ask(nid))
         self.assertEqual(projected.tree()['asks'], expected.tree()['asks'])
         self.assertEqual(projected.tree()['asks_open'], expected.tree()['asks_open'])
-        self.assertLessEqual(sum(map(len, result['asks'].values())), 12)
+        self.assertLessEqual(sum(map(len, result['asks'].values())), ledger.ASK_HISTORY_KEEP + 3)
 
     def test_document_counts_and_metadata_tails_follow_replace_move_and_delete(self):
         org = store.load_org(self.slug)
