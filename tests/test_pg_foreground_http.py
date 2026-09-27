@@ -1,4 +1,5 @@
 """Real PG routes with the real context and committed docket-count reader."""
+import base64
 import copy
 import json
 import unittest
@@ -135,6 +136,34 @@ class ForegroundRoutePG(unittest.TestCase):
             self.assertEqual(changed.status_code, 200, changed.text)
             self.assertEqual(changed.json()['nodes']['boss']['set']['last_status']['summary'], 'row transaction')
             self.assertEqual(builds, [], {'before': before, 'after': after, 'journal': journal})
+
+    def test_retired_page_cursor_rejects_malformed_order_fields_as_http400(self):
+        first = self.get('/foreground-tree/children?parent=boss&limit=1')
+        self.assertEqual(first.status_code, 200, first.text)
+        cursor = first.json()['next_cursor']
+        self.assertIsNotNone(cursor)
+        original = json.loads(base64.urlsafe_b64decode(cursor + '=' * (-len(cursor) % 4)))
+        invalid_fields = {
+            0: ['not-a-number', 'NaN', 'Infinity', '-Infinity', '1e131072', '1e-16384',
+                True, None, [], {}],
+            1: [None, 4, [], 'bad\x00created', '\ud800'],
+            2: ['1', 1.5, True, None, 2**63, -(2**63)-1],
+            3: [None, 4, {}, 'bad\x00id', '\ud800'],
+        }
+        for field, values in invalid_fields.items():
+            for value in values:
+                with self.subTest(field=field, value=repr(value)):
+                    forged = copy.deepcopy(original)
+                    forged[5][field] = value
+                    encoded = base64.urlsafe_b64encode(json.dumps(forged).encode()).decode().rstrip('=')
+                    response = self.get('/foreground-tree/children?parent=boss&limit=1&cursor=' + encoded)
+                    self.assertEqual(response.status_code, 400, response.text)
+        # Rejecting a cursor must leave the read connection usable, and a real
+        # server-issued ordering key must still fetch the next distinct child.
+        valid = self.get('/foreground-tree/children?parent=boss&limit=1&cursor=' + cursor)
+        self.assertEqual(valid.status_code, 200, valid.text)
+        self.assertEqual(len(valid.json()['matches']), 1)
+        self.assertTrue(set(first.json()['matches']).isdisjoint(valid.json()['matches']))
 
 
 if __name__ == '__main__':

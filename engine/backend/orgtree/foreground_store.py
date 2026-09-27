@@ -8,10 +8,12 @@ tree remains the compatibility reader on other backends.
 from __future__ import annotations
 
 from contextlib import contextmanager
+from decimal import Decimal, InvalidOperation
 import base64
 import hashlib
 import json
 import os
+import re
 from typing import Any, Callable, Iterator
 
 from . import store
@@ -74,6 +76,36 @@ def _limit(limit: int) -> int:
     if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= MAX_PAGE:
         raise ValueError(f'limit must be between 1 and {MAX_PAGE}')
     return limit
+
+
+def _child_order(after: Any) -> list:
+    """Validate an untrusted keyset before PostgreSQL casts or adapts it."""
+    if not isinstance(after, list) or len(after) != 4:
+        raise ValueError('invalid child ordering cursor')
+    order, created, ordinal, nid = after
+    if isinstance(order, bool) or not isinstance(order, (str, int, float)):
+        raise ValueError('invalid child ordering cursor')
+    order = str(order)
+    if not re.fullmatch(r'-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?', order):
+        raise ValueError('invalid child ordering cursor')
+    try:
+        number = Decimal(order)
+        # PostgreSQL unconstrained numeric has these integer/scale limits.
+        # Reject oversized exponents before sending an otherwise finite value.
+        if not number.is_finite() or number.adjusted() > 131071 or number.as_tuple().exponent < -16383:
+            raise ValueError('invalid child ordering cursor')
+    except InvalidOperation as error:
+        raise ValueError('invalid child ordering cursor') from error
+    if type(ordinal) is not int or not -(2**63) <= ordinal < 2**63:
+        raise ValueError('invalid child ordering cursor')
+    for value in (created, nid):
+        if not isinstance(value, str) or '\x00' in value:
+            raise ValueError('invalid child ordering cursor')
+        try:
+            value.encode('utf-8')
+        except UnicodeError as error:
+            raise ValueError('invalid child ordering cursor') from error
+    return [order, created, ordinal, nid]
 
 
 @contextmanager
@@ -285,8 +317,7 @@ def read_retired_children(slug: str, parent: str = '', *, limit: int = 50,
         params: list = [parent]
         suffix = ''
         if after is not None:
-            if not isinstance(after, list) or len(after) != 4:
-                raise ValueError('invalid child ordering cursor')
+            after = _child_order(after)
             suffix = " AND ((meta->>'order')::numeric,meta->>'created',ord,id)>(%s::numeric,%s,%s,%s)"
             params.extend(after)
         params.append(limit + 1)
