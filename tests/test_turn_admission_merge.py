@@ -64,7 +64,9 @@ class MergeTests(fixture.DrainTxTests):
         for gate in ('halt', 'frozen', 'killswitch'):
             with self.subTest(gate=gate):
                 real = sup._admission_rows
+                fired = []
                 def rows(slug, nid, *, compact=False):
+                    fired.append(True)
                     args = {'sections': [halt.KILLSWITCH]} if gate == 'killswitch' else {'nodes': [nid]}
                     with halt.txn(slug, **args) as tx:
                         if gate == 'killswitch':
@@ -76,6 +78,7 @@ class MergeTests(fixture.DrainTxTests):
                      patch.object(sup, '_turn_forecast', return_value=self.forecast()) as forecast, \
                      patch.object(sup, '_take_delivery_mail') as drain:
                     self.admit()
+                self.assertEqual(fired, [True], 'gate flip never executed')
                 self.assertFalse(forecast.called, 'forecast ran before locked gate')
                 self.assertFalse(drain.called, 'drain ran after locked gate refusal')
                 with halt.txn(self.slug, nodes=['worker'], sections=[halt.KILLSWITCH]) as tx:
