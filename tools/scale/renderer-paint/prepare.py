@@ -8,6 +8,7 @@ import sys
 
 p = argparse.ArgumentParser()
 p.add_argument('--root', required=True)
+p.add_argument('--archive-multiplier', type=int, default=1)
 args = p.parse_args()
 repo = Path(__file__).resolve().parents[3]
 root = Path(args.root).resolve()
@@ -39,6 +40,17 @@ for node in org.nodes.values():
 for dog in org.d.get('watchdogs', []):
     org.watchdog_action(ledger.USER, dog['id'], 'pause')
 org._work_archive_eligible()
+if not 1 <= args.archive_multiplier <= 10:
+    raise ValueError('archive multiplier must be1..10 for the bounded N10 experiment')
+# Duplicate only inactive item/evidence history. Both arms keep the exact same
+# seed configuration, active work and other log/transcript history.
+original_archive = list(org.d.get('work_items_archive') or [])
+for copy in range(1, args.archive_multiplier):
+    for original in original_archive:
+        item = json.loads(json.dumps(original))
+        item['slug'] = f"{original['slug']}-history-{copy}"
+        if item.get('ref'): item['ref'] = f"@item:{desc['org']}/{item['slug']}"
+        org.d['work_items_archive'].append(item)
 store.save_org(org)
 live = {nid: n for nid, n in org.nodes.items() if n.get('state') == 'live'}
 parents = sorted({n['parent'] for n in live.values() if n.get('parent')})
@@ -60,7 +72,10 @@ with records.database() as conn:
     pending = conn.execute('SELECT count(*) FROM transcript_sources WHERE lower_byte>0').fetchone()[0]
 assert pending == 0
 out = dict(halted_parents=parents, callers=sorted(set(live) - set(parents)), sources=len(sources),
-           records=count, bytes_read=stats['bytes_read'], synthetic_keepalive_suppression_until=keepalive_until)
+           records=count, bytes_read=stats['bytes_read'], synthetic_keepalive_suppression_until=keepalive_until,
+           archive_multiplier=args.archive_multiplier, archive_items=len(original_archive) * args.archive_multiplier,
+           active_work=[{'slug': it['slug'], 'status': it['status'], 'owner': it.get('owner')}
+                        for it in org.d.get('work_items') or []])
 prov.write_result(root / 'prepared.json', out)
 print(json.dumps(out), flush=True)
 

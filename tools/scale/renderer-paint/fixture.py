@@ -21,6 +21,7 @@ import psutil
 parser = argparse.ArgumentParser()
 parser.add_argument('--build', required=True, type=Path)
 parser.add_argument('--output', required=True, type=Path)
+parser.add_argument('--archive-multiplier', type=int, default=1)
 args = parser.parse_args()
 packet = args.output.resolve()
 packet.mkdir(parents=True, exist_ok=False)
@@ -110,7 +111,9 @@ try:
     admin = pg('urls')['urls']['P03_PG_ADMIN_URL']
     wait(launch('seed', [sys.executable, '-I', '-B', str(REPO / 'tools/scale/seed.py'),
         '--root', str(root), '--agents', '10', '--admin-url', admin]))
-    wait(launch('prepare', [sys.executable, '-I', '-B', str(Path(__file__).with_name('prepare.py')), '--root', str(root)]))
+    wait(launch('prepare', [sys.executable, '-I', '-B', str(Path(__file__).with_name('prepare.py')), '--root', str(root),
+        '--archive-multiplier', str(args.archive_multiplier)]))
+    shutil.copy2(root / 'prepared.json', packet / 'prepared.json')
     server = launch('server', [sys.executable, '-I', '-B', str(REPO / 'tools/scale/serve.py'),
         '--root', str(root), '--env', 'ORGTREE_SCALE_ASSERT_NO_TURNS=1', '--env', 'ORGTREE_SCALE_TRACE_GIT=1'])
     deadline = time.monotonic() + 180

@@ -17,6 +17,7 @@ app.commandLine.appendSwitch('disable-background-timer-throttling')
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
 let win, proxy, descriptor, agent
 const sockets = new Set(), paintTimes = new Map(), actions = [], errors = [], ipcCalls = {}
+const archiveSamples = []
 let paints = 0, clock, controls, finishing = false
 let startupDeadline = setTimeout(() => {
   save('renderer.json', { complete: false, error: 'Electron startup exceeded45s', paints, actions, errors });finish(1)
@@ -229,6 +230,33 @@ app.whenReady().then(async () => {
       await action('open-work' + suffix, '.docket-bell', 'visible(document.querySelector(".docket-row"))', { measured: false })
       const title = await js(`(()=>{const r=document.querySelector('.docket-row');r.dataset.paintItem='chosen';return r.getAttribute('data-copy-ticket-title')})()`)
       await action('open-docket-item' + suffix, '[data-paint-item=chosen]', `visible(document.querySelector('.docket-pane-head')) && document.querySelector('.docket-pane-head')?.getAttribute('data-copy-ticket-title')===${JSON.stringify(title)}`)
+      if (process.env.ORGTREE_PAINT_ARCHIVE === '1') {
+        // Observe the production UI and browser heap; do not inspect React
+        // state or substitute network results. Collection is outside timing.
+        if (!win.webContents.debugger.isAttached()) win.webContents.debugger.attach('1.3')
+        const memory = async () => {
+          await win.webContents.debugger.sendCommand('HeapProfiler.collectGarbage')
+          return { heap: await win.webContents.debugger.sendCommand('Runtime.getHeapUsage'),
+            processes: app.getAppMetrics() }
+        }
+        const before = await memory()
+        const open = await action('open-archive' + suffix, '.docket-showarchived input',
+          'document.querySelector(".docket-showarchived input")?.checked===true')
+        await until(() => js('!!document.querySelector(".docket-section.tone-archive .docket-row") && ![...document.querySelectorAll("[role=status]")].some(e=>e.textContent.startsWith("Loading docket"))'))
+        const readyAt = epoch()
+        const archivedCount = await js('document.querySelector(".docket-section.tone-archive .docket-group-n")?.textContent')
+        const opened = await memory()
+        await action('close-archive' + suffix, '.docket-showarchived input',
+          'document.querySelector(".docket-showarchived input")?.checked===false', { measured: false })
+        await until(() => js('!document.querySelector(".docket-section.tone-archive")'))
+        const closed = await memory()
+        archiveSamples.push({ suffix, before, opened, closed, archivedCount,
+          inputAt: open.start, feedbackPaintMs: open.ms, completeViewObservedMs: readyAt - open.start })
+        save('archive.json', { samples: archiveSamples,
+          limitations: ['Heap samples force GC outside click timing; process memory also includes non-JS allocations.',
+            'Complete-view observation polls DOM at25ms; feedback latency has compositor proof.',
+            'N10 queued-mail synthetic demand; not N1000 or completed provider turns.'] })
+      }
       win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
       await until(() => js('!document.querySelector(".docket-modal")'))
       if (i + 1 < run.repeats) await action('prepare-canvas' + suffix, '[data-paint-mode=canvas]', 'document.querySelector(".attn-stage")?.dataset.attentionActive !== "yes"', { measured: false })
