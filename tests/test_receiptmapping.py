@@ -12,7 +12,7 @@ class ReceiptMapping(unittest.TestCase):
         self.source={'z':{'first':receipt('z','first','a'),'second':receipt('z','second','b')},
                      'other':{'op':receipt('other','op','x')}}
         self.calls=[]
-        def read(slug,revision,query,params,bound=None):
+        def read(slug,revision,query,params,bound=None,owner_version=None):
             self.calls.append((query,params)); self.assertEqual((slug,revision,bound),('fixture',3,None))
             if query=='SELECT 1 FROM receipt_owners LIMIT 1': return [(1,)]
             if query.startswith('SELECT owner,nrows,version'):
