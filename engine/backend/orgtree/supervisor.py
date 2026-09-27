@@ -28923,7 +28923,7 @@ def maybe_storage_check(slug: str) -> None:
         try:
             # read-only: the shared snapshot, not a private full load per
             # org every 20 s (`storage_check` loads for itself if it runs)
-            org = store.cached_org(slug)
+            org = store.cached_org(slug) if STEER_CHEAP else store.load_org(slug)
             k = kiosk_cfg(org)
             if (k and int(k.get("storage_limit_mb") or 0) > 0) \
                     or sbx.is_sandboxed(org) \
@@ -32122,6 +32122,16 @@ def pop_steer(slug: str, nid: str, *, return_carriers: bool = False,
 #: it. PROPOSED, NOT MEASURED against the live root (the hook client gives up
 #: at 2 s; save_org can retry for 2.1 s on Windows under contention) — a late
 #: ack past this costs one `retried` delivery, never a loss.
+#: THE CHEAP STEER POLL SWITCH (v3 scale, item b-cheap-steer-polls-answer-
+#: a-no-mail-poll-withou). DEFAULT OFF by coordinator condition 2026-09-26:
+#: turning it on by default is a separate, explicit step once proven. On:
+#: the /steer door checks the credential against the shared snapshot
+#: (`store.cached_org`) instead of a private `org_read`, `claim_steer` skips
+#: the halt-gated claim transaction when there is no RAM carrier (it could
+#: only choose nothing), and the storage pre-check reads the snapshot. Off:
+#: exactly the behaviour before. `ORGTREE_STEER_CHEAP=1` turns it on; tests
+#: flip this module attribute.
+STEER_CHEAP = os.environ.get("ORGTREE_STEER_CHEAP", "") == "1"
 STEER_CLAIM_LEASE_S = float(os.environ.get("ORGTREE_STEER_LEASE") or 10.0)
 STEER_MARK = "ORGTREE-DELIVERY:"
 _STEER_MARK_RE = re.compile(r"ORGTREE-DELIVERY:([0-9a-f]{16})")
@@ -32251,7 +32261,7 @@ def claim_steer(slug: str, nid: str, tool_use_id: str,
         return None, []
     scan_steer_records(slug, nid)           # positive-only: a record may have landed
     with _state_lock:
-        if not st.get("steer"):
+        if STEER_CHEAP and not st.get("steer"):
             # no RAM carrier, so `_claim_steer_tx` could choose nothing: it
             # would open the halt gate's transaction only to return empty.
             # (The scan above still ran — it is what proves "no open

@@ -32,6 +32,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
+_ENV_SWITCH = os.environ.get("ORGTREE_STEER_CHEAP")   # read BEFORE import
+
 from engine.launch import load_app, TokenGate
 load_app()
 from fastapi.testclient import TestClient
@@ -51,6 +53,8 @@ def tearDownModule():
 
 
 class SteerPollCostTests(unittest.TestCase):
+    CHEAP = True                            # the switch under test, ON
+
     def setUp(self):
         org = store.create_org(f"spc-{next(_SERIAL)}")
         self.slug = org.d["slug"]
@@ -59,6 +63,7 @@ class SteerPollCostTests(unittest.TestCase):
         org.hire(ledger.USER, "boss", "haiku", 0, W)
         store.save_org(org)
         self.stack = ExitStack()
+        self.stack.enter_context(patch.object(sup, "STEER_CHEAP", self.CHEAP))
         self.stack.enter_context(patch.object(agentauth, "_key", KEY))
         self.stack.enter_context(patch.object(sup, "_cancel_working_cache"))
         self.stack.enter_context(patch.object(warmpool, "kill_node"))
@@ -212,7 +217,45 @@ class SteerPollCostTests(unittest.TestCase):
         self.assertEqual(self.poll(old).status_code, 403)
 
 
+class SwitchOffTests(SteerPollCostTests):
+    """The switch is OFF by default, and off is exactly the old behaviour:
+    every meaning test above runs again here (inherited), while the two cost
+    tests are replaced by their opposites."""
+    CHEAP = False
+
+    def test_switch_is_off_by_default(self):
+        self.assertIsNone(_ENV_SWITCH, "the test environment set the switch")
+        # the value the module computed at import, not the patched one
+        self.assertFalse(type(self)._imported, "STEER_CHEAP defaulted on")
+
+    def test_idle_poll_through_the_door_reads_no_org(self):
+        # OFF: the door's credential check still does its private org_read
+        token = self.token()
+        self.poll(token)
+        stack, (_tx, read, _load) = self.counting()
+        with stack:
+            self.assertEqual(self.poll(token).status_code, 200)
+            self.assertGreater(read.call_count, 0, "switch off, but the door skipped org_read")
+
+    def test_first_poll_opens_no_transaction_and_arms_the_fast_path(self):
+        # OFF: an unproven poll opens the claim transaction, as it always did
+        stack, (tx, _read, _load) = self.counting()
+        with stack:
+            self.assertEqual(sup.claim_steer(self.slug, W, "toolu_first", self.tp), (None, []))
+            self.assertGreater(tx.call_count, 0, "switch off, but the claim tx was skipped")
+
+
+SwitchOffTests._imported = sup.STEER_CHEAP
+
+
 class StoragePrecheckTests(unittest.TestCase):
+    def setUp(self):
+        self.stack = ExitStack()
+        self.stack.enter_context(patch.object(sup, "STEER_CHEAP", True))
+
+    def tearDown(self):
+        self.stack.close()
+
     def test_precheck_reads_the_snapshot_and_still_fires(self):
         org = store.create_org(f"spc-st-{next(_SERIAL)}")
         slug = org.d["slug"]

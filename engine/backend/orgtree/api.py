@@ -6147,8 +6147,11 @@ def _validate_steer_actor(request: Request | None, slug: str, nid: str) -> None:
             # (scale item, evidence 12), and a full org_read here was the
             # biggest part of an idle poll's cost. Same rule and same
             # freshness as `_agent_identity`, which authenticates every
-            # /api/agent call from the same snapshot.
-            node = store.cached_org(slug).node(nid)
+            # /api/agent call from the same snapshot. Behind the default-off
+            # STEER_CHEAP switch (coordinator 2026-09-26); off = the private
+            # lock-free org_read this always did.
+            node = (store.cached_org(slug) if supervisor.STEER_CHEAP
+                    else orgtx.org_read(slug)).node(nid)
             valid = (node.get("state") == "live" and int(node.get("generation", 0)) == identity[2]
                      and str(node.get("seat_id") or "") == identity[3])
         except (KeyError, ValueError, OSError):
