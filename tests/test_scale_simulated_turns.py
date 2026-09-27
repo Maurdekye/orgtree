@@ -3,6 +3,8 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
+import time
 import unittest
 import uuid
 from unittest.mock import patch
@@ -79,6 +81,45 @@ class CompletedTurnTests(unittest.TestCase):
                     org.node("worker").pop("halt", None)
                     org.node("worker").pop("frozen", None)
                     store.save_org(org)
+
+    def test_mid_turn_mail_steers_into_the_running_turn(self):
+        # The production Codex leg opens steering once its thread is live, so
+        # mail sent during a turn is batched into that turn. A leg that never
+        # opens it queues one pointer per message and each becomes a turn.
+        self.run_turn()
+        adapter = SimulatedProvider(sup, halt, slug=self.slug, nodes=["worker"], seconds=1.5)
+        st = sup.state(self.slug, "worker")
+        result = []
+        with patch.object(sup, "_codex_leg", adapter), patch.object(sup, "_after_turn", adapter.finish), \
+                patch.object(sup, "CODEX_STEER_POLL", 0.2):
+            org = orgtx.org_read(self.slug)
+            first = org.post_mail(ledger.USER, "worker", "turn opener")
+            store.save_org(org)
+            turn = threading.Thread(target=lambda: result.append(sup._run_one_turn(
+                self.slug, "worker", sup._mark_ping("scale mail", mail_ids=[first["id"]]))))
+            turn.start()
+            deadline = time.monotonic() + 10
+            while not st.get("responding") and time.monotonic() < deadline:
+                time.sleep(.01)
+            self.assertTrue(st.get("responding"), "simulated turn must open steering")
+            for i in range(3):
+                org = orgtx.org_read(self.slug)
+                org.post_mail(ledger.USER, "worker", f"mid-turn {i}")
+                store.save_org(org)
+                sup.send_message(self.slug, "worker", "(orgtree) mail", mail_ping=True, ping_reason="user_mail")
+            turn.join(timeout=20)
+        self.assertFalse(turn.is_alive())
+        counters = adapter.snapshot()
+        self.assertEqual(counters["started"], 1, "mid-turn mail must not need turns of its own")
+        self.assertEqual(counters["steered"], 3)
+        self.assertEqual(counters["steer_folded"], 0)
+        self.assertEqual(counters["steer_errors"], 0)
+        self.assertEqual(result, [None], "nothing may be left queued for a later turn")
+        self.assertFalse(st.get("queue"))
+        self.assertFalse(st.get("responding"))
+        stored = orgtx.org_read(self.slug)
+        self.assertFalse((stored.d.get("mail") or {}).get("worker"))
+        self.assertFalse((stored.d.get("delivering") or {}).get("worker"))
 
     def test_provider_cannot_accept_an_unlisted_fixture_node(self):
         org = orgtx.org_read(self.slug)

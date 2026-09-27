@@ -25,6 +25,7 @@ class SimulatedProvider:
         self.booked = self.failed_bookings = 0
         self.lock = threading.Lock()
         self.started = self.accepted = self.completed = self.failed = self.active = self.peak = 0
+        self.steer_batches = self.steered = self.steer_folded = self.steer_errors = 0
         self.recent = deque(maxlen=32)
 
     def snapshot(self):
@@ -32,6 +33,8 @@ class SimulatedProvider:
             return dict(started=self.started, accepted=self.accepted, completed=self.completed,
                         failed=self.failed, active=self.active, peak_active=self.peak,
                         booked=self.booked, failed_bookings=self.failed_bookings,
+                        steer_batches=self.steer_batches, steered=self.steered,
+                        steer_folded=self.steer_folded, steer_errors=self.steer_errors,
                         seconds=self.seconds, output_bytes=self.output_bytes,
                         recent=list(self.recent),
                         boundary="simulated Codex leg; real supervisor admission and completion")
@@ -53,6 +56,28 @@ class SimulatedProvider:
             else:
                 self.failed_bookings += 1
         return answer
+
+    def _steer_pump(self, slug, nid, st, stop):
+        """The production Codex pump with the transport's `turn/steer` always accepted."""
+        from orgtree import codexrun
+        while not stop.wait(self.sup.CODEX_STEER_POLL):
+            try:
+                carriers = self.sup.pop_steer(slug, nid, defer_commit=True)
+                if not carriers:
+                    continue
+                toks = self.sup._steer_parts(carriers)[2]
+                if not self.sup._note_steer_attempt(slug, nid, toks, codexrun.STEER_UNKNOWN,
+                                                    "steer sent; acknowledgement pending"):
+                    with self.sup._state_lock:
+                        st["queue"].extend(carriers)
+                    continue
+                self.sup.commit_steer(slug, nid, carriers)
+                with self.lock:
+                    self.steer_batches += 1
+                    self.steered += len(carriers)
+            except Exception:                                # noqa: BLE001
+                with self.lock:
+                    self.steer_errors += 1
 
     def __call__(self, slug, nid, org, st, text, toks, images=None, turn_view="", **kw):
         if slug != self.slug or nid not in self.nodes or org.node(nid).get("model") != "luna":
@@ -79,17 +104,40 @@ class SimulatedProvider:
                 segments=kw.get("view_segments"), incarnation=incarnation)
             self.sup._codex_journal(slug, sid, [{"type": "user", "timestamp": self.sup.now_iso(),
                 "message": {"role": "user", "content": text}}], incarnation=incarnation)
-            deadline = begun + self.seconds
-            while time.monotonic() < deadline:
-                time.sleep(min(.05, max(0, deadline - time.monotonic())))
+            # Mirror the real Codex leg once its thread is live: mail now steers
+            # into this turn instead of queueing one pointer per message, and a
+            # pump batches it on the production poll. Without this every
+            # mid-turn message became its own later turn (N10 capture a169cda).
+            with self.sup._state_lock:
+                st["responding"] = True
+                st["boundary_at"] = time.time()
+                st["boundary_polls"] = 0
+            stop = threading.Event()
+            pump = threading.Thread(target=self._steer_pump, args=(slug, nid, st, stop),
+                                    daemon=True, name=f"sim-steer-{nid}")
+            pump.start()
+            try:
+                deadline = begun + self.seconds
+                while time.monotonic() < deadline:
+                    time.sleep(min(.05, max(0, deadline - time.monotonic())))
+                    self.halt.check(slug, nid)
                 self.halt.check(slug, nid)
-            self.halt.check(slug, nid)
-            body = ("Synthetic completed turn. " * (self.output_bytes // 25 + 2))[:self.output_bytes]
-            self.sup.stream(slug, nid, {"kind": "delta", "text": body,
-                                      "assistant_id": "scale-" + receipt["id"]})
-            self.sup._codex_journal(slug, sid, [{"type": "assistant", "timestamp": self.sup.now_iso(),
-                "message": {"role": "assistant", "content": [{"type": "text", "text": body}]}}],
-                incarnation=incarnation)
+                body = ("Synthetic completed turn. " * (self.output_bytes // 25 + 2))[:self.output_bytes]
+                self.sup.stream(slug, nid, {"kind": "delta", "text": body,
+                                          "assistant_id": "scale-" + receipt["id"]})
+                self.sup._codex_journal(slug, sid, [{"type": "assistant", "timestamp": self.sup.now_iso(),
+                    "message": {"role": "assistant", "content": [{"type": "text", "text": body}]}}],
+                    incarnation=incarnation)
+            finally:
+                stop.set()
+                pump.join()
+                # Same lock take as the production exit (D-229): leftovers go
+                # to the back of the queue and deliver at the next turn.
+                with self.sup._state_lock:
+                    st["responding"] = False
+                    leftover = self.sup._fold_steer(st)
+                with self.lock:
+                    self.steer_folded += len(leftover)
             receipt["outcome"] = "provider-completed"
             with self.lock:
                 self.completed += 1
