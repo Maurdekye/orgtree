@@ -26,15 +26,21 @@ class ContextPG(unittest.TestCase):
         # Load normalizes the just-hired seat identities before projecting.
         org=ledger.Org(copy.deepcopy(org.d))
         self.slug=org.d['slug'];store.save_org(org)
-        module=types.ModuleType('orgtree.workread')
         self.count_calls=[]
         def counts(raw,org_id,*,viewer,now_ts):
             self.count_calls.append((raw,org_id,viewer,now_ts))
             return {'active':0,'attention':0,'archived':0,'backlogged':0}
-        module.counts_raw=counts
-        self.count_patch=patch.dict(sys.modules,{'orgtree.workread':module});self.count_patch.start();self.addCleanup(self.count_patch.stop)
-        self.package_patch=patch.object(orgtree,'workread',module,create=True)
-        self.package_patch.start();self.addCleanup(self.package_patch.stop)
+        try:
+            from orgtree import workread as module
+        except ImportError:
+            module=types.ModuleType('orgtree.workread')
+            self.module_patch=patch.dict(sys.modules,{'orgtree.workread':module})
+            self.module_patch.start();self.addCleanup(self.module_patch.stop)
+            self.package_patch=patch.object(orgtree,'workread',module,create=True)
+            self.package_patch.start();self.addCleanup(self.package_patch.stop)
+        self.count_module=module
+        self.count_patch=patch.object(module,'counts_raw',counts,create=True)
+        self.count_patch.start();self.addCleanup(self.count_patch.stop)
 
     def context(self):
         return fg.read_foreground(self.slug,project=lambda raw,g:ctx.build(raw,self.slug,g))
@@ -93,7 +99,7 @@ class ContextPG(unittest.TestCase):
         self.assertEqual(fg.read_foreground(self.slug),graph)
 
     def test_missing_count_contract_never_claims_empty(self):
-        sys.modules['orgtree.workread'].counts_raw=lambda *a,**k:None
+        self.count_module.counts_raw=lambda *a,**k:None
         with self.assertRaisesRegex(ctx.CompatibilityRequired,'counts'):self.context()
 
 
