@@ -135,7 +135,11 @@ def refresh(raw, org_id: int) -> bool:
     supported raw save or manufacture an empty count.
     """
     try:
-        return _refresh(raw,org_id)
+        result = _refresh(raw,org_id)
+        if result:
+            from . import worklistmeta
+            worklistmeta.refresh(raw,org_id)
+        return result
     except (KeyError,ValueError) as exc:
         schema=f'org_{int(org_id)}'
         raw.execute(f'UPDATE {schema}.work_read_state SET ready=false WHERE singleton')
@@ -250,7 +254,8 @@ def bootstrap(raw) -> None:
         schema=f'org_{int(org_id)}'
         if not _installed(raw,schema): continue
         state=raw.execute(f'SELECT initialized,questions_dirty,EXISTS(SELECT 1 FROM {schema}.work_read_dirty) FROM {schema}.work_read_state WHERE singleton').fetchone()
-        if state[0] and not state[1] and not state[2]: continue
+        from . import worklistmeta
+        if state[0] and not state[1] and not state[2] and not worklistmeta.pending(raw,org_id): continue
         with raw.transaction():
             raw.execute(f'LOCK TABLE {schema}.doc,{schema}.nodes,{schema}.log_l IN SHARE MODE')
             refresh(raw,org_id)
