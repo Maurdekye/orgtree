@@ -90,15 +90,22 @@ async function selfcheck() {
   await js(`(()=>{const b=document.createElement('button');b.id='paint-control';b.textContent='Paint timing control';
     b.style.cssText='position:fixed;top:15px;left:15px;z-index:2147483646;background:white;color:black;padding:8px';
     window.__paintControl=0;b.onclick=()=>{window.__paintControl++;b.textContent='Paint control '+window.__paintControl};document.body.appendChild(b)})()`)
-  const fast = await action('paint-control', '#paint-control', 'window.__paintControl===1', { measured: false })
-  const delayed = await action('delayed-paint-control', '#paint-control', 'window.__paintControl===2', { delayMs: 250, measured: false })
-  const absent = await action('suppressed-paint-control', '#paint-control', 'window.__paintControl===3', { suppressed: true, timeout: 500, measured: false })
+  // Fixed warmup, then three retained baseline samples. The first OS-dispatched
+  // input can pay target startup; never use that single cold sample as baseline.
+  let count = 0
+  const click = (name, options = {}) => action(name, '#paint-control', 'window.__paintControl===' + (++count), { measured: false, ...options })
+  for (let i = 0; i < 2; i++) await click('warm-paint-control-' + i)
+  const baseline = []
+  for (let i = 0; i < 3; i++) baseline.push(await click('paint-control-' + i))
+  const fastMs = percentiles(baseline.map(row => row.ms)).p50
+  const delayed = await click('delayed-paint-control', { delayMs: 250 })
+  const absent = await click('suppressed-paint-control', { suppressed: true, timeout: 500 })
   const delays = await js('window.__paintProbe.state.delayExecutions')
-  if (delayed.ms < 240 || delayed.ms - fast.ms < 180 || delays.length !== 1 || delays[0].elapsed < 250)
+  if (delayed.ms < 240 || delayed.ms - fastMs < 180 || delays.length !== 1 || delays[0].elapsed < 250)
     throw Error('Deliberate250ms paint delay was not measured')
   if (!absent.batch || absent.painted != null) throw Error('Missing paint did not fail closed')
   await js('document.querySelector("#paint-control").remove()')
-  return { fastMs: fast.ms, delayedMs: delayed.ms, deltaMs: delayed.ms - fast.ms,
+  return { baselineMs: baseline.map(row => row.ms), fastMs, delayedMs: delayed.ms, deltaMs: delayed.ms - fastMs,
     actualDelay: delays[0], suppressedPaintDetected: true }
 }
 async function makeProxy() {
