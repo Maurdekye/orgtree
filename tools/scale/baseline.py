@@ -33,6 +33,11 @@ def read(path):
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
+def database_name(url):
+    from psycopg.conninfo import conninfo_to_dict
+    return conninfo_to_dict(url)["dbname"]
+
+
 def inventory(folder):
     result = {}
     if not folder.exists():
@@ -282,7 +287,7 @@ class Controller:
             self.script("seed.py", "seed", "--root", self.run_root, "--agents", c["agents"],
                 "--active-items", c["active_items"], "--archived-per-live", 0,
                 "--archived-items-per-live", 0, "--transcript-kb", c["transcript_kb"],
-                "--seed", 1, "--admin-url", admin, "--min-free-commit-gb", 10)
+                "--seed", 1, "--admin-url", admin, "--min-free-commit-gb", 10, "--no-profile-item")
             write(self.run_root / "controller-owner.json", dict(root=str(self.root), token=self.token))
             self.script("prepare_steady.py", "prepare-simulator", "--root", self.run_root,
                         "--seconds", c["seconds"], "--output-bytes", 256)
@@ -345,6 +350,17 @@ class Controller:
                         self.script("load.py", arm + "-" + label, *args, "--label", label,
                                     "--plans-dir", plans / label, timeout=duration+c["warmup"]+240)
                     outcome[arm] = read(self.run_root / "metrics/measured/summary.json")
+                    counters = [json.loads(line) for line in
+                        (self.run_root / "metrics/sql-counts.jsonl").read_text(encoding="utf-8").splitlines()]
+                    if (not any(row["rows"] for row in counters) or
+                            not any(row["write_parameter_bytes"] for row in counters) or
+                            any(row["unsupported_operations"] for row in counters)):
+                        raise RuntimeError("SQL row/byte coverage unavailable or incomplete")
+                    outcome[arm]["sql_counter_coverage"] = dict(requests=len(counters),
+                        statements=sum(r["statements"] for r in counters), rows=sum(r["rows"] for r in counters),
+                        value_bytes=sum(r["value_bytes"] for r in counters),
+                        write_parameter_bytes=sum(r["write_parameter_bytes"] for r in counters),
+                        unsupported_operations=0)
                     if source_files() != capsule:
                         raise RuntimeError("source changed during baseline arm")
                 finally:
@@ -352,7 +368,7 @@ class Controller:
                     self.engine_pid = None
                     shutil.copytree(self.run_root / "metrics", self.root / "receipts" / arm, dirs_exist_ok=True)
                 self.check()
-                self.drop_database(admin, url.rsplit("/", 1)[-1])
+                self.drop_database(admin, database_name(url))
             if outcome["small"]["config"]["plans"] != outcome["large"]["config"]["plans"]:
                 raise RuntimeError("unequal demand between arms")
             outcome["complete"] = True
@@ -407,6 +423,8 @@ def child(args):
         from orgtree.notification_state import reconcile_attention
         desc = read(run / "scale-descriptor.json")
         org = store.load_org(desc["org"])
+        if len(org.d.get("work_items", [])) != config["active_items"]:
+            raise ValueError("active work count differs from recipe")
         reconcile_attention(org.d)
         store.save_org(org)
         org = store.load_org(desc["org"])
@@ -443,7 +461,7 @@ def child(args):
             raise ValueError("simulated provider manifest changed")
         shutil.copyfile(frozen / "simulated-provider.json", run / "simulated-provider.json")
         desc = read(frozen / "descriptor.json")
-        desc.update(pg_url=pgstore.url(), pg_database=pgstore.url().rsplit("/",1)[-1], origin=None, token=None)
+        desc.update(pg_url=pgstore.url(), pg_database=database_name(pgstore.url()), origin=None, token=None)
         desc.pop("serve", None)
         write(run / "scale-descriptor.json", desc)
         provenance.write_result(root / f"receipts/{args.arm}-files.json", dict(verified=True, files=receipt["files"]))

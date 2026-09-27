@@ -96,7 +96,10 @@ class HookClock:
                 self.due[name] += period
             if not tick and name not in signals:
                 continue
-            if self.active[name] and h.mode != "overlap":
+            # convo's node_event and 200ms nudge use force:true; only the
+            # heartbeat shares the in-flight gate.
+            forced_chat = name == "chat" and name in signals
+            if self.active[name] and h.mode != "overlap" and not forced_chat:
                 if h.mode == "trailing":
                     self.counts["trailing"] += name not in self.pending
                     self.pending.add(name)
