@@ -12,7 +12,7 @@
 import { useEffect, useState } from 'react'
 
 import { getNodeDetail } from './api'
-import { isSummary, nodeDetail } from './archived'
+import { isSummary, nodeDetail, retainNodeDetail } from './archived'
 import type { NodeDetail, Summarisable } from './archived'
 
 export interface Resolved<T> {
@@ -45,10 +45,11 @@ export function useNodeDetail<T extends Summarisable>(
     setError(null)
     if (!summary) { setGot(null); return }
     let live = true
+    const release = retainNodeDetail(slug, node)
     nodeDetail(slug, node, getNodeDetail)
       .then((d) => { if (live) setGot(d) })
       .catch((e: Error) => { if (live) setError(e) })
-    return () => { live = false }
+    return () => { live = false; release() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stamp])
   if (!summary) return { node, ready: true, error: null }
