@@ -20,6 +20,7 @@ def prime(root, timeout):
         tokens = client.get("/scale/tokens").raise_for_status().json()
         metadata = client.get("/scale/workload").raise_for_status().json()
         before = client.get("/scale/settlement").raise_for_status().json()
+        (root / "metrics/primer-before.json").write_text(json.dumps(before), encoding="utf-8")
         parents = metadata["parents"]
         plan = []
         for target in desc["live_agents"]:
@@ -49,12 +50,13 @@ def prime(root, timeout):
                 after = client.get("/scale/settlement").raise_for_status().json()
                 activity = after["activity"]
                 provider = activity.get("provider", {})
-                if not any(after[k] for k in ("mail", "delivering", "inflight", "busy", "queued")):
-                    if (provider.get("completed", 0) - before["activity"].get("provider", {}).get("completed", 0)
-                            < len(plan) or provider.get("failed") or provider.get("failed_bookings")
-                            or provider.get("booked") != provider.get("completed")
-                            or activity["started"] != activity["finished"]):
-                        raise ValueError("primer did not complete and book every target turn")
+                (root / "metrics/primer-settlement.json").write_text(json.dumps(after), encoding="utf-8")
+                if provider.get("failed") or provider.get("failed_bookings"):
+                    raise ValueError("primer turn or durable booking failed")
+                if (not any(after[k] for k in ("mail", "delivering", "inflight", "busy", "queued"))
+                        and provider.get("completed", 0) - before["activity"].get("provider", {}).get("completed", 0) >= len(plan)
+                        and provider.get("booked") == provider.get("completed")
+                        and activity["started"] == activity["finished"]):
                     return dict(verified=True, before=before, after=after, plan=plan,
                                 writes=dict(oracle.counts), seconds=time.monotonic()-started)
                 time.sleep(.2)
