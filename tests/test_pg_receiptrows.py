@@ -346,5 +346,25 @@ class ReceiptStorage(unittest.TestCase):
             self.assertEqual(self.exported(raw),self.value)
 
 
+    def test_mapping_pinned_shared_connection_selects_its_own_schema(self):
+        from orgtree import receiptmapping
+        view=self.mapped()
+        other=store.create_org('receipt-other-'+uuid.uuid4().hex[:8])
+        other.d['mail_transitions']=copy.deepcopy(self.value)
+        other.d['mail_transitions']['z']['op']['extension']['note']='OTHER ORG'
+        store.save_org(other)
+        with self.raw() as raw:
+            oid=raw.execute('SELECT org_id FROM public.orgs WHERE slug=%s',(other.d['slug'],)).fetchone()[0]
+            raw.execute(f'SET LOCAL search_path TO org_{oid},public')
+            receiptstore.convert(raw,oid)
+            conn=pgstore.PgConn(raw,self.slug,self.oid)
+            conn.pinned=True; conn.path_holder=[oid]
+            with patch.object(store._POOL,'acquire',return_value=contextlib.nullcontext(conn)):
+                actual=view['z']['op']
+            self.assertEqual(actual,self.value['z']['op'])
+            self.assertEqual(conn.path_holder,[self.oid])
+            self.assertEqual(raw.execute('SELECT current_schema()').fetchone()[0],f'org_{self.oid}')
+
+
 if __name__=='__main__':
     unittest.main()
