@@ -53,8 +53,8 @@ def convert(raw: Any, org_id: int) -> dict[str, Any] | None:
             raise receiptrows.Unsupported("unmarked custody rows already exist")
     counts = Counter(record[0] for record in converted.receipts)
     for owner, ordinal in converted.owners:
-        raw.execute("INSERT INTO receipt_owners(owner,ord,nrows) VALUES(%s,%s,%s)",
-                    (owner, ordinal, counts[owner]))
+        raw.execute("INSERT INTO receipt_owners(owner,ord,nrows,next_ord) VALUES(%s,%s,%s,%s)",
+                    (owner, ordinal, counts[owner], counts[owner]))
     raw.execute("SELECT setval('receipt_owners_ord_seq',%s,%s)",
                 (max(0,len(converted.owners)-1), bool(converted.owners)))
     # COPY is deliberately within the same transaction as verification/marker.
@@ -106,3 +106,62 @@ def put(raw: Any, org_id: int, owner: str, operation: str, receipt: Any,
     if row is None:
         raise RuntimeError("receipt append returned no version")
     return int(row[0])
+
+
+def delete(raw: Any, org_id: int, owner: str, operation: str, *, expected: str) -> bool:
+    """Apply an existing compaction decision without deleting a newer receipt."""
+    _transaction(raw)
+    row = raw.execute("SELECT public.orgtree_delete_receipt(%s,%s,%s,%s)",
+                      (org_id, owner, operation, expected)).fetchone()
+    if row is None:
+        raise RuntimeError("receipt deletion returned no result")
+    return bool(row[0])
+
+
+def replace_owners(raw: Any, org_id: int,
+                   changes: dict[str, tuple[int | None, dict[str, Any] | None]]) -> None:
+    """Explicit purge/rekey/replacement, guarded by each complete owner version.
+
+    None as the replacement deletes an owner; an empty dict retains it. Rename
+    is one call containing the old deletion and new owner with rewritten node
+    fields, just as the ledger's existing dictionary operation. This is never
+    used for routine append or individual compaction deletes.
+    """
+    _transaction(raw)
+    if raw.execute("SELECT current_schema()").fetchone()[0] != f"org_{org_id}":
+        raise RuntimeError("receipt replacement organization/schema mismatch")
+    ready = raw.execute("SELECT format FROM receipt_format WHERE singleton").fetchone()
+    if ready != (1,):
+        raise receiptrows.Unsupported("receipt conversion incomplete")
+    prepared = {}
+    for owner, (version, value) in changes.items():
+        # Validate everything before touching any owner. The codec also checks
+        # empty owner identifiers and all extension data for finite JSON.
+        converted = receiptrows.split(receiptrows.dumps({owner: value if value is not None else {}}))
+        prepared[owner] = (version, value, converted)
+    # Acquire ALL advisory locks before ALL summary locks, in canonical order.
+    for owner in sorted(prepared):
+        raw.execute("SELECT pg_advisory_xact_lock(hashtext(%s),hashtext(%s))",
+                    (f"org_{org_id}", "receipt-owner:" + owner))
+    for owner in sorted(prepared):
+        row = raw.execute("SELECT version FROM receipt_owners WHERE owner=%s FOR UPDATE", (owner,)).fetchone()
+        if (row[0] if row else None) != prepared[owner][0]:
+            raise receiptrows.Unsupported("stale receipt owner replacement")
+    # Preserve caller dictionary order for newly assigned owners.
+    for owner, (version, value, converted) in prepared.items():
+        raw.execute("DELETE FROM receipt_carriers WHERE owner=%s", (owner,))
+        raw.execute("DELETE FROM receipts WHERE owner=%s", (owner,))
+        if value is None:
+            raw.execute("DELETE FROM receipt_owners WHERE owner=%s", (owner,))
+            continue
+        count = len(converted.receipts)
+        if version is None:
+            raw.execute("INSERT INTO receipt_owners(owner,nrows,next_ord) VALUES(%s,%s,%s)", (owner,count,count))
+        else:
+            raw.execute("UPDATE receipt_owners SET nrows=%s,next_ord=%s,version=nextval('receipt_owner_versions') WHERE owner=%s", (count,count,owner))
+        with raw.cursor() as cursor:
+            with cursor.copy("COPY receipts(owner,token,ord,val) FROM STDIN") as writer:
+                for record in converted.receipts: writer.write_row(record)
+            with cursor.copy("COPY receipt_carriers(owner,carrier,token) FROM STDIN") as writer:
+                for record in converted.carriers: writer.write_row(record)
+        raw.execute("UPDATE receipt_format SET present=true WHERE singleton AND NOT present")
