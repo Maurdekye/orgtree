@@ -152,7 +152,7 @@ SIDECAR_STORES = ("transcript_records", "reply_events", "chat_window_index",
 #: label. The guard test requires each call in these files to pass
 #: `factory=census_contacts.sidecar(<this label>)`.
 SIDECARS = (
-    ("engine/backend/orgtree/transcript_records.py", "database", "transcript_records"),
+    ("engine/backend/orgtree/transcript_records.py", "_open_database", "transcript_records"),
     ("engine/backend/orgtree/reply_events.py", "_connect", "reply_events"),
     ("engine/backend/orgtree/reply_events.py", "count", "reply_events"),
     ("engine/backend/orgtree/chat_window.py", "project_tail", "chat_window_index"),
