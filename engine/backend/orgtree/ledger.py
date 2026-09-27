@@ -11710,6 +11710,10 @@ class Org:
 
         def build(nid: str) -> dict[str, Any]:
             return self.tree_node(nid, children_index=_kids)
+        return self.tree_header([build(c) for c in self.org_children(None, _kids)])
+
+    def tree_header(self, roots: list[dict[str, Any]]) -> dict[str, Any]:
+        """Shared header projection for the full tree and a prepared foreground."""
         # F-04 history, capped by what the DESK ACTUALLY RENDERS. The full
         # list was shipped at `[-60:]` and measured 122,692 B on the live org
         # — 15% of an 844 KB payload refetched every 6 s and on every save —
@@ -11786,7 +11790,7 @@ class Org:
             # a favorite that was since DESELECTED has no other source for it
             "models": self.d.get("models", {}),
             "audiences": self.d["audiences"],
-            "roots": [build(c) for c in self.org_children(None, _kids)],
+            "roots": roots,
             "audit": self.audit(),
             "cost_usd_total": self.cost_total(),
             "cost_usd_unknown": bool(
