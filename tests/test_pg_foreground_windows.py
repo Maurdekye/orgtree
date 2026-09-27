@@ -60,16 +60,21 @@ class ForegroundWindows(unittest.TestCase):
         def revision():
             return fg.read_foreground(self.slug)['stamp']['view_revision']
         before = revision()
-        for section in ('mail_log', 'mail'):
+        with store._POOL.acquire(self.slug) as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            conn.execute('INSERT INTO log_d(sect,owner,seq,val) VALUES(?,?,?,?)',
+                         ('mail_log', 'boss', 10000, '{"id":"direct","body":"read history"}'))
+            conn.execute('COMMIT')
+        self.assertEqual(revision(), before)
+        for section in ('mail', 'delivering'):
             with store._POOL.acquire(self.slug) as conn:
                 conn.execute('BEGIN IMMEDIATE')
-                conn.execute('INSERT INTO log_d(sect,owner,seq,val) VALUES(?,?,?,?)',
-                             (section, 'boss', 10000, '{"id":"direct","body":"new"}'))
+                conn.execute('INSERT INTO doc(key,val) VALUES(?,?) '
+                             'ON CONFLICT(key) DO UPDATE SET val=excluded.val',
+                             (section + store.SPLIT_SEP + 'boss', '[{"id":"direct","body":"new"}]'))
                 conn.execute('COMMIT')
-            if section == 'mail_log':
-                self.assertEqual(revision(), before)
-            else:
-                self.assertGreater(revision(), before)
+            self.assertGreater(revision(), before)
+            before = revision()
         before = revision()
         with store._POOL.acquire(self.slug) as conn:
             conn.execute('BEGIN IMMEDIATE')
