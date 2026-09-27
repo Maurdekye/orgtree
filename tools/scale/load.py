@@ -159,6 +159,10 @@ def main(argv=None) -> int:
     p.add_argument("--label", default=None)
     p.add_argument("--seed", type=int, default=7)
     p.add_argument("--no-ui", action="store_true")
+    p.add_argument("--renderer-hooks", action="store_true")
+    p.add_argument("--write-oracle", action="store_true")
+    p.add_argument("--plan-only", action="store_true")
+    p.add_argument("--plans-dir", type=Path)
     p.add_argument("--min-free-commit-gb", type=float, default=10.0)
     p.add_argument("--max-engine-gb", type=float, default=5.0,
                    help="GUARD: stop the run and KILL the (throwaway) engine above this private size")
@@ -260,12 +264,13 @@ def main(argv=None) -> int:
             c = local.c = httpx.Client(base_url=origin, timeout=30)
         return c
 
-    def one_call(due: float, me: str, tool: str, targs: dict, request_id: int) -> None:
+    def execute_call(due: float, me: str, tool: str, targs: dict, request_id: int) -> None:
         begun = time.time()
         status, err, state, receipt = None, None, None, None
         try:
             r = client().post("/api/agent", json={"org": slug, "node": me, "tool": tool, "args": targs},
-                              headers={"X-Orgtree-Agent-Token": tokens[me]})
+                              headers={"X-Orgtree-Agent-Token": tokens[me],
+                                       "X-Scale-Kind": tool + ":" + targs.get("action", "")})
             status = r.status_code
             if status != 200:
                 err = r.text[:300]
@@ -281,6 +286,12 @@ def main(argv=None) -> int:
                                                      "tool": tool, "args": targs, "response": j})
                     if isinstance(j, dict) and j.get("error"):
                         err = str(j.get("error"))[:300]
+                    if oracle is not None:
+                        check = oracle.check(me, tool, targs, j)
+                        if check is not None:
+                            rec.write("write-checks", {"request_id": request_id, **check})
+                            if not check["passed"]:
+                                err = "independent write verification failed"
                 except Exception:                            # noqa: BLE001
                     err = "HTTP 200 response was not valid JSON"
         except Exception as e:                               # noqa: BLE001
@@ -292,6 +303,11 @@ def main(argv=None) -> int:
                             "err": err, "lag_ms": round((begun - due) * 1000, 1),
                             "http_ms": round((end - begun) * 1000, 1),
                             "total_ms": round((end - due) * 1000, 1), "end_t": round(end - t0, 3)})
+
+    def one_call(due, me, tool, targs, request_id):
+        import contextlib
+        with oracle.lock(me, tool, targs) if oracle else contextlib.nullcontext():
+            execute_call(due, me, tool, targs, request_id)
 
     # Plans are complete before the timed window and have byte hashes. Their
     # size stays on disk, independent of duration and the response schedule.
@@ -333,8 +349,31 @@ def main(argv=None) -> int:
             request_id += 1
             yield {"request_id": request_id, "t": due, "actor": steer_rng.choice(live)}
 
-    config["plans"] = {"tools": write_plan("plan", tool_plan()),
-                       "steer": write_plan("steer-plan", steer_plan())}
+    if args.plans_dir:
+        plan_config = json.loads((args.plans_dir / "config.json").read_text(encoding="utf-8"))
+        config["plans"] = {}
+        for key, name in (("tools", "plan"), ("steer", "steer-plan")):
+            with (args.plans_dir / (name + ".jsonl")).open(encoding="utf-8") as source:
+                actual = write_plan(name, (json.loads(line) for line in source))
+            if actual != plan_config["plans"][key]:
+                raise ValueError("frozen workload plan changed")
+            config["plans"][key] = actual
+        workload.substitutions = plan_config["plan_substitutions"]
+    else:
+        config["plans"] = {"tools": write_plan("plan", tool_plan()),
+                           "steer": write_plan("steer-plan", steer_plan())}
+    config["plan_substitutions"] = workload.substitutions
+    (out / "config.json").write_text(json.dumps(config, indent=1), encoding="utf-8")
+    if args.plan_only:
+        rec.close()
+        update_descriptor(root, {"load": {"running": False, "plan_only": True}})
+        return 0
+    from baseline_oracle import WriteOracle
+    oracle = WriteOracle(desc) if args.write_oracle else None
+    # Allocate bounded observer capacity before any traffic starts.
+    import psycopg
+    observer = psycopg.connect(desc["pg_url"], autocommit=True, connect_timeout=5,
+        application_name="scale-sampler", options="-c statement_timeout=5000")
     pools = {"calls": BoundedPool(args.workers), "steer": BoundedPool(max(8, args.workers // 2))}
 
     def run_plan(name, driver, call):
@@ -386,8 +425,14 @@ def main(argv=None) -> int:
     ws_ready = {w: threading.Event() for w in range(0 if args.no_ui else args.windows)}
     ws_state = {w: {"connects": 0, "closes": 0, "frames": 0, "bytes": 0} for w in range(args.windows)}
     ui_changed = {w: threading.Event() for w in range(args.windows)}
+    from ui_hooks import WindowDriver
+    hook_drivers = {w: WindowDriver(slug,
+        stream_nodes[w % len(stream_nodes)] if stream_nodes else live[0],
+        w, origin, H, rec, stop) for w in ws_ready} if args.renderer_hooks else {}
 
     def ui_window(w: int):
+        if args.renderer_hooks:
+            return hook_drivers[w].run(t0, args.duration)
         c = httpx.Client(base_url=origin, headers=H, timeout=30)
         etags: dict[str, str] = {}
         watch = stream_nodes[w % len(stream_nodes)] if stream_nodes else live[0]
@@ -447,6 +492,8 @@ def main(argv=None) -> int:
                         ws_state[w]["bytes"] += len(raw)
                         try:
                             frame = json.loads(raw)
+                            if w in hook_drivers:
+                                hook_drivers[w].event(frame)
                             if frame.get("type") == "changed":
                                 ui_changed[w].set()
                         except (ValueError, AttributeError):
@@ -505,11 +552,7 @@ def main(argv=None) -> int:
     # ---------------- sampler -----------------------------------------------
     def sampler():
         import psycopg
-        pg = None
-        try:
-            pg = psycopg.connect(desc["pg_url"], autocommit=True, connect_timeout=5, options="-c statement_timeout=5000")
-        except Exception as e:                               # noqa: BLE001
-            rec.write("samples", {"t": 0, "pg_error": str(e)[:200]})
+        pg = observer
         eproc.cpu_percent(None)
         last_stats = 0.0
         sc = httpx.Client(base_url=origin, headers=H, timeout=30)
@@ -711,6 +754,7 @@ def main(argv=None) -> int:
     completed_in_window = sum(c["end_t"] <= args.duration for c in calls)
     stream_errors = sum(bool(row["err"]) for row in rows("stream"))
     counters = {name: dict(pool.counts) for name, pool in pools.items()}
+    ui_counters = {w: dict(driver.pool.counts) for w, driver in hook_drivers.items()}
     valid = not guard and not steer_errors and not stream_errors and not any(c["err"] for c in calls + ui)
     valid = valid and not any(v["rejected"] or v["cancelled"] or v["worker_errors"] for v in counters.values())
     plan_counts = dict(calls=config["plans"]["tools"]["requests"], steer=config["plans"]["steer"]["requests"])
@@ -731,11 +775,18 @@ def main(argv=None) -> int:
         valid = valid and not provider.get("failed_bookings") and provider.get("booked") == provider.get("completed")
     activity_after = httpx.get(origin + "/scale/activity", headers=H, timeout=30).raise_for_status().json()
     valid = valid and activity_after["launch_attempts"]["unexpected"] == 0
+    valid = valid and not any(c["rejected"] or c["worker_errors"] or c["cancelled"]
+                             for c in ui_counters.values())
+    oracle_counts = dict(oracle.counts) if oracle else None
+    if oracle:
+        valid = valid and not oracle_counts["failed"] and oracle_counts["acknowledged"] == oracle_counts["checked"]
+        oracle.close()
     valid = valid and not (root / "metrics" / "qualification-invalid.json").exists()
     summary = {"activity_after": activity_after, "config": config, "guard": guard or None, "settlement": settlement,
                "workload_completed_without_errors_or_overload": bool(valid),
                "qualification": "Per-target assessment required; this field does not certify renderer or 60-minute stability.",
-               "client_counters": counters, "workload_substitutions": workload.substitutions,
+               "client_counters": counters, "ui_counters": ui_counters,
+               "write_oracle": oracle_counts, "workload_substitutions": workload.substitutions,
                "achieved": {"calls": len(calls), "calls_per_s": round(completed_in_window / elapsed, 2),
                             "completed_in_window": completed_in_window, "drain_finished_s": time.time() - t0,
                             "offered_calls_per_s": rate, "steer_polls": len(steer_latencies),
