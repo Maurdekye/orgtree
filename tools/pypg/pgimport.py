@@ -610,6 +610,9 @@ class PgSink:
         self.orgs_dir = orgs_dir
         self.conn = pgstore.connect(conninfo)
         self.migrations = pgstore.migrate(self.conn)
+        from orgtree import workread, pgstats
+        workread.bootstrap(self.conn)
+        pgstats.bootstrap(self.conn)
 
     def close(self) -> None:
         self.conn.close()
@@ -650,6 +653,8 @@ class PgSink:
                     f"COALESCE((SELECT max(seq) FROM {schema}.{table}), 0) + 1, false)")
             from orgtree import workread
             workread.refresh(self.conn, org_id)
+            from orgtree import pgstats
+            pgstats.analyze(self.conn, org_id, force=True)
             self.conn.execute(
                 "INSERT INTO public.receipts(org_id, op_key, fingerprint, result) VALUES (%s, %s, %s, %s) "
                 "ON CONFLICT (org_id, op_key) DO UPDATE SET fingerprint = EXCLUDED.fingerprint, "
