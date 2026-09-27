@@ -20,8 +20,15 @@ PREDICATE = """val::jsonb->>'state'='live' OR
  coalesce(val::jsonb->'frozen','null'::jsonb) NOT IN
  ('null'::jsonb,'false'::jsonb,'0'::jsonb,'""'::jsonb,'[]'::jsonb,'{}'::jsonb)"""
 
-QUERY = """WITH RECURSIVE candidates AS MATERIALIZED (
- SELECT id,ord FROM nodes WHERE """ + PREDICATE + """ ORDER BY ord,id
+PAGE_SIZE = 128
+QUERY = 'SELECT id,ord FROM nodes WHERE (' + PREDICATE + ')'
+FIRST_PAGE = QUERY + ' ORDER BY ord,id LIMIT 128'
+NEXT_PAGE = QUERY + ' AND (ord,id)>(?,?) ORDER BY ord,id LIMIT 128'
+
+# Materialized, bounded key selection prevents the planner from scanning all
+# source bodies to discover membership. Relationships use primary-key probes.
+GRAPH_QUERY = """WITH RECURSIVE candidates AS MATERIALIZED (
+ SELECT unnest(?::text[]) AS id
 ), needed(id) AS (
  SELECT id FROM candidates
  UNION
@@ -60,8 +67,16 @@ def read(slug: str, project: Callable[[Any, Graph], Any] | None = None):
         if not conn.execute('SELECT to_regclass(?)',
                             (f'org_{conn.org_id}.ix_policy_candidates',)).fetchone()[0]:
             return None
+        selected_ids = []
+        page = conn.execute(FIRST_PAGE).fetchall()
+        while page:
+            selected_ids.extend(nid for nid, _ in page)
+            if len(page) < PAGE_SIZE:
+                break
+            nid, ordinal = page[-1]
+            page = conn.execute(NEXT_PAGE, (ordinal, nid)).fetchall()
         nodes, ordinals, candidates = {}, {}, []
-        for nid, ordinal, value, selected in conn.execute(QUERY).fetchall():
+        for nid, ordinal, value, selected in conn.execute(GRAPH_QUERY, (selected_ids,)).fetchall():
             row = json.loads(value)
             if not isinstance(row, dict):
                 return None

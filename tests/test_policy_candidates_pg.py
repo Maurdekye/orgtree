@@ -86,7 +86,7 @@ class CandidateReads(unittest.TestCase):
         self.assertEqual(self.query('SELECT id,ord,val FROM nodes ORDER BY ord,id'), before)
         real = pgstore.PgConn.execute
         def runtime(conn, sql, params=()):
-            if sql == candidates.QUERY: real(conn, 'SET LOCAL ROLE orgtree_runtime')
+            if sql == candidates.FIRST_PAGE: real(conn, 'SET LOCAL ROLE orgtree_runtime')
             return real(conn, sql, params)
         with patch.object(pgstore.PgConn, 'execute', runtime):
             self.assertEqual(candidates.read(self.slug).candidates, ('worker',))
@@ -119,7 +119,7 @@ class CandidateReads(unittest.TestCase):
                 conn.execute('INSERT INTO nodes(id,ord,val) VALUES(?,?,?)',
                              (f'history-{i:04}', i+100, json.dumps(row)))
             conn.execute('ANALYZE nodes')
-            plan = conn.execute('EXPLAIN (ANALYZE, FORMAT JSON) '+candidates.QUERY).fetchone()[0]
+            plan = conn.execute('EXPLAIN (ANALYZE, FORMAT JSON) '+candidates.FIRST_PAGE).fetchone()[0]
         graph = candidates.read(self.slug)
         self.assertEqual(len(graph.candidates), 30)
         self.assertEqual(len(graph.nodes), 30)
@@ -134,6 +134,16 @@ class CandidateReads(unittest.TestCase):
         walk(plan[0]['Plan'])
         self.assertTrue(seen)
         self.assertTrue(any(n.get('Index Name') == 'ix_policy_candidates' for n in seen))
+
+    def test_multiple_pages_preserve_equal_ordinal_candidates_without_drops(self):
+        with store._POOL.acquire(self.slug) as conn:
+            for i in range(270):
+                conn.execute('INSERT INTO nodes(id,ord,val) VALUES(?,?,?)',
+                             (f'candidate-{i:04}', 100, '{"state":"live"}'))
+        graph = candidates.read(self.slug)
+        self.assertEqual(len(graph.candidates), 271)
+        self.assertEqual(len(set(graph.candidates)), 271)
+        self.assertEqual(graph.candidates[1:], tuple(f'candidate-{i:04}' for i in range(270)))
 
 
 if __name__ == '__main__': unittest.main()
