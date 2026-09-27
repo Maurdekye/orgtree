@@ -196,6 +196,7 @@ def tree_delta(base, wire):
 class WindowDriver:
     def __init__(self, slug, watch, window, origin, headers, rec, stop, *, workers=16):
         from control import BoundedPool
+        import httpx
         self.watch, self.window, self.origin = watch, window, origin
         self.headers, self.rec, self.stop = headers, rec, stop
         self.clock = HookClock(hooks(slug, watch, window))
@@ -203,15 +204,15 @@ class WindowDriver:
         self.pool = BoundedPool(workers)
         self.cache = {h.name: Conditional() for h in self.clock.specs.values() if h.conditional}
         self.started = 0
-        self.cache_generation = 0
-        self.local = threading.local()
-        self.clients = []
+        # Chromium's HTTP/1 per-origin connection budget applies to all
+        # independent hooks in a window, not a fresh pool for every worker.
+        self.client = httpx.Client(base_url=origin, timeout=30,
+            limits=httpx.Limits(max_connections=6, max_keepalive_connections=6))
 
     def event(self, frame):
         with self.lock:
             if frame.get("type") == "node_stream" and frame.get("kind") in (
                     "cache_forecast", "mcp_tool_count", "mcp_readiness"):
-                self.cache_generation += 1
                 self.cache["org_tree"] = Conditional()
             if self.started:
                 self.clock.event(frame, time.time() - self.started, self.watch)
@@ -231,24 +232,19 @@ class WindowDriver:
                 self.stop.wait(.01)
         finally:
             self.pool.shutdown(cancel_pending=self.stop.is_set())
-            for client in self.clients:
-                client.close()
+            self.client.close()
 
     def fetch(self, hook, due):
-        import httpx
         begun = time.time()
         status, err, size, wire, payload = None, None, 0, 0, None
         headers = dict(self.headers)
+        headers["X-Scale-Kind"] = "ui:" + hook.name
+        url = hook.url
         cache = self.cache.get(hook.name)
         if cache and cache.etag:
             headers["If-None-Match"] = cache.etag
         try:
-            client = getattr(self.local, "client", None)
-            if client is None:
-                client = self.local.client = httpx.Client(base_url=self.origin, timeout=30)
-                with self.lock:
-                    self.clients.append(client)
-            response = client.get(hook.url, headers={**headers, "X-Scale-Kind": "ui:" + hook.name})
+            response = self.client.get(url, headers=headers)
             status, size = response.status_code, len(response.content)
             wire = response.num_bytes_downloaded
             if status == 200:
@@ -265,12 +261,13 @@ class WindowDriver:
                 while payload.get("truncated") and payload.get("next_offset") is not None and payload["next_offset"] > offset:
                     offset = payload["next_offset"]
                     self.rec.write("ui", {"t": begun-self.started, "w": self.window,
-                        "route": hook.name, "url": hook.url, "status": status,
+                        "route": hook.name, "url": url, "status": status,
                         "bytes": size, "wire_bytes": wire, "err": err,
                         "ms": (time.time()-begun)*1000, "late_ms": (begun-due)*1000,
                         "total_ms": (time.time()-due)*1000})
                     begun = due = time.time()
-                    response = client.get(hook.url + f"?offset={offset}", headers=headers)
+                    url = hook.url + f"?offset={offset}"
+                    response = self.client.get(url, headers=headers)
                     response.raise_for_status()
                     status, size, wire = response.status_code, len(response.content), response.num_bytes_downloaded
                     payload = response.json()
@@ -281,6 +278,6 @@ class WindowDriver:
             with self.lock:
                 self.clock.complete(hook.name, payload)
             self.rec.write("ui", {"t": begun - self.started, "w": self.window,
-                "route": hook.name, "url": hook.url, "status": status, "bytes": size,
+                "route": hook.name, "url": url, "status": status, "bytes": size,
                 "wire_bytes": wire, "err": err, "ms": (ended - begun) * 1000,
                 "late_ms": (begun - due) * 1000, "total_ms": (ended - due) * 1000})
