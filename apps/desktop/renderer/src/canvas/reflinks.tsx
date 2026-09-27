@@ -26,6 +26,7 @@ import type { ReactNode } from 'react'
 import { agentNavProps } from './agentnav'
 import { WorkRefText, parseRef, scanRefs } from './workrefs'
 import { TIER_LETTER } from './shared'
+import { useHistoricalWorkReferences } from './workrefresolve'
 import type { MentionIndex, RefKind, TypedRef } from './workrefs'
 
 export type RefOutcome =
@@ -46,6 +47,10 @@ export type RefOutcome =
 export type RefIndexOf<V = string> = ReadonlyMap<string, V> | 'loading' | undefined
 
 export interface RefWorld {
+  boundedItems?: boolean
+  workRevision?: string
+  /** Exact per-name results for a foreground-only index. */
+  itemOutcome?: (id: string) => RefOutcome
   /** the org actually on screen. A token naming any other org is `foreign`. */
   org: string
   items?: RefIndexOf
@@ -163,7 +168,8 @@ export function resolveRef(ref: TypedRef, world: RefWorld): ResolvedRef {
   }
   const index = ref.kind === 'item' ? world.items
     : ref.kind === 'doc' ? world.docs : world.agents
-  const [outcome, label] = judge(index, ref.id)
+  const [indexedOutcome, label] = judge(index, ref.id)
+  const outcome = ref.kind === 'item' && world.itemOutcome ? world.itemOutcome(ref.id) : indexedOutcome
   // AN AGENT REFERENCE CARRIES THE SAME TWO FACTS ITS NAME DOES ELSEWHERE:
   // the model it is running now, and whether you are already looking at it.
   // ⚠ THE MODEL IS ONLY CLAIMED FOR ONE THAT RESOLVES. Drawing an icon beside
@@ -388,7 +394,7 @@ export function RefChip({ r, onOpen }: {
  *  linkified. Bare item names retain the docket's existing navigation, but
  *  bare agent names are deliberately excluded: a stale or ordinary agent word
  *  must not become a destination merely because it matches the catalogue. */
-export function RefProse({ text, world, onOpen, index, onPick }: {
+export function RefProse({ text, world: baseWorld, onOpen, index: baseIndex, onPick }: {
   text: string
   world: RefWorld
   onOpen?: (r: ResolvedRef) => void
@@ -398,6 +404,7 @@ export function RefProse({ text, world, onOpen, index, onPick }: {
   /** retained for callers; bare agent entries are filtered before rendering */
   onFocusAgent?: (id: string) => void
 }) {
+  const { world, index } = useHistoricalWorkReferences(text, baseWorld, baseIndex)
   const runs = useMemo(() => splitTypedRefs(text, world), [text, world])
   const itemIndex = useMemo(() => index && new Map(
     [...index].filter(([, ref]) => ref.kind === 'item')),

@@ -2717,6 +2717,7 @@ export interface WorkItem {
 
 // GET /api/orgs/{slug}/work-items[?archived=1][&backlogged=1]
 export interface WorkItemsPayload {
+  format?: string
   /** Desktop list transport: heavy authored records are fetched on open. */
   revision?: string
   references?: Pick<WorkItem, 'slug' | 'title' | 'parent' | 'archived' | 'status' | 'rev' | 'view_revision'>[]

@@ -9,6 +9,8 @@ import { bumpLive } from './livebus'
 import { backendRestart } from './windowlife'
 import { desktop } from './desktop'
 import { applyWorkDelta } from './workdelta'
+import { ForegroundWorkReader } from './workforeground'
+import { WorkReferenceReader } from './workreferences'
 import type { WorkDelta } from './workdelta'
 import { decodeTree, type TreeWire } from './treedelta'
 import type {
@@ -567,7 +569,10 @@ export const dismissDocument = (slug: string, did: string):
 const workCache = new Map<string, { etag: string; body: WorkItemsPayload }>()
 const workInflight = new Map<string, Promise<WorkItemsPayload>>()
 let workGeneration = 0
-export const forgetWorkInflight = (): void => { ++workGeneration; workInflight.clear() }
+export const forgetWorkInflight = (): void => {
+  ++workGeneration; workInflight.clear()
+  foregroundWorkReader.invalidate(); workReferenceReader.invalidate()
+}
 export const getWorkItems = (slug: string, archived = false,
                              backlogged = false): Promise<WorkItemsPayload> => {
   const path = `/api/orgs/${slug}/work-items-view`
@@ -604,6 +609,37 @@ export const getWorkItems = (slug: string, archived = false,
   workInflight.set(path, p)
   return p
 }
+const readWorkResponse = async (path: string, etag?: string): Promise<Response> => {
+  const response = await fetch(u(path), { signal: timeoutSignal(DEFAULT_TIMEOUT_MS),
+    ...(etag ? { headers: { 'If-None-Match': etag } } : {}) })
+  noteInstance(response)
+  return response
+}
+// Compatibility reads are whole answers and deliberately uncached: retaining
+// an explicitly opened archive here would outlive the view that requested it.
+const legacyWorkRead = (slug: string, archived: boolean, backlogged: boolean): Promise<WorkItemsPayload> =>
+  req(`/api/orgs/${encodeURIComponent(slug)}/work-items-view?archived=${archived ? 1 : 0}&backlogged=${backlogged ? 1 : 0}`)
+const foregroundWorkReader = new ForegroundWorkReader(readWorkResponse, legacyWorkRead)
+export const getForegroundWorkItems = (slug: string, archived = false, backlogged = false): Promise<WorkItemsPayload> =>
+  foregroundWorkReader.get(slug, archived, backlogged)
+const workReferenceReader = new WorkReferenceReader(async (org, names) => {
+  const response = await readWorkResponse(`/api/orgs/${encodeURIComponent(org)}/work-item-references?names=${encodeURIComponent(names.join(','))}`)
+  if (response.status === 409) {
+    const control = await response.json()
+    if (control.kind === 'compatibility') {
+      const legacy = await legacyWorkRead(org, true, true)
+      return (legacy.references ?? [...legacy.items, ...(legacy.archived ?? []), ...(legacy.backlogged ?? [])])
+        .filter(row => names.includes(row.slug))
+    }
+    throw new Error(control.detail || 'Could not resolve docket references')
+  }
+  if (!response.ok) throw await failure(response)
+  const body = await response.json()
+  if (!Array.isArray(body.references)) throw new Error('Invalid docket reference response')
+  return body.references
+})
+export const getWorkReferences = (org: string, revision: string, names: string[]) =>
+  workReferenceReader.get(org, revision, names)
 export const getWorkItem = (slug: string, id: string): Promise<WorkItemPayload> =>
   req(`/api/orgs/${slug}/work-items/${id}`)
 export const replyWorkItem = (slug: string, id: string, body: string, to?: string,
