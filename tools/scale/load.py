@@ -142,6 +142,7 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--root", required=True)
     p.add_argument("--duration", type=float, default=600)
+    p.add_argument("--warmup", type=float, default=0, help="continuous warmup before the measured duration")
     p.add_argument("--rate", type=float, default=None, help="aggregate agent tool calls/s")
     p.add_argument("--turn-rate-per-agent", type=float, default=0.039)
     p.add_argument("--calls-per-turn", type=float, default=2.0)
@@ -167,7 +168,11 @@ def main(argv=None) -> int:
     p.add_argument("--max-engine-gb", type=float, default=5.0,
                    help="GUARD: stop the run and KILL the (throwaway) engine above this private size")
     args = p.parse_args(argv)
-    if args.duration <= 0 or args.workers < 1 or args.stream_hz <= 0:
+    measured_duration = args.duration
+    if args.warmup < 0:
+        p.error("warmup cannot be negative")
+    args.duration += args.warmup
+    if measured_duration <= 0 or args.workers < 1 or args.stream_hz <= 0:
         p.error("duration, workers and stream-hz must be positive")
 
     sys.path.insert(0, str(REPO / "tools"))
@@ -237,6 +242,8 @@ def main(argv=None) -> int:
               "stream_nodes": len(stream_nodes), "stream_hz": args.stream_hz,
               "stream_mode": args.stream_mode,
               "duration_s": args.duration, "workers": args.workers,
+              "warmup_s": args.warmup, "measured_s": measured_duration,
+              "phase_boundary": "continuous drivers, sockets and caches; no warmup restart",
               "derivation": {"turn_rate_per_agent": args.turn_rate_per_agent,
                              "calls_per_turn": args.calls_per_turn, "explicit_rate": args.rate},
               "parents_known": len(parents), "items_known": sum(len(v) for v in items.values()),
@@ -305,7 +312,7 @@ def main(argv=None) -> int:
                             "err": err, "lag_ms": round((begun - due) * 1000, 1),
                             "http_ms": round((response_at - begun) * 1000, 1),
                             "verification_ms": round((end - response_at) * 1000, 1),
-                            "total_ms": round((end - due) * 1000, 1), "end_t": round(end - t0, 3)})
+                            "total_ms": round((response_at - due) * 1000, 1), "end_t": round(response_at - t0, 3)})
 
     def one_call(due, me, tool, targs, request_id):
         import contextlib
@@ -352,10 +359,19 @@ def main(argv=None) -> int:
             request_id += 1
             yield {"request_id": request_id, "t": due, "actor": steer_rng.choice(live)}
 
+    def stream_plan():
+        marker, tick = 0, 0
+        while tick / args.stream_hz < args.duration:
+            for node in stream_nodes:
+                marker += 1
+                yield {"m": marker, "t": tick / args.stream_hz, "node": node,
+                       "reset": tick == 0, "text": f"[[m{marker}]] " + stream_ctx.text(40) + " "}
+            tick += 1
+
     if args.plans_dir:
         plan_config = json.loads((args.plans_dir / "config.json").read_text(encoding="utf-8"))
         config["plans"] = {}
-        for key, name in (("tools", "plan"), ("steer", "steer-plan")):
+        for key, name in (("tools", "plan"), ("steer", "steer-plan"), ("stream", "stream-plan")):
             with (args.plans_dir / (name + ".jsonl")).open(encoding="utf-8") as source:
                 actual = write_plan(name, (json.loads(line) for line in source))
             if actual != plan_config["plans"][key]:
@@ -364,7 +380,8 @@ def main(argv=None) -> int:
         workload.substitutions = plan_config["plan_substitutions"]
     else:
         config["plans"] = {"tools": write_plan("plan", tool_plan()),
-                           "steer": write_plan("steer-plan", steer_plan())}
+                           "steer": write_plan("steer-plan", steer_plan()),
+                           "stream": write_plan("stream-plan", stream_plan())}
     config["plan_substitutions"] = workload.substitutions
     (out / "config.json").write_text(json.dumps(config, indent=1), encoding="utf-8")
     if args.plan_only:
@@ -552,8 +569,29 @@ def main(argv=None) -> int:
             limits = httpx.Limits(max_connections=len(stream_nodes),
                                  max_keepalive_connections=len(stream_nodes))
             async with httpx.AsyncClient(base_url=origin, headers=H, timeout=30, limits=limits) as c:
-                await drive_streams(stream_nodes, lambda nodes, first, due: submit(c, nodes, first, due),
-                    started=t0, duration=args.duration, hz=args.stream_hz, stop=stop, mode=args.stream_mode)
+                if args.renderer_hooks:
+                    jobs = {node: [] for node in stream_nodes}
+                    with (out / "stream-plan.jsonl").open(encoding="utf-8") as source:
+                        for line in source:
+                            job = json.loads(line)
+                            jobs[job["node"]].append(job)
+                    async def producer(rows):
+                        for row in rows:
+                            due = t0 + row["t"]
+                            while time.time() < due and not stop.is_set():
+                                await asyncio.sleep(min(.1, max(0, due-time.time())))
+                            if stop.is_set():
+                                return
+                            now = time.time()
+                            feed_tracker.emit(row["m"], now)
+                            emitted_count[0] += 1
+                            rec.write("markers", {"m": row["m"], "emit": now, "node": row["node"], "due": due})
+                            await send_frames(c, [{k: row[k] for k in ("node", "reset", "text")}],
+                                first_seq=row["m"], emit=now, due=due, started=t0, feed=feed_tracker, rec=rec)
+                    await asyncio.gather(*(producer(rows) for rows in jobs.values()))
+                else:
+                    await drive_streams(stream_nodes, lambda nodes, first, due: submit(c, nodes, first, due),
+                        started=t0, duration=args.duration, hz=args.stream_hz, stop=stop, mode=args.stream_mode)
         try:
             asyncio.run(run())
         except Exception as exc:  # fail qualification if a producer itself dies
@@ -774,6 +812,8 @@ def main(argv=None) -> int:
         valid = valid and all(any(u["w"] == w for u in ui) for w in range(args.windows))
     if stream_nodes:
         valid = valid and emitted_count[0] > 0
+        if args.renderer_hooks:
+            valid = valid and emitted_count[0] == config["plans"]["stream"]["requests"]
     if feed_tracker.pending or any(x["missing_after_5s"] or x["closes"] for x in feed.values()):
         valid = False
     if steady:
@@ -823,6 +863,8 @@ def main(argv=None) -> int:
                       "lock_wait": pct([s["pg_lock_wait"] for s in samples if "pg_lock_wait" in s]),
                       "locks_waiting": pct([s["pg_locks_waiting"] for s in samples if "pg_locks_waiting" in s])},
                "ws_engine": [s["ws"] for s in samples if "ws" in s][-1:] or None}
+    from baseline_measurement import summarize_window
+    summary["measurement"] = summarize_window(out, config)
     (out / "summary.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
     update_descriptor(root, {"load": {"running": False, "rate": rate, "since": t0, "ended": time.time(),
                                       "label": label, "windows": args.windows,

@@ -429,6 +429,7 @@ def child(args) -> int:
             busy = sum(bool(st.get("busy")) for st in states)
             queued = sum(len(st.get("queue") or []) for st in states)
         return {"mail": sum(len(box) for box in (snapshot.d.get("mail") or {}).values()),
+                "mail_by_owner": {nid: len(box) for nid, box in (snapshot.d.get("mail") or {}).items() if box},
                 "delivering": sum(len(box) for box in (snapshot.d.get("delivering") or {}).values()),
                 "inflight": len(inflight), "busy": busy, "queued": queued,
                 "activity": _scale_activity()}

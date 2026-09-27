@@ -127,6 +127,7 @@ class Controller:
         self.breach = None
         self.pg_started = False
         self.engine_pid = None
+        self.pg_pid = None
 
     def check(self):
         if self.breach:
@@ -139,11 +140,21 @@ class Controller:
                 free = free_commit_gb()
                 disk = shutil.disk_usage(self.root).free / 2**30
                 engine = psutil.Process(self.engine_pid).memory_info().private if self.engine_pid else 0
+                family = {p.pid: p for p in [psutil.Process(), *psutil.Process().children(recursive=True)]}
+                if self.pg_pid:
+                    pg = psutil.Process(self.pg_pid)
+                    family.update({p.pid: p for p in [pg, *pg.children(recursive=True)]})
+                total = 0
+                for process in family.values():
+                    try:
+                        total += process.memory_info().private
+                    except psutil.NoSuchProcess:
+                        pass
                 if free < 10 or engine > 5 * 2**30 or disk < (1 if self.args.small_control else 20):
                     raise RuntimeError(f"guard: free commit {free:.2f} GiB, engine {engine}, disk {disk:.2f} GiB")
                 with (self.root / "guard.jsonl").open("a", encoding="utf-8") as out:
                     out.write(json.dumps(dict(at=time.time(), phase=self.phase, free_commit_gib=free,
-                        engine_private=engine, disk_free_gib=disk)) + "\n")
+                        engine_private=engine, owned_private=total, owned_processes=len(family), disk_free_gib=disk)) + "\n")
             except BaseException as exc:
                 self.breach = f"{type(exc).__name__}: {exc}"
                 write(self.root / "GUARD-STOP.json", dict(phase=self.phase, reason=self.breach, at=time.time()))
@@ -203,11 +214,19 @@ class Controller:
                      name, env, timeout)
 
     def pg(self, action):
-        result = subprocess.run([self.args.custodian, action, "--root", str(self.root / "pg"),
-            "--pg-bin", self.args.pg_bin], capture_output=True, text=True, timeout=90)
-        if result.returncode:
-            raise RuntimeError(f"PG {action} failed: {result.stderr[-500:]}")
-        value = json.loads(result.stdout)
+        path = self.root / ("pg-" + action + ".log")
+        with path.open("w", encoding="utf-8") as log:
+            proc = subprocess.Popen([self.args.custodian, action, "--root", str(self.root / "pg"),
+                "--pg-bin", self.args.pg_bin], stdout=log, stderr=subprocess.STDOUT)
+        with self.lock:
+            self.children.append(proc)
+        try:
+            code = proc.wait(timeout=90)
+        finally:
+            self.kill(proc)
+        if code:
+            raise RuntimeError(f"PG {action} failed: see {path.name}")
+        value = read(path)
         write(self.root / "receipts" / ("pg-" + action + ".json"), value)
         return value
 
@@ -255,8 +274,9 @@ class Controller:
             conf = self.root / "pg/pg/cluster/data/postgresql.conf"
             with conf.open("a", encoding="utf-8") as target:
                 target.write("\nmax_connections = 128\n")
-            self.pg("start")
             self.pg_started = True
+            self.pg("start")
+            self.pg_pid = int((self.root / "pg/pg/cluster/data/postmaster.pid").read_text().splitlines()[0])
             admin = self.pg("urls")["urls"]["P03_PG_ADMIN_URL"]
             c = self.config
             self.script("seed.py", "seed", "--root", self.run_root, "--agents", c["agents"],
@@ -312,20 +332,21 @@ class Controller:
                         raise RuntimeError("startup deadline expired")
                     self.script("baseline.py", arm + "-readiness", "--child", "ready", "--root", self.root,
                         "--arm", arm, env=env, timeout=max(1, deadline-time.monotonic()))
-                    for label, duration in (("warmup", c["warmup"]), ("measured", c["measured"])):
+                    self.script("baseline.py", arm + "-prime", "--child", "prime", "--root", self.root,
+                        "--arm", arm, env=env, timeout=max(1, deadline-time.monotonic()))
+                    for label, duration in (("measured", c["measured"]),):
                         args = ["--root", self.run_root, "--duration", duration, "--rate", c["tool_rate"],
                                 "--steer-rate", c["steer_rate"], "--workers", 64, "--windows", 4,
-                                "--stream-nodes", 5, "--stream-hz", 4, "--renderer-hooks", "--write-oracle"]
-                        # BOTH plans are frozen before the first warmup writes.
-                        if arm == "small" and label == "warmup":
-                            for phase, seconds in (("warmup", c["warmup"]), ("measured", c["measured"])):
-                                prep = list(args)
-                                prep[prep.index("--duration")+1] = seconds
-                                self.script("load.py", "plan-" + phase, *prep, "--label", "plan-"+phase, "--plan-only")
-                                shutil.copytree(self.run_root / "metrics" / ("plan-"+phase), plans / phase)
+                                "--stream-nodes", 5, "--stream-hz", 4, "--renderer-hooks", "--write-oracle",
+                                "--warmup", c["warmup"]]
+                        if arm == "small":
+                            self.script("load.py", "plan", *args, "--label", "plan", "--plan-only")
+                            shutil.copytree(self.run_root / "metrics/plan", plans / label)
                         self.script("load.py", arm + "-" + label, *args, "--label", label,
-                                    "--plans-dir", plans / label, timeout=duration+240)
+                                    "--plans-dir", plans / label, timeout=duration+c["warmup"]+240)
                     outcome[arm] = read(self.run_root / "metrics/measured/summary.json")
+                    if source_files() != capsule:
+                        raise RuntimeError("source changed during baseline arm")
                 finally:
                     self.kill(server)
                     self.engine_pid = None
@@ -346,6 +367,7 @@ class Controller:
                 except BaseException as exc:
                     errors.append(str(exc))
             self.engine_pid = None
+            self.pg_pid = None
             stopped = not self.pg_started
             try:
                 if self.pg_started:
@@ -429,6 +451,10 @@ def child(args):
         from baseline_readiness import wait_ready
         receipt = wait_ready(run, config["readiness_s"])
         provenance.write_result(root / f"receipts/{args.arm}-readiness.json", receipt)
+    elif args.child == "prime":
+        from baseline_prime import prime
+        receipt = prime(run, config["readiness_s"])
+        provenance.write_result(root / f"receipts/{args.arm}-prime.json", receipt)
 
 
 def main():
@@ -438,12 +464,14 @@ def main():
     p.add_argument("--go-file", type=Path)
     p.add_argument("--custodian")
     p.add_argument("--pg-bin")
-    p.add_argument("--child", choices=("freeze", "bundle", "restore", "files", "ready"))
+    p.add_argument("--child", choices=("freeze", "bundle", "restore", "files", "ready", "prime"))
     p.add_argument("--arm", choices=("small", "large"))
     args = p.parse_args()
     if args.child:
         return child(args)
     source = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
+    if subprocess.check_output(["git", "status", "--porcelain", "-uno"], cwd=REPO, text=True).strip():
+        raise ValueError("commit tracked source before any controller probe")
     config = require_go(args, source)
     require_slots(args.small_control)
     root = check_root(args.root)
