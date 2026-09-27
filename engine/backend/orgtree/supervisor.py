@@ -32118,10 +32118,6 @@ def pop_steer(slug: str, nid: str, *, return_carriers: bool = False,
 # Nothing here claims the model read anything: `recorded` is the harness's
 # record, not consumption. Design + model: scratch/mail-ack-contract/contract.md.
 
-#: seconds a hook's unacked claim owns a batch before another hook may take
-#: it. PROPOSED, NOT MEASURED against the live root (the hook client gives up
-#: at 2 s; save_org can retry for 2.1 s on Windows under contention) — a late
-#: ack past this costs one `retried` delivery, never a loss.
 #: THE CHEAP STEER POLL SWITCH (v3 scale, item b-cheap-steer-polls-answer-
 #: a-no-mail-poll-withou). DEFAULT OFF by coordinator condition 2026-09-26:
 #: turning it on by default is a separate, explicit step once proven. On:
@@ -32132,6 +32128,11 @@ def pop_steer(slug: str, nid: str, *, return_carriers: bool = False,
 #: exactly the behaviour before. `ORGTREE_STEER_CHEAP=1` turns it on; tests
 #: flip this module attribute.
 STEER_CHEAP = os.environ.get("ORGTREE_STEER_CHEAP", "") == "1"
+
+#: seconds a hook's unacked claim owns a batch before another hook may take
+#: it. PROPOSED, NOT MEASURED against the live root (the hook client gives up
+#: at 2 s; save_org can retry for 2.1 s on Windows under contention) — a late
+#: ack past this costs one `retried` delivery, never a loss.
 STEER_CLAIM_LEASE_S = float(os.environ.get("ORGTREE_STEER_LEASE") or 10.0)
 STEER_MARK = "ORGTREE-DELIVERY:"
 _STEER_MARK_RE = re.compile(r"ORGTREE-DELIVERY:([0-9a-f]{16})")
