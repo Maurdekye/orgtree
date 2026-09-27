@@ -12,6 +12,8 @@ const row = (slug: string, archived = false): WorkItem => ({ slug, title: slug,
   owner: { node: 'agent', generation: 1 }, owner_current: true, owner_state: 'live',
   at: '2026-09-27T10:00:00Z', updated_at: '2026-09-27T10:00:00Z',
   parent: null, parent_visible: true, participants: [], questions: [],
+  attention_sources: [], effective_attention: false, acceptance: [], dependencies: [],
+  delivery: null, manual_attention: null, dismissed: false, kind: 'code',
   done_so_far: [], working_on_next: [], evidence: [], history: [],
 } as unknown as WorkItem)
 const body = (archived = false): WorkItemsPayload => ({ format, revision: 'one',
