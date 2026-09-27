@@ -379,6 +379,7 @@ def child(args) -> int:
         active = list(org.d.get("work_items") or [])
         return {"parents": {nid: n.get("parent") for nid, n in nodes.items()},
                 "active_items": len(active),
+                "callers": [nid for nid, node in nodes.items() if not node.get("halt")],
                 "items": [{"slug": it["slug"],
                            "owner": it["owner"].get("node") if isinstance(it.get("owner"), dict) else it.get("owner"),
                            "evidence": len(it.get("evidence") or [])}

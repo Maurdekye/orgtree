@@ -190,6 +190,7 @@ def main(argv=None) -> int:
     live = [a for a in desc["live_agents"] if a in tokens]
     if len(live) != N:
         raise RuntimeError("missing live agent credentials")
+    live = [a for a in live if a in metadata["callers"]]
     workload = Workload(metadata, live)
     parents = workload.parents
     items = {}
@@ -217,7 +218,7 @@ def main(argv=None) -> int:
     fc0 = free_commit_gb()  # Fail closed: no load without observable commit headroom.
     if fc0 < args.min_free_commit_gb:
         raise SystemExit(f"free commit {fc0:.2f} GiB below floor; not starting load")
-    config = {"label": label, "agents": N, "rate_calls_s": rate, "steer_polls_s": steer_rate,
+    config = {"label": label, "agents": N, "active_callers": len(live), "caller_ids": live, "rate_calls_s": rate, "steer_polls_s": steer_rate,
               "windows": args.windows,
               "stream_nodes": len(stream_nodes), "stream_hz": args.stream_hz,
               "duration_s": args.duration, "workers": args.workers,

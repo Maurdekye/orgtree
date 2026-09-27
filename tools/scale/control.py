@@ -80,10 +80,10 @@ class Workload:
     """Select real permitted parents and item owners; track finite write budgets."""
     def __init__(self, metadata, live):
         self.parents = metadata["parents"]
-        if set(live) != set(self.parents):
+        if not live or not set(live).issubset(self.parents):
             raise ValueError("token/node coverage differs from workload metadata")
         self.message_actors = [n for n in live if self.parents[n] in self.parents]
-        self.items = [dict(x) for x in metadata["items"] if x["owner"] in self.parents]
+        self.items = [dict(x) for x in metadata["items"] if x["owner"] in live]
         if not self.message_actors or not self.items:
             raise ValueError("no permitted message actor or owned work item")
         self.create_left = max(0, 200 - metadata["active_items"])

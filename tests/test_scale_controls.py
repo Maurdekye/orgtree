@@ -98,8 +98,12 @@ class ScaleControlTests(unittest.TestCase):
         _, _, args = load.select("a", "orgtree_work", dict(action="create"), rng)
         self.assertEqual(args["action"], "update")
         self.assertEqual(load.substitutions, dict(evidence_capacity=1, create_capacity=1))
+        subset = Workload(metadata, ["b"])
+        me, _, args = subset.select("b", "orgtree_message", {"to": "invalid"}, rng)
+        self.assertEqual((me, args["to"]), ("b", "top"))
+        self.assertEqual(len(subset.items), 1)
         with self.assertRaises(ValueError):
-            Workload(metadata, ["a", "b"])
+            Workload(metadata, ["missing"])
 
 
 if __name__ == "__main__":
