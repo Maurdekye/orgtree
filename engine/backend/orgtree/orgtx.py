@@ -1070,9 +1070,15 @@ class PgBackend:
                                else pgstore.revision(conn))
                 tx.committed = Committed(tx.slug, tx.revision,
                                          got[0] if got else SaveChanges(), tx.op_key)
+            # Receipt baselines belong to the one server commit, not to an
+            # earlier save whose COMMIT was suppressed by pinning.
+            from . import receiptcommit
+            receiptcommit.committed(conns.values())
             for tx in order:
                 _pause("after_commit", tx)
         finally:
+            from . import receiptcommit
+            receiptcommit.discard(conns.values())
             with contextlib.suppress(Exception):
                 pq = pgstore._psycopg().pq          # pyright: ignore[reportPrivateUsage]
                 if raw.info.transaction_status != pq.TransactionStatus.IDLE:
