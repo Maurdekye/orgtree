@@ -112,12 +112,12 @@ def read(slug: str, request: Request, *, mode='snapshot', nid=None) -> Response:
                          code=409, headers={'Cache-Control': 'no-store'})
     except foreground_store.OrgNotFound as error:
         raise HTTPException(404, str(error)) from error
-    except ValueError as error:
-        raise HTTPException(400, str(error)) from error
     except LedgerError as error:
         # A corrupt/incomplete index is not an empty organization or a missing
         # historical node. Keep it an explicit server error.
         raise HTTPException(503, 'foreground projection is inconsistent') from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
     except _Unavailable:
         return _unavailable(slug)
     headers = {'ETag': etag, 'Vary': 'Accept-Encoding',
