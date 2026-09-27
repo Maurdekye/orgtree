@@ -181,6 +181,46 @@ class ForegroundIndex(unittest.TestCase):
         self.assertEqual(small['hidden_retired_children']['boss'], 10)
         self.assertEqual(large['hidden_retired_children']['boss'], 100)
 
+    def test_funding_is_bounded_by_nonarchived_seats_and_uses_committed_grants(self):
+        self.add(leaf={'state': 'live', 'grant': 12.75},
+                 lost={'state': 'unrecoverable', 'grant': 9.25},
+                 old={'grant': 999})
+        def project(raw, graph):
+            return graph, fg.read_funding(raw)
+        graph, funding = fg.read_exact(self.slug, 'old', project=project)
+        self.assertEqual(set(graph['rows']), {'boss', 'old'})
+        self.assertEqual({r['id'] for r in funding}, {'boss', 'leaf', 'lost'})
+        self.assertEqual(next(r['grant'] for r in funding if r['id'] == 'lost'), 9.25)
+        self.direct('leaf', grant=5.125)
+        fresh, changed = fg.read_exact(self.slug, 'old', project=project)
+        self.assertEqual(next(r['grant'] for r in changed if r['id'] == 'leaf'), 5.125)
+        self.assertEqual(fresh['stamp']['catalog_revision'], graph['stamp']['catalog_revision'])
+        self.assertGreater(fresh['stamp']['node_revision'], graph['stamp']['node_revision'])
+
+    def test_projection_callback_shares_graph_snapshot_and_always_releases_it(self):
+        self.add(old={})
+        for reader in (
+                lambda p: fg.read_foreground(self.slug, project=p),
+                lambda p: fg.read_exact(self.slug, 'old', project=p),
+                lambda p: fg.read_retired_children(self.slug, 'boss', project=p),
+                lambda p: fg.search(self.slug, 'old', project=p)):
+            old_grant = fg.read_exact(self.slug, 'boss')['rows']['boss']['node']['grant']
+            seen = []
+            def project(raw, graph):
+                seen.append(raw)
+                self.assertEqual(raw.execute('SHOW transaction_isolation').fetchone()[0], 'repeatable read')
+                self.assertEqual(raw.execute('SHOW transaction_read_only').fetchone()[0], 'on')
+                self.direct('boss', grant=old_grant + 1)
+                self.assertEqual(graph['rows']['boss']['node']['grant'], old_grant)
+                self.assertEqual(next(r['grant'] for r in fg.read_funding(raw) if r['id'] == 'boss'), old_grant)
+                raise ValueError('callback exercised')
+            with self.assertRaisesRegex(ValueError, 'callback exercised'):
+                reader(project)
+            self.assertEqual(len(seen), 1)
+            # A thrown projector cannot strand a pooled read transaction.
+            self.assertEqual(seen[0].info.transaction_status.name, 'IDLE')
+            self.assertEqual(fg.read_exact(self.slug, 'boss')['rows']['boss']['node']['grant'], old_grant + 1)
+
     def test_copy_and_multiple_changes_in_one_transaction_use_final_committed_state(self):
         with store._POOL.acquire(self.slug) as conn:
             conn.execute('BEGIN')

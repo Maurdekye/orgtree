@@ -12,7 +12,7 @@ import base64
 import hashlib
 import json
 import os
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from . import store
 from .ledger import ASK_HISTORY_KEEP, LedgerError
@@ -20,6 +20,7 @@ from .ledger import ASK_HISTORY_KEEP, LedgerError
 MAX_PAGE = 100
 MAX_INCLUDE = 128
 ASK_SECTIONS = ('asks', 'credit_requests', 'scope_requests')
+Projector = Callable[[Any, dict], Any]
 
 
 class CursorReset(ValueError):
@@ -220,7 +221,25 @@ def read_org_inbox_window(raw: Any) -> dict:
     return {'total': total, 'unread': max(0, total - read), 'entries': entries}
 
 
-def read_foreground(slug: str, include=()) -> dict:
+def read_funding(raw: Any) -> list[dict]:
+    """All funded seats, not just the selected graph (unrecoverable included).
+
+    Raw missing grant/model values remain visible to the context normalizer.
+    It must apply the existing legacy rules or refuse the bounded context;
+    this reader must not invent a zero budget for an incomplete record.
+    """
+    return [{'id': nid, **{key: meta[key] for key in ('parent', 'state', 'model', 'grant')}}
+            for nid, meta in raw.execute(
+                "SELECT id,meta FROM node_index WHERE meta->>'state'<>'archived' ORDER BY ord,id").fetchall()]
+
+
+def _project(raw: Any, graph: dict, project: Projector | None) -> Any:
+    # Assembly stays INSIDE the graph snapshot. Never pass a connection out
+    # of the context manager or reopen one for headers/authority/funding.
+    return project(raw, graph) if project is not None else graph
+
+
+def read_foreground(slug: str, include=(), *, project: Projector | None = None) -> Any:
     wanted = _wanted(include)
     with _snapshot(slug) as (raw, stamp):
         # This predicate has its own partial index. It must never be replaced
@@ -228,17 +247,17 @@ def read_foreground(slug: str, include=()) -> dict:
         ids = [row[0] for row in raw.execute(
             "SELECT id FROM node_index WHERE meta->>'state'<>'archived' ORDER BY ord,id").fetchall()]
         ids.extend(wanted)
-        return _graph(raw, stamp, ids, wanted)
+        return _project(raw, _graph(raw, stamp, ids, wanted), project)
 
 
-def read_exact(slug: str, nid: str) -> dict:
+def read_exact(slug: str, nid: str, *, project: Projector | None = None) -> Any:
     wanted = _wanted([nid])
     with _snapshot(slug) as (raw, stamp):
-        return _graph(raw, stamp, list(wanted), wanted)
+        return _project(raw, _graph(raw, stamp, list(wanted), wanted), project)
 
 
 def read_retired_children(slug: str, parent: str = '', *, limit: int = 50,
-                          cursor: str | None = None) -> dict:
+                          cursor: str | None = None, project: Projector | None = None) -> Any:
     limit = _limit(limit)
     with _snapshot(slug) as (raw, stamp):
         after = _after(cursor, stamp, 'children', parent)
@@ -260,11 +279,11 @@ def read_retired_children(slug: str, parent: str = '', *, limit: int = 50,
         result['matches'] = [row[0] for row in page]
         result['next_cursor'] = (_cursor(stamp, 'children', parent,
             [page[-1][1], page[-1][2], page[-1][3], page[-1][0]]) if more else None)
-        return result
+        return _project(raw, result, project)
 
 
 def search(slug: str, query: str, *, state: str | None = None, limit: int = 50,
-           cursor: str | None = None) -> dict:
+           cursor: str | None = None, project: Projector | None = None) -> Any:
     limit = _limit(limit)
     query = query.strip().lower()
     if not query or len(query) > 256:
@@ -289,7 +308,7 @@ def search(slug: str, query: str, *, state: str | None = None, limit: int = 50,
         result = _graph(raw, stamp, [row[0] for row in page])
         result['matches'] = [row[0] for row in page]
         result['next_cursor'] = _cursor(stamp, 'search', filters, page[-1][0]) if more else None
-        return result
+        return _project(raw, result, project)
 
 
 def discover(slug: str, *, state: str = 'live', limit: int = 100,
