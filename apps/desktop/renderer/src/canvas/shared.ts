@@ -645,6 +645,7 @@ export function availableAutopsyModels(
 // One structural type covers every card; fields absent on some card kinds
 // are optional and consumers guard (or assert) exactly where the JS did.
 export interface CanvasNode {
+  hidden_retired_children?: number
   lineage_loaded?: boolean
   lineage_revision?: string
   consultable_predecessor?: TreeNode['consultable_predecessor']
@@ -894,6 +895,8 @@ export interface Pile {
   kind: 'a' | 'c'
   list: string[]
   front: string
+  /** Includes omitted direct siblings while the picker is closed. */
+  total?: number
 }
 /** a live-feed row: a StreamEvent copy or a folded thought line */
 export interface LiveRow {
@@ -1304,6 +1307,7 @@ export function withDraftTree(tree: TreePayload, draft: DraftState | null): Canv
   })
   return {
     id: USER, title: 'you', tier: null, state: 'user',
+    hidden_retired_children: tree.foreground?.hidden_retired_roots,
     children: draft && draft.parent === null
       ? place(tree.roots.map(mk)) : tree.roots.map(mk),
   }

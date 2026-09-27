@@ -13,6 +13,9 @@ import { ForegroundWorkReader } from './workforeground'
 import { WorkReferenceReader } from './workreferences'
 import type { WorkDelta } from './workdelta'
 import { decodeTree, type TreeWire } from './treedelta'
+import { ForegroundTreeReader } from './foregroundtree'
+import { TreeViewReader } from './treeview'
+import type { TreeSelection } from './treeview'
 import type {
   AudiencesPayload, CharterTemplateDirsPayload, ChartersPayload, ChatPayload, DefaultsPayload,
   DiskDeleteResult, DiskDirPayload, DiskPayload, EventsPayload, FsPayload,
@@ -250,6 +253,7 @@ const treeCacheGen = new Map<string, number>()
 export const invalidateTreeCache = (slug: string): void => {
   treeCache.delete(slug)
   treeCacheGen.set(slug, (treeCacheGen.get(slug) ?? 0) + 1)
+  foregroundTreeReader.invalidate()
 }
 /** Resolves the tree body — ALWAYS (2026-09-19 base+patch protocol). The
  *  old contract resolved NULL when bounded attempts raced ws-patch
@@ -299,6 +303,26 @@ export const getTree = (slug: string): Promise<TreePayload | null> => {
     })
   })
 }
+
+/** Explicit full read for compatibility or a surface that asks for all rows.
+ * A closed foreground view must not leave a whole-history legacy cache behind. */
+export const getCompleteTree = async (slug: string): Promise<TreePayload> => {
+  try {
+    const tree = await getTree(slug)
+    if (!tree) throw new Error('Missing complete tree response')
+    return tree
+  } finally { treeCache.delete(slug) }
+}
+const foregroundTreeReader = new ForegroundTreeReader(async (path, etag) => {
+  const response = await fetch(u(path), { signal: timeoutSignal(DEFAULT_TIMEOUT_MS),
+    ...(etag ? { headers: { 'If-None-Match': etag } } : {}) })
+  noteInstance(response)
+  return response
+}, getCompleteTree)
+const foregroundTreeViews = new TreeViewReader(foregroundTreeReader, getCompleteTree)
+/** Not activated in App until all consumers preserve partial-tree semantics. */
+export const getSelectedTree = async (slug: string, selection: TreeSelection): Promise<TreePayload> =>
+  (await foregroundTreeViews.get(slug, selection)).tree
 
 /** An unchanged content token can advance its replay boundary without a body.
  * Never alter a shared cached tree: in-flight readers may still be using it. */

@@ -814,7 +814,8 @@ export interface SweepResult {
 export interface TreePayload {
   /** Client projection boundary. Omission from roots is unknown, not deletion.
    * Includes identities on the separate lineage axis as well as org rows. */
-  foreground?: { catalog_revision: string; present: string[]; missing: string[] }
+  foreground?: { catalog_revision: string; present: string[]; missing: string[];
+    hidden_retired_roots?: number; retired_total?: number }
   /** §4.8 — what an archived seat's omitted runtime fields are worth, sent
    *  once per payload instead of 242 times inside it. `hydrateTree` refills
    *  from THIS rather than from a copy of the rule written in TypeScript.

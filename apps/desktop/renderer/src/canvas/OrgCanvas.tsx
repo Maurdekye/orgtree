@@ -4,6 +4,9 @@ import { revealDetachedDocument } from '../windowlife'
 import { intersectsViewport, ViewportPath, worldViewport } from './viewport'
 import { renameDrafts } from '../draftstore'
 import { treePresence, sweepAbsentDrafts, sweepAbsentPreferences } from '../treepresence'
+import { treeSelections } from '../treeselection'
+import { retiredFronts, savedTreeSelection } from './treeselection'
+import type { TreeBrowse } from '../treeview'
 import { DeskHosts, useDeskActionsNow } from './deskhosts'
 // canvas/OrgCanvas.tsx — the canvas core: the OrgCanvas component itself —
 // camera (pan/zoom/springs/follow), tree layout orchestration, wires and
@@ -651,6 +654,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   // the retired-list token's open menu: the parent id whose list is showing
   const [retiredOpen, setRetiredOpen] = useState<string | null>(null)
   const map = useMemo(() => flatten(vrootFull, seats), [vrootFull])   // eslint-disable-line
+  const retiredCounts = useMemo(() => {
+    const counts = new Map([...prunedView.retiredByParent].map(([id, rows]) => [id, rows.length]))
+    if (hideRetired) for (const [id, node] of map) {
+      if (node.hidden_retired_children) counts.set(id, (counts.get(id) ?? 0) + node.hidden_retired_children)
+    }
+    return counts
+  }, [map, hideRetired, prunedView])
   const nodeKnowledge = useMemo(() => treePresence(tree, slug, map), [tree, slug, map])
   usePersistedModalOpen('node-config', slug, configId !== null, configId ? { agent: configId, generation: map.get(configId)?.generation } : undefined)
   usePersistedModalOpen('lineage', slug, lineageId !== null, lineageId ? { agent: lineageId, generation: map.get(lineageId)?.generation } : undefined)
@@ -769,12 +779,14 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       // make independent reveal/dismiss impossible.
       const arch = kids.filter((c) => c.state === 'archived'
         && !(hideRetired && shownRetired.has(c.id)))
-      if (arch.length >= 2) {
+      const retiredTotal = arch.length + (hideRetired ? 0 : n.hidden_retired_children ?? 0)
+      if (retiredTotal >= 2 && arch.length > 0) {
         const key = n.id + '|a'
         const want = pileFront[key]
         out.set(key, {
           key, parent: n.id, kind: 'a',
           list: arch.map((c) => c.id),
+          total: retiredTotal,
           front: arch.some((c) => c.id === want) ? want! : arch[arch.length - 1]!.id, // nUIA: some() hit ⇒ want defined; length>=2 checked
         })
       }
@@ -2607,6 +2619,32 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   const pinnedFocusId = nearestId && pinnedIds.has(nearestId) ? nearestId : null
   const focusId = pinnedFocusId ? null : nearestId
   focusRef.current = focusId
+  // Registration is preparatory until App adopts getSelectedTree. Owners
+  // release their contribution on unmount/org change, never on omission.
+  const treeSelectionOwner = useRef({})
+  const savedSelection = useMemo(() => savedTreeSelection(slug), [slug])
+  const browse: TreeBrowse | null = retiredOpen
+    ? { kind: 'children', parent: retiredOpen === USER ? '' : retiredOpen }
+    : pileOpen?.endsWith('|a')
+      ? { kind: 'children', parent: pileOpen.slice(0, -2) === USER ? '' : pileOpen.slice(0, -2) }
+      : trayOpen && trayArch
+        ? trayQ.trim() ? { kind: 'search', query: trayQ.trim() } : { kind: 'all' }
+        : null
+  const selectedTreeState = JSON.stringify({
+    include: [...new Set([...(restoredModalOrg.current === slug ? [] : savedSelection.include),
+      ...restoreDesks.map(([, id]) => id), ...pins.map(pin => pin.id), ...shownRetired,
+      configId, lineageId, inboxId, agentDocketId, teamDocketId, tempDeskId, sheetId,
+      focusId, draft?.parent, draft?.beside?.anchor, draft?.above?.anchor,
+    ].filter((id): id is string => !!id && id !== USER && id !== DRAFT))].sort(),
+    hideRetired, fronts: retiredFronts(pileFront), browse,
+  })
+  useLayoutEffect(() => {
+    treeSelections.set(slug, treeSelectionOwner.current, JSON.parse(selectedTreeState))
+  }, [slug, selectedTreeState])
+  useLayoutEffect(() => {
+    const owner = treeSelectionOwner.current
+    return () => treeSelections.release(slug, owner)
+  }, [slug])
 
   // FR-3 — world → VIEWPORT px for one node's card, read NOW (the position is
   // derived from the tree and moves under a pin at any time; pins.tsx never
@@ -3422,10 +3460,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           // the hit target that opens the picker, and the whole stack eases
           // outward slightly on hover (user spec). Retired piles and live
           // CROWD piles share the mechanics; the crowd wears a live tint.
-          const layers = Math.min(pileHere.list.length - 1, 3)
+          const pileTotal = pileHere.total ?? pileHere.list.length
+          const layers = Math.min(pileTotal - 1, 3)
           const pTitle = pileHere.kind === 'c'
-            ? `${pileHere.list.length} teammates stacked — click to choose who's in front`
-            : `${pileHere.list.length} retired here — click to choose who's in front`
+            ? `${pileTotal} teammates stacked — click to choose who's in front`
+            : `${pileTotal} retired here — click to choose who's in front`
           return (
             <span key={n.id}>
               <div className={'pile-stack' + (pileHere.kind === 'c' ? ' crowd' : '')}
@@ -3441,7 +3480,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
                   title={pTitle}
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => { e.stopPropagation(); setPileOpen(pileHere.key) }}>
-                  {pileHere.list.length}</button>
+                  {pileTotal}</button>
               </div>
               {square}
             </span>
@@ -3451,7 +3490,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
             retirees surface on the canvas. It sits under the parent card
             that has retired subordinates; clicking lists them (the same
             picker the retired pile uses) and picking one reveals it. */}
-        {[...prunedView.retiredByParent.entries()].map(([pid, gone]) => {
+        {[...retiredCounts.entries()].map(([pid, count]) => {
           const p = posOf(pid)
           if (!p) return null
           const size = sizeOf(pid)
@@ -3459,10 +3498,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           return (
             <button key={'rt' + pid} className="retired-token"
               style={{ transform: `translate(${p.x + 6}px, ${p.y + size.h + 4}px)` }}
-              title={`${gone.length} retired agent${gone.length === 1 ? '' : 's'} hidden here — click to list`}
+              title={`${count} retired agent${count === 1 ? '' : 's'} hidden here — click to list`}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => { e.stopPropagation(); setRetiredOpen(pid) }}>
-              {gone.length} retired
+              {count} retired
             </button>
           )
         })}

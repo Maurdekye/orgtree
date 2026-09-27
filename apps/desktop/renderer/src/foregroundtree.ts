@@ -100,7 +100,9 @@ export function projectForeground(snapshot: ForegroundSnapshot): TreePayload {
   }
   return hydrateTree({ ...snapshot.header, roots,
     foreground: { catalog_revision: snapshot.catalog_revision,
-      present: Object.keys(nodes), missing: [...snapshot.missing_requested] },
+      present: Object.keys(nodes), missing: [...snapshot.missing_requested],
+      hidden_retired_roots: snapshot.header.hidden_retired_roots,
+      retired_total: snapshot.header.retired_total },
     sync_rev: snapshot.sync_rev, org_rev: snapshot.org_rev })
 }
 
