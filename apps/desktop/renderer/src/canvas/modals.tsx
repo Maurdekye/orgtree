@@ -1744,6 +1744,7 @@ export function PilePicker({ pile, map, onPick, close, op, toast, ready = true }
   useEsc(close)
   const crowd = pile.kind === 'c'
   const [asking, setAsking] = useState(false)
+  useEffect(() => { if (!ready) setAsking(false) }, [ready])
   // "delete all" (user spec 2026-07-31): clear the whole retired pile at
   // once — permanent, so it sits behind the same confirm as any delete.
   // Sequential ops; each failure is already toasted by op(), the summary
