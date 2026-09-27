@@ -1,6 +1,7 @@
 import { mountView, inAct } from './harness'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { useWorkItems } from '../src/canvas/useworkitems'
 import { useHistoricalWorkReferences } from '../src/canvas/workrefresolve'
 import { forgetWorkInflight } from '../src/api'
@@ -9,18 +10,20 @@ import { WORK_FOREGROUND_FORMAT as format } from '../src/workforeground'
 
 test('remote archive edits refresh mounted positive and negative references after live bumps', async t => {
   forgetWorkInflight()
-  let revision = 'catalog-before', foregroundCalls = 0, referenceCalls = 0
-  let references = [{ slug: 'old-ticket', title: 'Before' }]
+  const capture = process.env.ORGTREE_TEST_WORK_FRESHNESS_PAYLOADS
+  const actual = capture ? JSON.parse(readFileSync(capture, 'utf8')) : null
+  let revision = actual?.before.revision ?? 'catalog-before', foregroundCalls = 0, referenceCalls = 0
+  let references = actual?.before_references ?? [{ slug: 'old-ticket', title: 'Before' }]
   const index = new Map()
   // The PG archived-edit/rename controls prove this transport contract:
   // identical active rows/counts, a changed revision, and new exact answers.
-  const active = { items: [], references: [],
+  const active = actual?.before ?? { items: [], references: [],
     counts: { active: 0, archived: 1, attention: 0, backlogged: 0 } }
   globalThis.fetch = async input => {
     let body: unknown
     if (String(input).includes('work-items-foreground')) {
       ++foregroundCalls
-      body = { format, revision, ...active }
+      body = { ...active, format, revision }
     } else {
       ++referenceCalls
       body = { references }
@@ -45,8 +48,8 @@ test('remote archive edits refresh mounted positive and negative references afte
   assert.equal(referenceCalls, 1)
   await bump()
   assert.equal(referenceCalls, 1, 'unchanged revision reuses settled answers')
-  revision = 'catalog-edited'
-  references = [{ slug: 'old-ticket', title: 'After' }]
+  revision = actual?.after.revision ?? 'catalog-edited'
+  references = actual?.after_references ?? [{ slug: 'old-ticket', title: 'After' }]
   await bump()
   assert.equal(title('old-ticket'), 'After')
   assert.equal(referenceCalls, 2, 'positive answer refreshed without local mutation invalidation')

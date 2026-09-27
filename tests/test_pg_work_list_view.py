@@ -1,6 +1,8 @@
 """Bounded desktop lists against the unchanged complete ledger oracle."""
 import asyncio
 import json
+import os
+from pathlib import Path
 import unittest
 from unittest.mock import patch
 
@@ -145,6 +147,7 @@ class Lists(unittest.TestCase):
         self.add(self.item('old-ticket', status='done', title='Before'), True)
         self.refresh()
         before = self.foreground()
+        before_refs = worklist.lookup_many(self.slug, USER, ['old-ticket'], now_ts=self.now)
         self.c.execute(f"UPDATE {self.s}.log_l SET val=jsonb_set(val::jsonb,'{{title}}','\"After\"')::text WHERE sect='work_items_archive'")
         self.refresh()
         with (patch.object(store, 'load_org', side_effect=AssertionError('whole history')),
@@ -152,6 +155,14 @@ class Lists(unittest.TestCase):
             after = self.foreground()
             lookup = worklist.lookup_many(self.slug, USER, ['old-ticket'], now_ts=self.now)
             response = api._bounded_work_response(self.slug, 'foreground', since=before['revision'])
+        # Optional cross-layer replay uses actual PG responses, including the
+        # old implementation's unchanged revision, in the mounted hook control.
+        if capture := os.environ.get('ORGTREE_TEST_WORK_FRESHNESS_PAYLOADS'):
+            Path(capture).write_text(json.dumps({
+                'before': before, 'after': after,
+                'before_references': before_refs['references'],
+                'after_references': lookup['references'],
+            }), encoding='utf-8')
         self.assertEqual(lookup['references'][0]['title'], 'After')
         for field in ('items', 'references', 'counts', 'attention'):
             self.assertEqual(before[field], after[field], field)
