@@ -3500,7 +3500,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage, onConf
               empty state names the bearer either way). Same lineage the
               panel below reads; newest consultable generation first. */}
           {chat && !chat.messages.length && !live_feed.length && (() => {
-            const prior = [...(node.lineage ?? [])]
+            const prior = node.lineage_loaded === false ? node.consultable_predecessor : [...(node.lineage ?? [])]
               .filter((b) => b.state === 'archived' && b.bearer_state !== 'lost')
               .sort((a, b) => (b.generation ?? 0) - (a.generation ?? 0))[0]
             return prior ? (

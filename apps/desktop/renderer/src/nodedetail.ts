@@ -25,10 +25,15 @@ export interface Resolved<T> {
 }
 
 export function useNodeDetail<T extends Summarisable>(
-  slug: string, node: T,
+  slug: string, node: T, needLineage = false,
 ): Resolved<T> {
   const summary = isSummary(node)
-  const [got, setGot] = useState<NodeDetail | null>(null)
+  const lineageOnly = !summary && needLineage && node.lineage_loaded === false
+  const fetchNode = lineageOnly ? { ...node, detail: false,
+    detail_rev: JSON.stringify(['lineage', node.lineage_revision ?? null, node.detail_rev ?? null]) } : node
+  const needsFetch = summary || lineageOnly
+  const identity = JSON.stringify([slug, node.id, node.generation ?? null])
+  const [got, setGot] = useState<{ identity: string; detail: NodeDetail } | null>(null)
   const [error, setError] = useState<Error | null>(null)
   // ⚠ `detail_rev` IS IN THE STAMP, not just in the cache key, and that is
   // what makes a REMOTE edit reach a panel that is already open. The cache key
@@ -40,23 +45,24 @@ export function useNodeDetail<T extends Summarisable>(
   // for the same reason at a coarser grain: rehiring mints a new one, and a
   // charter cached from the seat's previous life looks perfectly correct.)
   const stamp = JSON.stringify(
-    [slug, node.id, node.generation ?? null, node.detail_rev ?? null, summary])
+    [slug, node.id, node.generation ?? null, fetchNode.detail_rev ?? null, needsFetch])
   useEffect(() => {
     setError(null)
-    if (!summary) { setGot(null); return }
+    if (!needsFetch) { setGot(null); return }
     let live = true
-    const release = retainNodeDetail(slug, node)
-    nodeDetail(slug, node, getNodeDetail)
-      .then((d) => { if (live) setGot(d) })
+    const release = retainNodeDetail(slug, fetchNode)
+    nodeDetail(slug, fetchNode, getNodeDetail)
+      .then((d) => { if (live) setGot({ identity, detail: d }) })
       .catch((e: Error) => { if (live) setError(e) })
     return () => { live = false; release() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stamp])
-  if (!summary) return { node, ready: true, error: null }
+  if (!needsFetch) return { node, ready: true, error: null }
+  const detail = got?.identity === identity ? got.detail : null
   // ⚠ the SUMMARY's children win: the detail answer carries none by design
   // (fetching one seat must not rebuild the pile it was opened from)
-  return got
-    ? { node: { ...node, ...got,
+  return detail
+    ? { node: { ...node, ...(lineageOnly ? { lineage: detail.lineage, lineage_loaded: true } : detail),
                 children: (node as { children?: unknown }).children } as T,
         ready: true, error }
     : { node, ready: false, error }

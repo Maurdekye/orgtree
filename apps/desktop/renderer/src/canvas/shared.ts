@@ -645,6 +645,9 @@ export function availableAutopsyModels(
 // One structural type covers every card; fields absent on some card kinds
 // are optional and consumers guard (or assert) exactly where the JS did.
 export interface CanvasNode {
+  lineage_loaded?: boolean
+  lineage_revision?: string
+  consultable_predecessor?: TreeNode['consultable_predecessor']
   id: string
   state: NodeState | 'draft' | 'user'
   /** null only on the eye root */

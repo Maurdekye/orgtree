@@ -1,4 +1,5 @@
 import { useSurfaceDocument } from '../popout'
+import { lineageCount } from '../archived'
 // canvas/modals.tsx — the config modals: the in-page ConfirmModal, the
 // pre-hire permissions modal (DraftScopeModal), the per-node ⚙ config
 // (NodeConfig) with the shared MCP checklist, and the retired/crowd pile
@@ -1667,7 +1668,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
         const count = (function c(n: CanvasNode): number {
           return n.children.reduce((a, k) => a + 1 + c(k), 0)
         })(node)
-        const gens = (node.lineage ?? []).length
+        const gens = lineageCount(node)
         return <ConfirmModal title={`permanently delete ${node.id}?`}
           body={'Erased from the organization — seats, records, mail and lineage'
             + (count ? `, plus ${count} descendant(s)` : '')

@@ -39,6 +39,8 @@ export interface Summarisable {
   detail?: boolean
   /** the backend's token for this seat's omitted detail — see `nodeDetail` */
   detail_rev?: string | null
+  lineage_loaded?: boolean
+  lineage_revision?: string
 }
 
 /** A node the tree carried whole needs nothing; one marked `detail:false` is a

@@ -338,6 +338,10 @@ export interface PendingAccount {
 }
 
 export interface TreeNode {
+  /** Foreground projection omits the lineage axis even for live agents. */
+  lineage_loaded?: boolean
+  lineage_revision?: string
+  consultable_predecessor?: { id: string; generation: number } | null
   /** §4.8 — `false` means this is an ARCHIVED seat's SUMMARY: its
    *  supervisor-derived runtime fields were refilled from the payload's
    *  `archived_defaults` (api.ts `getTree` → `hydrateTree`), and its per-seat

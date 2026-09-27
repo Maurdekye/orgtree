@@ -3834,7 +3834,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         </NodeDetailGate></MaybePortal>
       )}
       {lineageId && map.get(lineageId) && (
-        <MaybePortal><NodeDetailGate slug={slug} node={map.get(lineageId)!}>
+        <MaybePortal><NodeDetailGate slug={slug} node={map.get(lineageId)!} lineage>
           {(ln) => (
         <LineagePanel node={ln} op={op} slug={slug}
           presence={presence} userDisabled={userDisabled}
