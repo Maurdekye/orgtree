@@ -145,6 +145,50 @@ class CodexBatchDrainTests(unittest.TestCase):
         box = [m["body"] for m in (stored.d.get("mail") or {}).get("worker") or []]
         self.assertEqual(sorted(box), sorted(bodies), "halt must leave all mail boxed")
 
+    def test_failed_drain_after_absorbing_keeps_a_pointer_to_every_mail(self):
+        """The drain fails AFTER the pointers were absorbed: every mail must
+        stay boxed AND still be named by some surviving carrier (queue, the
+        worker's pending slot, or the node's durable halt/inflight rows), or
+        it would sit in the box with nothing to wake the agent for it."""
+        bodies, first = self.burst(5)
+        real_take = sup._take_delivery_mail
+        armed = [True]
+
+        def failing_take(org, nid, mail_ids=None):
+            if armed[0]:
+                armed[0] = False
+                raise RuntimeError("injected drain failure")
+            return real_take(org, nid, mail_ids)
+        fired = []
+        with patch.object(sup, "_take_delivery_mail", failing_take):
+            try:
+                sup._run_turn(self.slug, "worker", first)
+            except RuntimeError as exc:
+                fired.append(str(exc))
+        self.assertFalse(armed[0], "the injected failure never ran")
+        stored = orgtx.org_read(self.slug)
+        box = {str(m["id"]): m["body"] for m in (stored.d.get("mail") or {}).get("worker") or []}
+        delivered = "
+".join(self.adapter.texts)
+        named = set()
+        carriers = list(self.st.get("queue") or [])
+        carriers += list((self.st.get("halt_pending_carriers") or {}).values())
+        n = stored.node("worker")
+        carriers += list(n.get("halt_queue") or [])
+        if n.get("inflight"):
+            carriers.append(n["inflight"])
+        for c in carriers:
+            if isinstance(c, dict):
+                if c.get("mail_ids") is None and c.get("ping") is not True:
+                    named.update(box)          # an unrestricted carrier drains all
+                named.update(str(i) for i in c.get("mail_ids") or [])
+        for mid, body in box.items():
+            self.assertTrue(mid in named or body in delivered,
+                            f"{body!r} is boxed with no carrier naming it")
+        for body in bodies:
+            self.assertTrue(body in box.values() or delivered.count(body) == 1,
+                            f"{body!r} lost")
+
     def test_queue_depth_is_recorded_at_turn_start(self):
         seen = []
         real = sup.turnlog.emit
