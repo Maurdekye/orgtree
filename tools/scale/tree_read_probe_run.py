@@ -17,6 +17,7 @@ from control import free_commit_gb, guarded_wait
 p = argparse.ArgumentParser()
 p.add_argument('--reuse-base', type=Path)
 p.add_argument('--pg-checks', action='store_true')
+p.add_argument('--status-rounds', type=int, default=0)
 args = p.parse_args()
 label = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d-%H%M%S')
 allowed = (Path(os.environ['TEMP']) / 'scale-ui-astra').resolve()
@@ -80,7 +81,7 @@ try:
         run('seed', [sys.executable, '-B', 'tools/scale/seed.py', '--root', str(root), '--agents', '100'], env)
         run('prepare', [sys.executable, '-B', 'tools/scale/tree_probe_prepare.py', '--root', str(root)])
     run('probe', [sys.executable, '-B', 'tools/scale/tree_read_probe.py', '--root', str(root),
-                  '--output', str(packet / 'probe.json')])
+                  '--output', str(packet / 'probe.json'), '--status-rounds', str(args.status_rounds)])
     print(str(packet), flush=True)
 finally:
     if started:

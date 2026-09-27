@@ -18,6 +18,9 @@ class StatusProjection(unittest.TestCase):
         self.fast = tree_fast.StatusProjection(self.slug, lambda:self.runtime, lambda:{'sync_rev':4})
         self.tag, _, _ = self.read()
 
+    def tearDown(self):
+        store._POOL.close_all(self.slug)
+
     def build(self):
         self.builds += 1
         return store.cached_org(self.slug).tree()

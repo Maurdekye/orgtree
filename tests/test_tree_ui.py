@@ -139,6 +139,9 @@ class TreeHTTP(unittest.TestCase):
         self.client = TestClient(app)
         self.url = f'/api/orgs/{self.slug}'
 
+    def tearDown(self):
+        store._POOL.close_all(self.slug)
+
     def test_full_http_preserves_legacy_fields_and_status_delta_reconciles(self):
         headers = {'X-Orgtree-Desktop-Token':'operator', 'Accept-Encoding':'gzip'}
         # Stable annotation fixture lets this assert the WHOLE projection,

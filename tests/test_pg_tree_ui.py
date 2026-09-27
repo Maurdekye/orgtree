@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 import test_pgstore as fixture
-from orgtree import ledger, store, tree_ui
+from orgtree import ledger, store, tree_ui, tree_fast, tree_changes
 
 
 def tearDownModule():
@@ -28,7 +28,33 @@ class CommittedTree(unittest.TestCase):
     def read(self, since=''):
         return tree_ui.read(self.slug, False, since,
             stamp=lambda:str(store.org_seq(self.slug)),
-            build=lambda:store.cached_org(self.slug).tree())
+            build=lambda:store.cached_org(self.slug).tree(),
+            fast=tree_fast.StatusProjection(self.slug, lambda:0, lambda:{}))
+
+    def test_local_status_only_uses_changed_row_without_full_projection(self):
+        org = store.load_org(self.slug)
+        org.nodes['boss']['last_status'] = {'status':'working','summary':'latest'}
+        org.nodes['boss']['working_activity_at'] = 'now'
+        store.save_org(org)
+        with patch.object(ledger.Org, 'tree', side_effect=AssertionError('whole projection rebuilt')):
+            _, body, _ = self.read(self.before)
+        self.assertEqual(json.loads(body)['nodes']['boss']['set']['last_status']['summary'], 'latest')
+
+    def test_foreign_revision_never_reuses_local_fast_history(self):
+        self.external_name()
+        org = store.load_org(self.slug)
+        org.nodes['boss']['last_status'] = {'summary':'local'}
+        store.save_org(org)
+        original = tree_fast.StatusProjection.update
+        observed = []
+        def checked(projection, state, mark):
+            result = original(projection, state, mark)
+            observed.append(result)
+            return result
+        with patch.object(tree_fast.StatusProjection, 'update', new=checked):
+            _, body, _ = self.read(self.before)
+        self.assertEqual(observed, [None])
+        self.assertEqual(json.loads(body)['top']['set']['name'], 'External title')
 
     def external_name(self):
         import psycopg
