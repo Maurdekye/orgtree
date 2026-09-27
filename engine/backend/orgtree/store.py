@@ -5129,6 +5129,29 @@ def read_stream_identity(slug: str, nid: str) -> dict[str, Any] | None:
     return cast("dict[str, Any] | None", _bounded_read(slug, body))
 
 
+def prewarm_stream_identity() -> bool:
+    """Exercise the shared identity-read path before serving live streams.
+
+    One existing node is enough to warm statement translation and the shared
+    connection pool. Never enumerate the fleet, mint an identity, or populate
+    the save-sequence caches: startup recovery may change those values next.
+    Empty/legacy roots have nothing to warm. A refused or damaged org must
+    not prevent another org from starting, as with the normal startup sweep.
+    """
+    if not row_store():
+        return False
+    for slug in org_slugs():
+        try:
+            row = _bounded_read(slug, lambda conn: conn.execute(
+                "SELECT id FROM nodes LIMIT 1").fetchone())
+            if row is not None:
+                read_stream_identity(slug, str(row[0]))
+                return True
+        except Exception as exc:  # startup optimization; org refusal is isolated
+            print(f"[orgtree] stream identity warmup skipped {slug}: {exc}", flush=True)
+    return False
+
+
 def read_node_credential(slug: str, nid: str) -> dict[str, Any] | None:
     """Committed credential fields for one node, independent of cache/feed lag.
 
