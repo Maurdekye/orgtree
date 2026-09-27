@@ -88,7 +88,17 @@ def check_root(root):
 def source_files():
     names = subprocess.check_output(["git", "ls-files", "engine", "apps/desktop/renderer", "tools/scale"],
                                      cwd=REPO, text=True).splitlines()
-    return {name: sha_file(REPO / name) for name in names}
+    result = {}
+    for name in names:
+        path = REPO / name
+        if path.is_dir():
+            # Gitlinks name submodules, not readable source files. The mailhub
+            # is not launched by this baseline; preserve its pinned identity.
+            result[name] = "gitlink:" + subprocess.check_output(
+                ["git", "rev-parse", "HEAD:" + name], cwd=REPO, text=True).strip()
+        else:
+            result[name] = sha_file(path)
+    return result
 
 
 def require_slots(small):
