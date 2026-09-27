@@ -38,7 +38,7 @@ function headroom() {
   const active = ps('Get-CimInstance Win32_Process -Filter "Name=\'node.exe\'" | Where-Object { $_.CommandLine -like "*test-baseline*" } | Select-Object -ExpandProperty ProcessId')
   if (active) throw Error('test-baseline active; obtain the measurement slot first')
 }
-const provenance = () => ({ commit: git('rev-parse', 'HEAD'), dirty: git('status', '--porcelain', '--', 'apps/desktop', 'tools/scale'),
+const provenance = () => ({ commit: git('rev-parse', 'HEAD'), dirty: git('status', '--porcelain', '-uno', '--', 'apps/desktop', 'tools/scale'),
   rendererTree: git('rev-parse', 'HEAD:apps/desktop/renderer'), preloadTree: git('rev-parse', 'HEAD:apps/desktop/preload') })
 
 if (mode === 'build') {
@@ -115,6 +115,7 @@ if (mode === 'build') {
   }
   fs.mkdirSync(output, { recursive: false })
   const run = { schema: SCHEMA, mode, output, build: buildDir, buildProvenance, seconds, repeats,
+    hookCapture: options['hook-capture'] === '1',
     archiveMeasurement: process.env.ORGTREE_PAINT_ARCHIVE === '1',
     descriptor: descriptorPath, descriptorSummary: descriptor && publicDescriptor(descriptor),
     org: descriptor?.org, label: options.label, loadDir, started: Date.now() }

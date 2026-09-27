@@ -4,6 +4,7 @@ import path from 'node:path'
 import http from 'node:http'
 import net from 'node:net'
 import { installPaintProbe } from './instrument.mjs'
+import { installHookTrace } from './hook-trace.mjs'
 import { decodePixel, percentiles, validateLoad } from './model.mjs'
 
 const run = JSON.parse(fs.readFileSync(process.env.ORGTREE_PAINT_RUN, 'utf8'))
@@ -19,6 +20,17 @@ let win, proxy, descriptor, agent
 const sockets = new Set(), paintTimes = new Map(), actions = [], errors = [], ipcCalls = {}
 const archiveSamples = []
 let paints = 0, clock, controls, finishing = false
+let traceTimer, traceDeadline, nativePoll, traceBusy = false, traceSummary
+async function flushTrace() {
+  if (!run.hookCapture || traceBusy || !win || win.isDestroyed()) return
+  traceBusy = true
+  try {
+    const { rows, ...summary } = await js('window.__hookTrace.drain()')
+    if (rows.length) fs.appendFileSync(path.join(run.output, 'hook-trace.jsonl'), rows.map(r => JSON.stringify(r)).join('\n') + '\n')
+    traceSummary = summary
+    if (summary.errors.length) throw Error(summary.errors.join('; '))
+  } finally { traceBusy = false }
+}
 let startupDeadline = setTimeout(() => {
   save('renderer.json', { complete: false, error: 'Electron startup exceeded45s', paints, actions, errors });finish(1)
 }, 45000)
@@ -155,6 +167,7 @@ function finish(code) {
   if (finishing) return
   finishing = true
   clearTimeout(startupDeadline)
+  clearInterval(traceTimer); clearInterval(nativePoll); clearTimeout(traceDeadline)
   for (const s of sockets) s.destroy()
   proxy?.close()
   if (win && !win.isDestroyed()) {
@@ -192,11 +205,23 @@ app.whenReady().then(async () => {
   await win.loadURL('about:blank')
   win.webContents.debugger.attach('1.3')
   await win.webContents.debugger.sendCommand('Page.enable')
+  if (run.hookCapture) await win.webContents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
+    source: `(${installHookTrace.toString()})()` })
   await win.webContents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
     source: `(${installPaintProbe.toString()})(${JSON.stringify({ agent })})` })
   if (run.mode === 'selfcheck') await win.loadURL('data:text/html,<html><body>Renderer compositor control</body></html>')
   else await win.loadURL(origin + '/o/' + encodeURIComponent(run.org))
   await until(() => js('!!window.__paintProbe && !!document.body'))
+  if (run.hookCapture) {
+    traceTimer = setInterval(() => { void flushTrace().catch(e => { errors.push(String(e));finish(1) }) }, 1000)
+    traceDeadline = setTimeout(() => { save('capture-timeout.json', { at: epoch(), seconds: 600 });finish(1) }, 600000)
+    // Match the production native notification-owner wake. Retain every wake
+    // as replay input; this shell has no installed engine or tray connection.
+    nativePoll = setInterval(() => {
+      void js("window.__hookTrace.mark('native-notification-poll')").then(() =>
+        win.webContents.send('desktop:event', { type: 'notification-poll', data: null }))
+    }, 5000)
+  }
   clearTimeout(startupDeadline)
   await sleep(700)
   clock = await calibrate()
@@ -274,6 +299,23 @@ app.whenReady().then(async () => {
       if (i + 1 < run.repeats) await action('prepare-canvas' + suffix, '[data-paint-mode=canvas]', 'document.querySelector(".attn-stage")?.dataset.attentionActive !== "yes"', { measured: false })
     }
     loadNow()
+    if (run.hookCapture) {
+      const dwell = async name => {
+        await js(`window.__hookTrace.mark(${JSON.stringify(name)},{agent:${JSON.stringify(agent)}})`)
+        const untilAt = performance.now() + run.seconds * 1000 / 3
+        while (performance.now() < untilAt) { loadNow(); await sleep(Math.min(500, untilAt - performance.now())) }
+      }
+      await dwell('attention-desk')
+      await action('capture-docket', '.docket-bell', 'visible(document.querySelector(".docket-row"))', { measured: false })
+      await dwell('docket-over-attention')
+      win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
+      await until(() => js('!document.querySelector(".docket-modal")'))
+      await action('capture-menu', '.shell-menu-button', 'visible(document.querySelector(".shell-menu-panel"))', { measured: false })
+      await js("[...document.querySelectorAll('.shell-menu-item')].find(e=>e.textContent.includes('Open organization')).dataset.captureOrgs='yes'")
+      await action('capture-orgs', '[data-capture-orgs=yes]', 'visible(document.querySelector(".shell-menu-orgs"))', { measured: false })
+      await dwell('open-org-list-over-attention')
+      await js("window.__hookTrace.mark('capture-end')")
+    } else {
     const from = await js('window.__paintProbe.feedStart()')
     save('feed-ready.json', { from, agent })
     const end = performance.now() + run.seconds * 1000
@@ -281,10 +323,18 @@ app.whenReady().then(async () => {
     const untilAt = await js('window.__paintProbe.feedEnd()')
     await sleep(5000) // All emitted markers get an explicit tail; late stays late.
     journal({ feedWindow: { agent, from, until: untilAt } })
+    }
   }
   const clockEnd = await calibrate()
   if (Math.abs(clock.offset - clockEnd.offset) > 10) throw Error('Renderer/main clock drift exceeds10ms')
   const state = await js('window.__paintProbe.snapshot()')
+  if (run.hookCapture) {
+    clearInterval(traceTimer);clearInterval(nativePoll)
+    await until(() => !traceBusy)
+    await flushTrace()
+    save('hook-trace-summary.json', { ...traceSummary, complete: !traceSummary.errors.length,
+      scope: 'One N10 production renderer; Attention/desk, docket, open org-list phases. Full WS and HTTP timing; no paint verdict.' })
+  }
   save('renderer.json', { complete: true, controls, raf, clock, clockEnd, paints, agent, state,
     paintTimes: [...paintTimes], actions, errors, ipcCalls, processes: app.getAppMetrics(),
     versions: process.versions, limitations: ['Offscreen compositor production, not physical display.',
