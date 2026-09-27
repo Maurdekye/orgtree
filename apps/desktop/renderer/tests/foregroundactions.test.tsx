@@ -19,7 +19,7 @@ test('a partial retired pile exposes loading feedback but no pick or delete acti
   const pile: Pile = { key: 'p|a', parent: 'p', kind: 'a', list: ['one'], front: 'one', total: 200 }
   const map = new Map([['one', node('one')]])
   const props = { pile, map, close: () => {}, onPick: () => { picked++ }, op: async () => { deleted++; return {} } }
-  const view = await mountView(<PilePicker {...props} ready={false} />, el => el)
+  const view = await mountView(<PilePicker {...props} ready={false} />, () => document.body)
   try {
     assert.match(view.last().textContent!, /200 agents/)
     assert.match(view.last().textContent!, /Loading retired agents/)
@@ -41,7 +41,7 @@ test('delete confirmation waits for full descendant counts and never enables del
   let resolve!: (response: Response) => void, deleted = 0
   globalThis.fetch = () => new Promise<Response>(r => { resolve = r })
   const props = { node: node('parent'), tree: partial, slug: 'org', close: () => {}, onConfirm: () => { deleted++ } }
-  const view = await mountView(<DeleteNodeConfirm {...props} />, el => el)
+  const view = await mountView(<DeleteNodeConfirm {...props} />, () => document.body)
   try {
     assert.match(view.last().textContent!, /Loading full deletion scope/)
     assert.equal(buttons(view.last()).some(b => b.textContent === 'delete permanently'), false)
@@ -65,7 +65,7 @@ test('a late deletion-scope read cannot authorize a different identity or genera
   const pending: ((r: Response) => void)[] = []
   globalThis.fetch = () => new Promise<Response>(resolve => pending.push(resolve))
   const props = { tree: partial, slug: 'org', close: () => {}, onConfirm: () => {} }
-  const view = await mountView(<DeleteNodeConfirm {...props} node={node('parent')} />, el => el)
+  const view = await mountView(<DeleteNodeConfirm {...props} node={node('parent')} />, () => document.body)
   try {
     await view.render(<DeleteNodeConfirm {...props} node={{ ...node('other'), generation: 2 }} />)
     await inAct(() => pending[0]!(new Response(JSON.stringify({ roots: [node('parent')] }))))

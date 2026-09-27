@@ -1676,7 +1676,6 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
 export function DeleteNodeConfirm({ node, tree, slug, onConfirm, close }: {
   node: CanvasNode; tree: TreePayload; slug: string; onConfirm: () => void; close: () => void
 }) {
-  useEsc(close)
   const identity = JSON.stringify([slug, node.id, node.generation, tree.foreground?.catalog_revision])
   const [attempt, setAttempt] = useState(0)
   const [answer, setAnswer] = useState<{ identity: string; count?: number; gens?: number; error?: string } | null>(null)
@@ -1702,8 +1701,10 @@ export function DeleteNodeConfirm({ node, tree, slug, onConfirm, close }: {
     })
     return () => { current = false }
   }, [identity, attempt, Boolean(tree.foreground)])
-  const resolved = tree.foreground ? answer?.identity === identity ? answer : null
+  const resolved: { count?: number; gens?: number; error?: string } | null =
+    tree.foreground ? answer?.identity === identity ? answer : null
     : { count: descendantCount(node), gens: lineageCount(node) }
+  useEsc(close, !resolved || !!resolved.error)
   if (!resolved || resolved.error) return <div className="overlay" onClick={close}>
     <div className="settings content-height" role="dialog" aria-label="Read deletion scope"
       onClick={event => event.stopPropagation()}>
