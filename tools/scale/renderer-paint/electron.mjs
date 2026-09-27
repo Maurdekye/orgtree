@@ -226,7 +226,7 @@ app.whenReady().then(async () => {
       await until(() => js('!document.querySelector(".attn-agents-wrap.list-open")'))
       await action('switch-tab' + suffix, '.attn-desk [data-tab=inbox]', '!!document.querySelector(".attn-desk [data-tab=inbox].on") && visible(document.querySelector(".attn-desk .desk-tabpanel"))')
       await action('open-chat' + suffix, '.attn-desk [data-tab=chat]', '!!document.querySelector(".attn-desk [data-tab=chat].on") && visible(document.querySelector(".attn-desk .msgs")) && !!document.querySelector(".attn-desk [data-transcript-row]")')
-      await action('open-work' + suffix, '[aria-label=Work]', 'visible(document.querySelector(".docket-row"))', { measured: false })
+      await action('open-work' + suffix, '.docket-bell', 'visible(document.querySelector(".docket-row"))', { measured: false })
       const title = await js(`(()=>{const r=document.querySelector('.docket-row');r.dataset.paintItem='chosen';return r.getAttribute('data-copy-ticket-title')})()`)
       await action('open-docket-item' + suffix, '[data-paint-item=chosen]', `visible(document.querySelector('.docket-pane-head')) && document.querySelector('.docket-pane-head')?.getAttribute('data-copy-ticket-title')===${JSON.stringify(title)}`)
       win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
