@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, contentTracing, ipcMain } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import http from 'node:http'
@@ -89,8 +89,14 @@ async function profiled(tag, run, cpu = true) {
   const metrics = async () => Object.fromEntries((await cdp('Performance.getMetrics')).metrics.map(m => [m.name, m.value]))
   const before = await metrics()
   if (cpu) await cdp('Profiler.start')
+  // Opt-in timeline trace (no CPU sampling): tasks, style, layout, paint,
+  // raster and frames across renderer and GPU processes.
+  if (run.trace) await contentTracing.startRecording({ included_categories: ['toplevel', 'devtools.timeline',
+    'disabled-by-default-devtools.timeline', 'disabled-by-default-devtools.timeline.frame', 'blink', 'blink.user_timing',
+    'cc', 'viz', 'gpu', 'v8.execute'], excluded_categories: ['*'] })
   let row
   try { row = await run() } finally {
+    if (run.trace) await contentTracing.stopRecording(path.join(run_output(), `trace-${tag}.json`))
     if (cpu) {
       const { profile } = await cdp('Profiler.stop')
       fs.writeFileSync(path.join(run_output(), `profile-${tag}.cpuprofile`), JSON.stringify(profile))
@@ -383,7 +389,10 @@ app.whenReady().then(async () => {
     }
     const canvasState = () => js(`(()=>{const sp=document.querySelector('.space');const layer=document.querySelector('.pin-layer');const c=document.querySelector('.pile-count');
       return {camera:sp?.style.transform??null,pinLayerInViewport:!!layer&&layer.parentElement===document.querySelector('.viewport'),
-        pileVisible:!!c&&window.__paintProbe.visible(c),worldHidden:!!document.querySelector('.canvas-world-hidden')}})()`)
+        pileVisible:!!c&&window.__paintProbe.visible(c),worldHidden:!!document.querySelector('.canvas-world-hidden'),
+        world:{nodes:document.querySelectorAll('.canvas-world *').length,desks:document.querySelectorAll('.canvas-world .desk-body').length,
+          textareas:document.querySelectorAll('.canvas-world textarea').length,transcriptRows:document.querySelectorAll('.canvas-world [data-transcript-row]').length},
+        documentNodes:document.querySelectorAll('*').length}})()`)
     for (let i = 0; i < run.repeats; i++) {
       const suffix = '-' + i
       const canvasBefore = await canvasState()
@@ -397,7 +406,7 @@ app.whenReady().then(async () => {
         const opened = await js('!!document.querySelector(".attn-agents-wrap.list-open")')
         if (!opened) await action('agents-list-' + tag, '.attn-agents-toggle', '!!document.querySelector(".attn-agents-wrap.list-open")', { measured: false })
         const click = () => action(tag, '[data-paint-target=' + tag + ']', `document.querySelector('[data-attn-agent=${JSON.stringify(n)}]')?.getAttribute('aria-selected')==='true' && visible(document.querySelector('.attn-desk textarea')) && document.querySelector('.attn-desk textarea')?.placeholder.startsWith(${JSON.stringify('message ' + n)})`, { measured })
-        if ((run.profile || run.metricsOnly) && measured) await profiled(tag, click, run.profile); else await click()
+        if ((run.profile || run.metricsOnly || run.trace) && measured) await profiled(tag, click, run.profile); else await click()
       }
       await select(other, 'prepare-agent' + suffix, false)
       await select(agent, 'select-agent' + suffix, true)
@@ -455,6 +464,7 @@ app.whenReady().then(async () => {
         const back = await action('prepare-canvas' + suffix, '[data-paint-mode=canvas]', 'document.querySelector(".attn-stage")?.dataset.attentionActive !== "yes" && !document.querySelector(".canvas-world-hidden")', { measured: false })
         await sleep(300)
         const canvasAfter = await canvasState()
+        journal({ canvasWorld: { suffix, before: canvasBefore.world, after: canvasAfter.world } })
         returnSamples.push({ suffix, ms: back.ms, before: canvasBefore, after: canvasAfter,
           cameraKept: canvasBefore.camera === canvasAfter.camera, pinLayerKept: canvasAfter.pinLayerInViewport,
           pileVisibleAgain: canvasAfter.pileVisible })
