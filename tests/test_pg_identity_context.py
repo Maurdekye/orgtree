@@ -1,4 +1,4 @@
-﻿"""Actual PostgreSQL controls for foreground warm identity inputs."""
+"""Actual PostgreSQL controls for foreground warm identity inputs."""
 import copy
 import threading
 import unittest
@@ -101,6 +101,33 @@ class IdentityPG(unittest.TestCase):
              patch.object(foreground_store,'_snapshot',side_effect=AssertionError('deferred index')):
             self.assertIs(ctx.load(self.slug,'leaf'),full)
             fallback.assert_called_once_with(self.slug)
+
+    def test_real_pinned_writer_rollback_preserves_committed_identity(self):
+        from orgtree import orgtx
+        before=ctx.load(self.slug,'leaf').node('leaf')['charter']
+        with self.assertRaisesRegex(RuntimeError,'rollback identity'):
+            with orgtx.org_tx(self.slug,nodes=['leaf']):
+                with store._POOL.acquire(self.slug) as pc:
+                    self.assertTrue(pc.pinned)
+                    pc.execute("UPDATE nodes SET val=jsonb_set(val::jsonb,'{charter}','\"uncommitted\"'::jsonb)::text WHERE id='leaf'")
+                view=ctx.load(self.slug,'leaf')
+                self.assertIsInstance(view,ledger.Org)
+                self.assertEqual(view.node('leaf')['charter'],'uncommitted')
+                raise RuntimeError('rollback identity')
+        self.assertEqual(ctx.load(self.slug,'leaf').node('leaf')['charter'],before)
+
+    def test_antigravity_launch_specification_matches(self):
+        from orgtree import antigravity_session as ag, providers
+        org=store.load_org(self.slug);org.node('leaf')['model']='flash';store.save_org(org)
+        full=store.load_org(self.slug);view=ctx.load(self.slug,'leaf')
+        with patch.object(providers,'antigravity_status',return_value={'installed':True,'connected':True,'path':'fixture-ag'}), \
+             patch.object(ag,'selected_account',return_value=None), \
+             patch.object(ag,'environment',return_value={'ORGTREE_PORT':'7360'}), \
+             patch.object(sup,'_cache_antigravity_account_namespace',return_value='fixture'):
+            a=ag.specification(full,'leaf');b=ag.specification(view,'leaf')
+        self.assertEqual(a,b)
+        self.assertEqual(warmpool.identity_snapshot(full,'leaf',provider_spec=a),
+                         warmpool.identity_snapshot(view,'leaf',provider_spec=b))
 
     def test_codex_manifest_prompt_and_effective_model_match(self):
         org=store.load_org(self.slug);org.node('leaf')['model']='luna'
