@@ -153,7 +153,10 @@ class HistoryStorage(unittest.TestCase):
             transcript_path = root / "home" / transcript
             stats = {}
             transcript_records.ingest("history-fixture-test", str(transcript_path), 8, stats)
-            self.assertGreaterEqual(len(transcript_records.tail("history-fixture-test", 8)), 2)
+            captured, more = transcript_records.tail("history-fixture-test", 8)
+            self.assertEqual(len(captured), 2)
+            self.assertFalse(more)
+            self.assertEqual(json.loads(captured[-1][2])["message"]["role"], "assistant")
             report = dict(source_commit=os.environ.get("ORGTREE_HISTORY_CANDIDATE"),
                           measured_live_nodes=2, recipe=hf.asdict(recipe),
                           manifest=manifest, build_including_verify_seconds=build_and_verify,
