@@ -288,6 +288,9 @@ interface Entry {
   nudge: ReturnType<typeof setTimeout> | null
   poll: ReturnType<typeof setTimeout> | null
   inflight: boolean
+  /** Every outstanding fetch, including older requests superseded by a
+   * forced refresh. The newest-request latch alone is not a retention guard. */
+  requests: number
   /** Monotonic request identity. Only the newest issued request clears the
    *  in-flight latch; response freshness is measured at installation. */
   requestSerial: number
@@ -326,6 +329,60 @@ interface Entry {
 }
 
 const M = new Map<string, Entry>()
+// Reconstructible tails only. Active desks, local sends, uncommitted stream
+// state and reconciliation rows are never evicted to meet these budgets.
+const inactive = new Map<Entry, number>()
+const retentionQueue = new Set<Entry>()
+const MAX_INACTIVE = 32
+const MAX_INACTIVE_BYTES = 8 * 1024 * 1024
+let inactiveBytes = 0
+let retentionScheduled = false
+
+function removeInactive(e: Entry): void {
+  const bytes = inactive.get(e)
+  if (bytes !== undefined) { inactiveBytes -= bytes; inactive.delete(e) }
+}
+
+function protectedConvo(e: Entry): boolean {
+  return Boolean(e.subs.size || e.requests || e.inflight || e.pageInFlight
+    || e.pendingCollapse || e.growingOlder || e.s.loadingOlder
+    || e.s.pending.length || e.s.draft || e.s.thinking || e.thinkT0
+    || e.live || e.liveRaf !== null || e.liveTimer
+    || e.assistantRows.size || e.committedRows.size
+    || e.s.chat?.busy || e.s.chat?.responding || e.s.chat?.queued
+    || e.s.chat?.mail_pending || e.s.chat?.pending_mail?.length
+    || e.poll || e.nudge || e.clock)
+}
+
+/** Classify after the synchronous operation finishes: entry() callers often
+ * install pending/live state next. Never evict halfway through that write. */
+function retainConvo(e: Entry): void {
+  removeInactive(e)
+  retentionQueue.add(e)
+  if (retentionScheduled) return
+  retentionScheduled = true
+  queueMicrotask(() => {
+    retentionScheduled = false
+    for (const candidate of retentionQueue) {
+      if (M.get(candidate.ownerKey) !== candidate || protectedConvo(candidate)) continue
+      // A serialized UTF-16 budget, not a JavaScript heap measurement. The
+      // other retained maps are empty for an eligible entry by construction.
+      const bytes = JSON.stringify([candidate.s, [...candidate.assistantNative]]).length * 2
+      inactive.set(candidate, bytes)
+      inactiveBytes += bytes
+    }
+    retentionQueue.clear()
+    while (inactive.size > MAX_INACTIVE || inactiveBytes > MAX_INACTIVE_BYTES) {
+      const oldest = inactive.keys().next().value!
+      removeInactive(oldest)
+      // A later operation may have made it active before this drain.
+      if (M.get(oldest.ownerKey) === oldest && !protectedConvo(oldest)) {
+        oldest.ownerVersion++
+        M.delete(oldest.ownerKey)
+      }
+    }
+  })
+}
 // '/' cannot appear in a slug or node id (both are slugify()'d to [a-z0-9-]),
 // so the key is unambiguous — and greppable in a debug dump, which a
 // lookalike separator would not be.
@@ -340,6 +397,7 @@ export function renameConvo(slug: string, from: string, to: string): void {
   const oldKey = key(slug, from), newKey = key(slug, to)
   const old = M.get(oldKey)
   if (!old) return
+  removeInactive(old)
   // Existing callbacks capture this Entry, so moving it is safe without a
   // name-based alias. Cancel callbacks that only captured the old key; a new
   // subscription will arm the same Entry under its canonical key.
@@ -368,11 +426,13 @@ export function renameConvo(slug: string, from: string, to: string): void {
     if (replaced.nudge) { clearTimeout(replaced.nudge); replaced.nudge = null }
     cancelLive(replaced)
     stopClock(replaced)
+    removeInactive(replaced)
   }
   old.ownerKey = newKey
   old.ownerVersion++
   M.set(newKey, old)
   M.delete(oldKey)
+  retainConvo(old)
 }
 
 /** Forget a genuinely removed node and stop callbacks owned by its Entry. */
@@ -380,6 +440,7 @@ export function dropConvo(slug: string, nid: string): void {
   const target = key(slug, nid)
   const old = M.get(target)
   if (!old) return
+  removeInactive(old)
   if (old.poll) { clearTimeout(old.poll); old.poll = null }
   if (old.nudge) { clearTimeout(old.nudge); old.nudge = null }
   cancelLive(old)
@@ -396,10 +457,11 @@ function entry(k: string): Entry {
           textSeen: 0, epochBoot: null,
           live: null, liveRaf: null, liveTimer: null,
           staleDraft: false, staleThink: false, staleAt: 0, streamAt: 0,
-          poll: null, inflight: false, requestSerial: 0, inflightAt: 0, fetchedAt: 0,
+          poll: null, inflight: false, requests: 0, requestSerial: 0, inflightAt: 0, fetchedAt: 0,
           installed: 0, dirty: false, pageSerial: 0 }
     M.set(k, e)
   }
+  retainConvo(e)
   return e
 }
 
@@ -414,6 +476,7 @@ function patchEntry(e: Entry, p: Partial<Convo>, ownerVersion = e.ownerVersion):
   if (!changed) return
   e.s = { ...e.s, ...p }
   e.subs.forEach((cb) => cb())
+  retainConvo(e)
 }
 
 function patch(k: string, p: Partial<Convo>): void {
@@ -586,6 +649,7 @@ export function useConvo(slug: string, nid: string): Convo {
           e.dirty = true
         }
       }
+      retainConvo(e)
     }
   }, [k, slug, nid])
   const snap = useCallback(() => entry(k).s, [k])
@@ -715,6 +779,7 @@ export function refreshConvo(slug: string, nid: string,
     return Promise.resolve()
   }
   e.inflight = true
+  e.requests++
   const requestSerial = ++e.requestSerial
   e.inflightAt = now
   const startedAt = now
@@ -966,6 +1031,8 @@ export function refreshConvo(slug: string, nid: string,
     if (e.pendingCollapse && !e.pageInFlight) { e.pendingCollapse = false; collapseWindow(slug, nid) }
   }).finally(() => {
     if (ownsRequest() && e.requestSerial === requestSerial) e.inflight = false
+    e.requests--
+    retainConvo(e)
   })
 }
 
@@ -984,6 +1051,7 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
     const conversation = e.s.chat?.conversation_id
     const pageSerial = ++e.pageSerial
     e.pageInFlight = true
+    e.requests++
     patchEntry(e, { loadingOlder: true, olderError: false })
     void getChat(slug, nid, Math.max(1, Math.ceil(rows)), before).then(page => {
       const currentPage = e.pageSerial === pageSerial
@@ -1083,7 +1151,7 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
       patchEntry(e, { loadingOlder: false, paged: false, olderError: true }, version)
       if (wanted) collapseWindow(slug, nid, keep ?? CHAT_WINDOW)
       void refreshConvo(slug, nid, { force: true })
-    })
+    }).finally(() => { e.requests--; retainConvo(e) })
     return true
   }
   // the VIEWPORT path: no request of its own — widen the window and let the
@@ -1456,6 +1524,7 @@ export function resetConvos(): void {
     e.committedRows.clear()
     e.s = BLANK
     e.subs.forEach((cb) => cb())
+    retainConvo(e)
   })
 }
 
