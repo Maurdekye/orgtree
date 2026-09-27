@@ -100,6 +100,20 @@ class ForegroundCache(unittest.TestCase):
         else:
             self.assertEqual(response['nodes']['boss']['charter'], 'changed by another process')
 
+    def test_local_nonstatus_field_never_uses_the_status_shortcut(self):
+        tag, _, _ = self.read()
+        org = store.load_org(self.slug)
+        org.nodes['boss']['charter'] = 'Visible charter changed through the ordinary save'
+        store.save_org(org)
+        _, body, _ = self.read(tag)
+        self.assertEqual(self.builds, 2)
+        response = json.loads(body)
+        if response['kind'] == 'delta':
+            value = response['nodes']['boss']['set']['charter']
+        else:
+            value = response['nodes']['boss']['charter']
+        self.assertEqual(value, org.nodes['boss']['charter'])
+
     def test_same_snapshot_hit_reads_no_node_bodies_and_unknown_base_is_full(self):
         tag, original, _ = self.read()
         with patch.object(fg, '_rows', side_effect=AssertionError('node read on hit')):
