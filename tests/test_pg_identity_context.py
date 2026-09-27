@@ -94,6 +94,32 @@ class IdentityPG(unittest.TestCase):
             self.assertIsInstance(ctx.load(self.slug,'leaf'),ledger.Org)
             fallback.assert_called_once_with(self.slug)
 
+    def test_pinned_writer_falls_back_without_commit_or_rollback(self):
+        full=store.load_org(self.slug)
+        with patch.object(store._orgtx_local,'pinned',{self.slug:object()},create=True), \
+             patch.object(store,'load_org',return_value=full) as fallback, \
+             patch.object(foreground_store,'_snapshot',side_effect=AssertionError('deferred index')):
+            self.assertIs(ctx.load(self.slug,'leaf'),full)
+            fallback.assert_called_once_with(self.slug)
+
+    def test_codex_manifest_prompt_and_effective_model_match(self):
+        org=store.load_org(self.slug);org.node('leaf')['model']='luna'
+        org.node('leaf')['scope'].update(model_version='6',effort='medium')
+        org.d['default_effort']='high';store.save_org(org)
+        full=store.load_org(self.slug);view=ctx.load(self.slug,'leaf')
+        self.assertEqual(view.model_for('leaf'),full.model_for('leaf'))
+        self.assertEqual(view.effective_effort('leaf'),full.effective_effort('leaf'))
+        # No provider process or credential access: same captured launch spec.
+        spec={'argv_head':['fixture-codex'],'cwd':sup.scratch_dir(self.slug,'leaf'),
+              'config_overrides':[], 'env_extra':{},'codex_home':sup.scratch_dir(self.slug,'boss')}
+        a=sup._codex_startup_manifest(full,'leaf',provider_spec=spec,
+                                    account_override='fixture',lane_override='fixture')
+        b=sup._codex_startup_manifest(view,'leaf',provider_spec=spec,
+                                    account_override='fixture',lane_override='fixture')
+        self.assertEqual(a,b)
+        self.assertEqual(warmpool.identity_snapshot(full,'leaf',codex_manifest=a),
+                         warmpool.identity_snapshot(view,'leaf',codex_manifest=b))
+
     def test_missing_or_retired_seat_never_reuses_process(self):
         with patch.object(warmpool,'warm_enabled',return_value=True), \
              patch.object(warmpool,'node_excluded',return_value=False):
