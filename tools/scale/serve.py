@@ -309,6 +309,9 @@ def child(args) -> int:
         from feed_trace import install
         from orgtree import assistant_messages, reply_events
         feed_trace = install(api, supervisor, assistant_messages, reply_events)
+        if os.environ.get("ORGTREE_SCALE_FEED_WAITS") == "1":
+            from feed_trace import install_waits
+            install_waits(feed_trace)
 
         @api.app.get("/scale/feed-trace")
         def _feed_trace():

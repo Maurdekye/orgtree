@@ -20,6 +20,7 @@ class Trace:
         self.rows = []
         self.dropped = 0
         self.costs = {}
+        self.waits = {}
         self.lock = threading.Lock()
         self.local = threading.local()
 
@@ -41,11 +42,27 @@ class Trace:
         with self.lock:
             return {"rows": list(self.rows), "dropped": self.dropped, "limit": self.limit,
                     "costs": {key: dict(value) for key, value in self.costs.items()},
+                    "waits": {m: {k: dict(v) for k, v in rows.items()} for m, rows in self.waits.items()},
                     "process_cpu_ns": time.process_time_ns(), "wall_ns": time.time_ns()}
 
     def cost(self, name, wall_ns, cpu_ns):
         with self.lock:
             row = self.costs.setdefault(name, {'calls': 0, 'wall_ns': 0, 'thread_cpu_ns': 0})
+            row['calls'] += 1
+            row['wall_ns'] += wall_ns
+            row['thread_cpu_ns'] += cpu_ns
+
+    def wait_cost(self, name, wall_ns, cpu_ns):
+        current = getattr(self.local, 'marker', None)
+        if current is None:
+            return
+        name = getattr(self.local, 'stage', 'capture') + ':' + name
+        with self.lock:
+            if current not in self.waits and len(self.waits) >= self.limit:
+                self.dropped += 1
+                return
+            row = self.waits.setdefault(current, {}).setdefault(name,
+                {'calls': 0, 'wall_ns': 0, 'thread_cpu_ns': 0})
             row['calls'] += 1
             row['wall_ns'] += wall_ns
             row['thread_cpu_ns'] += cpu_ns
@@ -80,11 +97,14 @@ def install(api, supervisor, assistant_messages, reply_events):
         @functools.wraps(original)
         def wrapped(*args, **kwargs):
             current = getattr(trace.local, 'marker', None)
+            previous = getattr(trace.local, 'stage', 'capture')
+            trace.local.stage = label
             trace.note(label + '_start', current)
             try:
                 return original(*args, **kwargs)
             finally:
                 trace.note(label + '_end', current)
+                trace.local.stage = previous
         setattr(module, name, wrapped)
 
     stage(reply_events, 'identity', 'identity')
@@ -140,3 +160,26 @@ def install(api, supervisor, assistant_messages, reply_events):
 
     api.hub.join = traced_join
     return trace
+
+
+def install_waits(trace):
+    """Diagnostic only: measure SQL/pool waits without parameters or frames."""
+    from orgtree import census_contacts, pgstore
+    def wrap(module, name, label):
+        original = getattr(module, name)
+        @functools.wraps(original)
+        def measured(*args, **kwargs):
+            if getattr(trace.local, 'marker', None) is None:
+                return original(*args, **kwargs)
+            key = label(*args)
+            wall, cpu = time.monotonic_ns(), time.thread_time_ns()
+            try:
+                return original(*args, **kwargs)
+            finally:
+                trace.wait_cost(key, time.monotonic_ns() - wall, time.thread_time_ns() - cpu)
+        setattr(module, name, measured)
+    wrap(census_contacts, '_run', lambda conn, sql, *a:
+         'sqlite:' + str(type(conn)._census_label) + ':' + str(sql).strip().split()[0].upper())
+    wrap(pgstore.PgConn, 'execute', lambda conn, sql, *a: 'pg:' + str(sql).strip().split()[0].upper())
+    wrap(pgstore, '_checkout', lambda: 'pg:checkout')
+    wrap(pgstore, '_release', lambda raw: 'pg:release')
