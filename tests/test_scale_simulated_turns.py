@@ -16,6 +16,13 @@ import import_provenance  # noqa: F401
 from orgtree import halt, ledger, orgtx, store, supervisor as sup
 from tools.scale.simulated import SimulatedProvider
 
+# The engine process gets this from importing api.py (line 76). Without it a
+# cp1252 console turns the turn path's own diagnostic print into the turn's
+# failure, and the provider seam is never reached.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 
 class CompletedTurnTests(unittest.TestCase):
     def setUp(self):
@@ -89,33 +96,40 @@ class CompletedTurnTests(unittest.TestCase):
         self.run_turn()
         adapter = SimulatedProvider(sup, halt, slug=self.slug, nodes=["worker"], seconds=1.5)
         st = sup.state(self.slug, "worker")
-        result = []
+        def send(text):
+            org = orgtx.org_read(self.slug)
+            org.post_mail(ledger.USER, "worker", text)
+            store.save_org(org)
+            return sup.send_message(self.slug, "worker", "(orgtree) mail",
+                                    mail_ping=True, ping_reason="user_mail")
+
+        def settled():
+            return (adapter.snapshot()["completed"] >= 1 and not st.get("busy")
+                    and not st.get("queue") and not st.get("steer"))
+
         with patch.object(sup, "_codex_leg", adapter), patch.object(sup, "_after_turn", adapter.finish), \
                 patch.object(sup, "CODEX_STEER_POLL", 0.2):
-            org = orgtx.org_read(self.slug)
-            first = org.post_mail(ledger.USER, "worker", "turn opener")
-            store.save_org(org)
-            turn = threading.Thread(target=lambda: result.append(sup._run_one_turn(
-                self.slug, "worker", sup._mark_ping("scale mail", mail_ids=[first["id"]]))))
-            turn.start()
+            # Through the real send door, so the turn owns `busy` exactly as a
+            # fixture turn does; calling _run_one_turn directly would let the
+            # next send start a second worker that folds the steer store.
+            opener = send("turn opener")
             deadline = time.monotonic() + 10
             while not st.get("responding") and time.monotonic() < deadline:
                 time.sleep(.01)
-            self.assertTrue(st.get("responding"), "simulated turn must open steering")
-            for i in range(3):
-                org = orgtx.org_read(self.slug)
-                org.post_mail(ledger.USER, "worker", f"mid-turn {i}")
-                store.save_org(org)
-                sup.send_message(self.slug, "worker", "(orgtree) mail", mail_ping=True, ping_reason="user_mail")
-            turn.join(timeout=20)
-        self.assertFalse(turn.is_alive())
+            self.assertTrue(st.get("responding"), dict(opener=opener, error=st.get("last_error")))
+            sends = [send(f"mid-turn {i}") for i in range(3)]
+            deadline = time.monotonic() + 20
+            while not settled() and time.monotonic() < deadline:
+                time.sleep(.05)
         counters = adapter.snapshot()
-        self.assertEqual(counters["started"], 1, "mid-turn mail must not need turns of its own")
-        self.assertEqual(counters["steered"], 3)
-        self.assertEqual(counters["steer_folded"], 0)
-        self.assertEqual(counters["steer_errors"], 0)
-        self.assertEqual(result, [None], "nothing may be left queued for a later turn")
-        self.assertFalse(st.get("queue"))
+        detail = dict(opener=opener, sends=sends, counters=counters, queue=st.get("queue"),
+                      steer=st.get("steer"), error=st.get("last_error"))
+        self.assertTrue(settled(), detail)
+        self.assertTrue(all(s.get("steering") for s in sends), detail)
+        self.assertEqual(counters["started"], 1, detail)
+        self.assertEqual(counters["steered"], 3, detail)
+        self.assertEqual(counters["steer_folded"], 0, detail)
+        self.assertEqual(counters["steer_errors"], 0, detail)
         self.assertFalse(st.get("responding"))
         stored = orgtx.org_read(self.slug)
         self.assertFalse((stored.d.get("mail") or {}).get("worker"))

@@ -25,7 +25,7 @@ class SimulatedProvider:
         self.booked = self.failed_bookings = 0
         self.lock = threading.Lock()
         self.started = self.accepted = self.completed = self.failed = self.active = self.peak = 0
-        self.steer_batches = self.steered = self.steer_folded = self.steer_errors = 0
+        self.steer_batches = self.steered = self.steer_folded = self.steer_errors = self.steer_polls = 0
         self.recent = deque(maxlen=32)
 
     def snapshot(self):
@@ -35,6 +35,7 @@ class SimulatedProvider:
                         booked=self.booked, failed_bookings=self.failed_bookings,
                         steer_batches=self.steer_batches, steered=self.steered,
                         steer_folded=self.steer_folded, steer_errors=self.steer_errors,
+                        steer_polls=self.steer_polls,
                         seconds=self.seconds, output_bytes=self.output_bytes,
                         recent=list(self.recent),
                         boundary="simulated Codex leg; real supervisor admission and completion")
@@ -59,9 +60,11 @@ class SimulatedProvider:
 
     def _steer_pump(self, slug, nid, st, stop):
         """The production Codex pump with the transport's `turn/steer` always accepted."""
-        from orgtree import codexrun
         while not stop.wait(self.sup.CODEX_STEER_POLL):
             try:
+                from orgtree import codexrun
+                with self.lock:
+                    self.steer_polls += 1
                 carriers = self.sup.pop_steer(slug, nid, defer_commit=True)
                 if not carriers:
                     continue
