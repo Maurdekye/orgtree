@@ -12,7 +12,8 @@ SET search_path=pg_catalog,public,pg_temp AS $fn$
 DECLARE
   s text := 'org_' || p_org_id;
   version text;
-  tab record;
+  table_names text[];
+  table_name text;
   analyzed integer := 0;
 BEGIN
   IF NOT EXISTS(SELECT 1 FROM public.orgs WHERE org_id=p_org_id) THEN
@@ -28,14 +29,20 @@ BEGIN
   END IF;
   -- Only actual tables in this recorded org's schema. Runtime cannot create
   -- relations there or choose an arbitrary schema/table through this entry.
-  FOR tab IN SELECT c.relname FROM pg_catalog.pg_class c
+  SELECT array_agg(c.relname::text ORDER BY c.relname) INTO table_names
+      FROM pg_catalog.pg_class c
       JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
-      WHERE n.nspname=s AND c.relkind='r' ORDER BY c.relname LOOP
-    EXECUTE format('ANALYZE %I.%I',s,tab.relname);
+      WHERE n.nspname=s AND c.relkind='r';
+  IF coalesce(cardinality(table_names),0)=0 THEN
+    RAISE EXCEPTION 'Organization % has no tables to analyze',p_org_id;
+  END IF;
+  FOREACH table_name IN ARRAY table_names LOOP
+    EXECUTE format('ANALYZE %I.%I',s,table_name);
     analyzed := analyzed + 1;
   END LOOP;
-  IF analyzed=0 THEN
-    RAISE EXCEPTION 'Organization % has no tables to analyze',p_org_id;
+  IF analyzed<>cardinality(table_names) THEN
+    RAISE EXCEPTION 'Incomplete statistics for organization %: % of % tables',
+      p_org_id,analyzed,cardinality(table_names);
   END IF;
   INSERT INTO public.org_statistics_ready(org_id,schema_version)
     VALUES(p_org_id,version) ON CONFLICT(org_id) DO UPDATE
