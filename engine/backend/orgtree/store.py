@@ -3759,6 +3759,10 @@ def _write_dict_log(conn: sqlite3.Connection, sect: str, cur: dict[str, Any],
         expected = cur._mail_bounds.get(owner)
         if sect != "mail_log" or expected is None or STORE_BACKEND != "postgres":
             raise StaleWrite("unvalidated buffered mail archive append")
+        # Same order as the source-row trigger: mailbox advisory, then bound
+        # row. Taking the row first could deadlock an import holding advisory.
+        conn.execute("SELECT pg_advisory_xact_lock(hashtext(?),hashtext(?))",
+                     (f"org_{conn.org_id}", "mail-bound:" + owner))
         actual = conn.execute("SELECT version,nrows,assigned_max FROM mail_archive_bounds "
                               "WHERE owner=? AND format=1 AND unknown_rows=0 FOR UPDATE",
                               (owner,)).fetchone()

@@ -243,6 +243,56 @@ class MailArchiveBounds(unittest.TestCase):
                                                         "WHERE owner='runtime'").fetchone())), (1, 3))
             conn.rollback()
 
+    def test_direct_source_writer_and_buffer_use_same_lock_order(self):
+        held, release_source = threading.Event(), threading.Event()
+        errors = []
+        writer_id = threading.get_ident()
+        original = pgstore.PgConn.execute
+
+        def source_writer():
+            try:
+                with store._POOL.acquire(self.slug) as conn:
+                    conn.execute('BEGIN')
+                    conn.execute("SET LOCAL lock_timeout='2s'")
+                    conn.execute("SELECT pg_advisory_xact_lock(hashtext(?),hashtext(?))",
+                                 (f'org_{conn.org_id}', 'mail-bound:worker'))
+                    held.set()
+                    if not release_source.wait(5): raise AssertionError('buffer did not attempt lock')
+                    conn.execute("INSERT INTO log_d(sect,owner,val) VALUES('mail_log','worker',?)",
+                                 (json.dumps({'id': 'direct', 'recv_seq': 77}),))
+                    conn.execute('COMMIT')
+            except BaseException as exc:
+                errors.append(exc)
+
+        def observed(conn, sql, *args, **kwargs):
+            if threading.get_ident() == writer_id:
+                if 'pg_advisory_xact_lock' in sql:
+                    release_source.set()
+                elif 'FROM mail_archive_bounds' in sql and 'FOR UPDATE' in sql:
+                    result = original(conn, sql, *args, **kwargs)
+                    release_source.set()  # negative control: row held first
+                    return result
+            return original(conn, sql, *args, **kwargs)
+
+        thread = threading.Thread(target=source_writer)
+        try:
+            with self.assertRaises(store.StaleWrite):
+                with self.tx() as tx:
+                    tx.org.deposit_mail('worker', {'id': 'buffered'})
+                    store._orgtx_local.pinned[self.slug].execute("SET LOCAL lock_timeout='2s'")
+                    thread.start()
+                    self.assertTrue(held.wait(5))
+                    with patch.object(pgstore.PgConn, 'execute', observed):
+                        # Saving explicitly exercises the same writer before
+                        # context-manager commit; refusal rolls back everything.
+                        store.save_org(tx.org)
+        finally:
+            release_source.set()
+            if thread.ident is not None: thread.join(6)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(tuple(map(int, self.bound())), (10, 77, 0))
+
 
 if __name__ == '__main__':
     unittest.main()
