@@ -145,6 +145,10 @@ try:
         '--descriptor', str(root / 'scale-descriptor.json'), '--label', 'renderer', '--output', str(paint), '--seconds', '15', '--repeats', '3'])
     renderer_code = wait(renderer, 240, allow_failure=True)
     if renderer_code: raise RuntimeError('renderer smoke incomplete; preserved raw artifacts')
+    if os.environ.get('ORGTREE_PAINT_ARCHIVE') == '1':
+        samples = json.loads((paint / 'archive.json').read_text())['samples']
+        if len(samples) != 3 or any(int(row['archivedCount']) != 20 * args.archive_multiplier for row in samples):
+            raise RuntimeError('archive measurement did not exercise expected full history')
     load_code = wait(load, 240, allow_failure=True)
     report = launch('report', ['node', str(REPO / 'tools/scale/renderer-paint.mjs'), 'report', '--output', str(paint)])
     report_code = wait(report, 30, allow_failure=True)

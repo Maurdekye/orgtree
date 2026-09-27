@@ -156,7 +156,12 @@ function finish(code) {
   finishing = true
   clearTimeout(startupDeadline)
   for (const s of sockets) s.destroy()
-  proxy?.close();app.exit(code)
+  proxy?.close()
+  if (win && !win.isDestroyed()) {
+    if (win.webContents.debugger.isAttached()) win.webContents.debugger.detach()
+    win.destroy()
+  }
+  app.exit(code)
 }
 app.whenReady().then(async () => {
   let origin = 'http://127.0.0.1:1'
@@ -230,7 +235,7 @@ app.whenReady().then(async () => {
       await action('open-work' + suffix, '.docket-bell', 'visible(document.querySelector(".docket-row"))', { measured: false })
       const title = await js(`(()=>{const r=document.querySelector('.docket-row');r.dataset.paintItem='chosen';return r.getAttribute('data-copy-ticket-title')})()`)
       await action('open-docket-item' + suffix, '[data-paint-item=chosen]', `visible(document.querySelector('.docket-pane-head')) && document.querySelector('.docket-pane-head')?.getAttribute('data-copy-ticket-title')===${JSON.stringify(title)}`)
-      if (process.env.ORGTREE_PAINT_ARCHIVE === '1') {
+      if (run.archiveMeasurement) {
         // Observe the production UI and browser heap; do not inspect React
         // state or substitute network results. Collection is outside timing.
         if (!win.webContents.debugger.isAttached()) win.webContents.debugger.attach('1.3')

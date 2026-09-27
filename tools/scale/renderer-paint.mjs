@@ -115,6 +115,7 @@ if (mode === 'build') {
   }
   fs.mkdirSync(output, { recursive: false })
   const run = { schema: SCHEMA, mode, output, build: buildDir, buildProvenance, seconds, repeats,
+    archiveMeasurement: process.env.ORGTREE_PAINT_ARCHIVE === '1',
     descriptor: descriptorPath, descriptorSummary: descriptor && publicDescriptor(descriptor),
     org: descriptor?.org, label: options.label, loadDir, started: Date.now() }
   write(path.join(output, 'run.json'), run)
