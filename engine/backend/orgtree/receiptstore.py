@@ -165,3 +165,29 @@ def replace_owners(raw: Any, org_id: int,
             with cursor.copy("COPY receipt_carriers(owner,carrier,token) FROM STDIN") as writer:
                 for record in converted.carriers: writer.write_row(record)
         raw.execute("UPDATE receipt_format SET present=true WHERE singleton AND NOT present")
+
+
+def export(raw: Any) -> tuple[bool, dict[str, Any]] | None:
+    """Explicit full-history reconstruction in the caller's coherent snapshot.
+
+    No marker means legacy; a false presence bit is different from an empty
+    mapping. Ordinal gaps caused by existing compaction/purge are legitimate.
+    The stored conversion checksum describes the original import only, not
+    subsequent authorized writes; current counts and carrier rows are checked.
+    """
+    _transaction(raw)
+    marker = raw.execute("SELECT format,present FROM receipt_format WHERE singleton").fetchone()
+    if marker is None:
+        return None
+    if marker[0] != 1:
+        raise receiptrows.Unsupported("unknown receipt storage format")
+    owners = raw.execute("SELECT owner,ord,nrows FROM receipt_owners ORDER BY ord").fetchall()
+    receipts = raw.execute("SELECT owner,token,ord,val FROM receipts ORDER BY owner,ord").fetchall()
+    carriers = raw.execute("SELECT owner,carrier,token FROM receipt_carriers ORDER BY owner,carrier,token").fetchall()
+    counts = Counter(record[0] for record in receipts)
+    if any(counts[owner] != count for owner, _, count in owners):
+        raise receiptrows.Unsupported("receipt owner count mismatch")
+    converted = receiptrows.Converted(marker[1], tuple((owner,ordinal) for owner,ordinal,_ in owners),
+                                      tuple(receipts), tuple(carriers), "")
+    value = receiptrows.assemble(converted)
+    return marker[1], value
