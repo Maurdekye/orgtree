@@ -562,6 +562,10 @@ def _check_heal(tx: OrgTx) -> None:
     rows = _heal_pending(tx)
     if rows:
         raise _HealNeeded(tx.slug, rows)
+    if store.ORGTX_RESCOPE:
+        # (E): nothing to heal, so every touched row equals its baseline;
+        # the save need not re-serialize what the body never touches
+        store._rescope_clean(tx.org.d)          # pyright: ignore[reportPrivateUsage]
 
 
 def _heal(slug: str) -> None:
