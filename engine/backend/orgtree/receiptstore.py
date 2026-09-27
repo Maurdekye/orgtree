@@ -43,6 +43,12 @@ def convert(raw: Any, org_id: int) -> dict[str, Any] | None:
         return {"format": receiptrows.FORMAT, "already_converted": True}
     row = raw.execute("SELECT val FROM doc WHERE key='mail_transitions' FOR UPDATE").fetchone()
     source = row[0] if row is not None else None
+    if source is None:
+        # An absent section stays on the exact compatibility path; a later
+        # conversion pass converts it once it holds a receipt. Converting it
+        # now would either invent an empty section or leave the store no
+        # row-backed place for the first receipt.
+        return None
     try:
         converted = receiptrows.split(source)
     except receiptrows.Unsupported:
@@ -77,6 +83,10 @@ def convert(raw: Any, org_id: int) -> dict[str, Any] | None:
                 "converted_owners,converted_receipts,converted_carriers) VALUES(true,1,%s,%s,%s,%s,%s)",
                 (converted.present, proof["sha256"], proof["owners"], proof["receipts"], proof["carriers"]))
     raw.execute("DELETE FROM doc WHERE key='mail_transitions'")
+    # read by the store's existing one-statement load probe: a converted org
+    # costs unconverted loads nothing, and an off-switch load can refuse it
+    raw.execute("INSERT INTO meta(key,val) VALUES('receipt_rows','1') "
+                "ON CONFLICT(key) DO UPDATE SET val=excluded.val")
     return proof
 
 

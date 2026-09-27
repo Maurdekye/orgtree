@@ -3355,14 +3355,18 @@ _PRESENCE_SQL: str = " UNION ALL ".join(
     + [f"SELECT {len(DICT_LOGS) + j} WHERE EXISTS (SELECT 1 FROM log_l WHERE sect=?)"
        for j in range(len(LIST_LOGS))])
 #: ...and the meta rows a load reads, in one `IN (...)` read
-_LOAD_META_KEYS: tuple[str, ...] = ((_META_KEY_ORDER, "schema_version")
+#: written by receiptstore.convert in the conversion transaction
+_META_RECEIPT_ROWS = "receipt_rows"
+_LOAD_META_KEYS: tuple[str, ...] = ((_META_KEY_ORDER, "schema_version", _META_RECEIPT_ROWS)
                                     + tuple(_META_OWNERS + s for s in DICT_LOGS))
 _LOAD_META_SQL: str = ("SELECT key, val FROM meta WHERE key IN ("
                        + ",".join("?" * len(_LOAD_META_KEYS)) + ")")
 
 
-def _load_probes(conn: sqlite3.Connection) -> tuple[str | None, str | None, set[str]]:
-    """(key order, schema_version, present log sections) in TWO statements.
+def _load_probes(conn: sqlite3.Connection
+                 ) -> tuple[str | None, str | None, set[str], bool]:
+    """(key order, schema_version, present log sections, receipts converted)
+    in TWO statements.
 
     Exactly what the per-section probes answered (on PostgreSQL each was a
     round trip, about 35 per load): a dict log is present when it has a row
@@ -3377,7 +3381,8 @@ def _load_probes(conn: sqlite3.Connection) -> tuple[str | None, str | None, set[
                if s in hits or metas.get(_META_OWNERS + s) is not None}
     present.update(s for s in LIST_LOGS if s in hits)
     return (cast("str | None", metas.get(_META_KEY_ORDER)),
-            cast("str | None", metas.get("schema_version")), present)
+            cast("str | None", metas.get("schema_version")), present,
+            metas.get(_META_RECEIPT_ROWS) is not None)
 
 
 def _load_lazy(conn: sqlite3.Connection, slug: str,
@@ -3404,7 +3409,12 @@ def _load_lazy(conn: sqlite3.Connection, slug: str,
     if not txn_open:
         conn.execute("BEGIN")
     try:
-        raw_order, schema_version, present = _load_probes(conn)
+        raw_order, schema_version, present, receipt_marked = _load_probes(conn)
+        if receipt_marked and not (RECEIPT_ROWS and STORE_BACKEND == "postgres"):
+            # its receipts live only in rows: loading without them would show
+            # an org with no custody receipts at all (duplicate delivery)
+            raise LedgerError(f"{slug!r} stores custody receipts as rows; "
+                              "set ORGTREE_RECEIPT_ROWS=1 to load it")
         key_order: list[str] = cast("list[str]", json.loads(raw_order)) if raw_order else []
         # ⚠ fetchall() FIRST, comprehension SECOND — one C call per result
         # set. Iterating a live cursor from Python yields the GIL at every
@@ -3453,7 +3463,8 @@ def _load_lazy(conn: sqlite3.Connection, slug: str,
                 snaps, value = _read_list_log(conn, sect)
             preload_snaps[sect] = snaps
             preloaded[sect] = value
-        receipt = _receipt_view(conn, slug, bind=receipt_bind and not txn_open)
+        receipt = (_receipt_view(conn, slug, bind=receipt_bind and not txn_open)
+                   if receipt_marked else None)
     except BaseException:
         # Never return a connection to the pool with a live read transaction,
         # including on JSON decoding or row construction failure.

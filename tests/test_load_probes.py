@@ -66,7 +66,10 @@ class LoadProbes(unittest.TestCase):
         with store._POOL.acquire(self.slug) as conn:
             conn.execute('BEGIN')
             try:
-                return store._load_probes(conn), _old_probes(conn)
+                new = store._load_probes(conn)
+                # the 4th field is the custody receipt-rows marker (absent here)
+                self.assertIs(new[3], False)
+                return new[:3], _old_probes(conn)
             finally:
                 conn.execute('ROLLBACK')
 
