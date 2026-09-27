@@ -138,6 +138,7 @@ class ForegroundRoutePG(unittest.TestCase):
             self.assertEqual(builds, [], {'before': before, 'after': after, 'journal': journal})
 
     def test_retired_page_cursor_rejects_malformed_order_fields_as_http400(self):
+        self.client = TestClient(TokenGate(api.app, 'foreground-pg'), raise_server_exceptions=False)
         first = self.get('/foreground-tree/children?parent=boss&limit=1')
         self.assertEqual(first.status_code, 200, first.text)
         cursor = first.json()['next_cursor']
