@@ -57,23 +57,13 @@ def install():
             finally:
                 muted.reset(token)
             if name != "execute":
-                rows = ([result] if result is not None else []) if name == "fetchone" else result
+                rows = ([result] if result is not None else []) if name in ("fetchone", "__next__") else result
                 counts["rows"] += len(rows)
                 counts["value_bytes"] += sum(sum(value_bytes(v) for v in row) for row in rows)
             return result
         setattr(psycopg.Cursor, name, measured)
-    for name in ("execute", "fetchone", "fetchmany", "fetchall"):
+    for name in ("execute", "fetchone", "fetchmany", "fetchall", "__next__"):
         wrap(name)
-    original_iter = psycopg.Cursor.__iter__
-    originals["__iter__"] = original_iter
-    def iterate(self):
-        for row in original_iter(self):
-            counts = current.get()
-            if counts is not None and not muted.get():
-                counts["rows"] += 1
-                counts["value_bytes"] += sum(value_bytes(v) for v in row)
-            yield row
-    psycopg.Cursor.__iter__ = iterate
     return lambda: [setattr(psycopg.Cursor, name, fn) for name, fn in originals.items()]
 
 
