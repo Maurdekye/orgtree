@@ -24,6 +24,11 @@ import import_provenance  # noqa: F401  asserts orgtree resolves inside this che
 from orgtree import store, transcript_records as records  # noqa: E402
 
 
+def tearDownModule():
+    records.close_all()
+    fixture.cleanup()
+
+
 def closed(conn):
     try:
         conn.execute("SELECT 1")
@@ -174,10 +179,7 @@ class ConnectionCacheTests(unittest.TestCase):
             thread.join(30)
         self.assertEqual(result, [0], "the busy connection was closed under its thread")
 
-    def test_deleting_a_data_root_closes_the_idle_connections_to_it(self):
-        """A test's tearDown deletes its temporary data root while the cached
-        connections are still open; on Windows that failed until the
-        deletion closed them first."""
+    def test_explicit_disposal_allows_deleting_a_data_root(self):
         old_root = store.DATA_ROOT
         cached, leave = [], threading.Event()
 
@@ -201,12 +203,11 @@ class ConnectionCacheTests(unittest.TestCase):
             self.assertEqual(len(cached), 1, "the worker did not cache a connection")
             self.assertFalse(closed(mine))
             import shutil
-            shutil.rmtree(new_root)  # raised PermissionError on Windows before the hook
+            self.assertEqual(records.close_all(), 0)
+            shutil.rmtree(new_root)
             self.assertFalse(os.path.exists(new_root))
             self.assertTrue(closed(mine))
             self.assertTrue(closed(cached[0]))
-            with records.database() as reopened:  # the next call opens afresh
-                self.assertIsNot(reopened, mine)
         finally:
             leave.set()
             thread.join(30)
@@ -214,7 +215,7 @@ class ConnectionCacheTests(unittest.TestCase):
             with records.database():
                 pass
 
-    def test_removing_the_database_file_closes_the_idle_connection_to_it(self):
+    def test_explicit_disposal_allows_removing_the_database_file(self):
         old_root = store.DATA_ROOT
         new_root = tempfile.mkdtemp(dir=fixture.name)
         store.DATA_ROOT = os.path.realpath(new_root)
@@ -222,7 +223,8 @@ class ConnectionCacheTests(unittest.TestCase):
             with records.database() as mine:
                 pass
             db = Path(new_root) / "transcript-records.sqlite3"  # the short spelling
-            os.remove(db)  # raised PermissionError on Windows before the hook
+            self.assertEqual(records.close_all(), 0)
+            os.remove(os.fsencode(db))
             self.assertTrue(closed(mine))
             # closing the last connection removed the WAL companions too
             for gone in (db, Path(str(db) + "-wal"), Path(str(db) + "-shm")):
@@ -231,6 +233,118 @@ class ConnectionCacheTests(unittest.TestCase):
             store.DATA_ROOT = old_root
             with records.database():
                 pass
+
+    def test_fresh_thread_root_switch_closes_old_idle_handles(self):
+        old_root = store.DATA_ROOT
+        cached, ready, leave = [], threading.Event(), threading.Event()
+
+        def old_worker():
+            with records.database() as conn:
+                cached.append(conn)
+            ready.set()
+            leave.wait(10)
+
+        def fresh_worker():
+            with records.database() as conn:
+                cached.append(conn)
+
+        worker = threading.Thread(target=old_worker)
+        worker.start()
+        try:
+            self.assertTrue(ready.wait(10))
+            with tempfile.TemporaryDirectory(dir=fixture.name) as new_root:
+                store.DATA_ROOT = new_root
+                try:
+                    fresh = threading.Thread(target=fresh_worker)
+                    fresh.start()
+                    fresh.join(10)
+                    self.assertFalse(fresh.is_alive())
+                    self.assertEqual(len(cached), 2)
+                    self.assertTrue(closed(cached[0]), "fresh thread missed the old idle cache")
+                finally:
+                    store.DATA_ROOT = old_root
+                    records.close_all()
+        finally:
+            leave.set()
+            worker.join(10)
+
+    def test_disposal_defers_busy_handle_until_context_exit(self):
+        with records.database() as conn:
+            conn.execute("INSERT INTO cache_probe VALUES ('busy')")
+            self.assertEqual(records.close_all(), 1)
+            self.assertFalse(closed(conn))
+            self.assertEqual(records.close_all(), 1, "repeated disposal must stay safe")
+            self.assertTrue(conn.in_transaction)
+        self.assertTrue(closed(conn), "busy handle must close on release")
+        self.assertEqual(self.keys(), ['busy'], "disposal must allow the owner to commit")
+
+    def test_busy_old_root_handle_closes_on_release_while_thread_stays_alive(self):
+        old_root = store.DATA_ROOT
+        inside, release, released, leave = (threading.Event() for _ in range(4))
+        seen = []
+
+        def worker():
+            with records.database() as conn:
+                seen.append(conn)
+                inside.set()
+                release.wait(10)
+                conn.execute("INSERT INTO cache_probe VALUES ('old-root')")
+            released.set()
+            leave.wait(10)
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        try:
+            self.assertTrue(inside.wait(10))
+            with tempfile.TemporaryDirectory(dir=fixture.name) as new_root:
+                store.DATA_ROOT = new_root
+                try:
+                    with records.database():
+                        pass
+                    release.set()
+                    self.assertTrue(released.wait(10))
+                    self.assertTrue(closed(seen[0]))
+                finally:
+                    records.close_all()
+                    store.DATA_ROOT = old_root
+        finally:
+            release.set()
+            leave.set()
+            thread.join(10)
+        self.assertEqual(self.keys(), ['old-root'])
+
+    def test_explicit_close_allows_root_folder_rename(self):
+        old_root = store.DATA_ROOT
+        with tempfile.TemporaryDirectory(dir=fixture.name) as parent:
+            source, target = Path(parent) / 'source', Path(parent) / 'target'
+            store.DATA_ROOT = str(source)
+            try:
+                with records.database() as conn:
+                    conn.execute("INSERT INTO transcript_owned VALUES ('survives-rename')")
+                self.assertEqual(records.close_all(), 0)
+                self.assertTrue(closed(conn))
+                source.rename(target)  # also exercised on Windows, which locks open databases
+                store.DATA_ROOT = str(target)
+                with records.database() as moved:
+                    self.assertEqual(moved.execute("SELECT source FROM transcript_owned").fetchall(),
+                                     [('survives-rename',)])
+            finally:
+                records.close_all()
+                store.DATA_ROOT = old_root
+
+    def test_disposal_during_connection_preparation_does_not_leave_a_cached_handle(self):
+        from unittest.mock import patch
+        records.close_all()
+        prepare = records._prepare
+
+        def disposing_prepare(conn, path):
+            prepare(conn, path)
+            records.close_all()
+
+        with patch.object(records, '_prepare', side_effect=disposing_prepare):
+            with records.database() as conn:
+                self.assertEqual(conn.execute('SELECT 1').fetchone(), (1,))
+        self.assertTrue(closed(conn))
 
     def test_each_thread_has_its_own_connection_and_it_closes_with_the_thread(self):
         with records.database() as mine:

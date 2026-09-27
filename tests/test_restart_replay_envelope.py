@@ -68,6 +68,8 @@ slugs = []
 
 
 def tearDownModule():
+    from orgtree import transcript_records
+    transcript_records.close_all()
     for s in slugs:
         store._POOL.close_all(s)
 

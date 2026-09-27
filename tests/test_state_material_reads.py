@@ -778,6 +778,8 @@ for _name in PROJECTOR_CASES:
 
 
 def tearDownModule():
+    from orgtree import transcript_records
+    transcript_records.close_all()
     store._POOL.close_all('p01-material-cleanup')
     _temp.cleanup()
 

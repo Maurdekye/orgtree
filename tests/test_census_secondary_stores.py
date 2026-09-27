@@ -44,6 +44,8 @@ ZERO = {name: 0 for name in cc.FIELDS}
 
 
 def tearDownModule():
+    from orgtree import transcript_records
+    transcript_records.close_all()
     census.set_enabled(False)
     census.reset()
     root.cleanup()

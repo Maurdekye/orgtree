@@ -163,12 +163,12 @@ class Bench:
             self.census.set_enabled(name == "observed_on")
             # transcript_records caches one connection per thread (slice C):
             # close them so this arm's sidecar class is the one that connects
-            self.transcript_records._close_idle()
+            self.transcript_records.close_all()
             yield
         finally:
             self.census.set_enabled(False)
             store._open_conn, contacts.note_checkout, contacts.sidecar = saved
-            self.transcript_records._close_idle()
+            self.transcript_records.close_all()
 
     def _work(self, arm, workload, statements, thread_index):
         pool, slug = self.pools[arm], self.slugs[arm]

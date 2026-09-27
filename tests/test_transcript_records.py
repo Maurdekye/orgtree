@@ -20,6 +20,11 @@ load_app()
 from orgtree import transcript_records as records
 
 
+def tearDownModule():
+    records.close_all()
+    fixture.cleanup()
+
+
 class RecordsTests(unittest.TestCase):
     def setUp(self):
         self.path = Path(fixture.name) / (self._testMethodName + ".jsonl")
@@ -39,6 +44,7 @@ class RecordsTests(unittest.TestCase):
         return [json.loads(row[2])["text"] for row in records.tail(self.source, count)[0]]
 
     def test_worker_connection_is_reused_but_transactions_still_rollback(self):
+        records.close_all()
         with patch.object(records.sqlite3,'connect',wraps=sqlite3.connect) as connect:
             with records.reuse_database():
                 with records.database() as conn:
@@ -49,13 +55,14 @@ class RecordsTests(unittest.TestCase):
                         self.assertIs(second,conn)
                         second.execute('DELETE FROM transcript_owned WHERE source=?',(self.source,))
                         raise RuntimeError('abort')
-                self.assertFalse(conn.in_transaction)
+                with self.assertRaises(sqlite3.ProgrammingError):conn.execute('SELECT 1')
                 with records.reuse_database(), records.database() as third:
-                    self.assertIs(third,conn)
+                    self.assertIsNot(third,conn)
                     self.assertIsNotNone(third.execute('SELECT 1 FROM transcript_owned WHERE source=?',
                                                       (self.source,)).fetchone())
-                self.assertEqual(connect.call_count,1)
+                self.assertEqual(connect.call_count,2)
             with self.assertRaises(sqlite3.ProgrammingError):conn.execute('SELECT 1')
+            with self.assertRaises(sqlite3.ProgrammingError):third.execute('SELECT 1')
 
     def test_reuse_does_not_share_connections_between_nested_blocks_or_threads(self):
         import threading

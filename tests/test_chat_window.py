@@ -24,6 +24,8 @@ from orgtree import store, ledger, supervisor as sup, chat_window
 slugs=[]
 
 def tearDownModule():
+    from orgtree import transcript_records
+    transcript_records.close_all()
     for slug in slugs: store._POOL.close_all(slug)
     fixture.cleanup()
 

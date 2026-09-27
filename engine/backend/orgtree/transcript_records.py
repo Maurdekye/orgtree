@@ -13,7 +13,6 @@ import hashlib
 import json
 import os
 import sqlite3
-import sys
 import threading
 import uuid
 import weakref
@@ -37,12 +36,13 @@ _spool_state = threading.local()
 #: this thread's reusable connection (slice C, scale qualification): opening
 #: one per call cost ~1.2 ms of connect + PRAGMA on every reply-stream event
 _conn_state = threading.local()
-#: every thread's cached connection, so a DATA_ROOT change, a deletion of
-#: its folder and interpreter exit can close the idle ones (Windows cannot
-#: delete a database file that any connection holds open)
+#: every thread's cached connection, for root changes and explicit disposal
 _held_all = weakref.WeakSet()
 #: guards `_Held.busy` and `_Held.conn` between the owning thread and a sweep
 _held_lock = threading.RLock()
+_active_key = None
+_cache_generation = 0
+_FILE_NAME = "transcript-records.sqlite3"
 
 
 class _Held:
@@ -51,7 +51,7 @@ class _Held:
 
     def __init__(self, key, conn):
         self.key, self.conn, self.busy = key, conn, False
-        self.norm = _norm(key)
+        self.discard = False
 
     def close(self):
         conn, self.conn = self.conn, None
@@ -62,59 +62,62 @@ class _Held:
     __del__ = close
 
 
-def _close_idle(match=lambda key: True):
-    """Close every thread's idle cached connection whose path `match`es."""
-    with _held_lock:
-        for held in list(_held_all):
-            if not held.busy and match(held.key):
+def _dispose(match=lambda key: True):
+    """Caller holds _held_lock. Return the number of busy handles deferred."""
+    pending = 0
+    for held in list(_held_all):
+        if held.conn is not None and match(held.key):
+            if held.busy:
+                held.discard = True
+                pending += 1
+            else:
                 held.close()
+    return pending
 
 
-atexit.register(_close_idle)
+def close_all():
+    """Dispose cached transcript connections before teardown or root replacement.
 
-#: audit events that delete or move a path. Before one of them touches a
-#: cached database, or a folder holding it, the idle connections to it are
-#: closed, so a caller deleting a data root (a test's temporary directory)
-#: sees what it saw when every call closed its own connection. A folder is
-#: matched only by the folder deletions: `os.remove` / `os.rename` run on
-#: every atomic save, so they are matched by file name alone (realpath costs
-#: ~100 us on Windows), and renaming a folder that holds a cached database
-#: is not covered.
-_FOLDER_DELETES = frozenset({"shutil.rmtree", "os.rmdir"})
-_DELETES = _FOLDER_DELETES | {"os.remove", "os.rename"}
-_FILE_NAME = "transcript-records.sqlite3"
-
-
-def _norm(path):
-    # realpath, not abspath: a Windows temp folder is often spelled with an
-    # 8.3 short name (NCOLA_~1) on one side and the long name on the other
-    return os.path.normcase(os.path.realpath(path))
+    Idle connections close now. Busy connections remain usable by their owners
+    and close when their database() blocks finish; the return value counts those
+    deferred handles. Stop and join database users before moving/deleting a root,
+    then call this function and require zero. This does not prevent new calls or
+    reset the schema cache. Nested and still-opening connections are not counted
+    and close at block exit, so zero is not a substitute for quiescing users.
+    Safe to call more than once.
+    """
+    global _cache_generation
+    with _held_lock:
+        _cache_generation += 1
+        return _dispose()
 
 
-def _audit(event, args):
-    if event not in _DELETES or not _held_all:
+atexit.register(close_all)
+
+
+@contextlib.contextmanager
+def reuse_database():
+    """Bound the backfill worker's cache lifetime to its outermost work scope.
+
+    database() already reuses connections; this retained worker API additionally
+    releases this thread's cached handle at scope exit. Nested scopes share that
+    lifetime without changing individual transaction boundaries.
+    """
+    if getattr(_conn_state, "scope", False):
+        yield
         return
+    _conn_state.scope = True
     try:
-        paths = [os.fspath(a) for a in (args[:2] if event == "os.rename" else args[:1])]
-        if event not in _FOLDER_DELETES:
-            paths = [a for a in paths if os.path.basename(a).startswith(_FILE_NAME)]
-            if not paths:
-                return
-        targets = [_norm(a) for a in paths]
-        # the file itself, its -wal/-shm companions, or a folder above it
-        hits = [held for held in list(_held_all)
-                if any(held.norm.startswith(t + os.sep) or t.startswith(held.norm)
-                       for t in targets)]
-    except Exception:
-        return
-    if hits:
+        yield
+    finally:
+        _conn_state.scope = False
         with _held_lock:
-            for held in hits:
-                if not held.busy:
+            held = getattr(_conn_state, "held", None)
+            if held is not None:
+                if held.busy:
+                    held.discard = True
+                else:
                     held.close()
-
-
-sys.addaudithook(_audit)
 
 
 @contextlib.contextmanager
@@ -130,11 +133,18 @@ def database():
     `store.DATA_ROOT` changes the path: the calling thread replaces its
     connection and every thread's idle connection to another path is closed."""
     from . import store
+    global _active_key, _cache_generation
     path = Path(store.DATA_ROOT) / _FILE_NAME
     key = str(path)
     held = getattr(_conn_state, "held", None)
     nested = held is not None and held.busy
     conn = None
+    with _held_lock:
+        if _active_key != key:
+            _dispose(lambda other: other != key)
+            _active_key = key
+            _cache_generation += 1
+        generation = _cache_generation
     if not nested:
         with _held_lock:
             if held is not None and held.key == key and held.conn is not None:
@@ -144,8 +154,6 @@ def database():
             _conn_state.held = None
             with _held_lock:
                 held.close()
-            if held.key != key:
-                _close_idle(lambda other: other != key)
     if conn is None:
         path.parent.mkdir(parents=True, exist_ok=True)
         # check_same_thread=False only so a sweep or `_Held.__del__` can close
@@ -163,6 +171,9 @@ def database():
         held = _Held(key, conn)
         held.busy = True
         with _held_lock:
+            # A root transition or disposal can happen while connect/prepare
+            # runs. A different current root must not leave an idle stale handle.
+            held.discard = _cache_generation != generation
             _held_all.add(held)
         _conn_state.held = held
     try:
@@ -176,7 +187,10 @@ def database():
             held.close()
         raise
     finally:
-        held.busy = False
+        with _held_lock:
+            held.busy = False
+            if held.discard:
+                held.close()
 
 
 def _prepare(conn, path):

@@ -1591,6 +1591,9 @@ def _recover_startup() -> None:
 @app.on_event("shutdown")
 async def _cancel_startup() -> None:
     startup.recovery.cancel()
+    # Idle handles close immediately; active workers release theirs on exit.
+    from . import transcript_records
+    transcript_records.close_all()
 
 
 PORT = int(os.environ.get("ORGTREE_PORT", "7360"))

@@ -21,6 +21,8 @@ from orgtree import store, ledger, supervisor as sup, transcript_ingest as inges
 from orgtree.chat_window import source_key
 
 def tearDownModule():
+    from orgtree import transcript_records
+    transcript_records.close_all()
     for item in store.list_orgs():store._POOL.close_all(item['slug'])
     fixture.cleanup()
 
