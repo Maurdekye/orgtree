@@ -18,7 +18,7 @@ app.commandLine.appendSwitch('disable-background-timer-throttling')
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
 let win, proxy, descriptor, agent
 const sockets = new Set(), paintTimes = new Map(), actions = [], errors = [], ipcCalls = {}
-const archiveSamples = [], treeSamples = [], treeReads = [], profileSamples = []
+const archiveSamples = [], treeSamples = [], treeReads = [], profileSamples = [], returnSamples = []
 let paints = 0, clock, controls, finishing = false
 let startupDeadline = setTimeout(() => {
   save('renderer.json', { complete: false, error: 'Electron startup exceeded45s', paints, actions, errors });finish(1)
@@ -365,8 +365,28 @@ app.whenReady().then(async () => {
           'Tree rows are counted from the wire body the proxy relayed (nodes, references or legacy roots).',
           'N10 queued-mail synthetic demand; not N1000 or completed provider turns.'] })
     }
+    // 1c arms, harness only. B: an unmeasured real click on the canvas's own
+    // fit control. C: the candidate rule injected as a page style (no product
+    // source change); `.canvas-world` is display:contents, so it targets the
+    // world's children, which have boxes. The pin layer lives outside it.
+    if (run.fitBeforeAttention) {
+      const fit = await js(`(()=>{const r=document.querySelector('button[title="fit the whole org"]').getBoundingClientRect();return{x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}})()`)
+      win.webContents.sendInputEvent({ type: 'mouseMove', ...fit })
+      win.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...fit })
+      win.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, ...fit })
+      await sleep(1500)
+      journal({ fitBeforeAttention: true })
+    }
+    if (run.injectContentVisibility) {
+      await js(`(()=>{const s=document.createElement('style');s.id='paint-candidate-cv';s.textContent='.canvas-world-hidden > * { content-visibility: hidden !important; }';document.head.appendChild(s)})()`)
+      journal({ injectContentVisibility: true })
+    }
+    const canvasState = () => js(`(()=>{const sp=document.querySelector('.space');const layer=document.querySelector('.pin-layer');const c=document.querySelector('.pile-count');
+      return {camera:sp?.style.transform??null,pinLayerInViewport:!!layer&&layer.parentElement===document.querySelector('.viewport'),
+        pileVisible:!!c&&window.__paintProbe.visible(c),worldHidden:!!document.querySelector('.canvas-world-hidden')}})()`)
     for (let i = 0; i < run.repeats; i++) {
       const suffix = '-' + i
+      const canvasBefore = await canvasState()
       await action('open-attention' + suffix, '[data-paint-mode=attention]', 'document.querySelector(".attn-stage")?.dataset.attentionActive === "yes" && visible(document.querySelector(".attn-desk .desk-body"))')
       await until(() => js('!!document.querySelector(".attn-desk textarea")'))
       const other = descriptor.live_agents.find(n => n !== agent)
@@ -430,7 +450,17 @@ app.whenReady().then(async () => {
       }
       win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
       await until(() => js('!document.querySelector(".docket-modal")'))
-      if (i + 1 < run.repeats) await action('prepare-canvas' + suffix, '[data-paint-mode=canvas]', 'document.querySelector(".attn-stage")?.dataset.attentionActive !== "yes"', { measured: false })
+      if (i + 1 < run.repeats) {
+        // The way back is timed to the canvas actually showing again.
+        const back = await action('prepare-canvas' + suffix, '[data-paint-mode=canvas]', 'document.querySelector(".attn-stage")?.dataset.attentionActive !== "yes" && !document.querySelector(".canvas-world-hidden")', { measured: false })
+        await sleep(300)
+        const canvasAfter = await canvasState()
+        returnSamples.push({ suffix, ms: back.ms, before: canvasBefore, after: canvasAfter,
+          cameraKept: canvasBefore.camera === canvasAfter.camera, pinLayerKept: canvasAfter.pinLayerInViewport,
+          pileVisibleAgain: canvasAfter.pileVisible })
+        save('return.json', { samples: returnSamples, arms: { fitBeforeAttention: !!run.fitBeforeAttention,
+          injectContentVisibility: !!run.injectContentVisibility } })
+      }
     }
     loadNow()
     const from = await js('window.__paintProbe.feedStart()')

@@ -120,6 +120,8 @@ if (mode === 'build') {
     profile: process.env.ORGTREE_PAINT_PROFILE === '1',
     metricsOnly: process.env.ORGTREE_PAINT_METRICS === '1',
     noForcedGc: process.env.ORGTREE_PAINT_NO_FORCED_GC === '1',
+    fitBeforeAttention: process.env.ORGTREE_PAINT_FIT_BEFORE_ATTN === '1',
+    injectContentVisibility: process.env.ORGTREE_PAINT_INJECT_CV === '1',
     descriptor: descriptorPath, descriptorSummary: descriptor && publicDescriptor(descriptor),
     org: descriptor?.org, label: options.label, loadDir, started: Date.now() }
   write(path.join(output, 'run.json'), run)
