@@ -9,6 +9,21 @@ from tools.scale.feed_trace import Trace, install, marker
 
 
 class FeedTraceTests(unittest.IsolatedAsyncioTestCase):
+    def test_wait_totals_are_bounded_and_snapshot_is_detached(self):
+        trace = Trace(limit=1)
+        trace.wait_cost('ignored', 5, 1)
+        trace.local.marker, trace.local.stage = 1, 'identity'
+        trace.wait_cost('pg:SELECT', 20, 2)
+        trace.wait_cost('pg:SELECT', 30, 3)
+        trace.local.marker = 2
+        trace.wait_cost('pg:SELECT', 99, 9)
+        value = trace.snapshot()
+        self.assertEqual(value['dropped'], 1)
+        self.assertEqual(value['waits'][1]['identity:pg:SELECT'],
+                         {'calls': 2, 'wall_ns': 50, 'thread_cpu_ns': 5})
+        value['waits'][1]['identity:pg:SELECT']['calls'] = 99
+        self.assertEqual(trace.snapshot()['waits'][1]['identity:pg:SELECT']['calls'], 2)
+
     def test_bounded_evidence_reports_overflow_without_payloads(self):
         trace = Trace(limit=2)
         trace.note('a', 1)
