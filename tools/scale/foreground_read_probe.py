@@ -152,7 +152,7 @@ def arm(slug, history, ordinal):
             if mode in ('legacy_status', 'foreground_status'):
                 status = {'status': 'working', 'summary': f'arm-{ordinal}-status-{i}', 'at': ledger.now()}
                 with orgtx.org_tx(slug, nodes=['worker-0']) as org:
-                    org.nodes['worker-0']['last_status'] = status
+                    org.d['nodes']['worker-0']['last_status'] = status
                 # Independent read in a new transaction, outside route timing.
                 with store._POOL.acquire(slug) as conn:
                     node = json.loads(conn.raw.execute('SELECT val FROM nodes WHERE id=%s', ('worker-0',)).fetchone()[0])
