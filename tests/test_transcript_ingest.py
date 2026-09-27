@@ -31,6 +31,8 @@ class CaptureTests(unittest.TestCase):
         self.path=Path(fixture.name)/(self.org.d['slug']+'.jsonl')
         self.lookup=patch.object(sup,'transcript_path',side_effect=lambda *a: str(self.path) if self.path.exists() else None)
         self.lookup.start();self.addCleanup(self.lookup.stop)
+        # Mint conversation identity before comparing two unchanged passes.
+        source_key(store.load_org(self.org.d['slug']), 'agent')
     def write(self,start,count,mode='w'):
         with self.path.open(mode,encoding='utf8') as stream:
             for i in range(start,start+count):stream.write(json.dumps({'type':'assistant','message':{'content':str(i)}})+'\n')
@@ -76,7 +78,8 @@ class CaptureTests(unittest.TestCase):
         self.assertTrue(self.backfill())
         self.assertEqual(len(self.rows()),10)
         with patch.object(records,'ingest',side_effect=AssertionError('re-read an unchanged transcript')), \
-             patch.object(records,'ingest_prompt_views',side_effect=AssertionError('re-read unchanged views')):
+             patch.object(records,'ingest_prompt_views',side_effect=AssertionError('re-read unchanged views')), \
+             patch.object(records,'database',side_effect=AssertionError('opened a database for settled files')):
             self.assertFalse(self.backfill())
         self.write(10,5,'a')
         self.assertTrue(self.backfill())
@@ -100,24 +103,20 @@ class CaptureTests(unittest.TestCase):
         self.assertTrue(self.backfill());self.assertFalse(self.backfill())
         with ingest._lock:ingest._fresh.add(source_key(store.load_org(self.org.d['slug']),'agent'))
         self.assertTrue(self.backfill())
-    def test_an_idle_cycle_pauses_backfill_but_never_busy_capture(self):
+    def test_idle_cycles_keep_polling_and_never_delay_busy_capture(self):
         import collections
         from types import SimpleNamespace
         calls=[]
         def fake(slug,nid,**kw):
             calls.append((nid,bool(kw.get('backfill'))));return False
-        queue,state=collections.deque(),{}
+        queue=collections.deque()
         with patch.object(store,'cached_list',return_value=[{'slug':'x'}]), \
              patch.object(store,'cached_org',return_value=SimpleNamespace(nodes=['a','b','c'])), \
              patch.dict(sup._state,{('x','busy'):{'busy':True}},clear=True), \
              patch.object(ingest,'capture_safely',side_effect=fake):
-            ingest._sweep(queue,state,0.0)          # first cycle: 3 slices, no work
+            ingest._sweep(queue)
             self.assertEqual(calls,[('busy',False),('a',True),('b',True),('c',True)]);calls.clear()
-            ingest._sweep(queue,state,1.0)          # idle cycle seen: backfill pauses
-            self.assertEqual(calls,[('busy',False)]);calls.clear()
-            ingest._sweep(queue,state,1.0+ingest.BACKOFF_S-0.5)
-            self.assertEqual(calls,[('busy',False)]);calls.clear()
-            ingest._sweep(queue,state,1.0+ingest.BACKOFF_S)
+            ingest._sweep(queue)
             self.assertEqual(calls,[('busy',False),('a',True),('b',True),('c',True)])
     def test_a_cycle_that_worked_does_not_pause(self):
         import collections
@@ -125,11 +124,54 @@ class CaptureTests(unittest.TestCase):
         calls=[]
         def fake(slug,nid,**kw):
             calls.append(nid);return nid=='b'
-        queue,state=collections.deque(),{}
+        queue=collections.deque()
         with patch.object(store,'cached_list',return_value=[{'slug':'x'}]), \
              patch.object(store,'cached_org',return_value=SimpleNamespace(nodes=['a','b','c'])), \
              patch.dict(sup._state,{},clear=True), patch.object(ingest,'capture_safely',side_effect=fake):
-            ingest._sweep(queue,state,0.0);ingest._sweep(queue,state,1.0)
+            ingest._sweep(queue);ingest._sweep(queue)
         self.assertEqual(calls,['a','b','c','a','b','c'])
+
+    def test_partial_line_retry_and_same_size_replacement(self):
+        self.write(0,3)
+        self.backfill(); self.assertFalse(self.backfill())
+        with self.path.open('a',encoding='utf8') as f:f.write('{"partial":')
+        self.backfill()
+        self.assertEqual(len(self.rows()),3)
+        with self.path.open('a',encoding='utf8') as f:f.write('true}\n')
+        self.backfill()
+        self.assertEqual(len(self.rows()),4)
+        old = self.path.stat()
+        replacement = self.path.with_suffix('.replacement')
+        replacement.write_bytes(self.path.read_bytes().replace(b'partial',b'replace'))
+        os.utime(replacement, ns=(old.st_atime_ns, old.st_mtime_ns))
+        replacement.replace(self.path)
+        self.backfill()
+        self.assertTrue(any('replace' in r[2] for r in self.rows()))
+
+    def test_sidecar_backlog_is_not_mistaken_for_settled(self):
+        self.write(0,2)
+        slug=self.org.d['slug'];sid=self.org.node('agent')['session_id']
+        vpath=Path(sup._prompt_view_path(slug,sid));vpath.parent.mkdir(parents=True,exist_ok=True)
+        vpath.write_text(''.join(json.dumps({'sha256':str(i),'visible':str(i)})+'\n'
+                                 for i in range(700)),encoding='utf8')
+        self.assertEqual([self.backfill() for _ in range(4)],[True,True,True,False])
+        vsource=records.views_source(slug,sid,records.incarnation(store.load_org(slug),'agent'))
+        self.assertEqual(records.prompt_views_for(vsource,'699')[0]['visible'],'699')
+
+    def test_failure_does_not_cache_an_unfinished_capture(self):
+        self.write(0,10)
+        with patch.object(records,'_insert',side_effect=RuntimeError('injected before commit')):
+            with self.assertLogs(ingest._log,level='ERROR'):
+                ingest.capture_safely(self.org.d['slug'],'agent',backfill=True)
+        self.assertEqual(len(self.rows()),0)
+        self.assertTrue(self.backfill())
+        self.assertEqual(len(self.rows()),10)
+
+    def test_unrelated_fresh_node_does_not_disable_settled_skip(self):
+        self.write(0,3);self.backfill()
+        with ingest._lock:ingest._fresh.add('unrelated-empty-session')
+        try:self.assertFalse(self.backfill())
+        finally:
+            with ingest._lock:ingest._fresh.discard('unrelated-empty-session')
 
 if __name__=='__main__':unittest.main()

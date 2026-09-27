@@ -9,12 +9,11 @@ open about five database connections and hash about 12 KB of files for every
 node on every pass, even when nothing had changed ("8 agents per second,
 forever"). Now a slice that finds the node SETTLED — every source fully
 imported, as of a pass whose files had exactly this path, size and mtime — is
-skipped with a few stat() calls. Any change to a file's size or mtime, a new
-session, or a fresh source makes the next slice run as before. When a whole
-round-robin cycle had nothing to do, backfill slices pause for BACKOFF_S; the
-per-second capture of busy agents never pauses. So a record in an idle agent's
-transcript is captured at most BACKOFF_S + ceil(nodes / 8) seconds after it is
-written, and a busy agent's within about a second, as before.
+skipped with a few stat() calls. File or conversation identity changes make
+the next slice run as before. Only ingestion backs off: stat checks keep the
+same cadence, so no extra sleep delays a newly appended record. At a stable N,
+idle nodes are visited every ceil(N / 8) one-second sleeps plus sweep work;
+busy nodes still get one-second capture and both turn-boundary captures.
 """
 from __future__ import annotations
 
@@ -28,11 +27,8 @@ _log = logging.getLogger(__name__)
 _lock = threading.Lock()
 _started = False
 _fresh: set[str] = set()
-#: (slug, nid) -> the input fingerprint of the last backfill pass that left the
-#: node fully imported; a slice with the same fingerprint has nothing to do
+#: (slug, nid) -> (settled input fingerprint, source keys). Pruned every sweep.
 _settled: dict[tuple[str, str], tuple] = {}
-#: pause for backfill slices after a whole cycle found nothing to do
-BACKOFF_S = 30.0
 
 
 def _stat(path):
@@ -40,9 +36,9 @@ def _stat(path):
         return None
     try:
         st = os.stat(path)
-    except OSError:
-        return (str(path), None, None)
-    return (str(path), st.st_size, st.st_mtime_ns)
+    except FileNotFoundError:
+        return (str(path), None)
+    return (str(path), st.st_size, st.st_mtime_ns, st.st_ctime_ns, st.st_dev, st.st_ino)
 
 
 def _is_settled(sources, views, fingerprint) -> bool:
@@ -51,7 +47,7 @@ def _is_settled(sources, views, fingerprint) -> bool:
     owns it) up to the file's size, and the prompt-view sidecar read to its
     size. A missing file has nothing to import."""
     from . import transcript_records as records
-    stats = fingerprint[1]
+    stats = fingerprint[-2]
     with records.database() as conn:
         for (source, filename), st in zip(sources, stats):
             if not filename or st is None or st[1] is None:
@@ -63,7 +59,7 @@ def _is_settled(sources, views, fingerprint) -> bool:
             owned = conn.execute("SELECT 1 FROM transcript_owned WHERE source=?", (source,)).fetchone()
             if not owned and meta[1] != st[1]:
                 return False
-        vsource, vst = views, fingerprint[3]
+        vsource, vst = views, fingerprint[-1]
         if vst is not None and vst[1] is not None:
             row = conn.execute("SELECT upper FROM transcript_view_sources WHERE source=?",
                                (vsource,)).fetchone()
@@ -85,23 +81,33 @@ def capture(slug, nid, *, beginning=False, backfill=False):
     node = org.node(nid)
     if not node.get('session_id'):
         return False
-    key = source_key(org, nid)
     path = sup.transcript_path_for_node(org, nid)
+    imported = imported_history_path(org, nid) if backfill else None
+    vpath = sup._prompt_view_path(slug, node['session_id'])
+    fingerprint = None
+    if backfill:
+        # Check before source_key/views_source: resolving legacy identities can
+        # itself open databases. These are their identity inputs, not a second
+        # implementation of the source naming/migration rules.
+        fingerprint = (str(store.DATA_ROOT), org.d.get('reply_incarnation'),
+                       node.get('transcript_incarnation'), node.get('reply_incarnation'),
+                       node['session_id'], node.get('model'),
+                       (_stat(path), _stat(imported)), _stat(vpath))
+        with _lock:
+            previous = _settled.get((slug, nid))
+            if previous and previous[0] == fingerprint and not any(s in _fresh for s in previous[1]):
+                return False
+    else:
+        with _lock:
+            _settled.pop((slug, nid), None)
+    key = source_key(org, nid)
     if beginning and not path:
         with _lock:
             _fresh.add(key)
     sources = [(key, path)]
     if backfill:
-        sources.append((source_key(org, nid, True), imported_history_path(org, nid)))
+        sources.append((source_key(org, nid, True), imported))
     vsource = records.views_source(slug, node['session_id'], records.incarnation(org, nid))
-    vpath = sup._prompt_view_path(slug, node['session_id'])
-    fingerprint = None
-    if backfill:
-        fingerprint = (node['session_id'], tuple(_stat(f) for _, f in sources), vsource, _stat(vpath))
-        with _lock:
-            fresh = any(s in _fresh for s, _ in sources)
-            if not fresh and _settled.get((slug, nid)) == fingerprint:
-                return False
     for source, filename in sources:
         if not filename:
             continue
@@ -126,7 +132,7 @@ def capture(slug, nid, *, beginning=False, backfill=False):
         settled = _is_settled(sources, vsource, fingerprint)
         with _lock:
             if settled:
-                _settled[(slug, nid)] = fingerprint
+                _settled[(slug, nid)] = (fingerprint, tuple(s for s, _ in sources))
             else:
                 _settled.pop((slug, nid), None)
     return True
@@ -144,10 +150,8 @@ def capture_safely(slug, nid, **kwargs):
         return True
 
 
-def _sweep(queue, state, now):
-    """One pass of the capture loop: busy nodes, then up to 8 backfill slices.
-    `state` carries 'worked' (did any slice of this cycle do work) and
-    'resume' (monotonic time before which backfill slices pause)."""
+def _sweep(queue):
+    """Busy nodes, then eight fair slices (stat-only for settled nodes)."""
     from . import store, supervisor as sup
     if not queue:
         # queue rebuild used to be a full root parse each time it
@@ -160,22 +164,15 @@ def _sweep(queue, state, now):
         with _lock:
             for k in [k for k in _settled if k not in live]:
                 del _settled[k]
-        if queue and state.get('cycled') and not state.get('worked'):
-            state['resume'] = now + BACKOFF_S
-        state['cycled'] = True
-        state['worked'] = False
     with sup._state_lock:
         active = [key for key, s in sup._state.items() if s.get('busy')]
     for slug, nid in active:
         capture_safely(slug, nid)
-    if now < state.get('resume', 0.0):
-        return
     # Round-robin older ranges so one long transcript cannot starve
     # another. No complete projection/parser or UI mounting occurs.
     for _ in range(min(8, len(queue))):
         slug, nid = queue.popleft()
-        if capture_safely(slug, nid, backfill=True):
-            state['worked'] = True
+        capture_safely(slug, nid, backfill=True)
 
 
 def start():
@@ -186,13 +183,14 @@ def start():
         _started = True
 
     def run():
+        from . import transcript_records as records
         queue = collections.deque()
-        state: dict = {}
-        while True:
-            try:
-                _sweep(queue, state, time.monotonic())
-            except Exception:
-                _log.exception('Transcript capture sweep failed; retrying')
-            time.sleep(1)
+        with records.reuse_database():
+            while True:
+                try:
+                    _sweep(queue)
+                except Exception:
+                    _log.exception('Transcript capture sweep failed; retrying')
+                time.sleep(1)
 
     threading.Thread(target=run, name='transcript-capture', daemon=True).start()

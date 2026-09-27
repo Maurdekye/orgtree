@@ -31,12 +31,58 @@ _spool_lock = threading.Lock()
 #: reentrancy guard: replay itself calls ingest(), which drains the spool —
 #: without this a drain would deadlock on its own non-reentrant lock
 _spool_state = threading.local()
+_database_state = threading.local()
+
+
+@contextlib.contextmanager
+def reuse_database():
+    """Keep one connection on this worker thread, never an open transaction.
+
+    Opt-in only: ordinary callers still get independent short-lived connections.
+    Each database() block retains its own commit/rollback boundary. Nested blocks
+    use a separate connection, just as they do outside this scope.
+    """
+    if getattr(_database_state, 'session', None) is not None:
+        yield
+        return
+    session = {'path': None, 'conn': None, 'borrowed': False}
+    _database_state.session = session
+    try:
+        yield
+    finally:
+        _database_state.session = None
+        if session['conn'] is not None:
+            session['conn'].close()
 
 
 @contextlib.contextmanager
 def database():
     from . import store
     path = Path(store.DATA_ROOT) / "transcript-records.sqlite3"
+    session = getattr(_database_state, 'session', None)
+    reuse = session is not None and not session['borrowed']
+    if reuse:
+        if session['path'] != path:
+            if session['conn'] is not None:
+                session['conn'].close()
+            session.update(path=path, conn=None)
+        if session['conn'] is None:
+            session['conn'] = _open_database(path)
+        conn = session['conn']
+        session['borrowed'] = True
+    else:
+        conn = _open_database(path)
+    try:
+        with conn:
+            yield conn
+    finally:
+        if reuse:
+            session['borrowed'] = False
+        else:
+            conn.close()
+
+
+def _open_database(path):
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path, timeout=30, factory=census_contacts.sidecar("transcript_records"))
     try:
@@ -92,10 +138,10 @@ def database():
             scope TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(scope,id)) WITHOUT ROWID;
                 """)
                 _initialized.add(str(path))
-        with conn:
-            yield conn
-    finally:
+        return conn
+    except BaseException:
         conn.close()
+        raise
 
 
 def _signature(stream, stats):

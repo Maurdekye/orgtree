@@ -38,6 +38,61 @@ class RecordsTests(unittest.TestCase):
     def texts(self, count=8):
         return [json.loads(row[2])["text"] for row in records.tail(self.source, count)[0]]
 
+    def test_worker_connection_is_reused_but_transactions_still_rollback(self):
+        with patch.object(records.sqlite3,'connect',wraps=sqlite3.connect) as connect:
+            with records.reuse_database():
+                with records.database() as conn:
+                    conn.execute('INSERT INTO transcript_owned VALUES (?)',(self.source,))
+                self.assertFalse(conn.in_transaction)
+                with self.assertRaisesRegex(RuntimeError,'abort'):
+                    with records.database() as second:
+                        self.assertIs(second,conn)
+                        second.execute('DELETE FROM transcript_owned WHERE source=?',(self.source,))
+                        raise RuntimeError('abort')
+                self.assertFalse(conn.in_transaction)
+                with records.reuse_database(), records.database() as third:
+                    self.assertIs(third,conn)
+                    self.assertIsNotNone(third.execute('SELECT 1 FROM transcript_owned WHERE source=?',
+                                                      (self.source,)).fetchone())
+                self.assertEqual(connect.call_count,1)
+            with self.assertRaises(sqlite3.ProgrammingError):conn.execute('SELECT 1')
+
+    def test_reuse_does_not_share_connections_between_nested_blocks_or_threads(self):
+        import threading
+        other=[]
+        def on_thread():
+            with records.database() as conn:other.append(conn)
+        with records.reuse_database(), records.database() as outer:
+            with records.database() as inner:self.assertIsNot(inner,outer)
+            worker=threading.Thread(target=on_thread);worker.start();worker.join()
+            self.assertEqual(len(other),1)
+            self.assertIsNot(other[0],outer)
+
+    def test_reuse_switches_connection_when_the_data_root_changes(self):
+        from orgtree import store
+        with tempfile.TemporaryDirectory(prefix='capture-other-root-') as root:
+            with records.reuse_database():
+                with records.database() as first:
+                    first.execute('INSERT INTO transcript_owned VALUES (?)',(self.source,))
+                with patch.object(store,'DATA_ROOT',root):
+                    with records.database() as second:
+                        self.assertIsNot(first,second)
+                        self.assertIsNone(second.execute('SELECT 1 FROM transcript_owned WHERE source=?',
+                                                        (self.source,)).fetchone())
+                with records.database() as third:
+                    self.assertIsNot(first,third)
+                    self.assertIsNotNone(third.execute('SELECT 1 FROM transcript_owned WHERE source=?',
+                                                       (self.source,)).fetchone())
+
+    def test_ingest_failure_on_reused_connection_retries_without_skipping_records(self):
+        self.write(20)
+        with records.reuse_database():
+            with patch.object(records,'_insert',side_effect=RuntimeError('failed insert')):
+                with self.assertRaisesRegex(RuntimeError,'failed insert'):self.ingest(20)
+            self.assertEqual(self.texts(20),[])
+            self.ingest(20)
+            self.assertEqual(self.texts(20),[str(i) for i in range(20)])
+
     def test_repeated_prompt_index_decodes_only_the_requested_time_range(self):
         import datetime as dt
         base = dt.datetime(2026, 9, 10, tzinfo=dt.timezone.utc)
