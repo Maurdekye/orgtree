@@ -212,6 +212,10 @@ test('reset keeps subscribed identity working and unwatched pulses do not accumu
   await inAct(() => resetConvos())
   for (let i = 0; i < 400; i++) ingestPulse(f.slug, { node: `unseen-${i}`, event: 'changed' } as never)
   await flush(2)
+  assert.equal((await f.view('unseen-0')).now().loaded, false,
+    'evicted cold placeholder does not retain an old dirty entry')
+  assert.equal((await f.view('unseen-399')).now().loaded, true,
+    'recent deferred pulse still triggers the ordinary subscription refresh')
   await inAct(() => refreshConvo(f.slug, 'reset'))
   assert.equal(v.now().loaded, true)
   assert.equal(v.now().chat?.messages[0]?.text, 'reset')
