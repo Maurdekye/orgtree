@@ -85,7 +85,10 @@ export function projectForeground(snapshot: ForegroundSnapshot): TreePayload {
       throw new Error('Foreground tree missing node or inconsistent parent')
     }
     visited.add(id)
-    return { ...row, children: row.children.map(child => build(child, id)) } as TreeNode
+    // Like archived summaries, this is a deliberately partial TreeNode.
+    // lineage_loaded=false remains present: activation must teach lineage
+    // consumers to resolve it, never manufacture an empty historical array.
+    return { ...row, children: row.children.map(child => build(child, id)) } as unknown as TreeNode
   }
   const roots = snapshot.roots.map(id => build(id, null))
   if (Object.values(nodes).some(row => row.axis === 'org' && !visited.has(row.id))) {
