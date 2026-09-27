@@ -348,6 +348,28 @@ def child(args) -> int:
                               for nid, n in org.nodes.items() if n.get("state") == "live"}
         return _tok["tokens"]
 
+    from orgtree import supervisor as _scale_supervisor
+    _turn_counts = {"started": 0, "finished": 0}
+    _turn_count_lock = threading.Lock()
+    _real_one_turn = _scale_supervisor._run_one_turn
+
+    def _counted_one_turn(*a, **kw):
+        with _turn_count_lock:
+            _turn_counts["started"] += 1
+        try:
+            if os.environ.get("ORGTREE_SCALE_ASSERT_NO_TURNS") == "1":
+                raise RuntimeError("unexpected turn in halted-recipient qualification fixture")
+            return _real_one_turn(*a, **kw)
+        finally:
+            with _turn_count_lock:
+                _turn_counts["finished"] += 1
+    _scale_supervisor._run_one_turn = _counted_one_turn
+
+    @api.app.get("/scale/activity")
+    def _scale_activity() -> dict:
+        with _turn_count_lock:
+            return dict(_turn_counts)
+
     @api.app.get("/scale/workload")
     def _scale_workload() -> dict:
         # Read actual node/item identities once before measurement. This avoids
