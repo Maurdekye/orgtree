@@ -148,5 +148,6 @@ if (mode === 'build') {
   exited = true;clearInterval(guard);clearTimeout(timer)
   write(path.join(output, 'exit.json'), { code, stopping, at: Date.now(), pid: child.pid })
   process.exitCode = stopping ? 1 : code
-  console.log(mode === 'run' ? 'Raw measurement saved. After load completion, run report; no qualification is asserted yet.' : 'Compositor control finished; see renderer.json.')
+  console.log(code || stopping ? 'Measurement failed; no qualification. Inspect exit.json and any renderer.json.' :
+    mode === 'run' ? 'Raw measurement saved. After load completion, run report; no qualification is asserted yet.' : 'Compositor control finished; see renderer.json.')
 }

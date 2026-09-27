@@ -18,6 +18,9 @@ app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
 let win, proxy, descriptor, agent
 const sockets = new Set(), paintTimes = new Map(), actions = [], errors = [], ipcCalls = {}
 let paints = 0, clock, controls
+let startupDeadline = setTimeout(() => {
+  save('renderer.json', { complete: false, error: 'Electron startup exceeded45s', paints, actions, errors });finish(1)
+}, 45000)
 const identity = { windowId: 'renderer-paint-probe', kind: 'org', org: run.org, notificationOwner: true }
 const preferences = { visualTheme: 'dark', contrastTheme: 'default', agentColorSource: 'model',
   startupMode: 'restore', onboarded: true, automaticUpdates: false, routineNotifications: false,
@@ -141,6 +144,7 @@ async function makeProxy() {
   return 'http://127.0.0.1:' + proxy.address().port
 }
 function finish(code) {
+  clearTimeout(startupDeadline)
   if (win && !win.isDestroyed()) win.destroy()
   for (const s of sockets) s.destroy()
   proxy?.close();app.exit(code)
@@ -169,6 +173,9 @@ app.whenReady().then(async () => {
   })
   win.webContents.on('console-message', (_, detail) => { if (detail.level === 'error' && errors.length < 50) errors.push(detail.message) })
   win.webContents.on('render-process-gone', (_, detail) => { save('crash.json', detail);finish(1) })
+  // Create a renderer target before enabling CDP domains. Enabling Page on a
+  // never-navigated hidden offscreen WebContents can wait forever on Windows.
+  await win.loadURL('about:blank')
   win.webContents.debugger.attach('1.3')
   await win.webContents.debugger.sendCommand('Page.enable')
   await win.webContents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
@@ -176,6 +183,7 @@ app.whenReady().then(async () => {
   if (run.mode === 'selfcheck') await win.loadURL('data:text/html,<html><body>Renderer compositor control</body></html>')
   else await win.loadURL(origin + '/o/' + encodeURIComponent(run.org))
   await until(() => js('!!window.__paintProbe && !!document.body'))
+  clearTimeout(startupDeadline)
   await sleep(700)
   clock = await calibrate()
   controls = await selfcheck()
