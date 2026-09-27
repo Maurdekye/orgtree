@@ -102,4 +102,31 @@ class ContextTests(unittest.TestCase):
         org,args=fixture();args['work_counts']=None
         with self.assertRaises(CompatibilityRequired):ForegroundContext(**args)
 
+    def test_shared_card_and_header_match_full_view(self):
+        org,args=fixture(('parent','a','b'));view=ForegroundContext(**args)
+        for nid in org.nodes:
+            expected=org.tree_node(nid,descend=False,lineage=False)
+            self.assertEqual(view.tree_node(nid),expected)
+        self.assertEqual(view.tree_header([]),org.tree_header([]))
+
+    def test_history_cost_and_inbox_total_not_selected_sum_or_preview_length(self):
+        org,args=fixture()
+        org.d['deleted_cost_usd']=2.5;org.node('b')['cost_usd']=7.5;org.node('b')['cost_usd_unknown']=True
+        args['settings']['deleted_cost_usd']=2.5
+        args['graph']['stamp'].update(cost='7.5',cost_unknown=True)
+        entries=[{'id':str(i),'body':'old'} for i in range(20)]
+        org.d['org_inbox']=entries;org.d['org_inbox_read']=11
+        args['inbox']={'total':20,'unread':9,'entries':entries[-3:]}
+        view=ForegroundContext(**args)
+        self.assertEqual(view.tree_header([]),org.tree_header([]))
+
+    def test_pending_ask_and_resolved_scope_use_same_display(self):
+        org,args=fixture()
+        question={'id':'q','node':'parent','status':'open','at':ledger.now(),
+                  'questions':[{'id':'tab','question':'Ready?'}]}
+        args['windows']['asks']['asks']=[question];org.d['asks']=[question]
+        view=ForegroundContext(**args)
+        self.assertEqual(view.tree_node('parent'),org.tree_node('parent',descend=False,lineage=False))
+        self.assertEqual(view.tree_header([]),org.tree_header([]))
+
 if __name__=='__main__':unittest.main()
