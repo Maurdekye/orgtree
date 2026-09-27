@@ -578,8 +578,13 @@ def main(argv=None) -> int:
                 t.join(timeout=35)
             rec.close()
             raise RuntimeError("all websocket windows must connect before measuring")
+    steady = (desc["serve"].get("env_orgtree") or {}).get("ORGTREE_SCALE_SIMULATED_PROVIDER") == "1"
+    activity_before = httpx.get(origin + "/scale/activity", headers=H, timeout=30).raise_for_status().json()
     t0 = time.time()
     config["started"] = t0
+    config["activity_before"] = activity_before
+    config["simulation"] = ("Completed synthetic provider turns through real admission/confirmation/finish"
+                            if steady else config["simulation"])
     (out / "config.json").write_text(json.dumps(config, indent=1), encoding="utf-8")
     for t in threads:
         t.start()
@@ -606,6 +611,18 @@ def main(argv=None) -> int:
         eproc.kill()
         raise RuntimeError(f"drivers did not finish; no qualification verdict: {alive}")
     feed_tracker.retire(time.time())
+    settlement = None
+    if steady and not guard:
+        deadline = time.monotonic() + 120
+        with httpx.Client(base_url=origin, headers=H, timeout=30) as boundary:
+            while time.monotonic() < deadline and not guard:
+                settlement = boundary.get("/scale/settlement").raise_for_status().json()
+                rec.write("settlement", {"t": time.time() - t0, **settlement})
+                activity = settlement["activity"]
+                if not any(settlement[k] for k in ("mail", "delivering", "inflight", "busy", "queued")) and (
+                        activity["started"] == activity["finished"]):
+                    break
+                time.sleep(2)
     guard_stop.set()
     guard_thread.join(timeout=5)
     rec.close()
@@ -651,7 +668,8 @@ def main(argv=None) -> int:
                 "emitted_due": c["due"], "missing_after_5s": c["missing"],
                 "over_1s": c["over_1s"], **ws_state[w]}
             for w, c in feed_tracker.counts.items()}
-    mem = [(s["t"], s["private"] or s["rss"]) for s in samples if s.get("private") or s.get("rss")]
+    mem = [(row["t"], row["engine_private"]) for row in rows("guard")
+           if 0 <= row["t"] <= args.duration]
     def slope(pts):
         if len(pts) < 3:
             return None
@@ -674,7 +692,14 @@ def main(argv=None) -> int:
         valid = valid and emitted_count[0] > 0
     if feed_tracker.pending or any(x["missing_after_5s"] or x["closes"] for x in feed.values()):
         valid = False
-    summary = {"config": config, "guard": guard or None,
+    if steady:
+        settled = bool(settlement) and not any(settlement[k] for k in ("mail", "delivering", "inflight", "busy", "queued"))
+        activity = (settlement or {}).get("activity", {})
+        provider = activity.get("provider", {})
+        # A successful no-op workload cannot stand in for turn completion.
+        progressed = provider.get("completed", 0) > activity_before.get("provider", {}).get("completed", 0)
+        valid = valid and settled and progressed and not provider.get("failed") and activity.get("started") == activity.get("finished")
+    summary = {"config": config, "guard": guard or None, "settlement": settlement,
                "workload_completed_without_errors_or_overload": bool(valid),
                "qualification": "Per-target assessment required; this field does not certify renderer or 60-minute stability.",
                "client_counters": counters, "workload_substitutions": workload.substitutions,
@@ -691,7 +716,9 @@ def main(argv=None) -> int:
                "memory": {"start_mb": round(mem[0][1] / 2 ** 20) if mem else None,
                           "end_mb": round(mem[-1][1] / 2 ** 20) if mem else None,
                           "max_mb": round(max(m for _, m in mem) / 2 ** 20) if mem else None,
-                          "slope_mb_per_min_2nd_half": round((slope(half) or 0) * 60 / 2 ** 20, 2)},
+                          "observed_seconds": mem[-1][0] - mem[0][0] if mem else 0,
+                          "samples": len(mem),
+                          "slope_mb_per_min_2nd_half": round(slope(half) * 60 / 2 ** 20, 2) if slope(half) is not None else None},
                "cpu": pct([s["cpu"] for s in samples if s.get("cpu") is not None]),
                "pg": {"conns": pct([s["pg_conns"] for s in samples if "pg_conns" in s]),
                       "lock_wait": pct([s["pg_lock_wait"] for s in samples if "pg_lock_wait" in s]),
