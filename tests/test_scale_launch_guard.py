@@ -4,7 +4,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from tools.scale.launch_guard import LaunchAudit
+from tools.scale.launch_guard import LaunchAudit, pin_git
 
 
 class LaunchGuardTests(unittest.TestCase):
@@ -64,6 +64,20 @@ class LaunchGuardTests(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             self.audit("os.system", ("git status",))
         self.assertEqual(self.audit.snapshot()["unexpected"], len(cases) + 1)
+
+    def test_git_pinning_only_rewrites_literal_argv_without_overrides(self):
+        calls = []
+        launch = pin_git(lambda *a, **k: calls.append((a, k)), self.git)
+        launch(["git", "status"])
+        actual = calls[-1][0][0]
+        self.assertEqual(Path(actual[0]), Path(self.git))
+        self.audit("subprocess.Popen", (actual[0], actual, None, None))
+        for args, options in [("git status", {}), (["git", "status"], {"shell": True}),
+                              (["git", "status"], {"executable": self.unknown})]:
+            launch(args, **options)
+            self.assertEqual(calls[-1][0][0], args)
+        launch(["git", "status"], -1, self.unknown)
+        self.assertEqual(calls[-1][0][0], ["git", "status"])
 
     def test_audit_keeps_full_argv_and_persistent_marker(self):
         prompt = "git status " + "canary " * 150 + " --version"

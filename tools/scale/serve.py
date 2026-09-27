@@ -210,8 +210,10 @@ def child(args) -> int:
     from assert_repo_import import assert_repo_import
     prov = assert_repo_import(str(REPO))
     import shutil
-    from launch_guard import LaunchAudit
-    launch_audit = LaunchAudit(root, git=shutil.which("git"),
+    from launch_guard import LaunchAudit, pin_git
+    git_executable = shutil.which("git")
+    subprocess.Popen = pin_git(subprocess.Popen, git_executable)
+    launch_audit = LaunchAudit(root, git=git_executable,
         providers=[os.environ["ORGTREE_CLAUDE"], os.environ["ORGTREE_CODEX"]],
         agy=shutil.which("agy"))
     sys.addaudithook(launch_audit)

@@ -104,3 +104,19 @@ class LaunchAudit:
             if kind == "unexpected":
                 (self.root / "metrics" / "qualification-invalid.json").write_text(json.dumps(row), encoding="utf-8")
         raise FileNotFoundError("scale serve forbids external process")
+
+
+def pin_git(popen, executable):
+    """Pin the engine's literal argv-style Git calls to the trusted absolute binary.
+
+    The audit still validates the resulting argv. Shell strings and explicit
+    executable overrides are never rewritten or allowed by this adapter.
+    """
+    trusted = identity(executable) if executable else None
+    def launch(args, *pos, **kwargs):
+        if (trusted and isinstance(args, (list, tuple)) and args
+                and args[0] in ("git", "git.exe") and len(pos) < 2
+                and not kwargs.get("shell") and not kwargs.get("executable")):
+            args = [trusted, *args[1:]]
+        return popen(args, *pos, **kwargs)
+    return launch
