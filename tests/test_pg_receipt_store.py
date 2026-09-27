@@ -91,6 +91,34 @@ class ReceiptStore(unittest.TestCase):
         store.save_org(org)
         self.assertIn('op', store.load_org(org.d['slug']).d['mail_transitions']['n'])
 
+    def test_reimport_over_a_converted_org_replaces_its_receipt_rows(self):
+        import importlib.util, json, sys
+        from pathlib import Path
+        spec = importlib.util.spec_from_file_location(
+            'pgimport', Path(__file__).resolve().parents[1] / 'tools' / 'pypg' / 'pgimport.py')
+        pgimport = importlib.util.module_from_spec(spec)
+        sys.modules.setdefault('pgimport', pgimport)
+        spec.loader.exec_module(pgimport)
+        sink = pgimport.PgSink(fixture.f.ADMIN, Path(store._orgs_dir()))
+        try:
+            rows = sink.read_org(self.slug)
+            # an unconverted source: receipts as the doc blob, no marker
+            rows['doc'] = sorted([*rows['doc'], ('mail_transitions', json.dumps(self.value))])
+            rows['meta'] = [r for r in rows['meta'] if r[0] != 'receipt_rows']
+            sink.replace_org(self.slug, rows, {'source_fingerprint': 'receipt-reimport'})
+        finally:
+            sink.conn.close()
+        with self.raw() as raw:
+            for table in ('receipt_format', 'receipt_owners', 'receipts', 'receipt_carriers'):
+                self.assertEqual(raw.execute(f'SELECT count(*) FROM {table}').fetchone()[0], 0, table)
+        org = store.load_org(self.slug)
+        self.assertNotIsInstance(org.d['mail_transitions'], receiptmapping.ReceiptSection)
+        self.assertEqual(org.d['mail_transitions'], self.value)
+        with self.raw() as raw:          # and it converts again, not "already"
+            proof = receiptstore.convert(raw, self.oid)
+        self.assertNotIn('already_converted', proof)
+        self.assertEqual(self.export(), self.value)
+
     # -- standalone save --------------------------------------------------
     def test_standalone_save_writes_changed_rows_and_adopts_for_the_next_save(self):
         org = store.load_org(self.slug)

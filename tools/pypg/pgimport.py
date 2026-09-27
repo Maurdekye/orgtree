@@ -640,6 +640,14 @@ class PgSink:
             schema = f"org_{org_id}"
             for table in TABLES:
                 self.conn.execute(f"DELETE FROM {schema}.{table}")
+            # The import replaces the WHOLE org. Converted custody receipt rows
+            # (migration 0013) go with it: left behind they would outlive the
+            # doc blob the import writes, and their conversion record would
+            # refuse the org's reconversion as "already converted". FK order.
+            for table in ("receipt_carriers", "receipts", "receipt_owners", "receipt_format"):
+                if self.conn.execute("SELECT to_regclass(%s)",
+                                     (f"{schema}.{table}",)).fetchone()[0] is not None:
+                    self.conn.execute(f"DELETE FROM {schema}.{table}")
             cur = self.conn.cursor()
             for table in TABLES:
                 if not rows.get(table):
