@@ -74,7 +74,7 @@ class LaunchAudit:
                 tail = tail[2:]
             allowed = (tail in (["status", "--porcelain"], ["status", "--porcelain", "-uno"], ["status", "--porcelain=v1"],
                                 ["status", "--short"], ["status"],
-                                ["rev-parse", "HEAD"], ["rev-parse", "--abbrev-ref", "HEAD"], ["rev-parse", "--show-toplevel"],
+                                ["rev-parse", "HEAD"], ["rev-parse", "--short", "HEAD"], ["rev-parse", "--abbrev-ref", "HEAD"], ["rev-parse", "--show-toplevel"],
                                 ["rev-parse", "--git-dir"], ["worktree", "list", "--porcelain"]))
             if allowed:
                 return "git_reads"

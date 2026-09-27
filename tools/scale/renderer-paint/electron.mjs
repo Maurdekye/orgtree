@@ -178,7 +178,7 @@ app.whenReady().then(async () => {
       paintTimes.set(id, at);journal({ proofPaint: id, at, dirty, size })
     }
   })
-  win.webContents.on('console-message', (_, detail) => { if (detail.level === 'error' && errors.length < 50) errors.push(detail.message) })
+  win.webContents.on('console-message', event => { if (event.level === 'error' && errors.length < 50) errors.push(event.message) })
   win.webContents.on('render-process-gone', (_, detail) => { save('crash.json', detail);finish(1) })
   // Create a renderer target before enabling CDP domains. Enabling Page on a
   // never-navigated hidden offscreen WebContents can wait forever on Windows.

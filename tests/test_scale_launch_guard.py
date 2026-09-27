@@ -39,6 +39,18 @@ class LaunchGuardTests(unittest.TestCase):
         self.assertEqual(self.audit.snapshot()["unexpected"], 2)
         self.assertTrue((self.root / "metrics/qualification-invalid.json").exists())
 
+    def test_renderer_version_short_head_exact_form_only(self):
+        for application in (self.git, None):
+            words = [self.git, "rev-parse", "--short", "HEAD"]
+            self.audit("subprocess.Popen", (application, subprocess.list2cmdline(words), None, None))
+        for words in ([self.git, "rev-parse", "--short", "HEAD", "&&", self.unknown],
+                      [self.git, "-c", "core.pager=provider", "rev-parse", "--short", "HEAD"],
+                      [self.unknown, "rev-parse", "--short", "HEAD"]):
+            with self.subTest(words=words), self.assertRaises(FileNotFoundError):
+                self.audit("subprocess.Popen", (None, subprocess.list2cmdline(words), None, None))
+        self.assertEqual(self.audit.snapshot()["git_reads"], 2)
+        self.assertEqual(self.audit.snapshot()["unexpected"], 3)
+
     def test_known_capability_forms_only(self):
         cases = [(self.claude, ["--version"]), (self.agy, ["--version"]),
                  (self.agy, ["models"]), (self.agy, ["--log-file", "probe path.log", "models"])]
