@@ -97,6 +97,7 @@ class ReceiptOwner(_LazyMapping):
         super().__init__(); self.slug=slug; self.revision=revision; self.owner=owner
         self.count=count; self.version=version; self.complete=False
         self.baselines: dict[str,str|None]={}; self.deleted:set[str]=set()
+        self.reinserted:set[str]=set()
 
     def __getitem__(self,key):
         if (key in self._data): return self._data[key]
@@ -120,11 +121,12 @@ class ReceiptOwner(_LazyMapping):
             self.get(key)
         # Preserve nested mutable edits for validation at save, not merely here.
         receiptrows.validate_receipt(self.owner,key,value)
+        if key in self.deleted: self.reinserted.add(key)
         self.deleted.discard(key); self._data.__setitem__(key,value)
 
     def __delitem__(self,key):
         self[key]
-        self._data.pop(key)
+        self._data.pop(key); self.reinserted.discard(key)
         if self.baselines.get(key) is not None: self.deleted.add(key)
         else: self.baselines.pop(key,None)
 
@@ -134,7 +136,7 @@ class ReceiptOwner(_LazyMapping):
         if len(rows)!=self.count: raise StaleReceipts('receipt owner count mismatch')
         order=[]
         for key,text in rows:
-            order.append(key)
+            if key not in self.reinserted: order.append(key)
             if key not in self.baselines: self.baselines[key]=text
             elif self.baselines[key]!=text: raise StaleReceipts('receipt baseline changed')
             if key not in self.deleted and not (key in self._data):
@@ -152,7 +154,7 @@ class ReceiptOwner(_LazyMapping):
         for key,value in self._data.items():
             receiptrows.validate_receipt(self.owner,key,value)
             text=receiptrows.dumps(value); old=self.baselines.get(key)
-            if text!=old: changes.append((key,text,old))
+            if text!=old or key in self.reinserted: changes.append((key,text,old))
         return changes
 
 
@@ -160,6 +162,7 @@ class ReceiptSection(_LazyMapping):
     def __init__(self,slug: str,revision: int):
         super().__init__(); self.slug=slug; self.revision=revision; self.complete=False
         self.missing:set[str]=set(); self.deleted:set[str]=set(); self.replaced:set[str]=set()
+        self.reinserted:set[str]=set()
         self.versions:dict[str,int|None]={}
 
     def __getitem__(self,owner):
@@ -187,11 +190,12 @@ class ReceiptSection(_LazyMapping):
     def __setitem__(self,owner,value):
         if not isinstance(value,Mapping): raise receiptrows.Unsupported('receipt owner must contain a mapping')
         if owner not in self.versions: self.get(owner)
+        if owner in self.deleted: self.reinserted.add(owner)
         self.deleted.discard(owner); self.missing.discard(owner); self.replaced.add(owner)
         self._data.__setitem__(owner,value)
 
     def __delitem__(self,owner):
-        self[owner]; self._data.pop(owner); self.replaced.discard(owner)
+        self[owner]; self._data.pop(owner); self.replaced.discard(owner); self.reinserted.discard(owner)
         if self.versions.get(owner) is not None: self.deleted.add(owner)
         else: self.missing.add(owner)
 
@@ -203,7 +207,7 @@ class ReceiptSection(_LazyMapping):
         rows=_read(self.slug,self.revision,'SELECT owner,nrows,version FROM receipt_owners ORDER BY ord',())
         order=[]
         for owner,count,version in rows:
-            order.append(owner)
+            if owner not in self.reinserted: order.append(owner)
             if owner in self.versions and self.versions[owner]!=version:
                 raise StaleReceipts('receipt owner version changed')
             self.versions[owner]=version

@@ -87,4 +87,25 @@ class ReceiptMapping(unittest.TestCase):
         self.assertEqual(self.view.plain()['missing']['op']['node'],'missing')
 
 
+    def test_receipt_pop_reinsert_moves_to_end_even_without_content_change(self):
+        owner=self.view['z']; value=owner.pop('first'); owner['first']=value
+        self.assertEqual(list(owner.plain()),['second','first'])
+        self.assertEqual(owner.reinserted,{'first'})
+        self.assertEqual(len(owner),2)
+        self.assertEqual([row[0] for row in owner.changed()],['first'])
+
+    def test_owner_pop_reinsert_matches_dict_order(self):
+        owner=self.view.pop('z'); self.view['z']=owner
+        self.assertEqual(list(self.view.plain()),['other','z'])
+        self.assertEqual(self.view.reinserted,{'z'})
+        self.assertEqual(self.view.versions['z'],1)
+
+    def test_reinsert_then_delete_stays_a_single_delete(self):
+        owner=self.view['z']; value=owner.pop('first'); owner['first']=value
+        del owner['first']
+        self.assertEqual(owner.reinserted,set())
+        self.assertEqual(owner.deleted,{'first'})
+        self.assertEqual(len(owner),1)
+
+
 if __name__=='__main__': unittest.main()
