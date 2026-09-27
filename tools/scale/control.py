@@ -208,8 +208,3 @@ def guarded_wait(proc, *, floor_gb=10, cap_gb=8, report=None):
             proc.kill()
             proc.wait(timeout=30)
 
-
-def capability_probe(command):
-    """Only known read-only discovery attempts are expected in no-CLI fixtures."""
-    low = command.lower().strip()
-    return low.endswith(" --version") or ("agy" in low and low.endswith(" models"))

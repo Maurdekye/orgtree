@@ -209,32 +209,12 @@ def child(args) -> int:
     sys.path.insert(0, str(REPO / "tools"))
     from assert_repo_import import assert_repo_import
     prov = assert_repo_import(str(REPO))
-    refused_path = root / "metrics" / "serve-refused.jsonl"
-    refused_lock = threading.Lock()
-    from control import capability_probe
-    launch_counts = {"capability_probes": 0, "unexpected": 0}
-
-    def forbid(event, a):
-        if event in {"subprocess.Popen", "os.system", "os.startfile", "os.posix_spawn", "os.spawn"}:
-            cmd = str(a[1] if len(a) > 1 else a)
-            low = cmd.lower()
-            if "git" in low and any(v in low for v in (" rev-parse", " status", " merge-base",
-                                                       " log", " show", " diff", " ls-files",
-                                                       " for-each-ref", " worktree list")):
-                return
-            with refused_lock, open(refused_path, "a", encoding="utf-8") as f:
-                expected = capability_probe(cmd)
-                launch_counts["capability_probes" if expected else "unexpected"] += 1
-                row = {"at": time.time(), "event": event, "cmd": cmd[:300], "capability_probe": expected}
-                f.write(json.dumps(row) + "\n")
-                if not expected:
-                    (root / "metrics" / "qualification-invalid.json").write_text(
-                        json.dumps(row), encoding="utf-8")
-            # FileNotFoundError, not RuntimeError: the engine already treats it
-            # as "CLI not installed", so /api/providers and /api/host answer
-            # instead of 500ing (scale-ui-astra 2026-09-26)
-            raise FileNotFoundError(f"scale serve forbids external process: {cmd[:120]}")
-    sys.addaudithook(forbid)
+    import shutil
+    from launch_guard import LaunchAudit
+    launch_audit = LaunchAudit(root, git=shutil.which("git"),
+        providers=[os.environ["ORGTREE_CLAUDE"], os.environ["ORGTREE_CODEX"]],
+        agy=shutil.which("agy"))
+    sys.addaudithook(launch_audit)
 
     t_import = time.time()
     from engine.launch import load_app
@@ -384,11 +364,26 @@ def child(args) -> int:
     def _scale_activity() -> dict:
         with _turn_count_lock:
             result = dict(_turn_counts)
-        with refused_lock:
-            result["launch_attempts"] = dict(launch_counts)
+        result["launch_attempts"] = launch_audit.snapshot()
         if _simulated:
             result["provider"] = _simulated.snapshot()
         return result
+
+    @api.app.post("/scale/audit-negative-control")
+    def _scale_audit_negative_control() -> dict:
+        if os.environ.get("ORGTREE_SCALE_AUDIT_NEGATIVE") != "1":
+            raise RuntimeError("audit negative control not enabled")
+        missing = root / "no-cli" / "audit-control-provider.exe"
+        if missing.exists():
+            raise RuntimeError("negative control executable must not exist")
+        # Harmless even if the audit were broken: this path has no executable.
+        (root / "metrics" / "audit-control-executed.json").write_text(
+            json.dumps({"at": time.time(), "executable": str(missing)}), encoding="utf-8")
+        try:
+            subprocess.run([str(missing), "exec", "please run git status"], check=True)
+        except FileNotFoundError:
+            pass
+        return launch_audit.snapshot()
 
     @api.app.get("/scale/settlement")
     def _scale_settlement() -> dict:

@@ -549,6 +549,7 @@ def main(argv=None) -> int:
                 breach = "unexpected external launch; inspect serve-refused.jsonl"
             if breach:
                 guard["breach"] = {"t": time.time() - t0, "why": breach}
+                rec.write("guard-stop", guard["breach"])
                 stop.set()
                 try:
                     eproc.kill()  # psutil checks process creation identity; PID verified above.

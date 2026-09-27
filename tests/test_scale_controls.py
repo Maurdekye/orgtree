@@ -2,7 +2,7 @@
 import random
 import threading
 import unittest
-from tools.scale.control import BoundedPool, Feed, Workload, memory_breach, capability_probe
+from tools.scale.control import BoundedPool, Feed, Workload, memory_breach
 
 
 class ScaleControlTests(unittest.TestCase):
@@ -92,13 +92,6 @@ class ScaleControlTests(unittest.TestCase):
         self.assertEqual(feed.counts[1]["missing"], 0)
         self.assertAlmostEqual(feed.latencies[0][0], 19400)
         self.assertEqual(feed.counts[0]["over_1s"], 1)
-
-    def test_launch_audit_accepts_only_capability_probes(self):
-        self.assertTrue(capability_probe('C:/no-cli/claude.exe --version'))
-        self.assertTrue(capability_probe('C:/agy.exe --log-file probe.log models'))
-        self.assertFalse(capability_probe('C:/claude.exe -p --output-format stream-json'))
-        self.assertFalse(capability_probe('C:/codex.exe exec prompt'))
-        self.assertFalse(capability_probe('C:/unknown.exe anything'))
 
     def test_requests_use_real_parents_and_owners_and_report_capacity_limits(self):
         metadata = dict(parents={"top": None, "a": "top", "b": "top"},
