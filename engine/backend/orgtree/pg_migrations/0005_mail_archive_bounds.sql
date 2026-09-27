@@ -93,6 +93,9 @@ BEGIN
   EXECUTE format('DROP TRIGGER IF EXISTS mail_archive_bounds ON %I.log_d',s);
   EXECUTE format('CREATE TRIGGER mail_archive_bounds AFTER INSERT OR UPDATE OR DELETE ON %I.log_d '
                  'FOR EACH ROW EXECUTE FUNCTION public.orgtree_track_mail_archive()',s);
+  EXECUTE format('DROP TRIGGER IF EXISTS mail_archive_truncate ON %I.log_d',s);
+  EXECUTE format('CREATE TRIGGER mail_archive_truncate AFTER TRUNCATE ON %I.log_d '
+                 'FOR EACH STATEMENT EXECUTE FUNCTION public.orgtree_truncate_mail_archive()',s);
   -- Re-running rebuilds only derived data and is safe after an interrupted
   -- migration or a restored source snapshot. Never trust a version marker alone.
   EXECUTE format('DELETE FROM %I.mail_archive_bounds',s);
@@ -104,6 +107,15 @@ BEGIN
   EXECUTE format('SELECT count(*) FROM %I.log_d WHERE sect=''mail_log''',s) INTO source_n;
   EXECUTE format('SELECT coalesce(sum(nrows),0) FROM %I.mail_archive_bounds',s) INTO summary_n;
   IF source_n <> summary_n THEN RAISE EXCEPTION 'mail archive reconciliation mismatch in %',s; END IF;
+END
+$fn$;
+
+CREATE OR REPLACE FUNCTION public.orgtree_truncate_mail_archive() RETURNS trigger
+LANGUAGE plpgsql AS $fn$
+BEGIN
+  EXECUTE format('UPDATE %I.mail_archive_bounds SET nrows=0,unknown_rows=0,assigned_max=0,version=version+1',
+                 TG_TABLE_SCHEMA);
+  RETURN NULL;
 END
 $fn$;
 
