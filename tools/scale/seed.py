@@ -43,6 +43,7 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 REPO = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 SCHEMA = "orgtree-scale-v1"
 DB_PREFIX = "orgtree_scale_"
 LIVE_ROOTS = [os.path.expandvars(r"%APPDATA%\Orgtree v2"), os.path.expandvars(r"%APPDATA%\Orgtree")]
