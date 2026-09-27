@@ -143,9 +143,15 @@ if (mode === 'build') {
       })
   }, 10000)
   const timer = setTimeout(() => stop('Measurement wall deadline exceeded'), (seconds + repeats * 100 + 90) * 1000)
+  let resultAt = null
+  const completionGuard = setInterval(() => {
+    if (!fs.existsSync(path.join(output, 'renderer.json'))) return
+    resultAt ??= Date.now()
+    if (Date.now() - resultAt > 5000) stop('Electron failed to exit within5s of final measurement record')
+  }, 1000)
   process.on('SIGINT', () => stop('Interrupted'));process.on('SIGTERM', () => stop('Terminated'))
   const code = await new Promise(resolve => { child.once('error', () => resolve(1));child.once('exit', c => resolve(c ?? 1)) })
-  exited = true;clearInterval(guard);clearTimeout(timer)
+  exited = true;clearInterval(guard);clearInterval(completionGuard);clearTimeout(timer)
   write(path.join(output, 'exit.json'), { code, stopping, at: Date.now(), pid: child.pid })
   process.exitCode = stopping ? 1 : code
   console.log(code || stopping ? 'Measurement failed; no qualification. Inspect exit.json and any renderer.json.' :

@@ -17,7 +17,7 @@ app.commandLine.appendSwitch('disable-background-timer-throttling')
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
 let win, proxy, descriptor, agent
 const sockets = new Set(), paintTimes = new Map(), actions = [], errors = [], ipcCalls = {}
-let paints = 0, clock, controls
+let paints = 0, clock, controls, finishing = false
 let startupDeadline = setTimeout(() => {
   save('renderer.json', { complete: false, error: 'Electron startup exceeded45s', paints, actions, errors });finish(1)
 }, 45000)
@@ -151,8 +151,9 @@ async function makeProxy() {
   return 'http://127.0.0.1:' + proxy.address().port
 }
 function finish(code) {
+  if (finishing) return
+  finishing = true
   clearTimeout(startupDeadline)
-  if (win && !win.isDestroyed()) win.destroy()
   for (const s of sockets) s.destroy()
   proxy?.close();app.exit(code)
 }
@@ -215,6 +216,14 @@ app.whenReady().then(async () => {
       }
       await select(other, 'prepare-agent' + suffix, false)
       await select(agent, 'select-agent' + suffix, true)
+      // The agents list can stay open from both its pin and the native pointer /
+      // focus left on the selected row. Dismiss it using real input before tabs.
+      if (await js('document.querySelector(".attn-agents-toggle")?.getAttribute("aria-expanded")==="true"'))
+        await action('close-agents' + suffix, '.attn-agents-toggle', 'document.querySelector(".attn-agents-toggle")?.getAttribute("aria-expanded")==="false"', { measured: false })
+      win.webContents.sendInputEvent({ type: 'mouseMove', x: 1300, y: 70 })
+      win.webContents.sendInputEvent({ type: 'mouseDown', x: 1300, y: 70, button: 'left', clickCount: 1 })
+      win.webContents.sendInputEvent({ type: 'mouseUp', x: 1300, y: 70, button: 'left', clickCount: 1 })
+      await until(() => js('!document.querySelector(".attn-agents-wrap.list-open")'))
       await action('switch-tab' + suffix, '.attn-desk [data-tab=inbox]', '!!document.querySelector(".attn-desk [data-tab=inbox].on") && visible(document.querySelector(".attn-desk .desk-tabpanel"))')
       await action('open-chat' + suffix, '.attn-desk [data-tab=chat]', '!!document.querySelector(".attn-desk [data-tab=chat].on") && visible(document.querySelector(".attn-desk .msgs")) && !!document.querySelector(".attn-desk [data-transcript-row]")')
       await action('open-work' + suffix, '[aria-label=Work]', 'visible(document.querySelector(".docket-row"))', { measured: false })
