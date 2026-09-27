@@ -116,3 +116,5 @@ class IdentityPG(unittest.TestCase):
         self.assertFalse(warmpool.boundary_check(self.slug,'leaf',want)[0])
         org.node('leaf').pop('halt_requested');org.d['killswitch']={'reason':'stop'};store.save_org(org)
         self.assertIsNone(warmpool.current_hash(self.slug,'leaf'))
+
+if __name__ == '__main__': unittest.main()
