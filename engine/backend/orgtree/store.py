@@ -2240,7 +2240,7 @@ class _NodeList(list):
 
     def extend(self, values: Any) -> None:
         # Preserve ordinary alias semantics for inserted values.
-        for value in values:
+        for value in (list(values) if values is self else values):
             self.append(value)
 
     def insert(self, index: Any, value: Any) -> None:
@@ -2462,7 +2462,7 @@ class LazyDoc(dict[str, Any]):
         "_slug": str, "_snap_doc": dict, "_snap_nodes": dict,
         "_snap_logs": dict, "_key_order": list, "_present": set,
         "_dropped": set, "_pending": dict, "_touched": set,
-        "_lazy_exposed": set,
+        "_lazy_exposed": set, "_deferred_doc": dict,
     }
 
     def __getattr__(self, name: str) -> Any:
@@ -2493,6 +2493,31 @@ class LazyDoc(dict[str, Any]):
         # document, and invalidated by `__setitem__`/`pop` like anything else
         # derived from a section.
         self._proj: dict[tuple[str, tuple[str, ...]], list[dict[str, Any]]] = {}
+
+    def _load_doc_value(self, key: str, rows: dict[str, str]) -> None:
+        """Keep a proven attention-initialized docket encoded until accessed.
+
+        The bounded cache holds only SHA-256 fingerprints, never documents.
+        A changed row is checked again, including writes by an older process.
+        Unknown/legacy content is decoded normally so construction still heals
+        it before org_tx enters its body. There is no persistent schema change.
+        """
+        self._deferred_doc.pop(key, None)
+        fingerprint = None
+        if ORGTX_RESCOPE and key == "work_items":
+            fingerprint = hashlib.sha256(rows[key].encode("utf-8")).digest()
+            if fingerprint in _READY_WORK_ITEMS:
+                dict.pop(self, key, None)
+                self._deferred_doc[key] = rows
+                return
+        value = _assemble(key, rows)
+        dict.__setitem__(self, key, value)
+        if fingerprint is not None and isinstance(value, list) and all(
+                isinstance(item, dict) and "notification_attention_active" in item
+                for item in value):
+            if len(_READY_WORK_ITEMS) >= 256:
+                _READY_WORK_ITEMS.clear()
+            _READY_WORK_ITEMS.add(fingerprint)
 
     # -- materialisation --------------------------------------------------
     def log_append(self, k: str, row: Any) -> None:
@@ -2528,6 +2553,11 @@ class LazyDoc(dict[str, Any]):
         self._pending.setdefault(k, []).append(row)
 
     def __missing__(self, k: str) -> Any:
+        if k in self._deferred_doc:
+            value = _assemble(k, self._deferred_doc[k])
+            del self._deferred_doc[k]
+            dict.__setitem__(self, k, value)
+            return value
         self._drop_proj(k)
         pending = self._pending.pop(k, None)
         if k in LAZY_SECTIONS and k in self._present and k not in self._dropped:
@@ -2623,7 +2653,7 @@ class LazyDoc(dict[str, Any]):
         return rows
 
     def materialize_all(self) -> None:
-        for k in (*LAZY_SECTIONS, *list(self._pending)):
+        for k in (*LAZY_SECTIONS, *list(self._pending), *list(self._deferred_doc)):
             if not dict.__contains__(self, k):
                 with contextlib.suppress(KeyError):
                     self[k]
@@ -2672,6 +2702,7 @@ class LazyDoc(dict[str, Any]):
     def __contains__(self, k: object) -> bool:
         return (dict.__contains__(self, k)
                 or (isinstance(k, str) and k in self._pending)
+                or (isinstance(k, str) and k in self._deferred_doc)
                 or (isinstance(k, str) and k in LAZY_SECTIONS
                     and k in self._present and k not in self._dropped))
 
@@ -2719,6 +2750,7 @@ class LazyDoc(dict[str, Any]):
                 del self._proj[key]
 
     def __setitem__(self, k: str, v: Any) -> None:
+        self._deferred_doc.pop(k, None)
         self._drop_proj(k)
         self._dropped.discard(k)
         if k not in LAZY_SECTIONS:
@@ -2781,6 +2813,8 @@ class LazyDoc(dict[str, Any]):
         self._dropped |= {k for k in LAZY_SECTIONS if dict.__contains__(self, k)}
         self._dropped |= {k for k in self._pending if k in LAZY_SECTIONS}
         self._touched |= {k for k in dict.keys(self) if k not in LAZY_SECTIONS}
+        self._touched.update(self._deferred_doc)
+        self._deferred_doc.clear()
         self._pending.clear()
         self._drop_proj()
         dict.clear(self)
@@ -2822,7 +2856,7 @@ class LazyDoc(dict[str, Any]):
         # (see both methods below) — a cleared or fully-emptied doc must
         # not read as truthy. Same exclusion `__contains__` already applies.
         return (dict.__len__(self) > 0 or bool(self._present - self._dropped)
-                or bool(self._pending))
+                or bool(self._pending) or bool(self._deferred_doc))
 
     def __len__(self) -> int:
         self.materialize_all()
@@ -3119,7 +3153,7 @@ def _load_lazy(conn: sqlite3.Connection, slug: str,
             # includes a lazy-named key (or `nodes`) stored as a blob because
             # its value had the wrong shape
             d._snap_doc.update(grouped[k])
-            dict.__setitem__(d, k, _assemble(k, grouped[k]))
+            d._load_doc_value(k, grouped[k])
         elif k in LAZY_SECTIONS:
             if k in preloaded:
                 d._snap_logs[k] = preload_snaps[k]
@@ -3155,7 +3189,9 @@ def reconstruct_full(conn: sqlite3.Connection) -> dict[str, Any]:
     d = _load_lazy(conn, "")
     out: dict[str, Any] = {}
     for k in d._key_order:
-        if dict.__contains__(d, k):
+        if k in d._deferred_doc:
+            out[k] = d[k]
+        elif dict.__contains__(d, k):
             out[k] = dict.__getitem__(d, k)
         elif k in DICT_LOGS:
             sm = _read_dict_log(conn, k)[1]
@@ -3465,6 +3501,9 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
     # that is the whole point); for a plain dict, the dict
     items = list(dict.items(d))
     new_doc: dict[str, str] = {}
+    if lazy is not None:
+        for rows in lazy._deferred_doc.values():
+            new_doc.update(rows)
     new_nodes: dict[str, str] = {}
     new_logs: dict[str, Any] = {}
 
@@ -3666,7 +3705,7 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
     # -- key order -------------------------------------------------------
     if lazy is not None:
         cur_keys = [k for k, _ in items]
-        cur_set = set(cur_keys) | lazy._unmaterialized()
+        cur_set = set(cur_keys) | lazy._unmaterialized() | set(lazy._deferred_doc)
         order = [k for k in lazy._key_order if k in cur_set]
         seen = set(order)
         for k in cur_keys:
@@ -4876,6 +4915,9 @@ def eager_sections(d: dict[str, Any]) -> dict[str, Any]:
     The values are the LIVE objects, not copies — this is a view for a caller
     that is about to serialise it, never one that is about to mutate it.
     """
+    if isinstance(d, LazyDoc):
+        for key in list(d._deferred_doc):
+            d[key]
     return {k: dict.__getitem__(d, k) for k in dict.keys(d)
             if k not in LAZY_SECTIONS}
 
@@ -5388,11 +5430,16 @@ def _assemble_snapshot(slug: str, prev: Org) -> tuple[Org, int] | None:
                     if k in fresh_doc:
                         rows = _snap_rows(fresh_doc, k)
                         d2._snap_doc.update(rows)
-                        dict.__setitem__(d2, k, _assemble(k, rows))
+                        d2._load_doc_value(k, rows)
                     # else: a deleted key, or a lazy section that stays
                     # unmaterialized (presence already in fresh_present)
                     continue
                 if k in prev_d._snap_doc:
+                    if k in prev_d._deferred_doc:
+                        rows = _snap_rows(prev_d._snap_doc, k)
+                        d2._snap_doc.update(rows)
+                        d2._deferred_doc[k] = rows
+                        continue
                     if not dict.__contains__(prev_d, k):
                         raise _AssembleBail(f"snap without value for {k!r}")
                     d2._snap_doc.update(_snap_rows(prev_d._snap_doc, k))
@@ -5600,7 +5647,7 @@ def _advance_resident(slug: str, d: LazyDoc) -> bool:
                     if row is not None:
                         rows = _read_doc_key(conn, k)
                         d._snap_doc.update(rows)
-                        dict.__setitem__(d, k, _assemble(k, rows))
+                        d._load_doc_value(k, rows)
                     else:
                         if dict.__contains__(d, k):
                             dict.__delitem__(d, k)
@@ -5790,21 +5837,18 @@ def write_org(slug: str) -> Generator[Org]:
         yield load_org(slug)
 
 
-#: (E) (pg-per-call-cost, DEFAULT OFF until reviewed): after an org_tx's
-#: heal check has proved every touched row still equals its baseline, clear
-#: the touched marks, so the commit's scoped save re-serializes only what the
-#: body touches afterwards. Org construction walks every node through the
-#: read barrier (NodesMap._touched_all), which made each org_tx dump every node
-#: twice: once in the heal check and once in the save (measured: 614 dumps for
-#: a one-node write on a 300-node org). SAFE ONLY IF nothing holds a node or
-#: section object from before the reset and mutates it later without passing
-#: the barrier; ORGTREE_SCOPED_SAVE_VERIFY=1 is the check for that.
+#: (E) default off until explicitly approved. Constructor node reads use
+#: mutation-tracked containers; unchanged work_items blobs can stay encoded.
 ORGTX_RESCOPE = os.environ.get("ORGTREE_ORGTX_RESCOPE", "").strip() == "1"
+_READY_WORK_ITEMS: set[bytes] = set()
 
 
 def _rescope_clean(d: Any) -> None:
-    """Clear `d`'s touched marks; call ONLY right after `_resident_dirty(d)`
-    returned [] (every touched value equals its adopted baseline)."""
+    """After a clean heal check, clear node read marks. Nested mutation marks
+    continue to work through retained references; raw assigned aliases remain
+    conservatively exposed. Section references have no mutation tracker, so
+    their exposure MUST remain standing.
+    """
     if not isinstance(d, LazyDoc):
         return
     nodes = dict.get(d, "nodes")

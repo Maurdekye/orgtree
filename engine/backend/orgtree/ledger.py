@@ -1319,7 +1319,11 @@ class Org:
             self.d["_actors_typed"] = True
 
         from .notification_state import reconcile_attention
-        reconcile_attention(self.d, initialize_only=True)
+        # The store defers only an exact content fingerprint previously
+        # checked to contain attention metadata on every work item. Unknown
+        # content still decodes and runs this legacy initialization normally.
+        if "work_items" not in getattr(self.d, "_deferred_doc", {}):
+            reconcile_attention(self.d, initialize_only=True)
 
     # ---------------------------------------------------------------- factory
     @staticmethod

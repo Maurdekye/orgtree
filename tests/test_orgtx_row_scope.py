@@ -1,5 +1,6 @@
 ﻿"""Row scoping must save nested edits, including references retained at load."""
 import copy
+import json
 import os
 import tempfile
 import unittest
@@ -114,6 +115,114 @@ class ConstructionRows(unittest.TestCase):
             self.assertIs(type(org.node('n0')), dict)
             self.assertTrue(org.nodes._touched_all)
 
+
+    def seed_items(self):
+        org = store.load_org(self.slug)
+        items = [{'slug': 'item', 'title': 'Example',
+                  'notification_attention_active': False,
+                  'notification_attention_epoch': 1, 'payload': {'items': [1]}}]
+        org.d['work_items'] = items
+        store.save_org(org)
+        store.load_org(self.slug)  # establishes the content certificate
+        return items
+
+    def test_work_items_deferred_and_equal_when_read(self):
+        items = self.seed_items()
+        org = store._load_sqlite_org(self.slug)
+        self.assertIn('work_items', org.d)
+        self.assertFalse(dict.__contains__(org.d, 'work_items'))
+        raw = org.d._snap_doc['work_items']
+        real = store.json.loads
+        decoded = []
+        def loads(value, *args, **kwargs):
+            if value == raw:
+                decoded.append(value)
+            return real(value, *args, **kwargs)
+        with patch.object(store.json, 'loads', loads):
+            with orgtx.org_tx(self.slug, nodes=['n0']) as tx:
+                tx.org.node('n0')['name'] = 'edited'
+        self.assertEqual(decoded, [], 'untouched warmed work_items must not decode')
+        self.assertEqual(org.d['work_items'], items)
+        self.assertEqual(store._load_sqlite_org(self.slug).d['work_items'], items)
+
+    def test_deferred_work_items_nested_edit_is_saved(self):
+        self.seed_items()
+        with orgtx.org_tx(self.slug, sections=['work_items']) as tx:
+            tx.d['work_items'][0]['payload']['items'].append(2)
+        self.assertEqual(store._load_sqlite_org(self.slug).d['work_items'][0]
+                         ['payload']['items'], [1, 2])
+
+    def test_deferred_work_items_undeclared_edit_refused(self):
+        self.seed_items()
+        with self.assertRaises(orgtx.UnlockedWrite):
+            with orgtx.org_tx(self.slug, nodes=['n0']) as tx:
+                tx.d['work_items'][0]['title'] = 'lost'
+        self.assertEqual(store._load_sqlite_org(self.slug).d['work_items'][0]
+                         ['title'], 'Example')
+
+    def test_deferred_work_items_replacement_and_deletion(self):
+        self.seed_items()
+        with orgtx.org_tx(self.slug, sections=['work_items']) as tx:
+            tx.d['work_items'] = []
+        self.assertEqual(store._load_sqlite_org(self.slug).d['work_items'], [])
+        store.load_org(self.slug)
+        with orgtx.org_tx(self.slug, sections=['work_items']) as tx:
+            self.assertEqual(tx.d.pop('work_items'), [])
+        self.assertNotIn('work_items', store._load_sqlite_org(self.slug).d)
+
+    def test_deferred_work_items_changed_legacy_content_heals(self):
+        items = self.seed_items()
+        del items[0]['notification_attention_active']
+        # An older writer may replace the row. A slug/revision-only cache must
+        # not certify this new content from the previous row's certificate.
+        with store._POOL.acquire(self.slug) as conn:
+            conn.execute('UPDATE doc SET val=? WHERE key=?',
+                         (json.dumps(items), 'work_items'))
+        with orgtx.org_tx(self.slug, nodes=['n0']) as tx:
+            self.assertIn('notification_attention_active', tx.d['work_items'][0])
+            tx.org.node('n0')['name'] = 'edited'
+        with store._POOL.acquire(self.slug) as conn:
+            saved = json.loads(conn.execute(
+                "SELECT val FROM doc WHERE key='work_items'").fetchone()[0])
+        self.assertIn('notification_attention_active', saved[0])
+
+    def test_deferred_copy_export_and_clear_keep_dict_semantics(self):
+        items = self.seed_items()
+        org = store._load_sqlite_org(self.slug)
+        duplicate = copy.deepcopy(org.d)
+        self.assertEqual(duplicate['work_items'], items)
+        with store._POOL.acquire(self.slug) as conn:
+            self.assertEqual(store.reconstruct_full(conn)['work_items'], items)
+        org = store._load_sqlite_org(self.slug)
+        org.d.clear()
+        self.assertNotIn('work_items', org.d)
+        self.assertFalse(org.d)
+
+    def test_node_mutator_surfaces_keep_retained_marks(self):
+        org = store._load_sqlite_org(self.slug)
+        node = org.node('n0')
+        values = node['payload']['items']
+        payload = node['payload']
+        mutations = [lambda: payload.update(extra=1),
+                     lambda: payload.setdefault('second', []),
+                     lambda: payload.__ior__({'third': 3}),
+                     lambda: payload.pop('extra'),
+                     lambda: payload.__delitem__('third'),
+                     lambda: payload.popitem(),
+                     lambda: values.append(2), lambda: values.extend([3]),
+                     lambda: values.insert(0, 0), lambda: values.__setitem__(0, 4),
+                     lambda: values.__setitem__(slice(0, 1), [5]),
+                     lambda: values.reverse(), lambda: values.sort(),
+                     lambda: values.__iadd__([6]), lambda: values.__imul__(2),
+                     lambda: values.remove(6), lambda: values.pop(),
+                     lambda: values.__delitem__(slice(0, 1)),
+                     lambda: values.extend(values), lambda: values.clear(),
+                     lambda: payload.clear()]
+        for mutate in mutations:
+            with self.subTest(mutate=mutate):
+                org.nodes._mark_clear()
+                mutate()
+                self.assertIn('n0', org.nodes._changed())
 
 class SwitchDelivery(unittest.TestCase):
     def test_runner_delivers_controls(self):
