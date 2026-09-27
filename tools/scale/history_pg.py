@@ -22,7 +22,7 @@ from history_fixture import (FAMILIES, FORMAT, PREFIX, compact, digest, read_row
 TAIL_OFFSET = 1 << 40
 
 
-def frozen_source_hash(base):
+def frozen_source_hash(base, *, doc_details=None):
     """Expected stored original rows, derived only from frozen input.
 
     The only added fields are the two declared PG singleton defaults. Physical
@@ -55,6 +55,8 @@ def frozen_source_hash(base):
         else:
             docs[key] = encode(value)
     meta = {"key_order": encode(list(base)), **owners}
+    if doc_details is not None:
+        doc_details.update(docs)
     h = hashlib.sha256()
     counts = {}
     table_hashes = {}
@@ -220,7 +222,14 @@ def restore(bundle, arm, root, *, guard=lambda: None):
         if before != expected_source:
             mismatched = [table for table in before["table_sha256"]
                           if before["table_sha256"][table] != expected_source["table_sha256"][table]]
-            raise ValueError(f"persisted active/fixed records changed from frozen base: {mismatched}")
+            doc_keys = []
+            if "doc" in mismatched:
+                expected_docs = {}
+                frozen_source_hash(base, doc_details=expected_docs)
+                actual_docs = dict(raw.execute("SELECT key,val FROM doc"))
+                doc_keys = [key for key in sorted(set(expected_docs) | set(actual_docs))
+                            if expected_docs.get(key) != actual_docs.get(key)]
+            raise ValueError(f"persisted active/fixed records changed from frozen base: {mismatched}, doc keys {doc_keys[:10]}")
         node_ord = raw.execute("SELECT coalesce(max(ord),-1)+1 FROM nodes").fetchone()[0]
         with raw.cursor().copy("COPY nodes(id,ord,val) FROM STDIN") as cp:
             for i, row in enumerate(read_rows(bundle / arm / "retired_agents.jsonl")):
