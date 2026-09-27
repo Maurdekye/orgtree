@@ -20025,7 +20025,7 @@ ADMISSION_COMPACT_LOGS: tuple[str, ...] = ("events", "notice_log")
 
 def _admission_rows(slug: str, nid: str, *, compact: bool = False
                     ) -> dict[str, Any]:
-    """org_tx keyword arguments for one of turn admission's two transactions.
+    """org_tx keyword arguments for the admission or rare compaction transaction.
 
     `compact=True` is the first (gates + cache forecast + auto
     cheap-compaction): besides the agent's row it locks `nid@<generation>`,
@@ -20056,7 +20056,7 @@ def _admission_rows(slug: str, nid: str, *, compact: bool = False
         pass
     # the agent's own notices row and its PLANNED parent's (read lock-free;
     # `_admission_pred_locked` skips the compaction when either moved), never
-    # the whole container: this transaction runs on every ordinary admission
+    # the whole container: this transaction runs only when compaction was forecast ready
     notices = [("notices", nid)] + ([("notices", str(parent))] if parent else [])
     return {"nodes": [nid, f"{nid}@{gen}"], "sections": notices,
             "share_sections": share, "logs": list(ADMISSION_COMPACT_LOGS)}
@@ -20423,6 +20423,46 @@ def _admission_gates(slug: str, org: Org, nid: str) -> None:
             "session from another device) — mail waits until "
             "release")
 
+class _CompactFirst(Exception):
+    """Abort read-only admission and commit compaction before any drain."""
+
+
+def _turn_forecast(org: Org, nid: str) -> tuple[Any, Any, Any, Any, Any]:
+    """Resolve the launch evidence on the locked admission snapshot."""
+    slug = str(org.d['slug'])
+    cache_pre_env = cache_codex_manifest = None
+    cache_forecast_event = cache_attempt = _forecast0 = None
+    try:
+        _tier0 = str(org.node(nid).get("model") or "")
+        _provider0 = providers.provider_of(_tier0)
+        if _provider0 == "claude":
+            # Reuse this exact resolved environment at launch;
+            # forecast and request cannot race two account reads.
+            cache_pre_env = spawn_env(
+                org, tier=_tier0, nid=nid)
+        elif _provider0 == "openai":
+            # Real-turn resolution writes the managed file
+            # before hashing native discovery. This exact
+            # captured manifest then flows to warm admission,
+            # wire delivery and the cache attempt.
+            cache_codex_manifest = _codex_startup_manifest(
+                org, nid, write_ident=True)
+        _forecast0, cache_forecast_event, _current0 = \
+            _cache_forecast_now(
+                org, nid, env=cache_pre_env,
+                codex_manifest=cache_codex_manifest)
+        cache_attempt = _cache_persistable(_current0)
+    except Exception as exc:                    # noqa: BLE001
+        # Prediction is protective telemetry, never an
+        # admission dependency. Unknown evidence means run the
+        # exact pending turn without destructive optimization.
+        _forecast0 = None
+        print(f"[orgtree] {slug}/{nid}: cache forecast "
+              f"unavailable ({type(exc).__name__}: {exc})")
+    return (cache_pre_env, cache_codex_manifest, _forecast0,
+            cache_forecast_event, cache_attempt)
+
+
 def _run_one_turn_recorded(slug: str, nid: str,
                            text: str | dict[str, Any], *,
                            probe_token: str | None = None,
@@ -20767,112 +20807,9 @@ def _run_one_turn_recorded(slug: str, nid: str,
                       f"a turn slot (limit={_turn_slots.limit}, shared "
                       f"across every org on this instance) — this is the "
                       f"machine-wide cap being contended, not this node")
-            # PG-3e-A: THE point of no return, as TWO row transactions (decisions
-            # 2, 5 and 9 on pg-3e-a-runtime-admission-and-turns-onto-org-tx). Each
-            # locks the agent's node row FOR UPDATE and the org gate sections FOR
-            # SHARE (so a killswitch latch orders against admission while
-            # admissions do not serialise org-wide) and runs the SAME gates on
-            # what it locked. The first commits an auto cheap-compaction on its
-            # own, exactly as the DOC_LOCK version saved it before the drain, so a
-            # failed drain never undoes it; the second drains the mailbox.
-            if not is_cmd:
-                with halt.txn(slug, **_admission_rows(slug, nid, compact=True)) as _cmp_tx:
-                    org = _cmp_tx.org
-                    _admission_gates(slug, org, nid)
-                    # NOT locked fable nodes under a fable_lock (e.g. rehired anyway) are
-                    # allowed to TRY — the real limit rejects them naturally (user ruling:
-                    # the gate is a suggestion, reality is the enforcement)
-                    # drain notices + mail atomically — the №27 envelope, delivered at
-                    # the turn boundary (§7.4); nothing wakes anyone, nothing arrives twice
-                    # a slash command skips the drain entirely: the "/" must be
-                    # the first character the CLI sees, and the mail stays boxed
-                    # for the next normal turn (user-approved 2026-07-31)
-                    # Cache-protective cheap compaction lives at this ONE common
-                    # ordinary-turn admission boundary, before notices or mail are
-                    # drained. User, mail, checkup, recovery and provider-redrive
-                    # carriers therefore share the same exact-once gate. Commands
-                    # deliberately skip it because they launch no prompt turn.
-                    try:
-                        _tier0 = str(org.node(nid).get("model") or "")
-                        _provider0 = providers.provider_of(_tier0)
-                        if _provider0 == "claude":
-                            # Reuse this exact resolved environment at launch;
-                            # forecast and request cannot race two account reads.
-                            cache_pre_env = spawn_env(
-                                org, tier=_tier0, nid=nid)
-                        elif _provider0 == "openai":
-                            # Real-turn resolution writes the managed file
-                            # before hashing native discovery. This exact
-                            # captured manifest then flows to warm admission,
-                            # wire delivery and the cache attempt.
-                            cache_codex_manifest = _codex_startup_manifest(
-                                org, nid, write_ident=True)
-                        _forecast0, cache_forecast_event, _current0 = \
-                            _cache_forecast_now(
-                                org, nid, env=cache_pre_env,
-                                codex_manifest=cache_codex_manifest)
-                        cache_attempt = _cache_persistable(_current0)
-                    except Exception as exc:                    # noqa: BLE001
-                        # Prediction is protective telemetry, never an
-                        # admission dependency. Unknown evidence means run the
-                        # exact pending turn without destructive optimization.
-                        print(f"[orgtree] {slug}/{nid}: cache forecast "
-                              f"unavailable ({type(exc).__name__}: {exc})")
-                    else:
-                        _cfg0 = _auto_cheap_cfg(org, nid)
-                        if (_cfg0 is not None
-                                and _admission_pred_locked(_cmp_tx, org, nid)
-                                and _auto_cheap_ready(
-                                    org.node(nid), _cfg0, _forecast0,
-                                    org.d.get("models"))):
-                            _before = org.node(nid)
-                            _occ0 = _before.get("occupancy")
-                            _cw0 = context_window(_before, org.d.get("models"))
-                            _state0 = str(_forecast0.get("state") or "")
-                            _reason0 = str(_forecast0.get("reason") or "")
-                            try:
-                                _r0 = org.cheap_compact(SYSTEM, nid)
-                                export_predecessor_transcript(
-                                    org, nid,
-                                    old_sid=str(_r0.get("old_session") or ""),
-                                    reason="cheap_compact")
-                            except LedgerError:
-                                # A raced lifecycle change refuses the swap;
-                                # the original carrier proceeds normally.
-                                pass
-                            else:
-                                # A successor is a new evidence generation. It
-                                # cannot inherit the predecessor's receipt.
-                                org.node(nid).pop("cache_continuity", None)
-                                try:
-                                    if providers.provider_of(
-                                            str(org.node(nid).get("model")
-                                                or "")) == "openai":
-                                        # Cheap compaction minted a successor
-                                        # generation and identity. Resolve it
-                                        # once; never carry the predecessor's
-                                        # raw launch capture across the swap.
-                                        cache_codex_manifest = \
-                                            _codex_startup_manifest(
-                                                org, nid, write_ident=True)
-                                    (_forecast1, cache_forecast_event,
-                                     _current1) = _cache_forecast_now(
-                                         org, nid, env=cache_pre_env,
-                                         codex_manifest=cache_codex_manifest)
-                                    cache_attempt = _cache_persistable(_current1)
-                                except Exception:               # noqa: BLE001
-                                    cache_forecast_event = None
-                                    cache_attempt = None
-                                print(
-                                    f"[orgtree] {slug}/{nid}: cache-protective "
-                                    f"cheap-compact (context "
-                                    f"{100 * float(_occ0 or 0) / float(_cw0 or 1):.0f}"
-                                    f"%, {_state0}: {_reason0})")
-                        # The generation-owned decision commits with the
-                        # compaction in THIS transaction, before the drain's
-                        # (decision 9): a restart sees the successor together
-                        # with its own evidence, so it still cannot resurrect
-                        # stale evidence.
+            # S1: ordinary admission forecasts and drains in one transaction.
+            # A ready compaction aborts before the drain, commits separately,
+            # then admission re-checks every gate on newly locked rows.
             _phantom_turn = False
             # turn-tx merge S2 (review f1): the envelope is composed INSIDE the
             # admission transaction, which locks org-wide `mail_transitions`.
@@ -20900,144 +20837,219 @@ def _run_one_turn_recorded(slug: str, nid: str,
             # every image load inside the admission transaction (the journal
             # row's composition, the envelope, the human view) reads the cache
             _img_tok = imgblock.push(_img_cache)
-            with halt.txn(slug, **_admission_rows(slug, nid)) as _adm_tx:
-                org = _adm_tx.org
-                _admission_gates(slug, org, nid)
-                mail = ([] if is_cmd or toks else
-                        _take_delivery_mail(org, nid, carrier_mail_ids))
-                pending = (None if is_cmd or toks
-                           or (carrier_mail_ids is not None and not mail)
-                           else (org.d.get("notices") or {}).pop(nid, None))
-                # a carrier that already OWNS batches (`toks`: a steer carrier
-                # folded into the queue at turn exit) has the full envelope as
-                # its text; its composition is re-read from those journal rows
-                # (`_owned_segments`). Newer boxed mail waits behind it.
-                # Otherwise a ping carrier composes its nudge as a typed
-                # `drive` segment (`_ping_drive`) — never when it owns a batch,
-                # which would wrap the whole [MAIL] block into a hidden segment
-                owned = None if is_cmd else _owned_segments(org, nid, toks)
-                turn_drive = (_ping_drive(org, nid, text, ping_reason)
-                              if is_ping and not is_cmd and owned is None
-                              and not toks else None)
-                view_segments = None if is_cmd else _segments_for(
-                    mail, pending, text if isinstance(text, str) else None,
-                    drive=turn_drive, owned=owned, view=carrier_view,
-                    carried=carrier_segs)
-                if pending or mail:
-                    # journal the batch: if the CLI never launches (bad
-                    # binary, Docker down, timeout) the drained mail would
-                    # die with the turn — the journal folds it back. The row
-                    # holds THIS drain's own composition only
-                    # AT THE FRONT (text order, see the boundary feed): the
-                    # new drain is prepended to the owned text below
-                    toks.insert(0, _journal_drain(org, nid, mail, pending, "turn",
-                                                  drive=turn_drive,
-                                                  segments=(_segments_for(mail, pending, None)
-                                                            if owned is not None
-                                                            or carrier_segs is not None
-                                                            else view_segments)))
-                    # (no save here: the journal row commits with the
-                    # admission org_tx, atomically with the drain itself)
-                # CUSTODY. THIS attempt now holds every token it is carrying —
-                # the one just drained (already adopted inside `_journal_drain`)
-                # AND any it inherited from a steer carrier the boundary folded
-                # into the queue. Adopted into the admission registration inside
-                # this DOC_LOCK; `_state_lock` nests inside DOC_LOCK, never the
-                # reverse. `adopt` is idempotent for tokens already held.
-                if toks:
-                    with _state_lock:
-                        mailruntime.adopt(st, attempt=turn_operation_id, toks=toks)
-                prelude = []
-                # D-181: bound here, assigned under the lock below. Never folded
-                # into `prelude` — see the note at the assignment.
-                state_block = ""
-                state_facts: dict[str, Any] = {}
-                usage_org: Org | None = None
-                # D-223: what this turn's envelope claims the agent has now read.
-                # STAGED here, committed only at the `_confirm_delivered` seam
-                # below — see `_envelope_decide`.
-                env_pending: dict[str, envelope.Snapshot] = {}
-                if pending:
-                    lines = "\n".join(f"- {p['at']}: {p['text']}" for p in pending)
-                    prelude.append(f"[ORG NOTICES — {len(pending)} change(s) since your "
-                                   f"last turn]\n{lines}\n[END NOTICES]")
-                turn_images: list[dict[str, Any]] = []
-                if mail:
-                    # inline=True: this text becomes a CLI user event a few lines
-                    # below, which is the one carrier that can hold an image
-                    mtext, turn_images = _mail_block(mail, slug, nid, inline=True)
-                    prelude.append(mtext)
-                    human_mail = [m for m in mail if not m.get("model_only")]
-                    if human_mail:
-                        # same composer as the steer path, so the two cannot word
-                        # the view — or its provenance — differently
-                        turn_view, view_spans = _human_view_spans(
-                            human_mail, turn_view, slug, nid, inline=True)
-                if prelude:
-                    text = "\n\n".join(prelude) + "\n\n" + text
-                elif is_ping and not is_cmd and not toks:
-                    # ⭐ THE SECOND PHANTOM SITE (D-175, found 2026-08-28 by
-                    # @org:unity reporting a wake that survived the first fix).
-                    # `_run_turn`'s gate asks "is there anything to point at"
-                    # BEFORE this turn blocks on a slot, and the drain happens
-                    # AFTER it — so the whole slot wait is a window in which the
-                    # box can empty. A RETRACTED message is the reported way in
-                    # (`node_mail_retract` deletes the entry and, correctly, never
-                    # touches the queue), but any drain in that window does it.
-                    # The earlier gate is not redundant: it saves the slot wait
-                    # entirely when the box is already empty. This one is what
-                    # makes the check TRUE AT THE MOMENT IT MATTERS.
-                    #
-                    # ⚠ THE `toks` CLAUSE IS LOAD-BEARING. A carrier that arrives
-                    # holding journal tokens is already carrying a drained batch —
-                    # its `text` HAS the mail block in it — and an empty `prelude`
-                    # there means "nothing NEW", not "nothing at all". Dropping on
-                    # `not prelude` alone would silently eat delivered mail, which
-                    # is the one outcome worse than the phantom.
-                    _phantom_turn = True
-                # persist the in-flight turn: if orgtree dies mid-turn, reconcile()
-                # auto-resumes this node with the interrupted text (user ruling).
-                # turn-tx merge S2: recorded in the ADMISSION transaction,
-                # atomically with the drain (the rows are a superset of the
-                # old in-flight transaction's: node row + delivering)
-                if not _phantom_turn and nid in org.nodes:
-                    # The F-04 wake-void is RETIRED (user ruling 2026-08-06):
-                    # a turn starting on other mail leaves an open ask
-                    # standing. Requests die only by the user's hand
-                    # (answer/dismiss/deny) or the agent's own (withdraw_ask,
-                    # or posing a new request, which replaces the old).
-                    # the cmd marker makes the flag durable: both replayers
-                    # (reconcile, ▶ resume) rebuild plain text as prose, which
-                    # would bury the "/" mid-string — a command that can't
-                    # replay honestly is dropped, not degraded (review)
-                    inf: InflightInfo = {"at": now_iso(), "text": text[-8000:]}
-                    inf["view"] = turn_view[-8000:]
-                    # …and WHAT IT IS MADE OF, so a restart that kills this
-                    # turn can replay it as cards rather than as the raw
-                    # envelope (`_restart_replay`). Frozen only when it fits;
-                    # absent means the replay uses the text tail, as it always
-                    # did. `text`/`view` above are cut to their last 8000 chars
-                    # and the composition is not, so the two can disagree about
-                    # a very long turn — the segments are the more complete
-                    # account and the one the desk reads.
-                    _fseg = _freezable_segments(view_segments)
-                    if _fseg is not None:
-                        inf["segments"] = _fseg
-                    if is_cmd:
-                        inf["cmd"] = True
-                    if cache_attempt is not None:
-                        # The request in flight rides the marker, so the
-                        # mid-turn projection compares against what was
-                        # actually sent (`_cache_inflight_attempt`).
-                        inf["cache_attempt"] = cache_attempt
-                    mailruntime.record_input(org, nid, toks,
-                        attempt=turn_operation_id, base=mail_replay_base, marker=inf)
-                    org.node(nid)["inflight"] = inf
-                    # new work begins: a lingering done/blocked chip would lie —
-                    # but the history is kept, not erased (gap audit №13)
-                    ls = org.node(nid).pop("last_status", None)
-                    if ls:
-                        org.node(nid)["prev_status"] = ls
+            compact_tried = False
+            while True:
+                try:
+                    with halt.txn(slug, **_admission_rows(slug, nid)) as _adm_tx:
+                        org = _adm_tx.org
+                        _admission_gates(slug, org, nid)
+                        if not is_cmd and not compact_tried:
+                            (cache_pre_env, cache_codex_manifest, _forecast0,
+                             cache_forecast_event, cache_attempt) = _turn_forecast(org, nid)
+                            _cfg0 = _auto_cheap_cfg(org, nid)
+                            if (_forecast0 is not None and _cfg0 is not None
+                                    and _auto_cheap_ready(org.node(nid), _cfg0,
+                                                          _forecast0, org.d.get("models"))):
+                                raise _CompactFirst()
+                        mail = ([] if is_cmd or toks else
+                                _take_delivery_mail(org, nid, carrier_mail_ids))
+                        pending = (None if is_cmd or toks
+                                   or (carrier_mail_ids is not None and not mail)
+                                   else (org.d.get("notices") or {}).pop(nid, None))
+                        # a carrier that already OWNS batches (`toks`: a steer carrier
+                        # folded into the queue at turn exit) has the full envelope as
+                        # its text; its composition is re-read from those journal rows
+                        # (`_owned_segments`). Newer boxed mail waits behind it.
+                        # Otherwise a ping carrier composes its nudge as a typed
+                        # `drive` segment (`_ping_drive`) — never when it owns a batch,
+                        # which would wrap the whole [MAIL] block into a hidden segment
+                        owned = None if is_cmd else _owned_segments(org, nid, toks)
+                        turn_drive = (_ping_drive(org, nid, text, ping_reason)
+                                      if is_ping and not is_cmd and owned is None
+                                      and not toks else None)
+                        view_segments = None if is_cmd else _segments_for(
+                            mail, pending, text if isinstance(text, str) else None,
+                            drive=turn_drive, owned=owned, view=carrier_view,
+                            carried=carrier_segs)
+                        if pending or mail:
+                            # journal the batch: if the CLI never launches (bad
+                            # binary, Docker down, timeout) the drained mail would
+                            # die with the turn — the journal folds it back. The row
+                            # holds THIS drain's own composition only
+                            # AT THE FRONT (text order, see the boundary feed): the
+                            # new drain is prepended to the owned text below
+                            toks.insert(0, _journal_drain(org, nid, mail, pending, "turn",
+                                                          drive=turn_drive,
+                                                          segments=(_segments_for(mail, pending, None)
+                                                                    if owned is not None
+                                                                    or carrier_segs is not None
+                                                                    else view_segments)))
+                            # (no save here: the journal row commits with the
+                            # admission org_tx, atomically with the drain itself)
+                        # CUSTODY. THIS attempt now holds every token it is carrying —
+                        # the one just drained (already adopted inside `_journal_drain`)
+                        # AND any it inherited from a steer carrier the boundary folded
+                        # into the queue. Adopted into the admission registration inside
+                        # this DOC_LOCK; `_state_lock` nests inside DOC_LOCK, never the
+                        # reverse. `adopt` is idempotent for tokens already held.
+                        if toks:
+                            with _state_lock:
+                                mailruntime.adopt(st, attempt=turn_operation_id, toks=toks)
+                        prelude = []
+                        # D-181: bound here, assigned under the lock below. Never folded
+                        # into `prelude` — see the note at the assignment.
+                        state_block = ""
+                        state_facts: dict[str, Any] = {}
+                        usage_org: Org | None = None
+                        # D-223: what this turn's envelope claims the agent has now read.
+                        # STAGED here, committed only at the `_confirm_delivered` seam
+                        # below — see `_envelope_decide`.
+                        env_pending: dict[str, envelope.Snapshot] = {}
+                        if pending:
+                            lines = "\n".join(f"- {p['at']}: {p['text']}" for p in pending)
+                            prelude.append(f"[ORG NOTICES — {len(pending)} change(s) since your "
+                                           f"last turn]\n{lines}\n[END NOTICES]")
+                        turn_images: list[dict[str, Any]] = []
+                        if mail:
+                            # inline=True: this text becomes a CLI user event a few lines
+                            # below, which is the one carrier that can hold an image
+                            mtext, turn_images = _mail_block(mail, slug, nid, inline=True)
+                            prelude.append(mtext)
+                            human_mail = [m for m in mail if not m.get("model_only")]
+                            if human_mail:
+                                # same composer as the steer path, so the two cannot word
+                                # the view — or its provenance — differently
+                                turn_view, view_spans = _human_view_spans(
+                                    human_mail, turn_view, slug, nid, inline=True)
+                        if prelude:
+                            text = "\n\n".join(prelude) + "\n\n" + text
+                        elif is_ping and not is_cmd and not toks:
+                            # ⭐ THE SECOND PHANTOM SITE (D-175, found 2026-08-28 by
+                            # @org:unity reporting a wake that survived the first fix).
+                            # `_run_turn`'s gate asks "is there anything to point at"
+                            # BEFORE this turn blocks on a slot, and the drain happens
+                            # AFTER it — so the whole slot wait is a window in which the
+                            # box can empty. A RETRACTED message is the reported way in
+                            # (`node_mail_retract` deletes the entry and, correctly, never
+                            # touches the queue), but any drain in that window does it.
+                            # The earlier gate is not redundant: it saves the slot wait
+                            # entirely when the box is already empty. This one is what
+                            # makes the check TRUE AT THE MOMENT IT MATTERS.
+                            #
+                            # ⚠ THE `toks` CLAUSE IS LOAD-BEARING. A carrier that arrives
+                            # holding journal tokens is already carrying a drained batch —
+                            # its `text` HAS the mail block in it — and an empty `prelude`
+                            # there means "nothing NEW", not "nothing at all". Dropping on
+                            # `not prelude` alone would silently eat delivered mail, which
+                            # is the one outcome worse than the phantom.
+                            _phantom_turn = True
+                        # persist the in-flight turn: if orgtree dies mid-turn, reconcile()
+                        # auto-resumes this node with the interrupted text (user ruling).
+                        # turn-tx merge S2: recorded in the ADMISSION transaction,
+                        # atomically with the drain (the rows are a superset of the
+                        # old in-flight transaction's: node row + delivering)
+                        if not _phantom_turn and nid in org.nodes:
+                            # The F-04 wake-void is RETIRED (user ruling 2026-08-06):
+                            # a turn starting on other mail leaves an open ask
+                            # standing. Requests die only by the user's hand
+                            # (answer/dismiss/deny) or the agent's own (withdraw_ask,
+                            # or posing a new request, which replaces the old).
+                            # the cmd marker makes the flag durable: both replayers
+                            # (reconcile, ▶ resume) rebuild plain text as prose, which
+                            # would bury the "/" mid-string — a command that can't
+                            # replay honestly is dropped, not degraded (review)
+                            inf: InflightInfo = {"at": now_iso(), "text": text[-8000:]}
+                            inf["view"] = turn_view[-8000:]
+                            # …and WHAT IT IS MADE OF, so a restart that kills this
+                            # turn can replay it as cards rather than as the raw
+                            # envelope (`_restart_replay`). Frozen only when it fits;
+                            # absent means the replay uses the text tail, as it always
+                            # did. `text`/`view` above are cut to their last 8000 chars
+                            # and the composition is not, so the two can disagree about
+                            # a very long turn — the segments are the more complete
+                            # account and the one the desk reads.
+                            _fseg = _freezable_segments(view_segments)
+                            if _fseg is not None:
+                                inf["segments"] = _fseg
+                            if is_cmd:
+                                inf["cmd"] = True
+                            if cache_attempt is not None:
+                                # The request in flight rides the marker, so the
+                                # mid-turn projection compares against what was
+                                # actually sent (`_cache_inflight_attempt`).
+                                inf["cache_attempt"] = cache_attempt
+                            mailruntime.record_input(org, nid, toks,
+                                attempt=turn_operation_id, base=mail_replay_base, marker=inf)
+                            org.node(nid)["inflight"] = inf
+                            # new work begins: a lingering done/blocked chip would lie —
+                            # but the history is kept, not erased (gap audit №13)
+                            ls = org.node(nid).pop("last_status", None)
+                            if ls:
+                                org.node(nid)["prev_status"] = ls
+                    break
+                except _CompactFirst:
+                    compact_tried = True
+                    with halt.txn(slug, **_admission_rows(slug, nid, compact=True)) as _cmp_tx:
+                        org = _cmp_tx.org
+                        _admission_gates(slug, org, nid)
+                        (cache_pre_env, cache_codex_manifest, _forecast0,
+                         cache_forecast_event, cache_attempt) = _turn_forecast(org, nid)
+                        if _forecast0 is not None:
+                            _cfg0 = _auto_cheap_cfg(org, nid)
+                            if (_cfg0 is not None
+                                    and _admission_pred_locked(_cmp_tx, org, nid)
+                                    and _auto_cheap_ready(
+                                        org.node(nid), _cfg0, _forecast0,
+                                        org.d.get("models"))):
+                                _before = org.node(nid)
+                                _occ0 = _before.get("occupancy")
+                                _cw0 = context_window(_before, org.d.get("models"))
+                                _state0 = str(_forecast0.get("state") or "")
+                                _reason0 = str(_forecast0.get("reason") or "")
+                                try:
+                                    _r0 = org.cheap_compact(SYSTEM, nid)
+                                    export_predecessor_transcript(
+                                        org, nid,
+                                        old_sid=str(_r0.get("old_session") or ""),
+                                        reason="cheap_compact")
+                                except LedgerError:
+                                    # A raced lifecycle change refuses the swap;
+                                    # the original carrier proceeds normally.
+                                    pass
+                                else:
+                                    # A successor is a new evidence generation. It
+                                    # cannot inherit the predecessor's receipt.
+                                    org.node(nid).pop("cache_continuity", None)
+                                    try:
+                                        if providers.provider_of(
+                                                str(org.node(nid).get("model")
+                                                    or "")) == "openai":
+                                            # Cheap compaction minted a successor
+                                            # generation and identity. Resolve it
+                                            # once; never carry the predecessor's
+                                            # raw launch capture across the swap.
+                                            cache_codex_manifest = \
+                                                _codex_startup_manifest(
+                                                    org, nid, write_ident=True)
+                                        (_forecast1, cache_forecast_event,
+                                         _current1) = _cache_forecast_now(
+                                             org, nid, env=cache_pre_env,
+                                             codex_manifest=cache_codex_manifest)
+                                        cache_attempt = _cache_persistable(_current1)
+                                    except Exception:               # noqa: BLE001
+                                        cache_forecast_event = None
+                                        cache_attempt = None
+                                    print(
+                                        f"[orgtree] {slug}/{nid}: cache-protective "
+                                        f"cheap-compact (context "
+                                        f"{100 * float(_occ0 or 0) / float(_cw0 or 1):.0f}"
+                                        f"%, {_state0}: {_reason0})")
+                            # The generation-owned decision commits with the
+                            # compaction in THIS transaction, before the drain's
+                            # (decision 9): a restart sees the successor together
+                            # with its own evidence, so it still cannot resurrect
+                            # stale evidence.
+                    continue
             # turn-locals: `org` (the admission transaction's copy) is the
             # one version the turn keeps; the transactions themselves are done
             _cmp_tx = _adm_tx = None
