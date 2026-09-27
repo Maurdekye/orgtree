@@ -196,6 +196,18 @@ class MailArchiveBounds(unittest.TestCase):
         self.assertEqual(self.send()['recv_seq'], 10)
         self.assertIn((raw,), self.query("SELECT val FROM log_d WHERE sect='mail_log' AND owner='worker'"))
 
+    def test_sql_creator_and_copy_import_keep_bounds_in_same_transaction(self):
+        with psycopg.connect(os.environ['ORGTREE_PG_URL']) as conn:
+            org_id = conn.execute("INSERT INTO public.orgs(slug) VALUES('copy-fixture') RETURNING org_id").fetchone()[0]
+            schema = conn.execute('SELECT public.orgtree_create_org_schema(%s)', (org_id,)).fetchone()[0]
+            with conn.cursor().copy(f'COPY {schema}.log_d(sect,owner,val) FROM STDIN') as stream:
+                for seq in (4, 9, 9):
+                    stream.write_row(('mail_log', 'restored', json.dumps({'id': str(seq), 'recv_seq': seq})))
+            counts = conn.execute(f'SELECT nrows,assigned_max FROM {schema}.mail_archive_bounds '
+                                  "WHERE owner='restored'").fetchone()
+            self.assertEqual(tuple(map(int, counts)), (3, 9))
+            conn.rollback()
+
 
 if __name__ == '__main__':
     unittest.main()

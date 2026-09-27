@@ -127,3 +127,22 @@ BEGIN
   END LOOP;
 END
 $migration$;
+
+-- Importers call the SQL creator directly. Wrap that shared door rather than
+-- only the engine's Python caller; preserve any preceding schema additions.
+DO $wrap$
+BEGIN
+  IF to_regprocedure('public.orgtree_create_org_schema_before_mail_bounds(bigint)') IS NULL THEN
+    ALTER FUNCTION public.orgtree_create_org_schema(bigint) RENAME TO orgtree_create_org_schema_before_mail_bounds;
+  END IF;
+END
+$wrap$;
+CREATE OR REPLACE FUNCTION public.orgtree_create_org_schema(p_org_id bigint) RETURNS text
+LANGUAGE plpgsql AS $fn$
+DECLARE s text;
+BEGIN
+  s := public.orgtree_create_org_schema_before_mail_bounds(p_org_id);
+  PERFORM public.orgtree_install_mail_bounds(p_org_id);
+  RETURN s;
+END
+$fn$;
