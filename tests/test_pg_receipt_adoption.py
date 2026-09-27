@@ -28,18 +28,26 @@ class ReceiptAdoption(unittest.TestCase):
         plan = receiptwriter.prepare(self.view)
         conn = None
         try:
-            with self.raw(commit=commit) as raw:
-                conn = pgstore.PgConn(raw, self.slug, self.oid)
-                receiptwriter.apply(raw, self.oid, plan)
-                if before_revision:
-                    before_revision()
-                pgstore.on_save_commit(conn, bool(plan.owners) or force_revision)
-                if before_capture:
-                    before_capture()
-                adoption = receiptwriter.adoption_after_revision(conn, self.view, plan)
-                receiptcommit.defer(conn, lambda: adoption.install(self.view))
-            if commit:
-                receiptcommit.committed([conn])
+            # Like PgBackend: adopt on the still-open connection right after
+            # its server COMMIT. A closed connection is not IDLE and is refused.
+            with pgstore.connect() as raw:
+                raw.execute('BEGIN')
+                raw.execute(f'SET LOCAL search_path TO org_{self.oid},public')
+                try:
+                    conn = pgstore.PgConn(raw, self.slug, self.oid)
+                    receiptwriter.apply(raw, self.oid, plan)
+                    if before_revision:
+                        before_revision()
+                    pgstore.on_save_commit(conn, bool(plan.owners) or force_revision)
+                    if before_capture:
+                        before_capture()
+                    adoption = receiptwriter.adoption_after_revision(conn, self.view, plan)
+                    receiptcommit.defer(conn, lambda: adoption.install(self.view))
+                except BaseException:
+                    raw.execute('ROLLBACK'); raise
+                raw.execute('COMMIT' if commit else 'ROLLBACK')
+                if commit:
+                    receiptcommit.committed([conn])
         finally:
             if conn is not None:
                 receiptcommit.discard([conn])
