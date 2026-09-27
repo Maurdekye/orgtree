@@ -242,8 +242,11 @@ app.whenReady().then(async () => {
         const before = await memory()
         const open = await action('open-archive' + suffix, '.docket-showarchived input',
           'document.querySelector(".docket-showarchived input")?.checked===true')
-        await until(() => js('!!document.querySelector(".docket-section.tone-archive .docket-row") && ![...document.querySelectorAll("[role=status]")].some(e=>e.textContent.startsWith("Loading docket"))'))
+        await until(() => js('![...document.querySelectorAll("[role=status]")].some(e=>/Loading docket|Could not refresh docket/.test(e.textContent))'))
         const readyAt = epoch()
+        const listPoint = await js('(()=>{const r=document.querySelector(".docket-modal .mailer-list").getBoundingClientRect();return{x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}})()')
+        win.webContents.sendInputEvent({ type: 'mouseWheel', ...listPoint, deltaX: 0, deltaY: 100000 })
+        await until(() => js('!!document.querySelector(".docket-section.tone-archive .docket-row")'))
         const archivedCount = await js('document.querySelector(".docket-section.tone-archive .docket-group-n")?.textContent')
         const opened = await memory()
         await action('close-archive' + suffix, '.docket-showarchived input',
