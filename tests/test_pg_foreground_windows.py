@@ -83,6 +83,45 @@ class ForegroundWindows(unittest.TestCase):
             conn.execute('COMMIT')
         self.assertGreater(revision(), before)
 
+    def test_header_resolved_queries_do_not_scan_history_or_withdrawn_rows(self):
+        org = store.load_org(self.slug)
+        for section in fg.ASK_SECTIONS:
+            org.d[section] = [{'id': f'{section}-{i}', 'node': 'leaf',
+                'status': 'answered' if i < 50 else 'withdrawn',
+                'at': '2000-01-01T00:00:00Z', 'question': 'old'} for i in range(1050)]
+        store.save_org(org)
+        with store._POOL.acquire(self.slug) as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            conn.raw.execute('ANALYZE foreground_asks')
+            conn.execute('COMMIT')
+        plans = []
+        class Observed:
+            def __init__(self, raw):
+                self.raw = raw
+            def execute(self, sql, params=()):
+                if 'status NOT IN' in sql and 'ORDER BY ord DESC LIMIT' in sql:
+                    plans.append(self.raw.execute('EXPLAIN (ANALYZE, FORMAT JSON) ' + sql, params).fetchone()[0])
+                return self.raw.execute(sql, params)
+        with fg._snapshot(self.slug) as (raw, stamp):
+            result = fg.read_card_windows(Observed(raw), ['boss'], header=True)
+        self.assertEqual(len(plans), 3, 'must observe each actual header query')
+        for index, plan in enumerate(plans):
+            nodes = [plan[0]['Plan']]
+            seen = []
+            while nodes:
+                node = nodes.pop()
+                seen.append(node)
+                nodes.extend(node.get('Plans', []))
+            scans = [n for n in seen if n.get('Relation Name') == 'foreground_asks']
+            self.assertEqual(len(scans), 1, plan)
+            scan = scans[0]
+            self.assertIn(scan['Node Type'], ('Index Scan', 'Index Only Scan'), plan)
+            expected = 'foreground_asks_resolved' if index == 0 else 'foreground_asks_resolved_visible'
+            self.assertEqual(scan['Index Name'], expected, plan)
+            self.assertLessEqual(scan['Actual Rows'], ledger.ASK_HISTORY_KEEP, plan)
+            self.assertEqual(scan.get('Rows Removed by Filter', 0), 0, plan)
+        self.assertTrue(all(row['status'] != 'withdrawn' for row in result['asks']['credit_requests']))
+
     def test_ask_batch_linger_and_header_match_shared_ledger_with_large_history(self):
         org = store.load_org(self.slug)
         stamp = ledger.now()

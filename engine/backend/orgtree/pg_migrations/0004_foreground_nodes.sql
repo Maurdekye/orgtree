@@ -287,6 +287,10 @@ BEGIN
    'status text NOT NULL,stamp text NOT NULL,val text NOT NULL,PRIMARY KEY(sect,ord))',s);
  EXECUTE format('CREATE INDEX foreground_asks_open ON %I.foreground_asks(sect,ord) '
    'WHERE status IN (''open'',''pending'')',s);
+ EXECUTE format('CREATE INDEX foreground_asks_resolved ON %I.foreground_asks(sect,ord DESC) '
+   'WHERE status NOT IN (''open'',''pending'')',s);
+ EXECUTE format('CREATE INDEX foreground_asks_resolved_visible ON %I.foreground_asks(sect,ord DESC) '
+   'WHERE status NOT IN (''open'',''pending'') AND status<>''withdrawn''',s);
  EXECUTE format('CREATE INDEX foreground_asks_node ON %I.foreground_asks(node,sect,stamp DESC,ord)',s);
  EXECUTE format('CREATE INDEX foreground_asks_not_withdrawn ON %I.foreground_asks(node,sect,stamp DESC,ord) '
    'WHERE status<>''withdrawn''',s);
