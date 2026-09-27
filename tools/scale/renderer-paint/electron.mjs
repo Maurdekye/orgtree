@@ -250,8 +250,12 @@ app.whenReady().then(async () => {
         await until(() => js('![...document.querySelectorAll("[role=status]")].some(e=>/Loading docket|Could not refresh docket/.test(e.textContent))'))
         const readyAt = epoch()
         const listPoint = await js('(()=>{const r=document.querySelector(".docket-modal .mailer-list").getBoundingClientRect();return{x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}})()')
-        win.webContents.sendInputEvent({ type: 'mouseWheel', ...listPoint, deltaX: 0, deltaY: 100000 })
+        // Chromium's injected wheel uses a negative delta to move down.
+        // This unmeasured setup only brings the loaded archive into view.
+        win.webContents.sendInputEvent({ type: 'mouseMove', ...listPoint })
+        win.webContents.sendInputEvent({ type: 'mouseWheel', ...listPoint, deltaX: 0, deltaY: -100000 })
         await until(() => js('!!document.querySelector(".docket-section.tone-archive .docket-row")'))
+        journal({ archiveScroll: await js('(()=>{const e=document.querySelector(".docket-modal .mailer-list");return{top:e.scrollTop,height:e.scrollHeight,viewport:e.clientHeight}})()') })
         const archivedCount = await js('document.querySelector(".docket-section.tone-archive .docket-group-n")?.textContent')
         const opened = await memory()
         await action('close-archive' + suffix, '.docket-showarchived input',
