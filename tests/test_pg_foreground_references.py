@@ -162,7 +162,8 @@ class ForegroundReferencesPG(unittest.TestCase):
         observations = []
         for count in (20, 200):
             org = store.load_org(self.slug)
-            for index in range(count):
+            # old + bearer are the two fixed archived identities in setup.
+            for index in range(count - 2):
                 nid = f'archive-{index:04d}'
                 org.nodes[nid] = {**self.prototype, 'id': nid, 'state': 'archived', 'parent': 'boss',
                                  'grant': 0, 'charter': 'UNREAD-HISTORY-' * 1000}
