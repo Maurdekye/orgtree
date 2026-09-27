@@ -72,9 +72,9 @@ class LaunchAudit:
         if exe == self.git and self.git:
             if len(tail) >= 3 and tail[0] == "-C":
                 tail = tail[2:]
-            allowed = (tail in (["status", "--porcelain"], ["status", "--porcelain=v1"],
+            allowed = (tail in (["status", "--porcelain"], ["status", "--porcelain", "-uno"], ["status", "--porcelain=v1"],
                                 ["status", "--short"], ["status"],
-                                ["rev-parse", "HEAD"], ["rev-parse", "--show-toplevel"],
+                                ["rev-parse", "HEAD"], ["rev-parse", "--abbrev-ref", "HEAD"], ["rev-parse", "--show-toplevel"],
                                 ["rev-parse", "--git-dir"], ["worktree", "list", "--porcelain"]))
             if allowed:
                 return "git_reads"

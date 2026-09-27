@@ -26,7 +26,9 @@ class LaunchGuardTests(unittest.TestCase):
     def test_expected_git_identity_and_exact_read_form(self):
         for string in (False, True):
             self.audit("subprocess.Popen", self.event(self.git, "status", "--short", string=string))
-        self.assertEqual(self.audit.snapshot()["git_reads"], 2)
+        self.audit("subprocess.Popen", self.event(self.git, "-C", str(self.root), "rev-parse", "--abbrev-ref", "HEAD", string=True))
+        self.audit("subprocess.Popen", self.event(self.git, "-C", str(self.root), "status", "--porcelain", "-uno", string=True))
+        self.assertEqual(self.audit.snapshot()["git_reads"], 4)
         self.assertFalse((self.root / "metrics/qualification-invalid.json").exists())
 
     def test_git_words_inside_provider_prompt_do_not_bypass(self):
