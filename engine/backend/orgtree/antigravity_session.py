@@ -77,7 +77,7 @@ def specification(org: Any, nid: str, *, write: bool = False) -> dict[str, Any]:
     model = org.model_for(nid)
     if row is not None and not model.startswith("gemini-"):
         raise RuntimeError("Antigravity Gemini API-key accounts require a Gemini model")
-    cwd = sup.scratch_dir(org.d["slug"], nid)
+    cwd = sup.scratch_dir(org.d["slug"], nid, policy_org=org)
     identity = sup.identity_prompt(org, nid)
     servers, _ = sup.antigravity_mcp_grant(org, nid)
     servers = dict(servers)

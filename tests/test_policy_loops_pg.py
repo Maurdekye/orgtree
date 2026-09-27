@@ -88,5 +88,17 @@ class PolicyLoops(fixture.PolicyInputs):
             sup._invariant_sweep_org(self.slug)
         transaction.assert_called_once()
 
+    def test_cold_warm_identity_does_not_reload_full_org(self):
+        org = store.load_org(self.slug)
+        org.node('worker')['model'] = 'opus'
+        store.save_org(org)
+        full, got = store.load_org(self.slug), self.projected()
+        with patch.object(store, 'load_org', side_effect=AssertionError('whole Org read')), \
+                patch.object(store, 'load_runtime_org', side_effect=AssertionError('whole runtime read')), \
+                patch.object(store, 'cached_org', side_effect=AssertionError('whole cached read')):
+            projected = warmpool.identity_snapshot(got, 'worker', env={}, overrides={})
+            expected = warmpool.identity_snapshot(full, 'worker', env={}, overrides={})
+        self.assertEqual(projected, expected)
+
 
 if __name__ == '__main__': unittest.main()

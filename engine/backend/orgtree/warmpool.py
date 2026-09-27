@@ -816,7 +816,7 @@ def native_startup_context_digest(org: Any, nid: str) -> str:
     """
     from . import supervisor as sup                 # noqa: PLC0415
 
-    cwd = os.path.abspath(sup.scratch_dir(org.d["slug"], nid))
+    cwd = os.path.abspath(sup.scratch_dir(org.d["slug"], nid, policy_org=org))
     home = os.path.abspath(os.path.expanduser("~"))
     manifest: dict[str, str] = {}
     seen: set[str] = set()
@@ -993,7 +993,7 @@ def codex_startup_context_digest(
     # this projection is consumed. Re-reading ambient paths here used to hash
     # files the captured app-server would not read.
     cwd = os.path.abspath(
-        cwd if cwd is not None else sup.scratch_dir(org.d["slug"], nid))
+        cwd if cwd is not None else sup.scratch_dir(org.d["slug"], nid, policy_org=org))
     codex_home = os.path.abspath(
         codex_home if codex_home is not None else
         (os.environ.get("CODEX_HOME") or os.path.expanduser("~/.codex")))

@@ -10169,7 +10169,8 @@ def _reclaim_blocked(org: Org, nid: str) -> bool:
         or node.get("halt") or node.get("frozen") or node.get("limit_locked")
         or node.get("remote_controlled") or org.d.get("killswitch")
         or org.d.get("spend_frozen")
-        or (org.d.get("storage_blocked") and sbx.on_disk(org.d["slug"]))
+        or (org.d.get("storage_blocked") and (bool(org.d.get("disk"))
+            if getattr(org, "_read_only_projection", False) else sbx.on_disk(org.d["slug"])))
         or _native_context_hold(org, nid))
 
 
@@ -12012,7 +12013,7 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True, *,
     # desk is not a permission at all; there is nothing to grant and nothing
     # to deny, because the successor already holds those files, writably.
     if pred and pred in org.nodes and pred.split("@")[0] != nid.split("@")[0]:
-        host_pd = scratch_dir(org.d["slug"], pred)
+        host_pd = scratch_dir(org.d["slug"], pred, policy_org=org)
         # a SEPARATE bearer's scratch only exists once it has been rehired
         # and worked — --add-dir on a missing path is a CLI error, not a
         # silent no-op
@@ -12026,7 +12027,7 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True, *,
         # denied by it — lives in `ro_deny_rules`, which is module-level so it
         # can be tested without spawning anything.
         deny = ro_deny_rules(ro_paths, sbx.cpath_scratch(slug, nid)
-                             if sandboxed else scratch_dir(slug, nid))
+                             if sandboxed else scratch_dir(slug, nid, policy_org=org))
         if deny:
             settings["permissions"] = {"deny": deny}
     head = ((sbx.exec_argv(sbx.container_name(slug),
@@ -12046,7 +12047,7 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True, *,
     # folder both shapes can read — host path directly, container through its
     # mount. Rewritten before every spawn, so tampering/deletion self-heals;
     # the agent may read it, but it is only its own system prompt.
-    ident_file = os.path.join(scratch_dir(slug, nid), ".orgtree-identity.md")
+    ident_file = os.path.join(scratch_dir(slug, nid, policy_org=org), ".orgtree-identity.md")
     if write_ident:
         ident_new = not os.path.exists(ident_file)
         with open(ident_file, "w", encoding="utf-8") as f:
@@ -12233,7 +12234,7 @@ def _build_cmd(org: Org, nid: str, write_ident: bool = True, *,
     # fails silently as "the file tools stopped reaching my reports". Taking the
     # parent of the same function that mints the per-node dirs cannot drift.
     root = (os.path.dirname(sbx.cpath_scratch(slug, nid)) if sandboxed
-            else os.path.dirname(scratch_dir(org.d["slug"], nid)))
+            else os.path.dirname(scratch_dir(org.d["slug"], nid, policy_org=org)))
     seen = set()
     if sandboxed or os.path.isdir(root):
         # `--add-dir` on a missing host path is a CLI error, not a no-op. The
@@ -13640,7 +13641,8 @@ def _auto_wake_gates_clear(org: Org, nid: str) -> bool:
         return False
     # Match the real turn's disk-org admission gate. Host-folder orgs use the
     # watchdog's ACL barrier instead and are not turn-blocked by this flag.
-    if org.d.get("storage_blocked") and sbx.on_disk(org.d["slug"]):
+    if org.d.get("storage_blocked") and (bool(org.d.get("disk"))
+            if getattr(org, "_read_only_projection", False) else sbx.on_disk(org.d["slug"])):
         return False
     if org.waking_mail(nid):
         return False
@@ -16696,7 +16698,7 @@ def _codex_startup_manifest(
     # after resolution must not silently mutate what this launch means.
     spec = {
         "argv_head": list(spec_raw.get("argv_head") or []),
-        "cwd": str(spec_raw.get("cwd") or scratch_dir(org.d["slug"], nid)),
+        "cwd": str(spec_raw.get("cwd") or scratch_dir(org.d["slug"], nid, policy_org=org)),
         "identity": str(spec_raw.get("identity") or identity_prompt(org, nid)),
         "config_overrides": list(spec_raw.get("config_overrides") or []),
         "env_extra": dict(spec_raw.get("env_extra") or {}),
