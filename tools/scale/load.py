@@ -248,6 +248,15 @@ def main(argv=None) -> int:
     # ---------------- 1. agent tool calls (open loop) ----------------------
     weights = [w for w, _, _ in MIX]
     local = threading.local()
+    from write_oracle import WriteOracle
+    write_oracle = WriteOracle(desc)
+    import atexit
+    atexit.register(write_oracle.close)
+    config['write_oracle'] = {'max_connections': 1,
+        'backend_pid': write_oracle._conn.info.backend_pid,
+        'connection_reserved_before_traffic': True,
+        'isolation': 'new READ COMMITTED read-only transaction per acknowledgment',
+        'same_target_serialization': 'request plus committed readback'}
 
     def client():
         c = getattr(local, "c", None)
@@ -256,6 +265,10 @@ def main(argv=None) -> int:
         return c
 
     def one_call(due: float, me: str, tool: str, targs: dict, request_id: int) -> None:
+        with write_oracle.lock(me, tool, targs):
+            return checked_call(due, me, tool, targs, request_id)
+
+    def checked_call(due: float, me: str, tool: str, targs: dict, request_id: int) -> None:
         begun = time.time()
         status, err, state, receipt = None, None, None, None
         try:
@@ -281,6 +294,16 @@ def main(argv=None) -> int:
         except Exception as e:                               # noqa: BLE001
             err = f"{type(e).__name__}: {e}"[:300]
         end = time.time()
+        if status == 200 and not err and state != 'running':
+            try:
+                checked = write_oracle.check_overwrite(me, tool, targs)
+                if checked is not None:
+                    rec.write('write-checks', {'request_id': request_id, 'actor': me, 'tool': tool, **checked})
+                    if not checked['passed']:
+                        err = 'acknowledged write differs from committed PostgreSQL value'
+            except Exception as exc:
+                err = f'write oracle {type(exc).__name__}: {exc}'
+                rec.write('write-checks', {'request_id': request_id, 'passed': False, 'error': err})
         rec.write("calls", {"t": round(due - t0, 3), "tool": tool,
                             "request_id": request_id, "actor": me, "receipt": receipt,
                             "action": targs.get("action"), "status": status, "state": state,
@@ -601,6 +624,8 @@ def main(argv=None) -> int:
             for t in sockets + [guard_thread]:
                 t.join(timeout=35)
             rec.close()
+            write_oracle.close()
+            atexit.unregister(write_oracle.close)
             raise RuntimeError("all websocket windows must connect before measuring")
     steady = (desc["serve"].get("env_orgtree") or {}).get("ORGTREE_SCALE_SIMULATED_PROVIDER") == "1"
     activity_before = httpx.get(origin + "/scale/activity", headers=H, timeout=30).raise_for_status().json()
@@ -650,6 +675,8 @@ def main(argv=None) -> int:
     guard_stop.set()
     guard_thread.join(timeout=5)
     rec.close()
+    write_oracle.close()
+    atexit.unregister(write_oracle.close)
 
     # ---------------- summary ------------------------------------------------
     def rows(name):

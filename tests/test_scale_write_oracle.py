@@ -44,6 +44,8 @@ class WriteOracleTests(unittest.TestCase):
             conn.execute(sql.SQL('DROP DATABASE {} WITH (FORCE)').format(sql.Identifier(cls.db)))
 
     def setUp(self):
+        self.writer.execute('DELETE FROM org_1.doc')
+        self.writer.execute("INSERT INTO org_1.doc VALUES ('work_items', '[]')")
         self.oracle = WriteOracle({'pg_url': self.url, 'org': 'test'})
         self.addCleanup(self.oracle.close)
         self.store_status('initial')
@@ -98,6 +100,36 @@ class WriteOracleTests(unittest.TestCase):
         with patch('write_oracle.psycopg.connect', side_effect=AssertionError('must not reconnect')):
             with self.assertRaisesRegex(RuntimeError, 'reserved connection is closed'):
                 self.check('initial')
+
+    def store_item(self, item):
+        self.writer.execute('DELETE FROM org_1.doc')
+        self.writer.execute('INSERT INTO org_1.doc VALUES (%s,%s)', ('work_items', json.dumps(
+            {'format': 'orgtree.work-items/v1', 'ids': [item['slug']]})))
+        self.writer.execute('INSERT INTO org_1.doc VALUES (%s,%s)',
+                            ('work_items\x1f' + item['slug'], json.dumps(item)))
+
+    def test_row_layout_checks_overwrite_and_append_values(self):
+        item = {'slug': 'row', 'title': 'created', 'objective': 'why', 'done_so_far': ['done'],
+                'evidence': [{'ref': 'proof', 'note': 'stored'}]}
+        self.store_item(item)
+        check = lambda text: self.oracle.check_overwrite('worker', 'orgtree_work',
+                            {'action': 'update', 'slug': 'row', 'done_so_far': [text]})
+        self.assertTrue(check('done')['passed'])
+        self.assertFalse(check('wrong')['passed'])
+        receipts = [dict(request_id=1, tool='orgtree_work', args=dict(action='create', title='created',
+                      objective='why'), response={'created': 'row'}),
+                    dict(request_id=2, tool='orgtree_work', args=dict(action='evidence', slug='row',
+                      ref='proof', note='stored'), response={'ok': True})]
+        self.assertEqual(len(self.oracle.snapshot(receipts)['append_checks']), 2)
+        self.assertTrue(self.oracle.snapshot(receipts)['passed'])
+        receipts[1]['args']['note'] = 'wrong'
+        self.assertFalse(self.oracle.snapshot(receipts)['passed'])
+
+    def test_missing_committed_item_refuses_verdict(self):
+        self.store_item({'slug': 'row'})
+        self.writer.execute('DELETE FROM org_1.doc WHERE key=%s', ('work_items\x1frow',))
+        with self.assertRaisesRegex(RuntimeError, 'missing or inconsistent'):
+            self.oracle.snapshot()
 
 
 if __name__ == '__main__':

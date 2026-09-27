@@ -366,6 +366,11 @@ def child(args) -> int:
     def _scale_activity() -> dict:
         with _turn_count_lock:
             result = dict(_turn_counts)
+        from orgtree import orgtx, pgdoor
+        import fastapi.concurrency as fc
+        result.update(rescope=store.ORGTX_RESCOPE, steer_cheap=supervisor.STEER_CHEAP,
+                      transition_fence=orgtx.TRANSITION_FENCE, pgdoor=pgdoor.enabled(),
+                      inline=fc.run_in_threadpool.__name__ == '_inline')
         result["launch_attempts"] = launch_audit.snapshot()
         if _simulated:
             result["provider"] = _simulated.snapshot()

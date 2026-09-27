@@ -59,6 +59,24 @@ class WriteOracle:
         with self.mu:
             return self.locks.setdefault(key, threading.Lock())
 
+    def items(self, conn, slug=None):
+        """Read committed raw storage, independent of the product's row reader."""
+        row = conn.execute(sql.SQL("SELECT val FROM {}.doc WHERE key='work_items'")
+                           .format(sql.Identifier(self.schema))).fetchone()
+        value = decode(row[0]) if row else []
+        if isinstance(value, list):
+            return {it['slug']: it for it in value if slug is None or it['slug'] == slug}
+        if not isinstance(value, dict) or value.get('format') != 'orgtree.work-items/v1':
+            raise RuntimeError('oracle: unknown work-item layout')
+        ids = value['ids'] if slug is None else ([slug] if slug in value['ids'] else [])
+        found = conn.execute(sql.SQL('SELECT key,val FROM {}.doc WHERE key = ANY(%s)')
+                             .format(sql.Identifier(self.schema)),
+                             (['work_items\x1f' + item for item in ids],)).fetchall()
+        result = {key.split('\x1f', 1)[1]: decode(raw) for key, raw in found}
+        if set(result) != set(ids) or any(item.get('slug') != key for key, item in result.items()):
+            raise RuntimeError('oracle: missing or inconsistent committed item row')
+        return result
+
     def check_overwrite(self, actor, tool, args):
         if tool != 'orgtree_status' and not (tool == 'orgtree_work' and args.get('action') == 'update'):
             return None
@@ -70,11 +88,7 @@ class WriteOracle:
                 expected = {'status': 'idle' if args['status'] == 'done' else args['status'],
                             'summary': args['summary']}
             else:
-                row = conn.execute(sql.SQL("SELECT x FROM {}.doc, jsonb_array_elements("
-                                            "CASE WHEN key='work_items' THEN val::jsonb ELSE '[]'::jsonb END) x "
-                                            "WHERE key='work_items' AND x->>'slug'=%s")
-                                   .format(sql.Identifier(self.schema)), (args['slug'],)).fetchone()
-                item = decode(row[0]) if row else {}
+                item = self.items(conn, args['slug']).get(args['slug'], {})
                 expected = {key: args[key] for key in ('done_so_far', 'working_on_next') if key in args}
                 actual = {key: item.get(key) for key in expected}
         passed = all(actual.get(key) == value for key, value in expected.items())
@@ -103,9 +117,7 @@ class WriteOracle:
             counts = {table: conn.execute(sql.SQL('SELECT count(*) FROM {}.{}').format(
                 sql.Identifier(self.schema), sql.Identifier(table))).fetchone()[0]
                 for table in ('doc', 'nodes', 'log_d', 'log_l')}
-            row = conn.execute(sql.SQL("SELECT val FROM {}.doc WHERE key='work_items'").format(
-                sql.Identifier(self.schema))).fetchone()
-            items = {it['slug']: it for it in decode(row[0])} if row else {}
+            items = self.items(conn)
             mail_rows = []
             for table in ('doc', 'log_d', 'log_l'):
                 for row in conn.execute(sql.SQL("SELECT val FROM {}.{} WHERE val LIKE %s").format(
