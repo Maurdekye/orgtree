@@ -11259,6 +11259,46 @@ def _take_queued_carrier(st: dict[str, Any]) -> Any:
     return None
 
 
+def _plain_pointer(carrier: Any) -> bool:
+    """A queued mail pointer that holds nothing but its mail ids.
+
+    No drained batch (`toks`), no command, no composition of its own, no
+    halt/native-hold identity and no limit-probe claim: dropping one loses
+    nothing, because the mail it names is still in the durable box."""
+    return (isinstance(carrier, dict) and bool(carrier.get("ping"))
+            and isinstance(carrier.get("mail_ids"), list)
+            and not any(carrier.get(k) for k in (
+                "toks", "cmd", "segs", "restart_replay", "retry_payload",
+                "mail_projection", "_native_hold_id", "_halt_id",
+                "_limit_probe_token")))
+
+
+def _absorb_queued_pointers(st: dict[str, Any], carrier: dict[str, Any],
+                            room: int) -> tuple[dict[str, Any], int]:
+    """CODEX turn start: fold the plain pointers at the head of the queue into
+    `carrier`, so one turn drains the backlog. CALL UNDER `_state_lock`.
+
+    The claude lane feeds up to MAX_BATCH queued carriers into its live
+    process at result boundaries; the codex leg has no such boundary, so
+    without this every queued pointer — each limited to the mail boxed when
+    it was sent — cost a whole turn of its own. Only the queue HEAD is taken
+    and it stops at the first carrier that is not a plain pointer, so a
+    carrier already holding drained mail is never overtaken. `room` is how
+    many more carriers this worker's batch may take. Returns the widened
+    carrier (a new dict) and how many pointers it absorbed."""
+    ids = list(carrier.get("mail_ids") or [])
+    seen = set(ids)
+    n = 0
+    queue = st.get("queue") or []
+    while n < room and queue and _plain_pointer(queue[0]):
+        for i in queue.pop(0)["mail_ids"]:
+            if i not in seen:
+                seen.add(i)
+                ids.append(i)
+        n += 1
+    return ({**carrier, "mail_ids": ids} if n else carrier), n
+
+
 def _retry_mail_publications(st: dict[str, Any]) -> None:
     """Return resolved full carriers to the queue; unknown composition stays held."""
     pending = st.pop("mail_publication_wait", [])
@@ -20595,6 +20635,9 @@ def _run_one_turn_recorded(slug: str, nid: str,
     carrier_segs: list[dict[str, Any]] | None = (
         _freezable_segments(text.get("segs")) if isinstance(text, dict) else None)
     carrier_mail_ids = text.get('mail_ids') if isinstance(text, dict) else None
+    # the carrier as it arrived, for the codex batch drain (see the drain site)
+    carrier_in = text if _plain_pointer(text) else None
+    absorbed_total = 0
     # Distinct from `resumed` below, which is `bool(retry_payload)` and means
     # a retry of a FAILED ATTEMPT. This one means reconcile() is replaying a
     # turn the backend's death interrupted.
@@ -20860,6 +20903,29 @@ def _run_one_turn_recorded(slug: str, nid: str,
                                     and _auto_cheap_ready(org.node(nid), _cfg0,
                                                           _forecast0, org.d.get("models"))):
                                 raise _CompactFirst()
+                        # CODEX batch drain: the plain pointers queued behind
+                        # this one (mostly sent while it waited for its slot)
+                        # ride THIS turn rather than one turn each — the
+                        # claude lane's result-boundary feed does the same up
+                        # to MAX_BATCH. Here, after the slot, inside the
+                        # admission tx, so the widened ids drain atomically.
+                        if (carrier_in is not None and not is_cmd and not toks
+                                and codex_harness_turn(
+                                    org, nid, str(org.node(nid).get("model") or ""))):
+                            with _state_lock:
+                                _depth = len(st.get("queue") or [])
+                                carrier_in, _absorbed = _absorb_queued_pointers(
+                                    st, carrier_in,
+                                    maildrain.MAX_BATCH - 1 - absorbed_total)
+                                if _absorbed:
+                                    # a halt/failure from here on retains the
+                                    # WIDENED carrier, so no pointer's mail is
+                                    # left in the box with nothing waking it
+                                    halt.set_pending_carrier(st, slug, nid, carrier_in)
+                            absorbed_total += _absorbed
+                            carrier_mail_ids = carrier_in["mail_ids"]
+                            turnlog.emit(_trec, "codex_queue_at_start",
+                                         depth=_depth, absorbed=_absorbed)
                         mail = ([] if is_cmd or toks else
                                 _take_delivery_mail(org, nid, carrier_mail_ids))
                         pending = (None if is_cmd or toks
