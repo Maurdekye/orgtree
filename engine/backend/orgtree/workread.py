@@ -249,7 +249,8 @@ def bootstrap(raw) -> None:
     for (org_id,) in raw.execute('SELECT org_id FROM public.orgs WHERE deleted_at IS NULL').fetchall():
         schema=f'org_{int(org_id)}'
         if not _installed(raw,schema): continue
-        if raw.execute(f'SELECT initialized FROM {schema}.work_read_state WHERE singleton').fetchone()[0]: continue
+        state=raw.execute(f'SELECT initialized,questions_dirty,EXISTS(SELECT 1 FROM {schema}.work_read_dirty) FROM {schema}.work_read_state WHERE singleton').fetchone()
+        if state[0] and not state[1] and not state[2]: continue
         with raw.transaction():
             raw.execute(f'LOCK TABLE {schema}.doc,{schema}.nodes,{schema}.log_l IN SHARE MODE')
             refresh(raw,org_id)
