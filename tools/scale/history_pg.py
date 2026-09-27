@@ -123,6 +123,7 @@ def restore(bundle, arm, root, *, guard=lambda: None):
     with store._POOL.acquire(slug) as conn:
         conn.use()
         raw = conn.raw
+        raw.execute("BEGIN")
         oid = raw.execute("SELECT org_id FROM public.orgs WHERE slug=%s", (slug,)).fetchone()[0]
         for table in ("log_d", "log_l"):
             maximum = raw.execute(sql.SQL("SELECT coalesce(max(seq),0) FROM {}").format(sql.Identifier(table))).fetchone()[0]
@@ -198,6 +199,7 @@ def verify_restored(bundle, arm, root):
         raise ValueError("wrong restored base or arm")
     with store._POOL.acquire(receipt["slug"]) as conn:
         conn.use()
+        conn.raw.execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
         if source_hash(conn.raw) != receipt["fixed_source"]:
             raise ValueError("persisted active/fixed records changed")
         selectors = {
