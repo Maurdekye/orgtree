@@ -7697,6 +7697,56 @@ def work_items_view(slug: str, archived: int = 0, backlogged: int = 0,
     return Response(content=encoded, media_type="application/json", headers=headers)
 
 
+def _bounded_work_response(slug: str, kind: str, backlogged: bool = False,
+                           limit: int = 50, cursor: str = '', wid: str = '',
+                           since: str = '') -> Any:
+    from fastapi.responses import JSONResponse
+    from . import worklist, workquery
+    try:
+        if kind == 'foreground':
+            body = worklist.foreground(slug, backlogged=backlogged)
+        elif kind == 'archive':
+            body = worklist.archive(slug, limit=limit, cursor=cursor)
+        else:
+            body = worklist.lookup(slug, USER, wid)
+    except workquery.CursorReset as e:
+        return JSONResponse(status_code=409, content={'kind': 'reset', 'detail': str(e)})
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    except LedgerError as e:
+        raise HTTPException(404, str(e)) from e
+    if body is None:
+        # Explicit opt-in: the caller switches its entire reader to the old
+        # route. Never pretend an unavailable bounded view is empty or mix it
+        # into a previously fetched page.
+        return JSONResponse(status_code=409, content={
+            'kind': 'compatibility', 'legacy_url': f'/api/orgs/{slug}/work-items-view'})
+    headers = {'Cache-Control': 'private, no-cache'}
+    if kind == 'foreground':
+        headers['ETag'] = '"' + body['revision'] + '"'
+        if since.strip('"') == body['revision']:
+            return Response(status_code=304, headers=headers)
+    return Response(content=_dump_tree(body), media_type='application/json', headers=headers)
+
+
+@app.get('/api/orgs/{slug}/work-items-foreground')
+async def _work_foreground_route(slug: str, backlogged: int = 0,
+                                  request: Request = cast(Request, None)) -> Any:
+    since = request.headers.get('if-none-match', '') if request else ''
+    return await _run_ui_read(_bounded_work_response, slug, 'foreground',
+                              bool(backlogged), 50, '', '', since)
+
+
+@app.get('/api/orgs/{slug}/work-items-archive-page')
+async def _work_archive_page_route(slug: str, limit: int = 50, cursor: str = '') -> Any:
+    return await _run_ui_read(_bounded_work_response, slug, 'archive', False, limit, cursor)
+
+
+@app.get('/api/orgs/{slug}/work-item-reference/{wid}')
+async def _work_reference_route(slug: str, wid: str) -> Any:
+    return await _run_ui_read(_bounded_work_response, slug, 'reference', False, 50, '', wid)
+
+
 _engine_proc: Any = None
 
 
