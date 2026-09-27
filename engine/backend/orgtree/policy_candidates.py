@@ -43,6 +43,29 @@ CROSS JOIN LATERAL (SELECT id,ord,val FROM nodes WHERE id=r.id LIMIT 1) n
 LEFT JOIN candidates c ON c.id=n.id ORDER BY n.ord,n.id
 """
 
+# Same exclusions as the warm keeper's fingerprint. Split-owner/item bodies
+# are separate reads; indexing this scalar namespace avoids walking their keys.
+SETTINGS_PREDICATE = """strpos(key,chr(31))=0 AND key NOT IN (
+ 'nodes','work_items','mail','delivering','notices','mail_log','steered_log',
+ 'turn_error_log','steer_attempts','work_scope_log','events','org_inbox',
+ 'notice_log','user_mail_log','user_outbox','documents','watchdog_history',
+ 'op_receipts','work_items_archive','lifecycle','watchdogs','watchdog_tombs',
+ 'reservations','credit_requests')"""
+
+
+def settings(conn):
+    """All stored scalar policy settings, including custom identity inputs."""
+    base = 'SELECT key,val FROM doc WHERE (' + SETTINGS_PREDICATE + ')'
+    page = conn.execute(base + ' ORDER BY key LIMIT 128').fetchall()
+    result = {}
+    while page:
+        result.update((key, json.loads(value)) for key, value in page)
+        if len(page) < PAGE_SIZE:
+            break
+        page = conn.execute(base + ' AND key>? ORDER BY key LIMIT 128',
+                            (page[-1][0],)).fetchall()
+    return result
+
 
 @dataclass(frozen=True)
 class Graph:

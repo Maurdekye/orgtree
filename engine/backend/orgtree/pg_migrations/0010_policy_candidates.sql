@@ -12,6 +12,15 @@ BEGIN
       coalesce(val::jsonb->'frozen','null'::jsonb) NOT IN
         ('null'::jsonb,'false'::jsonb,'0'::jsonb,'""'::jsonb,'[]'::jsonb,'{}'::jsonb)
   $sql$,s);
+  EXECUTE format($sql$
+    CREATE INDEX IF NOT EXISTS ix_policy_settings ON %I.doc(key)
+    WHERE strpos(key,chr(31))=0 AND key NOT IN (
+      'nodes','work_items','mail','delivering','notices','mail_log','steered_log',
+      'turn_error_log','steer_attempts','work_scope_log','events','org_inbox',
+      'notice_log','user_mail_log','user_outbox','documents','watchdog_history',
+      'op_receipts','work_items_archive','lifecycle','watchdogs','watchdog_tombs',
+      'reservations','credit_requests')
+  $sql$,s);
 END
 $fn$;
 REVOKE ALL ON FUNCTION public.orgtree_install_policy_candidates(bigint) FROM PUBLIC;
