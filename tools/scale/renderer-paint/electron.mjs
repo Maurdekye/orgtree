@@ -250,7 +250,21 @@ app.whenReady().then(async () => {
         const suffix = '-' + i
         const pileTotal = await js(`(()=>{const c=[...document.querySelectorAll('.pile-count')].sort((a,b)=>+b.textContent - +a.textContent)[0];c.dataset.paintPile='chosen';return c.textContent.trim()})()`)
         const steady = await memory()
-        const open = await action('open-pile' + suffix, '[data-paint-pile=chosen]', 'visible(document.querySelector(".pile-picker"))')
+        // Observation only: what the pointer lands on and when the picker
+        // appears or disappears, retained if the measured click fails.
+        await js(`(()=>{window.__pileTrace=[];const t=window.__pileTrace;let last=null;
+          const at=()=>performance.timeOrigin+performance.now()
+          new MutationObserver(()=>{const has=!!document.querySelector('.pile-picker');if(has!==last){last=has;t.push({at:at(),picker:has})}}).observe(document.body,{childList:true,subtree:true})
+          for(const type of ['pointerdown','pointerup','click'])document.addEventListener(type,e=>t.push({at:at(),type,target:String(e.target?.className||e.target?.tagName).slice(0,80),trusted:e.isTrusted}),true)
+          const c=document.querySelector('[data-paint-pile=chosen]').getBoundingClientRect(),x=c.left+c.width/2,y=c.top+c.height/2,top=document.elementFromPoint(x,y)
+          t.push({badge:{x,y,w:c.width,h:c.height},top:String(top?.className||top?.tagName).slice(0,80)})})()`)
+        let open
+        try {
+          open = await action('open-pile' + suffix, '[data-paint-pile=chosen]', 'visible(document.querySelector(".pile-picker"))')
+        } catch (error) {
+          save('pile-trace.json', { suffix, trace: await js('window.__pileTrace'), reads: treeReads })
+          throw error
+        }
         await until(() => js('document.querySelectorAll(".pile-picker .pile-row").length > 0 && !document.querySelector(".pile-picker [role=status]")'))
         const readyAt = epoch()
         const rowsShown = await js('document.querySelectorAll(".pile-picker .pile-row").length')
