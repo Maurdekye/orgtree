@@ -240,5 +240,109 @@ class ReceiptStorage(unittest.TestCase):
             self.assertEqual(self.exported(raw),self.value)
 
 
+    def mapped(self):
+        from orgtree import receiptmapping
+        with self.raw() as raw:
+            receiptstore.convert(raw,self.oid)
+            revision=raw.execute('SELECT revision FROM public.orgs WHERE org_id=%s',(self.oid,)).fetchone()[0]
+        return receiptmapping.ReceiptSection(self.slug,revision)
+
+    def test_writer_saves_nested_edit_and_append_without_history_walk(self):
+        from orgtree import receiptmapping, receiptwriter
+        view=self.mapped()
+        calls=[]; original=receiptmapping._read
+        def observed(slug,revision,query,params):
+            calls.append((query,params)); return original(slug,revision,query,params)
+        with patch.object(receiptmapping,'_read',side_effect=observed):
+            view['z']['op']['extension']['note']='edited'
+            view['z']['new']=receipt('z','new','fresh')
+            plan=receiptwriter.prepare(view)
+        self.assertFalse(any('ORDER BY' in q for q,_ in calls))
+        self.assertEqual(len(calls),3)
+        with self.raw() as raw:
+            self.assertEqual(receiptwriter.apply(raw,self.oid,plan),frozenset({'z'}))
+            actual=self.exported(raw)
+            self.assertEqual(actual['z']['op']['extension']['note'],'edited')
+            self.assertEqual(list(actual['z']),['op','new'])
+            self.assertEqual(actual['empty'],{})
+        # The transaction owner has not adopted: edits remain pending.
+        self.assertEqual(receiptwriter.prepare(view),plan)
+
+    def test_writer_rollback_keeps_mapping_dirty_and_retry_exact(self):
+        from orgtree import receiptwriter
+        view=self.mapped(); view['z']['new']=receipt('z','new','fresh')
+        plan=receiptwriter.prepare(view)
+        with self.raw(commit=False) as raw:
+            receiptwriter.apply(raw,self.oid,plan)
+            self.assertIn('new',self.exported(raw)['z'])
+        with self.raw() as raw:
+            self.assertEqual(self.exported(raw),self.value)
+            self.assertEqual(receiptwriter.prepare(view),plan)
+            receiptwriter.apply(raw,self.oid,plan)
+            self.assertIn('new',self.exported(raw)['z'])
+
+    def test_writer_preserves_operation_and_owner_reinsert_order(self):
+        from orgtree import receiptwriter
+        view=self.mapped()
+        view['z']['second']=receipt('z','second','two')
+        value=view['z'].pop('op'); view['z']['op']=value
+        plan=receiptwriter.prepare(view)
+        with self.raw() as raw:
+            receiptwriter.apply(raw,self.oid,plan)
+            actual=self.exported(raw)
+            self.assertEqual(list(actual['z']),['second','op'])
+        # Fresh baseline for the separate complete-owner move.
+        view=self.mapped(); value=view.pop('z'); view['z']=value
+        plan=receiptwriter.prepare(view)
+        with self.raw() as raw:
+            receiptwriter.apply(raw,self.oid,plan)
+            actual=self.exported(raw)
+            self.assertEqual(list(actual),['empty','z'])
+            self.assertEqual(list(actual['z']),['second','op'])
+
+    def test_writer_empty_owner_purge_and_point_delete_remain_distinct(self):
+        from orgtree import receiptwriter
+        view=self.mapped(); del view['z']['op']; del view['empty']; view['newempty']={}
+        plan=receiptwriter.prepare(view)
+        with self.raw() as raw:
+            receiptwriter.apply(raw,self.oid,plan)
+            self.assertEqual(self.exported(raw),{'z':{},'newempty':{}})
+
+    def test_writer_refuses_stale_owner_and_cross_org_plan(self):
+        from orgtree import receiptmapping, receiptwriter
+        view=self.mapped(); view['z']['new']=receipt('z','new','fresh')
+        plan=receiptwriter.prepare(view)
+        with self.raw() as raw:
+            receiptstore.put(raw,self.oid,'z','other',receipt('z','other','other'))
+        with self.assertRaises(receiptmapping.StaleReceipts):
+            with self.raw() as raw: receiptwriter.apply(raw,self.oid,plan)
+        from dataclasses import replace
+        with self.assertRaises(receiptmapping.StaleReceipts):
+            with self.raw() as raw: receiptwriter.apply(raw,self.oid,replace(plan,slug='wrong-org'))
+        with self.raw() as raw:
+            self.assertNotIn('new',self.exported(raw)['z'])
+            self.assertIn('other',self.exported(raw)['z'])
+
+    def test_writer_prepared_values_do_not_alias_later_edits(self):
+        from orgtree import receiptwriter
+        view=self.mapped(); value=receipt('z','new','fresh'); view['z']['new']=value
+        plan=receiptwriter.prepare(view); value['extension']['note']='later'
+        with self.raw() as raw:
+            receiptwriter.apply(raw,self.oid,plan)
+            self.assertNotEqual(self.exported(raw)['z']['new']['extension']['note'],'later')
+        self.assertNotEqual(receiptwriter.prepare(view),plan)
+
+    def test_writer_noop_does_not_enumerate_or_write_receipts(self):
+        from orgtree import receiptmapping, receiptwriter
+        view=self.mapped()
+        with patch.object(receiptmapping,'_read',side_effect=AssertionError('unexpected read')):
+            plan=receiptwriter.prepare(view)
+        self.assertEqual(plan.owners,frozenset())
+        with self.raw() as raw:
+            with patch.object(receiptstore,'put',side_effect=AssertionError('unexpected write')):
+                self.assertEqual(receiptwriter.apply(raw,self.oid,plan),frozenset())
+            self.assertEqual(self.exported(raw),self.value)
+
+
 if __name__=='__main__':
     unittest.main()
