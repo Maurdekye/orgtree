@@ -131,6 +131,7 @@ class ConstructionRows(unittest.TestCase):
                          lambda d: next(iter(d.values())),
                          lambda d: next(iter(d.items()))[1],
                          lambda d: d.copy()['nested'],
+                         lambda d: dict(d)['nested'],
                          lambda d: (d | {})['nested'],
                          lambda d: ({} | d)['nested']):
             with self.subTest(accessor=accessor):
@@ -141,6 +142,18 @@ class ConstructionRows(unittest.TestCase):
                 reference['value'] = 2
                 self.assertTrue(mark.dirty)
                 self.assertEqual(node['nested']['value'], 2)
+
+    def test_nested_repetition_preserves_identity(self):
+        mark = store._NodeMutation()
+        values = store._track_node_value([{'value': 1}], mark)
+        values *= 2
+        self.assertIs(values[0], values[1])
+        held = []
+        values.sort(key=lambda value: held.append(value) or value['value'])
+        mark.dirty = False
+        held[0]['value'] = 3
+        self.assertTrue(mark.dirty)
+        self.assertEqual(values[1]['value'], 3)
 
     def test_unread_nested_values_are_not_wrapped(self):
         mark = store._NodeMutation()

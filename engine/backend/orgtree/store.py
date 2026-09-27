@@ -2199,6 +2199,10 @@ class _NodeDict(dict):
         except KeyError:
             return default
 
+    def __iter__(self):
+        # Disable the dict-subclass fast-copy path, which bypasses __getitem__.
+        return dict.__iter__(self)
+
     def _expose_values(self) -> None:
         for key in dict.keys(self):
             self[key]
@@ -2309,10 +2313,10 @@ class _NodeList(list):
         return list(self)
 
     def __add__(self, other: Any) -> Any:
-        return list(self) + other
+        return list(self) + (list(other) if isinstance(other, _NodeList) else other)
 
     def __radd__(self, other: Any) -> Any:
-        return other + list(self)
+        return (list(other) if isinstance(other, _NodeList) else other) + list(self)
 
     def __mul__(self, count: Any) -> Any:
         return list(self) * count
@@ -2360,6 +2364,8 @@ class _NodeList(list):
 
     def sort(self, *args: Any, **kwargs: Any) -> None:
         self._mutation.dirty = True
+        # A key callback can retain an element for a later mutation.
+        list(self)
         list.sort(self, *args, **kwargs)
 
     def __iadd__(self, values: Any) -> Any:
@@ -2368,6 +2374,8 @@ class _NodeList(list):
 
     def __imul__(self, count: Any) -> Any:
         self._mutation.dirty = True
+        # Repetition must keep nested elements shared, as ordinary lists do.
+        list(self)
         list.__imul__(self, count)
         return self
 
