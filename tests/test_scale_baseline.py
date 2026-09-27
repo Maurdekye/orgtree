@@ -264,6 +264,22 @@ class StorageControls(unittest.TestCase):
             done_so_far=["absent"], working_on_next=[]), {})["passed"])
         self.assertFalse(oracle.check("worker", "orgtree_status", {}, {"state": "running"})["passed"])
 
+    def test_right_id_wrong_body_and_running_state_each_fail_on_their_own_guard(self):
+        # Review f2: each case below would PASS if only its one guard were removed.
+        oracle = WriteOracle(dict(org="test", pg_url=self.url))
+        self.addCleanup(oracle.close)
+        self.writer.execute("INSERT INTO org_1.log_d VALUES(1,'mail_log','boss',%s)",
+                            (json.dumps(dict(id="m1", body="stored-body")),))
+        wrong_body = oracle.check("worker", "orgtree_message", dict(to="boss", body="sent-body"), {"id": "m1"})
+        self.assertEqual(wrong_body, dict(passed=False, method="independent committed raw rows"))
+        args = dict(status="working", summary="expected")
+        self.writer.execute("INSERT INTO org_1.nodes VALUES('worker',%s)", (json.dumps({"last_status": args}),))
+        self.assertTrue(oracle.check("worker", "orgtree_status", args, {})["passed"])
+        running = oracle.check("worker", "orgtree_status", args, {"state": "running"})
+        self.assertFalse(running["passed"])
+        self.assertIn("no committed outcome", running["error"])
+        self.assertEqual(oracle.counts, dict(acknowledged=3, checked=2, failed=2))
+
     def test_sql_counters_measure_executed_fetch_modes_exactly(self):
         restore = sql_counts.install()
         self.addCleanup(restore)
