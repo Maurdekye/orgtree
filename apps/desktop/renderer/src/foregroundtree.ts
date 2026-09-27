@@ -222,10 +222,15 @@ export class ForegroundTreeReader {
   }
 
   async page(org: string, kind: 'children' | 'search', query: string,
-             cursor = '', state?: 'live' | 'archived' | 'unrecoverable', limit = 100): Promise<ForegroundPage> {
+             cursor = '', state?: 'live' | 'archived' | 'unrecoverable', limit = 100,
+             edge?: 'last'): Promise<ForegroundPage> {
+    if (edge && (kind !== 'children' || cursor || limit !== 1)) {
+      throw new Error('Last child requires children, no cursor and limit=1')
+    }
     const params = new URLSearchParams({ [kind === 'children' ? 'parent' : 'q']: query, limit: String(limit) })
     if (cursor) params.set('cursor', cursor)
     if (state) params.set('state', state)
+    if (edge) params.set('edge', edge)
     const body = await answer(await this.read(`/api/orgs/${encodeURIComponent(org)}/foreground-tree/${kind}?${params}`))
     boundary(body)
     if (body.kind !== 'page' || !record(body.nodes) || !strings(body.matches)
