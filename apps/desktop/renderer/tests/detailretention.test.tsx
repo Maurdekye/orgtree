@@ -63,6 +63,7 @@ test('pending requests survive pressure and still deduplicate after consumers cl
   const release = retainNodeDetail('o', seat('pending'))
   const first = nodeDetail('o', seat('pending'), () => d.p)
   release()
+  assert.equal(nodeDetail('o', seat('pending'), detail), first)
   await pressure()
   assert.equal(nodeDetail('o', seat('pending'), detail), first)
   d.resolve({ charter: 'late answer' })
