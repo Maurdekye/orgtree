@@ -2,6 +2,7 @@
 import argparse
 from collections import Counter
 import hashlib
+import gzip
 import json
 import os
 from pathlib import Path
@@ -45,16 +46,19 @@ assert store.STORE_BACKEND == 'postgres'
 slug = desc['org']
 rows = []
 
-def request(etag=None):
+def request(etag=None, compressed=False):
     headers = [(b'x-orgtree-desktop-token', b'probe')]
     if etag:
         headers.append((b'if-none-match', etag.encode()))
+    if compressed:
+        headers.append((b'accept-encoding', b'gzip'))
     return Request({'type': 'http', 'method': 'GET', 'path': '/', 'headers': headers, 'state': {}})
 
-def read(name, etag=None):
+def read(name, etag=None, *, transport=False, compressed=False):
     assert free_commit_gb() >= 10
     wall, cpu = time.perf_counter(), time.thread_time()
-    reply = api.org_tree(slug, request(etag), Response())
+    req = request(etag, compressed)
+    reply = api._org_tree_transport(slug, req) if transport else api.org_tree(slug, req, Response())
     rows.append(dict(name=name, status=reply.status_code, bytes=len(reply.body),
         cpu_ms=(time.thread_time()-cpu)*1000, wall_ms=(time.perf_counter()-wall)*1000,
         etag=reply.headers.get('etag'), org_seq=store.org_seq(slug)))
@@ -86,6 +90,10 @@ initial = read('warm_body')  # first annotation may populate runtime caches
 before = json.loads(initial.body)
 (args.output.parent / 'tree-full.json').write_bytes(initial.body)
 read('unchanged', initial.headers['etag'])
+view = read('view_cold', transport=True)
+view = read('view_warm', transport=True)
+read('view_gzip_full', transport=True, compressed=True)
+read('view_unchanged', view.headers['etag'], transport=True)
 fields = {'live':Counter(), 'archived':Counter()}
 all_nodes = list(nodes(before))
 for n in all_nodes:
@@ -109,6 +117,12 @@ for name in ('unrelated_node_field','visible_status','docket_evidence'):
     after=json.loads(after_reply.body)
     changes.append(dict(name=name, difference=difference(before,after),
         same_content=content(before)==content(after)))
+    updated = read('view_'+name, view.headers['etag'], transport=True)
+    zipped = read('view_'+name+'_gzip', view.headers['etag'], transport=True, compressed=True)
+    if updated.status_code == 200:
+        assert gzip.decompress(zipped.body) == updated.body
+        (args.output.parent / ('view-'+name+'.json')).write_bytes(updated.body)
+    view = updated
     before, initial = after, after_reply
     read(name+'_repeat', initial.headers['etag'])
 
