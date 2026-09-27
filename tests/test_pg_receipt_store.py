@@ -99,7 +99,9 @@ class ReceiptStore(unittest.TestCase):
         pgimport = importlib.util.module_from_spec(spec)
         sys.modules.setdefault('pgimport', pgimport)
         spec.loader.exec_module(pgimport)
-        sink = pgimport.PgSink(fixture.f.ADMIN, Path(store._orgs_dir()))
+        import os
+        # the store's own per-module database, not the server admin URL
+        sink = pgimport.PgSink(os.environ['ORGTREE_PG_URL'], Path(store._orgs_dir()))
         try:
             rows = sink.read_org(self.slug)
             # an unconverted source: receipts as the doc blob, no marker
