@@ -110,6 +110,46 @@ class ConstructionRows(unittest.TestCase):
         self.assertIsNot(duplicate['nodes']['n0']._mutation,
                          org.node('n0')._mutation)
 
+    def test_nested_read_paths_keep_live_references(self):
+        # Each accessor exposes a nested dict still owned by the node. Edits
+        # through any resulting reference must re-mark it after a clean reset.
+        accessors = [lambda v: v[0], lambda v: v[:][0], lambda v: next(iter(v)),
+                     lambda v: next(reversed(v)), lambda v: v.copy()[0],
+                     lambda v: (v + [])[0], lambda v: ([] + v)[0],
+                     lambda v: (v * 2)[0], lambda v: (2 * v)[0]]
+        for accessor in accessors:
+            with self.subTest(accessor=accessor):
+                mark = store._NodeMutation()
+                node = store._track_node_value({'rows': [{'value': 1}]}, mark)
+                reference = accessor(node['rows'])
+                mark.dirty = False
+                reference['value'] = 2
+                self.assertTrue(mark.dirty)
+                self.assertEqual(node['rows'][0]['value'], 2)
+        for accessor in (lambda d: d['nested'], lambda d: d.get('nested'),
+                         lambda d: d.setdefault('nested', {}),
+                         lambda d: next(iter(d.values())),
+                         lambda d: next(iter(d.items()))[1],
+                         lambda d: d.copy()['nested'],
+                         lambda d: (d | {})['nested'],
+                         lambda d: ({} | d)['nested']):
+            with self.subTest(accessor=accessor):
+                mark = store._NodeMutation()
+                node = store._track_node_value({'nested': {'value': 1}}, mark)
+                reference = accessor(node)
+                mark.dirty = False
+                reference['value'] = 2
+                self.assertTrue(mark.dirty)
+                self.assertEqual(node['nested']['value'], 2)
+
+    def test_unread_nested_values_are_not_wrapped(self):
+        mark = store._NodeMutation()
+        node = store._track_node_value({'nested': {'rows': [1, 2, 3]}}, mark)
+        self.assertIs(type(dict.__getitem__(node, 'nested')), dict)
+        nested = node['nested']
+        self.assertIsInstance(nested, store._NodeDict)
+        self.assertIs(type(dict.__getitem__(nested, 'rows')), list)
+
     def test_pickle_preserves_shared_nested_mutation_marks(self):
         org = store._load_sqlite_org(self.slug)
         nodes = pickle.loads(pickle.dumps(org.nodes))

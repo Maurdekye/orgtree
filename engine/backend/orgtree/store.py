@@ -2156,14 +2156,20 @@ class _NodeMutation:
 
 
 def _track_node_value(value: Any, mark: _NodeMutation) -> Any:
+    # Only wrap the container being exposed. Most nested node fields are
+    # never read during normalization; recursively copying them costs more
+    # CPU than the JSON serialization this optimization removes.
+    # Assigned containers retain identity for their caller's external alias.
+    # That row remains conservatively exposed until its next fresh load.
+    if mark.aliased:
+        return value
     if type(value) is dict:
         out = _NodeDict(mark)
-        for k, v in value.items():
-            dict.__setitem__(out, k, _track_node_value(v, mark))
+        dict.update(out, value)
         return out
     if type(value) is list:
         out = _NodeList(mark)
-        list.extend(out, (_track_node_value(v, mark) for v in value))
+        list.extend(out, value)
         return out
     return value
 
@@ -2179,6 +2185,44 @@ class _NodeDict(dict):
     def __init__(self, mark: _NodeMutation) -> None:
         super().__init__()
         self._mutation = mark
+
+    def __getitem__(self, key: Any) -> Any:
+        value = dict.__getitem__(self, key)
+        tracked = _track_node_value(value, self._mutation)
+        if tracked is not value:
+            dict.__setitem__(self, key, tracked)
+        return tracked
+
+    def get(self, key: Any, default: Any = None) -> Any:
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    def _expose_values(self) -> None:
+        for key in dict.keys(self):
+            self[key]
+
+    def items(self):
+        self._expose_values()
+        return dict.items(self)
+
+    def values(self):
+        self._expose_values()
+        return dict.values(self)
+
+    def copy(self):
+        return dict(self.items())
+
+    def __or__(self, other: Any) -> Any:
+        if not isinstance(other, dict):
+            return NotImplemented
+        return self.copy() | dict(other.items())
+
+    def __ror__(self, other: Any) -> Any:
+        if not isinstance(other, dict):
+            return NotImplemented
+        return dict(other.items()) | self.copy()
 
     def __setitem__(self, key: Any, value: Any) -> None:
         # Normalization assigns equal scope dicts on every construction.
@@ -2239,6 +2283,41 @@ class _NodeList(list):
     def __init__(self, mark: _NodeMutation) -> None:
         super().__init__()
         self._mutation = mark
+
+    def __getitem__(self, index: Any) -> Any:
+        if isinstance(index, slice):
+            for i in range(*index.indices(len(self))):
+                self[i]
+            return list.__getitem__(self, index)
+        value = list.__getitem__(self, index)
+        tracked = _track_node_value(value, self._mutation)
+        if tracked is not value:
+            list.__setitem__(self, index, tracked)
+        return tracked
+
+    def __iter__(self):
+        index = 0
+        while index < len(self):
+            yield self[index]
+            index += 1
+
+    def __reversed__(self):
+        for index in range(len(self) - 1, -1, -1):
+            yield self[index]
+
+    def copy(self):
+        return list(self)
+
+    def __add__(self, other: Any) -> Any:
+        return list(self) + other
+
+    def __radd__(self, other: Any) -> Any:
+        return other + list(self)
+
+    def __mul__(self, count: Any) -> Any:
+        return list(self) * count
+
+    __rmul__ = __mul__
 
     def __setitem__(self, index: Any, value: Any) -> None:
         self._mutation.assigned(value)
