@@ -1454,10 +1454,6 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
     except Exception as e:                                   # noqa: BLE001
         print(f"[orgtree] apikey cutover error (will retry next startup): "
               f"{type(e).__name__}: {e}")
-    # Pay the first bounded identity read before ASGI advertises readiness,
-    # and before recovery/turn drivers compete with the first live capture.
-    startup.progress("stream-identity-warmup")
-    await asyncio.to_thread(store.prewarm_stream_identity)
     loop = asyncio.get_running_loop()
     _LOOP = loop  # type: ignore[constant-redefinition]  # captured-at-startup cell, not a constant
     if store.STORE_BACKEND == "postgres":
