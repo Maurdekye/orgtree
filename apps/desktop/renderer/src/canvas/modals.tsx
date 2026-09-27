@@ -1690,7 +1690,9 @@ export function DeleteNodeConfirm({ node, tree, slug, onConfirm, close }: {
       while (stack.length) {
         const next = stack.pop()!
         if (next.id === node.id) { found = next; break }
-        stack.push(...next.children, ...(next.lineage ?? []))
+        // Lineage rows are identity summaries, not complete deletion scopes.
+        // Only an actual org-tree node can authorize this dialog.
+        stack.push(...next.children)
       }
       if (!found || found.generation !== node.generation) {
         throw new Error('This agent changed or is no longer available. Close this dialog and open it again.')
