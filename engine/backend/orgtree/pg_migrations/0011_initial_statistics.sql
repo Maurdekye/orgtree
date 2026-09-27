@@ -8,7 +8,7 @@ REVOKE ALL ON public.org_statistics_ready FROM PUBLIC;
 
 CREATE FUNCTION public.orgtree_analyze_org(p_org_id bigint, p_force boolean DEFAULT false)
 RETURNS integer LANGUAGE plpgsql SECURITY DEFINER
-SET search_path=pg_catalog,public AS $fn$
+SET search_path=pg_catalog,public,pg_temp AS $fn$
 DECLARE
   s text := 'org_' || p_org_id;
   version text;
@@ -28,7 +28,8 @@ BEGIN
   END IF;
   -- Only actual tables in this recorded org's schema. Runtime cannot create
   -- relations there or choose an arbitrary schema/table through this entry.
-  FOR tab IN SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+  FOR tab IN SELECT c.relname FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
       WHERE n.nspname=s AND c.relkind='r' ORDER BY c.relname LOOP
     EXECUTE format('ANALYZE %I.%I',s,tab.relname);
     analyzed := analyzed + 1;
@@ -45,7 +46,7 @@ $fn$;
 REVOKE ALL ON FUNCTION public.orgtree_analyze_org(bigint,boolean) FROM PUBLIC;
 DO $grant$
 BEGIN
-  IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='orgtree_runtime') THEN
+  IF EXISTS(SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='orgtree_runtime') THEN
     GRANT EXECUTE ON FUNCTION public.orgtree_analyze_org(bigint,boolean) TO orgtree_runtime;
   END IF;
 END
