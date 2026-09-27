@@ -33,6 +33,77 @@ class HistoryStorage(unittest.TestCase):
         # org for each case. Production never removes these receipts to retry.
         for name in ("RESTORING", "RESTORE_COMPLETE", "history-restore.json"):
             (fixture.data.parent / name).unlink(missing_ok=True)
+        # Every case owns this module's throwaway HOME. Do not let another
+        # case's historical files become undeclared inputs to this one.
+        for path in fixture.home.rglob("*"):
+            if path.is_file():
+                hf.regular_file(path).unlink()
+
+    def tiny_bundle(self, folder, name):
+        root = fixture.data.parent
+        base = ledger.Org.create(name, dirs=[], workspace=str(root / "data/workspaces" / ledger.slugify(name)))
+        base.hire(ledger.USER, None, "haiku", 0, "boss")
+        base.d["mail_log"] = {"boss": [{"id": "fixed", "body": "frozen tail", "read": True}]}
+        base.d["steer_attempts"] = {"boss": {"fixed-attempt": {"result": "done"}}}
+        frozen = hf.prepare_base(base.d)
+        bundle = Path(folder) / "pair"
+        hf.build_pair(frozen, bundle, hf.Recipe(retired_agents=1, archived_items=1, read_mail=1,
+                     old_transcripts=1, payload_profile="fixed", node_chars=128,
+                     item_chars=128, mail_chars=128, transcript_chars=128))
+        (root / "history-destination.json").write_text(json.dumps(dict(
+            format=hf.FORMAT, root=str(root.resolve()), slug=base.d["slug"],
+            database_sha256=hashlib.sha256(pgstore.url().encode()).hexdigest())))
+        return bundle, root, frozen
+
+    def test_creation_mutation_cannot_become_the_verified_baseline(self):
+        create = store.create_org
+        with tempfile.TemporaryDirectory(prefix="history-initial-corrupt-") as folder:
+            bundle, root, frozen = self.tiny_bundle(folder, "History initial corruption")
+            observed = []
+            def corrupt(*args, prepare, **kwargs):
+                def changed(org):
+                    prepare(org)
+                    org.nodes["boss"]["charter"] = "changed before first persisted hash"
+                    observed.append(True)
+                return create(*args, prepare=changed, **kwargs)
+            with patch.object(store, "create_org", corrupt):
+                with self.assertRaisesRegex(ValueError, "fixed records changed from frozen base"):
+                    hp.restore(bundle, "small", root)
+            self.assertEqual(observed, [True])
+            self.assertEqual(json.loads((bundle / "base.json").read_text()), frozen)
+            self.assertFalse((root / "RESTORE_COMPLETE").exists())
+            self.assertTrue((root / "RESTORING").exists())
+
+    def test_fresh_verifier_rejects_extra_source_and_forged_active_receipt(self):
+        with tempfile.TemporaryDirectory(prefix="history-extra-source-") as folder:
+            bundle, root, frozen = self.tiny_bundle(folder, "History extra source")
+            receipt = hp.restore(bundle, "small", root)
+            extra = root / "home/.claude/projects/undeclared/extra-session.jsonl"
+            extra.parent.mkdir(parents=True)
+            extra.write_text('{"type":"assistant","message":{"content":"extra"}}\n')
+            args = [sys.executable, "-I", "-B", hp.__file__, "verify", "--bundle", str(bundle),
+                    "--root", str(root), "--arm", "small", "--result", str(root / "extra-verifier.json")]
+            child = subprocess.run(args, capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(child.returncode, 0, child.stdout)
+            self.assertIn("undeclared files", child.stderr)
+            self.assertFalse((root / "extra-verifier.json").exists())
+            extra.unlink()
+            self.assertTrue(hp.verify_restored(bundle, "small", root, require_complete=True)["verified"])
+            # Forging the writer's receipt cannot bless a changed active row.
+            with store._POOL.acquire(frozen["slug"]) as conn:
+                conn.use()
+                value = dict(frozen["nodes"]["boss"], charter="corrupt plus forged receipt")
+                conn.raw.execute("UPDATE nodes SET val=%s WHERE id='boss'", (store._dumps(value),))
+                conn.raw.commit()
+                conn.raw.execute("BEGIN")
+                receipt["fixed_source"] = hp.source_hash(conn.raw)
+                conn.raw.rollback()
+            (root / "history-restore.json").write_text(json.dumps(receipt))
+            (root / "RESTORE_COMPLETE").write_text(hf.sha_file(root / "history-restore.json"))
+            child = subprocess.run(args, capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(child.returncode, 0, child.stdout)
+            self.assertIn("fixed records changed from frozen base", child.stderr)
+            self.assertFalse((root / "extra-verifier.json").exists())
 
     def test_restore_and_independent_source_validation_with_analyzed_indexes(self):
         root = fixture.data.parent

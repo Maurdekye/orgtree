@@ -7,6 +7,7 @@ workspace/home paths are reused sequentially across arms; no text is rewritten.
 from __future__ import annotations
 
 import hashlib
+import copy
 import json
 import os
 from pathlib import Path
@@ -19,6 +20,71 @@ from history_fixture import (FAMILIES, FORMAT, PREFIX, compact, digest, read_row
                              regular_file, safe_relative, safe_root, sha_file, verify_pair)
 
 TAIL_OFFSET = 1 << 40
+
+
+def frozen_source_hash(base):
+    """Expected stored original rows, derived only from frozen input.
+
+    The only added fields are the two declared PG singleton defaults. Physical
+    splitting and compact ASCII JSON are storage representations, not omissions
+    from the active comparison. Log sequence positions are excluded but order
+    within each section/owner is retained. Never call the creating writer here.
+    """
+    from orgtree import store
+    base = dict(base)
+    for key, value in store.ALWAYS_ROWS.items():
+        base.setdefault(key, json.loads(value))
+    encode = lambda value: json.dumps(value, separators=(",", ":"), allow_nan=False)
+    docs = {}
+    owners = {}
+    for key, value in base.items():
+        if key == "nodes":
+            continue
+        if key in store.DICT_LOGS and isinstance(value, dict):
+            owners["owners:" + key] = encode(list(value))
+            continue
+        if key in store.LIST_LOGS and isinstance(value, list):
+            continue
+        if key == "work_items":
+            docs[key] = encode({"format": "orgtree.work-items/v1", "ids": [v["slug"] for v in value]})
+            docs.update((key + "\x1f" + v["slug"], encode(v)) for v in value)
+        elif key in store.SPLIT_SECTIONS and isinstance(value, dict) and all(
+                isinstance(v, list) for v in value.values()):
+            docs[key] = "{}"
+            docs.update((key + "\x1f" + owner, encode(rows)) for owner, rows in value.items())
+        else:
+            docs[key] = encode(value)
+    meta = {"key_order": encode(list(base)), **owners}
+    h = hashlib.sha256()
+    counts = {}
+    def add(table, rows):
+        counts[table] = 0
+        for row in rows:
+            h.update((compact([table, *row]) + "\n").encode())
+            counts[table] += 1
+    add("doc", ((k, docs[k]) for k in sorted(docs)))
+    node_order = {nid: i for i, nid in enumerate(base["nodes"])}
+    add("nodes", ((nid, node_order[nid], encode(base["nodes"][nid])) for nid in sorted(node_order)))
+    def logs(dict_log):
+        sections = store.DICT_LOGS if dict_log else store.LIST_LOGS
+        for section in sorted(sections):
+            value = base.get(section)
+            if dict_log and isinstance(value, dict):
+                for owner in sorted(value):
+                    entries = value[owner]
+                    if section in store.KEYED_DICT_LOGS and isinstance(entries, dict):
+                        entries = ([k, v] for k, v in entries.items())
+                    for entry in entries:
+                        at = entry.get("at") if isinstance(entry, dict) else None
+                        yield section, owner, at if isinstance(at, str) else None, encode(entry)
+            elif not dict_log and isinstance(value, list):
+                for entry in value:
+                    at = entry.get("at") if isinstance(entry, dict) else None
+                    yield section, at if isinstance(at, str) else None, encode(entry)
+    add("log_d", logs(True))
+    add("log_l", logs(False))
+    add("meta", ((k, meta[k]) for k in sorted(meta)))
+    return dict(sha256=h.hexdigest(), rows=counts)
 
 
 def destination(root, slug, url):
@@ -56,8 +122,9 @@ def source_hash(raw):
     queries = {
         "doc": "SELECT key,val FROM doc ORDER BY key",
         "nodes": "SELECT id,ord,val FROM nodes WHERE id NOT LIKE 'hist-%' ORDER BY id",
-        "log_d": "SELECT sect,owner,at,val FROM log_d WHERE seq>=%s ORDER BY seq",
-        "log_l": "SELECT sect,at,val FROM log_l WHERE seq>=%s ORDER BY seq",
+        "log_d": "SELECT sect,owner,at,val FROM log_d WHERE seq>=%s ORDER BY sect,owner,seq",
+        "log_l": "SELECT sect,at,val FROM log_l WHERE seq>=%s ORDER BY sect,seq",
+        "meta": "SELECT key,val FROM meta WHERE key='key_order' OR key LIKE 'owners:%%' ORDER BY key",
     }
     counts = {}
     for table, query in queries.items():
@@ -103,6 +170,7 @@ def restore(bundle, arm, root, *, guard=lambda: None):
     if arm not in ("small", "large"):
         raise ValueError("unknown arm")
     base = json.loads((bundle / "base.json").read_text(encoding="utf-8"))
+    expected_source = frozen_source_hash(base)
     slug = base["slug"]
     root = destination(root, slug, pgstore.url())
     if (root / "RESTORING").exists() or (root / "RESTORE_COMPLETE").exists():
@@ -123,7 +191,7 @@ def restore(bundle, arm, root, *, guard=lambda: None):
     start = time.perf_counter()
     def prepare(org):
         org.d.clear()
-        org.d.update(base)
+        org.d.update(copy.deepcopy(base))
     org = store.create_org(base.get("name", slug), prepare=prepare)
     if org.d["slug"] != slug:
         raise ValueError("base name/slug mismatch")
@@ -139,6 +207,8 @@ def restore(bundle, arm, root, *, guard=lambda: None):
                 raise ValueError("base log exceeds reserved ordinal domain")
             raw.execute(sql.SQL("UPDATE {} SET seq=seq+%s").format(sql.Identifier(table)), (TAIL_OFFSET,))
         before = source_hash(raw)
+        if before != expected_source:
+            raise ValueError("persisted active/fixed records changed from frozen base")
         node_ord = raw.execute("SELECT coalesce(max(ord),-1)+1 FROM nodes").fetchone()[0]
         with raw.cursor().copy("COPY nodes(id,ord,val) FROM STDIN") as cp:
             for i, row in enumerate(read_rows(bundle / arm / "retired_agents.jsonl")):
@@ -205,6 +275,8 @@ def verify_restored(bundle, arm, root, *, require_complete=False):
     """Independent fresh transaction, callable from a separate interpreter."""
     from orgtree import store, pgstore
     manifest = verify_pair(bundle, require_complete=True)
+    base = json.loads((Path(bundle) / "base.json").read_text(encoding="utf-8"))
+    expected_source = frozen_source_hash(base)
     receipt = json.loads((Path(root) / "history-restore.json").read_text(encoding="utf-8"))
     root = destination(root, receipt["slug"], pgstore.url())
     if Path(store.DATA_ROOT).resolve() != (root / "data").resolve():
@@ -213,13 +285,14 @@ def verify_restored(bundle, arm, root, *, require_complete=False):
             not (root / "RESTORE_COMPLETE").is_file() or
             (root / "RESTORE_COMPLETE").read_text() != sha_file(root / "history-restore.json")):
         raise ValueError("incomplete or changed restoration")
-    if receipt["active_sha256"] != manifest["active_sha256"] or receipt["arm"] != arm:
+    if (receipt["active_sha256"] != manifest["active_sha256"] or receipt["arm"] != arm
+            or receipt["slug"] != base["slug"]):
         raise ValueError("wrong restored base or arm")
     with store._POOL.acquire(receipt["slug"]) as conn:
         conn.use()
         conn.raw.execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
-        if source_hash(conn.raw) != receipt["fixed_source"]:
-            raise ValueError("persisted active/fixed records changed")
+        if source_hash(conn.raw) != expected_source or receipt["fixed_source"] != expected_source:
+            raise ValueError("persisted active/fixed records changed from frozen base")
         selectors = {
             "retired_agents": "SELECT val FROM nodes WHERE id LIKE 'hist-%' ORDER BY ord",
             "archived_items": "SELECT val FROM log_l WHERE seq<%s ORDER BY seq",
@@ -246,6 +319,16 @@ def verify_restored(bundle, arm, root, *, require_complete=False):
         files[name] = dict(bytes=len(encoded), sha256=hashlib.sha256(encoded).hexdigest())
     if files != receipt["files"]:
         raise ValueError("restored file inventory differs from bundle")
+    home = safe_root(root / "home")
+    actual = set()
+    for folder, directories, names in os.walk(home, followlinks=False):
+        for name in directories:
+            safe_root(Path(folder) / name)  # Reject links/junctions, even empty ones.
+        for name in names:
+            path = regular_file(Path(folder) / name)
+            actual.add(path.relative_to(home).as_posix())
+    if actual != set(files):
+        raise ValueError("restored file inventory contains missing or undeclared files")
     for name, expected in files.items():
         path = regular_file(root / "home" / safe_relative(name))
         if path.stat().st_size != expected["bytes"] or sha_file(path) != expected["sha256"]:

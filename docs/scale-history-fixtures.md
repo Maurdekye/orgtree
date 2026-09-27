@@ -100,6 +100,22 @@ source hashes cover all original rows before/after history insertion. A new
 transaction independently reads every persisted history row and every fixed
 source row; a fresh interpreter can repeat it. Source-file expectations are
 derived from the bundle, not merely trusted from the restore writer's receipt.
+The expected original SQL rows are computed directly from frozen `base.json`,
+before creation and again in fresh verification. No writer-produced hash can
+certify an altered initial restore. The declared storage normalization is compact
+ASCII JSON, per-node rows with original ordinal, per-owner mutable queues,
+per-item work rows/header, keyed-log entry pairs, and the cleared `killswitch`
+and `deleted_cost_usd` singleton defaults when absent. Every value is compared;
+top-level key order, dict-log owner order and each log's record order are retained.
+Only internal log sequence positions and unrelated cross-section insertion order
+are excluded. No charter, permission, queue, active item or settings field is dropped.
+
+Verification enumerates all files under the owned HOME and requires exactly the
+declared current files plus generated historical sources, with matching bytes.
+Undeclared sources, missing files and directory links/junctions are refused.
+There are no implicit internal-file allowances in HOME: any controller-owned
+input belongs in its frozen inventory, and receipts/logs belong outside HOME.
+Verification occurs before application startup can create additional files.
 
 The source transcript files are ready for normal ingestion. The controller must
 run normal ingestion/readiness outside its measured window and separately prove
