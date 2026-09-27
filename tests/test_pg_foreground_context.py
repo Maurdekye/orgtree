@@ -116,6 +116,8 @@ class ContextPG(unittest.TestCase):
                                            sync_rev=0,primed_restart=None)
         prepared=fg.read_foreground(self.slug,project=project)
         self.assertEqual(prepared['tree']['roots'][0]['id'],'boss')
-        self.assertEqual(prepared['tree']['roots'][0]['children'][0]['id'],'leaf')
+        wire=foreground_view.finish(prepared,prepared['tree'])
+        self.assertEqual(wire['roots'],['boss'])
+        self.assertEqual(wire['nodes']['boss']['children'],['leaf'])
 
 if __name__=='__main__':unittest.main()

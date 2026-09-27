@@ -56,7 +56,7 @@ class ForegroundContext:
     # Only composed display/query methods, never mutation or persistence methods.
     _READ_METHODS = frozenset(('node', 'parent', 'ancestors', 'is_ancestor',
         'children_index', 'model_for', 'versions_for', 'harness_for', 'prefer_reserve_for', 'effective_effort', 'node_ask', '_scope_item_label', '_tomb_expired',
-        'seat_cost', 'free', 'is_kiosk', 'multi_holder_enabled', '_boot_at', 'account_fallback_for'))
+        'seat_cost', 'free', 'is_kiosk', 'kiosk_ceiling', 'multi_holder_enabled', '_boot_at', 'account_fallback_for'))
 
     def __init__(self, *, settings, graph, funding, windows, inbox, work_counts):
         if work_counts is None:
