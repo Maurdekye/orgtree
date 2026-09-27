@@ -48,8 +48,14 @@ def binding(slug: str) -> TxBinding | None:
     return TxBinding(pinned) if pinned is not None and slug in pinned else None
 
 
-def _read(slug: str, revision: int, query: str, params: tuple[Any, ...],
-          bound: TxBinding | None = None) -> list[Any]:
+def _read(slug: str, revision: int | None, query: str, params: tuple[Any, ...],
+          bound: TxBinding | None = None,
+          owner_version: tuple[str, int] | None = None) -> list[Any]:
+    """One read in its own REPEATABLE READ snapshot (or the bound org_tx).
+
+    The snapshot must still match the view: the owner's version when
+    `owner_version` is given, else the org revision when `revision` is not
+    None. With neither, the result is a candidate list the caller re-checks."""
     from . import store
     if bound is not None:
         conn = bound.conn(slug)
@@ -63,10 +69,16 @@ def _read(slug: str, revision: int, query: str, params: tuple[Any, ...],
         if not pinned:
             conn.raw.execute('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY')
         try:
-            current = conn.raw.execute('SELECT revision FROM public.orgs WHERE org_id=%s',
-                                       (conn.org_id,)).fetchone()
-            if current is None or current[0] != revision:
-                raise StaleReceipts('receipt view changed before deferred read')
+            if owner_version is not None:
+                current = conn.raw.execute('SELECT version FROM receipt_owners WHERE owner=%s',
+                                           (owner_version[0],)).fetchone()
+                if current is None or current[0] != owner_version[1]:
+                    raise StaleReceipts('receipt owner changed since this view was loaded')
+            elif revision is not None:
+                current = conn.raw.execute('SELECT revision FROM public.orgs WHERE org_id=%s',
+                                           (conn.org_id,)).fetchone()
+                if current is None or current[0] != revision:
+                    raise StaleReceipts('receipt view changed before deferred read')
             return conn.raw.execute(query, params).fetchall()
         finally:
             if not pinned:
@@ -134,9 +146,9 @@ class _LazyMapping(MutableMapping):
 
 class ReceiptOwner(_LazyMapping):
     def __init__(self,slug: str,revision: int,owner: str,count: int,version: int,
-                 bound: TxBinding | None = None):
+                 bound: TxBinding | None = None, versioned: bool = False):
         super().__init__(); self.slug=slug; self.revision=revision; self.owner=owner
-        self.bound=bound
+        self.bound=bound; self.versioned=versioned
         self.count=count; self.version=version; self.complete=False
         self.baselines: dict[str,str|None]={}; self.deleted:set[str]=set()
         self.reinserted:set[str]=set()
@@ -144,11 +156,14 @@ class ReceiptOwner(_LazyMapping):
     def __getitem__(self,key):
         if (key in self._data): return self._data[key]
         if key in self.deleted or key in self.baselines or self.complete: raise KeyError(key)
-        rows=_read(self.slug,self.revision,'SELECT val FROM receipts WHERE owner=%s AND token=%s',(self.owner,key),self.bound)
+        rows=_read(self.slug,self.revision,'SELECT val FROM receipts WHERE owner=%s AND token=%s',(self.owner,key),self.bound,self._check())
         self.baselines[key]=rows[0][0] if rows else None
         if not rows: raise KeyError(key)
         value=receiptrows.validate_receipt(self.owner,key,receiptrows.loads(rows[0][0]))
         self._data.__setitem__(key,value); return value
+
+    def _check(self):
+        return (self.owner,self.version) if self.versioned else None
 
     def __contains__(self,key):
         try: self[key]; return True
@@ -174,7 +189,7 @@ class ReceiptOwner(_LazyMapping):
 
     def materialize(self):
         if self.complete: return
-        rows=_read(self.slug,self.revision,'SELECT token,val FROM receipts WHERE owner=%s ORDER BY ord',(self.owner,),self.bound)
+        rows=_read(self.slug,self.revision,'SELECT token,val FROM receipts WHERE owner=%s ORDER BY ord',(self.owner,),self.bound,self._check())
         if len(rows)!=self.count: raise StaleReceipts('receipt owner count mismatch')
         order=[]
         for key,text in rows:
@@ -201,18 +216,33 @@ class ReceiptOwner(_LazyMapping):
 
 
 class ReceiptSection(_LazyMapping):
-    def __init__(self,slug: str,revision: int,bound: TxBinding | None = None):
+    def __init__(self,slug: str,revision: int,bound: TxBinding | None = None,
+                 owners: list[tuple[str,int,int]] | None = None):
         super().__init__(); self.slug=slug; self.revision=revision; self.complete=False
         self.bound=bound
+        # Owner-version mode: every owner's (nrows, version) read in the load's
+        # own snapshot. Reads then check that owner's version, not the org
+        # revision, so unrelated commits do not invalidate the view.
+        self.snapshot:dict[str,tuple[int,int]]|None=(
+            None if owners is None else {o:(int(n),int(v)) for o,n,v in owners})
         self.missing:set[str]=set(); self.deleted:set[str]=set(); self.replaced:set[str]=set()
         self.reinserted:set[str]=set()
         self.versions:dict[str,int|None]={}
         # Keep externally held replacement dictionaries alive across saves.
         self.replacement_baselines:dict[str,str]={}
 
+    @property
+    def versioned(self): return self.snapshot is not None
+
     def __getitem__(self,owner):
         if (owner in self._data): return self._data[owner]
         if owner in self.missing or owner in self.deleted or self.complete: raise KeyError(owner)
+        if self.snapshot is not None:
+            if owner not in self.snapshot:
+                self.missing.add(owner); self.versions[owner]=None; raise KeyError(owner)
+            count,version=self.snapshot[owner]; self.versions[owner]=version
+            value=ReceiptOwner(self.slug,self.revision,owner,count,version,self.bound,True)
+            self._data.__setitem__(owner,value); return value
         rows=_read(self.slug,self.revision,'SELECT nrows,version FROM receipt_owners WHERE owner=%s',(owner,),self.bound)
         if not rows:
             self.missing.add(owner); self.versions[owner]=None; raise KeyError(owner)
@@ -230,14 +260,16 @@ class ReceiptSection(_LazyMapping):
         if self.complete: return False
         if self.deleted:
             self.materialize(); return len(self._data)>0
+        if self.snapshot is not None: return bool(self.snapshot)
         return bool(_read(self.slug,self.revision,'SELECT 1 FROM receipt_owners LIMIT 1',(),self.bound))
 
     def owner_keys(self):
         """Owner names in order, WITHOUT reading any owner's receipts
         (iterating the section materialises every owner's rows)."""
         if self.complete: return list(self._data.keys())
-        stored=[row[0] for row in _read(self.slug,self.revision,
-            'SELECT owner FROM receipt_owners ORDER BY ord',(),self.bound)]
+        stored=(list(self.snapshot) if self.snapshot is not None else
+                [row[0] for row in _read(self.slug,self.revision,
+                 'SELECT owner FROM receipt_owners ORDER BY ord',(),self.bound)])
         known=set(stored)
         return ([o for o in stored if o not in self.deleted and o not in self.reinserted]
                 + [o for o in self._data.keys() if o not in known or o in self.reinserted])
@@ -246,7 +278,9 @@ class ReceiptSection(_LazyMapping):
         """Owners that may hold a receipt whose `node` is one of `nodes`:
         every stored owner with such a row plus every owner exposed in memory
         (unsaved edits). Answers rename without materialising history."""
-        stored=[] if self.complete else [row[0] for row in _read(self.slug,self.revision,
+        # candidates only: each owner is re-read under its own version check
+        stored=[] if self.complete else [row[0] for row in _read(self.slug,
+            None if self.snapshot is not None else self.revision,
             "SELECT DISTINCT owner FROM receipts WHERE (val::json->>'node') = ANY(%s) ORDER BY owner",
             (list(nodes),),self.bound)]
         seen=set(); out=[]
@@ -272,7 +306,8 @@ class ReceiptSection(_LazyMapping):
             for value in self._data.values():
                 if isinstance(value,ReceiptOwner): value.materialize()
             return
-        rows=_read(self.slug,self.revision,'SELECT owner,nrows,version FROM receipt_owners ORDER BY ord',(),self.bound)
+        rows=([(o,n,v) for o,(n,v) in self.snapshot.items()] if self.snapshot is not None else
+              _read(self.slug,self.revision,'SELECT owner,nrows,version FROM receipt_owners ORDER BY ord',(),self.bound))
         order=[]
         for owner,count,version in rows:
             if owner not in self.reinserted: order.append(owner)
@@ -280,7 +315,8 @@ class ReceiptSection(_LazyMapping):
                 raise StaleReceipts('receipt owner version changed')
             self.versions[owner]=version
             if owner not in self.deleted and not (owner in self._data):
-                self._data.__setitem__(owner,ReceiptOwner(self.slug,self.revision,owner,count,version,self.bound))
+                self._data.__setitem__(owner,ReceiptOwner(self.slug,self.revision,owner,count,version,
+                                                          self.bound,self.snapshot is not None))
         known=set(order)
         order += [owner for owner in self._data.keys() if owner not in known]
         values={owner:self._data[owner] for owner in order if (owner in self._data)}
