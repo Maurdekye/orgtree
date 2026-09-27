@@ -70,7 +70,7 @@ class HistoryStorage(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "fixed records changed from frozen base"):
                     hp.restore(bundle, "small", root)
             self.assertEqual(observed, [True])
-            self.assertEqual(json.loads((bundle / "base.json").read_text()), frozen)
+            self.assertEqual(json.loads((bundle / "base.json").read_text(encoding="utf-8")), frozen)
             self.assertFalse((root / "RESTORE_COMPLETE").exists())
             self.assertTrue((root / "RESTORING").exists())
 

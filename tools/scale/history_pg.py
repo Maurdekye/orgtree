@@ -57,11 +57,16 @@ def frozen_source_hash(base):
     meta = {"key_order": encode(list(base)), **owners}
     h = hashlib.sha256()
     counts = {}
+    table_hashes = {}
     def add(table, rows):
         counts[table] = 0
+        table_hash = hashlib.sha256()
         for row in rows:
-            h.update((compact([table, *row]) + "\n").encode())
+            encoded = (compact([table, *row]) + "\n").encode()
+            h.update(encoded)
+            table_hash.update(encoded)
             counts[table] += 1
+        table_hashes[table] = table_hash.hexdigest()
     add("doc", ((k, docs[k]) for k in sorted(docs)))
     node_order = {nid: i for i, nid in enumerate(base["nodes"])}
     add("nodes", ((nid, node_order[nid], encode(base["nodes"][nid])) for nid in sorted(node_order)))
@@ -84,7 +89,7 @@ def frozen_source_hash(base):
     add("log_d", logs(True))
     add("log_l", logs(False))
     add("meta", ((k, meta[k]) for k in sorted(meta)))
-    return dict(sha256=h.hexdigest(), rows=counts)
+    return dict(sha256=h.hexdigest(), rows=counts, table_sha256=table_hashes)
 
 
 def destination(root, slug, url):
@@ -127,17 +132,22 @@ def source_hash(raw):
         "meta": "SELECT key,val FROM meta WHERE key='key_order' OR key LIKE 'owners:%%' ORDER BY key",
     }
     counts = {}
+    table_hashes = {}
     for table, query in queries.items():
         count = 0
+        table_hash = hashlib.sha256()
         # Server-side cursor keeps verification bounded even when the fixed
         # original fixture itself carries substantial historical tails.
         with raw.cursor(name="history_source_" + table) as cursor:
             cursor.execute(query, (TAIL_OFFSET,) if table.startswith("log_") else None)
             for row in cursor:
-                h.update((compact([table, *row]) + "\n").encode())
+                encoded = (compact([table, *row]) + "\n").encode()
+                h.update(encoded)
+                table_hash.update(encoded)
                 count += 1
         counts[table] = count
-    return dict(sha256=h.hexdigest(), rows=counts)
+        table_hashes[table] = table_hash.hexdigest()
+    return dict(sha256=h.hexdigest(), rows=counts, table_sha256=table_hashes)
 
 
 def statistics(raw, *, analyze):
@@ -208,7 +218,9 @@ def restore(bundle, arm, root, *, guard=lambda: None):
             raw.execute(sql.SQL("UPDATE {} SET seq=seq+%s").format(sql.Identifier(table)), (TAIL_OFFSET,))
         before = source_hash(raw)
         if before != expected_source:
-            raise ValueError("persisted active/fixed records changed from frozen base")
+            mismatched = [table for table in before["table_sha256"]
+                          if before["table_sha256"][table] != expected_source["table_sha256"][table]]
+            raise ValueError(f"persisted active/fixed records changed from frozen base: {mismatched}")
         node_ord = raw.execute("SELECT coalesce(max(ord),-1)+1 FROM nodes").fetchone()[0]
         with raw.cursor().copy("COPY nodes(id,ord,val) FROM STDIN") as cp:
             for i, row in enumerate(read_rows(bundle / arm / "retired_agents.jsonl")):
