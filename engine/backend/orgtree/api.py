@@ -7699,12 +7699,12 @@ def work_items_view(slug: str, archived: int = 0, backlogged: int = 0,
 
 def _bounded_work_response(slug: str, kind: str, backlogged: bool = False,
                            limit: int = 50, cursor: str = '', wid: str = '',
-                           since: str = '') -> Any:
+                           since: str = '', archive_limit: int = 0) -> Any:
     from fastapi.responses import JSONResponse
     from . import worklist, workquery
     try:
         if kind == 'foreground':
-            body = worklist.foreground(slug, backlogged=backlogged)
+            body = worklist.foreground(slug, backlogged=backlogged, archive_limit=archive_limit)
         elif kind == 'archive':
             body = worklist.archive(slug, limit=limit, cursor=cursor)
         else:
@@ -7731,10 +7731,10 @@ def _bounded_work_response(slug: str, kind: str, backlogged: bool = False,
 
 @app.get('/api/orgs/{slug}/work-items-foreground')
 async def _work_foreground_route(slug: str, backlogged: int = 0,
-                                  request: Request = cast(Request, None)) -> Any:
+                                  request: Request = cast(Request, None), archive_limit: int = 0) -> Any:
     since = request.headers.get('if-none-match', '') if request else ''
     return await _run_ui_read(_bounded_work_response, slug, 'foreground',
-                              bool(backlogged), 50, '', '', since)
+                              bool(backlogged), 50, '', '', since, archive_limit)
 
 
 @app.get('/api/orgs/{slug}/work-items-archive-page')

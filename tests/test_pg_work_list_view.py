@@ -97,6 +97,34 @@ class Lists(unittest.TestCase):
         with self.assertRaises(workquery.CursorReset):
             worklist.archive(self.slug,limit=2,cursor=cursor,now_ts=self.now)
 
+    def test_archive_start_is_one_snapshot_and_later_pages_keep_its_clock(self):
+        self.add(self.item('active'))
+        for n in range(5): self.add(self.item('old-'+str(n),status='done'),True)
+        self.refresh()
+        expected = self.oracle()
+        start = self.foreground(archive_limit=2)
+        self.assertEqual(start['items'], expected['items'])
+        self.assertEqual(start['archived'], expected['archived'][:2])
+        self.assertEqual(start['counts'], expected['counts'])
+        seen_clocks = []
+        original = worklist.Context.light
+        def observe(ctx, row, slug):
+            seen_clocks.append(ctx.query.now)
+            return original(ctx, row, slug)
+        with patch.object(worklist.Context, 'light', observe):
+            page = worklist.archive(self.slug, limit=2, cursor=start['next_cursor'],
+                                    now_ts=self.now+10)
+        self.assertEqual(page['catalog'], start['catalog'])
+        self.assertEqual(page['archived'], expected['archived'][2:4])
+        self.assertEqual(seen_clocks, [self.now, self.now])
+        # A real writer between the combined start and the next page resets
+        # the chain rather than mixing the new foreground with an old archive.
+        self.add(self.item('new-active')); self.refresh()
+        with self.assertRaises(workquery.CursorReset):
+            worklist.archive(self.slug, limit=2, cursor=start['next_cursor'], now_ts=self.now+10)
+        for limit in (-1, 101):
+            with self.assertRaises(ValueError): self.foreground(archive_limit=limit)
+
     def test_dirty_stamp_and_missing_metadata_require_whole_compatibility(self):
         self.add(self.item()); self.assertIsNone(self.foreground()); self.refresh()
         self.assertIsNotNone(self.foreground())
@@ -157,6 +185,8 @@ class Lists(unittest.TestCase):
         with patch.object(store,'load_org',side_effect=AssertionError('whole Org')):
             response=asyncio.run(api._work_foreground_route(self.slug))
             self.assertEqual(response.status_code,200)
+            combined=asyncio.run(api._work_foreground_route(self.slug, archive_limit=100))
+            self.assertIn('archived',json.loads(combined.body))
             body=json.loads(response.body); self.assertEqual(len(body['items']),1)
             cached=api._bounded_work_response(self.slug,'foreground',since=body['revision'])
             self.assertEqual(cached.status_code,304)

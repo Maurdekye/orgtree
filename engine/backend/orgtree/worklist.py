@@ -96,7 +96,9 @@ def _read(slug, viewer, build, now_ts):
         return None
 
 
-def foreground(slug, viewer=USER, *, backlogged=False, now_ts=None):
+def foreground(slug, viewer=USER, *, backlogged=False, archive_limit=0, now_ts=None):
+    if type(archive_limit) is not int or not 0 <= archive_limit <= workquery.MAX_PAGE:
+        raise ValueError(f'archive_limit must be 0..{workquery.MAX_PAGE}')
     def build(ctx, org_slug):
         q = ctx.query
         counts = workread.counts_raw(q.raw, q.org_id, viewer=viewer, now_ts=q.now)
@@ -112,6 +114,15 @@ def foreground(slug, viewer=USER, *, backlogged=False, now_ts=None):
             body['references'].append(reference(row))
             if row.get('manual_attention'):
                 body['attention'].append(row)
+        if archive_limit:
+            # The first archive page and foreground must share BOTH snapshot
+            # and classification clock. A separately fetched first page can
+            # silently omit or duplicate an item archived between requests.
+            rows, following = q.archive(limit=archive_limit)
+            body['archived'] = [ctx.light(row, org_slug) for row in rows]
+            body['references'].extend(reference(row) for row in body['archived'])
+            body['next_cursor'] = following
+            body['catalog'] = q.catalog
         body['revision'] = work_ui._hash({k: v for k, v in body.items() if k != 'now'})
         return body
     return _read(slug, viewer, build, now_ts)

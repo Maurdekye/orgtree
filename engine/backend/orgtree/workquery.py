@@ -165,6 +165,9 @@ class Snapshot:
                 raise CursorReset('archive cursor expired; restart paging')
             if not isinstance(after, list) or len(after) != 2 or any(not isinstance(v, str) for v in after):
                 raise CursorReset('invalid archive position; restart paging')
+        # Projection of later pages must use the same classification clock as
+        # selection, including a closed row crossing the grace-period edge.
+        self.now = clock
         # These hints are maintained by the exact ledger predicates. Attention
         # always wins over location/age. Strict deadline preserves the 1h edge.
         query = self._select() + f" JOIN {self.schema}.work_read_policy p ON p.slug=i.slug WHERE NOT p.manual AND q.slug IS NULL AND (p.location='archive' OR p.deadline < %s)"
