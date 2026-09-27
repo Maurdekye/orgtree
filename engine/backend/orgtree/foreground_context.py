@@ -63,6 +63,11 @@ class ForegroundContext:
             raise CompatibilityRequired('coherent work counts unavailable')
         nodes = {nid: copy.deepcopy(row['node']) for nid, row in graph['rows'].items()}
         _compatible(settings, nodes)
+        if any(not row.get('id') for row in settings.get('user_inbox', [])):
+            raise CompatibilityRequired('legacy user mail identifiers require normalization')
+        if any(isinstance(row, dict) and not row.get('id')
+               for rows in (settings.get('mail') or {}).values() for row in rows):
+            raise CompatibilityRequired('legacy pending mail identifiers require normalization')
         self.d = ProjectionDoc(copy.deepcopy(settings))
         self.d['nodes'] = nodes
         for nid, node in nodes.items():
@@ -83,7 +88,7 @@ class ForegroundContext:
             if not self.d.get('fable_lock'):
                 node.pop('limit_locked', None)
         self.d.update(copy.deepcopy(windows['asks']))
-        self.d['documents'] = [copy.deepcopy(d) for docs in windows['documents'].values() for d in docs]
+        self.d['documents'] = [dict(copy.deepcopy(d), node=nid) for nid, docs in windows['documents'].items() for d in docs]
         self.d['org_inbox'] = copy.deepcopy(inbox['entries'])
         self._inbox = copy.deepcopy(inbox)
         self._document_counts = dict(windows['document_counts'])
