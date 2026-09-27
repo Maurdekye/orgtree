@@ -70,7 +70,7 @@ class LaunchGuardTests(unittest.TestCase):
         launch = pin_git(lambda *a, **k: calls.append((a, k)), self.git)
         launch(["git", "status"])
         actual = calls[-1][0][0]
-        self.assertEqual(Path(actual[0]), Path(self.git))
+        self.assertEqual(Path(actual[0]).resolve(), Path(self.git).resolve())
         self.audit("subprocess.Popen", (actual[0], actual, None, None))
         for args, options in [("git status", {}), (["git", "status"], {"shell": True}),
                               (["git", "status"], {"executable": self.unknown})]:
