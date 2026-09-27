@@ -144,4 +144,44 @@ class ContextTests(unittest.TestCase):
         self.assertEqual(view.tree_header([]),expected.tree_header([]))
         self.assertEqual(view.d['kiosk'],expected.d['kiosk'])
 
+
+    def test_real_api_annotation_private_and_public_matches_legacy(self):
+        from types import SimpleNamespace
+        from orgtree import api, supervisor, registry_migration
+        from contextlib import ExitStack
+        for public in (False, True):
+            with self.subTest(public=public):
+                org,args=fixture(('parent','a','b'))
+                org.node('parent')['cache_continuity']={'public':{
+                    'state':'no_completed_fingerprint','source':'unobserved'}}
+                org.d['auto_cheap_compact']={'enabled':True,'occ':0.6}
+                args['settings']['auto_cheap_compact']=org.d['auto_cheap_compact']
+                if public:
+                    kiosk={'enabled':True,'credits':10,'max_scope':{
+                        'tools':{},'add_dirs':[],'org_visibility':'self','permission_mode':'plan'}}
+                    org.d['kiosk']=kiosk;args['settings']['kiosk']=copy.deepcopy(kiosk)
+                    org=ledger.Org(copy.deepcopy(org.d))
+                view=ForegroundContext(**args)
+                request=SimpleNamespace(state=SimpleNamespace(public_slug=org.d['slug'] if public else None))
+                def tree(context):
+                    return context.tree_header([context.tree_node(n,descend=False,lineage=False)
+                                                for n in ('parent','a','b')])
+                with ExitStack() as stack:
+                    stack.enter_context(patch.object(api.registry,'list_accounts',return_value=[]))
+                    stack.enter_context(patch.object(api.registry,'resolve_alias',return_value=None))
+                    stack.enter_context(patch.object(registry_migration,'observe_ambient',return_value={}))
+                    stack.enter_context(patch.object(supervisor,'state',return_value={
+                        'busy':False,'queue':[],'last_error':None}))
+                    stack.enter_context(patch.object(api.net,'status_block',return_value=None))
+                    stack.enter_context(patch.object(api.warmpool,'warm_decision',return_value=(False,'fixture')))
+                    forecast=stack.enter_context(patch.object(supervisor,'cache_forecast_public',wraps=supervisor.cache_forecast_public))
+                    expected=api._annotate_org_view(org,tree(org),request)
+                    actual=api._annotate_org_view(view,tree(view),request)
+                    self.assertEqual(actual,expected)
+                    self.assertEqual(forecast.call_count,6)
+                    self.assertTrue(actual['roots'][0]['cheap_compact_on'])
+                    if public:
+                        self.assertTrue(actual['public'])
+                        self.assertNotIn('max_scope',actual['kiosk'])
+
 if __name__=='__main__':unittest.main()
