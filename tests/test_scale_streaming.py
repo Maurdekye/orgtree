@@ -100,10 +100,11 @@ class IndependentStreams(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([row['first_seq'] for row in events], [2, 1])
         self.assertIsNone(events[0]['err'])
         self.assertIn('observed rejection', events[1]['err'])
-        self.assertEqual(feed.failed, 1)
         feed.retire(emitted + 6)
+        self.assertEqual(feed.failed, 1)
         self.assertEqual(len(feed.latencies[0]), 1)
-        self.assertEqual(feed.missing[0], 0)
+        self.assertEqual(feed.counts[0]['missing'], 0)
+        self.assertEqual(feed.counts[0]['due'], 1)
 
 
 if __name__ == '__main__':
