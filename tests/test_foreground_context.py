@@ -1,9 +1,16 @@
 ﻿"""Foreground partial contexts retain display semantics and cannot be saved."""
 import copy
+import os
+import tempfile
+from pathlib import Path
 import json
 import unittest
 from unittest.mock import patch, Mock
 import import_provenance
+_temp = tempfile.TemporaryDirectory(prefix="orgtree-context-")
+os.environ["ORGTREE_DATA"] = str(Path(_temp.name) / "data")
+Path(os.environ["ORGTREE_DATA"]).mkdir()
+os.environ["ORGTREE_V2_TOKEN"] = "context-test-only"
 from engine.launch import load_app
 load_app()
 from orgtree import ledger, store
