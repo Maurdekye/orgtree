@@ -1,6 +1,7 @@
 """Capture without a chat read, including failed turns and background backfill."""
 import json
 import os
+import sqlite3
 import tempfile
 import unittest
 import uuid
@@ -173,5 +174,45 @@ class CaptureTests(unittest.TestCase):
         try:self.assertFalse(self.backfill())
         finally:
             with ingest._lock:ingest._fresh.discard('unrelated-empty-session')
+
+    def test_settled_files_still_recover_output_spooled_during_database_outage(self):
+        self.write(0,3);self.backfill();self.assertFalse(self.backfill())
+        sid='spool-'+self.org.d['slug']
+        source=records.journal_source(self.org.d['slug'],sid)
+        mirror=str(self.path.with_suffix('.recovered.jsonl'))
+        with patch.object(records,'_commit_owned',side_effect=sqlite3.OperationalError('outage')):
+            self.assertFalse(records.append_owned(self.org.d['slug'],sid,mirror,[{'text':'recover me'}]))
+        # Do not use tail(): that reader drains the spool itself and would hide
+        # a capture worker which skipped recovery along with unchanged files.
+        with records.database() as conn:
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM transcript_records WHERE source=?',
+                                          (source,)).fetchone()[0],0)
+        self.assertFalse(self.backfill())
+        with records.database() as conn:
+            rows=conn.execute('SELECT body FROM transcript_records WHERE source=?',(source,)).fetchall()
+        self.assertEqual([json.loads(row[0])['text'] for row in rows],['recover me'])
+
+    def test_unread_suffix_retries_without_another_file_change(self):
+        import builtins
+        self.write(0,3);self.backfill();self.assertFalse(self.backfill())
+        self.write(3,2,'a')
+        real_open=builtins.open
+        attempts=[]
+        def temporarily_unreadable(filename,*args,**kwargs):
+            if str(filename)==str(self.path):
+                attempts.append(str(filename))
+                raise FileNotFoundError('provider temporarily moved the file after stat')
+            return real_open(filename,*args,**kwargs)
+        # stat succeeds, but ingest cannot open the changed file. Its existing
+        # FileNotFoundError path returns without advancing upper_byte (lower is0).
+        with patch.object(builtins,'open',side_effect=temporarily_unreadable):
+            self.assertTrue(self.backfill())
+        self.assertTrue(attempts,'control: the failed read really occurred')
+        self.assertEqual(len(self.rows()),3)
+        # The file now stays byte-for-byte and stat-for-stat unchanged. Only
+        # the upper-byte check prevents the first failed pass being cached.
+        self.assertTrue(self.backfill())
+        self.assertEqual(len(self.rows()),5)
+        self.assertFalse(self.backfill())
 
 if __name__=='__main__':unittest.main()

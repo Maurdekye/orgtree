@@ -74,6 +74,9 @@ def capture(slug, nid, *, beginning=False, backfill=False):
     from . import store, supervisor as sup, transcript_records as records
     from .chat_window import source_key
     from .desktop_import import imported_history_path
+    # A database outage can leave durable output in the recovery spool without
+    # changing any provider file. Settled-file skips must not starve its replay.
+    records._drain_spool()
     # read-only resolution (session id, transcript paths) off the shared
     # snapshot: this runs every second for every busy node plus 8 backfill
     # slices, and each call re-parsed the whole document (REPORT.md #7)
