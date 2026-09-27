@@ -6,17 +6,15 @@ or provider process.
 """
 import gzip
 import json
-import os
 import unittest
 from unittest.mock import patch
 
-os.environ['ORGTREE_V2_TOKEN'] = 'foreground-test'
 import import_provenance  # noqa: F401,E402
-from engine.launch import load_app
-app, *_ = load_app()
+from engine.launch import TokenGate
 from fastapi.testclient import TestClient
 from orgtree import api, foreground_api as routes, foreground_store as fg, foreground_view as view, store
 from orgtree.ledger import LedgerError
+app = TokenGate(api.app, 'foreground-test')
 
 
 class ForegroundHTTP(unittest.TestCase):
