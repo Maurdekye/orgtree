@@ -46,6 +46,11 @@ class PolicyContext:
 
         nodes = copy.deepcopy(graph.nodes)
         _compatible(settings, nodes)
+        if any(node.get('cheap_compacted') for node in nodes.values()):
+            # First-turn recovery may read authorized docket bodies through
+            # work_list/work_get. This adapter only supplies policy summaries,
+            # so retain the complete reader just as IdentityContext does.
+            raise CompatibilityRequired('first-turn docket splice requires full context')
         if any(isinstance(row, dict) and not row.get('id')
                for rows in (settings.get('mail') or {}).values() for row in rows):
             raise CompatibilityRequired('pending mail needs legacy identity normalization')
