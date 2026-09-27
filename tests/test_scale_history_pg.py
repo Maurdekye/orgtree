@@ -57,7 +57,8 @@ class HistoryStorage(unittest.TestCase):
             self.assertEqual(child.returncode, 0, child.stderr)
             child_receipt = json.loads(child_result.read_text())
             self.assertTrue(child_receipt["verified"])
-            self.assertTrue(child_receipt["import_provenance"])
+            self.assertTrue(child_receipt["provenance"]["import_provenance"])
+            self.assertEqual(Path(child_receipt["provenance"]["repo"]).resolve(), Path(__file__).resolve().parents[1])
             self.assertEqual(receipt["statistics"]["statistics_state"], "analyzed_after_seed")
             self.assertIn(receipt["cold_statistics"]["statistics_state"],
                           ("fresh_unanalyzed", "seeded_before_explicit_analyze"))
