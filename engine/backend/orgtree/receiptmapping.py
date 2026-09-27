@@ -232,6 +232,16 @@ class ReceiptSection(_LazyMapping):
             self.materialize(); return len(self._data)>0
         return bool(_read(self.slug,self.revision,'SELECT 1 FROM receipt_owners LIMIT 1',(),self.bound))
 
+    def owner_keys(self):
+        """Owner names in order, WITHOUT reading any owner's receipts
+        (iterating the section materialises every owner's rows)."""
+        if self.complete: return list(self._data.keys())
+        stored=[row[0] for row in _read(self.slug,self.revision,
+            'SELECT owner FROM receipt_owners ORDER BY ord',(),self.bound)]
+        known=set(stored)
+        return ([o for o in stored if o not in self.deleted and o not in self.reinserted]
+                + [o for o in self._data.keys() if o not in known or o in self.reinserted])
+
     def owners_naming(self,nodes):
         """Owners that may hold a receipt whose `node` is one of `nodes`:
         every stored owner with such a row plus every owner exposed in memory
