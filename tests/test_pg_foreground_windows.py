@@ -22,7 +22,7 @@ class ForegroundWindows(unittest.TestCase):
         org = store.create_org('window-' + self._testMethodName)
         self.slug = org.d['slug']
         org.hire(ledger.USER, None, 'luna', 100, 'boss')
-        org.hire('boss', 'boss', 'luna', 0, 'leaf')
+        org.hire(ledger.USER, 'boss', 'luna', 0, 'leaf')
         store.save_org(org)
 
     def windows(self, ids=('boss', 'leaf'), header=True):
