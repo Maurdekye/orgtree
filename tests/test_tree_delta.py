@@ -80,6 +80,13 @@ class TreeDelta(unittest.TestCase):
         self.check(new)
         self.assertEqual(wire.full(new, wire.revision(new))['tree'], new)
 
+    def test_nested_boolean_and_number_are_distinct_json_values(self):
+        self.old['roots'][0]['future'] = {'value':[True]}
+        new = copy.deepcopy(self.old)
+        new['roots'][0]['future']['value'] = [1]
+        patch = self.check(new)
+        self.assertEqual(patch['nodes']['a']['set']['future'], {'value':[1]})
+
 
 if __name__ == '__main__':
     unittest.main()

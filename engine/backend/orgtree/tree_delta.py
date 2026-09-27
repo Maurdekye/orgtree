@@ -35,8 +35,20 @@ def flatten(tree: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return rows
 
 
+def equal(before: Any, after: Any) -> bool:
+    # Python considers True == 1, including nested dicts/lists; JSON consumers
+    # do not. No field may disappear from a delta through that coercion.
+    if type(before) is not type(after):
+        return False
+    if isinstance(before, dict):
+        return before.keys() == after.keys() and all(equal(v, after[k]) for k, v in before.items())
+    if isinstance(before, list):
+        return len(before) == len(after) and all(equal(a, b) for a, b in zip(before, after))
+    return before == after
+
+
 def changed(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
-    return {"set": {k: v for k, v in after.items() if k not in before or before[k] != v},
+    return {"set": {k: v for k, v in after.items() if k not in before or not equal(before[k], v)},
             "remove": [k for k in before if k not in after]}
 
 
@@ -52,5 +64,5 @@ def delta(before: dict[str, Any], after: dict[str, Any], base: str,
     return {"format": FORMAT, "revision": token, "base": base,
             "top": changed(top_old, top_new),
             "nodes": {nid: changed(old.get(nid, {}), node)
-                      for nid, node in new.items() if old.get(nid) != node},
+                      for nid, node in new.items() if not equal(old.get(nid), node)},
             "removed": [nid for nid in old if nid not in new]}
