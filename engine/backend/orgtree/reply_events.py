@@ -19,7 +19,10 @@ def _connect():
     # row (perf-review round 3 — dropping one leaves its quoted id
     # unresolved forever), so these commits keep the durability the plain
     # journal gave them; the win here is the journal-churn removal only.
-    connection.execute('PRAGMA journal_mode=WAL')
+    # This PRAGMA returns a row. Finish it explicitly: a concurrent stack
+    # sampler can retain the execute frame (and its cursor) past this call,
+    # leaving a write statement active when the first transaction commits.
+    connection.execute('PRAGMA journal_mode=WAL').close()
     connection.execute('PRAGMA synchronous=FULL')
     return connection
 
