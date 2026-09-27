@@ -19,6 +19,7 @@ from .ledger import LedgerError
 
 MAX_PAGE = 100
 MAX_INCLUDE = 128
+ASK_SECTIONS = ('asks', 'credit_requests', 'scope_requests')
 
 
 class CursorReset(ValueError):
@@ -151,6 +152,72 @@ def _graph(raw: Any, stamp: dict, ids: list[str], requested: tuple[str, ...] = (
             'hidden_retired_children': {p: hidden.get(p, 0) for p in parents},
             'missing': [nid for nid in requested if nid not in rows],
             'missing_ancestors': missing_parents}
+
+
+def read_card_windows(raw: Any, ids: list[str], *, header: bool = False) -> dict:
+    """Read the existing visible ask/document windows from the caller's snapshot.
+
+    The returned ask lists preserve source order. They contain every open row,
+    the header's newest resolved rows, and each selected node's most recent
+    resolved row per section. Org.node_ask still decides batching and linger;
+    storage must not duplicate its time/boot or withdrawn-card rules.
+    """
+    rows: dict[tuple[str, int], tuple] = {}
+    for row in raw.execute(
+            "SELECT sect,ord,val FROM foreground_asks WHERE status IN ('open','pending') "
+            'AND (%s OR node=ANY(%s))', (header, ids)).fetchall():
+        rows[row[:2]] = row
+    for section in ASK_SECTIONS:
+        visible = " AND status<>'withdrawn'" if section != 'asks' else ''
+        if header:
+            # At most eight per section suffice for the final shared ledger
+            # header cap; its order is asks, credits, scope, each in source order.
+            for row in raw.execute(
+                    'SELECT sect,ord,val FROM foreground_asks WHERE sect=%s '
+                    "AND status NOT IN ('open','pending')" + visible +
+                    ' ORDER BY ord DESC LIMIT 8', (section,)).fetchall():
+                rows[row[:2]] = row
+        for row in raw.execute(
+                'SELECT q.sect,q.ord,q.val FROM unnest(%s::text[]) node(id) '
+                'CROSS JOIN LATERAL (SELECT sect,ord,val FROM foreground_asks '
+                'WHERE node=node.id AND sect=%s' + visible +
+                ' ORDER BY stamp DESC,ord LIMIT 1) q', (ids, section)).fetchall():
+            rows[row[:2]] = row
+    asks = {section: [json.loads(row[2]) for row in sorted(rows.values(), key=lambda r: r[1])
+                      if row[0] == section] for section in ASK_SECTIONS}
+    # A pre-rowed documents blob takes precedence, exactly as LazyDoc does.
+    source = int(raw.execute("SELECT EXISTS(SELECT 1 FROM doc WHERE key='documents')").fetchone()[0])
+    counts = dict(raw.execute(
+        "SELECT owner,total FROM foreground_counts WHERE source=%s AND sect='documents' AND owner=ANY(%s)",
+        (source, ids)).fetchall())
+    documents = {nid: [] for nid in ids}
+    for nid, seq, meta in raw.execute(
+            'SELECT node.id,q.seq,q.meta FROM unnest(%s::text[]) node(id) '
+            'CROSS JOIN LATERAL (SELECT seq,meta FROM foreground_documents '
+            'WHERE source=%s AND foreground_documents.node=node.id ORDER BY seq DESC LIMIT 10) q '
+            'ORDER BY node.id,q.seq', (ids, source)).fetchall():
+        documents[nid].append(meta)
+    return {'asks': asks, 'documents': documents,
+            'document_counts': {nid: counts.get(nid, 0) for nid in ids}}
+
+
+def read_org_inbox_window(raw: Any) -> dict:
+    """Exact log-coordinate counts and the existing three-entry preview.
+
+    This only reads the caller's already-open committed snapshot. In particular,
+    acknowledgements use total, never the length of the preview.
+    """
+    blob = raw.execute("SELECT val FROM foreground_blobs WHERE key='org_inbox'").fetchone()
+    if blob is not None:
+        total, entries = blob[0]['total'], blob[0]['entries']
+    else:
+        count = raw.execute("SELECT total FROM foreground_counts WHERE source=0 AND sect='org_inbox' AND owner=''").fetchone()
+        total = count[0] if count else 0
+        entries = [json.loads(row[0]) for row in reversed(raw.execute(
+            "SELECT val FROM log_l WHERE sect='org_inbox' ORDER BY seq DESC LIMIT 3").fetchall())]
+    ack = raw.execute("SELECT val FROM doc WHERE key='org_inbox_read'").fetchone()
+    read = int(json.loads(ack[0]) or 0) if ack else 0
+    return {'total': total, 'unread': max(0, total - read), 'entries': entries}
 
 
 def read_foreground(slug: str, include=()) -> dict:
