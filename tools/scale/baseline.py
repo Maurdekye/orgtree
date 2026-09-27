@@ -408,6 +408,7 @@ def child(args):
         provenance.write_result(root / "receipts/bundle.json", manifest)
     elif args.child == "restore":
         desc = read(root / "frozen/descriptor.json")
+        store.claim_data_root()  # ordinary bootstrap/migrations on the new DB
         receipt = restore(root / "bundle", args.arm, run)
         provenance.write_result(root / f"receipts/{args.arm}-restore.json", receipt)
     elif args.child == "files":
