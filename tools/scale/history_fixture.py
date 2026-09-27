@@ -114,7 +114,7 @@ def prepare_base(document):
     for nid, node in nodes.items():
         if not isinstance(nid, str) or nid.startswith(PREFIX) or node.get("state") != "live":
             raise ValueError("base must be live-only with disjoint history identities")
-        if node.get("id") != nid or (node.get("parent") and node["parent"] not in nodes):
+        if node.get("id", nid) != nid or (node.get("parent") and node["parent"] not in nodes):
             raise ValueError("invalid base topology")
         floor = node.get("mail_seq", 0)
         if type(floor) is not int or floor < 0 or floor >= MAIL_FLOOR:
@@ -181,11 +181,13 @@ def history_row(family, index, base, recipe):
         # Copy the real active-node shape, but never copy a pending runtime,
         # predecessor chain, mutable grant or watcher into retired history.
         row = copy.deepcopy(base["nodes"][owner])
-        row.update(id=nid, name=nid, parent=owner, state="archived", grant=0, model="haiku",
+        row.update(id=nid, name=nid, title=nid, lineage=nid, parent=owner, state="archived", grant=0, model="haiku",
                    generation=0, seat_id=identity("seat", index), session_id=sid,
                    charter=text(recipe.seed, family, index, recipe.node_chars),
-                   created_at=OLD, archived_at=OLD, cost_usd=0, turns=[],
-                   reply_incarnation=identity("incarnation", index), mail_seq=0)
+                   created=OLD, archived_at=OLD, cost_usd=0, turns=[], pid=None,
+                   last_status=dict(status="idle", summary="retired history", at=OLD),
+                   reply_incarnation=identity("incarnation", index), mail_seq=0,
+                   mailbox_id=identity("mailbox", index))
         for key in ("predecessor", "successor", "frozen", "halted", "cache_keepalive_at"):
             row.pop(key, None)
         return row
