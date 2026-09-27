@@ -118,6 +118,8 @@ if (mode === 'build') {
     archiveMeasurement: process.env.ORGTREE_PAINT_ARCHIVE === '1',
     treeMeasurement: process.env.ORGTREE_PAINT_TREE === '1',
     profile: process.env.ORGTREE_PAINT_PROFILE === '1',
+    metricsOnly: process.env.ORGTREE_PAINT_METRICS === '1',
+    noForcedGc: process.env.ORGTREE_PAINT_NO_FORCED_GC === '1',
     descriptor: descriptorPath, descriptorSummary: descriptor && publicDescriptor(descriptor),
     org: descriptor?.org, label: options.label, loadDir, started: Date.now() }
   write(path.join(output, 'run.json'), run)

@@ -81,23 +81,25 @@ async function action(name, selector, ready, { delayMs = 0, timeout = 15000, sup
 // Opt-in attribution for a measured click: CPU profile, renderer counters,
 // long tasks and resource loads between arming and the painted proof. The
 // sampling profiler adds overhead, so these timings attribute, not qualify.
-async function profiled(tag, run) {
+async function profiled(tag, run, cpu = true) {
   const cdp = (method, params) => win.webContents.debugger.sendCommand(method, params)
   await cdp('Performance.enable', { timeDomain: 'timeTicks' })
-  await cdp('Profiler.enable'); await cdp('Profiler.setSamplingInterval', { interval: 100 })
+  if (cpu) { await cdp('Profiler.enable'); await cdp('Profiler.setSamplingInterval', { interval: 100 }) }
   await js(`(()=>{window.__perfRows=[];try{const o=new PerformanceObserver(l=>{for(const e of l.getEntries())window.__perfRows.push({type:e.entryType,name:String(e.name).slice(0,160),start:performance.timeOrigin+e.startTime,duration:e.duration,size:e.transferSize??null})});o.observe({entryTypes:['longtask','resource']});window.__perfObs=o}catch(e){window.__perfRows.push({error:String(e)})}})()`)
   const metrics = async () => Object.fromEntries((await cdp('Performance.getMetrics')).metrics.map(m => [m.name, m.value]))
   const before = await metrics()
-  await cdp('Profiler.start')
+  if (cpu) await cdp('Profiler.start')
   let row
   try { row = await run() } finally {
-    const { profile } = await cdp('Profiler.stop')
-    fs.writeFileSync(path.join(run_output(), `profile-${tag}.cpuprofile`), JSON.stringify(profile))
+    if (cpu) {
+      const { profile } = await cdp('Profiler.stop')
+      fs.writeFileSync(path.join(run_output(), `profile-${tag}.cpuprofile`), JSON.stringify(profile))
+    }
   }
   const after = await metrics()
   const entries = await js('(()=>{window.__perfObs?.disconnect();return window.__perfRows})()')
   const delta = Object.fromEntries(Object.keys(after).map(k => [k, after[k] - (before[k] ?? 0)]))
-  profileSamples.push({ tag, ms: row.ms, start: row.start, painted: row.painted,
+  profileSamples.push({ tag, cpu, heapBefore: before.JSHeapUsedSize, heapAfter: after.JSHeapUsedSize, ms: row.ms, start: row.start, painted: row.painted,
     readyAt: row.batch?.rows.find(r => r.name === tag)?.readyAt ?? null, delta,
     longTasks: entries.filter(e => e.type === 'longtask' && e.start + e.duration >= row.start && e.start <= row.painted),
     resources: entries.filter(e => e.type === 'resource' && e.start + e.duration >= row.start - 50 && e.start <= row.painted) })
@@ -266,9 +268,11 @@ app.whenReady().then(async () => {
       // Canvas at rest: the selected tree, the steady heap after forced GC,
       // and the retired pile's click-to-feedback paint. Observation only.
       const memory = async () => {
-        await win.webContents.debugger.sendCommand('HeapProfiler.collectGarbage')
+        // ORGTREE_PAINT_NO_FORCED_GC tests whether these forced collections
+        // disturb the clicks that follow; heap then reads without a GC.
+        if (!run.noForcedGc) await win.webContents.debugger.sendCommand('HeapProfiler.collectGarbage')
         return { heap: await win.webContents.debugger.sendCommand('Runtime.getHeapUsage'),
-          processes: app.getAppMetrics() }
+          processes: app.getAppMetrics(), forcedGc: !run.noForcedGc }
       }
       await until(() => js('!!document.querySelector(".pile-count")'))
       await sleep(3000)   // declared settle: startup reads and first heartbeat
@@ -373,7 +377,7 @@ app.whenReady().then(async () => {
         const opened = await js('!!document.querySelector(".attn-agents-wrap.list-open")')
         if (!opened) await action('agents-list-' + tag, '.attn-agents-toggle', '!!document.querySelector(".attn-agents-wrap.list-open")', { measured: false })
         const click = () => action(tag, '[data-paint-target=' + tag + ']', `document.querySelector('[data-attn-agent=${JSON.stringify(n)}]')?.getAttribute('aria-selected')==='true' && visible(document.querySelector('.attn-desk textarea')) && document.querySelector('.attn-desk textarea')?.placeholder.startsWith(${JSON.stringify('message ' + n)})`, { measured })
-        if (run.profile && measured) await profiled(tag, click); else await click()
+        if ((run.profile || run.metricsOnly) && measured) await profiled(tag, click, run.profile); else await click()
       }
       await select(other, 'prepare-agent' + suffix, false)
       await select(agent, 'select-agent' + suffix, true)
