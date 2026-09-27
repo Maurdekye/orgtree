@@ -250,7 +250,27 @@ app.whenReady().then(async () => {
       // pile badge is ~12px and a real pointer can miss it. Zoom in on it
       // with real wheel input, then wait for the camera to settle.
       const badge = () => js(`(()=>{const c=[...document.querySelectorAll('.pile-count')].sort((a,b)=>+b.textContent - +a.textContent)[0].getBoundingClientRect();return{x:Math.round(c.left+c.width/2),y:Math.round(c.top+c.height/2),h:c.height}})()`)
+      // The probe's scrollIntoView on a target near the viewport edge scrolls
+      // the canvas container, which the canvas then restores, so the press
+      // lands on empty space. Pan the pile to the middle first with a real
+      // drag that starts on verified empty canvas.
+      const middle = await js('(()=>{const r=document.querySelector(".viewport").getBoundingClientRect();return{x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}})()')
+      const start = await js(`(()=>{for(let y=140;y<880;y+=30)for(let x=120;x<1380;x+=30){const e=document.elementFromPoint(x,y);if(e&&(e.classList.contains('space')||e.classList.contains('viewport')))return{x,y}}return null})()`)
+      if (!start) throw Error('no empty canvas point to pan from')
+      const before = await badge()
+      const end = { x: start.x + middle.x - before.x, y: start.y + middle.y - before.y }
+      win.webContents.sendInputEvent({ type: 'mouseMove', ...start })
+      win.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...start })
+      for (let k = 1; k <= 10; k++) {
+        win.webContents.sendInputEvent({ type: 'mouseMove', button: 'left',
+          x: Math.round(start.x + (end.x - start.x) * k / 10), y: Math.round(start.y + (end.y - start.y) * k / 10) })
+        await sleep(30)
+      }
+      win.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, ...end })
+      await sleep(1000)
       const first = await badge()
+      journal({ pilePan: { middle, start, before, after: first } })
+      if (Math.abs(first.x - middle.x) > 80 || Math.abs(first.y - middle.y) > 80) throw Error('pile could not be panned to the middle')
       const zoom = async (delta, notches) => {
         for (let k = 0; k < notches; k++) {
           const at = await badge()
