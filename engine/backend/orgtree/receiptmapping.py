@@ -1,8 +1,11 @@
 """Lazy, CAS-backed receipt dictionaries for a loaded PostgreSQL document.
 
-Deferred reads refuse a changed committed org revision. Exposing a receipt keeps
-its exact stored bytes as the write baseline, so nested edits are not missed.
-No connection or callable survives in these objects.
+Snapshot views (loaded outside an org_tx) refuse deferred reads after the
+committed org revision changes. Views loaded inside an org_tx are bound to that
+transaction's pinned connection instead (see TxBinding) and refuse after it
+ends. Exposing a receipt keeps its exact stored bytes as the write baseline, so
+nested edits are not missed. Only a TxBinding reference survives in these
+objects; it grants no read once its transaction is over.
 """
 from __future__ import annotations
 
@@ -16,8 +19,42 @@ class StaleReceipts(RuntimeError):
     pass
 
 
-def _read(slug: str, revision: int, query: str, params: tuple[Any, ...]) -> list[Any]:
+class TxBinding:
+    """The pinned org_tx connections a view was loaded inside.
+
+    Disjoint org_tx writers commit concurrently and advance the org revision,
+    so a view loaded inside a locked transaction is kept coherent by that
+    transaction's locks and owner versions, not by the revision. Such a view
+    reads only on the same pinned connection and refuses after it ends.
+    """
+    def __init__(self, pinned: dict[str, Any]):
+        self.pinned = pinned
+
+    def conn(self, slug: str) -> Any:
+        from . import store
+        if getattr(store._orgtx_local, 'pinned', None) is not self.pinned \
+                or slug not in self.pinned:
+            raise StaleReceipts('receipt transaction view used after its transaction')
+        return self.pinned[slug]
+
+    def __deepcopy__(self, memo): return self
+    def __copy__(self): return self
+
+
+def binding(slug: str) -> TxBinding | None:
+    """The current org_tx binding for ``slug``, or None outside one."""
     from . import store
+    pinned = getattr(store._orgtx_local, 'pinned', None)
+    return TxBinding(pinned) if pinned is not None and slug in pinned else None
+
+
+def _read(slug: str, revision: int, query: str, params: tuple[Any, ...],
+          bound: TxBinding | None = None) -> list[Any]:
+    from . import store
+    if bound is not None:
+        conn = bound.conn(slug)
+        conn.use()
+        return conn.raw.execute(query, params).fetchall()
     with store._POOL.acquire(slug) as conn:
         # A pinned multi-org transaction shares one raw connection. Select this
         # org before bypassing the adapter for the native PostgreSQL query.
@@ -96,8 +133,10 @@ class _LazyMapping(MutableMapping):
 
 
 class ReceiptOwner(_LazyMapping):
-    def __init__(self,slug: str,revision: int,owner: str,count: int,version: int):
+    def __init__(self,slug: str,revision: int,owner: str,count: int,version: int,
+                 bound: TxBinding | None = None):
         super().__init__(); self.slug=slug; self.revision=revision; self.owner=owner
+        self.bound=bound
         self.count=count; self.version=version; self.complete=False
         self.baselines: dict[str,str|None]={}; self.deleted:set[str]=set()
         self.reinserted:set[str]=set()
@@ -105,7 +144,7 @@ class ReceiptOwner(_LazyMapping):
     def __getitem__(self,key):
         if (key in self._data): return self._data[key]
         if key in self.deleted or key in self.baselines or self.complete: raise KeyError(key)
-        rows=_read(self.slug,self.revision,'SELECT val FROM receipts WHERE owner=%s AND token=%s',(self.owner,key))
+        rows=_read(self.slug,self.revision,'SELECT val FROM receipts WHERE owner=%s AND token=%s',(self.owner,key),self.bound)
         self.baselines[key]=rows[0][0] if rows else None
         if not rows: raise KeyError(key)
         value=receiptrows.validate_receipt(self.owner,key,receiptrows.loads(rows[0][0]))
@@ -135,7 +174,7 @@ class ReceiptOwner(_LazyMapping):
 
     def materialize(self):
         if self.complete: return
-        rows=_read(self.slug,self.revision,'SELECT token,val FROM receipts WHERE owner=%s ORDER BY ord',(self.owner,))
+        rows=_read(self.slug,self.revision,'SELECT token,val FROM receipts WHERE owner=%s ORDER BY ord',(self.owner,),self.bound)
         if len(rows)!=self.count: raise StaleReceipts('receipt owner count mismatch')
         order=[]
         for key,text in rows:
@@ -162,8 +201,9 @@ class ReceiptOwner(_LazyMapping):
 
 
 class ReceiptSection(_LazyMapping):
-    def __init__(self,slug: str,revision: int):
+    def __init__(self,slug: str,revision: int,bound: TxBinding | None = None):
         super().__init__(); self.slug=slug; self.revision=revision; self.complete=False
+        self.bound=bound
         self.missing:set[str]=set(); self.deleted:set[str]=set(); self.replaced:set[str]=set()
         self.reinserted:set[str]=set()
         self.versions:dict[str,int|None]={}
@@ -173,11 +213,11 @@ class ReceiptSection(_LazyMapping):
     def __getitem__(self,owner):
         if (owner in self._data): return self._data[owner]
         if owner in self.missing or owner in self.deleted or self.complete: raise KeyError(owner)
-        rows=_read(self.slug,self.revision,'SELECT nrows,version FROM receipt_owners WHERE owner=%s',(owner,))
+        rows=_read(self.slug,self.revision,'SELECT nrows,version FROM receipt_owners WHERE owner=%s',(owner,),self.bound)
         if not rows:
             self.missing.add(owner); self.versions[owner]=None; raise KeyError(owner)
         count,version=rows[0]; self.versions[owner]=version
-        value=ReceiptOwner(self.slug,self.revision,owner,count,version)
+        value=ReceiptOwner(self.slug,self.revision,owner,count,version,self.bound)
         self._data.__setitem__(owner,value); return value
 
     def __contains__(self,owner):
@@ -190,7 +230,7 @@ class ReceiptSection(_LazyMapping):
         if self.complete: return False
         if self.deleted:
             self.materialize(); return len(self._data)>0
-        return bool(_read(self.slug,self.revision,'SELECT 1 FROM receipt_owners LIMIT 1',()))
+        return bool(_read(self.slug,self.revision,'SELECT 1 FROM receipt_owners LIMIT 1',(),self.bound))
 
     def __setitem__(self,owner,value):
         if not isinstance(value,Mapping): raise receiptrows.Unsupported('receipt owner must contain a mapping')
@@ -209,7 +249,7 @@ class ReceiptSection(_LazyMapping):
             for value in self._data.values():
                 if isinstance(value,ReceiptOwner): value.materialize()
             return
-        rows=_read(self.slug,self.revision,'SELECT owner,nrows,version FROM receipt_owners ORDER BY ord',())
+        rows=_read(self.slug,self.revision,'SELECT owner,nrows,version FROM receipt_owners ORDER BY ord',(),self.bound)
         order=[]
         for owner,count,version in rows:
             if owner not in self.reinserted: order.append(owner)
@@ -217,7 +257,7 @@ class ReceiptSection(_LazyMapping):
                 raise StaleReceipts('receipt owner version changed')
             self.versions[owner]=version
             if owner not in self.deleted and not (owner in self._data):
-                self._data.__setitem__(owner,ReceiptOwner(self.slug,self.revision,owner,count,version))
+                self._data.__setitem__(owner,ReceiptOwner(self.slug,self.revision,owner,count,version,self.bound))
         known=set(order)
         order += [owner for owner in self._data.keys() if owner not in known]
         values={owner:self._data[owner] for owner in order if (owner in self._data)}
