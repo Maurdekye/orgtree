@@ -2351,7 +2351,11 @@ class Org:
                 # ...) lists its owners without loading their rows, so a hire
                 # does not pull a multi-MB archive into memory
                 present = getattr(sec, "_present", None)
-                owners = (list(sec) if present is None else
+                # a row-backed receipt section names its owners without
+                # reading their receipts (iterating it reads every row)
+                owner_keys = getattr(sec, "owner_keys", None)
+                owners = (owner_keys() if owner_keys is not None else
+                          list(sec) if present is None else
                           [*dict.keys(sec), *(o for o in present
                                               if o not in getattr(sec, "_dropped", ())
                                               and not dict.__contains__(sec, o))])
