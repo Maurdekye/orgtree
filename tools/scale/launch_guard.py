@@ -1,5 +1,6 @@
 """Fail-closed launch audit for disposable scale engines; never product code."""
 import ctypes
+from contextvars import ContextVar
 from ctypes import wintypes
 import json
 import os
@@ -7,6 +8,21 @@ from pathlib import Path
 import shlex
 import threading
 import time
+
+request_path = ContextVar("scale_audit_request_path", default=None)
+
+
+class AuditRequestPath:
+    """Harness-only correlation; AnyIO copies this context into endpoint threads."""
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        token = request_path.set(scope.get("path") if scope.get("type") == "http" else None)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            request_path.reset(token)
 
 
 def argv_of(value):
@@ -42,11 +58,12 @@ def identity(value):
 
 
 class LaunchAudit:
-    def __init__(self, root, *, git=None, providers=(), agy=None):
+    def __init__(self, root, *, git=None, providers=(), agy=None, trace_git=False):
         self.root = Path(root)
         self.git = identity(git) if git else None
         self.providers = {identity(p) for p in providers} - {None}
         self.agy = identity(agy) if agy else None
+        self.trace_git = trace_git
         if self.agy:
             self.providers.add(self.agy)
         self.lock = threading.Lock()
@@ -94,6 +111,10 @@ class LaunchAudit:
         with self.lock:
             self.counts[kind] += 1
             if kind == "git_reads":
+                if self.trace_git:
+                    with (self.root / "metrics" / "git-reads.jsonl").open("a", encoding="utf-8") as f:
+                        f.write(json.dumps({"at": time.time(), "argv": argv_of(args[1]),
+                                            "endpoint": request_path.get()}) + "\n")
                 return
             row = {"at": time.time(), "event": event, "cmd": str(args[1] if len(args) > 1 else args),
                    "executable": os.fsdecode(args[0]) if args and args[0] is not None else None,

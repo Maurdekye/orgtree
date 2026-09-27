@@ -210,12 +210,12 @@ def child(args) -> int:
     from assert_repo_import import assert_repo_import
     prov = assert_repo_import(str(REPO))
     import shutil
-    from launch_guard import LaunchAudit, pin_git
+    from launch_guard import LaunchAudit, pin_git, AuditRequestPath
     git_executable = shutil.which("git")
     subprocess.Popen = pin_git(subprocess.Popen, git_executable)
     launch_audit = LaunchAudit(root, git=git_executable,
         providers=[os.environ["ORGTREE_CLAUDE"], os.environ["ORGTREE_CODEX"]],
-        agy=shutil.which("agy"))
+        agy=shutil.which("agy"), trace_git=os.environ.get("ORGTREE_SCALE_TRACE_GIT") == "1")
     sys.addaudithook(launch_audit)
 
     t_import = time.time()
@@ -566,6 +566,8 @@ def child(args) -> int:
 
     if os.environ.get("ORGTREE_SCALE_REQPROF"):
         app = _reqprof_wrap(app, root)
+    if os.environ.get("ORGTREE_SCALE_TRACE_GIT") == "1":
+        app = AuditRequestPath(app)
     import uvicorn
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=args.port, lifespan="on",
                                            access_log=False, log_level="warning",

@@ -4,7 +4,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from tools.scale.launch_guard import LaunchAudit, pin_git
+from tools.scale.launch_guard import LaunchAudit, pin_git, AuditRequestPath
 
 
 class LaunchGuardTests(unittest.TestCase):
@@ -50,6 +50,18 @@ class LaunchGuardTests(unittest.TestCase):
                 self.audit("subprocess.Popen", (None, subprocess.list2cmdline(words), None, None))
         self.assertEqual(self.audit.snapshot()["git_reads"], 2)
         self.assertEqual(self.audit.snapshot()["unexpected"], 3)
+
+    def test_git_read_counts_keep_endpoint_context_through_endpoint_thread(self):
+        import asyncio
+        audit = LaunchAudit(self.root, git=self.git, trace_git=True)
+        async def app(scope, receive, send):
+            await asyncio.to_thread(audit, "subprocess.Popen", self.event(self.git, "rev-parse", "--short", "HEAD"))
+        asyncio.run(AuditRequestPath(app)({"type": "http", "path": "/api/host"}, None, None))
+        audit("subprocess.Popen", self.event(self.git, "rev-parse", "HEAD"))
+        rows = [json.loads(line) for line in (self.root / "metrics/git-reads.jsonl").read_text().splitlines()]
+        self.assertEqual([r["endpoint"] for r in rows], ["/api/host", None])
+        self.assertEqual(rows[0]["argv"], [self.git, "rev-parse", "--short", "HEAD"])
+        self.assertEqual(audit.snapshot()["git_reads"], 2)
 
     def test_known_capability_forms_only(self):
         cases = [(self.claude, ["--version"]), (self.agy, ["--version"]),

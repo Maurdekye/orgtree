@@ -112,7 +112,7 @@ try:
         '--root', str(root), '--agents', '10', '--admin-url', admin]))
     wait(launch('prepare', [sys.executable, '-I', '-B', str(Path(__file__).with_name('prepare.py')), '--root', str(root)]))
     server = launch('server', [sys.executable, '-I', '-B', str(REPO / 'tools/scale/serve.py'),
-        '--root', str(root), '--env', 'ORGTREE_SCALE_ASSERT_NO_TURNS=1'])
+        '--root', str(root), '--env', 'ORGTREE_SCALE_ASSERT_NO_TURNS=1', '--env', 'ORGTREE_SCALE_TRACE_GIT=1'])
     deadline = time.monotonic() + 180
     while descriptor().get('serve', {}).get('state') != 'ready':
         check()
@@ -161,7 +161,7 @@ finally:
             if source.is_file(): shutil.copy2(source, packet / 'paint' / source.name)
     if (root / 'metrics/renderer').exists():
         shutil.copytree(root / 'metrics/renderer', packet / 'load', dirs_exist_ok=True)
-    for name in ('serve-guard.json', 'qualification-invalid.json', 'serve-refused.jsonl'):
+    for name in ('serve-guard.json', 'qualification-invalid.json', 'serve-refused.jsonl', 'git-reads.jsonl'):
         source = root / 'metrics' / name
         if source.exists(): shutil.copy2(source, packet / name)
     # Resolve absolute target before deletion, including possible junctions.
