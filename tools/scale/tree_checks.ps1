@@ -1,4 +1,4 @@
-param([ValidateSet('base','tip')][string]$Arm='tip')
+param([ValidateSet('base','tip')][string]$Arm='tip', [switch]$SkipPython)
 $ErrorActionPreference = 'Stop'
 $repo = 'E:\Libraries\Desktop\orgtree\.worktrees\scale-ui-astra'
 $checkout = if ($Arm -eq 'base') { 'E:\Libraries\Desktop\orgtree\.worktrees\scale-ui-tree-base' } else { $repo }
@@ -12,8 +12,13 @@ if ($Arm -eq 'tip') {
 }
 Push-Location $checkout
 try {
+    # Windows PowerShell treats native stderr as ErrorRecord under Stop, even
+    # when the runner emits an informational memory-limit line and exits zero.
+    $ErrorActionPreference = 'Continue'
+    if (-not $SkipPython) {
     & $python tools/run-python-verification.py --pycache-dir off @modules --json-output (Join-Path $out "tree-python-$Arm.json") *> (Join-Path $out "tree-python-$Arm.log")
     if ($LASTEXITCODE -ne 0) { throw "Python $Arm failed; inspect receipt" }
+    }
     & node apps/desktop/renderer/tests/run.mjs @renderer *> (Join-Path $out "tree-renderer-$Arm.log")
     if ($LASTEXITCODE -ne 0) { throw "Renderer $Arm failed; inspect log" }
     & node E:/Libraries/Desktop/orgtree/node_modules/typescript/bin/tsc --noEmit *> (Join-Path $out "tree-types-$Arm.log")
