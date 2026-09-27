@@ -86,3 +86,31 @@ mismatch return `None` to the route, which then executes the complete existing
 reader and identity guard. This is compatibility fallback, not an empty answer.
 Unknown database errors propagate. Reusing a writer transaction is refused.
 No mutations or list routes are changed by this integration.
+# Static list metadata (migration 0012)
+
+`worklistmeta` maintains the three history-derived desktop list fields using
+the canonical ledger methods: `objective_notice`, `status_at`, and
+`scope_archive_summary`. The payload includes the existing thin raw summary;
+it is an internal list input, not a full item or a viewer-authorized wire view.
+Raw work bodies and scope records remain authoritative and unchanged.
+
+Work-index and scope-owner triggers record dirty item IDs. Relevant agent
+identity/topology and ask changes advance an input revision without enumerating
+historical nodes. Scope-only changes also participate in the existing
+`work_read_state` writer lock, so refresh cannot discard another transaction's
+invalidation. `workread.refresh` processes this separate queue even when the
+access metadata is clean. Its existing save/import/bootstrap callers keep their
+transaction ownership; statistics initialization still follows refresh.
+
+Bootstrap first recomputes static fields from raw bodies and reconciles hashes,
+payloads and total rows. Explicit reconciliation is available for tests and
+diagnostics. Unsupported scope layouts/counts log an error and disable this
+index; partial results are never eligible for a list answer. Ordinary clean
+saves do not decode history. A changed item may read its own scope history;
+this does not claim that write cost is independent of that item's history.
+
+This stage enables no public route. A subsequent foreground-list reader must
+check this index and the existing access/index health together, and apply
+canonical viewer permissions, current actor identities, attention and archive
+aging inside one snapshot. Missing or unsupported metadata requests the whole
+exact compatibility path. Existing full-list and single-item routes are intact.
