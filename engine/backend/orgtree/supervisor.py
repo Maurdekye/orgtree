@@ -20639,7 +20639,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
             # every commit before this call, as the lock-free load did; each
             # write the gate makes re-decides in its own `_g_tx` on the locked
             # row (`not frozen`), and `_admit_once_valid` is a pure read.
-            _g_org = store.load_runtime_org(slug)
+            from . import turn_inputs
+            _g_org = turn_inputs.load(slug, nid)
             _g_node = (_g_org.node(nid)
                        if nid in _g_org.nodes else None)
         except Exception:                                    # noqa: BLE001
@@ -20825,7 +20826,8 @@ def _run_one_turn_recorded(slug: str, nid: str,
                 try:
                     _want = (None if carrier_mail_ids is None
                              else {str(i) for i in carrier_mail_ids})
-                    _box = [m for m in ((store.load_runtime_org(slug).d.get("mail") or {})
+                    from . import turn_inputs
+                    _box = [m for m in ((turn_inputs.load(slug, nid, mail=True).d.get("mail") or {})
                                         .get(nid) or [])
                             if _want is None or str(m.get("id")) in _want]
                     if _box:
