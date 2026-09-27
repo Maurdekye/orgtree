@@ -5,6 +5,21 @@ from orgtree import pgstats
 
 
 class CatalogBoundary(fixture.Statistics):
+    def test_partial_table_pass_refuses_marker(self):
+        import psycopg
+        definition = self.raw.execute("SELECT pg_get_functiondef('public.orgtree_analyze_org(bigint,boolean)'::regprocedure)").fetchone()[0]
+        seam = 'FOREACH table_name IN ARRAY table_names LOOP'
+        self.assertEqual(definition.count(seam), 1)
+        definition = definition.replace(seam, seam + "\n    IF table_name='doc' THEN CONTINUE; END IF;")
+        with self.raw.transaction(force_rollback=True):
+            self.raw.execute(definition)
+            print('partial pass control: skip doc before analysis/count advancement', flush=True)
+            with self.assertRaisesRegex(psycopg.errors.RaiseException, 'Incomplete statistics'):
+                with self.raw.transaction():
+                    self.raw.execute('SET LOCAL ROLE orgtree_runtime')
+                    pgstats.analyze(self.raw, self.oid)
+            self.assertIsNone(self.mark())
+
     def test_runtime_temp_catalogs_cannot_forge_complete_initialization(self):
         query = ("SELECT count(*) FROM pg_catalog.pg_class c "
                  "JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace "
@@ -31,7 +46,9 @@ class CatalogBoundary(fixture.Statistics):
 
 
 def load_tests(loader, tests, pattern):
-    return unittest.TestSuite([CatalogBoundary('test_runtime_temp_catalogs_cannot_forge_complete_initialization')])
+    return unittest.TestSuite([CatalogBoundary(name) for name in (
+        'test_runtime_temp_catalogs_cannot_forge_complete_initialization',
+        'test_partial_table_pass_refuses_marker')])
 
 
 if __name__ == '__main__': unittest.main()
