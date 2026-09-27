@@ -211,6 +211,8 @@ def child(args) -> int:
     prov = assert_repo_import(str(REPO))
     refused_path = root / "metrics" / "serve-refused.jsonl"
     refused_lock = threading.Lock()
+    from control import capability_probe
+    launch_counts = {"capability_probes": 0, "unexpected": 0}
 
     def forbid(event, a):
         if event in {"subprocess.Popen", "os.system", "os.startfile", "os.posix_spawn", "os.spawn"}:
@@ -221,7 +223,13 @@ def child(args) -> int:
                                                        " for-each-ref", " worktree list")):
                 return
             with refused_lock, open(refused_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"at": time.time(), "event": event, "cmd": cmd[:300]}) + "\n")
+                expected = capability_probe(cmd)
+                launch_counts["capability_probes" if expected else "unexpected"] += 1
+                row = {"at": time.time(), "event": event, "cmd": cmd[:300], "capability_probe": expected}
+                f.write(json.dumps(row) + "\n")
+                if not expected:
+                    (root / "metrics" / "qualification-invalid.json").write_text(
+                        json.dumps(row), encoding="utf-8")
             # FileNotFoundError, not RuntimeError: the engine already treats it
             # as "CLI not installed", so /api/providers and /api/host answer
             # instead of 500ing (scale-ui-astra 2026-09-26)
@@ -376,6 +384,8 @@ def child(args) -> int:
     def _scale_activity() -> dict:
         with _turn_count_lock:
             result = dict(_turn_counts)
+        with refused_lock:
+            result["launch_attempts"] = dict(launch_counts)
         if _simulated:
             result["provider"] = _simulated.snapshot()
         return result

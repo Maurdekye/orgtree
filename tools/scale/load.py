@@ -545,6 +545,8 @@ def main(argv=None) -> int:
                                     "engine_private": eng, "client_private": cli})
             except Exception as exc:
                 breach = f"memory guard cannot observe process/headroom: {type(exc).__name__}"
+            if (root / "metrics" / "qualification-invalid.json").exists():
+                breach = "unexpected external launch; inspect serve-refused.jsonl"
             if breach:
                 guard["breach"] = {"t": time.time() - t0, "why": breach}
                 stop.set()
@@ -699,7 +701,10 @@ def main(argv=None) -> int:
         # A successful no-op workload cannot stand in for turn completion.
         progressed = provider.get("completed", 0) > activity_before.get("provider", {}).get("completed", 0)
         valid = valid and settled and progressed and not provider.get("failed") and activity.get("started") == activity.get("finished")
-    summary = {"config": config, "guard": guard or None, "settlement": settlement,
+    activity_after = httpx.get(origin + "/scale/activity", headers=H, timeout=30).raise_for_status().json()
+    valid = valid and activity_after["launch_attempts"]["unexpected"] == 0
+    valid = valid and not (root / "metrics" / "qualification-invalid.json").exists()
+    summary = {"activity_after": activity_after, "config": config, "guard": guard or None, "settlement": settlement,
                "workload_completed_without_errors_or_overload": bool(valid),
                "qualification": "Per-target assessment required; this field does not certify renderer or 60-minute stability.",
                "client_counters": counters, "workload_substitutions": workload.substitutions,

@@ -4,6 +4,7 @@ Run before serve.py --env ORGTREE_SCALE_SIMULATED_PROVIDER=1. This normalizes
 live nodes to the Codex dispatch lane and copies their synthetic transcript
 history to that lane's journal. It does not change production code or gates.
 """
+import datetime
 import argparse
 import json
 import os
@@ -45,6 +46,7 @@ def main():
     from orgtree import appsettings, store, supervisor
     org = store.load_org(desc["org"])
     sources = []
+    keepalive_until = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=2)).isoformat()
     for nid in desc["live_agents"]:
         node = org.node(nid)
         if node.get("halt") or node.get("frozen") or node.get("inflight"):
@@ -53,6 +55,7 @@ def main():
         sid = str(node["session_id"])
         if path:
             sources.append((Path(path), sid))
+        node["cache_keepalive_at"] = keepalive_until
         node["model"] = "luna"
         node["account"] = ""
         node["codex_thread"] = sid
@@ -71,6 +74,7 @@ def main():
         copied += source.stat().st_size
     manifest = dict(schema="scale-simulated-provider-v1", org=desc["org"],
                     nodes=desc["live_agents"], seconds=args.seconds, output_bytes=args.output_bytes,
+                    cache_keepalive_suppressed_until=keepalive_until,
                     transcript_sources=len(sources), transcript_bytes=copied,
                     limitation="Codex provider dispatch with assumed service time; no CLI, inference or provider memory",
                     provenance=provenance.receipt())

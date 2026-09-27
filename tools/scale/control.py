@@ -159,9 +159,9 @@ class Feed:
                 else:
                     for w in range(self.windows):
                         self.counts[w]["due"] += 1
-                        if w not in seen:
+                        if w not in seen or seen[w] - emitted > 5:
                             self.counts[w]["missing"] += 1
-                        else:
+                        if w in seen:
                             ms = (seen[w] - emitted) * 1000
                             self.latencies[w].append(ms)
                             self.counts[w]["over_1s"] += ms > 1000
@@ -207,3 +207,9 @@ def guarded_wait(proc, *, floor_gb=10, cap_gb=8, report=None):
                     pass
             proc.kill()
             proc.wait(timeout=30)
+
+
+def capability_probe(command):
+    """Only known read-only discovery attempts are expected in no-CLI fixtures."""
+    low = command.lower().strip()
+    return low.endswith(" --version") or ("agy" in low and low.endswith(" models"))
