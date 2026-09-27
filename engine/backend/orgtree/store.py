@@ -2325,6 +2325,11 @@ class _NodeList(list):
 
     def __setitem__(self, index: Any, value: Any) -> None:
         self._mutation.assigned(value)
+        if isinstance(index, slice):
+            # Slice RHS accepts any iterable, including generators containing
+            # external mutable objects. Keep their identity without consuming
+            # the iterable ourselves; retain conservative exposure until reload.
+            self._mutation.aliased = True
         list.__setitem__(self, index, value)
 
     def __delitem__(self, index: Any) -> None:

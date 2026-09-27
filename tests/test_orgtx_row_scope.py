@@ -102,6 +102,33 @@ class ConstructionRows(unittest.TestCase):
             value['items'].append(7)
         self.assertEqual(self.stored()['payload'], {'items': [7]})
 
+    def test_iterable_slice_external_alias_is_stored(self):
+        for enabled in (False, True):
+            for extended in (False, True):
+                for rhs_kind in ('tuple', 'generator', 'list'):
+                    with self.subTest(enabled=enabled, extended=extended, rhs=rhs_kind):
+                        external = {'value': 1}
+                        other = {'value': 3}
+                        with patch.object(store, 'ORGTX_RESCOPE', enabled):
+                            with orgtx.org_tx(self.slug, nodes=['n0']) as tx:
+                                items = tx.org.node('n0')['payload']['items']
+                                items.clear()
+                                items.extend([0, 0, 0, 0])
+                                source = [external, other] if extended else [external]
+                                rhs = (tuple(source) if rhs_kind == 'tuple' else
+                                       (v for v in source) if rhs_kind == 'generator' else source)
+                                if extended:
+                                    items[::2] = rhs
+                                else:
+                                    items[:] = rhs
+                                observed = items[0]
+                                same_object = observed is external
+                                external['value'] = 2
+                            # Commit first so the failing control proves data loss,
+                            # rather than stopping at the in-memory identity check.
+                            self.assertEqual(self.stored()['payload']['items'][0]['value'], 2)
+                            self.assertTrue(same_object)
+
     def test_copy_has_independent_marks_and_values(self):
         org = store.load_org(self.slug)
         duplicate = copy.deepcopy(org.d)
