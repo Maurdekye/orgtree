@@ -160,6 +160,8 @@ def parent(args) -> int:
            "--active-items", str(args.active_items),
            "--archived-items-per-live", str(args.archived_items_per_live)]
     t0 = time.time()
+    if args.no_profile_item:
+        cmd.append("--no-profile-item")
     from control import guarded_wait
     r = subprocess.Popen(cmd, cwd=REPO, env=child_env(root, pg_url), text=True,
                          encoding="utf-8", errors="replace")
@@ -327,10 +329,12 @@ def child(args) -> int:
     for node in org.nodes.values():
         node['reply_incarnation'] = uuid.uuid4().hex
     probe_node = next(nid for nid in live if nid.startswith('worker'))
-    org.work_create(probe_node, title='D profile successful evidence target',
-                    objective='A disposable item for successful profile requests.',
-                    owner=probe_node)
-    probe_item = org.d['work_items'][-1]['slug']
+    probe_item = None
+    if not args.no_profile_item:
+        org.work_create(probe_node, title='D profile successful evidence target',
+                        objective='A disposable item for successful profile requests.',
+                        owner=probe_node)
+        probe_item = org.d['work_items'][-1]['slug']
     (root / 'reply-identity-seed.json').write_text(json.dumps({
         'org_id': org.d['reply_incarnation'],
         'node_ids': {nid: n['reply_incarnation'] for nid, n in org.nodes.items()},
@@ -465,6 +469,7 @@ def main(argv=None) -> int:
     p.add_argument("--archived-per-live", type=float, default=1.0)
     p.add_argument("--transcript-kb", type=int, default=256)
     p.add_argument("--active-items", type=int, default=180, help="active docket items (product cap 200)")
+    p.add_argument("--no-profile-item", action="store_true", help="keep the exact active-item recipe; omit diagnostic extra")
     p.add_argument("--archived-items-per-live", type=float, default=2.0)
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--admin-url", default=None)

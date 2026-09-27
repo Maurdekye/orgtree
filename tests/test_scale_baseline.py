@@ -18,6 +18,9 @@ import sql_counts
 
 
 class ControllerControls(unittest.TestCase):
+    def test_database_identity_excludes_connection_options(self):
+        self.assertEqual(baseline.database_name("postgresql://localhost:5432/orgtree_scale_small?sslmode=disable"),
+                         "orgtree_scale_small")
     def test_large_run_needs_explicit_matching_go_before_creating_root(self):
         args = argparse.Namespace(small_control=False, go_file=None)
         with self.assertRaisesRegex(ValueError, "coordinator GO"):
@@ -126,6 +129,16 @@ class ControllerControls(unittest.TestCase):
         self.assertEqual(clock.ready(.1), [])
         clock.event(dict(type="node_stream", node="worker", kind="delta", rev=3), .2, "worker")
         self.assertEqual([h.name for h, _ in clock.ready(.2)], ["org_tree"])
+
+    def test_chat_pulse_forces_refresh_while_heartbeat_dedupes(self):
+        clock = HookClock(hooks("test", "worker", 1))
+        for h, _ in clock.ready(0):
+            if h.name != "chat":
+                clock.complete(h.name)
+        clock.event(dict(type="node_event", node="worker", event="turn_done"), .1, "worker")
+        self.assertIn("chat", [h.name for h, _ in clock.ready(.1)])
+        self.assertNotIn("chat", [h.name for h, _ in clock.ready(2.5)])
+        self.assertEqual(clock.active["chat"], 2)
 
 
 ADMIN = os.environ.get("ORGTREE_TEST_PG_ADMIN_URL")
