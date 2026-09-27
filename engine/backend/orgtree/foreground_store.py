@@ -310,8 +310,13 @@ def read_exact(slug: str, nid: str, *, project: Projector | None = None) -> Any:
 
 
 def read_retired_children(slug: str, parent: str = '', *, limit: int = 50,
-                          cursor: str | None = None, project: Projector | None = None) -> Any:
+                          cursor: str | None = None, edge: str | None = None,
+                          project: Projector | None = None) -> Any:
     limit = _limit(limit)
+    if edge not in (None, 'last'):
+        raise ValueError('unknown retired child edge')
+    if edge == 'last' and (limit != 1 or cursor is not None):
+        raise ValueError('last retired child requires limit=1 and no cursor')
     with _snapshot(slug) as (raw, stamp):
         after = _after(cursor, stamp, 'children', parent)
         params: list = [parent]
@@ -320,11 +325,15 @@ def read_retired_children(slug: str, parent: str = '', *, limit: int = 50,
             after = _child_order(after)
             suffix = " AND ((meta->>'order')::numeric,meta->>'created',ord,id)>(%s::numeric,%s,%s,%s)"
             params.extend(after)
-        params.append(limit + 1)
+        # A retired pile defaults to its last canonical sibling. Reading the
+        # same child index backward avoids walking every ascending page.
+        order = (("(meta->>'order')::numeric DESC,meta->>'created' DESC,ord DESC,id DESC")
+                 if edge == 'last' else "(meta->>'order')::numeric,meta->>'created',ord,id")
+        params.append(1 if edge == 'last' else limit + 1)
         page = raw.execute(
             "SELECT id,meta->>'order',meta->>'created',ord FROM node_index "
             "WHERE meta->>'parent'=%s AND meta->>'state'='archived' AND meta->>'successor'=''" +
-            suffix + " ORDER BY (meta->>'order')::numeric,meta->>'created',ord,id LIMIT %s",
+            suffix + " ORDER BY " + order + " LIMIT %s",
             params).fetchall()
         more, page = len(page) > limit, page[:limit]
         result = _graph(raw, stamp, [row[0] for row in page])

@@ -91,6 +91,7 @@ def read(slug: str, request: Request, *, mode='snapshot', nid=None) -> Response:
                 limit = int(query.get('limit', '50'))
                 options = {'limit': limit, 'cursor': query.get('cursor'), 'project': project}
                 if mode == 'children':
+                    options['edge'] = query.get('edge')
                     payload = foreground_store.read_retired_children(slug, query.get('parent', ''), **options)
                 else:
                     payload = foreground_store.search(slug, query.get('q', ''),

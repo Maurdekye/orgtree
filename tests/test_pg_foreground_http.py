@@ -137,6 +137,37 @@ class ForegroundRoutePG(unittest.TestCase):
             self.assertEqual(changed.json()['nodes']['boss']['set']['last_status']['summary'], 'row transaction')
             self.assertEqual(builds, [], {'before': before, 'after': after, 'journal': journal})
 
+    def test_last_retired_child_preserves_legacy_front_and_catalog_revalidation(self):
+        expected = self.get('').json()['roots'][0]['children']
+        expected = [row['id'] for row in expected if row['state'] == 'archived'][-1]
+        path = '/foreground-tree/children?parent=boss&edge=last&limit=1'
+        with patch.object(store, 'cached_org', side_effect=AssertionError('whole Org loaded')):
+            first = self.get(path)
+        self.assertEqual(first.status_code, 200, first.text)
+        payload = first.json()
+        self.assertEqual(payload['kind'], 'page')
+        self.assertEqual(payload['matches'], [expected])
+        self.assertEqual(set(payload['nodes']), {'boss', expected})
+        self.assertIsNone(payload['next_cursor'])
+        self.assertEqual(first.headers['x-orgtree-catalog-rev'], payload['catalog_revision'])
+        self.assertEqual(self.get(path, **{'If-None-Match': first.headers['etag']}).status_code, 304)
+        org = store.load_org(self.slug)
+        org.nodes['old']['ui_order'] = 1000
+        store.save_org(org)
+        changed = self.get(path, **{'If-None-Match': first.headers['etag']})
+        self.assertEqual(changed.status_code, 200, changed.text)
+        self.assertEqual(changed.json()['matches'], ['old'])
+        self.assertNotEqual(changed.json()['catalog_revision'], payload['catalog_revision'])
+        empty = self.get('/foreground-tree/children?parent=leaf&edge=last&limit=1')
+        self.assertEqual(empty.status_code, 200, empty.text)
+        self.assertEqual(empty.json()['matches'], [])
+        self.assertEqual(empty.json()['nodes'], {})
+        for query in ('edge=first&limit=1', 'edge=last', 'edge=last&limit=2',
+                      'edge=last&limit=1&cursor=', 'edge=last&limit=1&cursor=old'):
+            with self.subTest(query=query):
+                response = self.get('/foreground-tree/children?parent=boss&' + query)
+                self.assertEqual(response.status_code, 400, response.text)
+
     def test_retired_page_cursor_rejects_malformed_order_fields_as_http400(self):
         self.client = TestClient(TokenGate(api.app, 'foreground-pg'), raise_server_exceptions=False)
         first = self.get('/foreground-tree/children?parent=boss&limit=1')

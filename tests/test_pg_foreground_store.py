@@ -1,5 +1,6 @@
 """Committed foreground discovery, including direct writes and feed lag."""
 import json
+from contextlib import contextmanager
 from pathlib import Path
 import shutil
 import tempfile
@@ -122,6 +123,69 @@ class ForegroundIndex(unittest.TestCase):
         self.assertEqual(fg.read_exact(self.slug, 'old')['missing'], ['old'])
         self.assertEqual(fg.read_foreground(self.slug, ['parent'])['hidden_retired_children']['parent'], 0)
 
+    def test_last_retired_child_reverses_every_order_key_and_excludes_lineage(self):
+        self.add(order_first={'ui_order': 4, 'created': '2000'},
+                 created_first={'ui_order': 3, 'created': '2099'},
+                 earlier_ordinal={'ui_order': 3, 'created': '2000'},
+                 tie_a={'ui_order': 3, 'created': '2000'},
+                 tie_z={'ui_order': 3, 'created': '2000'},
+                 lineage={'ui_order': 999, 'successor': 'boss'},
+                 root_old={'parent': None})
+        with store._POOL.acquire(self.slug) as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            conn.execute("UPDATE nodes SET ord=100 WHERE id IN ('tie_a','tie_z')")
+            conn.execute('COMMIT')
+        for expected in ('order_first', 'created_first', 'tie_z', 'tie_a', 'earlier_ordinal'):
+            with self.subTest(expected=expected):
+                page = fg.read_retired_children(self.slug, 'boss', edge='last', limit=1)
+                self.assertEqual(page['matches'], [expected])
+                self.assertEqual(set(page['rows']), {'boss', expected})
+                self.assertIsNone(page['next_cursor'])
+                self.direct(expected, state='live')
+        self.assertEqual(fg.read_retired_children(self.slug, 'boss', edge='last', limit=1)['matches'], [])
+        root = fg.read_retired_children(self.slug, edge='last', limit=1)
+        self.assertEqual(root['matches'], ['root_old'])
+        self.assertEqual(set(root['rows']), {'root_old'})
+
+    def test_last_retired_child_rejects_ambiguous_page_inputs(self):
+        for options in ({'edge': 'first', 'limit': 1}, {'edge': 'last'},
+                        {'edge': 'last', 'limit': 2},
+                        {'edge': 'last', 'limit': 1, 'cursor': ''},
+                        {'edge': 'last', 'limit': 1, 'cursor': 'old'}):
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                fg.read_retired_children(self.slug, 'boss', **options)
+
+    def test_last_retired_child_uses_one_backward_index_row_at_two_history_sizes(self):
+        original = fg._snapshot
+        plans = []
+        @contextmanager
+        def observed(slug):
+            with original(slug) as (raw, stamp):
+                class Observe:
+                    def execute(self, sql, params=None):
+                        if sql.startswith("SELECT id,meta->>'order'"):
+                            plan = raw.execute('EXPLAIN (ANALYZE, FORMAT JSON) ' + sql, params).fetchone()[0][0]['Plan']
+                            plans.append(plan)
+                        return raw.execute(sql, params)
+                yield Observe(), stamp
+        for count in (100, 1000):
+            self.add(**{f'old-{i:04}': {'ui_order': i} for i in range(count)})
+            with store._POOL.acquire(self.slug) as conn:
+                conn.raw.execute('ANALYZE node_index')
+            with patch.object(fg, '_snapshot', observed):
+                page = fg.read_retired_children(self.slug, 'boss', edge='last', limit=1)
+            self.assertEqual(page['matches'], [f'old-{count-1:04}'])
+            self.assertEqual(set(page['rows']), {'boss', f'old-{count-1:04}'})
+            plan = plans[-1]
+            self.assertEqual(plan['Node Type'], 'Limit')
+            scan = plan['Plans'][0]
+            self.assertEqual(scan['Index Name'], 'node_index_children')
+            self.assertEqual(scan['Scan Direction'], 'Backward')
+            self.assertEqual(scan['Actual Rows'], 1)
+            self.assertEqual(scan['Actual Loops'], 1)
+            self.assertEqual(scan.get('Rows Removed by Filter', 0), 0)
+        self.assertEqual(len(plans), 2)
+
     def test_search_short_substring_filters_false_positive_grams_and_returns_ancestors(self):
         self.add(**{'abc-one': {}, 'zabc-two': {'parent': 'abc-one'},
                     'abca': {}, 'bcab': {}, 'hidden-bearer': {'successor': 'boss'}})
@@ -203,6 +267,7 @@ class ForegroundIndex(unittest.TestCase):
                 lambda p: fg.read_foreground(self.slug, project=p),
                 lambda p: fg.read_exact(self.slug, 'old', project=p),
                 lambda p: fg.read_retired_children(self.slug, 'boss', project=p),
+                lambda p: fg.read_retired_children(self.slug, 'boss', edge='last', limit=1, project=p),
                 lambda p: fg.search(self.slug, 'old', project=p)):
             old_grant = fg.read_exact(self.slug, 'boss')['rows']['boss']['node']['grant']
             seen = []
