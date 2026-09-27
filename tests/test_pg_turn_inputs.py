@@ -82,7 +82,7 @@ class TurnInputsPG(unittest.TestCase):
                 stack.enter_context(patch.object(owner,name,value))
             stack.enter_context(patch.object(sup,'spawn_env',return_value={}))
             stack.enter_context(patch.object(sup,'_deployment_org_gate'))
-            stack.enter_context(patch.object(sup.subprocess,'Popen',side_effect=AssertionError('provider forbidden')))
+            stack.enter_context(patch.object(sup.subprocess,'Popen',side_effect=FileNotFoundError('external process forbidden')))
             stack.enter_context(patch.object(turn_inputs,'load',side_effect=observed))
             sup._run_one_turn(self.slug,'worker',sup._mark_ping('mail',mail_ids=[self.message['id']]))
         counters=adapter.snapshot()
@@ -95,4 +95,5 @@ class TurnInputsPG(unittest.TestCase):
         self.assertEqual(len(saved.d['mail']['other']),1)
 
 if __name__=='__main__': unittest.main()
+
 
