@@ -137,9 +137,113 @@ BEGIN
 END
 $fn$;
 
+-- Tree headers and node cards need small windows of three otherwise growing
+-- sections. Keep the source TEXT untouched; these derivative rows only select
+-- the same windows that ledger.tree/node_ask expose.
+CREATE FUNCTION public.orgtree_foreground_document(value jsonb) RETURNS jsonb
+LANGUAGE sql IMMUTABLE AS $fn$
+ SELECT jsonb_build_object('id',value->'id','title',value->'title','at',value->'at',
+                          'format',coalesce(nullif(value->>'format',''),'markdown'))
+$fn$;
+
+CREATE FUNCTION public.orgtree_foreground_doc(s text, k text, value text)
+RETURNS void LANGUAGE plpgsql SET search_path=pg_catalog,public AS $fn$
+BEGIN
+ IF k IN ('asks','credit_requests','scope_requests') THEN
+   IF value IS NULL THEN
+     EXECUTE format('DELETE FROM %I.foreground_asks WHERE sect=$1',s) USING k;
+   ELSE
+     EXECUTE format($sql$
+       INSERT INTO %I.foreground_asks(sect,ord,node,status,stamp,val)
+       SELECT $1,ord,v->>'node',v->>'status',coalesce(v->>'resolved_at',v->>'at',''),v::text
+       FROM jsonb_array_elements($2::jsonb) WITH ORDINALITY AS r(v,ord)
+       ON CONFLICT(sect,ord) DO UPDATE SET node=excluded.node,status=excluded.status,
+         stamp=excluded.stamp,val=excluded.val
+       WHERE (foreground_asks.node,foreground_asks.status,foreground_asks.stamp,foreground_asks.val)
+         IS DISTINCT FROM (excluded.node,excluded.status,excluded.stamp,excluded.val)
+     $sql$,s) USING k,value;
+     EXECUTE format('DELETE FROM %I.foreground_asks WHERE sect=$1 AND ord>jsonb_array_length($2::jsonb)',s)
+       USING k,value;
+   END IF;
+ ELSIF k='documents' THEN
+   -- Compatibility for a pre-rowed section: one normalized metadata index,
+   -- never parse the historical document bodies on a foreground read.
+   EXECUTE format('DELETE FROM %I.foreground_documents WHERE source=1',s);
+   EXECUTE format('DELETE FROM %I.foreground_counts WHERE source=1 AND sect=''documents''',s);
+   IF value IS NOT NULL THEN
+     EXECUTE format('INSERT INTO %I.foreground_documents(source,seq,node,meta) '
+       'SELECT 1,ord,v->>''node'',public.orgtree_foreground_document(v) '
+       'FROM jsonb_array_elements($1::jsonb) WITH ORDINALITY r(v,ord)',s) USING value;
+     EXECUTE format('INSERT INTO %I.foreground_counts SELECT 1,''documents'',node,count(*) '
+       'FROM %I.foreground_documents WHERE source=1 GROUP BY node',s,s);
+   END IF;
+ ELSIF k='org_inbox' THEN
+   IF value IS NULL THEN
+     EXECUTE format('DELETE FROM %I.foreground_blobs WHERE key=$1',s) USING k;
+   ELSE
+     EXECUTE format($sql$
+       INSERT INTO %I.foreground_blobs(key,val)
+       SELECT $1,jsonb_build_object('total',jsonb_array_length($2::jsonb),'entries',
+         coalesce((SELECT jsonb_agg(v ORDER BY ord) FROM
+           jsonb_array_elements($2::jsonb) WITH ORDINALITY r(v,ord)
+           WHERE ord>jsonb_array_length($2::jsonb)-3),'[]'::jsonb))
+       ON CONFLICT(key) DO UPDATE SET val=excluded.val
+     $sql$,s) USING k,value;
+   END IF;
+ END IF;
+END
+$fn$;
+
+CREATE FUNCTION public.orgtree_foreground_doc_commit() RETURNS trigger
+LANGUAGE plpgsql SET search_path=pg_catalog,public AS $fn$
+BEGIN
+ IF TG_OP='UPDATE' AND (OLD.key,OLD.val) IS NOT DISTINCT FROM (NEW.key,NEW.val)
+ THEN RETURN NULL; END IF;
+ IF TG_OP='DELETE' OR (TG_OP='UPDATE' AND OLD.key<>NEW.key) THEN
+   PERFORM public.orgtree_foreground_doc(TG_TABLE_SCHEMA,OLD.key,NULL);
+ END IF;
+ IF TG_OP<>'DELETE' THEN
+   PERFORM public.orgtree_foreground_doc(TG_TABLE_SCHEMA,NEW.key,NEW.val);
+ END IF;
+ RETURN NULL;
+END
+$fn$;
+
+CREATE FUNCTION public.orgtree_foreground_log_commit() RETURNS trigger
+LANGUAGE plpgsql SET search_path=pg_catalog,public AS $fn$
+DECLARE s text:=TG_TABLE_SCHEMA; os text; ns text; oo text; no text; ov jsonb; nv jsonb;
+BEGIN
+ IF TG_OP='UPDATE' AND (OLD.sect,OLD.seq,OLD.val) IS NOT DISTINCT FROM (NEW.sect,NEW.seq,NEW.val)
+ THEN RETURN NULL; END IF;
+ IF TG_OP<>'INSERT' AND OLD.sect IN ('documents','org_inbox') THEN
+   os:=OLD.sect;
+   oo:=CASE WHEN os='documents' THEN OLD.val::jsonb->>'node' ELSE '' END;
+ END IF;
+ IF TG_OP<>'DELETE' AND NEW.sect IN ('documents','org_inbox') THEN
+   ns:=NEW.sect;
+   no:=CASE WHEN ns='documents' THEN NEW.val::jsonb->>'node' ELSE '' END;
+ END IF;
+ IF os IS NULL AND ns IS NULL THEN RETURN NULL; END IF;
+ EXECUTE format($sql$
+   INSERT INTO %I.foreground_counts(source,sect,owner,total)
+   SELECT 0,sect,owner,sum(delta) FROM (VALUES($1,$2,-1),($3,$4,1)) r(sect,owner,delta)
+   WHERE sect IS NOT NULL GROUP BY sect,owner HAVING sum(delta)<>0 ORDER BY sect,owner
+   ON CONFLICT(source,sect,owner) DO UPDATE SET total=foreground_counts.total+excluded.total
+ $sql$,s) USING os,oo,ns,no;
+ IF os='documents' THEN
+   EXECUTE format('DELETE FROM %I.foreground_documents WHERE source=0 AND seq=$1',s) USING OLD.seq;
+ END IF;
+ IF ns='documents' THEN
+   EXECUTE format('INSERT INTO %I.foreground_documents(source,seq,node,meta) VALUES(0,$1,$2,$3)',s)
+     USING NEW.seq,no,public.orgtree_foreground_document(NEW.val::jsonb);
+ END IF;
+ RETURN NULL;
+END
+$fn$;
+
 CREATE FUNCTION public.orgtree_install_foreground_index(p_org_id bigint)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $fn$
-DECLARE s text:='org_'||p_org_id;
+DECLARE s text:='org_'||p_org_id; item record;
 BEGIN
  EXECUTE format('CREATE TABLE %I.node_index (id text PRIMARY KEY,ord integer NOT NULL, '
    'meta jsonb NOT NULL,lineage_count bigint NOT NULL DEFAULT 0,consult_id text)',s);
@@ -167,8 +271,36 @@ BEGIN
  EXECUTE format('CREATE CONSTRAINT TRIGGER foreground_node_commit AFTER INSERT OR UPDATE OR DELETE '
    'ON %I.nodes DEFERRABLE INITIALLY DEFERRED FOR EACH ROW '
    'EXECUTE FUNCTION public.orgtree_foreground_node_commit()',s);
+ EXECUTE format('CREATE TABLE %I.foreground_asks(sect text NOT NULL,ord bigint NOT NULL,node text NOT NULL, '
+   'status text NOT NULL,stamp text NOT NULL,val text NOT NULL,PRIMARY KEY(sect,ord))',s);
+ EXECUTE format('CREATE INDEX foreground_asks_open ON %I.foreground_asks(sect,ord) '
+   'WHERE status IN (''open'',''pending'')',s);
+ EXECUTE format('CREATE INDEX foreground_asks_node ON %I.foreground_asks(node,sect,stamp DESC,ord)',s);
+ EXECUTE format('CREATE TABLE %I.foreground_counts(source smallint NOT NULL,sect text NOT NULL, '
+   'owner text NOT NULL,total bigint NOT NULL,PRIMARY KEY(source,sect,owner))',s);
+ EXECUTE format('CREATE TABLE %I.foreground_documents(source smallint NOT NULL,seq bigint NOT NULL, '
+   'node text NOT NULL,meta jsonb NOT NULL,PRIMARY KEY(source,seq))',s);
+ EXECUTE format('CREATE INDEX foreground_documents_node ON %I.foreground_documents(source,node,seq)',s);
+ EXECUTE format('CREATE TABLE %I.foreground_blobs(key text PRIMARY KEY,val jsonb NOT NULL)',s);
+ EXECUTE format('INSERT INTO %I.foreground_counts SELECT 0,sect, '
+   'CASE WHEN sect=''documents'' THEN val::jsonb->>''node'' ELSE '''' END,count(*) '
+   'FROM %I.log_l WHERE sect IN (''documents'',''org_inbox'') GROUP BY 2,3',s,s);
+ EXECUTE format('INSERT INTO %I.foreground_documents SELECT 0,seq,val::jsonb->>''node'', '
+   'public.orgtree_foreground_document(val::jsonb) FROM %I.log_l WHERE sect=''documents''',s,s);
+ FOR item IN EXECUTE format('SELECT key,val FROM %I.doc WHERE key IN '
+   '(''asks'',''credit_requests'',''scope_requests'',''documents'',''org_inbox'')',s) LOOP
+   PERFORM public.orgtree_foreground_doc(s,item.key,item.val);
+ END LOOP;
+ EXECUTE format('CREATE CONSTRAINT TRIGGER foreground_doc_commit AFTER INSERT OR UPDATE OR DELETE '
+   'ON %I.doc DEFERRABLE INITIALLY DEFERRED FOR EACH ROW '
+   'EXECUTE FUNCTION public.orgtree_foreground_doc_commit()',s);
+ EXECUTE format('CREATE CONSTRAINT TRIGGER foreground_log_commit AFTER INSERT OR UPDATE OR DELETE '
+   'ON %I.log_l DEFERRABLE INITIALLY DEFERRED FOR EACH ROW '
+   'EXECUTE FUNCTION public.orgtree_foreground_log_commit()',s);
  IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='orgtree_runtime') THEN
    EXECUTE format('GRANT SELECT,INSERT,UPDATE,DELETE ON %I.node_index,%I.foreground_meta,%I.foreground_parents TO orgtree_runtime',s,s,s);
+   EXECUTE format('GRANT SELECT,INSERT,UPDATE,DELETE ON %I.foreground_asks,%I.foreground_counts, '
+     '%I.foreground_documents,%I.foreground_blobs TO orgtree_runtime',s,s,s,s);
  END IF;
 END
 $fn$;
