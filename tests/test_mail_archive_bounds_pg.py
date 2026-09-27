@@ -208,6 +208,23 @@ class MailArchiveBounds(unittest.TestCase):
             self.assertEqual(tuple(map(int, counts)), (3, 9))
             conn.rollback()
 
+    def test_skipped_insert_and_upsert_do_not_count_unwritten_rows(self):
+        before = self.bound()
+        with store._POOL.acquire(self.slug) as conn:
+            conn.execute('BEGIN')
+            seq, raw = conn.execute("SELECT seq,val FROM log_d WHERE sect='mail_log' AND owner='worker' LIMIT 1").fetchone()
+            conn.execute("INSERT INTO log_d(seq,sect,owner,val) VALUES(?,'mail_log','worker',?) "
+                         "ON CONFLICT(seq) DO NOTHING", (seq, raw))
+            conn.execute('COMMIT')
+        self.assertEqual(self.bound(), before)
+        row = json.loads(raw); row['recv_seq'] = 50
+        with store._POOL.acquire(self.slug) as conn:
+            conn.execute('BEGIN')
+            conn.execute("INSERT INTO log_d(seq,sect,owner,val) VALUES(?,'mail_log','worker',?) "
+                         "ON CONFLICT(seq) DO UPDATE SET val=excluded.val", (seq, json.dumps(row)))
+            conn.execute('COMMIT')
+        self.assertEqual(tuple(map(int, self.bound())), (9, 50, 0))
+
 
 if __name__ == '__main__':
     unittest.main()

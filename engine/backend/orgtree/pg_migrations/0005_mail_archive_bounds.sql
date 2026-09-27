@@ -37,9 +37,9 @@ DECLARE recipient text; old_n bigint; old_bad bigint; old_max numeric; found_for
         delta_n bigint; delta_bad bigint; added numeric; removed numeric; high numeric;
 BEGIN
   -- A mailbox advisory lock also covers the first row, absent from the summary.
-  -- Before each source mutation: COPY can expose a whole statement to AFTER
-  -- row triggers, so rebuilding there then adding later rows double-counts.
-  -- A waiter reads again after the previous writer commits.
+  -- Initialize BEFORE mutation, count actual changes AFTER mutation. COPY can
+  -- expose a whole statement to AFTER row triggers; a rebuild there would
+  -- double-count. Counting BEFORE would count ON CONFLICT DO NOTHING as a row.
   FOR recipient IN
     SELECT DISTINCT x FROM unnest(ARRAY[
       CASE WHEN TG_OP <> 'INSERT' AND OLD.sect='mail_log' THEN OLD.owner END,
@@ -51,11 +51,13 @@ BEGIN
                    'WHERE owner=$1 FOR UPDATE',TG_TABLE_SCHEMA)
       INTO old_n,old_bad,old_max,found_format USING recipient;
     IF old_n IS NULL OR found_format <> 1 THEN
+      IF TG_WHEN <> 'BEFORE' THEN RAISE EXCEPTION 'mail archive bound lost during mutation'; END IF;
       PERFORM public.orgtree_reconcile_mail_owner(TG_TABLE_SCHEMA,recipient);
       EXECUTE format('SELECT nrows,unknown_rows,assigned_max FROM %I.mail_archive_bounds '
                      'WHERE owner=$1',TG_TABLE_SCHEMA)
         INTO old_n,old_bad,old_max USING recipient;
     END IF;
+    IF TG_WHEN='BEFORE' THEN CONTINUE; END IF;
     delta_n:=0; delta_bad:=0; added:=0; removed:=0;
     IF TG_OP <> 'INSERT' AND OLD.sect='mail_log' AND OLD.owner=recipient THEN
       delta_n:=delta_n-1; delta_bad:=delta_bad-public.orgtree_mail_unknown(OLD.val);
@@ -94,7 +96,10 @@ BEGIN
   EXECUTE format('CREATE INDEX IF NOT EXISTS ix_mail_ordinal ON %I.log_d '
                  '(owner,public.orgtree_mail_ordinal(val) DESC) WHERE sect=''mail_log''',s);
   EXECUTE format('DROP TRIGGER IF EXISTS mail_archive_bounds ON %I.log_d',s);
-  EXECUTE format('CREATE TRIGGER mail_archive_bounds BEFORE INSERT OR UPDATE OR DELETE ON %I.log_d '
+  EXECUTE format('DROP TRIGGER IF EXISTS mail_archive_prepare ON %I.log_d',s);
+  EXECUTE format('CREATE TRIGGER mail_archive_prepare BEFORE INSERT OR UPDATE OR DELETE ON %I.log_d '
+                 'FOR EACH ROW EXECUTE FUNCTION public.orgtree_track_mail_archive()',s);
+  EXECUTE format('CREATE TRIGGER mail_archive_bounds AFTER INSERT OR UPDATE OR DELETE ON %I.log_d '
                  'FOR EACH ROW EXECUTE FUNCTION public.orgtree_track_mail_archive()',s);
   EXECUTE format('DROP TRIGGER IF EXISTS mail_archive_truncate ON %I.log_d',s);
   EXECUTE format('CREATE TRIGGER mail_archive_truncate AFTER TRUNCATE ON %I.log_d '
