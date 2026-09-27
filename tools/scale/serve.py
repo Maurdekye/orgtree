@@ -342,13 +342,6 @@ def child(args) -> int:
     _turn_counts = {"started": 0, "finished": 0}
     _turn_count_lock = threading.Lock()
     _real_one_turn = _scale_supervisor._run_one_turn
-    _simulated = None
-    if os.environ.get("ORGTREE_SCALE_SIMULATED_PROVIDER") == "1":
-        if os.environ.get("ORGTREE_SCALE_ASSERT_NO_TURNS") == "1":
-            raise RuntimeError("active simulation and halted comparison modes are mutually exclusive")
-        from orgtree import halt as _scale_halt
-        from simulated import install as _install_simulated
-        _simulated = _install_simulated(root, _scale_supervisor, _scale_halt)
 
     def _counted_one_turn(*a, **kw):
         with _turn_count_lock:
@@ -365,43 +358,13 @@ def child(args) -> int:
     @api.app.get("/scale/activity")
     def _scale_activity() -> dict:
         with _turn_count_lock:
-            result = dict(_turn_counts)
-        result["launch_attempts"] = launch_audit.snapshot()
-        if _simulated:
-            result["provider"] = _simulated.snapshot()
+            from orgtree import orgtx, pgdoor
+            import fastapi.concurrency as fc
+            result = dict(_turn_counts, rescope=store.ORGTX_RESCOPE, steer_cheap=supervisor.STEER_CHEAP,
+                        transition_fence=orgtx.TRANSITION_FENCE, pgdoor=pgdoor.enabled(),
+                        inline=fc.run_in_threadpool.__name__ == '_inline')
+        result['launch_attempts'] = launch_audit.snapshot()
         return result
-
-    @api.app.post("/scale/audit-negative-control")
-    def _scale_audit_negative_control() -> dict:
-        if os.environ.get("ORGTREE_SCALE_AUDIT_NEGATIVE") != "1":
-            raise RuntimeError("audit negative control not enabled")
-        missing = root / "no-cli" / "audit-control-provider.exe"
-        if missing.exists():
-            raise RuntimeError("negative control executable must not exist")
-        # Harmless even if the audit were broken: this path has no executable.
-        (root / "metrics" / "audit-control-executed.json").write_text(
-            json.dumps({"at": time.time(), "executable": str(missing)}), encoding="utf-8")
-        try:
-            subprocess.run([str(missing), "exec", "please run git status"], check=True)
-        except FileNotFoundError:
-            pass
-        return launch_audit.snapshot()
-
-    @api.app.get("/scale/settlement")
-    def _scale_settlement() -> dict:
-        # Bounded output; an intentionally expensive coherent read, only at
-        # workload boundaries, never in the high-frequency sampler.
-        from orgtree import orgtx
-        snapshot = orgtx.org_read(slug)
-        inflight = [nid for nid, n in snapshot.nodes.items() if n.get("inflight")]
-        with _scale_supervisor._state_lock:
-            states = [st for (org_slug, _), st in _scale_supervisor._state.items() if org_slug == slug]
-            busy = sum(bool(st.get("busy")) for st in states)
-            queued = sum(len(st.get("queue") or []) for st in states)
-        return {"mail": sum(len(box) for box in (snapshot.d.get("mail") or {}).values()),
-                "delivering": sum(len(box) for box in (snapshot.d.get("delivering") or {}).values()),
-                "inflight": len(inflight), "busy": busy, "queued": queued,
-                "activity": _scale_activity()}
 
     @api.app.get("/scale/workload")
     def _scale_workload() -> dict:
@@ -566,6 +529,34 @@ def child(args) -> int:
 
     if os.environ.get("ORGTREE_SCALE_REQPROF"):
         app = _reqprof_wrap(app, root)
+    # Plain ASGI timing preserves the real threadpool and request concurrency.
+    real_app = app
+    inflight = [0]
+    requests_path = root / 'metrics' / 'http-timing.jsonl'
+    async def timed_app(scope, receive, send):
+        if scope['type'] != 'http':
+            return await real_app(scope, receive, send)
+        begun = time.perf_counter()
+        start_wall = time.time()
+        inflight[0] += 1
+        entered = inflight[0]
+        status = [None]
+        async def measured_send(message):
+            if message['type'] == 'http.response.start':
+                status[0] = message['status']
+            await send(message)
+        try:
+            return await real_app(scope, receive, measured_send)
+        finally:
+            inflight[0] -= 1
+            with requests_path.open('a', encoding='utf8') as target:
+                target.write(json.dumps(dict(path=scope['path'], started=start_wall,
+                    ms=(time.perf_counter()-begun)*1000, status=status[0],
+                    inflight_at_start=entered)) + '\n')
+    app = timed_app
+    if os.environ.get('ORGTREE_SCALE_LOADED_CPU') == '1':
+        from loaded_cpu import install
+        app = install(app, api.app, root)
     import uvicorn
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=args.port, lifespan="on",
                                            access_log=False, log_level="warning",

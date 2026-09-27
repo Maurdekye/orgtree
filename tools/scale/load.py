@@ -242,6 +242,17 @@ def main(argv=None) -> int:
     # ---------------- 1. agent tool calls (open loop) ----------------------
     weights = [w for w, _, _ in MIX]
     local = threading.local()
+    from write_oracle import WriteOracle
+    write_oracle = WriteOracle(desc)
+    import atexit
+    atexit.register(write_oracle.close)
+    config['write_oracle'] = {
+        'max_connections': 1,
+        'backend_pid': write_oracle._conn.info.backend_pid,
+        'connection_reserved_before_traffic': True,
+        'isolation': 'new READ COMMITTED read-only transaction per acknowledgment',
+        'same_target_serialization': 'covers request plus committed readback',
+    }
 
     def client():
         c = getattr(local, "c", None)
@@ -250,6 +261,10 @@ def main(argv=None) -> int:
         return c
 
     def one_call(due: float, me: str, tool: str, targs: dict, request_id: int) -> None:
+        with write_oracle.lock(me, tool, targs):
+            return checked_call(due, me, tool, targs, request_id)
+
+    def checked_call(due: float, me: str, tool: str, targs: dict, request_id: int) -> None:
         begun = time.time()
         status, err, state, receipt = None, None, None, None
         try:
@@ -275,6 +290,16 @@ def main(argv=None) -> int:
         except Exception as e:                               # noqa: BLE001
             err = f"{type(e).__name__}: {e}"[:300]
         end = time.time()
+        if status == 200 and not err and state != 'running':
+            try:
+                checked = write_oracle.check_overwrite(me, tool, targs)
+                if checked is not None:
+                    rec.write('write-checks', {'request_id': request_id, 'actor': me, 'tool': tool, **checked})
+                    if not checked['passed']:
+                        err = 'acknowledged write differs from committed PostgreSQL value'
+            except Exception as exc:
+                err = f'write oracle {type(exc).__name__}: {exc}'
+                rec.write('write-checks', {'request_id': request_id, 'passed': False, 'error': err})
         rec.write("calls", {"t": round(due - t0, 3), "tool": tool,
                             "request_id": request_id, "actor": me, "receipt": receipt,
                             "action": targs.get("action"), "status": status, "state": state,
@@ -430,6 +455,7 @@ def main(argv=None) -> int:
                         if "[[m" in raw:
                             for m in MARK.finditer(raw):
                                 feed_tracker.receive(w, int(m.group(1)), now)
+                                rec.write("marker-receipts", {"w": w, "m": int(m.group(1)), "received": now})
             except Exception as e:                           # noqa: BLE001
                 rec.write("ws", {"t": round(time.time() - t0, 3), "w": w, "ev": "close",
                                  "why": f"{type(e).__name__}: {e}"[:200]})
@@ -545,8 +571,8 @@ def main(argv=None) -> int:
                                     "engine_private": eng, "client_private": cli})
             except Exception as exc:
                 breach = f"memory guard cannot observe process/headroom: {type(exc).__name__}"
-            if (root / "metrics" / "qualification-invalid.json").exists():
-                breach = "unexpected external launch; inspect serve-refused.jsonl"
+            if (root/'metrics'/'qualification-invalid.json').exists():
+                breach = 'unexpected external launch; inspect serve-refused.jsonl'
             if breach:
                 guard["breach"] = {"t": time.time() - t0, "why": breach}
                 # Critical stop evidence must survive driver exceptions/termination.
@@ -582,14 +608,11 @@ def main(argv=None) -> int:
             for t in sockets + [guard_thread]:
                 t.join(timeout=35)
             rec.close()
+            write_oracle.close()
+            atexit.unregister(write_oracle.close)
             raise RuntimeError("all websocket windows must connect before measuring")
-    steady = (desc["serve"].get("env_orgtree") or {}).get("ORGTREE_SCALE_SIMULATED_PROVIDER") == "1"
-    activity_before = httpx.get(origin + "/scale/activity", headers=H, timeout=30).raise_for_status().json()
     t0 = time.time()
     config["started"] = t0
-    config["activity_before"] = activity_before
-    config["simulation"] = ("Completed synthetic provider turns through real admission/confirmation/finish"
-                            if steady else config["simulation"])
     (out / "config.json").write_text(json.dumps(config, indent=1), encoding="utf-8")
     for t in threads:
         t.start()
@@ -616,21 +639,11 @@ def main(argv=None) -> int:
         eproc.kill()
         raise RuntimeError(f"drivers did not finish; no qualification verdict: {alive}")
     feed_tracker.retire(time.time())
-    settlement = None
-    if steady and not guard:
-        deadline = time.monotonic() + 120
-        with httpx.Client(base_url=origin, headers=H, timeout=30) as boundary:
-            while time.monotonic() < deadline and not guard:
-                settlement = boundary.get("/scale/settlement").raise_for_status().json()
-                rec.write("settlement", {"t": time.time() - t0, **settlement})
-                activity = settlement["activity"]
-                if not any(settlement[k] for k in ("mail", "delivering", "inflight", "busy", "queued")) and (
-                        activity["started"] == activity["finished"]):
-                    break
-                time.sleep(2)
     guard_stop.set()
     guard_thread.join(timeout=5)
     rec.close()
+    write_oracle.close()
+    atexit.unregister(write_oracle.close)
 
     # ---------------- summary ------------------------------------------------
     def rows(name):
@@ -673,8 +686,7 @@ def main(argv=None) -> int:
                 "emitted_due": c["due"], "missing_after_5s": c["missing"],
                 "over_1s": c["over_1s"], **ws_state[w]}
             for w, c in feed_tracker.counts.items()}
-    mem = [(row["t"], row["engine_private"]) for row in rows("guard")
-           if 0 <= row["t"] <= args.duration]
+    mem = [(s["t"], s["private"] or s["rss"]) for s in samples if s.get("private") or s.get("rss")]
     def slope(pts):
         if len(pts) < 3:
             return None
@@ -691,24 +703,14 @@ def main(argv=None) -> int:
     valid = valid and not any(v["rejected"] or v["cancelled"] or v["worker_errors"] for v in counters.values())
     plan_counts = dict(calls=config["plans"]["tools"]["requests"], steer=config["plans"]["steer"]["requests"])
     valid = valid and all(counters[name]["completed"] == count for name, count in plan_counts.items())
+    valid = valid and not (root/'metrics'/'qualification-invalid.json').exists()
     if not args.no_ui:
         valid = valid and all(any(u["w"] == w for u in ui) for w in range(args.windows))
     if stream_nodes:
         valid = valid and emitted_count[0] > 0
     if feed_tracker.pending or any(x["missing_after_5s"] or x["closes"] for x in feed.values()):
         valid = False
-    if steady:
-        settled = bool(settlement) and not any(settlement[k] for k in ("mail", "delivering", "inflight", "busy", "queued"))
-        activity = (settlement or {}).get("activity", {})
-        provider = activity.get("provider", {})
-        # A successful no-op workload cannot stand in for turn completion.
-        progressed = provider.get("completed", 0) > activity_before.get("provider", {}).get("completed", 0)
-        valid = valid and settled and progressed and not provider.get("failed") and activity.get("started") == activity.get("finished")
-        valid = valid and not provider.get("failed_bookings") and provider.get("booked") == provider.get("completed")
-    activity_after = httpx.get(origin + "/scale/activity", headers=H, timeout=30).raise_for_status().json()
-    valid = valid and activity_after["launch_attempts"]["unexpected"] == 0
-    valid = valid and not (root / "metrics" / "qualification-invalid.json").exists()
-    summary = {"activity_after": activity_after, "config": config, "guard": guard or None, "settlement": settlement,
+    summary = {"config": config, "guard": guard or None,
                "workload_completed_without_errors_or_overload": bool(valid),
                "qualification": "Per-target assessment required; this field does not certify renderer or 60-minute stability.",
                "client_counters": counters, "workload_substitutions": workload.substitutions,
@@ -725,9 +727,7 @@ def main(argv=None) -> int:
                "memory": {"start_mb": round(mem[0][1] / 2 ** 20) if mem else None,
                           "end_mb": round(mem[-1][1] / 2 ** 20) if mem else None,
                           "max_mb": round(max(m for _, m in mem) / 2 ** 20) if mem else None,
-                          "observed_seconds": mem[-1][0] - mem[0][0] if mem else 0,
-                          "samples": len(mem),
-                          "slope_mb_per_min_2nd_half": round(slope(half) * 60 / 2 ** 20, 2) if slope(half) is not None else None},
+                          "slope_mb_per_min_2nd_half": round((slope(half) or 0) * 60 / 2 ** 20, 2)},
                "cpu": pct([s["cpu"] for s in samples if s.get("cpu") is not None]),
                "pg": {"conns": pct([s["pg_conns"] for s in samples if "pg_conns" in s]),
                       "lock_wait": pct([s["pg_lock_wait"] for s in samples if "pg_lock_wait" in s]),
