@@ -92,6 +92,7 @@ class CandidateReads(unittest.TestCase):
             self.assertEqual(candidates.read(self.slug).candidates, ('worker',))
 
     def test_graph_and_callback_share_snapshot_across_concurrent_retirement(self):
+        self.query("UPDATE doc SET val='false' WHERE key='killswitch'")
         def project(conn, graph):
             with pgstore.connect(os.environ['ORGTREE_PG_URL']) as writer:
                 writer.execute(f"UPDATE org_{conn.org_id}.nodes SET val='{{\"state\":\"archived\"}}' WHERE id='worker'")
@@ -126,7 +127,7 @@ class CandidateReads(unittest.TestCase):
         def walk(node):
             if node.get('Relation Name') == 'nodes':
                 seen.append(node)
-                self.assertIn('Index', node['Node Type'])
+                self.assertIn('Index', node['Node Type'], json.dumps(plan))
                 self.assertLessEqual(node['Actual Rows'], 30)
                 self.assertEqual(node.get('Rows Removed by Filter', 0), 0)
             for child in node.get('Plans', []): walk(child)

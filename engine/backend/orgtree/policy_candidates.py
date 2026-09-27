@@ -21,7 +21,7 @@ PREDICATE = """val::jsonb->>'state'='live' OR
  ('null'::jsonb,'false'::jsonb,'0'::jsonb,'""'::jsonb,'[]'::jsonb,'{}'::jsonb)"""
 
 QUERY = """WITH RECURSIVE candidates AS MATERIALIZED (
- SELECT id,ord FROM nodes WHERE """ + PREDICATE + """
+ SELECT id,ord FROM nodes WHERE """ + PREDICATE + """ ORDER BY ord,id
 ), needed(id) AS (
  SELECT id FROM candidates
  UNION
