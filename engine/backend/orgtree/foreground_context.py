@@ -138,7 +138,7 @@ class ForegroundContext:
     def tree_node(self, nid, *, children_index=None, descend=False, lineage=False):
         if descend or lineage:
             raise ValueError('foreground node projection cannot traverse unselected history')
-        result = Org.tree_node(self, nid, children_index=children_index,
+        result = Org.tree_node(self, nid, children_index=children_index if children_index is not None else {},
                                descend=False, lineage=False)
         result['documents_count'] = self._document_counts.get(nid, 0)
         return result
