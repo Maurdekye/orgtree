@@ -2863,6 +2863,30 @@ def _org_tree_transport(slug: str, request: Request) -> Response:
     return Response(content=body, media_type="application/json", headers=headers)
 
 
+@app.get("/api/orgs/{slug}/foreground-tree")
+async def foreground_tree(slug: str, request: Request) -> Response:
+    from . import foreground_api
+    return await _run_ui_read(foreground_api.read, slug, request)
+
+
+@app.get("/api/orgs/{slug}/foreground-tree/children")
+async def foreground_children(slug: str, request: Request) -> Response:
+    from . import foreground_api
+    return await _run_ui_read(partial(foreground_api.read, mode='children'), slug, request)
+
+
+@app.get("/api/orgs/{slug}/foreground-tree/search")
+async def foreground_search(slug: str, request: Request) -> Response:
+    from . import foreground_api
+    return await _run_ui_read(partial(foreground_api.read, mode='search'), slug, request)
+
+
+@app.get("/api/orgs/{slug}/foreground-tree/lookup/{nid}")
+async def foreground_lookup(slug: str, nid: str, request: Request) -> Response:
+    from . import foreground_api
+    return await _run_ui_read(partial(foreground_api.read, mode='lookup', nid=nid), slug, request)
+
+
 def org_tree(slug: str, request: Request,
              response: Response = None) -> Any:  # type: ignore[assignment]
     # `response` is FastAPI's header-injection seam on the dict-returning

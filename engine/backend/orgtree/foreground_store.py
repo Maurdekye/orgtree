@@ -26,6 +26,14 @@ Projector = Callable[[Any, dict], Any]
 class CursorReset(ValueError):
     """The catalog changed; the caller must explicitly restart this page set."""
 
+    def __init__(self, message: str, catalog: str):
+        super().__init__(message)
+        self.catalog = catalog
+
+
+class OrgNotFound(LedgerError):
+    """The organization itself is absent, unlike an inconsistent index."""
+
 
 def _encode(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(',', ':'), sort_keys=True)
@@ -50,10 +58,11 @@ def _after(cursor: str | None, stamp: dict, kind: str, filters: Any) -> Any:
                                          altchars=b'-_', validate=True))
         if not isinstance(value, list) or len(value) != 6 or value[0] != 1:
             raise ValueError('unknown cursor')
-        if value[1] != stamp['org_id'] or value[3:5] != [kind, _filter(filters)]:
+        if value[3:5] != [kind, _filter(filters)]:
             raise ValueError('cursor belongs to another query')
-        if value[2] != stamp['catalog_revision']:
-            raise CursorReset('catalog changed; restart pagination')
+        if value[1] != stamp['org_id'] or value[2] != stamp['catalog_revision']:
+            raise CursorReset('catalog changed; restart pagination',
+                              f"{stamp['org_id']}:{stamp['catalog_revision']}")
         return value[5]
     except CursorReset:
         raise
@@ -74,7 +83,7 @@ def _snapshot(slug: str) -> Iterator[tuple[Any, dict]]:
     slug = store._safe_slug(slug)
     store._ensure_migrated(slug)
     if not os.path.exists(store._db_path(slug)):
-        raise LedgerError(f'no such org: {slug!r}')
+        raise OrgNotFound(f'no such org: {slug!r}')
     with store._POOL.acquire(slug) as conn:
         if conn.in_transaction:
             # A deferred index is a COMMITTED reader contract. Reusing a
