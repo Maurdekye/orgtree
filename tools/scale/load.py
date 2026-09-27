@@ -53,6 +53,7 @@ from serve import share_dir, update_descriptor  # noqa: E402
 from control import BoundedPool, Workload, Feed, free_commit_gb, memory_breach
 from ui_mix import WINDOWS, polls as ui_polls
 from streaming import drive_streams, send_frames
+from settlement import settled as mailbox_settled
 
 MARK = re.compile(r"\[\[m(\d+)\]\]")
 
@@ -754,7 +755,7 @@ def main(argv=None) -> int:
                 settlement = boundary.get("/scale/settlement").raise_for_status().json()
                 rec.write("settlement", {"t": time.time() - t0, **settlement})
                 activity = settlement["activity"]
-                if not any(settlement[k] for k in ("mail", "delivering", "inflight", "busy", "queued")) and (
+                if mailbox_settled(settlement) and (
                         activity["started"] == activity["finished"]):
                     break
                 time.sleep(2)
@@ -831,7 +832,7 @@ def main(argv=None) -> int:
     if feed_tracker.pending or any(x["missing_after_5s"] or x["closes"] for x in feed.values()):
         valid = False
     if steady:
-        settled = bool(settlement) and not any(settlement[k] for k in ("mail", "delivering", "inflight", "busy", "queued"))
+        settled = mailbox_settled(settlement)
         activity = (settlement or {}).get("activity", {})
         provider = activity.get("provider", {})
         # A successful no-op workload cannot stand in for turn completion.
