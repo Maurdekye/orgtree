@@ -2737,6 +2737,9 @@ def _snapshot_seen(org: Any, slug: str, nid: str,
     return h, parts
 
 
+from . import policy_context
+
+
 def _keeper_pass(slugs: set[str] | None = None) -> None:
     """One reconcile. `slugs=None` is the FULL pass (root listing + deleted-
     org reap + every org); a set is the SCOPED pass a save poke buys — only
@@ -2754,7 +2757,7 @@ def _keeper_pass(slugs: set[str] | None = None) -> None:
             kill_node(slug, nid, "disabled")
         return
     if slugs is None:
-        orgs = store.cached_list()
+        orgs = policy_context.org_rows()
         known = {o["slug"] for o in orgs}
         # a DELETED org never appears in the loop below — its parked
         # processes would otherwise be orphans no pass ever visits
@@ -2771,7 +2774,7 @@ def _keeper_pass(slugs: set[str] | None = None) -> None:
             # a READ — eligibility, identity hashing, live sets. A scoped
             # pass follows a save, whose seq bump makes this a fresh load
             # anyway; the periodic full pass stops re-parsing unchanged orgs
-            org = store.cached_org(slug)
+            org = policy_context.read(slug)
         except Exception:                           # noqa: BLE001
             if slugs is not None:
                 # scoped poke for an org that no longer loads — deleted or
@@ -2948,9 +2951,9 @@ def _pool_snapshot() -> None:
                    for wp in _serving.values() if wp.alive()]
     entries = parked + serving
     elig_total = 0
-    for o in store.cached_list():
+    for o in policy_context.org_rows():
         try:
-            org = store.cached_org(o["slug"])
+            org = policy_context.read(o["slug"])
         except Exception:                            # noqa: BLE001
             continue
         for nid, n in org.nodes.items():

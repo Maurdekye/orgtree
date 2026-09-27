@@ -13892,6 +13892,9 @@ def _idle_docket_reminder_reserve_body(
     return mid, items
 
 
+from . import policy_context
+
+
 def _idle_docket_reminder_pass(
         wake: Callable[[str, str, str], dict[str, Any]] | None = None,
         now: float | None = None, *, mode_enabled: bool | None = None) -> None:
@@ -13910,16 +13913,16 @@ def _idle_docket_reminder_pass(
     wake_fn = wake or (lambda slug, nid, text: send_message(
         slug, nid, text, mail_ping=True, idle_only=True,
         ping_reason="reminder"))
-    for row in store.cached_list():
+    for row in policy_context.org_rows():
         slug = row["slug"]
         try:
             # read-only sweep over the shared snapshot (REPORT.md #7); every
             # wake/reserve path revalidates and writes through its own
             # DOC_LOCK load, exactly as before
-            org = store.cached_org(slug)
+            org = policy_context.read(slug, docket=True)
         except LedgerError:
             continue
-        for nid in sorted(org.nodes):
+        for nid in sorted(policy_context.candidate_ids(org)):
             # Retired seats cannot qualify. Skip their per-seat reload; the
             # reserve still rechecks live eligibility atomically under lock.
             # A seat rehired after this snapshot is considered next poll.
@@ -14403,16 +14406,16 @@ def _working_checkup_pass(
     wake_fn = wake or (lambda slug, nid, text: send_message(
         slug, nid, text, mail_ping=True, idle_only=True,
         ping_reason="checkup"))
-    for row in store.cached_list():
+    for row in policy_context.org_rows():
         slug = row["slug"]
         try:
             # read-only sweep over the shared snapshot (REPORT.md #7); every
             # wake/reserve path revalidates and writes through its own
             # DOC_LOCK load, exactly as before
-            org = store.cached_org(slug)
+            org = policy_context.read(slug, docket=True)
         except LedgerError:
             continue
-        for nid in sorted(org.nodes):
+        for nid in sorted(policy_context.candidate_ids(org)):
             # Retired seats cannot qualify. Skip their per-seat reload; the
             # reserve still rechecks live eligibility atomically under lock.
             # A seat rehired after this snapshot is considered next poll.
@@ -14462,16 +14465,16 @@ def _working_cache_keeper_pass(
     if checkups:
         return
     now = time.time() if now is None else now
-    for row in store.cached_list():
+    for row in policy_context.org_rows():
         slug = row["slug"]
         try:
             # read-only sweep over the shared snapshot (REPORT.md #7); every
             # wake/reserve path revalidates and writes through its own
             # DOC_LOCK load, exactly as before
-            org = store.cached_org(slug)
+            org = policy_context.read(slug)
         except LedgerError:
             continue
-        for nid in sorted(org.nodes):
+        for nid in sorted(policy_context.candidate_ids(org)):
             try:
                 if _working_cache_due(org, nid, now) \
                         and _working_cache_retry_due(slug, nid, now) \
@@ -30275,7 +30278,7 @@ def _invariant_sweep_org(slug: str) -> None:
     # live input, `_pid_provably_dead`, is evaluated here as well. Anything
     # found takes the old path, which re-reads and re-checks under the lock.
     try:
-        snap = store.cached_org(slug)
+        snap = policy_context.read(slug)
     except Exception:                                        # noqa: BLE001
         snap = None
     if snap is not None and not _repairs(snap) and not _new_orphan(snap):
@@ -30372,7 +30375,7 @@ def start_auto_resume_loop() -> None:
         while True:
             time.sleep(30)
             try:
-                for o in store.cached_list():
+                for o in policy_context.org_rows():
                     slug = str(o["slug"])
                     try:
                         # cheap read-only gate on the shared snapshot: an org
@@ -30386,7 +30389,7 @@ def start_auto_resume_loop() -> None:
                         # other per-org work sharing this tick (the invariant
                         # sweep) always runs (perf-review round 3 caught the
                         # composed skip).
-                        snap = store.cached_org(slug)
+                        snap = policy_context.read(slug)
                         if (snap.d.get("spend_frozen")
                                 or any(n.get("frozen")
                                        for n in snap.nodes.values())):
@@ -30416,7 +30419,7 @@ def _auto_resume_org(slug: str, now: float | None = None) -> bool:
     # stamped by its own freeze writer (`commit_node_wake` runs wherever a
     # freeze is written) and is re-stamped on the next tick.
     try:
-        _ar_frozen = [k for k, v in store.cached_org(slug).nodes.items()
+        _ar_frozen = [k for k, v in policy_context.read(slug).nodes.items()
                       if v.get("frozen")]
     except Exception:                                    # noqa: BLE001
         _ar_frozen = []

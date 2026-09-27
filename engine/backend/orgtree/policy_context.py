@@ -14,6 +14,20 @@ from . import policy_candidates, store
 from .ledger import Org, USER, norm_dirs, retag_legacy_spend_freeze
 
 
+def org_rows():
+    """Enumerate identities without rebuilding summaries on PostgreSQL."""
+    if store.STORE_BACKEND == 'postgres':
+        return [{'slug': slug} for slug in store.org_slugs()]
+    return store.cached_list()
+
+
+def candidate_ids(org):
+    """Relationship rows are inputs, never additional action candidates."""
+    if isinstance(org, PolicyContext):
+        return org.candidate_ids
+    return org.nodes
+
+
 class PolicyContext:
     _read_only_projection = True
     _shared_snapshot = True
@@ -81,6 +95,9 @@ def _build(conn, graph, *, docket):
     from . import workquery
 
     settings = policy_candidates.settings(conn)
+    if 'audiences' not in settings:
+        settings['audiences'] = [json.loads(row[0]) for row in conn.execute(
+            "SELECT val FROM log_l WHERE sect='audiences' ORDER BY seq").fetchall()]
     # Only queues belonging to this selected graph, on the SAME snapshot.
     # A legacy container remains authoritative until the normal writer heals it.
     ids = list(graph.nodes)

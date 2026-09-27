@@ -3,7 +3,7 @@
 -- Native partial indexes follow INSERT/COPY/UPDATE/DELETE transactionally;
 -- there is no separately maintained summary to become stale.
 CREATE OR REPLACE FUNCTION public.orgtree_install_policy_candidates(p_org_id bigint)
-RETURNS void LANGUAGE plpgsql SET search_path=pg_catalog,public AS $fn$
+RETURNS void LANGUAGE plpgsql SET search_path=pg_catalog,public,pg_temp AS $fn$
 DECLARE s text := 'org_' || p_org_id;
 BEGIN
   EXECUTE format($sql$
@@ -42,7 +42,7 @@ BEGIN
 END
 $wrap$;
 CREATE OR REPLACE FUNCTION public.orgtree_create_org_schema(p_org_id bigint) RETURNS text
-LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $fn$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $fn$
 DECLARE s text;
 BEGIN
   s := public.orgtree_create_org_schema_before_policy_candidates(p_org_id);
@@ -53,7 +53,7 @@ $fn$;
 REVOKE ALL ON FUNCTION public.orgtree_create_org_schema(bigint) FROM PUBLIC;
 DO $grants$
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='orgtree_runtime') THEN
+  IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='orgtree_runtime') THEN
     GRANT EXECUTE ON FUNCTION public.orgtree_create_org_schema(bigint) TO orgtree_runtime;
   END IF;
 END
