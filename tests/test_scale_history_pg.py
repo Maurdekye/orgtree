@@ -151,7 +151,7 @@ class HistoryStorage(unittest.TestCase):
             from orgtree import transcript_records
             transcript = next(iter(receipt["files"]))
             transcript_path = root / "home" / transcript
-            stats = {}
+            stats = {"bytes_read": 0}
             transcript_records.ingest("history-fixture-test", str(transcript_path), 8, stats)
             captured, more = transcript_records.tail("history-fixture-test", 8)
             self.assertEqual(len(captured), 2)
