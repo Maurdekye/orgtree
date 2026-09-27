@@ -126,6 +126,23 @@ class TurnInputsPG(unittest.TestCase):
                 raise RuntimeError('rollback canary')
         self.assertNotEqual(turn_inputs.load(self.slug,'worker').node('worker').get('charter'),'uncommitted')
 
+
+    def test_real_unsplit_mail_uses_legacy_runtime_reader(self):
+        with store._POOL.acquire(self.slug) as pc:
+            pc.execute('BEGIN')
+            try:
+                pc.execute('DELETE FROM doc WHERE key=?',('mail'+store.SPLIT_SEP+'worker',))
+                pc.execute('INSERT INTO doc(key,val) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET val=excluded.val',
+                           ('mail',store._dumps({'worker':[self.message]})))
+                pc.commit()
+            except BaseException:
+                pc.rollback();raise
+        with patch.object(store,'load_runtime_org',wraps=store.load_runtime_org) as fallback:
+            view=turn_inputs.load(self.slug,'worker',mail=True)
+            fallback.assert_called_once_with(self.slug)
+        self.assertIsInstance(view,ledger.Org)
+        self.assertEqual(view.d['mail']['worker'][0]['id'],self.message['id'])
+
 if __name__=='__main__': unittest.main()
 
 
