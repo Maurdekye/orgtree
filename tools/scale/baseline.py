@@ -89,7 +89,7 @@ def require_go(args, source):
         raise ValueError("GO must name the exact source and coordinator message")
     return dict(kind="first N1000 baseline; no final qualification", agents=1000, active_items=180,
                 transcript_kb=256, seconds=10, warmup=120, measured=600, tool_rate=3.12,
-                steer_rate=9.36, recipe=asdict(Recipe()), disk_gib=80, commit_gib=24, readiness_s=900,
+                steer_rate=9.36, recipe=asdict(Recipe()), disk_gib=80, commit_gib=24, readiness_s=1800,
                 rows_preflight=True)
 
 
@@ -175,7 +175,7 @@ class Controller:
                         total += process.memory_info().private
                     except psutil.NoSuchProcess:
                         pass
-                if free < 10 or engine > 5 * 2**30 or disk < (1 if self.args.small_control or self.args.preflight_only else 20):
+                if free < 12 or engine > 5 * 2**30 or disk < (1 if self.args.small_control or self.args.preflight_only else 20):
                     raise RuntimeError(f"guard: free commit {free:.2f} GiB, engine {engine}, disk {disk:.2f} GiB")
                 with (self.root / "guard.jsonl").open("a", encoding="utf-8") as out:
                     out.write(json.dumps(dict(at=time.time(), phase=self.phase, free_commit_gib=free,
