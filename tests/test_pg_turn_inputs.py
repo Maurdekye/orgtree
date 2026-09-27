@@ -1,4 +1,4 @@
-"""Actual PG checks for selected pre-slot and image-preload inputs."""
+﻿"""Actual PG checks for selected pre-slot and image-preload inputs."""
 import copy
 import threading
 import unittest
@@ -43,7 +43,8 @@ class TurnInputsPG(unittest.TestCase):
             errors=[]
             def commit():
                 try:
-                    with store.org_tx(slug) as org:
+                    with orgtx.org_tx(slug,whole=True) as tx:
+                        org=tx.org
                         org.node('worker')['charter']='new charter'
                         org.post_mail(ledger.USER,'worker','new committed mail')
                 except Exception as exc: errors.append(exc)
@@ -63,7 +64,7 @@ class TurnInputsPG(unittest.TestCase):
         with patch.object(store._orgtx_local,'pinned',{self.slug:object()},create=True), patch.object(store,'load_runtime_org',return_value=full) as fallback:
             self.assertIs(turn_inputs.load(self.slug,'worker',mail=True),full)
             fallback.assert_called_once_with(self.slug)
-        with store.org_tx(self.slug) as org: org.node('worker')['cheap_compacted']=True
+        with orgtx.org_tx(self.slug,whole=True) as tx: tx.org.node('worker')['cheap_compacted']=True
         with patch.object(store,'load_runtime_org',wraps=store.load_runtime_org) as fallback:
             self.assertNotIsInstance(turn_inputs.load(self.slug,'worker',mail=True),identity_context.IdentityContext)
             fallback.assert_called_once_with(self.slug)
@@ -94,3 +95,4 @@ class TurnInputsPG(unittest.TestCase):
         self.assertEqual(len(saved.d['mail']['other']),1)
 
 if __name__=='__main__': unittest.main()
+
