@@ -25,6 +25,7 @@ PREFIX = "hist-"
 # A common fixture choice, made before freezing active state. Historical
 # ordinals below it cannot alter the next assigned ordinal between arms.
 MAIL_FLOOR = 1_000_000_000
+HISTORY_ORDINAL = 500_000_000
 NS = uuid.UUID("834dd39e-9a8e-427e-b70c-684d7ab2e17c")
 
 
@@ -128,6 +129,18 @@ def prepare_base(document):
         for row in rows:
             if row.get("id", "").startswith(PREFIX):
                 raise ValueError("history mail identity collision")
+    for family in ("mail", "mail_log"):
+        for rows in (base.get(family) or {}).values():
+            for row in rows:
+                if "recv_seq" in row and (type(row["recv_seq"]) is not int or
+                        not 1 <= row["recv_seq"] < HISTORY_ORDINAL):
+                    raise ValueError("base mail overlaps reserved history ordinals")
+    for batches in (base.get("delivering") or {}).values():
+        for batch in batches:
+            for row in batch.get("mail", []):
+                if "recv_seq" in row and (type(row["recv_seq"]) is not int or
+                        not 1 <= row["recv_seq"] < HISTORY_ORDINAL):
+                    raise ValueError("delivery overlaps reserved history ordinals")
     compact(base)  # Reject NaN and unsupported values before writing anything.
     return base
 
@@ -185,7 +198,7 @@ def history_row(family, index, base, recipe):
                     evidence=[dict(kind="note", ref="old", note=text(recipe.seed, family, index, recipe.item_chars))])
     if family == "read_mail":
         # Use a disjoint older ordinal domain, below the fixed active floor.
-        seq = index // len(live) + 1
+        seq = HISTORY_ORDINAL + index // len(live) + 1
         if seq >= MAIL_FLOOR:
             raise ValueError("history exhausted the reserved ordinal domain")
         return dict(id=identity("mail", index), **{"from": live[(index + 1) % len(live)], "to": owner},
@@ -236,6 +249,7 @@ def build_pair(base, output, recipe=Recipe(), current_files=None, guard=lambda: 
     for name, source in sorted((current_files or {}).items()):
         rel = safe_relative(name)
         source = Path(source)
+        safe_root(source.parent)
         if source.is_symlink() or not source.is_file():
             raise ValueError("current transcript must be a regular frozen file")
         target = output / "current-files" / rel
@@ -279,7 +293,7 @@ def build_pair(base, output, recipe=Recipe(), current_files=None, guard=lambda: 
 
 def read_rows(path):
     with Path(path).open("rb") as stream:
-        for line in stream:
+        while line := stream.readline(8 * 1024 * 1024 + 1):
             if len(line) > 8 * 1024 * 1024:
                 raise ValueError("history row exceeds bounded record size")
             yield json.loads(line)
@@ -305,6 +319,7 @@ def verify_pair(output, *, require_complete=False):
         raise ValueError("fixed history count changed")
     for name, expected in manifest["current_files"].items():
         path = output / "current-files" / safe_relative(name)
+        safe_root(path.parent)
         if path.is_symlink() or path.stat().st_size != expected["bytes"] or sha_file(path) != expected["sha256"]:
             raise ValueError("current transcript tail changed")
     for arm in ("small", "large"):
@@ -340,6 +355,7 @@ def main():
     build.add_argument("--base", type=Path, required=True)
     build.add_argument("--output", type=Path, required=True)
     build.add_argument("--recipe", type=Path, required=True)
+    build.add_argument("--current-files", type=Path, help="JSON map of relative home paths to frozen source files")
     check = sub.add_parser("verify")
     check.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
@@ -350,7 +366,8 @@ def main():
             if free_commit_gb() < 10:
                 raise RuntimeError("free commit below10GiB; preparation stopped")
         doc = json.loads(args.base.read_text(encoding="utf-8"))
-        result = build_pair(prepare_base(doc), args.output, Recipe(**json.loads(args.recipe.read_text())), guard=guard)
+        files = json.loads(args.current_files.read_text()) if args.current_files else {}
+        result = build_pair(prepare_base(doc), args.output, Recipe(**json.loads(args.recipe.read_text())), files, guard=guard)
     else:
         result = verify_pair(args.output, require_complete=True)
     print(json.dumps(dict(active_sha256=result["active_sha256"], arms=result["arms"],
