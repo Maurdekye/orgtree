@@ -115,6 +115,10 @@ class HistoryStorage(unittest.TestCase):
         base.d["mail_log"] = {"boss": [dict(id="recent", at="2026-09-27", body="read tail", read=True)]}
         base.d["mail"] = {"boss": [dict(id="unread", body="fixed pending") ]}
         base.work_create("boss", title="Active work", objective="Keep this body unchanged", owner="boss")
+        # A controller exports a persisted, reconciled source. This in-memory
+        # fixture must settle the normal save-derived fields BEFORE freezing.
+        from orgtree.notification_state import reconcile_attention
+        reconcile_attention(base.d)
         frozen = hf.prepare_base(base.d)
         recipe = hf.Recipe(retired_agents=2, archived_items=2, read_mail=2, old_transcripts=2,
                            payload_profile="fixed",

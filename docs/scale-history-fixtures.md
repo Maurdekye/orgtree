@@ -109,6 +109,9 @@ and `deleted_cost_usd` singleton defaults when absent. Every value is compared;
 top-level key order, dict-log owner order and each log's record order are retained.
 Only internal log sequence positions and unrelated cross-section insertion order
 are excluded. No charter, permission, queue, active item or settings field is dropped.
+The controller must export a save-ready, reconciled source: if normal save hooks
+would change derived Attention fields, settle them in the source before freezing.
+Restoration refuses such a change instead of quietly normalizing the frozen input.
 
 Verification enumerates all files under the owned HOME and requires exactly the
 declared current files plus generated historical sources, with matching bytes.
