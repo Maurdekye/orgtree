@@ -2809,6 +2809,7 @@ class LazyDoc(dict[str, Any]):
         "_snap_logs": dict, "_key_order": list, "_present": set,
         "_dropped": set, "_pending": dict, "_touched": set,
         "_lazy_exposed": set, "_deferred_doc": dict,
+        "_receipt_rows": bool, "_receipt_present": bool,
     }
 
     def __getattr__(self, name: str) -> Any:
@@ -3381,7 +3382,7 @@ def _load_probes(conn: sqlite3.Connection) -> tuple[str | None, str | None, set[
 
 def _load_lazy(conn: sqlite3.Connection, slug: str,
                preload: Iterable[str] = (), *, txn_open: bool = False,
-               lazy_work: bool = False) -> LazyDoc:
+               lazy_work: bool = False, receipt_bind: bool = True) -> LazyDoc:
     """Load eager rows plus an optional coherent set of lazy sections.
 
     Ordinary loads pass no ``preload`` and retain S1's owner-selective lazy
@@ -3452,6 +3453,7 @@ def _load_lazy(conn: sqlite3.Connection, slug: str,
                 snaps, value = _read_list_log(conn, sect)
             preload_snaps[sect] = snaps
             preloaded[sect] = value
+        receipt = _receipt_view(conn, slug, bind=receipt_bind and not txn_open)
     except BaseException:
         # Never return a connection to the pool with a live read transaction,
         # including on JSON decoding or row construction failure.
@@ -3501,7 +3503,22 @@ def _load_lazy(conn: sqlite3.Connection, slug: str,
         if k not in known:
             order.append(k)
             known.add(k)
+    if receipt is not None:
+        # converted: the rows are authoritative. A leftover doc blob would be
+        # a second, stale copy -- the converter deletes it in its own txn.
+        if RECEIPT_KEY in doc_rows:
+            raise LedgerError(f"{slug!r}: custody receipts are both converted "
+                              "and stored as a document blob")
+        d._receipt_rows = True
+        d._receipt_present = receipt[0]
+        if receipt[0] and RECEIPT_KEY not in known:
+            order.append(RECEIPT_KEY)
+            known.add(RECEIPT_KEY)
     for k in order:
+        if receipt is not None and k == RECEIPT_KEY:
+            if receipt[1] is not None:
+                dict.__setitem__(d, k, receipt[1])
+            continue
         if k == "nodes" and "nodes" not in doc_rows:
             nodes: NodesMap = NodesMap()
             for nid, v in node_rows:
@@ -3536,7 +3553,8 @@ def _load_lazy(conn: sqlite3.Connection, slug: str,
     # fail-safe. The second is not. (phase1-audit, 2026-09-04.)
     d._key_order = [k for k in order if k in doc_rows
                     or k == "nodes"
-                    or (k in LAZY_SECTIONS and k in present)]
+                    or (k in LAZY_SECTIONS and k in present)
+                    or (k == RECEIPT_KEY and d._receipt_present)]
     d._present = {k for k in present if k not in doc_rows}
     return d
 
@@ -3547,7 +3565,23 @@ def reconstruct_full(conn: sqlite3.Connection) -> dict[str, Any]:
     (§2.1)."""
     d = _load_lazy(conn, "")
     out: dict[str, Any] = {}
+    receipts: Any = None
+    if RECEIPT_ROWS and STORE_BACKEND == "postgres":
+        from . import receiptstore
+        conn.execute("BEGIN")
+        try:
+            conn.use()                      # type: ignore[attr-defined]
+            if conn.execute("SELECT 1 FROM receipt_format WHERE singleton").fetchone():
+                receipts = receiptstore.export(conn.raw)   # type: ignore[attr-defined]
+        finally:
+            conn.execute("COMMIT")
+    if receipts is not None and receipts[0] and RECEIPT_KEY not in d._key_order:
+        d._key_order.append(RECEIPT_KEY)
     for k in d._key_order:
+        if receipts is not None and k == RECEIPT_KEY:
+            if receipts[0]:
+                out[k] = receipts[1]
+            continue
         if k in d._deferred_doc:
             out[k] = d[k]
         elif dict.__contains__(d, k):
@@ -3853,6 +3887,61 @@ def _write_lazy(conn: sqlite3.Connection, sect: str, value: Any,
 _ROW_CAS = os.environ.get("ORGTREE_ROW_CAS",
                           "1" if STORE_BACKEND == "postgres" else "0").strip() == "1"
 
+#: B3 custody receipts (docket keep-agent-turn-and-tool-reads-independent-of-in):
+#: an org whose `mail_transitions` was converted to receipt rows (migration
+#: 0013, receiptstore.convert) loads it as a row-backed
+#: `receiptmapping.ReceiptSection` instead of one doc blob, and a save writes
+#: only the receipts it changed. DEFAULT OFF until reviewed. Nothing converts
+#: an org in production yet, so with the switch on an unconverted org behaves
+#: exactly as before apart from one probe row per load.
+RECEIPT_ROWS = os.environ.get("ORGTREE_RECEIPT_ROWS", "").strip() == "1"
+RECEIPT_KEY = "mail_transitions"
+
+
+def _receipt_view(conn: sqlite3.Connection, slug: str, *, bind: bool
+                  ) -> tuple[bool, Any] | None:
+    """Inside the caller's open read transaction: None when this org's
+    receipts are not converted (or the switch is off); else (present, view).
+
+    `view` is a fresh ReceiptSection tagged with the revision this same
+    transaction sees (plain BEGIN is REPEATABLE READ on postgres), or None
+    when the converted section was absent from the document. `bind` asks for
+    a view tied to the org_tx that pinned `conn`; a shared snapshot must pass
+    False, because acquire() hands out the pinned connection to ANY read made
+    inside an org_tx thread and a bound view dies with that transaction."""
+    if not (RECEIPT_ROWS and STORE_BACKEND == "postgres") or not slug:
+        return None
+    row = conn.execute("SELECT format, present FROM receipt_format "
+                       "WHERE singleton").fetchone()
+    if row is None:
+        return None
+    if row[0] != 1:
+        raise LedgerError(f"{slug!r}: unknown custody receipt storage format {row[0]!r}")
+    if not row[1]:
+        return (False, None)
+    from . import receiptmapping
+    rev = conn.execute("SELECT revision FROM public.orgs WHERE org_id=?",
+                       (getattr(conn, "org_id"),)).fetchone()
+    if rev is None:
+        raise LedgerError(f"no such org: {slug!r}")
+    bound = (receiptmapping.binding(slug)
+             if bind and getattr(conn, "pinned", False) else None)
+    return (True, receiptmapping.ReceiptSection(slug, int(rev[0]), bound))
+
+
+def _is_receipt_view(v: Any) -> bool:
+    from . import receiptmapping
+    return isinstance(v, receiptmapping.ReceiptSection)
+
+
+def _receipts_pending(d: dict[str, Any]) -> bool:
+    """Does `d` hold receipt edits no save has written yet?"""
+    v = dict.get(d, RECEIPT_KEY)
+    if not _is_receipt_view(v):
+        return False
+    from . import receiptwriter
+    return bool(receiptwriter.prepare(v).owners)
+
 
 #: THE DECLARED ORG SINGLETON ROWS (plan decisions 26/33/34): doc rows that
 #: always exist, with their cleared value as JSON text. Created by the save
@@ -3876,8 +3965,34 @@ def _cas(conn: sqlite3.Connection, sql: str, params: tuple[Any, ...], what: str)
                          "(another writer committed it); nothing was written")
 
 
+def _write_receipts(conn: sqlite3.Connection, lazy: LazyDoc | None, v: Any,
+                    changes: SaveChanges | None,
+                    receipts: list[tuple[Any, Any]] | None) -> None:
+    """Write only the receipt rows `v` changed, in the save's transaction.
+
+    Recorded as a write of doc key `mail_transitions`, so an org_tx still
+    needs that section's exclusive lock (orgtx._check) and caches refresh it.
+    Nothing is adopted here: a rollback must leave every edit pending."""
+    from . import receiptmapping, receiptwriter
+    slug = lazy._slug if lazy is not None else ""
+    if not isinstance(v, receiptmapping.ReceiptSection) or v.slug != slug:
+        raise LedgerError("converted custody receipts cannot be replaced by a "
+                          "plain value; edit owners in place")
+    plan = receiptwriter.prepare(v)
+    if plan.owners:
+        if receipts is None:
+            raise LedgerError("this save path cannot write custody receipts")
+        conn.use()                                    # type: ignore[attr-defined]
+        receiptwriter.apply(conn.raw, conn.org_id, plan)   # type: ignore[attr-defined]
+        if changes is not None:
+            changes.doc_upserts.append(RECEIPT_KEY)
+    if receipts is not None:
+        receipts.append((v, plan))
+
+
 def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None,
-               changes: SaveChanges | None = None
+               changes: SaveChanges | None = None,
+               receipts: list[tuple[Any, Any]] | None = None
                ) -> tuple[dict[str, str], dict[str, str], dict[str, Any], list[str]]:
     """The body of a save transaction (§4.5), for both shapes of `Org.d`:
 
@@ -3896,9 +4011,18 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
     (rearchitecture Phases 0/A) consume it.
 
     Returns (snap_doc, snap_nodes, snap_logs, key_order) describing the
-    database as it is after the commit, for the LazyDoc to adopt."""
+    database as it is after the commit, for the LazyDoc to adopt.
+
+    `receipts`, when given, collects (section, plan) for every row-backed
+    custody receipt section so the caller can adopt its baselines after the
+    real COMMIT (receiptcommit); a caller that passes None cannot write one."""
     from .readonly_projection import reject_projection
     reject_projection(d)
+    receipt_rows = lazy is not None and lazy._receipt_rows
+    if lazy is None and RECEIPT_ROWS and STORE_BACKEND == "postgres" \
+            and conn.execute("SELECT 1 FROM receipt_format WHERE singleton").fetchone():
+        raise LedgerError("a plain-document save cannot overwrite converted "
+                          "custody receipts")
     snap_doc = lazy._snap_doc if lazy is not None else None
     snap_nodes = lazy._snap_nodes if lazy is not None else None
     # storage view: for a LazyDoc, the raw dict contents (no materialisation —
@@ -3924,6 +4048,9 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
                else None)
     for k, v in items:
         if k in ROWED or k in LAZY_SECTIONS:
+            continue
+        if receipt_rows and k == RECEIPT_KEY:
+            _write_receipts(conn, lazy, v, changes, receipts)
             continue
         if touched is not None and k not in touched \
                 and snap_doc is not None and k in snap_doc:
@@ -3960,6 +4087,11 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
                     if rk == k and k in SPLIT_SECTIONS and s == "{}" \
                             and (snap_doc is None or k not in snap_doc):
                         changes.containers_created.append(k)
+    if receipt_rows and cast(LazyDoc, lazy)._receipt_present \
+            and not dict.__contains__(d, RECEIPT_KEY):
+        # rows are the only copy: a popped section would silently survive
+        raise LedgerError("removing converted custody receipts wholesale is "
+                          "not supported; delete owners instead")
     known_doc = set(snap_doc) if snap_doc is not None else db_doc_keys
     # PG-0b (plan decisions 26 D2 / 33): an ALWAYS-PRESENT row is never
     # deleted — a save that lacks the key (popped, or never set) writes its
@@ -4162,6 +4294,8 @@ def _verify_scoped_save(d: dict[str, Any], lazy: LazyDoc) -> None:
     for k in list(dict.keys(d)):
         if k in ROWED or k in LAZY_SECTIONS:
             continue
+        if lazy._receipt_rows and k == RECEIPT_KEY:
+            continue            # row-backed: verified by its own CAS rows
         actual = _split_rows(k, dict.__getitem__(d, k), reuse_work=False)
         expected = _snap_rows(lazy._snap_doc, k)
         matches = actual == expected
@@ -4184,6 +4318,38 @@ def _verify_scoped_save(d: dict[str, Any], lazy: LazyDoc) -> None:
                     "read barrier")
 
 
+def _defer_receipt_adoption(conn: Any, receipts: list[tuple[Any, Any]]) -> None:
+    """After on_save_commit, before COMMIT: queue in-place baseline adoption.
+
+    A receipt write whose view missed an intervening commit is refused here,
+    while the save can still roll back. A no-op view that missed one is left
+    untagged: its later lazy reads refuse, and the resident refresh replaces
+    it (_advance_resident)."""
+    from . import receiptcommit, receiptmapping, receiptwriter
+    for section, plan in receipts:
+        try:
+            adoption = receiptwriter.adoption_after_revision(conn, section, plan)
+        except receiptmapping.StaleReceipts:
+            if plan.owners:
+                raise
+            continue
+        receiptcommit.defer(conn, lambda a=adoption, s=section: a.install(s))
+
+
+def _adopt_receipts_committed(slug: str, conn: Any) -> None:
+    """A standalone save's real COMMIT succeeded: adopt now. A failure here
+    must not report the committed save as failed; the stale baselines make
+    the next save of this document refuse on owner versions instead, and the
+    resident is dropped so the next cycle reloads."""
+    from . import receiptcommit
+    try:
+        receiptcommit.committed([conn])
+    except Exception as e:
+        stateprobe.record("receipt_adopt_failed",
+                          detail={"reason": f"{type(e).__name__}: {e}"[:200]})
+        _resident.pop(slug, None)
+
+
 def _save_sqlite(org: Org) -> None:
     from .readonly_projection import reject_projection
     reject_projection(org)
@@ -4194,10 +4360,12 @@ def _save_sqlite(org: Org) -> None:
     changes = SaveChanges()
     t0 = time.perf_counter()
     # the one write path that may legitimately mint a database (`create_org`)
+    receipts: list[tuple[Any, Any]] = []
     with _POOL.acquire(slug, create=True) as conn:
         conn.execute("BEGIN IMMEDIATE")
         try:
-            new_doc, new_nodes, new_logs, order = _write_doc(conn, d, lazy, changes)
+            new_doc, new_nodes, new_logs, order = _write_doc(conn, d, lazy, changes,
+                                                             receipts)
             # PG-0: an `orgtx` transaction checks what it wrote against the
             # rows it locked; raising here rolls the whole save back.
             _txg = getattr(_orgtx_local, "guard", None)
@@ -4210,6 +4378,8 @@ def _save_sqlite(org: Org) -> None:
                                        not changes.is_empty(), work_changed=bool(
                                            changes.changed_keys() & {"work_items",
                                                "work_items_archive", "work_scope_log"}))
+                if receipts:
+                    _defer_receipt_adoption(cast("pgstore.PgConn", conn), receipts)
             # {COMMIT, publish, seq bump} are one atom with respect to
             # snapshot rebuilds — see the invariant note on `_changed_lock`.
             # A commit outside the gate opens the exact window this closes: a
@@ -4238,11 +4408,16 @@ def _save_sqlite(org: Org) -> None:
                 _txc = getattr(_orgtx_local, "on_commit", None)
                 if _txc is not None:
                     _txc(changes)
+                if receipts and not getattr(conn, "pinned", False):
+                    _adopt_receipts_committed(slug, conn)
                 stateprobe.record("gate_commit", ms=(time.perf_counter() - _gw) * 1000.0)
                 stateprobe.record("gate_wait_commit", ms=(_gw - _gt0) * 1000.0)
         except BaseException:
             with contextlib.suppress(Exception):
                 conn.execute("ROLLBACK")
+            if receipts:
+                from . import receiptcommit
+                receiptcommit.discard([conn])
             raise
     # a save through anything but the resident instance leaves the resident's
     # baselines stale — drop it; the next write_org reloads fresh. This is
@@ -6015,7 +6190,7 @@ def _load_pinned(slug: str, *, resident: bool = False) -> tuple[Org, int]:
             seq_pin = org_seq(slug)
             conn.execute("BEGIN")
             _meta_get(conn, "schema_version")     # first read pins the view
-        doc = _load_lazy(conn, slug, txn_open=True)
+        doc = _load_lazy(conn, slug, txn_open=True, receipt_bind=False)
     t1 = time.perf_counter()
     org = Org(cast("OrgDoc", doc))
     stateprobe.record("load_doc", ms=(t1 - t0) * 1000.0,
@@ -6112,6 +6287,7 @@ def _assemble_snapshot(slug: str, prev: Org) -> tuple[Org, int] | None:
                         if row is not None:
                             fresh_nodes[nid] = cast(str, row[0])
                     _tc = time.perf_counter()
+                    receipt = _receipt_view(conn, slug, bind=False)
                     conn.execute("COMMIT")
                     stateprobe.record("asm_keys", ms=(_ta - _gw) * 1000.0)
                     stateprobe.record("asm_idscan", ms=(_tb - _ta) * 1000.0)
@@ -6152,7 +6328,21 @@ def _assemble_snapshot(slug: str, prev: Org) -> tuple[Org, int] | None:
             # write); take it from the change set or the previous snapshot
             order = [*order, *(k for k in ALWAYS_ROWS if k not in order
                                and (k in keys or k in prev_d._snap_doc))]
+            if receipt is not None:
+                # never carried from prev: a fresh view at THIS read view's
+                # revision (the key has no doc row and is not a lazy section,
+                # so the generic carry below would silently drop it)
+                d2._receipt_rows = True
+                d2._receipt_present = receipt[0]
+                if receipt[0] and RECEIPT_KEY not in order:
+                    order = [*order, RECEIPT_KEY]
+            elif prev_d._receipt_rows:
+                raise _AssembleBail("receipt rows seen without the switch")
             for k in order:
+                if receipt is not None and k == RECEIPT_KEY:
+                    if receipt[1] is not None:
+                        dict.__setitem__(d2, k, receipt[1])
+                    continue
                 if k == "nodes":
                     dict.__setitem__(d2, "nodes", nodes2)
                     continue
@@ -6187,7 +6377,8 @@ def _assemble_snapshot(slug: str, prev: Org) -> tuple[Org, int] | None:
             docish = set(d2._snap_doc)
             d2._key_order = [k for k in order
                              if k in docish or k == "nodes"
-                             or (k in LAZY_SECTIONS and k in present2)]
+                             or (k in LAZY_SECTIONS and k in present2)
+                             or (k == RECEIPT_KEY and d2._receipt_present)]
             d2._present = {k for k in present2 if k not in docish}
             d2._normalized_nodes = carried  # type: ignore[attr-defined]  # Org.__init__ honors it
             d2._eager_bytes = (sum(len(v) for v in d2._snap_doc.values())
@@ -6337,11 +6528,17 @@ def _advance_resident(slug: str, d: LazyDoc) -> bool:
     if not keys and not nids:
         return True
     try:
+        if d._receipt_rows and _receipts_pending(d):
+            # unsaved receipt edits cannot be carried onto a newer view
+            raise _AssembleBail("pending receipt edits during advance")
         with _POOL.acquire(slug) as conn:
             conn.execute("BEGIN")
             try:
+                receipt = _receipt_view(conn, slug, bind=False)
                 for k in keys:
                     if k == "nodes":
+                        continue
+                    if receipt is not None and k == RECEIPT_KEY:
                         continue
                     row = conn.execute("SELECT val FROM doc WHERE key=?",
                                        (k,)).fetchone()
@@ -6404,12 +6601,24 @@ def _advance_resident(slug: str, d: LazyDoc) -> bool:
                     with contextlib.suppress(Exception):
                         conn.execute("ROLLBACK")
                 raise
+        if receipt is not None:
+            # every advance re-tags: the view becomes a fresh one at the
+            # advance transaction's revision (no edits were pending, above)
+            d._receipt_rows = True
+            d._receipt_present = receipt[0]
+            if receipt[1] is not None:
+                dict.__setitem__(d, RECEIPT_KEY, receipt[1])
+            elif dict.__contains__(d, RECEIPT_KEY):
+                dict.__delitem__(d, RECEIPT_KEY)
+        elif d._receipt_rows:
+            raise _AssembleBail("receipt rows seen without the switch")
         if raw_order:
             order = cast("list[str]", json.loads(raw_order))
             docish = set(d._snap_doc)
             d._key_order = [k for k in order
                             if k in docish or k == "nodes"
-                            or (k in LAZY_SECTIONS and k in d._present)]
+                            or (k in LAZY_SECTIONS and k in d._present)
+                            or (k == RECEIPT_KEY and d._receipt_present)]
         stateprobe.record("resident_advance", nbytes=len(keys) + len(nids),
                           detail={"keys": sorted(keys)[:8], "nodes": len(nids)})
         return True
@@ -6436,6 +6645,9 @@ def _settle_marks(d: LazyDoc) -> None:
     registration-time pass instead of every save."""
     for k in list(d._touched):
         if k in ROWED or k in LAZY_SECTIONS:
+            continue
+        if d._receipt_rows and k == RECEIPT_KEY:
+            d._touched.discard(k)       # row-backed: its own dirty tracking
             continue
         if dict.__contains__(d, k) and k in d._snap_doc \
                 and _snap_rows(d._snap_doc, k) == _split_rows(k, dict.__getitem__(d, k)):
@@ -6592,8 +6804,12 @@ def _resident_dirty(d: LazyDoc) -> list[str]:
     baseline — i.e. mutations that were never saved. Cost is proportional
     to what the cycle touched; an untouched document costs nothing."""
     dirty: list[str] = []
+    if d._receipt_rows and _receipts_pending(d):
+        dirty.append(RECEIPT_KEY)
     for k in list(d._touched):
         if k in ROWED or k in LAZY_SECTIONS:
+            continue
+        if d._receipt_rows and k == RECEIPT_KEY:
             continue
         if dict.__contains__(d, k):
             if _snap_rows(d._snap_doc, k) != _split_rows(k, dict.__getitem__(d, k)):
