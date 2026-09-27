@@ -352,6 +352,13 @@ def child(args) -> int:
     _turn_counts = {"started": 0, "finished": 0}
     _turn_count_lock = threading.Lock()
     _real_one_turn = _scale_supervisor._run_one_turn
+    _simulated = None
+    if os.environ.get("ORGTREE_SCALE_SIMULATED_PROVIDER") == "1":
+        if os.environ.get("ORGTREE_SCALE_ASSERT_NO_TURNS") == "1":
+            raise RuntimeError("active simulation and halted comparison modes are mutually exclusive")
+        from orgtree import halt as _scale_halt
+        from simulated import install as _install_simulated
+        _simulated = _install_simulated(root, _scale_supervisor, _scale_halt)
 
     def _counted_one_turn(*a, **kw):
         with _turn_count_lock:
@@ -368,7 +375,26 @@ def child(args) -> int:
     @api.app.get("/scale/activity")
     def _scale_activity() -> dict:
         with _turn_count_lock:
-            return dict(_turn_counts)
+            result = dict(_turn_counts)
+        if _simulated:
+            result["provider"] = _simulated.snapshot()
+        return result
+
+    @api.app.get("/scale/settlement")
+    def _scale_settlement() -> dict:
+        # Bounded output; an intentionally expensive coherent read, only at
+        # workload boundaries, never in the high-frequency sampler.
+        from orgtree import orgtx
+        snapshot = orgtx.org_read(slug)
+        inflight = [nid for nid, n in snapshot.nodes.items() if n.get("inflight")]
+        with _scale_supervisor._state_lock:
+            states = [st for (org_slug, _), st in _scale_supervisor._state.items() if org_slug == slug]
+            busy = sum(bool(st.get("busy")) for st in states)
+            queued = sum(len(st.get("queue") or []) for st in states)
+        return {"mail": sum(len(box) for box in (snapshot.d.get("mail") or {}).values()),
+                "delivering": sum(len(box) for box in (snapshot.d.get("delivering") or {}).values()),
+                "inflight": len(inflight), "busy": busy, "queued": queued,
+                "activity": _scale_activity()}
 
     @api.app.get("/scale/workload")
     def _scale_workload() -> dict:
