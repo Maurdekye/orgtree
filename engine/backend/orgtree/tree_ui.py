@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 import gzip
+import hashlib
 import json
 import threading
 import time
@@ -61,8 +62,62 @@ def _bytes(value: Any) -> tuple[bytes, bytes]:
 
 
 def _size(entry: dict[str, Any]) -> int:
-    return sum(len(v['body']) + sum(map(len, v['wire'])) for v in entry['versions'].values()) \
+    return sum(len(v['top']) + sum(map(len, v['nodes'].values())) +
+               (sum(map(len, v['wire'])) if v['wire'] else 0)
+               for v in entry['versions'].values()) \
         + sum(sum(map(len, value)) for value in entry['deltas'].values())
+
+
+def _revision(version):
+    top = json.loads(version['top'])
+    for key in tree_delta.WATERMARKS:
+        top.pop(key, None)
+    # Hash the short per-node digests, not every unchanged charter/turn again.
+    return hashlib.sha256(tree_delta.encode([top, sorted(version['hashes'].items())])).hexdigest()[:32]
+
+
+def _version(tree):
+    nodes = {nid:tree_delta.encode(row) for nid,row in tree_delta.flatten(tree).items()}
+    return {'top':tree_delta.encode({**tree, 'roots':[n['id'] for n in tree['roots']]}),
+            'nodes':nodes, 'hashes':{nid:hashlib.sha256(row).hexdigest() for nid,row in nodes.items()},
+            'wire':None}
+
+
+def _status_version(before, changed, watermarks):
+    version = {**before, 'nodes':dict(before['nodes']), 'hashes':dict(before['hashes']), 'wire':None}
+    for nid, values in changed.items():
+        if nid not in version['nodes']:
+            return None
+        row = json.loads(version['nodes'][nid])
+        row.update(values)
+        body = tree_delta.encode(row)
+        version['nodes'][nid] = body
+        version['hashes'][nid] = hashlib.sha256(body).hexdigest()
+    version['top'] = tree_delta.encode({**json.loads(before['top']), **watermarks})
+    return version
+
+
+def _full(version, token):
+    if version['wire'] is None:
+        rows = {nid:json.loads(body) for nid,body in version['nodes'].items()}
+        def build(nid):
+            row = rows[nid]
+            return {**row, 'children':[build(child) for child in row['children']]}
+        top = json.loads(version['top'])
+        tree = {**top, 'roots':[build(nid) for nid in top['roots']]}
+        version['wire'] = _bytes(tree_delta.full(tree, token))
+    return version['wire']
+
+
+def _delta(before, after, base, token, watermarks):
+    nodes = {}
+    for nid, body in after['nodes'].items():
+        old = before['nodes'].get(nid)
+        if old != body:
+            nodes[nid] = tree_delta.changed(json.loads(old) if old else {}, json.loads(body))
+    return _bytes({'format':tree_delta.FORMAT, 'base':base, 'revision':token,
+        'top':tree_delta.changed(json.loads(before['top']), {**json.loads(after['top']), **watermarks}),
+        'nodes':nodes, 'removed':[nid for nid in before['nodes'] if nid not in after['nodes']]})
 
 
 def _tag(token: str) -> str:
@@ -77,7 +132,7 @@ def _token(tag: str) -> str:
 
 def read(slug: str, public: bool, since: str, *, stamp: Callable[[], str],
          build: Callable[[], dict[str, Any]], feed: pgfeed.RevisionFeed | None = None,
-         compressed: bool = False) -> tuple[str, bytes | None, dict[str, str]]:
+         compressed: bool = False, fast=None) -> tuple[str, bytes | None, dict[str, str]]:
     key = (str(store.DATA_ROOT), slug, public)
     with _lock:
         build_lock = _build_locks.setdefault(key, threading.RLock())
@@ -97,24 +152,30 @@ def read(slug: str, public: bool, since: str, *, stamp: Callable[[], str],
                 store.external_change(slug)
         current = (committed, stamp())  # read before build, never afterwards
         if entry is None or entry['stamp'] != current:
-            tree = build()
+            mark = fast.mark() if fast else None
+            update = fast.update(entry.get('fast'), mark) if fast and entry else None
+            version = _status_version(entry['versions'][entry['token']], update[0], update[1]) if update else None
+            if version is not None:
+                watermarks = update[1]
+                fast_state = update[2]
+            else:
+                tree = build()
+                version = _version(tree)
+                watermarks = {k:tree[k] for k in tree_delta.WATERMARKS if k in tree}
+                fast_state = fast.capture(mark) if fast else None
             if committed is not None:
-                # A concurrently received feed event may name a later revision
-                # than this build's validation. Keep the replay stamp honest.
-                tree = {**tree, 'org_rev': committed[1]}
-            token = tree_delta.revision(tree)
+                # Read-before-build: safe even if a later feed frame arrived.
+                watermarks = {**watermarks, 'org_rev':committed[1]}
+            token = _revision(version)
             versions = OrderedDict(entry['versions']) if entry else OrderedDict()
             if token not in versions:
-                # Retain immutable bytes, not mutable supervisor/doc structures.
-                versions[token] = {'body': tree_delta.encode(tree),
-                                   'wire': _bytes(tree_delta.full(tree, token))}
+                versions[token] = version
             versions.move_to_end(token)
             while len(versions) > MAX_VERSIONS:
                 versions.popitem(last=False)
-            watermarks = {k: tree[k] for k in tree_delta.WATERMARKS if k in tree}
             entry = {'stamp': current, 'committed': committed, 'token': token,
                      'versions': versions, 'watermarks': watermarks,
-                     'deltas': {}, 'used': now}
+                     'deltas': {}, 'used': now, 'fast':fast_state}
         entry['used'] = now
         token = entry['token']
         headers = {('X-Orgtree-Sync-Rev' if k == 'sync_rev' else 'X-Orgtree-Org-Rev'): str(v)
@@ -123,15 +184,15 @@ def read(slug: str, public: bool, since: str, *, stamp: Callable[[], str],
         result = None
         if base != token:
             current_version = entry['versions'][token]
-            wire = current_version['wire']
             if base in entry['versions']:
                 if base not in entry['deltas']:
-                    before = json.loads(entry['versions'][base]['body'])
-                    after_tree = {**json.loads(current_version['body']), **entry['watermarks']}
-                    patch = _bytes(tree_delta.delta(before, after_tree, base, token))
-                    # A topology overhaul may be smaller as a full snapshot.
-                    entry['deltas'][base] = patch if len(patch[0]) < len(wire[0]) else wire
+                    patch = _delta(entry['versions'][base], current_version, base, token, entry['watermarks'])
+                    # A topology overhaul can be cheaper as a full snapshot.
+                    size = len(current_version['top']) + sum(map(len, current_version['nodes'].values()))
+                    entry['deltas'][base] = patch if len(patch[0]) < size else _full(current_version, token)
                 wire = entry['deltas'][base]
+            else:
+                wire = _full(current_version, token)
             result = wire[1 if compressed else 0]
         with _lock:
             _cache[key] = entry

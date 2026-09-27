@@ -2817,15 +2817,18 @@ def _tree_cache_drop(slug: str) -> None:
         _tree_cache.pop((slug, False), None)
 
 
-def _tree_etag(slug: str) -> str:
+def _tree_runtime_stamp(slug: str) -> tuple:
     with _tree_cache_lock:
         inval = _tree_inval_rev.get(slug, 0)
-    parts = (store.org_seq(slug),
-             supervisor.tree_state_fingerprint(slug),
+    return (supervisor.tree_state_fingerprint(slug),
              float(limits._cache.get("at") or 0.0),
              repr(supervisor.primed_restart()),
              inval,
              int(time.time() // _TREE_STALE_BUCKET_S))
+
+
+def _tree_etag(slug: str) -> str:
+    parts = (store.org_seq(slug), *_tree_runtime_stamp(slug))
     return '"t' + hashlib.sha1(repr(parts).encode()).hexdigest()[:20] + '"'
 
 
@@ -2838,7 +2841,7 @@ async def _org_tree_route(slug: str, request: Request, response: Response,
 
 
 def _org_tree_transport(slug: str, request: Request) -> Response:
-    from . import tree_ui
+    from . import tree_ui, tree_fast
     compressed = tree_ui.accepts_gzip(request.headers.get("accept-encoding", ""))
     try:
         etag, body, watermarks = tree_ui.read(
@@ -2846,7 +2849,9 @@ def _org_tree_transport(slug: str, request: Request) -> Response:
             request.headers.get("if-none-match", ""),
             stamp=lambda: _tree_etag(slug),
             build=lambda: _org_view(slug, request, None), feed=_REV_FEED,
-            compressed=compressed)
+            compressed=compressed,
+            fast=tree_fast.StatusProjection(slug, lambda:_tree_runtime_stamp(slug),
+                lambda:{'sync_rev':_current_sync_rev(slug)}))
     except LedgerError as error:
         raise HTTPException(404, str(error))
     headers = {"ETag": etag, "Vary": "Accept-Encoding",

@@ -7,7 +7,7 @@ $out = Join-Path $repo '.scale-results'
 $modules = @('tests/test_latency_tier1.py','tests/test_archived_summary.py','tests/test_pgfeed.py','tests/test_scale_ui_mix.py')
 $renderer = @('treecache','treesync','treestatus','archivedsummary')
 if ($Arm -eq 'tip') {
-    $modules += @('tests/test_tree_delta.py','tests/test_tree_ui.py')
+    $modules += @('tests/test_tree_delta.py','tests/test_tree_ui.py','tests/test_tree_fast.py')
     $renderer += 'treedelta'
 }
 Push-Location $checkout

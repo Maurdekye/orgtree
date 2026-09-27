@@ -5606,10 +5606,14 @@ def _publish_changes(slug: str, changes: SaveChanges) -> None:
             if changes.node_inserts or changes.node_deletes:
                 _changed_node_struct.setdefault(slug, set()).update(
                     changes.node_inserts, changes.node_deletes)
+        from . import tree_changes
+        tree_changes.publish(DATA_ROOT, slug, changes)
     except Exception:
         with _changed_lock:
             _changed_all.add(slug)
             _res_changed_all.add(slug)
+        from . import tree_changes
+        tree_changes.publish(DATA_ROOT, slug, None)
 
 
 def _publish_changes_unknown(slug: str) -> None:
@@ -5618,6 +5622,8 @@ def _publish_changes_unknown(slug: str) -> None:
     with _changed_lock:
         _changed_all.add(slug)
         _res_changed_all.add(slug)
+    from . import tree_changes
+    tree_changes.publish(DATA_ROOT, slug, None)
 
 
 def external_change(slug: str) -> None:
@@ -5633,6 +5639,8 @@ def external_change(slug: str) -> None:
 def _invalidate_snapshot(slug: str) -> None:
     """Delete/rename/migration/backend surprises: drop everything derived."""
     _resident.pop(slug, None)
+    from . import tree_changes
+    tree_changes.forget(DATA_ROOT, slug)
     with _doc_cache_lock:
         _doc_cache.pop(slug, None)
     with _changed_lock:
@@ -5659,6 +5667,8 @@ def _bump_org_seq(slug: str) -> None:
     forces the next rebuild to be a full reload instead."""
     with _org_seq_lock:
         _org_seq[slug] = _org_seq.get(slug, 0) + 1
+        from . import tree_changes
+        tree_changes.commit(DATA_ROOT, slug, _org_seq[slug])
 
 
 # --------------------------------------------- shared read-only snapshots
