@@ -93,4 +93,18 @@ class ContextPG(unittest.TestCase):
         sys.modules['orgtree.workread'].counts_raw=lambda *a,**k:None
         with self.assertRaisesRegex(ctx.CompatibilityRequired,'counts'):self.context()
 
+
+    def test_pending_owner_rows_and_delivery_control_match_committed_data(self):
+        from orgtree import warmpool, supervisor
+        org=store.load_org(self.slug)
+        org.d['mail']={'boss':[{'id':'pending','body':'current'}],
+                       'leaf':[{'id':'other','body':'also current'}]}
+        org.d['delivering']={'boss':[{'id':'inflight','body':'claimed'}]}
+        store.save_org(org)
+        view=fg.read_exact(self.slug,'boss',project=lambda raw,g:ctx.build(raw,self.slug,g))
+        self.assertEqual(view.d['mail'],{'boss':[{'id':'pending','body':'current'}]})
+        self.assertEqual(view.d['delivering'],{'boss':[{'id':'inflight','body':'claimed'}]})
+        with patch.object(warmpool,'eligible',return_value=(True,'')):
+            self.assertEqual(warmpool._warm_eligible(view,'boss'),(False,'delivery-in-progress'))
+
 if __name__=='__main__':unittest.main()
