@@ -251,8 +251,8 @@ class ReceiptStorage(unittest.TestCase):
         from orgtree import receiptmapping, receiptwriter
         view=self.mapped()
         calls=[]; original=receiptmapping._read
-        def observed(slug,revision,query,params,bound=None):
-            calls.append((query,params)); return original(slug,revision,query,params,bound)
+        def observed(slug,revision,query,params,bound=None,owner_version=None):
+            calls.append((query,params)); return original(slug,revision,query,params,bound,owner_version)
         with patch.object(receiptmapping,'_read',side_effect=observed):
             view['z']['op']['extension']['note']='edited'
             view['z']['new']=receipt('z','new','fresh')

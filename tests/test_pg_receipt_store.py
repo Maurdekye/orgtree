@@ -269,9 +269,9 @@ class ReceiptStoreRename(unittest.TestCase):
         org = store.load_org(slug)
         reads = []
         original = receiptmapping._read
-        def observed(slug_, revision, query, params, bound=None):
+        def observed(slug_, revision, query, params, bound=None, owner_version=None):
             reads.append((query, params))
-            return original(slug_, revision, query, params, bound)
+            return original(slug_, revision, query, params, bound, owner_version)
         with patch.object(receiptmapping, '_read', side_effect=observed):
             org.rename(ledger.USER, 'z', 'renamed')
         walked = [p for q, p in reads if 'ORDER BY ord' in q and p]
