@@ -87,7 +87,9 @@ BEGIN
     EXECUTE format('UPDATE %I.receipt_owners SET version=version+1 WHERE owner=$1',s) USING p_owner;
   END IF;
   FOR entry IN SELECT key,value FROM json_each_text(payload->'before') LOOP
-    IF entry.key='' OR entry.value !~ '^[0-9a-f]{64}$' THEN RAISE EXCEPTION 'Unsupported carrier fingerprint'; END IF;
+    IF entry.key='' OR entry.value IS NULL OR entry.value !~ '^[0-9a-f]{64}$'
+       OR json_typeof(payload->'before'->entry.key) IS DISTINCT FROM 'string'
+    THEN RAISE EXCEPTION 'Unsupported carrier fingerprint'; END IF;
     EXECUTE format('INSERT INTO %I.receipt_carriers(owner,carrier,token) VALUES($1,$2,$3)',s)
       USING p_owner,entry.key,p_token;
   END LOOP;
