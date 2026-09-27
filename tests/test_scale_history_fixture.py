@@ -23,6 +23,7 @@ def active():
 
 
 SMALL = hf.Recipe(retired_agents=2, archived_items=3, read_mail=4, old_transcripts=2,
+                  payload_profile="fixed",
                   node_chars=128, item_chars=128, mail_chars=128, transcript_chars=128)
 
 
@@ -118,7 +119,7 @@ class HistoryFixture(unittest.TestCase):
             hf.build_pair(self.base, path, SMALL)
 
     def test_rejects_unsafe_paths_live_history_and_invalid_recipe(self):
-        for bad in ("../escape", "/absolute", "C:/outside", "a\\b"):
+        for bad in ("../escape", "/absolute", "C:/outside", "a\\b", None, "a/./b", "a//b"):
             with self.subTest(path=bad), self.assertRaises(ValueError):
                 hf.safe_relative(bad)
         bad = active(); bad["nodes"]["boss"]["state"] = "archived"
@@ -126,6 +127,30 @@ class HistoryFixture(unittest.TestCase):
         for updates in (dict(multiplier=9), dict(read_mail=True), dict(old_transcripts=3)):
             with self.subTest(recipe=updates), self.assertRaises(ValueError):
                 hf.Recipe(**(hf.asdict(SMALL) | updates)).validate()
+
+    def test_inventory_and_disk_preflight_fail_closed(self):
+        from unittest.mock import patch
+        path, _ = self.build()
+        (path / "not-declared").write_text("unaccounted transcript")
+        with self.assertRaisesRegex(ValueError, "undeclared"):
+            hf.verify_pair(path)
+        from collections import namedtuple
+        Disk = namedtuple("Disk", "total used free")
+        with patch.object(hf.shutil, "disk_usage", return_value=Disk(1000, 999, 1)):
+            with self.assertRaisesRegex(ValueError, "disk reserve"):
+                self.build("no-disk")
+        self.assertFalse((self.root / "no-disk/COMPLETE").exists())
+
+    def test_profile_repeats_independent_of_active_count_and_estimate_covers_small_pair(self):
+        recipe = hf.Recipe()
+        for family in hf.FAMILIES:
+            sizes = [hf.payload_size(family, i, recipe) for i in range(100)]
+            self.assertEqual(sizes, [hf.payload_size(family, i + 100, recipe) for i in range(100)])
+            if family != "old_transcripts":
+                self.assertGreater(max(sizes), min(sizes) * 10)
+        path, manifest = self.build()
+        measured = sum(x["bytes"] for arm in manifest["arms"].values() for x in arm.values())
+        self.assertLess(measured, manifest["planning"]["suggested_free_disk_bytes"])
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ import hashlib
 import json
 import math
 import os
+import shutil
 from pathlib import Path, PurePosixPath
 import time
 import uuid
@@ -46,10 +47,20 @@ def sha_file(path):
 
 
 def safe_relative(name):
+    if not isinstance(name, str):
+        raise ValueError("unsafe relative file path")
     path = PurePosixPath(name)
-    if (not isinstance(name, str) or not name or path.is_absolute() or
+    if (not name or str(path) != name or path.is_absolute() or
             any(p in ("..", ".") for p in path.parts) or "\\" in name or ":" in name):
         raise ValueError("unsafe relative file path")
+    return path
+
+
+def regular_file(path):
+    path = Path(path)
+    safe_root(path.parent)
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("fixture input must be a regular file")
     return path
 
 
@@ -82,14 +93,17 @@ class Recipe:
     old_transcripts: int = 1000
     multiplier: int = 10
     seed: int = 1
-    # Explicit bounded shapes, independently varied from active data. The
-    # archived item quantiles are the existing scale seed's measured profile.
+    # Fixed sizes support tiny controls. The default uses the existing scale
+    # seed's measured quantiles with an independent deterministic 100-row cycle.
+    payload_profile: str = "live_quantiles"
     node_chars: int = 4096
     item_chars: int = 13331
     mail_chars: int = 4210
-    transcript_chars: int = 32768
+    transcript_chars: int = 262144
 
     def validate(self):
+        if self.payload_profile not in ("fixed", "live_quantiles"):
+            raise ValueError("unknown payload profile")
         for field in FAMILIES:
             n = getattr(self, field)
             if type(n) is not int or not 1 <= n <= 10_000_000:
@@ -157,9 +171,11 @@ def validate_base(base):
 def baseline_counts(base):
     # Fixed recent/read archive tails stay identical and count towards BOTH
     # count and byte ratios. They are not quietly excluded as active data.
-    rows = [m for ms in (base.get("mail_log") or {}).values() for m in ms]
     result = {name: {"count": 0, "bytes": 0} for name in FAMILIES}
-    result["read_mail"] = dict(count=len(rows), bytes=sum(len(compact(m).encode()) for m in rows))
+    for rows in (base.get("mail_log") or {}).values():
+        for row in rows:
+            result["read_mail"]["count"] += 1
+            result["read_mail"]["bytes"] += len(compact(row).encode())
     return result
 
 
@@ -172,8 +188,27 @@ def text(seed, family, index, size):
     return (token * math.ceil(size / len(token)))[:size]
 
 
-def history_row(family, index, base, recipe):
-    live = sorted(base["nodes"])
+def payload_size(family, index, recipe):
+    field = dict(retired_agents="node_chars", archived_items="item_chars",
+                 read_mail="mail_chars", old_transcripts="transcript_chars")[family]
+    if recipe.payload_profile == "fixed" or family == "old_transcripts":
+        return getattr(recipe, field)
+    quantiles = {"retired_agents": (1036, 3867, 5620, 6106),
+                 "archived_items": (13331, 80359, 487770, 910613),
+                 "read_mail": (1083, 4210, 16061, 200000)}[family]
+    # A permutation visits every quantile bucket once per 100 rows; varying
+    # counts never advances an active-data RNG or alters an earlier record.
+    u = (((index * 37 + recipe.seed) % 100) + .5) / 100
+    points = [(0., max(1, quantiles[0] // 8)), (.5, quantiles[0]),
+              (.9, quantiles[1]), (.99, quantiles[2]), (1., quantiles[3])]
+    for (lo, a), (hi, b) in zip(points, points[1:]):
+        if u <= hi:
+            return int(a + (b - a) * (u - lo) / (hi - lo))
+    raise AssertionError("quantile outside range")
+
+
+def history_row(family, index, base, recipe, live=None):
+    live = live if live is not None else sorted(base["nodes"])
     owner = live[index % len(live)]
     sid = str(uuid.uuid5(NS, f"{recipe.seed}:session:{index}"))
     nid = identity("node", index)
@@ -183,7 +218,7 @@ def history_row(family, index, base, recipe):
         row = copy.deepcopy(base["nodes"][owner])
         row.update(id=nid, name=nid, title=nid, lineage=nid, parent=owner, state="archived", grant=0, model="haiku",
                    generation=0, seat_id=identity("seat", index), session_id=sid,
-                   charter=text(recipe.seed, family, index, recipe.node_chars),
+                   charter=text(recipe.seed, family, index, payload_size(family, index, recipe)),
                    created=OLD, archived_at=OLD, cost_usd=0, turns=[], pid=None,
                    last_status=dict(status="idle", summary="retired history", at=OLD),
                    reply_incarnation=identity("incarnation", index), mail_seq=0,
@@ -197,7 +232,7 @@ def history_row(family, index, base, recipe):
                     status="done", archived=True, archived_at=OLD, updated_at=OLD,
                     created_at=OLD, objective="Completed historical work", participants=[],
                     attention=False, manual_attention=None, holders=[],
-                    evidence=[dict(kind="note", ref="old", note=text(recipe.seed, family, index, recipe.item_chars))])
+                    evidence=[dict(kind="note", ref="old", note=text(recipe.seed, family, index, payload_size(family, index, recipe)))])
     if family == "read_mail":
         # Use a disjoint older ordinal domain, below the fixed active floor.
         seq = HISTORY_ORDINAL + index // len(live) + 1
@@ -205,7 +240,7 @@ def history_row(family, index, base, recipe):
             raise ValueError("history exhausted the reserved ordinal domain")
         return dict(id=identity("mail", index), **{"from": live[(index + 1) % len(live)], "to": owner},
                     at=OLD, kind="message", read=True, recv_seq=seq,
-                    body=text(recipe.seed, family, index, recipe.mail_chars))
+                    body=text(recipe.seed, family, index, payload_size(family, index, recipe)))
     if family == "old_transcripts":
         user_id = str(uuid.uuid5(NS, f"{sid}:user"))
         reply_id = str(uuid.uuid5(NS, f"{sid}:assistant"))
@@ -224,11 +259,12 @@ def history_row(family, index, base, recipe):
 
 def write_family(path, family, base, recipe, count, target_bytes=0, guard=lambda: None):
     h, total, i = hashlib.sha256(), 0, 0
+    live = sorted(base["nodes"])
     with path.open("xb") as stream:
         while i < count or total < target_bytes:
             if i % 64 == 0:
                 guard()
-            row = history_row(family, i, base, recipe)
+            row = history_row(family, i, base, recipe, live)
             encoded = (compact(row) + "\n").encode("utf-8")
             stream.write(encoded)
             h.update(encoded)
@@ -237,12 +273,48 @@ def write_family(path, family, base, recipe, count, target_bytes=0, guard=lambda
     return dict(count=i, bytes=total, sha256=h.hexdigest())
 
 
+def estimate(base, recipe=Recipe(), current_bytes=0):
+    """Offline planning estimate, not an allocation or a large fixture build.
+
+    Sample a complete quantile cycle across at most 1000 active templates.
+    Database/index/WAL factors are explicit conservative planning allowances;
+    the small restore receipt supplies actual measurements, not these factors.
+    """
+    recipe.validate()
+    validate_base(base)
+    live = sorted(base["nodes"])
+    fixed = baseline_counts(base)
+    rows, families = max(100, min(1000, len(live))), {}
+    for family in FAMILIES:
+        mean = sum(len((compact(history_row(family, i, base, recipe, live)) + "\n").encode())
+                   for i in range(rows)) / rows
+        small = getattr(recipe, family)
+        large = max(recipe.multiplier * (small + fixed[family]["count"]) - fixed[family]["count"],
+                    math.ceil((recipe.multiplier * (small * mean + fixed[family]["bytes"]) -
+                               fixed[family]["bytes"]) / mean))
+        families[family] = dict(sampled_mean_bytes=mean, small_count=small, large_count=large,
+                                small_bytes=math.ceil(small * mean), large_bytes=math.ceil(large * mean))
+    base_bytes = len(compact(base).encode())
+    bundle = base_bytes + current_bytes + sum(f["small_bytes"] + f["large_bytes"] for f in families.values())
+    large_sql = base_bytes + sum(families[k]["large_bytes"] for k in FAMILIES if k != "old_transcripts")
+    restored_files = current_bytes + families["old_transcripts"]["large_bytes"]
+    reserve = math.ceil(1.2 * (bundle + restored_files + 6 * large_sql)) + 2 * 1024**3
+    return dict(families=families, base_bytes=base_bytes, current_file_bytes=current_bytes,
+                pair_bundle_bytes=bundle, largest_sql_input_bytes=large_sql,
+                largest_restored_file_bytes=restored_files, suggested_free_disk_bytes=reserve,
+                assumptions="20% sizing margin; 3x SQL for heap/indexes plus 3x for WAL/temp; 2GiB spare; one restored arm at a time",
+                limit="sampled size estimate; no latency, memory or full-fixture build-time measurement")
+
+
 def build_pair(base, output, recipe=Recipe(), current_files=None, guard=lambda: None):
     """Write complete marker last. Failure leaves an explicitly incomplete bundle."""
     recipe.validate()
     validate_base(base)
     output = safe_root(output, new=True)
     output.mkdir(parents=True, exist_ok=True)
+    planning = estimate(base, recipe, sum(regular_file(p).stat().st_size for p in (current_files or {}).values()))
+    if shutil.disk_usage(output).free < planning["suggested_free_disk_bytes"]:
+        raise ValueError("insufficient disk reserve for bundle and one restored arm")
     started = time.perf_counter()
     (output / "PREPARING").write_text(FORMAT, encoding="utf-8")
     base_path = output / "base.json"
@@ -280,12 +352,12 @@ def build_pair(base, output, recipe=Recipe(), current_files=None, guard=lambda: 
             if family == "old_transcripts" and rows[family]["count"] > rows["retired_agents"]["count"]:
                 raise ValueError("transcript byte target exceeds retired identities")
         arms[arm] = rows
-    manifest = dict(format=FORMAT, recipe=asdict(recipe), base_sha256=sha_file(base_path),
+    manifest = dict(format=FORMAT, recipe=asdict(recipe), planning=planning, base_sha256=sha_file(base_path),
                     active_sha256=digest(base), current_files=files, baseline_history=fixed,
                     arms=arms, build_seconds=time.perf_counter() - started,
                     statistics_state="not_materialized", ordinal_floor=MAIL_FLOOR,
                     limits=["offline fixture; no latency or memory qualification",
-                            "synthetic fixed payload sizes declared in recipe; not a fresh fleet sample"])
+                            "synthetic contents; live_quantiles reuse the 2026-09-26 seed profile, not a new fleet sample"])
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     verify_pair(output)
     (output / "COMPLETE").write_text(sha_file(output / "manifest.json"), encoding="ascii")
@@ -294,7 +366,7 @@ def build_pair(base, output, recipe=Recipe(), current_files=None, guard=lambda: 
 
 
 def read_rows(path):
-    with Path(path).open("rb") as stream:
+    with regular_file(path).open("rb") as stream:
         while line := stream.readline(8 * 1024 * 1024 + 1):
             if len(line) > 8 * 1024 * 1024:
                 raise ValueError("history row exceeds bounded record size")
@@ -314,6 +386,7 @@ def verify_pair(output, *, require_complete=False):
             (output / "PREPARING").exists()):
         raise ValueError("incomplete or changed fixture")
     base = json.loads((output / "base.json").read_text(encoding="utf-8"))
+    live = sorted(base["nodes"])
     validate_base(base)
     if digest(base) != manifest["active_sha256"] or sha_file(output / "base.json") != manifest["base_sha256"]:
         raise ValueError("active base changed")
@@ -332,7 +405,7 @@ def verify_pair(output, *, require_complete=False):
             for i, row in enumerate(read_rows(path)):
                 # Deterministic comparison also verifies references, archived /
                 # settled state, old timestamps and unmodified active inputs.
-                if row != history_row(family, i, base, recipe):
+                if row != history_row(family, i, base, recipe, live):
                     raise ValueError(f"invalid {arm} {family} row {i}")
                 count += 1
             if count != expected["count"] or path.stat().st_size != expected["bytes"] or sha_file(path) != expected["sha256"]:
@@ -347,6 +420,14 @@ def verify_pair(output, *, require_complete=False):
                     fixed = manifest["baseline_history"][family][metric]
                     if expected[metric] + fixed < recipe.multiplier * (manifest["arms"]["small"][family][metric] + fixed):
                         raise ValueError(f"insufficient history {metric} ratio")
+    allowed = {"base.json", "manifest.json", "PREPARING", "COMPLETE"}
+    allowed.update(f"{arm}/{family}.jsonl" for arm in ("small", "large") for family in FAMILIES)
+    allowed.update("current-files/" + name for name in manifest["current_files"])
+    for path in output.rglob("*"):
+        if path.is_symlink() or bool(getattr(path, "is_junction", lambda: False)()):
+            raise ValueError("fixture inventory contains a reparse point")
+        if path.is_file() and path.relative_to(output).as_posix() not in allowed:
+            raise ValueError("undeclared fixture file")
     return manifest
 
 
@@ -360,7 +441,15 @@ def main():
     build.add_argument("--current-files", type=Path, help="JSON map of relative home paths to frozen source files")
     check = sub.add_parser("verify")
     check.add_argument("--output", type=Path, required=True)
+    plan = sub.add_parser("estimate")
+    plan.add_argument("--base", type=Path, required=True)
+    plan.add_argument("--recipe", type=Path, required=True)
+    plan.add_argument("--current-bytes", type=int, default=0)
     args = parser.parse_args()
+    if args.action == "estimate":
+        print(json.dumps(estimate(prepare_base(json.loads(args.base.read_text(encoding="utf-8"))),
+                                  Recipe(**json.loads(args.recipe.read_text())), args.current_bytes), indent=2))
+        return
     if args.action == "build":
         # CLI preparation is guarded independently of any future engine run.
         from control import free_commit_gb

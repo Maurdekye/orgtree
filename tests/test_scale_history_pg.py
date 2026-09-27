@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -38,6 +39,7 @@ class HistoryStorage(unittest.TestCase):
         base.work_create("boss", title="Active work", objective="Keep this body unchanged", owner="boss")
         frozen = hf.prepare_base(base.d)
         recipe = hf.Recipe(retired_agents=2, archived_items=2, read_mail=2, old_transcripts=2,
+                           payload_profile="fixed",
                            node_chars=128, item_chars=128, mail_chars=128, transcript_chars=128)
         with tempfile.TemporaryDirectory(prefix="history-pg-bundle-") as folder:
             bundle = Path(folder) / "pair"
@@ -47,9 +49,18 @@ class HistoryStorage(unittest.TestCase):
                 format=hf.FORMAT, root=str(root.resolve()), slug=slug,
                 database_sha256=hashlib.sha256(pgstore.url().encode()).hexdigest())))
             receipt = hp.restore(bundle, "large", root)
-            self.assertTrue(hp.verify_restored(bundle, "large", root)["verified"])
+            self.assertTrue(hp.verify_restored(bundle, "large", root, require_complete=True)["verified"])
+            child_result = root / "fresh-verifier.json"
+            child = subprocess.run([sys.executable, "-I", "-B", hp.__file__, "verify", "--bundle", str(bundle),
+                                    "--root", str(root), "--arm", "large", "--result", str(child_result)],
+                                   capture_output=True, text=True, timeout=30)
+            self.assertEqual(child.returncode, 0, child.stderr)
+            child_receipt = json.loads(child_result.read_text())
+            self.assertTrue(child_receipt["verified"])
+            self.assertTrue(child_receipt["import_provenance"])
             self.assertEqual(receipt["statistics"]["statistics_state"], "analyzed_after_seed")
-            self.assertEqual(receipt["cold_statistics"]["statistics_state"], "fresh_unanalyzed")
+            self.assertIn(receipt["cold_statistics"]["statistics_state"],
+                          ("fresh_unanalyzed", "seeded_before_explicit_analyze"))
             self.assertTrue(receipt["statistics"]["tables"])
             self.assertTrue(all(x[1] >= 0 for x in receipt["statistics"]["estimates"]))
             self.assertEqual(set(foreground_store.read_foreground(slug)["rows"]), {"boss"})
@@ -58,6 +69,14 @@ class HistoryStorage(unittest.TestCase):
             self.assertEqual(loaded.d["mail"]["boss"], frozen["mail"]["boss"])
             self.assertEqual(loaded.d["mail_log"]["boss"][-1]["id"], "recent")
             self.assertEqual(loaded.mail_seq_state("boss")["base"], hf.MAIL_FLOOR)
+            missing = next(iter(receipt["files"]))
+            original = (root / "history-restore.json").read_bytes()
+            altered = copy.deepcopy(receipt)
+            altered["files"].pop(missing)
+            (root / "history-restore.json").write_text(json.dumps(altered))
+            with self.assertRaisesRegex(ValueError, "file inventory"):
+                hp.verify_restored(bundle, "large", root)
+            (root / "history-restore.json").write_bytes(original)
             with store._POOL.acquire(slug) as conn:
                 conn.use()
                 oid = conn.raw.execute("SELECT org_id FROM public.orgs WHERE slug=%s", (slug,)).fetchone()[0]
@@ -69,6 +88,34 @@ class HistoryStorage(unittest.TestCase):
                 conn.raw.commit()
             with self.assertRaisesRegex(ValueError, "fixed records changed"):
                 hp.verify_restored(bundle, "large", root)
+
+    def test_interrupted_history_copy_rolls_back_and_has_no_completion(self):
+        root = fixture.data.parent
+        base = ledger.Org.create("History interrupted", dirs=[], workspace=str(root / "data/workspaces/history-interrupted"))
+        base.hire(ledger.USER, None, "haiku", 0, "boss")
+        frozen = hf.prepare_base(base.d)
+        recipe = hf.Recipe(retired_agents=2, archived_items=2, read_mail=2, old_transcripts=2,
+                           payload_profile="fixed", node_chars=128, item_chars=128, mail_chars=128, transcript_chars=128)
+        with tempfile.TemporaryDirectory(prefix="history-rollback-") as folder:
+            bundle = Path(folder) / "pair"
+            hf.build_pair(frozen, bundle, recipe)
+            (root / "history-destination.json").write_text(json.dumps(dict(
+                format=hf.FORMAT, root=str(root.resolve()), slug=base.d["slug"],
+                database_sha256=hashlib.sha256(pgstore.url().encode()).hexdigest())))
+            calls = 0
+            def stop():
+                nonlocal calls
+                calls += 1
+                if calls == 3:  # start, node COPY, then archived-item COPY
+                    raise RuntimeError("injected copy interruption")
+            # Receipt names are root-scoped; use this test before the successful
+            # restore and never regard a partial transaction as a complete arm.
+            with self.assertRaisesRegex(RuntimeError, "injected copy"):
+                hp.restore(bundle, "large", root, guard=stop)
+            self.assertFalse((root / "RESTORE_COMPLETE").exists())
+            with store._POOL.acquire(base.d["slug"]) as conn:
+                conn.use()
+                self.assertEqual(conn.raw.execute("SELECT count(*) FROM nodes WHERE id LIKE 'hist-%'").fetchone()[0], 0)
 
 
 if __name__ == "__main__":

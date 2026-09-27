@@ -14,7 +14,7 @@ import time
 from urllib.parse import urlsplit
 
 from history_fixture import (FAMILIES, FORMAT, PREFIX, compact, digest, read_rows,
-                             safe_relative, safe_root, sha_file, verify_pair)
+                             regular_file, safe_relative, safe_root, sha_file, verify_pair)
 
 TAIL_OFFSET = 1 << 40
 
@@ -83,7 +83,9 @@ def statistics(raw, *, analyze):
                         "FROM pg_stat_all_tables WHERE schemaname=current_schema() ORDER BY relname").fetchall()
     estimates = raw.execute("SELECT c.relname,c.reltuples FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
                             "WHERE n.nspname=current_schema() AND c.relkind='r' ORDER BY c.relname").fetchall()
-    return dict(statistics_state="analyzed_after_seed" if analyze else "fresh_unanalyzed",
+    prior_analyze = any(row[2] or row[3] for row in stats)
+    return dict(statistics_state="analyzed_after_seed" if analyze else
+                ("seeded_before_explicit_analyze" if prior_analyze else "fresh_unanalyzed"),
                 started_at=before, ended_at=raw.execute("SELECT clock_timestamp()::text").fetchone()[0],
                 server_version=raw.execute("SHOW server_version").fetchone()[0],
                 autovacuum=raw.execute("SHOW autovacuum").fetchone()[0],
@@ -105,6 +107,8 @@ def restore(bundle, arm, root, *, guard=lambda: None):
         raise ValueError("store is outside the owned destination")
     if Path(os.environ.get("HOME", "")).resolve() != (root / "home").resolve():
         raise ValueError("HOME is outside the owned destination")
+    if ledger.slugify(base.get("name", slug)) != slug:
+        raise ValueError("base name/slug mismatch")
     if Path(store.org_path(slug)).exists():
         raise ValueError("destination org already exists; restore never overwrites it")
     with pgstore.connect() as check:
@@ -177,10 +181,14 @@ def restore(bundle, arm, root, *, guard=lambda: None):
         fresh = statistics(conn.raw, analyze=False)
         analyzed = statistics(conn.raw, analyze=True)
         conn.raw.commit()
+    with store._POOL.acquire(slug) as conn:
+        conn.use()
+        database_bytes = conn.raw.execute("SELECT pg_database_size(current_database())").fetchone()[0]
     receipt = dict(format=FORMAT, arm=arm, slug=slug, bundle=str(bundle),
                    active_sha256=manifest["active_sha256"], fixed_source=before,
                    files=files, statistics=analyzed, cold_statistics=fresh,
                    restore_seconds=time.perf_counter() - start,
+                   database_bytes=database_bytes,
                    capture_state="source files present; normal transcript ingestion still required")
     (root / "history-restore.json").write_text(json.dumps(receipt, indent=2), encoding="utf-8")
     verify_restored(bundle, arm, root)
@@ -189,12 +197,18 @@ def restore(bundle, arm, root, *, guard=lambda: None):
     return receipt
 
 
-def verify_restored(bundle, arm, root):
+def verify_restored(bundle, arm, root, *, require_complete=False):
     """Independent fresh transaction, callable from a separate interpreter."""
     from orgtree import store, pgstore
     manifest = verify_pair(bundle, require_complete=True)
     receipt = json.loads((Path(root) / "history-restore.json").read_text(encoding="utf-8"))
     root = destination(root, receipt["slug"], pgstore.url())
+    if Path(store.DATA_ROOT).resolve() != (root / "data").resolve():
+        raise ValueError("verifier store is outside owned destination")
+    if require_complete and ((root / "RESTORING").exists() or
+            not (root / "RESTORE_COMPLETE").is_file() or
+            (root / "RESTORE_COMPLETE").read_text() != sha_file(root / "history-restore.json")):
+        raise ValueError("incomplete or changed restoration")
     if receipt["active_sha256"] != manifest["active_sha256"] or receipt["arm"] != arm:
         raise ValueError("wrong restored base or arm")
     with store._POOL.acquire(receipt["slug"]) as conn:
@@ -219,8 +233,47 @@ def verify_restored(bundle, arm, root):
             if next(expected, None) is not None or count != manifest["arms"][arm][family]["count"]:
                 raise ValueError("stored history missing")
         conn.raw.rollback()
-    for name, expected in receipt["files"].items():
-        path = root / "home" / safe_relative(name)
+    # Derive the expected inventory from the frozen bundle, not the restore
+    # writer's receipt (an omitted file must not disappear from verification).
+    files = dict(manifest["current_files"])
+    for row in read_rows(Path(bundle) / arm / "old_transcripts.jsonl"):
+        encoded = "".join(compact(event) + "\n" for event in row["records"]).encode()
+        name = f".claude/projects/history-{receipt['slug']}/{row['session']}.jsonl"
+        files[name] = dict(bytes=len(encoded), sha256=hashlib.sha256(encoded).hexdigest())
+    if files != receipt["files"]:
+        raise ValueError("restored file inventory differs from bundle")
+    for name, expected in files.items():
+        path = regular_file(root / "home" / safe_relative(name))
         if path.stat().st_size != expected["bytes"] or sha_file(path) != expected["sha256"]:
             raise ValueError("restored transcript changed")
     return dict(active_sha256=receipt["active_sha256"], fixed_source=receipt["fixed_source"], verified=True)
+
+
+def main():
+    import argparse
+    import sys
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("action", choices=("restore", "verify"))
+    parser.add_argument("--bundle", type=Path, required=True)
+    parser.add_argument("--arm", choices=("small", "large"), required=True)
+    parser.add_argument("--root", type=Path, required=True)
+    parser.add_argument("--result", type=Path, required=True)
+    args = parser.parse_args()
+    # The controller must configure the owned destination and environment.
+    # This command never creates a database, starts PG or authorizes a root.
+    repo = Path(__file__).resolve().parents[2]
+    sys.path.insert(0, str(repo / "tools"))
+    from assert_repo_import import assert_repo_import
+    provenance = assert_repo_import(repo)
+    from control import free_commit_gb
+    def guard():
+        if free_commit_gb() < 10:
+            raise RuntimeError("free commit below10GiB; restore stopped")
+    guard()
+    result = (restore(args.bundle, args.arm, args.root, guard=guard) if args.action == "restore" else
+              verify_restored(args.bundle, args.arm, args.root, require_complete=True))
+    provenance.write_result(args.result, result)
+
+
+if __name__ == "__main__":
+    main()
