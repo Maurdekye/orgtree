@@ -4,7 +4,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from tools.scale.launch_guard import LaunchAudit, pin_git, AuditRequestPath
+from tools.scale.launch_guard import LaunchAudit, pin_git
 
 
 class LaunchGuardTests(unittest.TestCase):
@@ -53,6 +53,7 @@ class LaunchGuardTests(unittest.TestCase):
 
     def test_git_read_counts_keep_endpoint_context_through_endpoint_thread(self):
         import asyncio
+        from tools.scale.launch_guard import AuditRequestPath
         audit = LaunchAudit(self.root, git=self.git, trace_git=True)
         async def app(scope, receive, send):
             await asyncio.to_thread(audit, "subprocess.Popen", self.event(self.git, "rev-parse", "--short", "HEAD"))
