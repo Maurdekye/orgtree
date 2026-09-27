@@ -160,7 +160,7 @@ def arm(slug, history, ordinal):
                         raise AssertionError('status did not persist')
             req = request(tag if mode in ('foreground_304', 'foreground_status') else '')
             cpu, wall = time.thread_time_ns(), time.perf_counter_ns()
-            reply = (Response(api._dump_tree(api._org_view(slug, req)), media_type='application/json')
+            reply = (Response(api._dump_tree(api._org_view(slug, req, None)), media_type='application/json')
                      if mode.startswith('legacy_') else foreground_api.read(slug, req))
             elapsed = {'cpu_ms': (time.thread_time_ns() - cpu) / 1e6,
                        'wall_ms': (time.perf_counter_ns() - wall) / 1e6,
