@@ -118,6 +118,15 @@ Malformed cursors/limits are HTTP400. Scope/authorization failures use the
 existing route policy. Invalid ancestor cycles or index corruption are explicit
 errors, never an apparently complete tree with silently missing agents.
 
+When PostgreSQL is unavailable, a required exact count is not reconciled, or
+legacy normalization cannot be reproduced from the selected rows, HTTP409
+returns `{format,kind:"compatibility",reason:"foreground_unavailable",
+legacy_url:"/api/orgs/<slug>"}` with `Cache-Control: no-store`. The client can
+then deliberately request the unchanged full tree. It must not interpret this
+as an empty graph, a catalog reset or deletion. A missing organization is
+HTTP404; an inconsistent index is HTTP503. The existing operator token and
+public gateway still authorize every route before it reads storage.
+
 ## Indexed storage and boundaries
 
 `foreground_store.py` owns the PostgreSQL node projection, migration 0004 and
@@ -134,11 +143,14 @@ source of truth. No writer changes its row-CAS semantics. No request repairs an
 index by scanning all history; incomplete migration/index state fails explicitly
 and leaves the compatibility route available.
 
-The whole tree header also needs E's bounded active/attention docket counts and
-org-inbox ordinal/preview readers. Those are explicit integration dependencies,
-not permission to publish zero counts or to claim history independence while
-loading the full old header. Until these dependencies and the client consumers
-land, the new indexed graph is not whole-UI qualification.
+The whole tree header uses `foreground_context.build` within that same open
+snapshot, N1's committed `workread.counts_raw` for exact active/attention totals,
+and indexed organization-inbox counts and previews. A missing count dependency
+requests compatibility; it never supplies zero counts. Live-node funding and
+audit use all nonarchived funding metadata, including unrecoverable seats.
+Public annotations and filtering use the shared full-tree implementation.
+The client consumers are a separate change; this API alone does not qualify
+the whole UI or establish the user's 5% history threshold.
 
 ## Evidence required
 
