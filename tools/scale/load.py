@@ -266,12 +266,14 @@ def main(argv=None) -> int:
 
     def execute_call(due: float, me: str, tool: str, targs: dict, request_id: int) -> None:
         begun = time.time()
+        response_at = begun
         status, err, state, receipt = None, None, None, None
         try:
             r = client().post("/api/agent", json={"org": slug, "node": me, "tool": tool, "args": targs},
                               headers={"X-Orgtree-Agent-Token": tokens[me],
                                        "X-Scale-Kind": tool + ":" + targs.get("action", "")})
             status = r.status_code
+            response_at = time.time()
             if status != 200:
                 err = r.text[:300]
             else:
@@ -301,7 +303,8 @@ def main(argv=None) -> int:
                             "request_id": request_id, "actor": me, "receipt": receipt,
                             "action": targs.get("action"), "status": status, "state": state,
                             "err": err, "lag_ms": round((begun - due) * 1000, 1),
-                            "http_ms": round((end - begun) * 1000, 1),
+                            "http_ms": round((response_at - begun) * 1000, 1),
+                            "verification_ms": round((end - response_at) * 1000, 1),
                             "total_ms": round((end - due) * 1000, 1), "end_t": round(end - t0, 3)})
 
     def one_call(due, me, tool, targs, request_id):
