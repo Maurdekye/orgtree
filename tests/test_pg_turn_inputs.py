@@ -1,4 +1,4 @@
-﻿"""Actual PG checks for selected pre-slot and image-preload inputs."""
+"""Actual PG checks for selected pre-slot and image-preload inputs."""
 import copy
 import threading
 import unittest
@@ -93,6 +93,36 @@ class TurnInputsPG(unittest.TestCase):
         self.assertFalse(saved.d['mail'].get('worker'))
         self.assertFalse(saved.d['delivering'].get('worker'))
         self.assertEqual(len(saved.d['mail']['other']),1)
+
+
+    def test_locked_admission_still_rejects_halt_freeze_and_killswitch(self):
+        adapter=SimulatedProvider(sup,halt,slug=self.slug,nodes=['worker'],seconds=0)
+        with patch.object(sup,'_codex_leg',adapter), patch.object(sup,'_after_turn',adapter.finish), patch.object(sup,'_deployment_org_gate'), patch.object(sup,'spawn_env',return_value={}), patch.object(sup.subprocess,'Popen',side_effect=FileNotFoundError('external process forbidden')):
+            for gate in ('halt','frozen','killswitch'):
+                with self.subTest(gate=gate):
+                    with orgtx.org_tx(self.slug,whole=True) as tx:
+                        if gate=='killswitch': tx.org.d[gate]={'at':'fixture'}
+                        else: tx.org.node('worker')[gate]={'phase':'halted','cause':'test'}
+                    try:
+                        sup._run_one_turn(self.slug,'worker',sup._mark_ping('mail',mail_ids=[self.message['id']]))
+                        self.assertEqual(adapter.snapshot()['started'],0)
+                        saved=orgtx.org_read(self.slug)
+                        self.assertEqual(saved.d['mail']['worker'][0]['id'],self.message['id'])
+                    finally:
+                        with orgtx.org_tx(self.slug,whole=True) as tx:
+                            tx.org.d.pop('killswitch',None)
+                            tx.org.node('worker').pop('halt',None)
+                            tx.org.node('worker').pop('frozen',None)
+
+    def test_actual_pinned_writer_preserves_read_your_writes_and_rollback(self):
+        with self.assertRaisesRegex(RuntimeError,'rollback canary'):
+            with orgtx.org_tx(self.slug,nodes=['worker']) as tx:
+                tx.conn.execute("UPDATE nodes SET val=json_set(val,'$.charter',?) WHERE id=?",('uncommitted','worker'))
+                view=turn_inputs.load(self.slug,'worker',mail=True)
+                self.assertNotIsInstance(view,identity_context.IdentityContext)
+                self.assertEqual(view.node('worker')['charter'],'uncommitted')
+                raise RuntimeError('rollback canary')
+        self.assertNotEqual(turn_inputs.load(self.slug,'worker').node('worker').get('charter'),'uncommitted')
 
 if __name__=='__main__': unittest.main()
 
