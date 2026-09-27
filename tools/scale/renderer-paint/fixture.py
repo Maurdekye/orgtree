@@ -167,6 +167,9 @@ try:
         '--seconds', '480' if args.hook_capture else '15', '--repeats', '1' if args.hook_capture else '3'] +
         (['--hook-capture', '1'] if args.hook_capture else []))
     renderer_code = wait(renderer, 620 if args.hook_capture else 240, allow_failure=True)
+    # A complete record followed by an Electron exit hang is killed and FLAGGED by
+    # renderer-paint.mjs (exit-hang.json); it must not cost the load verdict.
+    hang = json.loads((paint / 'exit-hang.json').read_text()) if (paint / 'exit-hang.json').exists() else None
     if renderer_code: raise RuntimeError('renderer smoke incomplete; preserved raw artifacts')
     if os.environ.get('ORGTREE_PAINT_ARCHIVE') == '1':
         samples = json.loads((paint / 'archive.json').read_text())['samples']
@@ -179,12 +182,13 @@ try:
         report_code = 0 if (trace['complete'] and trace['counts'].get('ws-frame', 0) > 0 and
             trace['counts'].get('http-start', 0) > 0 and
             summary['workload_completed_without_errors_or_overload']) else 1
-        save('capture-validation.json', dict(valid=report_code == 0, trace=trace,
+        save('capture-validation.json', dict(valid=report_code == 0, trace=trace, electron_exit_hang=hang,
             replay='Pending independent HookClock replay; capture validity alone is not schedule equivalence.'))
     else:
         report = launch('report', ['node', str(REPO / 'tools/scale/renderer-paint.mjs'), 'report', '--output', str(paint)])
         report_code = wait(report, 30, allow_failure=True)
-    save('result.json', dict(renderer_exit=renderer_code, load_exit=load_code, report_exit=report_code))
+    save('result.json', dict(renderer_exit=renderer_code, load_exit=load_code, report_exit=report_code,
+                             electron_exit_hang=hang))
     if load_code or report_code: raise RuntimeError('measurement invalid; consult report')
 finally:
     for child in reversed(processes): stop(child)

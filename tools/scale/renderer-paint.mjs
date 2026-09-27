@@ -126,7 +126,7 @@ if (mode === 'build') {
   delete env.ELECTRON_RUN_AS_NODE
   const executable = createRequire(pathToFileURL(path.join(repo, 'package.json')))('electron')
   const child = spawn(executable, [path.join(buildDir, 'probe.cjs')], { cwd: repo, env, windowsHide: true, stdio: 'inherit' })
-  let stopping = false, exited = false, sampling = false
+  let stopping = false, exited = false, sampling = false, hung = null
   const stop = reason => {
     if (stopping || exited) return
     stopping = true;write(path.join(output, 'aborted.json'), { reason, at: Date.now() })
@@ -149,13 +149,19 @@ if (mode === 'build') {
   const completionGuard = setInterval(() => {
     if (!fs.existsSync(path.join(output, 'renderer.json'))) return
     resultAt ??= Date.now()
-    if (Date.now() - resultAt > 5000) stop('Electron failed to exit within5s of final measurement record')
+    // The measurement record is already complete: an exit hang is a FLAGGED event,
+    // not an abort, so the load summary and settlement verdict are still produced.
+    if (Date.now() - resultAt > 5000 && !hung && !stopping) {
+      hung = { reason: 'Electron failed to exit within5s of final measurement record', at: Date.now(), resultAt }
+      write(path.join(output, 'exit-hang.json'), hung)
+      execFile('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true }, error => { if (error && !exited) child.kill() })
+    }
   }, 1000)
   process.on('SIGINT', () => stop('Interrupted'));process.on('SIGTERM', () => stop('Terminated'))
   const code = await new Promise(resolve => { child.once('error', () => resolve(1));child.once('exit', c => resolve(c ?? 1)) })
   exited = true;clearInterval(guard);clearInterval(completionGuard);clearTimeout(timer)
-  write(path.join(output, 'exit.json'), { code, stopping, at: Date.now(), pid: child.pid })
-  process.exitCode = stopping ? 1 : code
-  console.log(code || stopping ? 'Measurement failed; no qualification. Inspect exit.json and any renderer.json.' :
+  write(path.join(output, 'exit.json'), { code, stopping, hung: !!hung, at: Date.now(), pid: child.pid })
+  process.exitCode = stopping ? 1 : hung ? 0 : code
+  console.log((code && !hung) || stopping ? 'Measurement failed; no qualification. Inspect exit.json and any renderer.json.' :
     mode === 'run' ? 'Raw measurement saved. After load completion, run report; no qualification is asserted yet.' : 'Compositor control finished; see renderer.json.')
 }
