@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -13,7 +15,7 @@ import import_provenance  # noqa: F401
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/scale"))
 import baseline
 from baseline_oracle import WriteOracle
-from ui_hooks import HookClock, Conditional, hooks
+from ui_hooks import HookClock, Conditional, WindowDriver, hooks
 import sql_counts
 
 
@@ -29,6 +31,27 @@ class ControllerControls(unittest.TestCase):
     def test_database_identity_excludes_connection_options(self):
         self.assertEqual(baseline.database_name("postgresql://localhost:5432/orgtree_scale_small?sslmode=disable"),
                          "orgtree_scale_small")
+
+    def test_notification_owner_reads_every_page_and_records_real_urls(self):
+        from unittest.mock import Mock
+        client = Mock()
+        pages = [{"truncated": True, "next_offset": 50}, {"truncated": False}]
+        client.get.side_effect = [SimpleNamespace(status_code=200, content=b"{}", num_bytes_downloaded=2,
+            headers={}, json=lambda page=page: page, raise_for_status=lambda: None) for page in pages]
+        rows = []
+        recorder = SimpleNamespace(write=lambda name, row: rows.append(row))
+        with patch("httpx.Client", return_value=client):
+            driver = WindowDriver("test", "worker", 0, "http://localhost", {}, recorder, threading.Event())
+        driver.started = 1
+        driver.clock.active["notifications"] = 1
+        try:
+            driver.fetch(driver.clock.specs["notifications"], 1)
+        finally:
+            driver.pool.shutdown()
+            client.close()
+        self.assertEqual([r["url"] for r in rows], ["/api/desktop/notifications", "/api/desktop/notifications?offset=50"])
+        self.assertTrue(all(r["err"] is None for r in rows))
+        self.assertEqual(driver.clock.active["notifications"], 0)
     def test_large_run_needs_explicit_matching_go_before_creating_root(self):
         args = argparse.Namespace(small_control=False, go_file=None)
         with self.assertRaisesRegex(ValueError, "coordinator GO"):
