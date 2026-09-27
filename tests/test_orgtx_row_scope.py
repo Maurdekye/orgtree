@@ -1,6 +1,7 @@
 ﻿"""Row scoping must save nested edits, including references retained at load."""
 import copy
 import json
+import pickle
 import os
 import tempfile
 import unittest
@@ -108,6 +109,17 @@ class ConstructionRows(unittest.TestCase):
         self.assertEqual(org.node('n0')['payload']['items'], [1])
         self.assertIsNot(duplicate['nodes']['n0']._mutation,
                          org.node('n0')._mutation)
+
+    def test_pickle_preserves_shared_nested_mutation_marks(self):
+        org = store._load_sqlite_org(self.slug)
+        doc = pickle.loads(pickle.dumps(org.d))
+        node = doc['nodes']['n0']
+        nested = node['payload']['items']
+        self.assertIs(node._mutation, nested._mutation)
+        doc['nodes']._mark_clear()
+        nested.append(3)
+        self.assertIn('n0', doc['nodes']._changed())
+        self.assertEqual(node['payload']['items'], [1, 3])
 
     def test_default_off_uses_original_node_dicts(self):
         with patch.object(store, 'ORGTX_RESCOPE', False):

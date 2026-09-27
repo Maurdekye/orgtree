@@ -2169,6 +2169,13 @@ def _track_node_value(value: Any, mark: _NodeMutation) -> Any:
 
 
 class _NodeDict(dict):
+    def __getattr__(self, name: str) -> Any:
+        # Pickle restores container entries before instance state.
+        if name != "_mutation":
+            raise AttributeError(name)
+        self._mutation = _NodeMutation()
+        return self._mutation
+
     def __init__(self, mark: _NodeMutation) -> None:
         super().__init__()
         self._mutation = mark
@@ -2222,6 +2229,13 @@ class _NodeDict(dict):
 
 
 class _NodeList(list):
+    def __getattr__(self, name: str) -> Any:
+        # Pickle restores container entries before instance state.
+        if name != "_mutation":
+            raise AttributeError(name)
+        self._mutation = _NodeMutation()
+        return self._mutation
+
     def __init__(self, mark: _NodeMutation) -> None:
         super().__init__()
         self._mutation = mark
@@ -5642,6 +5656,7 @@ def _advance_resident(slug: str, d: LazyDoc) -> bool:
                                 d._present.discard(k)
                         continue
                     # PG-3d: a split section's owner rows are replaced whole
+                    d._deferred_doc.pop(k, None)
                     for old in _snap_rows(d._snap_doc, k):
                         d._snap_doc.pop(old, None)
                     if row is not None:
