@@ -80,6 +80,7 @@ class CodexBatchDrainTests(unittest.TestCase):
             org = orgtx.org_read(self.slug)
             body = f"burst mail {i:03d} {uuid.uuid4().hex[:6]}"
             m = org.post_mail(ledger.USER, "worker", body)
+            maildrain.request(org, "worker")   # as `_admit_message` does
             store.save_org(org)
             bodies.append(body)
             box.append(str(m["id"]))
@@ -154,9 +155,16 @@ class CodexBatchDrainTests(unittest.TestCase):
         real_take = sup._take_delivery_mail
         armed = [True]
 
+        pending_at_failure = []
+
         def failing_take(org, nid, mail_ids=None):
             if armed[0]:
                 armed[0] = False
+                with sup._state_lock:
+                    pending_at_failure.extend(
+                        set(c.get("mail_ids") or []) for c in
+                        (self.st.get("halt_pending_carriers") or {}).values()
+                        if isinstance(c, dict))
                 raise RuntimeError("injected drain failure")
             return real_take(org, nid, mail_ids)
         fired = []
@@ -166,6 +174,10 @@ class CodexBatchDrainTests(unittest.TestCase):
             except RuntimeError as exc:
                 fired.append(str(exc))
         self.assertFalse(armed[0], "the injected failure never ran")
+        # from the absorption on, a halt capture retains the WIDENED carrier
+        all_ids = {str(m["id"]) for m in (orgtx.org_read(self.slug).d.get("mail") or {}).get("worker") or []}
+        self.assertIn(all_ids, pending_at_failure,
+                      "the worker's pending carrier must name every absorbed pointer's mail")
         stored = orgtx.org_read(self.slug)
         box = {str(m["id"]): m["body"] for m in (stored.d.get("mail") or {}).get("worker") or []}
         delivered = chr(10).join(self.adapter.texts)
@@ -176,6 +188,7 @@ class CodexBatchDrainTests(unittest.TestCase):
         carriers += list(n.get("halt_queue") or [])
         if n.get("inflight"):
             carriers.append(n["inflight"])
+        named.update(str(i) for i in (n.get("mail_drain") or {}).get("ids") or [])
         for c in carriers:
             if isinstance(c, dict):
                 if c.get("mail_ids") is None and c.get("ping") is not True:
@@ -183,7 +196,7 @@ class CodexBatchDrainTests(unittest.TestCase):
                 named.update(str(i) for i in c.get("mail_ids") or [])
         for mid, body in box.items():
             self.assertTrue(mid in named or body in delivered,
-                            f"{body!r} is boxed with no carrier naming it")
+                            f"{body!r} is boxed with no carrier or drain demand naming it")
         for body in bodies:
             self.assertTrue(body in box.values() or delivered.count(body) == 1,
                             f"{body!r} lost")
