@@ -55,15 +55,15 @@ class ConstructionRows(unittest.TestCase):
         real = Org._initialize_doc
         def initialize(org, doc):
             real(org, doc)
-            captured['node'] = org.node('n0')
-            captured['nested'] = captured['node']['payload']['items']
+            captured['node'] = org.node('n1')
+            captured['nested'] = org.node('n0')['payload']['items']
             captured['section'] = org.d['extra']['items']
         with patch.object(Org, '_initialize_doc', initialize):
-            with orgtx.org_tx(self.slug, nodes=['n0'], sections=['extra']):
+            with orgtx.org_tx(self.slug, nodes=['n0', 'n1'], sections=['extra']):
                 captured['nested'].append(2)
                 captured['node']['name'] = 'retained'
                 captured['section'].append(3)
-        self.assertEqual(self.stored()['name'], 'retained')
+        self.assertEqual(self.stored('n1')['name'], 'retained')
         self.assertEqual(self.stored()['payload']['items'], [1, 2])
         self.assertEqual(store.load_org(self.slug).d['extra']['items'], [1, 3])
 
@@ -233,6 +233,7 @@ class ConstructionRows(unittest.TestCase):
         for mutate in mutations:
             with self.subTest(mutate=mutate):
                 org.nodes._mark_clear()
+                node._mutation.aliased = False  # isolate each mutator's mark
                 mutate()
                 self.assertIn('n0', org.nodes._changed())
 
