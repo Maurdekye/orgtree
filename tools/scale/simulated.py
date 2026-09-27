@@ -21,6 +21,8 @@ class SimulatedProvider:
         self.sup, self.halt = supervisor, halt
         self.slug, self.nodes = slug, frozenset(nodes)
         self.seconds, self.output_bytes, self.log = seconds, output_bytes, log
+        self.real_after_turn = supervisor._after_turn
+        self.booked = self.failed_bookings = 0
         self.lock = threading.Lock()
         self.started = self.accepted = self.completed = self.failed = self.active = self.peak = 0
         self.recent = deque(maxlen=32)
@@ -29,9 +31,28 @@ class SimulatedProvider:
         with self.lock:
             return dict(started=self.started, accepted=self.accepted, completed=self.completed,
                         failed=self.failed, active=self.active, peak_active=self.peak,
+                        booked=self.booked, failed_bookings=self.failed_bookings,
                         seconds=self.seconds, output_bytes=self.output_bytes,
                         recent=list(self.recent),
                         boundary="simulated Codex leg; real supervisor admission and completion")
+
+    def finish(self, slug, nid, org, result, state, *args, **kwargs):
+        """Observe the real booking boundary without changing its implementation."""
+        if slug != self.slug or nid not in self.nodes:
+            raise RuntimeError("completion outside declared fixture")
+        success = self.sup._turn_observed_success(result, state)
+        try:
+            answer = self.real_after_turn(slug, nid, org, result, state, *args, **kwargs)
+        except BaseException:
+            with self.lock:
+                self.failed_bookings += 1
+            raise
+        with self.lock:
+            if success:
+                self.booked += 1
+            else:
+                self.failed_bookings += 1
+        return answer
 
     def __call__(self, slug, nid, org, st, text, toks, images=None, turn_view="", **kw):
         if slug != self.slug or nid not in self.nodes or org.node(nid).get("model") != "luna":
@@ -101,4 +122,5 @@ def install(root, supervisor, halt):
                                 seconds=manifest["seconds"], output_bytes=manifest["output_bytes"],
                                 log=root / "metrics" / "simulated-turns.jsonl")
     supervisor._codex_leg = adapter
+    supervisor._after_turn = adapter.finish
     return adapter

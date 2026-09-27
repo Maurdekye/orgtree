@@ -25,6 +25,7 @@ class CompletedTurnTests(unittest.TestCase):
         store.save_org(org)
         self.adapter = SimulatedProvider(sup, halt, slug=self.slug, nodes=["worker"], seconds=0)
         self.patches = [patch.object(sup, "_codex_leg", self.adapter),
+                        patch.object(sup, "_after_turn", self.adapter.finish),
                         patch.object(sup, "spawn_env", return_value={}),
                         patch.object(sup, "_deployment_org_gate"),
                         patch.object(sup.subprocess, "Popen", side_effect=FileNotFoundError("external process forbidden"))]
@@ -44,6 +45,8 @@ class CompletedTurnTests(unittest.TestCase):
         counters = self.adapter.snapshot()
         self.assertEqual(counters["started"], 1, "provider seam must actually execute")
         self.assertEqual(counters["completed"], 1)
+        self.assertEqual(counters["booked"], 1)
+        self.assertEqual(counters["failed_bookings"], 0)
         stored = orgtx.org_read(self.slug)
         self.assertFalse((stored.d.get("mail") or {}).get("worker"))
         self.assertFalse((stored.d.get("delivering") or {}).get("worker"))

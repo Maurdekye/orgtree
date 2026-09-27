@@ -701,6 +701,7 @@ def main(argv=None) -> int:
         # A successful no-op workload cannot stand in for turn completion.
         progressed = provider.get("completed", 0) > activity_before.get("provider", {}).get("completed", 0)
         valid = valid and settled and progressed and not provider.get("failed") and activity.get("started") == activity.get("finished")
+        valid = valid and not provider.get("failed_bookings") and provider.get("booked") == provider.get("completed")
     activity_after = httpx.get(origin + "/scale/activity", headers=H, timeout=30).raise_for_status().json()
     valid = valid and activity_after["launch_attempts"]["unexpected"] == 0
     valid = valid and not (root / "metrics" / "qualification-invalid.json").exists()
