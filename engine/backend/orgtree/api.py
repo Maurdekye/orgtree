@@ -7707,6 +7707,8 @@ def _bounded_work_response(slug: str, kind: str, backlogged: bool = False,
             body = worklist.foreground(slug, backlogged=backlogged, archive_limit=archive_limit)
         elif kind == 'archive':
             body = worklist.archive(slug, limit=limit, cursor=cursor)
+        elif kind == 'references':
+            body = worklist.lookup_many(slug, USER, wid.split(',') if wid else [])
         else:
             body = worklist.lookup(slug, USER, wid)
     except workquery.CursorReset as e:
@@ -7745,6 +7747,11 @@ async def _work_archive_page_route(slug: str, limit: int = 50, cursor: str = '')
 @app.get('/api/orgs/{slug}/work-item-reference/{wid}')
 async def _work_reference_route(slug: str, wid: str) -> Any:
     return await _run_ui_read(_bounded_work_response, slug, 'reference', False, 50, '', wid)
+
+
+@app.get('/api/orgs/{slug}/work-item-references')
+async def _work_references_route(slug: str, names: str = '') -> Any:
+    return await _run_ui_read(_bounded_work_response, slug, 'references', False, 50, '', names)
 
 
 _engine_proc: Any = None

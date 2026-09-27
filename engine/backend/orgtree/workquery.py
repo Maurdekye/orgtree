@@ -114,6 +114,15 @@ class Snapshot:
         row = self.raw.execute(self._select() + ' WHERE i.slug=%s', (self.viewer, slug)).fetchone()
         return None if row is None else _row(row)
 
+    def lookup_many(self, slugs: list[str]) -> list[Row]:
+        """Bounded exact identities from visible prose; never a history search."""
+        if len(slugs) > 128 or any(not isinstance(s, str) or not s or len(s) > 256 for s in slugs):
+            raise ValueError('reference lookup requires at most 128 names of 1..256 characters')
+        if not slugs:
+            return []
+        return [_row(row) for row in self.raw.execute(
+            self._select() + ' WHERE i.slug=ANY(%s)', (self.viewer, slugs))]
+
     def detail(self, slug: str) -> tuple[dict, bool] | None:
         """Decode precisely one authorized body, regardless of archive size."""
         row = self.lookup(slug)

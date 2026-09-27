@@ -125,6 +125,20 @@ class Lists(unittest.TestCase):
         for limit in (-1, 101):
             with self.assertRaises(ValueError): self.foreground(archive_limit=limit)
 
+    def test_visible_reference_batch_is_exact_authorized_and_bounded(self):
+        self.add(self.item('historical',status='done'),True)
+        self.add(self.item('secret',owner={'node':'c'},created_by={'node':'c'}),True)
+        self.refresh()
+        with patch.object(store, 'load_org', side_effect=AssertionError('whole history')):
+            result = worklist.lookup_many(self.slug,'a',['historical','secret','missing','historical'],now_ts=self.now)
+        self.assertEqual([row['slug'] for row in result['references']], ['historical'])
+        self.assertEqual(result['references'][0],worklist.lookup(self.slug,'a','historical',now_ts=self.now)['reference'])
+        with self.assertRaises(ValueError):
+            worklist.lookup_many(self.slug,USER,['name']*129,now_ts=self.now)
+        from orgtree import api
+        response=asyncio.run(api._work_references_route(self.slug,names='historical,missing'))
+        self.assertEqual([row['slug'] for row in json.loads(response.body)['references']],['historical'])
+
     def test_dirty_stamp_and_missing_metadata_require_whole_compatibility(self):
         self.add(self.item()); self.assertIsNone(self.foreground()); self.refresh()
         self.assertIsNotNone(self.foreground())

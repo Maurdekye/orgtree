@@ -144,3 +144,10 @@ def lookup(slug, viewer, wid, *, now_ts=None):
         return dict(format=FORMAT, found=row is not None,
                     reference=reference(ctx.light(row, org_slug)) if row else None)
     return _read(slug, viewer, build, now_ts)
+
+
+def lookup_many(slug, viewer, names, *, now_ts=None):
+    def build(ctx, org_slug):
+        return dict(format=FORMAT, references=[reference(ctx.light(row, org_slug))
+            for row in ctx.query.lookup_many(names)], catalog=ctx.query.catalog)
+    return _read(slug, viewer, build, now_ts)
