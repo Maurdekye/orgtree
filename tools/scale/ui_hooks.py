@@ -1,5 +1,5 @@
 """HTTP demand from App/usePolled/convo hooks, not renderer or paint timing."""
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import threading
 import time
 
@@ -14,6 +14,7 @@ class Hook:
     mode: str = "overlap"
     live: bool = True
     conditional: bool = False
+    request_serial: int = 0
 
 
 def hooks(slug, watch, window):
@@ -23,7 +24,8 @@ def hooks(slug, watch, window):
     if kind == "org-chooser":
         rows += [Hook("org_list", "/api/orgs", 3, "dedupe", False)]
     else:
-        rows += [Hook("work_items", base + "/work-items-view", 15 if kind == "desk" else 5,
+        rows += [Hook("work_items", base + "/work-items-foreground?backlogged=0&archive_limit=0",
+                      15 if kind == "desk" else 5,
                       "dedupe", True, True)]
     if kind == "desk":
         rows += [Hook("chat", f"{base}/nodes/{watch}/chat?last=8", 7, "dedupe", False)]
@@ -46,6 +48,9 @@ class HookClock:
         self.specs = {h.name: h for h in specs}
         self.due = {h.name: 0. for h in specs}
         self.active = {h.name: 0 for h in specs}
+        self.issued = {h.name: 0 for h in specs}
+        self.chat_installed = 0
+        self.chat_inflight = False
         self.pending = set()
         self.live_at = self.chat_at = None
         self.busy = False
@@ -99,7 +104,8 @@ class HookClock:
             # convo's node_event and 200ms nudge use force:true; only the
             # heartbeat shares the in-flight gate.
             forced_chat = name == "chat" and name in signals
-            if self.active[name] and h.mode != "overlap" and not forced_chat:
+            inflight = self.chat_inflight if name == "chat" else self.active[name]
+            if inflight and h.mode != "overlap" and not forced_chat:
                 if h.mode == "trailing":
                     self.counts["trailing"] += name not in self.pending
                     self.pending.add(name)
@@ -107,19 +113,30 @@ class HookClock:
                     self.counts["deduped"] += 1
                 continue
             self.active[name] += 1
-            output.append((h, at))
+            self.issued[name] += 1
+            if name == "chat":
+                self.chat_inflight = True
+            output.append((replace(h, request_serial=self.issued[name]), at))
         return output
 
-    def complete(self, name, payload=None):
+    def complete(self, name, payload=None, request_serial=None):
         self.active[name] -= 1
-        if name == "chat" and isinstance(payload, dict):
-            self.busy = bool(payload.get("busy"))
+        if name == "chat":
+            serial = self.issued[name] if request_serial is None else request_serial
+            if serial == self.issued[name]:
+                self.chat_inflight = False
+            # convo installs any usable answer until a newer answer has been
+            # installed, then refuses an older forced read's late response.
+            if isinstance(payload, dict) and serial >= self.chat_installed:
+                self.chat_installed = serial
+                self.busy = bool(payload.get("busy"))
 
 
 class Conditional:
-    def __init__(self):
+    def __init__(self, expected_format=None):
         self.etag = self.revision = None
         self.body = None
+        self.expected_format = expected_format
 
     def invalidate(self):
         self.etag = self.revision = self.body = None
@@ -132,6 +149,8 @@ class Conditional:
             return
         if status != 200:
             return
+        if self.expected_format and (not isinstance(body, dict) or body.get("format") != self.expected_format):
+            raise ValueError("unexpected foreground work format")
         if isinstance(body, dict):
             delta = "delta" in body or (body.get("format") == "orgtree.tree/v1" and "tree" not in body)
             if delta and (not self.revision or body.get("base") != self.revision):
@@ -202,7 +221,8 @@ class WindowDriver:
         self.clock = HookClock(hooks(slug, watch, window))
         self.lock = threading.Lock()
         self.pool = BoundedPool(workers)
-        self.cache = {h.name: Conditional() for h in self.clock.specs.values() if h.conditional}
+        self.cache = {h.name: Conditional("orgtree.work-foreground/v1" if h.name == "work_items" else None)
+                      for h in self.clock.specs.values() if h.conditional}
         self.started = 0
         # Chromium's HTTP/1 per-origin connection budget applies to all
         # independent hooks in a window, not a fresh pool for every worker.
@@ -226,7 +246,7 @@ class WindowDriver:
                 for h, due in ready:
                     if not self.pool.submit(self.fetch, h, started + due):
                         with self.lock:
-                            self.clock.complete(h.name)
+                            self.clock.complete(h.name, request_serial=h.request_serial)
                         self.rec.write("overload", {"driver": "ui", "w": self.window,
                                                    "route": h.name, "t": due})
                 self.stop.wait(.01)
@@ -276,7 +296,7 @@ class WindowDriver:
         finally:
             ended = time.time()
             with self.lock:
-                self.clock.complete(hook.name, payload)
+                self.clock.complete(hook.name, payload if not err else None, hook.request_serial)
             self.rec.write("ui", {"t": begun - self.started, "w": self.window,
                 "route": hook.name, "url": url, "status": status, "bytes": size,
                 "wire_bytes": wire, "err": err, "ms": (ended - begun) * 1000,
