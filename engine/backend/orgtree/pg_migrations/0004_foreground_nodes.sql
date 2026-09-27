@@ -220,8 +220,10 @@ DECLARE s text:=TG_TABLE_SCHEMA; os text; ns text; oo text; no text; ov jsonb; n
 BEGIN
  IF TG_OP='UPDATE' AND (OLD.sect,OLD.seq,OLD.val) IS NOT DISTINCT FROM (NEW.sect,NEW.seq,NEW.val)
  THEN RETURN NULL; END IF;
- IF (TG_OP<>'INSERT' AND OLD.sect IN ('documents','org_inbox','user_inbox','work_items_archive','work_scope_log'))
-    OR (TG_OP<>'DELETE' AND NEW.sect IN ('documents','org_inbox','user_inbox','work_items_archive','work_scope_log')) THEN
+ IF (TG_OP<>'INSERT' AND OLD.sect IN ('documents','org_inbox','user_inbox','work_items_archive','work_scope_log',
+                                    'audiences','audience_requests','watchdogs','watchdog_tombs'))
+    OR (TG_OP<>'DELETE' AND NEW.sect IN ('documents','org_inbox','user_inbox','work_items_archive','work_scope_log',
+                                      'audiences','audience_requests','watchdogs','watchdog_tombs')) THEN
    EXECUTE format('UPDATE %I.foreground_meta SET view_revision=view_revision+1 WHERE singleton=1',s);
  END IF;
  IF TG_OP<>'INSERT' AND OLD.sect IN ('documents','org_inbox') THEN
@@ -245,6 +247,18 @@ BEGIN
  IF ns='documents' THEN
    EXECUTE format('INSERT INTO %I.foreground_documents(source,seq,node,meta) VALUES(0,$1,$2,$3)',s)
      USING NEW.seq,no,public.orgtree_foreground_document(NEW.val::jsonb);
+ END IF;
+ RETURN NULL;
+END
+$fn$;
+
+CREATE FUNCTION public.orgtree_foreground_mail_commit() RETURNS trigger
+LANGUAGE plpgsql SET search_path=pg_catalog,public AS $fn$
+BEGIN
+ IF TG_OP='UPDATE' AND (OLD.sect,OLD.owner,OLD.seq,OLD.val) IS NOT DISTINCT FROM (NEW.sect,NEW.owner,NEW.seq,NEW.val)
+ THEN RETURN NULL; END IF;
+ IF (TG_OP<>'INSERT' AND OLD.sect='mail') OR (TG_OP<>'DELETE' AND NEW.sect='mail') THEN
+   EXECUTE format('UPDATE %I.foreground_meta SET view_revision=view_revision+1 WHERE singleton=1',TG_TABLE_SCHEMA);
  END IF;
  RETURN NULL;
 END
@@ -309,6 +323,9 @@ BEGIN
  EXECUTE format('CREATE CONSTRAINT TRIGGER foreground_log_commit AFTER INSERT OR UPDATE OR DELETE '
    'ON %I.log_l DEFERRABLE INITIALLY DEFERRED FOR EACH ROW '
    'EXECUTE FUNCTION public.orgtree_foreground_log_commit()',s);
+ EXECUTE format('CREATE CONSTRAINT TRIGGER foreground_mail_commit AFTER INSERT OR UPDATE OR DELETE '
+   'ON %I.log_d DEFERRABLE INITIALLY DEFERRED FOR EACH ROW '
+   'EXECUTE FUNCTION public.orgtree_foreground_mail_commit()',s);
  IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='orgtree_runtime') THEN
    EXECUTE format('GRANT SELECT,INSERT,UPDATE,DELETE ON %I.node_index,%I.foreground_meta,%I.foreground_parents TO orgtree_runtime',s,s,s);
    EXECUTE format('GRANT SELECT,INSERT,UPDATE,DELETE ON %I.foreground_asks,%I.foreground_counts, '
@@ -322,8 +339,8 @@ DO $migration$
 DECLARE org record;
 BEGIN
  FOR org IN SELECT org_id FROM public.orgs ORDER BY org_id LOOP
-   EXECUTE format('LOCK TABLE org_%s.nodes,org_%s.doc,org_%s.log_l IN ACCESS EXCLUSIVE MODE',
-                  org.org_id,org.org_id,org.org_id);
+   EXECUTE format('LOCK TABLE org_%s.nodes,org_%s.doc,org_%s.log_l,org_%s.log_d IN ACCESS EXCLUSIVE MODE',
+                  org.org_id,org.org_id,org.org_id,org.org_id);
    PERFORM public.orgtree_install_foreground_index(org.org_id);
  END LOOP;
 END
