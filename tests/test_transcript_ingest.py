@@ -68,5 +68,69 @@ class CaptureTests(unittest.TestCase):
         self.path.unlink()
         self.assertEqual(len(self.rows()),200)
         self.assertEqual(len({(r[0],r[1]) for r in self.rows()}),200)
+    # ---- slice C: an idle backfill costs a few stat() calls, not a re-read ----
+    def backfill(self):
+        return ingest.capture(self.org.d['slug'],'agent',backfill=True)
+    def test_a_settled_node_is_skipped_until_its_file_changes(self):
+        self.write(0,10)
+        self.assertTrue(self.backfill())
+        self.assertEqual(len(self.rows()),10)
+        with patch.object(records,'ingest',side_effect=AssertionError('re-read an unchanged transcript')), \
+             patch.object(records,'ingest_prompt_views',side_effect=AssertionError('re-read unchanged views')):
+            self.assertFalse(self.backfill())
+        self.write(10,5,'a')
+        self.assertTrue(self.backfill())
+        self.assertEqual(len(self.rows()),15)
+        self.assertFalse(self.backfill())
+    def test_pending_history_keeps_the_node_unsettled(self):
+        self.write(0,200)
+        self.assertEqual([self.backfill() for _ in range(5)],[True,True,True,True,False])
+        self.assertEqual(len(self.rows()),200)
+    def test_a_changed_prompt_view_sidecar_unsettles_the_node(self):
+        self.write(0,3)
+        slug=self.org.d['slug'];sid=self.org.node('agent')['session_id']
+        self.assertTrue(self.backfill());self.assertFalse(self.backfill())
+        vpath=Path(sup._prompt_view_path(slug,sid));vpath.parent.mkdir(parents=True,exist_ok=True)
+        with vpath.open('a',encoding='utf8') as f:
+            f.write(json.dumps({'v':1,'sha256':'0'*64,'chars':1,'visible':'x','at':'2026-09-27T00:00:00Z'})+'
+')
+        self.assertTrue(self.backfill(),'a grown sidecar was skipped')
+        self.assertFalse(self.backfill())
+    def test_a_fresh_source_is_never_skipped(self):
+        self.write(0,3)
+        self.assertTrue(self.backfill());self.assertFalse(self.backfill())
+        with ingest._lock:ingest._fresh.add(source_key(store.load_org(self.org.d['slug']),'agent'))
+        self.assertTrue(self.backfill())
+    def test_an_idle_cycle_pauses_backfill_but_never_busy_capture(self):
+        import collections
+        from types import SimpleNamespace
+        calls=[]
+        def fake(slug,nid,**kw):
+            calls.append((nid,bool(kw.get('backfill'))));return False
+        queue,state=collections.deque(),{}
+        with patch.object(store,'cached_list',return_value=[{'slug':'x'}]), \
+             patch.object(store,'cached_org',return_value=SimpleNamespace(nodes=['a','b','c'])), \
+             patch.dict(sup._state,{('x','busy'):{'busy':True}},clear=True), \
+             patch.object(ingest,'capture_safely',side_effect=fake):
+            ingest._sweep(queue,state,0.0)          # first cycle: 3 slices, no work
+            self.assertEqual(calls,[('busy',False),('a',True),('b',True),('c',True)]);calls.clear()
+            ingest._sweep(queue,state,1.0)          # idle cycle seen: backfill pauses
+            self.assertEqual(calls,[('busy',False)]);calls.clear()
+            ingest._sweep(queue,state,1.0+ingest.BACKOFF_S-0.5)
+            self.assertEqual(calls,[('busy',False)]);calls.clear()
+            ingest._sweep(queue,state,1.0+ingest.BACKOFF_S)
+            self.assertEqual(calls,[('busy',False),('a',True),('b',True),('c',True)])
+    def test_a_cycle_that_worked_does_not_pause(self):
+        import collections
+        from types import SimpleNamespace
+        calls=[]
+        def fake(slug,nid,**kw):
+            calls.append(nid);return nid=='b'
+        queue,state=collections.deque(),{}
+        with patch.object(store,'cached_list',return_value=[{'slug':'x'}]), \
+             patch.object(store,'cached_org',return_value=SimpleNamespace(nodes=['a','b','c'])), \
+             patch.dict(sup._state,{},clear=True), patch.object(ingest,'capture_safely',side_effect=fake):
+            ingest._sweep(queue,state,0.0);ingest._sweep(queue,state,1.0)
+        self.assertEqual(calls,['a','b','c','a','b','c'])
 
 if __name__=='__main__':unittest.main()
