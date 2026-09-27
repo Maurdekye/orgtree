@@ -309,6 +309,44 @@ def read_exact(slug: str, nid: str, *, project: Projector | None = None) -> Any:
         return _project(raw, _graph(raw, stamp, list(wanted), wanted), project)
 
 
+def read_references(slug: str, include=(), *, project: Projector | None = None) -> Any:
+    """Exact identity facts only, with neither node bodies nor ancestor walks.
+
+    Both sides of the node/index join are checked so index corruption cannot
+    be reported as authoritative absence. Every returned field is public tree
+    identity data; never return the index metadata object (it holds secrets).
+    """
+    values = tuple(include)
+    if len(values) > MAX_INCLUDE or any(not isinstance(nid, str) or not nid or '\x00' in nid
+                                         for nid in values):
+        raise ValueError(f'include must contain at most {MAX_INCLUDE} nonempty IDs')
+    try:
+        for nid in values:
+            nid.encode('utf-8')
+    except UnicodeError as error:
+        raise ValueError('invalid reference identity') from error
+    wanted = tuple(dict.fromkeys(values))
+    with _snapshot(slug) as (raw, stamp):
+        rows = raw.execute(
+            "SELECT wanted.id,n.id,i.id,i.meta->>'model',i.meta->>'state',"
+            "i.meta->'generation',i.meta->>'successor' "
+            'FROM unnest(%s::text[]) wanted(id) '
+            'LEFT JOIN nodes n ON n.id=wanted.id '
+            'LEFT JOIN node_index i ON i.id=wanted.id', (list(wanted),)).fetchall()
+        references = {}
+        for nid, node_id, index_id, model, state, generation, successor in rows:
+            if node_id != index_id:
+                raise LedgerError('foreground reference index and nodes disagree')
+            if node_id is not None:
+                references[nid] = {'id': nid, 'tier': model or None,
+                    'state': state, 'generation': generation,
+                    'axis': 'lineage' if state == 'archived' and successor else 'org',
+                    'successor': successor or None}
+        result = {'stamp': stamp, 'references': references,
+                  'missing': [nid for nid in wanted if nid not in references]}
+        return _project(raw, result, project)
+
+
 def read_retired_children(slug: str, parent: str = '', *, limit: int = 50,
                           cursor: str | None = None, edge: str | None = None,
                           project: Projector | None = None) -> Any:

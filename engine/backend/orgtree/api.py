@@ -2879,6 +2879,12 @@ async def foreground_lookup(slug: str, nid: str, request: Request) -> Response:
     return await _run_ui_read(partial(foreground_api.read, mode='lookup', nid=nid), slug, request)
 
 
+@app.get("/api/orgs/{slug}/foreground-tree/references")
+async def foreground_references(slug: str, request: Request) -> Response:
+    from . import foreground_api
+    return await _run_ui_read(partial(foreground_api.read, mode='references'), slug, request)
+
+
 def org_tree(slug: str, request: Request,
              response: Response = None) -> Any:  # type: ignore[assignment]
     # `response` is FastAPI's header-injection seam on the dict-returning

@@ -85,7 +85,16 @@ def read(slug: str, request: Request, *, mode='snapshot', nid=None) -> Response:
             sync_rev = api._current_sync_rev(slug)
             project = lambda raw, graph: _project(raw, slug, graph, request,
                 sync_rev=sync_rev, kind='lookup' if mode == 'lookup' else 'page', requested=nid)
-            if mode == 'lookup':
+            if mode == 'references':
+                # The store projects only the same public identity facts the
+                # normal tree exposes. No runtime/history context is needed.
+                def references(raw, result):
+                    return {'format': foreground_view.FORMAT, 'kind': 'references',
+                        'catalog_revision': foreground_view.catalog(result),
+                        'org_rev': result['stamp']['org_revision'], 'sync_rev': sync_rev,
+                        'references': result['references'], 'missing': result['missing']}
+                payload = foreground_store.read_references(slug, query.getlist('include'), project=references)
+            elif mode == 'lookup':
                 payload = foreground_store.read_exact(slug, nid, project=project)
             elif mode in ('children', 'search'):
                 limit = int(query.get('limit', '50'))
