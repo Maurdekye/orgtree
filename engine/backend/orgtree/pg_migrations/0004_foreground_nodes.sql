@@ -9,6 +9,7 @@ LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $fn$
    'state',coalesce(n->>'state','live'),
    'title',coalesce(n->>'title',''),
    'model',coalesce(n->>'model',''),
+   'grant',n->'grant',
    'order',CASE WHEN jsonb_typeof(n->'ui_order')='number' THEN n->'ui_order' ELSE '0'::jsonb END,
    'created',coalesce(n->>'created',''),
    'predecessor',coalesce(n->>'predecessor',''),
@@ -94,9 +95,9 @@ BEGIN
  END IF;
  catalog_changed:=TG_OP<>'UPDATE' OR OLD.id IS DISTINCT FROM NEW.id
    OR OLD.ord IS DISTINCT FROM NEW.ord
-   OR (oldm-ARRAY['cost','cost_unknown','session_id','transcript_incarnation','reply_incarnation'])
+   OR (oldm-ARRAY['cost','cost_unknown','grant','session_id','transcript_incarnation','reply_incarnation'])
       IS DISTINCT FROM
-      (newm-ARRAY['cost','cost_unknown','session_id','transcript_incarnation','reply_incarnation']);
+      (newm-ARRAY['cost','cost_unknown','grant','session_id','transcript_incarnation','reply_incarnation']);
  lineage_changed:=TG_OP<>'UPDATE' OR OLD.id IS DISTINCT FROM NEW.id
    OR (oldm->'predecessor',oldm->'state',oldm->'bearer_state',oldm->'generation')
       IS DISTINCT FROM
@@ -276,6 +277,8 @@ BEGIN
  EXECUTE format('CREATE INDEX foreground_asks_open ON %I.foreground_asks(sect,ord) '
    'WHERE status IN (''open'',''pending'')',s);
  EXECUTE format('CREATE INDEX foreground_asks_node ON %I.foreground_asks(node,sect,stamp DESC,ord)',s);
+ EXECUTE format('CREATE INDEX foreground_asks_not_withdrawn ON %I.foreground_asks(node,sect,stamp DESC,ord) '
+   'WHERE status<>''withdrawn''',s);
  EXECUTE format('CREATE TABLE %I.foreground_counts(source smallint NOT NULL,sect text NOT NULL, '
    'owner text NOT NULL,total bigint NOT NULL,PRIMARY KEY(source,sect,owner))',s);
  EXECUTE format('CREATE TABLE %I.foreground_documents(source smallint NOT NULL,seq bigint NOT NULL, '
@@ -310,7 +313,8 @@ DO $migration$
 DECLARE org record;
 BEGIN
  FOR org IN SELECT org_id FROM public.orgs ORDER BY org_id LOOP
-   EXECUTE format('LOCK TABLE org_%s.nodes IN ACCESS EXCLUSIVE MODE',org.org_id);
+   EXECUTE format('LOCK TABLE org_%s.nodes,org_%s.doc,org_%s.log_l IN ACCESS EXCLUSIVE MODE',
+                  org.org_id,org.org_id,org.org_id);
    PERFORM public.orgtree_install_foreground_index(org.org_id);
  END LOOP;
 END
