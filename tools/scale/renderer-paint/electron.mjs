@@ -246,6 +246,25 @@ app.whenReady().then(async () => {
       await until(() => js('!!document.querySelector(".pile-count")'))
       await sleep(3000)   // declared settle: startup reads and first heartbeat
       const startupReads = treeReads.length
+      // Unmeasured setup, identical in both arms: at the fit-all camera the
+      // pile badge is ~12px and a real pointer can miss it. Zoom in on it
+      // with real wheel input, then wait for the camera to settle.
+      const badge = () => js(`(()=>{const c=[...document.querySelectorAll('.pile-count')].sort((a,b)=>+b.textContent - +a.textContent)[0].getBoundingClientRect();return{x:Math.round(c.left+c.width/2),y:Math.round(c.top+c.height/2),h:c.height}})()`)
+      const first = await badge()
+      const zoom = async (delta, notches) => {
+        for (let k = 0; k < notches; k++) {
+          const at = await badge()
+          win.webContents.sendInputEvent({ type: 'mouseMove', x: at.x, y: at.y })
+          win.webContents.sendInputEvent({ type: 'mouseWheel', x: at.x, y: at.y, deltaX: 0, deltaY: delta })
+          await sleep(250)
+        }
+        await sleep(1000)
+        return badge()
+      }
+      let zoomed = await zoom(300, 4)
+      if (zoomed.h < first.h * 1.5) zoomed = await zoom(-300, 8)
+      journal({ pileZoom: { first, zoomed } })
+      if (zoomed.h < 24) throw Error('pile badge could not be enlarged for a reliable click')
       for (let i = 0; i < run.repeats; i++) {
         const suffix = '-' + i
         const pileTotal = await js(`(()=>{const c=[...document.querySelectorAll('.pile-count')].sort((a,b)=>+b.textContent - +a.textContent)[0];c.dataset.paintPile='chosen';return c.textContent.trim()})()`)
