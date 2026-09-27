@@ -135,6 +135,37 @@ class CodexBatchDrainTests(unittest.TestCase):
         self.assertIn("authored words", self.adapter.texts[1])
         self.assert_all_delivered_once(bodies)
 
+    def test_a_carrier_holding_drained_mail_is_never_overtaken(self):
+        """A steer leftover already HOLDS its mail (drained into `delivering`
+        under a journal token). Absorption must stop at it: taking it would
+        both deliver newer mail ahead of it and drop its batch."""
+        bodies, first = self.burst(2)                 # queue: [p2]
+        org = orgtx.org_read(self.slug)
+        m3 = org.post_mail(ledger.USER, "worker", "held batch mail")
+        maildrain.request(org, "worker")
+        store.save_org(org)
+        ids3 = [str(m["id"]) for m in (org.d.get("mail") or {}).get("worker") or []]
+        # built the way `_admit_message`'s steer door builds it
+        etext, tok, _ = sup._envelope(self.slug, "worker", "(orgtree) new mail",
+                                      ping=True, mail_ids=[str(m3["id"])])
+        self.assertTrue(tok, "the fixture must actually drain a batch")
+        held = sup._mark_ping({"toks": [tok], "text": etext, "view": ""},
+                              mail_ids=ids3)
+        org = orgtx.org_read(self.slug)
+        m4 = org.post_mail(ledger.USER, "worker", "after the held batch")
+        maildrain.request(org, "worker")
+        store.save_org(org)
+        ids4 = [str(m["id"]) for m in (org.d.get("mail") or {}).get("worker") or []]
+        with sup._state_lock:
+            self.st["queue"].extend([held, sup._mark_ping("(orgtree) new mail", mail_ids=ids4)])
+        sup._run_turn(self.slug, "worker", first)
+        texts = self.adapter.texts
+        self.assertEqual(len(texts), 3, "pointers | held batch | later pointer")
+        self.assertTrue(all(b in texts[0] for b in bodies))
+        self.assertIn("held batch mail", texts[1])
+        self.assertIn("after the held batch", texts[2])
+        self.assert_all_delivered_once(bodies + ["held batch mail", "after the held batch"])
+
     def test_halt_before_the_turn_keeps_every_pointed_mail(self):
         bodies, first = self.burst(5)
         org = orgtx.org_read(self.slug)
