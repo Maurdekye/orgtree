@@ -7,7 +7,7 @@ from unittest.mock import patch
 import test_pgstore as fixture
 from fastapi.testclient import TestClient
 from engine.launch import TokenGate
-from orgtree import api, foreground_cache, foreground_store as fg, ledger, store
+from orgtree import api, foreground_cache, foreground_store as fg, ledger, orgtx, store, tree_changes
 
 
 def tearDownModule():
@@ -110,6 +110,27 @@ class ForegroundRoutePG(unittest.TestCase):
                                   headers={'Accept-Encoding': 'identity'})
         self.assertEqual(response.status_code, 200, response.text)
         self.assertNotIn('session_id', response.json()['nodes']['boss'])
+
+    def test_native_row_transaction_status_keeps_changed_node_read_bound(self):
+        with patch.object(api, '_tree_runtime_stamp', return_value=('fixed',)):
+            first = self.get()
+            self.assertEqual(first.status_code, 200, first.text)
+            before = fg.read_foreground(self.slug)['stamp']
+            seq = store.org_seq(self.slug)
+            with orgtx.org_tx(self.slug, nodes=['boss']) as tx:
+                tx.d['nodes']['boss']['last_status'] = {'status': 'working', 'summary': 'row transaction'}
+            after = fg.read_foreground(self.slug)['stamp']
+            journal = tree_changes.since(store.DATA_ROOT, self.slug, seq, store.org_seq(self.slug))
+            builds = []
+            original = fg.select_foreground
+            def observed(*args):
+                builds.append(1)
+                return original(*args)
+            with patch.object(fg, 'select_foreground', side_effect=observed):
+                changed = self.get(**{'If-None-Match': first.headers['etag']})
+            self.assertEqual(changed.status_code, 200, changed.text)
+            self.assertEqual(changed.json()['nodes']['boss']['set']['last_status']['summary'], 'row transaction')
+            self.assertEqual(builds, [], {'before': before, 'after': after, 'journal': journal})
 
 
 if __name__ == '__main__':
