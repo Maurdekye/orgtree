@@ -111,9 +111,13 @@ class PolicyLoops(fixture.PolicyInputs):
                 patch.object(sup, 'auto_resume_ready', return_value=set()), \
                 patch.object(account_fallback, 'candidates', return_value={}):
             self.assertTrue(sup._auto_resume_org(self.slug, now=1900000000))
-        stamp.assert_called_once()
-        self.assertEqual(stamp.call_args.args[0]['state'], 'archived')
-        self.assertEqual(stamp.call_args.args[0]['frozen'], {'connection': True})
+        # halt's normal exit also recomputes deadlines without an explicit
+        # clock. Pin this loop's deliberate timestamped bookkeeping call.
+        timed = [call for call in stamp.call_args_list if len(call.args)==2]
+        self.assertEqual(len(timed), 1)
+        self.assertEqual(timed[0].args[1], 1900000000)
+        self.assertEqual(timed[0].args[0]['state'], 'archived')
+        self.assertEqual(timed[0].args[0]['frozen'], {'connection': True})
 
 
 if __name__ == '__main__': unittest.main()
