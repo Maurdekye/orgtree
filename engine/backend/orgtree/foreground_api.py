@@ -42,7 +42,7 @@ def _project(raw, slug, graph, request, *, sync_rev, kind, requested=None, keep=
     profile = getattr(request.state, 'profile_timing', None)
     if profile is not None:
         profile['foreground_context_ms'] = (time.perf_counter() - started) * 1000
-    saved = {'context': context, 'graph': graph}
+    saved = _kept(context, graph)
     payload = _reproject(saved, request, sync_rev=sync_rev, kind=kind, requested=requested)
     return (payload, saved) if keep else payload
 
@@ -57,7 +57,15 @@ def _advance(raw, slug, saved, stamp, rows):
     reuse = {nid: node for nid, node in old.nodes.items() if nid not in rows}
     context = _context(raw, slug, graph, header=True, reuse=reuse,
                        reuse_settings=getattr(old, 'settings_key', None))
-    return {'context': context, 'graph': graph}
+    return _kept(context, graph)
+
+
+def _kept(context, graph):
+    """Projection inputs the cache may keep; `valid` says whether they may
+    still be projected again without a new build (clock deadlines)."""
+    from . import foreground_context
+    return {'context': context, 'graph': graph,
+            'valid': lambda: foreground_context.still_valid(context)}
 
 
 def _reproject(saved, request, *, sync_rev, kind='snapshot', requested=None):

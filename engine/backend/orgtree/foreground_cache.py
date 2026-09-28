@@ -200,7 +200,10 @@ def read(slug, public, since, *, include=(), runtime, sync_revision, build,
             db = _db(stamp)
             if entry is None or entry['stamp'] != db or entry['runtime'] != run:
                 saved = entry.get('saved') if entry else None
-                if entry is None:
+                if saved is not None and not saved.get('valid', lambda: True)():
+                    saved = None
+                    changes = None                  # past a clock deadline: build afresh
+                elif entry is None:
                     changes = None
                 elif entry['stamp'] == db:
                     changes = {'rows': {}, 'status': {}}      # nothing committed

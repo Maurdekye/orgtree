@@ -60,6 +60,23 @@ def _compatible(settings, nodes):
         raise CompatibilityRequired('legacy seat identity requires whole lineage')
 
 
+def valid_until(settings):
+    """The earliest clock time at which _compatible would refuse these
+    settings although nothing was committed: an unpinned fable lock expires,
+    and only the whole-org path releases it. None when there is none."""
+    lock = settings.get('fable_lock') or {}
+    if lock and not lock.get('no_reset') and lock.get('until_ts'):
+        return float(lock['until_ts'])
+    return None
+
+
+def still_valid(context):
+    """May a kept context be projected again, now? (review f4: reusing it past
+    a clock deadline would keep serving what a fresh build refuses.)"""
+    deadline = getattr(context, 'valid_until', None)
+    return deadline is None or time.time() < deadline
+
+
 class ForegroundContext:
     _read_only_projection = True
     # Only composed display/query methods, never mutation or persistence methods.
@@ -222,4 +239,5 @@ def build(raw, slug: str, graph: dict, *, header: bool = True,
         windows=foreground_store.read_card_windows(raw, ids, header=header),
         inbox=foreground_store.read_org_inbox_window(raw), work_counts=counts, reuse=reuse)
     context.settings_key = settings_key
+    context.valid_until = valid_until(blobs)
     return context
