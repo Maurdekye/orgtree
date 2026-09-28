@@ -99,8 +99,12 @@ few minutes on a large data folder (it reads every file of both folders).
      agent that already had 100 loses its oldest ones. Those are listed under
      `changed_since_backup` ("oldest mail-archive row(s) trimmed by the
      engine's restart notice"), not as problems, and only when the agent
-     still has at least 100 entries and every missing one is older than all
-     of them;
+     still has at least 100 entries, every missing one is older than all
+     of them, at most 99 of its entries come from the backup (the 100 kept
+     include the new notice), and it has at least one entry the backup did
+     not have. Limit: entries that arrived after the backup and were trimmed
+     again cannot be seen, so a fault that removed a few extra of the oldest
+     entries on top of such a trim would not be caught;
    - every ticket that was open in the backup is still open, or has since
      been archived.
 

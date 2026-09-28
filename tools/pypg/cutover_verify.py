@@ -342,9 +342,15 @@ def restart_notice_trim(src_rows: list[tuple[Any, ...]], dst_rows: list[tuple[An
     lost 45 rows exactly this way. A lost row counts as trimmed only when ALL
     of these hold for its agent: the row is a ``mail_log`` row that is absent
     (not changed), the agent still has at least MAIL_ARCHIVE_KEEP ``mail_log``
-    rows, and every lost row of that agent is older (lower seq) than every
-    ``mail_log`` row it still has. Anything else stays a problem."""
+    rows, every lost row of that agent is older (lower seq) than every
+    ``mail_log`` row it still has, at most MAIL_ARCHIVE_KEEP - 1 of its backup
+    ``mail_log`` rows survive (the trim keeps 100 INCLUDING the new notice),
+    and it has at least one ``mail_log`` row the backup did not have (the
+    notice itself). Anything else stays a problem. Residual: rows that arrived
+    after the backup and were trimmed again are invisible here, so a bug that
+    removed a few extra of the oldest rows on top of such a trim can pass."""
     have = {r[0] for r in dst_rows}
+    in_backup = {r[0] for r in src_rows}
     lost_set = set(lost)
     by_owner: dict[Any, list[Any]] = {}
     for r in src_rows:
@@ -359,7 +365,10 @@ def restart_notice_trim(src_rows: list[tuple[Any, ...]], dst_rows: list[tuple[An
     out: set[Any] = set()
     for owner, seqs in by_owner.items():
         now = kept.get(owner, [])
-        if len(now) >= MAIL_ARCHIVE_KEEP and max(seqs) < min(now):
+        survivors = sum(1 for seq in now if seq in in_backup)
+        # >= KEEP rows with <= KEEP - 1 from the backup also proves a new row (the notice)
+        if (len(now) >= MAIL_ARCHIVE_KEEP and max(seqs) < min(now)
+                and survivors <= MAIL_ARCHIVE_KEEP - 1):
             out.update(seqs)
     return out
 

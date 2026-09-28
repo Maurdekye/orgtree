@@ -197,6 +197,18 @@ class OrgRows(unittest.TestCase):
         }.items():
             broken = {**dst, "log_d": rows}
             self.assertTrue(cv.compare_org("acme", src, broken, 2, after_launch=True)["problems"], label)
+        # Review of 610cce4: a trim keeps 100 rows INCLUDING the new notice, so
+        # more than 99 surviving backup rows, or no new row at all, is not a trim.
+        for label, total, lost_n, new_n in (
+                ("oldest 100 of 300 gone, 200 backup rows survive", 300, 100, 1),
+                ("oldest 390 of 500 gone, 110 backup rows survive", 500, 390, 1),
+                ("oldest 5 of 105 gone, exactly 100 backup rows survive", 105, 5, 1),
+                ("oldest 20 of 130 gone and no notice arrived", 130, 20, 0)):
+            rows = [(seq, "mail_log", "n1", None, "{}") for seq in range(1, total + 1)]
+            new = [(10_000 + i, "mail_log", "n1", None, '{"from":"orgtree"}') for i in range(new_n)]
+            s = {**src, "log_d": rows}
+            d = {**pg_side(s, self.ITEMS), "log_d": rows[lost_n:] + new}
+            self.assertTrue(cv.compare_org("acme", s, d, 2, after_launch=True)["problems"], label)
         # the exact mode never allows it
         self.assertTrue(cv.compare_org("acme", src, dst, 2)["problems"])
 
