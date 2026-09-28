@@ -33,27 +33,32 @@ BYTES_THRESHOLD = 3.0
 #: at N=1000.
 BYTES_FLOOR = 256_000
 JUDGED = ("work_items", "chat", "notifications", "org_list", "message")
+#: Opt-in heavy step (--preflight-large): the same rules from N=100 to N=1000,
+#: for the calls whose growth first showed only above N=100 (N1000 attempt 4:
+#: message 335 rows at N=100, ~985 at N=1000).
+LARGE = 1000
+LARGE_JUDGED = ("chat", "message")
 KIND = "rows-preflight"
 
 
-def verdict(results, threshold=THRESHOLD):
+def verdict(results, threshold=THRESHOLD, calls=JUDGED):
     """results: {n: {call: {"rows": int, ...}}} -> (passed, per-call rows ratios)."""
     small, large = (results[n] for n in SIZES)
     ratios = {}
-    for call in JUDGED:
+    for call in calls:
         if call not in small or call not in large or not small[call]["rows"]:
             raise ValueError(f"rows preflight did no measurable work for {call}")
         ratios[call] = large[call]["rows"] / small[call]["rows"]
     return all(r <= threshold for r in ratios.values()), ratios
 
 
-def bytes_verdict(results, threshold=BYTES_THRESHOLD, floor=BYTES_FLOOR):
+def bytes_verdict(results, threshold=BYTES_THRESHOLD, floor=BYTES_FLOOR, calls=JUDGED):
     """(passed, per-call value-byte ratios N=100/N=10); refuses zero-byte calls.
     A call fails only if its ratio exceeds `threshold` AND its N=100 read is at
     least `floor` bytes."""
     small, large = (results[n] for n in SIZES)
     ratios, failed = {}, []
-    for call in JUDGED:
+    for call in calls:
         if not small[call].get("value_bytes"):
             raise ValueError(f"rows preflight read no value bytes for {call}")
         ratios[call] = large[call]["value_bytes"] / small[call]["value_bytes"]
@@ -62,19 +67,19 @@ def bytes_verdict(results, threshold=BYTES_THRESHOLD, floor=BYTES_FLOOR):
     return not failed, ratios
 
 
-def fallbacks(results):
+def fallbacks(results, calls=JUDGED):
     """Judged calls that had to decode every node row (ORGTREE_LAZY_ROWS
     fallbacks). A fallback is a whole-org read: any at all fails."""
     return {f"{n}:{call}": results[n][call].get("lazy_fallbacks", 0)
-            for n in SIZES for call in JUDGED if results[n][call].get("lazy_fallbacks", 0)}
+            for n in SIZES for call in calls if results[n][call].get("lazy_fallbacks", 0)}
 
 
-def judge(results):
+def judge(results, calls=JUDGED):
     """The whole preflight decision: rows (2x) AND value bytes (3x) AND no
     lazy-rows fallbacks. Returns (passed, rows ratios, byte ratios, fallbacks)."""
-    rows_passed, ratios = verdict(results)
-    bytes_passed, byte_ratios = bytes_verdict(results)
-    fell = fallbacks(results)
+    rows_passed, ratios = verdict(results, calls=calls)
+    bytes_passed, byte_ratios = bytes_verdict(results, calls=calls)
+    fell = fallbacks(results, calls=calls)
     return rows_passed and bytes_passed and not fell, ratios, byte_ratios, fell
 
 
@@ -149,26 +154,52 @@ def arm(ctrl, admin, n):
         ctrl.drop_database(admin, database_name(desc["pg_url"]))
 
 
-def preflight(ctrl, admin):
-    results = {n: arm(ctrl, admin, n) for n in SIZES}
+def large_judge(results):
+    """The same decision from N=100 to N=1000 on LARGE_JUDGED."""
+    return judge({SIZES[0]: results[SIZES[1]], SIZES[1]: results[LARGE]}, calls=LARGE_JUDGED)
+
+
+def decide(results):
+    """The whole verdict from measured results, with N=1000 judged too when
+    present. Pure (no I/O): preflight() decides only through this."""
+    large = LARGE in results
     passed, ratios, byte_ratios, fell = judge(results)
+    large_summary = None
+    if large:
+        large_passed, lr, lbr, lfell = large_judge(results)
+        passed = passed and large_passed
+        large_summary = {call: dict(rows_ratio=round(lr[call], 2), bytes_ratio=round(lbr[call], 2),
+                                    rows_n1000=results[LARGE][call]["rows"],
+                                    mb_n1000=round(results[LARGE][call]["value_bytes"] / 1e6, 2))
+                         for call in LARGE_JUDGED}
+        fell = {**fell, **{"1000:" + k.split(":", 1)[1]: v for k, v in lfell.items() if k.startswith("100:")}}
     # Absolute N=100 size beside each ratio: a flat but huge read stays visible.
     judged = {call: dict(rows_ratio=round(ratios[call], 2), bytes_ratio=round(byte_ratios[call], 2),
                          rows_n100=results[SIZES[1]][call]["rows"],
                          mb_n100=round(results[SIZES[1]][call]["value_bytes"] / 1e6, 2)) for call in JUDGED}
-    print("rows preflight (N=100 vs N=10):")
-    for call, row in judged.items():
-        print(f"  {call:14} rows x{row['rows_ratio']:<5} ({row['rows_n100']} rows)  "
-              f"bytes x{row['bytes_ratio']:<5} ({row['mb_n100']} MB)")
-    summary = dict(passed=passed, threshold=THRESHOLD, bytes_threshold=BYTES_THRESHOLD, ratios=ratios,
-                   byte_ratios=byte_ratios, judged=judged, sizes=SIZES,
-                   lazy_rows=os.environ.get("ORGTREE_LAZY_ROWS", ""), lazy_fallbacks=fell,
-                   rows={n: {k: v["rows"] for k, v in r.items()} for n, r in results.items()},
-                   value_bytes={n: {k: v["value_bytes"] for k, v in r.items()} for n, r in results.items()})
+    return dict(passed=passed, threshold=THRESHOLD, bytes_threshold=BYTES_THRESHOLD, ratios=ratios,
+                byte_ratios=byte_ratios, judged=judged, sizes=SIZES, large=large_summary,
+                lazy_rows=os.environ.get("ORGTREE_LAZY_ROWS", ""), lazy_fallbacks=fell,
+                rows={n: {k: v["rows"] for k, v in r.items()} for n, r in results.items()},
+                value_bytes={n: {k: v["value_bytes"] for k, v in r.items()} for n, r in results.items()})
+
+
+def preflight(ctrl, admin, large=False):
+    results = {n: arm(ctrl, admin, n) for n in SIZES + ((LARGE,) if large else ())}
+    summary = decide(results)
+    passed, judged, large_summary, fell = (summary["passed"], summary["judged"], summary["large"],
+                                           summary["lazy_fallbacks"])
+    for title, rows, n in (("N=100 vs N=10", judged, "100"), ("N=1000 vs N=100", large_summary, "1000")):
+        if rows:
+            print(f"rows preflight ({title}):")
+            for call, row in rows.items():
+                print(f"  {call:14} rows x{row['rows_ratio']:<5} ({row['rows_n' + n]} rows)  "
+                      f"bytes x{row['bytes_ratio']:<5} ({row['mb_n' + n]} MB)")
     from baseline import write
     write(ctrl.root / "receipts" / "rows-preflight.json", summary)
     if not passed:
         raise RuntimeError(f"rows preflight: per-request reads grow with N (N=100/N=10: {judged}; "
+                           f"N=1000/N=100: {large_summary}; "
                            f"rows limit x{THRESHOLD}, bytes limit x{BYTES_THRESHOLD}) "
                            f"or judged calls fell back to whole reads ({fell})")
     return summary

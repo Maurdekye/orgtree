@@ -5,7 +5,7 @@ import unittest
 
 import import_provenance  # noqa: F401
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/scale"))
-from rows_preflight import bytes_verdict, judge, verdict
+from rows_preflight import bytes_verdict, decide, judge, large_judge, verdict
 
 
 def arm(read, message, tokens=1, harness=5):
@@ -111,6 +111,44 @@ class Judge(unittest.TestCase):
         passed, _, _, fell = judge({10: sized(), 100: large})
         self.assertFalse(passed)
         self.assertEqual(fell, {"100:message": 1})
+
+
+class LargeStep(unittest.TestCase):
+    """--preflight-large: chat and message judged again from N=100 to N=1000."""
+
+    def test_attempt_4_message_growth_fails_it(self):
+        big = sized(message=1.2)
+        big["message"]["rows"] = 29          # 10 -> 29 rows: the 335 -> ~985 shape
+        passed, ratios, _, _ = large_judge({10: sized(), 100: sized(), 1000: big})
+        self.assertFalse(passed)
+        self.assertGreater(ratios["message"], 2)
+
+    def test_flat_large_step_passes_and_judges_only_chat_and_message(self):
+        big = sized(org_list=9.0)            # not judged at the large step
+        big["org_list"]["rows"] = 100
+        passed, ratios, byte_ratios, fell = large_judge({10: sized(), 100: sized(), 1000: big})
+        self.assertTrue(passed)
+        self.assertEqual(set(ratios), {"chat", "message"})
+        self.assertEqual(set(byte_ratios), {"chat", "message"})
+
+    def test_decide_fails_when_only_the_large_step_fails(self):
+        big = sized()
+        big["message"]["rows"] = 29
+        self.assertTrue(decide({10: sized(), 100: sized()})["passed"])
+        summary = decide({10: sized(), 100: sized(), 1000: big})
+        self.assertFalse(summary["passed"])
+        self.assertEqual(summary["large"]["message"]["rows_n1000"], 29)
+        self.assertTrue(decide({10: sized(), 100: sized(), 1000: sized()})["passed"])
+
+    def test_decide_without_the_large_step_reports_none(self):
+        self.assertIsNone(decide({10: sized(), 100: sized()})["large"])
+
+    def test_a_fallback_at_n1000_fails_it(self):
+        big = sized()
+        big["chat"]["lazy_fallbacks"] = 2
+        passed, _, _, fell = large_judge({10: sized(), 100: sized(), 1000: big})
+        self.assertFalse(passed)
+        self.assertEqual(fell, {"100:chat": 2})
 
 
 if __name__ == "__main__":
