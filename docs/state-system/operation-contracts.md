@@ -786,8 +786,10 @@ unknown recipients), writes by recipient class (agent, user, @org:, @mcp:, @net:
 and receipt. Unresolved with an owner: effects (P07: the destination-org write of
 `interorg_send` and the @net: drain are spied, not exercised), reads and
 instrumentation (P02), conflicts (native design) and wire (native/Rust). Recorded
-legacy behaviour: empty bodies are delivered, any `kind` but `notice` is accepted,
-and an agent may message itself, which drives its own turn.
+legacy behaviour: any `kind` but `notice` is accepted, and an agent may message
+itself, which drives its own turn. Empty, blank or missing bodies and unknown
+argument fields are refused 422 before anything is written (`toolargs`,
+2026-09-28; they used to be delivered as empty mail).
 
 Candidate 4 (F2, the human side) adds `mail.human-send` (POST
 `.../nodes/{nid}/message`) and the three inbox routes, `mail.user-inbox`,

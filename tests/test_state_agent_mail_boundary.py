@@ -228,13 +228,16 @@ class AgentMailBoundary(unittest.TestCase):
         result, _, _, _, after = self.send(M, 'top', 'mid', kind='weird')
         self.assertEqual(after['mail']['top'][-1]['kind'], 'weird')
 
-    def test_empty_bodies_are_delivered_and_drive(self):
-        for args in (dict(to='top', body=''), dict(to='top', body='   '), dict(to='top')):
-            with self.subTest(args=args):
-                self.reset()
-                result = self.okay(self.call(M, args, 'mid'))
-                self.assertEqual(self.durable()['mail']['top'][-1]['body'], args.get('body', ''))
-                self.drive.assert_called_once()
+    def test_empty_bodies_and_misnamed_text_are_refused(self):
+        # used to deliver an EMPTY mail and drive the recipient (2026-09-28:
+        # nine blank mails sent with the text under `message`); toolargs
+        for tool in (M, N):
+            for args, text in ((dict(to='top', body=''), '`body` is empty'),
+                               (dict(to='top', body='   '), '`body` is empty'),
+                               (dict(to='top'), 'required field `body` is missing'),
+                               (dict(to='top', message='x'), 'did you mean `body`?')):
+                with self.subTest(tool=tool, args=args):
+                    self.refuses_cleanly(tool, args, 'mid', text)
 
     def test_archived_recipient_is_deferred_and_never_pinged(self):
         for tool in (M, N):

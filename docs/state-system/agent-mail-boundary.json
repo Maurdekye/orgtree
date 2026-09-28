@@ -96,7 +96,6 @@
     }
   },
   "legacy_defects": [
-    "an empty, whitespace-only or missing body is accepted and delivered",
     "any kind text except 'notice' is accepted verbatim",
     "a self-send is accepted and drives the sender itself"
   ],
