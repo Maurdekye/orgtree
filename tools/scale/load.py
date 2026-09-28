@@ -910,7 +910,8 @@ def main(argv=None) -> int:
                           "samples": len(mem),
                           "slope_mb_per_min_2nd_half": round(slope(half) * 60 / 2 ** 20, 2) if slope(half) is not None else None,
                           # The verdict reads the per-minute floor; the raw slope above stays for comparison.
-                          "floor": memory_floor(mem)},
+                          "floor": memory_floor(mem),
+                          "floor_2min": memory_floor(mem, bucket_s=120.0)},  # context only; the verdict is "floor"
                "cpu": pct([s["cpu"] for s in samples if s.get("cpu") is not None]),
                "pg": {"conns": pct([s["pg_conns"] for s in samples if "pg_conns" in s]),
                       "lock_wait": pct([s["pg_lock_wait"] for s in samples if "pg_lock_wait" in s]),
