@@ -370,6 +370,7 @@ class WindowDriver:
     def __init__(self, slug, watch, window, origin, headers, rec, stop, *, workers=16):
         from control import BoundedPool
         import httpx
+        from conn_reset import keepalive_limits
         self.watch, self.window, self.origin = watch, window, origin
         self.headers, self.rec, self.stop = headers, rec, stop
         self.clock = HookClock(hooks(slug, watch, window))
@@ -384,7 +385,7 @@ class WindowDriver:
         # Chromium's HTTP/1 per-origin connection budget applies to all
         # independent hooks in a window, not a fresh pool for every worker.
         self.client = httpx.Client(base_url=origin, timeout=30,
-            limits=httpx.Limits(max_connections=6, max_keepalive_connections=6))
+            limits=keepalive_limits(max_connections=6, max_keepalive_connections=6))
 
     def event(self, frame):
         with self.lock:

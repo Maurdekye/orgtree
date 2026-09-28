@@ -3,6 +3,7 @@ import socket
 import struct
 import sys
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -112,6 +113,34 @@ class ConnResetTest(unittest.TestCase):
             post_retry_reused_reset(client, "/x", json={})
         self.assertIsNotNone(getattr(caught.exception, "scale_reset", None))
         self.assertEqual(server.requests, 3)
+
+
+class MutatingAndKeepAlive(unittest.TestCase):
+    def test_mutating_reset_is_never_resent_but_is_counted(self):
+        server = ScriptedServer(["ok", "rst", "ok"])
+        self.addCleanup(server.close)
+        client = httpx.Client(base_url=server.url, timeout=5)
+        self.addCleanup(client.close)
+        post_retry_reused_reset(client, "/x", json={}, retry=False)
+        with self.assertRaises(httpx.TransportError) as caught:
+            post_retry_reused_reset(client, "/x", json={}, retry=False)
+        self.assertEqual(caught.exception.scale_reset["retried"], False)
+        self.assertEqual(server.requests, 2)       # the write was NOT sent again
+
+    def test_idle_connection_expires_before_the_server_closes_it(self):
+        from conn_reset import KEEPALIVE_EXPIRY_S, keepalive_limits
+        self.assertLess(KEEPALIVE_EXPIRY_S, 5.0)   # uvicorn closes idle keep-alive at 5 s
+        server = ScriptedServer([])
+        self.addCleanup(server.close)
+        client = httpx.Client(base_url=server.url, timeout=5, limits=keepalive_limits())
+        self.addCleanup(client.close)
+        client.post("/x", json={})
+        time.sleep(0.3)
+        client.post("/x", json={})
+        self.assertEqual(server.connections, 1)    # reused while fresh
+        time.sleep(KEEPALIVE_EXPIRY_S + 0.5)
+        client.post("/x", json={})
+        self.assertEqual(server.connections, 2)    # expired, not reused
 
 
 if __name__ == "__main__":
