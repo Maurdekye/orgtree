@@ -851,7 +851,13 @@ def main(argv=None) -> int:
     if stream_nodes:
         valid = valid and emitted_count[0] > 0
         if args.renderer_hooks:
-            valid = valid and emitted_count[0] == config["plans"]["stream"]["requests"]
+            # Only a real backlog fails; frames cut off by a request still in
+            # flight at the close are reported (streaming.split_unsent).
+            from streaming import split_unsent
+            stream_plan = list(rows("stream-plan"))
+            close_cutoff, backlog = split_unsent(stream_plan, {r["m"] for r in rows("markers")},
+                                                 args.stream_catchup_max)
+            valid = valid and not backlog and emitted_count[0] + close_cutoff == len(stream_plan)
     if feed_tracker.pending or any(x["missing_after_5s"] or x["closes"] for x in feed.values()):
         valid = False
     if steady:
@@ -889,6 +895,8 @@ def main(argv=None) -> int:
                             "stream_markers_failed_submit": feed_tracker.failed,
                             "stream_markers_planned_not_sent": (config["plans"]["stream"]["requests"] - emitted_count[0]
                                                                 if args.renderer_hooks else None),
+                            "stream_markers_close_cutoff": close_cutoff if stream_nodes and args.renderer_hooks else None,
+                            "stream_markers_backlog": backlog if stream_nodes and args.renderer_hooks else None,
                             "stream_markers_not_yet_assessed": len(feed_tracker.pending)},
                "tools": tools_summary, "routes": routes_summary, "feed": feed,
                "steer": {"total_ms": pct(steer_latencies), "errors": steer_errors,

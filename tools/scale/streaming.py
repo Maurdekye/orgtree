@@ -27,6 +27,34 @@ async def send_frames(client, frames, *, first_seq, emit, due, started, feed, re
                          'late_ms': round((begun - due) * 1000, 1)})
 
 
+def split_unsent(plan_rows, sent_ids, max_batch):
+    """Split planned-but-unsent frames into ``(close_cutoff, backlog)``.
+
+    ``drive_planned`` keeps one request per agent in flight and emits nothing
+    at or after the close. So an agent whose last request was still in flight
+    at the close leaves the frames due since then unsent. The next single
+    request would have carried at most ``max_batch`` of them. Those are the
+    close cutoff (attempt 6: one frame, due 0.25 s before the close). Anything
+    beyond that, an unsent frame due before a frame of the same agent that
+    WAS sent, and every frame of an agent that sent nothing, is a real backlog.
+    """
+    by_node = {}
+    for row in plan_rows:
+        by_node.setdefault(row['node'], []).append(row)
+    cutoff = backlog = 0
+    for rows in by_node.values():
+        rows.sort(key=lambda r: (r['t'], r['m']))
+        last_sent = max((i for i, r in enumerate(rows) if r['m'] in sent_ids), default=-1)
+        backlog += sum(1 for r in rows[:last_sent + 1] if r['m'] not in sent_ids)
+        tail = sum(1 for r in rows[last_sent + 1:] if r['m'] not in sent_ids)
+        if last_sent < 0:                          # never sent at all: not a close cutoff
+            backlog += tail
+            continue
+        cutoff += min(tail, max_batch)
+        backlog += max(0, tail - max_batch)
+    return cutoff, backlog
+
+
 async def drive_planned(jobs, submit, *, started, duration, stop, max_batch,
                         clock=time.time):
     """Replay a per-agent frame plan with bounded catch-up.

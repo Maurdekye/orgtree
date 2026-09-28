@@ -191,7 +191,10 @@ class FeedMeasurementSplit(unittest.TestCase):
             for row in rows:
                 f.write(json.dumps(row) + '\n')
 
-    def measure(self, sent, received):
+    def measure(self, sent, received, catchup=None):
+        config = {'warmup_s': 0, 'duration_s': 100, 'windows': 1}
+        if catchup is not None:
+            config['stream_catchup_max'] = catchup
         with tempfile.TemporaryDirectory() as d:
             folder = Path(d)
             self.write(folder, 'stream-plan', [{'m': m, 't': 10 + m, 'node': 'a'} for m in range(1, 11)])
@@ -200,7 +203,7 @@ class FeedMeasurementSplit(unittest.TestCase):
                                           for m in sent])
             self.write(folder, 'feed-receipts', [{'w': 0, 'm': m, 'emit': 100.0 + m, 'receive': 100.2 + m}
                                                  for m in received])
-            return summarize_window(folder, {'warmup_s': 0, 'duration_s': 100, 'windows': 1})
+            return summarize_window(folder, config)
 
     def test_all_sent_and_delivered_passes(self):
         r = self.measure(range(1, 11), range(1, 11))
@@ -218,6 +221,38 @@ class FeedMeasurementSplit(unittest.TestCase):
         r = self.measure(range(1, 11), range(1, 10))
         self.assertEqual((r['feed'][0]['planned_not_sent'], r['feed'][0]['missing_after_5s']), (0, 1))
         self.assertFalse(r['feed_pass'])
+
+    def split(self, f):
+        return (f['planned_not_sent'], f['planned_not_sent_close_cutoff'], f['planned_not_sent_backlog'])
+
+    def test_attempt_6_close_cutoff_is_reported_and_passes(self):
+        # Attempt 6: one frame due just before the close, its agent's previous
+        # request still in flight. Reported, not a backlog.
+        r = self.measure(range(1, 10), range(1, 10), catchup=8)
+        self.assertEqual(self.split(r['feed'][0]), (1, 1, 0))
+        self.assertTrue(r['feed_pass'])
+
+    def test_more_unsent_than_one_request_carries_is_a_backlog(self):
+        r = self.measure(range(1, 8), range(1, 8), catchup=2)
+        self.assertEqual(self.split(r['feed'][0]), (3, 2, 1))
+        self.assertFalse(r['feed_pass'])
+
+    def test_unsent_frame_before_a_sent_one_is_a_backlog(self):
+        sent = [m for m in range(1, 11) if m != 4]
+        r = self.measure(sent, sent, catchup=8)
+        self.assertEqual(self.split(r['feed'][0]), (1, 0, 1))
+        self.assertFalse(r['feed_pass'])
+
+
+class SplitUnsent(unittest.TestCase):
+    def test_per_agent_tail_bound(self):
+        from tools.scale.streaming import split_unsent
+        plan = [{'m': i, 't': i, 'node': n} for i, n in enumerate('abababab')]
+        sent = {0, 1, 2, 3}                       # a: 0,2 sent 4,6 unsent; b: 1,3 sent 5,7 unsent
+        self.assertEqual(split_unsent(plan, sent, 1), (2, 2))
+        self.assertEqual(split_unsent(plan, sent, 2), (4, 0))
+        self.assertEqual(split_unsent(plan, set(range(8)), 1), (0, 0))
+        self.assertEqual(split_unsent(plan, set(), 8), (0, 8))
 
 if __name__ == '__main__':
     unittest.main()
