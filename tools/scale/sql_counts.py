@@ -7,12 +7,27 @@ No SQL text, payloads or stacks are retained.
 """
 import contextvars
 import json
+import os
 import re
 import threading
 import time
+import traceback
 
 current = contextvars.ContextVar("scale_sql_counts", default=None)
 muted = contextvars.ContextVar("scale_sql_nested_fetch", default=False)
+#: ORGTREE_SCALE_SQL_STATEMENTS=1 (diagnosis only): also break each request's
+#: rows down by statement -- collapsed SQL text (first 200 chars) plus the three
+#: innermost orgtree frames that issued it -- so a growing read can be named.
+BY_STATEMENT = os.environ.get("ORGTREE_SCALE_SQL_STATEMENTS") == "1"
+last_statement = contextvars.ContextVar("scale_sql_last_statement", default=None)
+
+
+def _statement_key(query):
+    text = " ".join(str(query).split())[:200]
+    frames = [f"{os.path.basename(f.filename)}:{f.lineno}:{f.name}"
+              for f in traceback.extract_stack()[:-3]
+              if os.path.basename(os.path.dirname(f.filename)) == "orgtree"]
+    return text + " @ " + " < ".join(reversed(frames[-3:]))
 
 
 def value_bytes(value):
@@ -54,6 +69,10 @@ def install():
                 # keywords in the observed DML/CTE statements.
                 if re.search(r"\b(INSERT|UPDATE|DELETE|MERGE)\b", query, re.I):
                     counts["write_parameter_bytes"] += size
+                if BY_STATEMENT:
+                    key = _statement_key(query)
+                    last_statement.set(key)
+                    counts.setdefault("by_statement", {}).setdefault(key, [0, 0, 0])[0] += len(batches)
             elif name in ("copy", "stream"):
                 counts["unsupported_operations"] += 1
             token = muted.set(True)
@@ -68,7 +87,13 @@ def install():
             if name in ("fetchone", "fetchmany", "fetchall", "__next__"):
                 rows = ([result] if result is not None else []) if name in ("fetchone", "__next__") else result
                 counts["rows"] += len(rows)
-                counts["value_bytes"] += sum(sum(value_bytes(v) for v in row) for row in rows)
+                size = sum(sum(value_bytes(v) for v in row) for row in rows)
+                counts["value_bytes"] += size
+                key = last_statement.get() if BY_STATEMENT else None
+                if key is not None:
+                    entry = counts.setdefault("by_statement", {}).setdefault(key, [0, 0, 0])
+                    entry[1] += len(rows)
+                    entry[2] += size
             return result
         setattr(psycopg.Cursor, name, measured)
     for name in ("execute", "executemany", "fetchone", "fetchmany", "fetchall", "__next__", "copy", "stream"):

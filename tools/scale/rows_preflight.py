@@ -13,6 +13,18 @@ desktop notifications (every 5 s in window 0) and the org list.
 Recorded, not judged: the harness routes /scale/tokens, /scale/workload and
 /scale/settlement (serve.py; they load the whole org on purpose), and the
 foreground tree, whose payload covers the visible agents by design.
+
+TWO JUDGED STEPS, each changing ONE axis (scale-ui-astra, 2026-09-28):
+  * agents: N=10 -> N=100, both at ITEMS[0] active docket items;
+  * items:  ITEMS[0] -> ITEMS[1] active items (the N=1000 recipe), both at
+    N=100 -- the N=100 arm at ITEMS[0] is shared with the agents step.
+Mixing the axes hides which one grew: the N=1000 message read 985 rows
+because every load listed all 180 active items, which a 20-item preflight
+could not see (message-send-reads-grow-above-n-100-985-rows-1-2). Same rules
+(rows 2x, bytes 3x above the floor, no lazy fallbacks) on both steps, except
+that the item step records but does not judge the docket view (it shows every
+active item by design; ITEM_JUDGED). Each arm's item count is recorded in its
+receipt.
 """
 import json
 import os
@@ -22,6 +34,9 @@ import time
 import httpx
 
 SIZES = (10, 100)
+#: active docket items for the item step at N=SIZES[1]: the preflight's own
+#: seed, then the N=1000 seed's (seed.py --active-items default)
+ITEMS = (20, 180)
 THRESHOLD = 2.0
 #: Value bytes may grow when rows do not (a whole-org read hidden behind a
 #: large per-node log, e.g. node_chat), so bytes are judged too, more loosely.
@@ -33,27 +48,32 @@ BYTES_THRESHOLD = 3.0
 #: at N=1000.
 BYTES_FLOOR = 256_000
 JUDGED = ("work_items", "chat", "notifications", "org_list", "message")
+#: The item step judges every call except the docket view itself, which shows
+#: every active item (product cap 200) by design, so its reads follow the item
+#: count; it is still recorded. Anything else that follows the docket size fails.
+ITEM_JUDGED = tuple(c for c in JUDGED if c != "work_items")
 KIND = "rows-preflight"
 
 
-def verdict(results, threshold=THRESHOLD):
+def verdict(results, threshold=THRESHOLD, steps=SIZES, calls=JUDGED):
     """results: {n: {call: {"rows": int, ...}}} -> (passed, per-call rows ratios)."""
-    small, large = (results[n] for n in SIZES)
+    small, large = (results[n] for n in steps)
     ratios = {}
-    for call in JUDGED:
+    for call in calls:
         if call not in small or call not in large or not small[call]["rows"]:
             raise ValueError(f"rows preflight did no measurable work for {call}")
         ratios[call] = large[call]["rows"] / small[call]["rows"]
     return all(r <= threshold for r in ratios.values()), ratios
 
 
-def bytes_verdict(results, threshold=BYTES_THRESHOLD, floor=BYTES_FLOOR):
+def bytes_verdict(results, threshold=BYTES_THRESHOLD, floor=BYTES_FLOOR, steps=SIZES,
+                  calls=JUDGED):
     """(passed, per-call value-byte ratios N=100/N=10); refuses zero-byte calls.
     A call fails only if its ratio exceeds `threshold` AND its N=100 read is at
     least `floor` bytes."""
-    small, large = (results[n] for n in SIZES)
+    small, large = (results[n] for n in steps)
     ratios, failed = {}, []
-    for call in JUDGED:
+    for call in calls:
         if not small[call].get("value_bytes"):
             raise ValueError(f"rows preflight read no value bytes for {call}")
         ratios[call] = large[call]["value_bytes"] / small[call]["value_bytes"]
@@ -62,19 +82,19 @@ def bytes_verdict(results, threshold=BYTES_THRESHOLD, floor=BYTES_FLOOR):
     return not failed, ratios
 
 
-def fallbacks(results):
+def fallbacks(results, steps=SIZES, calls=JUDGED):
     """Judged calls that had to decode every node row (ORGTREE_LAZY_ROWS
     fallbacks). A fallback is a whole-org read: any at all fails."""
     return {f"{n}:{call}": results[n][call].get("lazy_fallbacks", 0)
-            for n in SIZES for call in JUDGED if results[n][call].get("lazy_fallbacks", 0)}
+            for n in steps for call in calls if results[n][call].get("lazy_fallbacks", 0)}
 
 
-def judge(results):
-    """The whole preflight decision: rows (2x) AND value bytes (3x) AND no
+def judge(results, steps=SIZES, calls=JUDGED):
+    """The whole decision for one step: rows (2x) AND value bytes (3x) AND no
     lazy-rows fallbacks. Returns (passed, rows ratios, byte ratios, fallbacks)."""
-    rows_passed, ratios = verdict(results)
-    bytes_passed, byte_ratios = bytes_verdict(results)
-    fell = fallbacks(results)
+    rows_passed, ratios = verdict(results, steps=steps, calls=calls)
+    bytes_passed, byte_ratios = bytes_verdict(results, steps=steps, calls=calls)
+    fell = fallbacks(results, steps=steps, calls=calls)
     return rows_passed and bytes_passed and not fell, ratios, byte_ratios, fell
 
 
@@ -101,11 +121,11 @@ def calls(desc):
     return labels
 
 
-def arm(ctrl, admin, n):
+def arm(ctrl, admin, n, items=ITEMS[0]):
     from baseline import REPO, read, write, database_name
-    root = ctrl.root / f"preflight-{n}"
-    name = f"preflight-{n}"
-    ctrl.script("seed.py", name + "-seed", "--root", root, "--agents", n, "--active-items", 20,
+    name = f"preflight-{n}" if items == ITEMS[0] else f"preflight-{n}-items{items}"
+    root = ctrl.root / name
+    ctrl.script("seed.py", name + "-seed", "--root", root, "--agents", n, "--active-items", items,
                 "--archived-per-live", 0, "--archived-items-per-live", 0, "--transcript-kb", 1,
                 "--seed", 1, "--admin-url", admin, "--min-free-commit-gb", 12, "--no-profile-item")
     desc = read(root / "scale-descriptor.json")
@@ -115,7 +135,8 @@ def arm(ctrl, admin, n):
         server = ctrl.spawn([sys.executable, "-I", "-B", str(REPO / "tools/scale/serve.py"),
             "--root", str(root), "--env", "ORGTREE_SCALE_SIMULATED_PROVIDER=1",
             "--env", "ORGTREE_SCALE_SQL_COUNTS=1",
-            *(a for k in ("ORGTREE_LAZY_ROWS", "ORGTREE_CHAT_RUNTIME_VIEW") if k in os.environ
+            *(a for k in ("ORGTREE_LAZY_ROWS", "ORGTREE_CHAT_RUNTIME_VIEW", "ORGTREE_SCALE_SQL_STATEMENTS")
+              if k in os.environ
               for a in ("--env", f"{k}={os.environ[k]}"))], name + "-serve")
         try:
             deadline = time.monotonic() + 300
@@ -143,32 +164,54 @@ def arm(ctrl, admin, n):
             raise RuntimeError(f"{name}: {len(rows)} counted requests for {len(labels)} calls")
         # Boundary rows are appended at response end; the calls are sequential.
         result = {label: row for label, row in zip(labels, sorted(rows, key=lambda r: r["at"]))}
-        write(ctrl.root / "receipts" / f"{name}.json", result)
+        seeded = read(root / "scale-descriptor.json").get("seed", {})
+        write(ctrl.root / "receipts" / f"{name}.json",
+              dict(result, _seed=dict(agents=n, active_items_requested=items,
+                                      active_items=seeded.get("work_items"))))
         return result
     finally:
         ctrl.drop_database(admin, database_name(desc["pg_url"]))
 
 
-def preflight(ctrl, admin):
-    results = {n: arm(ctrl, admin, n) for n in SIZES}
-    passed, ratios, byte_ratios, fell = judge(results)
-    # Absolute N=100 size beside each ratio: a flat but huge read stays visible.
+def _step(results, steps, label, calls=JUDGED):
+    passed, ratios, byte_ratios, fell = judge(results, steps=steps, calls=calls)
+    # Absolute larger-arm size beside each ratio: a flat but huge read stays visible.
+    large = results[steps[1]]
     judged = {call: dict(rows_ratio=round(ratios[call], 2), bytes_ratio=round(byte_ratios[call], 2),
-                         rows_n100=results[SIZES[1]][call]["rows"],
-                         mb_n100=round(results[SIZES[1]][call]["value_bytes"] / 1e6, 2)) for call in JUDGED}
-    print("rows preflight (N=100 vs N=10):")
+                         rows_large=large[call]["rows"],
+                         mb_large=round(large[call]["value_bytes"] / 1e6, 2)) for call in calls}
+    # recorded, not judged (ITEM_JUDGED): the size is still visible
+    recorded = {call: dict(rows_large=large[call]["rows"], mb_large=round(large[call]["value_bytes"] / 1e6, 2))
+                for call in JUDGED if call not in calls}
+    print(f"rows preflight ({label}):")
     for call, row in judged.items():
-        print(f"  {call:14} rows x{row['rows_ratio']:<5} ({row['rows_n100']} rows)  "
-              f"bytes x{row['bytes_ratio']:<5} ({row['mb_n100']} MB)")
-    summary = dict(passed=passed, threshold=THRESHOLD, bytes_threshold=BYTES_THRESHOLD, ratios=ratios,
-                   byte_ratios=byte_ratios, judged=judged, sizes=SIZES,
-                   lazy_rows=os.environ.get("ORGTREE_LAZY_ROWS", ""), lazy_fallbacks=fell,
-                   rows={n: {k: v["rows"] for k, v in r.items()} for n, r in results.items()},
-                   value_bytes={n: {k: v["value_bytes"] for k, v in r.items()} for n, r in results.items()})
+        print(f"  {call:14} rows x{row['rows_ratio']:<5} ({row['rows_large']} rows)  "
+              f"bytes x{row['bytes_ratio']:<5} ({row['mb_large']} MB)")
+    return dict(passed=passed, steps=steps, ratios=ratios, byte_ratios=byte_ratios, judged=judged,
+                recorded=recorded, lazy_fallbacks=fell,
+                rows={n: {k: v["rows"] for k, v in r.items()} for n, r in results.items()},
+                value_bytes={n: {k: v["value_bytes"] for k, v in r.items()} for n, r in results.items()})
+
+
+def preflight(ctrl, admin):
+    by_n = {n: arm(ctrl, admin, n) for n in SIZES}
+    by_items = {ITEMS[0]: by_n[SIZES[1]], ITEMS[1]: arm(ctrl, admin, SIZES[1], ITEMS[1])}
+    agents = _step(by_n, SIZES, f"N={SIZES[1]} vs N={SIZES[0]}, {ITEMS[0]} items")
+    work = _step(by_items, ITEMS, f"{ITEMS[1]} vs {ITEMS[0]} active items, N={SIZES[1]}",
+                 calls=ITEM_JUDGED)
+    passed = agents["passed"] and work["passed"]
+    summary = dict(passed=passed, threshold=THRESHOLD, bytes_threshold=BYTES_THRESHOLD,
+                   sizes=SIZES, items=ITEMS, lazy_rows=os.environ.get("ORGTREE_LAZY_ROWS", ""),
+                   agents_step=agents, items_step=work,
+                   # the agents step's fields at top level, as before
+                   ratios=agents["ratios"], byte_ratios=agents["byte_ratios"], judged=agents["judged"],
+                   lazy_fallbacks={**agents["lazy_fallbacks"], **{
+                       f"items{k}": v for k, v in work["lazy_fallbacks"].items()}})
     from baseline import write
     write(ctrl.root / "receipts" / "rows-preflight.json", summary)
     if not passed:
-        raise RuntimeError(f"rows preflight: per-request reads grow with N (N=100/N=10: {judged}; "
-                           f"rows limit x{THRESHOLD}, bytes limit x{BYTES_THRESHOLD}) "
-                           f"or judged calls fell back to whole reads ({fell})")
+        raise RuntimeError(f"rows preflight: per-request reads grow (agents step: {agents['judged']}; "
+                           f"items step: {work['judged']}; rows limit x{THRESHOLD}, bytes limit "
+                           f"x{BYTES_THRESHOLD}) or judged calls fell back to whole reads "
+                           f"({summary['lazy_fallbacks']})")
     return summary

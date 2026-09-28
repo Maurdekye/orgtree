@@ -5,7 +5,7 @@ import unittest
 
 import import_provenance  # noqa: F401
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/scale"))
-from rows_preflight import bytes_verdict, judge, verdict
+from rows_preflight import ITEM_JUDGED, ITEMS, SIZES, bytes_verdict, judge, verdict
 
 
 def arm(read, message, tokens=1, harness=5):
@@ -111,6 +111,34 @@ class Judge(unittest.TestCase):
         passed, _, _, fell = judge({10: sized(), 100: large})
         self.assertFalse(passed)
         self.assertEqual(fell, {"100:message": 1})
+
+
+class ItemStep(unittest.TestCase):
+    """The item step judges ITEMS[1] vs ITEMS[0] active items at fixed N with
+    the same rules (message-send-reads-grow-above-n-100-985-rows-1-2)."""
+    def test_the_steps_change_one_axis_each(self):
+        self.assertEqual(ITEMS, (20, 180))
+        self.assertEqual(SIZES, (10, 100))
+
+    def test_reads_that_follow_the_item_count_fail_the_item_step(self):
+        small, large = sized(), sized()
+        large["message"]["rows"] = small["message"]["rows"] * 3
+        passed, ratios, _, _ = judge({20: small, 180: large}, steps=ITEMS)
+        self.assertFalse(passed)
+        self.assertEqual(ratios["message"], 3.0)
+
+    def test_the_docket_view_is_recorded_not_judged_on_the_item_step(self):
+        # it shows every active item by design; everything else is judged
+        small, large = sized(), sized()
+        large["work_items"]["rows"] = small["work_items"]["rows"] * 9
+        self.assertNotIn("work_items", ITEM_JUDGED)
+        self.assertTrue(judge({20: small, 180: large}, steps=ITEMS, calls=ITEM_JUDGED)[0])
+        self.assertFalse(judge({20: small, 180: large}, steps=ITEMS)[0])
+
+    def test_flat_item_step_passes(self):
+        passed, _, _, fell = judge({20: sized(), 180: sized()}, steps=ITEMS)
+        self.assertTrue(passed)
+        self.assertEqual(fell, {})
 
 
 if __name__ == "__main__":
