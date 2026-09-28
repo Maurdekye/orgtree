@@ -7,8 +7,10 @@ def memory_floor(points, bucket_s=60.0, flat_pct=5.0):
     """Judge memory on its per-minute FLOOR and report the peak beside it.
 
     ``points`` are ``(t_seconds, bytes)``. Attempt 6's raw slope read as
-    "climbing 16-21 MB/min", but the series was a square wave (430 <-> 640 MB
-    every ~21.5 s, a periodic archive decode) over a flat floor. Each
+    "climbing 16-21 MB/min", but the series swung 430 <-> 640 MB (a periodic
+    archive decode) over flat lows. Its high phases sometimes lasted 55-119 s,
+    so two whole minutes had no trough; coordinator-opus ruled those count
+    (memory the engine really holds), with the 2-minute figure beside. Each
     ``bucket_s`` bucket whose samples cover at least 90 % of it keeps its
     minimum; a partial bucket is dropped because it may miss the trough.
     ``floor_flat`` holds when the
@@ -113,6 +115,7 @@ def summarize_window(folder, config):
             end_bytes=mem[-1]["engine_private"] if mem else None,
             peak_bytes=max((r["engine_private"] for r in mem), default=None),
             last_half_bytes_per_second=slope,
-            floor=memory_floor([(r["t"], r["engine_private"]) for r in mem])),
+            floor=memory_floor([(r["t"], r["engine_private"]) for r in mem]),
+            floor_2min=memory_floor([(r["t"], r["engine_private"]) for r in mem], bucket_s=120.0)),  # context only
         cpu_percent=pct([r["cpu"] for r in samples if "cpu" in r]),
         pg_sessions=pct([r["pg_conns"] for r in samples if "pg_conns" in r]))
