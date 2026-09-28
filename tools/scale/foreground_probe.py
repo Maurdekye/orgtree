@@ -19,7 +19,7 @@ import time
 
 import httpx
 
-SIZES = (10, 100)
+SIZES = tuple(int(n) for n in os.environ.get("FG_PROBE_SIZES", "10,100").split(","))
 KIND = "fg-probe"
 # FG_PROBE_DIAG=0: timers only. SQL counters, labels and the why-log add work
 # inside the measured read, so a timing arm must run without them.
@@ -92,6 +92,69 @@ def calls(desc):
         row = _get(client, url, "time-bucket", etag); out.append(row)
         etag = row["etag"] or etag
         out.append(_get(client, url, "time-bucket-again", etag))
+        if REPS:
+            out.extend(proof(client, desc, tokens, actor, url, row["etag"] or etag))
+    return out
+
+
+# N1000 proof (FG_PROBE_REPS > 0): repeated warm reads, each right after one
+# foreground-style write, while a background thread applies status writes
+# from other agents at FG_PROBE_LOAD_HZ (the fleet's observed aggregate peak
+# is ~0.94 Hz). No turn bursts: the turn memory climb is a separate item.
+REPS = int(os.environ.get("FG_PROBE_REPS", "0"))
+LOAD_HZ = float(os.environ.get("FG_PROBE_LOAD_HZ", "1.0"))
+
+
+def proof(client, desc, tokens, actor, url, etag):
+    import random
+    import threading
+    out = []
+    stop = threading.Event()
+    load = dict(writes=0, errors=0, hz=LOAD_HZ)
+    others = sorted(a for a in tokens if a != actor)
+    rng = random.Random(7)
+
+    def background():
+        with httpx.Client(base_url=desc["origin"], headers={"X-Orgtree-Desktop-Token": desc["token"]},
+                          timeout=120) as bg:
+            i = 0
+            while LOAD_HZ > 0 and not stop.wait(1.0 / LOAD_HZ):
+                who = rng.choice(others)
+                r = _agent(bg, desc["org"], who, tokens[who], "orgtree_status",
+                           dict(status="working", summary=f"[fg-probe] load {i}"), "load-write")
+                load["writes"] += 1
+                load["errors"] += r["status"] != 200
+                i += 1
+
+    writes = {
+        "node-only": lambda i: ("orgtree_retool", dict(node=actor, team_charter=f"[fg-probe] charter {i}")),
+        "doc-write": lambda i: ("orgtree_work", dict(action="create", title=f"fg-probe item {i}",
+                                objective="Synthetic probe item. It exists only in the throwaway org.",
+                                kind="non-code")),
+        "status": lambda i: ("orgtree_status", dict(status="working", summary=f"[fg-probe] proof {i}")),
+    }
+    thread = threading.Thread(target=background, daemon=True)
+    thread.start()
+    started = time.monotonic()
+    try:
+        for i in range(REPS):
+            for kind, make in writes.items():
+                tool, args = make(i)
+                w = _agent(client, desc["org"], actor, tokens[actor], tool, args, f"proof-{kind}-write")
+                w["rep"] = i
+                out.append(w)
+                if w["status"] != 200:
+                    raise RuntimeError(f"proof write {kind} #{i} answered {w['status']}")
+                row = _get(client, url, f"proof-{kind}", etag)
+                row["rep"] = i
+                out.append(row)
+                etag = row["etag"] or etag
+                time.sleep(0.2)
+    finally:
+        stop.set()
+        thread.join(timeout=30)
+    load["seconds"] = round(time.monotonic() - started, 1)
+    out.append(dict(label="proof-load", status=200, **load))
     return out
 
 
@@ -203,10 +266,38 @@ def arm(ctrl, admin, n):
         ctrl.drop_database(admin, database_name(desc["pg_url"]))
 
 
+def _pct(values, q):
+    values = sorted(values)
+    return round(values[min(len(values) - 1, int(round(q * (len(values) - 1))))] * 1000, 1) if values else None
+
+
+def proof_summary(calls):
+    """Client wall ms of the proof reads per write kind (p50/p95/max), the
+    answers they got, and the background load actually applied."""
+    kinds = {}
+    for c in calls:
+        label = c["label"]
+        if label.startswith("proof-") and not label.endswith("-write") and label != "proof-load":
+            kinds.setdefault(label[len("proof-"):], []).append(c)
+    out = {kind: dict(reads=len(rows), p50_ms=_pct([r["client_seconds"] for r in rows], .5),
+                      p95_ms=_pct([r["client_seconds"] for r in rows], .95),
+                      max_ms=_pct([r["client_seconds"] for r in rows], 1.0),
+                      answers={a: sum(1 for r in rows if (r.get("answer_kind") or str(r["status"])) == a)
+                               for a in {r.get("answer_kind") or str(r["status"]) for r in rows}})
+           for kind, rows in kinds.items()}
+    out["load"] = next((c for c in calls if c["label"] == "proof-load"), None)
+    out["cold_ms"] = next((round(c["client_seconds"] * 1000, 1) for c in calls if c["label"] == "cold-identity"), None)
+    return out
+
+
 def probe(ctrl, admin):
+    if REPS and DIAG:
+        raise RuntimeError("FG_PROBE_REPS needs FG_PROBE_DIAG=0: the proof is a timing arm")
     results = {n: arm(ctrl, admin, n) for n in SIZES}
     summary = {}
     for n, result in results.items():
+        if REPS:
+            summary[f"proof-{n}"] = proof_summary(result["calls"])
         summary[n] = dict(node_val_bytes=result["node_val"]["val_bytes"],
                           live_nodes=result["node_val"]["live_nodes"],
                           timers=result["profile"],
