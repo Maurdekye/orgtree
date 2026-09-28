@@ -269,6 +269,34 @@ def install_why(path):
     foreground_store.select_foreground = select
 
     import traceback
+    from orgtree import pgfeed, pgstore
+
+    def short(limit):
+        return [f"{f.filename.replace(chr(92), '/').rsplit('/', 1)[-1]}:{f.name}"
+                for f in traceback.extract_stack(limit=limit)[:-2]]
+
+    original_commit = pgstore.on_save_commit
+
+    def on_save_commit(conn, changed, **kwargs):
+        result = original_commit(conn, changed, **kwargs)
+        if changed:
+            log(dict(event="revision", revision=conn.last_revision, pinned=bool(getattr(conn, "pinned", False)),
+                     stack=short(14)))
+        return result
+    pgstore.on_save_commit = on_save_commit
+    original_local = pgfeed.note_local
+
+    def note_local(slug, revision):
+        log(dict(event="note_local", revision=revision))
+        return original_local(slug, revision)
+    pgfeed.note_local = note_local
+    original_take = pgfeed._take_local
+
+    def take_local(slug, revision):
+        mine = original_take(slug, revision)
+        log(dict(event="feed saw", revision=revision, mine=mine))
+        return mine
+    pgfeed._take_local = take_local
     for attr in ("_publish_changes_unknown", "external_change"):
         def unknown(slug, _original=getattr(store, attr), _attr=attr):
             frames = [f"{f.filename.replace(chr(92), '/').rsplit('/', 1)[-1]}:{f.name}"
