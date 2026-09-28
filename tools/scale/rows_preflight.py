@@ -121,6 +121,23 @@ def calls(desc):
     return labels
 
 
+def seeded_items(descriptor, requested):
+    """The ACTIVE item count the seed actually wrote (its descriptor's
+    seed.summary), refusing an arm that did not seed what it was asked to:
+    the receipt proves the item axis, it does not merely request it."""
+    actual = descriptor.get("seed", {}).get("summary", {}).get("work_items")
+    if actual != requested:
+        raise RuntimeError(f"preflight seed wrote {actual!r} active items, not {requested}")
+    return actual
+
+
+def decide(steps):
+    """steps: {name: step summary}. Every step must pass; returns (passed,
+    names of the failing steps) -- one failing step alone fails the preflight."""
+    failed = [name for name, step in steps.items() if not step["passed"]]
+    return not failed, failed
+
+
 def arm(ctrl, admin, n, items=ITEMS[0]):
     from baseline import REPO, read, write, database_name
     name = f"preflight-{n}" if items == ITEMS[0] else f"preflight-{n}-items{items}"
@@ -164,10 +181,10 @@ def arm(ctrl, admin, n, items=ITEMS[0]):
             raise RuntimeError(f"{name}: {len(rows)} counted requests for {len(labels)} calls")
         # Boundary rows are appended at response end; the calls are sequential.
         result = {label: row for label, row in zip(labels, sorted(rows, key=lambda r: r["at"]))}
-        seeded = read(root / "scale-descriptor.json").get("seed", {})
+        actual = seeded_items(read(root / "scale-descriptor.json"), items)
         write(ctrl.root / "receipts" / f"{name}.json",
               dict(result, _seed=dict(agents=n, active_items_requested=items,
-                                      active_items=seeded.get("work_items"))))
+                                      active_items=actual)))
         return result
     finally:
         ctrl.drop_database(admin, database_name(desc["pg_url"]))
@@ -199,8 +216,9 @@ def preflight(ctrl, admin):
     agents = _step(by_n, SIZES, f"N={SIZES[1]} vs N={SIZES[0]}, {ITEMS[0]} items")
     work = _step(by_items, ITEMS, f"{ITEMS[1]} vs {ITEMS[0]} active items, N={SIZES[1]}",
                  calls=ITEM_JUDGED)
-    passed = agents["passed"] and work["passed"]
-    summary = dict(passed=passed, threshold=THRESHOLD, bytes_threshold=BYTES_THRESHOLD,
+    passed, failed_steps = decide({"agents": agents, "items": work})
+    summary = dict(passed=passed, failed_steps=failed_steps, threshold=THRESHOLD,
+                   bytes_threshold=BYTES_THRESHOLD,
                    sizes=SIZES, items=ITEMS, lazy_rows=os.environ.get("ORGTREE_LAZY_ROWS", ""),
                    agents_step=agents, items_step=work,
                    # the agents step's fields at top level, as before

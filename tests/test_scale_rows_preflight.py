@@ -5,7 +5,8 @@ import unittest
 
 import import_provenance  # noqa: F401
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/scale"))
-from rows_preflight import ITEM_JUDGED, ITEMS, SIZES, bytes_verdict, judge, verdict
+from rows_preflight import (ITEM_JUDGED, ITEMS, SIZES, bytes_verdict, decide, judge,
+                            seeded_items, verdict)
 
 
 def arm(read, message, tokens=1, harness=5):
@@ -134,6 +135,20 @@ class ItemStep(unittest.TestCase):
         self.assertNotIn("work_items", ITEM_JUDGED)
         self.assertTrue(judge({20: small, 180: large}, steps=ITEMS, calls=ITEM_JUDGED)[0])
         self.assertFalse(judge({20: small, 180: large}, steps=ITEMS)[0])
+
+    def test_either_step_failing_alone_fails_the_preflight(self):
+        ok, bad = {"passed": True}, {"passed": False}
+        self.assertEqual(decide({"agents": ok, "items": ok}), (True, []))
+        self.assertEqual(decide({"agents": ok, "items": bad}), (False, ["items"]))
+        self.assertEqual(decide({"agents": bad, "items": ok}), (False, ["agents"]))
+
+    def test_the_receipt_carries_the_seeded_count_and_refuses_a_short_seed(self):
+        descriptor = {"seed": {"summary": {"work_items": 180}}}
+        self.assertEqual(seeded_items(descriptor, 180), 180)
+        with self.assertRaises(RuntimeError):
+            seeded_items({"seed": {"summary": {"work_items": 40}}}, 180)
+        with self.assertRaises(RuntimeError):
+            seeded_items({"seed": {}}, 20)
 
     def test_flat_item_step_passes(self):
         passed, _, _, fell = judge({20: sized(), 180: sized()}, steps=ITEMS)
