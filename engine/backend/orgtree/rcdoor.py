@@ -178,6 +178,7 @@ def status_rows(org: Any, nid: str, status: str) -> pgdoor.TxSpec:
 
 def status_spec(snapshot: Any, body: Any, a: dict[str, Any]
                 ) -> pgdoor.TxSpec:
+    # reads one node's parent: declared runtime_snapshot=True (no docket read)
     return status_rows(snapshot, body.node, str(a.get("status") or "working"))
 
 
@@ -193,6 +194,7 @@ def reservation_rows(successor: str | None = None) -> pgdoor.TxSpec:
 
 def reservation_spec(snapshot: Any, body: Any, a: dict[str, Any]
                      ) -> pgdoor.TxSpec:
+    # arguments only: declared needs_snapshot=False, so `snapshot` is None
     succ = str(a.get("successor") or "") or None
     return reservation_rows(succ if a.get("action") == "release" else None)
 
@@ -518,7 +520,9 @@ def declare_all() -> None:
              _reservation_body),
             ("orgtree_watchdog", watchdog_spec, _watchdog_body)):
         pgdoor.declare(name, spec, body=body,
-                       kiosk_exempt=name in KIOSK_EXEMPT)
+                       kiosk_exempt=name in KIOSK_EXEMPT,
+                       needs_snapshot=spec is not reservation_spec,
+                       runtime_snapshot=spec is status_spec)
 
 
 declare_all()

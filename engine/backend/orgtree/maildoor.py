@@ -324,7 +324,8 @@ def declare_message(before: Callable[[Any, dict[str, Any]], dict[str, Any]],
 
 def declare(notify: Notify, steer: Steer, note: Note) -> None:
     """Register the mail tools on the door (api calls this once at import)."""
-    pgdoor.declare(NOTICE, notice_spec, body=notice_body(notify, steer, note))
+    pgdoor.declare(NOTICE, notice_spec, body=notice_body(notify, steer, note),
+                   runtime_snapshot=True)
     pgdoor.declare(ASK, ask_spec, body=ask_body)
     pgdoor.declare(WITHDRAW_ASK, WITHDRAW_SPEC, body=withdraw_body)
     pgdoor.declare(AUDIENCE, audience_spec, body=audience_body)
