@@ -385,6 +385,9 @@ class Controller:
                         if arm == "small":
                             self.script("load.py", "plan", *args, "--label", "plan", "--plan-only")
                             shutil.copytree(self.run_root / "metrics/plan", plans / label)
+                        # Exact history state as traffic starts (the 10 s cadence alone
+                        # can miss history that finishes early in the window).
+                        sampler.sample(arm + "-" + label)
                         self.script("load.py", arm + "-" + label, *args, "--label", label,
                                     "--plans-dir", plans / label, timeout=duration+c["warmup"]+240)
                     outcome[arm] = read(self.run_root / "metrics/measured/summary.json")

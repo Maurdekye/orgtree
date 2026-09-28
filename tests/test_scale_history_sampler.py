@@ -54,6 +54,14 @@ class Sampler(unittest.TestCase):
         self.assertEqual(summary["last"]["done"], 2)
         self.assertEqual(summary["at_active_ready"]["done"], 1)
 
+    def test_explicit_traffic_start_sample_catches_history_finishing_early(self):
+        self.put("A", 0, 100)
+        self.sampler.sample()
+        self.sampler.sample("small-measured")
+        self.put("B", 0, 50)
+        summary = self.sampler.summary("small-measured")
+        self.assertTrue(summary["running_during_traffic"])
+
     def test_history_finished_before_traffic_is_not_running_during_it(self):
         self.put("A", 0, 100)
         self.put("B", 0, 50)
