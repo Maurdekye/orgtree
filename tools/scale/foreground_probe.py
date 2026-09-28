@@ -122,7 +122,7 @@ def arm(ctrl, admin, n):
         server = ctrl.spawn([sys.executable, "-I", "-B", str(REPO / "tools/scale/serve.py"),
             "--root", str(root), "--env", "ORGTREE_SCALE_SIMULATED_PROVIDER=1",
             "--env", "ORGTREE_SCALE_SQL_COUNTS=1", "--env", "ORGTREE_SCALE_SQL_LABELS=1",
-            "--env", "ORGTREE_SCALE_FG_WHY=1"], name + "-serve")
+            "--env", "ORGTREE_SCALE_FG_WHY=1", "--env", "ORGTREE_SCALE_FG_PROFILE=1"], name + "-serve")
         try:
             deadline = time.monotonic() + 300
             while True:
@@ -157,7 +157,10 @@ def arm(ctrl, admin, n):
         why = root / "metrics/fg-why.jsonl"
         result = dict(n=n, calls=client_rows, node_val=node_keys(desc["pg_url"], desc["org"]),
                       why=[json.loads(line) for line in why.read_text(encoding="utf-8").splitlines()]
-                          if why.exists() else None)
+                          if why.exists() else None,
+                      profile=[json.loads(line) for line in
+                               (root / "metrics/fg-profile/summary.jsonl").read_text(encoding="utf-8").splitlines()]
+                              if (root / "metrics/fg-profile/summary.jsonl").exists() else None)
         write(ctrl.root / "receipts" / f"{name}.json", result)
         return result
     finally:
@@ -257,3 +260,56 @@ def install_why(path):
 
     cache._status = status
     foreground_store.select_foreground = select
+
+
+PHASES = {
+    "select_foreground": "foreground_store.py:select_foreground",
+    "context_build": "foreground_context.py:build",
+    "context_init": "foreground_context.py:__init__",
+    "prepare(tree_node loop)": "foreground_view.py:prepare",
+    "annotate": "api.py:_annotate_org_view",
+    "finish": "foreground_view.py:finish",
+    "version(encode+hash)": "foreground_cache.py:_version",
+    "wire(full body)": "foreground_cache.py:_full",
+    "delta": "foreground_cache.py:_delta",
+    "status_fast_path": "foreground_cache.py:_status",
+}
+
+
+def install_profile(directory):
+    """Harness only: cProfile every foreground_cache.read; one .prof per call."""
+    import cProfile
+    import io
+    import pstats
+    import threading
+    from orgtree import foreground_cache as cache
+    directory.mkdir(parents=True, exist_ok=True)
+    counter = iter(range(1_000_000))
+    lock = threading.Lock()
+    original = cache.read
+
+    def read(*args, **kwargs):
+        profile = cProfile.Profile()
+        started = time.perf_counter()
+        try:
+            return profile.runcall(original, *args, **kwargs)
+        finally:
+            elapsed = time.perf_counter() - started
+            with lock:
+                index = next(counter)
+            profile.dump_stats(str(directory / f"read-{index:03d}.prof"))
+            stats = pstats.Stats(profile)
+            phases = {}
+            for (filename, _line, name), (_cc, _nc, _tt, cumulative, _callers) in stats.stats.items():
+                key = f"{filename.replace(chr(92), '/').rsplit('/', 1)[-1]}:{name}"
+                for phase, target in PHASES.items():
+                    if key == target:
+                        phases[phase] = round(phases.get(phase, 0.0) + cumulative, 4)
+            text = io.StringIO()
+            pstats.Stats(profile, stream=text).sort_stats("cumulative").print_stats(30)
+            (directory / f"read-{index:03d}.txt").write_text(text.getvalue(), encoding="utf-8")
+            with lock, open(directory / "summary.jsonl", "a", encoding="utf-8") as target:
+                target.write(json.dumps(dict(index=index, at=time.time(), seconds=round(elapsed, 4),
+                                             phases=phases)) + "\n")
+
+    cache.read = read
