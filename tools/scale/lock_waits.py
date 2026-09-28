@@ -49,6 +49,30 @@ def decode_key(objid, candidates, cache, hashtext):
     return None
 
 
+def _lock_statement_lines(orgtx, original):
+    """The START lines of transaction_many's lock statements (a multi-line
+    call reports the line it starts on): every `raw.execute(...)` whose SQL
+    takes an advisory lock or FOR UPDATE, and `raw.execute(block)`."""
+    import ast
+    import inspect
+    import textwrap
+    fn = getattr(original, "__wrapped__", original)
+    src, first = inspect.getsourcelines(fn)
+    # dedent keeps line numbers: node.lineno 1 is the source's first line
+    tree = ast.parse(textwrap.dedent("".join(src)))
+    lines = set()
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "execute" and node.args):
+            continue
+        arg = node.args[0]
+        text = ast.unparse(arg)
+        if ((isinstance(arg, ast.Name) and arg.id == "block")
+                or "pg_advisory_xact_lock" in text or "FOR UPDATE" in text):
+            lines.add(first + node.lineno - 1)
+    return lines
+
+
 def _site():
     # no source lines: this runs inside every org_tx, so it must stay cheap
     stack = traceback.StackSummary.extract(traceback.walk_stack(None), lookup_lines=False)
@@ -158,12 +182,8 @@ def _profile_holders(orgtx, out_path, stop):
 
     orgtx.PgBackend.transaction_many = transaction_many
 
-    import inspect
-    src, first = inspect.getsourcelines(original.__wrapped__ if hasattr(original, "__wrapped__") else original)
-    # the lock statements: the org pseudo-row, the node pseudo-row/bulk and the plan block
-    lock_lines = {first + i for i, line in enumerate(src)
-                  if "pg_advisory_xact_lock" in line or "raw.execute(block)" in line
-                  or "FOR UPDATE\").fetchall()" in line}
+    lock_lines = _lock_statement_lines(orgtx, original)
+    orgtx_file = os.path.normcase(os.path.abspath(getattr(orgtx, "__file__", "") or ""))
 
     def frames_of(frame):
         st = traceback.StackSummary.extract(traceback.walk_stack(frame), lookup_lines=False)
@@ -182,15 +202,20 @@ def _profile_holders(orgtx, out_path, stop):
                 if frame is None:
                     continue
                 st, ours = frames_of(frame)
-                locking = any(f.name == "transaction_many" and f.lineno in lock_lines
-                              for f in st) or any(f.name == "_lock_block" for f in st)
+                # a blocked multi-line call reports its START line; match only
+                # orgtx's own frame (this module's wrapper shares the name)
+                at = [f.lineno for f in st if f.name == "transaction_many" and f.lineno in lock_lines
+                      and os.path.normcase(os.path.abspath(f.filename)) == orgtx_file]
+                locking = bool(at) or any(f.name == "_lock_block" for f in st)
                 inner = [f for f in ours if os.path.basename(f.filename) != "orgtx.py"]
                 leaf = f"{os.path.basename(st[-1].filename)}:{st[-1].name}"
                 key = (f"{os.path.basename(inner[-1].filename)}:{inner[-1].lineno}:{inner[-1].name}"
                        if inner else leaf)
                 bucket = samples[site]
                 if locking:
-                    bucket["waiting"][key] += 1
+                    # which lock statement it sits in: the org/node pseudo-rows,
+                    # the bulk node FOR UPDATE, the plan block or a receipt key
+                    bucket["waiting"][f"{key} @orgtx:{at[0] if at else 'lock_block'}"] += 1
                 else:
                     bucket["holding"][f"{key} [{leaf}]"] += 1
                     bucket["holding_path"][" > ".join(

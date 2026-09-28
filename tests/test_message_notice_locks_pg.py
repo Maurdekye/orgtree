@@ -101,6 +101,12 @@ class Concurrency(unittest.TestCase):
         with self.assertRaises(orgtx.LockTimeout):
             self.held_while(self.rows('b', narrowed=False), self.rows('c', narrowed=False))
 
+    def test_a_whole_section_holder_still_blocks_a_box_sender(self):
+        # the turn-end shape (whole `notices` FOR UPDATE) excludes box writers:
+        # the box sender's container is FOR SHARE, not skipped (pg-workitems N5)
+        with self.assertRaises(orgtx.LockTimeout):
+            self.held_while({'sections': ['notices']}, self.rows('b'))
+
     def test_sends_to_the_same_recipient_still_serialize(self):
         with self.assertRaises(orgtx.LockTimeout):
             self.held_while(self.rows('b'), self.rows('b'))

@@ -87,6 +87,29 @@ class Register(unittest.TestCase):
         self.assertEqual(entry["names"], ["org:*", "section:audiences", "node:coord-0"])
 
 
+class LockLines(unittest.TestCase):
+    def test_multi_line_lock_calls_are_matched_by_their_start_line(self):
+        import contextlib
+
+        class Backend:
+            @contextlib.contextmanager
+            def transaction_many(self, txs, lock_timeout, raw=None):
+                raw.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))", (1, "org:*"))
+                ids = [r for r in raw.execute(
+                    "SELECT id FROM nodes ORDER BY id FOR UPDATE").fetchall()]
+                raw.execute(block)                            # noqa: F821
+                raw.execute("SELECT 1")
+                yield ids
+
+        import inspect
+        fn = Backend.transaction_many.__wrapped__
+        src, first = inspect.getsourcelines(fn)
+        start = {first + i for i, line in enumerate(src)
+                 if "raw.execute(" in line and "SELECT 1" not in line and "fetchall()]" not in line}
+        got = lock_waits._lock_statement_lines(SimpleNamespace(), Backend.transaction_many)
+        self.assertEqual(got, start)
+
+
 class Summarize(unittest.TestCase):
     def test_samples_of_one_wait_are_one_episode_with_its_longest_wait(self):
         waits = [wait(1, "section:audiences", .1, 100.1, [holder(["a.py:1:x"], 1.0)]),
