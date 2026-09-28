@@ -151,9 +151,10 @@ class ReprojectPG(unittest.TestCase):
         with patch.object(fg, 'select_foreground', side_effect=AssertionError('storage re-read')):
             changed = self.get(first.headers['etag'])
         self.assertEqual(changed.status_code, 200, changed.text)
+        kept = self.cached()                              # before fresh() clears the cache
         fresh = self.fresh()
         self.assertIn('"permission_mode":"plan"', json.dumps(fresh.json()['nodes']['peer'], separators=(',', ':')))
-        self.assertEqual(self.cached().content, fresh.content)
+        self.assertEqual(kept.content, fresh.content)
 
 
 if __name__ == '__main__':
