@@ -55,6 +55,7 @@ from ui_mix import WINDOWS, polls as ui_polls
 from streaming import drive_planned, drive_streams, send_frames
 from settlement import settled as mailbox_settled
 from conn_reset import post_retry_reused_reset
+from baseline_measurement import memory_floor
 
 MARK = re.compile(r"\[\[m(\d+)\]\]")
 
@@ -907,7 +908,9 @@ def main(argv=None) -> int:
                           "max_mb": round(max(m for _, m in mem) / 2 ** 20) if mem else None,
                           "observed_seconds": mem[-1][0] - mem[0][0] if mem else 0,
                           "samples": len(mem),
-                          "slope_mb_per_min_2nd_half": round(slope(half) * 60 / 2 ** 20, 2) if slope(half) is not None else None},
+                          "slope_mb_per_min_2nd_half": round(slope(half) * 60 / 2 ** 20, 2) if slope(half) is not None else None,
+                          # The verdict reads the per-minute floor; the raw slope above stays for comparison.
+                          "floor": memory_floor(mem)},
                "cpu": pct([s["cpu"] for s in samples if s.get("cpu") is not None]),
                "pg": {"conns": pct([s["pg_conns"] for s in samples if "pg_conns" in s]),
                       "lock_wait": pct([s["pg_lock_wait"] for s in samples if "pg_lock_wait" in s]),
