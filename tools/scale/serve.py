@@ -609,8 +609,8 @@ def child(args) -> int:
         from foreground_probe import install_why
         install_why(root / "metrics" / "fg-why.jsonl")
     if os.environ.get("ORGTREE_SCALE_FG_PROFILE") == "1":
-        from foreground_probe import install_profile
-        install_profile(root / "metrics" / "fg-profile")
+        from foreground_probe import install_timers
+        install_timers(root / "metrics" / "fg-timers.jsonl")
     if os.environ.get("ORGTREE_SCALE_TRACE_GIT") == "1":
         app = AuditRequestPath(app)
     import uvicorn
