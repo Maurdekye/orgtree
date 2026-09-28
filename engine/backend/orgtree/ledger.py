@@ -5862,9 +5862,16 @@ class Org:
         deleting agents shrank the total — undercounting the dashboard and,
         worse, walking the enforced kiosk SPEND LIMIT backwards). Cost is
         history, not a node property; the tombstone accumulator keeps every
-        dollar ever burned."""
-        return round(sum(float(v.get("cost_usd") or 0.0)
-                         for v in self.nodes.values())
+        dollar ever burned.
+
+        On on-demand rows the costs come from `store.lazy_node_costs` — the
+        same values in the same order, without decoding every row into this
+        copy (ORGTREE_LAZY_COST_TOTAL)."""
+        from . import store                              # noqa: PLC0415 — cycle
+        costs = store.lazy_node_costs(self.d)
+        if costs is None:
+            costs = [v.get("cost_usd") for v in self.nodes.values()]
+        return round(sum(float(c or 0.0) for c in costs)
                      + float(self.d.get("deleted_cost_usd") or 0.0), 4)
 
     def delete(self, actor: str, nid: str) -> dict[str, Any]:

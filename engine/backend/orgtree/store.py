@@ -3013,6 +3013,45 @@ def release_doc_links(doc: Any) -> int:
     return n
 
 
+#: ORGTREE_LAZY_COST_TOTAL (ON by default; 0/false/off/no turns it off):
+#: `Org.cost_total` on an incompletely loaded LazyNodesMap reads each row's
+#: `cost_usd` from the table instead of decoding every row. Measured
+#: 2026-09-28 (mem-leak-probe, item n1000-engine-memory-climbs): the turn-end
+#: spend check walked `nodes.values()`, which decoded all 1000 rows (~200 MB)
+#: into the transaction's copy AND marked every row touched, so the save then
+#: re-serialized each one — up to 9 turn ends at once in a message burst.
+LAZY_COST_TOTAL = _switch_on(os.environ.get("ORGTREE_LAZY_COST_TOTAL"))
+
+
+def lazy_node_costs(doc: Any) -> list[Any] | None:
+    """Every node's `cost_usd`, in exactly the order `doc["nodes"].values()`
+    would yield them after a whole walk, WITHOUT decoding a row or marking
+    one touched — or None when the walk is the way (switch off, not an
+    on-demand map, or already complete). A row this copy holds contributes
+    its in-memory value (so an unsaved edit counts), a row it deleted none,
+    a row it added last; the others come from the table as their stored JSON
+    text, parsed by the same `json.loads` a row decode uses. Same values in
+    the same order, so `sum()` over them is bit-identical to the walk's."""
+    nodes = dict.get(doc, "nodes") if isinstance(doc, dict) else None
+    if not LAZY_COST_TOTAL or not isinstance(nodes, LazyNodesMap) or nodes._complete:
+        return None
+    with _POOL.acquire(nodes._slug) as conn:
+        rows = conn.execute("SELECT id, ((val::json)->'cost_usd')::text "
+                            "FROM nodes ORDER BY ord").fetchall()
+    held = dict(dict.items(nodes))
+    out: list[Any] = []
+    for nid, raw in rows:
+        nid = cast(str, nid)
+        if nid in nodes._deleted:
+            continue
+        if nid in held:
+            out.append(held.pop(nid).get("cost_usd"))
+        else:
+            out.append(None if raw is None else json.loads(cast(str, raw)))
+    out += [v.get("cost_usd") for v in held.values()]     # added, not yet saved
+    return out
+
+
 class LazySplitSection(_DocLink, dict[str, Any]):
     """A split section (`mail` / `delivering` / `notices`, PG-3d) whose
     owner rows load when touched (ORGTREE_LAZY_ROWS) — the same contract as
