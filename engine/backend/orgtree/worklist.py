@@ -5,6 +5,8 @@ authority, actor identities and counts belong to one committed snapshot.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import time
 
@@ -136,7 +138,7 @@ def reference(row):
             ('slug', 'title', 'parent', 'archived', 'status', 'rev', 'view_revision')}
 
 
-def _read(slug, viewer, build, now_ts):
+def _read(slug, viewer, build, now_ts, context=Context):
     """None requests whole-route compatibility, never a partially empty view."""
     if store.STORE_BACKEND != 'postgres':
         return None
@@ -155,7 +157,7 @@ def _read(slug, viewer, build, now_ts):
                     raise LedgerError('not an intact orgtree database (no schema_version row)')
                 query = workquery.Snapshot(conn.raw, conn.org_id, viewer=viewer,
                     now_ts=time.time() if now_ts is None else now_ts)
-                ctx = Context(query)
+                ctx = context(query)
                 if viewer != USER:
                     ctx._require_live(viewer)
                 return build(ctx, slug)
@@ -275,3 +277,157 @@ def lookup_many(slug, viewer, names, *, now_ts=None):
         return dict(format=FORMAT, references=[reference(ctx.light(row, org_slug))
             for row in rows], catalog=ctx.query.catalog)
     return _read(slug, viewer, build, now_ts)
+
+
+class AgentContext(workdetail.Context):
+    """The agent's `orgtree_work list`: rows chosen by the index, rendered from
+    their whole bodies by the ledger's own view and list assembly.
+
+    agent-orgtree-work-list-still-reads-the-whole-or: the tool served the list
+    from `store.cached_org`, which refreshes the shared org snapshot after
+    every save and walks every item (N1000: server p50 1203 ms). The light list
+    payload cannot stand in for a body here: `candidate` needs `delivery`, and
+    `omitted_fields` names `review_packets_newest_same_as` when the newest
+    packet is folded. So only the readable rows are decoded, in one statement
+    per location."""
+    WORK_BACKLOG = Org.WORK_BACKLOG
+    WORK_UNCOUNTED = Org.WORK_UNCOUNTED
+    _work_backlogged = Org._work_backlogged
+    _work_hoist_shared = staticmethod(Org._work_hoist_shared)
+    _work_list_payload = Org._work_list_payload
+
+    def __init__(self, query):
+        super().__init__(query)
+        self._questions = {}
+        self._pointers = {}
+
+    def _work_pointer_target(self, slug):
+        if slug in self._pointers:
+            return self._pointers[slug]
+        return super()._work_pointer_target(slug)
+
+    def _work_questions(self, slug):
+        if slug in self._questions:
+            return self._questions[slug]
+        return super()._work_questions(slug)
+
+    def work_counts(self, now_ts=None):
+        # USER is never served here (`agent_list` returns None for it)
+        raise TypeError('agent list does not serve the whole-org counts')
+
+    def bodies(self, rows):
+        """Every row's exact body, checked against the index stamp."""
+        q = self.query
+        found = {}
+        active = [row.source_key for row in rows if not row.physical_archive]
+        if active:
+            for key, val in q.raw.execute(
+                    f'SELECT key,val FROM {q.schema}.doc WHERE key=ANY(%s)', (active,)):
+                found[(False, key)] = val
+        archived = [int(row.source_key) for row in rows if row.physical_archive]
+        if archived:
+            for seq, val in q.raw.execute(
+                    f"SELECT seq,val FROM {q.schema}.log_l WHERE sect='work_items_archive' "
+                    f'AND seq=ANY(%s)', (archived,)):
+                found[(True, str(seq))] = val
+        out = []
+        for row in rows:
+            val = found.get((row.physical_archive, str(row.source_key)))
+            if val is None or hashlib.sha256(val.encode()).digest() != row.body_sha256:
+                raise workquery.CompatibilityRequired('docket body/index mismatch')
+            body = json.loads(val)
+            if body.get('slug') != row.summary['slug']:
+                raise workquery.CompatibilityRequired('docket body identity mismatch')
+            out.append(body)
+        return out
+
+    def prime(self, rows, bodies):
+        """What `_work_view` reads beside the body, for every row at once:
+        questions (selected with the row), scope history, pointer targets and
+        actor identities. A miss still reads one row, as in `workdetail`."""
+        q = self.query
+        for row in rows:
+            self._questions[row.summary['slug']] = row.questions
+        logged = {b['slug']: int(b.get('scope_logged') or 0) for b in bodies
+                  if int(b.get('scope_logged') or 0) and b['slug'] not in self._scope}
+        if logged:
+            scope = {slug: [] for slug in logged}
+            for owner, val in q.raw.execute(
+                    f"SELECT owner,val FROM {q.schema}.log_d WHERE sect='work_scope_log' "
+                    f'AND owner=ANY(%s) ORDER BY owner,seq', (sorted(logged),)):
+                scope[owner].append(json.loads(val))
+            for slug, count in logged.items():
+                if len(scope[slug]) != count:
+                    raise workquery.CompatibilityRequired('scope history count mismatch')
+                self._scope[slug] = scope[slug]
+        names = set()
+        actors = {q.viewer}
+        for body in bodies:
+            names.update((body.get('parent'), body.get('superseded_by')))
+            names.update(body.get('dependencies') or [])
+            for row in body.get('history') or []:
+                if isinstance(row, dict):
+                    for key in Org._WORK_HIST_POINTERS.get(str(row.get('op') or ''), ()):
+                        names.add(row.get(key))
+            _actors(body, actors)
+        names = sorted(n for n in names if isinstance(n, str) and 0 < len(n) <= 256
+                       and n not in self._pointers)
+        for start in range(0, len(names), 128):
+            chunk = names[start:start + 128]
+            found = {row.summary['slug']: row.summary for row in q.lookup_many(chunk)}
+            for name in chunk:
+                self._pointers[name] = found.get(name)
+        self.nodes.prefetch(actors)
+
+
+def agent_list(slug, viewer, *, include_archived=False, include_backlogged=False,
+               compact=False, projection=None, fields=None, now_ts=None):
+    """`Org.work_list` for an agent viewer from the docket index, or None
+    requesting the exact whole-org reader (not PostgreSQL, an index that is
+    dirty or unavailable, the operator as viewer, or any disagreement between
+    the index's archive hint and the ledger's own classification)."""
+    if viewer == USER:
+        return None
+
+    def build(ctx, org_slug):
+        q = ctx.query
+        sel = ctx._work_fields_arg(fields)
+        proj = projection or ('compact' if compact else 'full')
+        total = q.raw.execute(f'SELECT total FROM {q.schema}.work_read_totals WHERE viewer=%s',
+                              (viewer,)).fetchone()
+        total = int(total[0]) if total else 0
+        # every readable row the index does not call archived: the main list,
+        # the backlog, and archived rows held out of the archive by attention
+        shown = q.foreground(include_backlogged=True)
+        if len(shown) > total:
+            raise workquery.CompatibilityRequired('docket foreground exceeds readable total')
+        hidden = []
+        if include_archived:
+            cursor = ''
+            while True:
+                page, cursor = q.archive(limit=workquery.MAX_PAGE, cursor=cursor)
+                hidden.extend(page)
+                if not cursor:
+                    break
+            if len(shown) + len(hidden) != total:
+                raise workquery.CompatibilityRequired('docket archive does not add up')
+        rows = shown + hidden
+        bodies = ctx.bodies(rows)
+        ctx.prime(rows, bodies)
+        items, arch, back = [], [], []
+        for n, (row, body) in enumerate(zip(rows, bodies)):
+            view = ctx._work_view(body, row.physical_archive, viewer, q.now,
+                                  scope_archive=False)
+            if view['archived'] != (n >= len(shown)):
+                raise workquery.CompatibilityRequired('docket archive hint disagrees')
+            if view['archived']:
+                arch.append(view)
+            elif ctx._work_backlogged(body):
+                back.append(view)
+            else:
+                items.append(view)
+        return ctx._work_list_payload(
+            viewer, items, arch, back, total - len(shown), q.now,
+            include_archived=include_archived, include_backlogged=include_backlogged,
+            compact=compact, proj=proj, sel=sel)
+    return _read(slug, viewer, build, now_ts, AgentContext)

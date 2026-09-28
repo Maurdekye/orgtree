@@ -14601,7 +14601,23 @@ class Org:
                     back.append(v)
                 else:
                     items.append(v)
+        return self._work_list_payload(
+            viewer, items, arch, back, arch_n, now_ts,
+            include_archived=include_archived,
+            include_backlogged=include_backlogged, compact=compact,
+            proj=proj, sel=sel)
 
+    def _work_list_payload(self, viewer: str, items: list[dict[str, Any]],
+                           arch: list[dict[str, Any]],
+                           back: list[dict[str, Any]], arch_n: int,
+                           now_ts: float, *, include_archived: bool,
+                           include_backlogged: bool, compact: bool,
+                           proj: str, sel: list[str] | None) -> dict[str, Any]:
+        """`work_list` from its three classified groups of whole views: order,
+        counts, `groups`, projection and the hoisted declarations. Shared with
+        the indexed agent list (`worklist.agent_list`), which selects the same
+        rows from the PostgreSQL docket index -- one assembly, so the two
+        answers cannot drift apart."""
         def key(v: dict[str, Any]) -> tuple[str, str]:
             # `reverse=True` applies to the WHOLE tuple, so a docket_at tie
             # breaks on the NAME descending. Which direction it runs does not

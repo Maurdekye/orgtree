@@ -9130,6 +9130,21 @@ def _work_read_call(body: AgentCall, a: dict[str, Any]) -> dict[str, Any]:
                 return {"item": {"slug": it.get("slug"),
                     "ref": refs.item(body.org, str(it["slug"])),
                     **{k: v for k, v in it.items() if k != "slug"}}}
+        if act == "list":
+            # agent-orgtree-work-list-still-reads-the-whole-or: the same answer
+            # as the `cached_org` branch below, from the PG docket index in one
+            # read-only snapshot. None (SQLite, a dirty or unavailable index,
+            # the operator as viewer) takes that exact branch instead.
+            from . import worklist
+            listed = worklist.agent_list(
+                body.org, body.node,
+                include_archived=_arg_flag(a, "include_archived"),
+                include_backlogged=_arg_flag(a, "include_backlogged"),
+                compact=_arg_flag(a, "compact"),
+                projection=_work_projection(a, "summary"),
+                fields=a.get("fields"))
+            if listed is not None:
+                return _work_refs(body.org, listed)
         # `list` and `get` only read. The shared snapshot (`org_seq`-guarded,
         # dropped by every save) serves them without a third whole-document
         # parse in a call that has already paid for two — 56 ms of the 266 ms
