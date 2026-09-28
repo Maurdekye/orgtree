@@ -219,6 +219,7 @@ def arm(ctrl, admin, n):
             "--root", str(root), "--env", "ORGTREE_SCALE_SIMULATED_PROVIDER=1",
             *(["--env", "ORGTREE_SCALE_SQL_COUNTS=1", "--env", "ORGTREE_SCALE_SQL_LABELS=1",
                "--env", "ORGTREE_SCALE_FG_WHY=1"] if DIAG else []),
+            *(["--env", "ORGTREE_SCALE_FG_STALL=1"] if os.environ.get("FG_PROBE_STALL") == "1" else []),
             "--env", "ORGTREE_SCALE_FG_PROFILE=1"], name + "-serve")
         try:
             deadline = time.monotonic() + 300
@@ -259,7 +260,10 @@ def arm(ctrl, admin, n):
                           if why.exists() else None,
                       profile=[json.loads(line) for line in
                                (root / "metrics/fg-timers.jsonl").read_text(encoding="utf-8").splitlines()]
-                              if (root / "metrics/fg-timers.jsonl").exists() else None)
+                              if (root / "metrics/fg-timers.jsonl").exists() else None,
+                      gc=[json.loads(line) for line in
+                          (root / "metrics/fg-gc.jsonl").read_text(encoding="utf-8").splitlines()]
+                         if (root / "metrics/fg-gc.jsonl").exists() else None)
         write(ctrl.root / "receipts" / f"{name}.json", result)
         return result
     finally:
@@ -563,17 +567,114 @@ def install_timers(path):
             (tree_delta, "encode", "tree_delta.encode")):
         timed(owner, attr, name)
     original = cache.read
+    stall = install_stall(path.parent) if os.environ.get("ORGTREE_SCALE_FG_STALL") == "1" else None
 
     def read(*args, **kwargs):
         local.acc = acc = {}
+        if stall:
+            stall.begin()
+        cpu = time.thread_time(), time.process_time()
         started = time.perf_counter()
         try:
             return original(*args, **kwargs)
         finally:
             local.acc = None
-            row = dict(at=time.time(), seconds=round(time.perf_counter() - started, 4),
+            seconds = time.perf_counter() - started
+            row = dict(at=time.time(), seconds=round(seconds, 4),
+                       thread_cpu=round(time.thread_time() - cpu[0], 4),
+                       process_cpu=round(time.process_time() - cpu[1], 4),
                        phases={k: (round(v, 4) if isinstance(v, float) else v) for k, v in acc.items()})
+            if stall:
+                row.update(stall.end(seconds))
             with lock, open(path, "a", encoding="utf-8") as target:
                 target.write(json.dumps(row) + "\n")
 
     cache.read = read
+
+
+# Stall diagnosis (ORGTREE_SCALE_FG_STALL=1): while a foreground read runs, a
+# sampler thread records every other thread's innermost frames every ~2 ms;
+# gc.callbacks log every collection's generation and duration; the read row
+# gains system-wide CPU busy share and the stacks seen, so a slow read can be
+# attributed to another engine thread, a GC pause, or the machine.
+STALL_SAMPLE_S = 0.002
+STALL_KEEP_S = 0.2
+
+
+def _frame_key(frame, depth=4):
+    parts = []
+    while frame is not None and len(parts) < depth:
+        code = frame.f_code
+        parts.append(f"{os.path.basename(code.co_filename)}:{code.co_name}:{frame.f_lineno}")
+        frame = frame.f_back
+    return " < ".join(parts)
+
+
+def install_stall(metrics):
+    import gc
+    import threading
+    import psutil
+    gc_path = metrics / "fg-gc.jsonl"
+    gc_lock = threading.Lock()
+    gc_start = {}
+
+    def on_gc(phase, info):
+        if phase == "start":
+            gc_start[threading.get_ident()] = time.perf_counter()
+            return
+        began = gc_start.pop(threading.get_ident(), None)
+        if began is None:
+            return
+        row = dict(at=time.time(), gen=info.get("generation"), seconds=round(time.perf_counter() - began, 5),
+                   collected=info.get("collected"), thread=threading.current_thread().name)
+        with gc_lock, open(gc_path, "a", encoding="utf-8") as target:
+            target.write(json.dumps(row) + "\n")
+
+    gc.callbacks.append(on_gc)
+
+    class Stall:
+        def __init__(self):
+            self.active = None
+            self.guard = threading.Lock()
+            threading.Thread(target=self.sample, name="fg-stall-sampler", daemon=True).start()
+
+        def begin(self):
+            with self.guard:
+                self.active = dict(reader=threading.get_ident(), samples=0, counts={},
+                                   cpu=psutil.cpu_times(), gc_at=time.time())
+
+        def end(self, seconds):
+            with self.guard:
+                active, self.active = self.active, None
+            if active is None:
+                return {}
+            before, after = active["cpu"], psutil.cpu_times()
+            total = sum(after) - sum(before)
+            idle = after.idle - before.idle
+            out = dict(system_busy=round(1 - idle / total, 3) if total > 0 else None, samples=active["samples"])
+            if seconds >= STALL_KEEP_S:
+                out["stacks"] = sorted(([name, key, n] for (name, key), n in active["counts"].items()),
+                                       key=lambda row: -row[2])[:60]
+            return out
+
+        def sample(self):
+            me = threading.get_ident()
+            while True:
+                time.sleep(STALL_SAMPLE_S)
+                active = self.active
+                if active is None:
+                    continue
+                names = {t.ident: t.name for t in threading.enumerate()}
+                frames = sys._current_frames()
+                with self.guard:
+                    if self.active is not active:
+                        continue
+                    active["samples"] += 1
+                    for ident, frame in frames.items():
+                        if ident == me:
+                            continue
+                        name = "READER" if ident == active["reader"] else names.get(ident, str(ident))
+                        key = (name, _frame_key(frame))
+                        active["counts"][key] = active["counts"].get(key, 0) + 1
+
+    return Stall()
