@@ -226,13 +226,17 @@ def _read_page(slug, request, *, mode, nid, public):
         return payload
     token = foreground_view.revision(payload)
     payload['revision'] = token
-    page = _Page(_db_stamp(built['stamp']), runtime, sync_rev, built['until'],
+    page = _Page(_db_stamp(built['stamp']) if 'stamp' in built else None, runtime, sync_rev,
+                 built.get('until'),
                  'W/"foreground-page-' + token + '"',
                  {'X-Orgtree-Org-Rev': str(payload['org_rev']),
                   'X-Orgtree-Sync-Rev': str(payload['sync_rev']),
                   'X-Orgtree-Catalog-Rev': payload['catalog_revision']},
                  tree_delta.encode(payload))
-    _page_keep(key, page)
+    if page.stamp is not None:
+        # an answer our projector did not build carries no committed stamp
+        # to be checked against, so it is served but never remembered
+        _page_keep(key, page)
     return page
 
 
