@@ -121,7 +121,8 @@ def arm(ctrl, admin, n):
         ctrl.phase = name + "-serve"
         server = ctrl.spawn([sys.executable, "-I", "-B", str(REPO / "tools/scale/serve.py"),
             "--root", str(root), "--env", "ORGTREE_SCALE_SIMULATED_PROVIDER=1",
-            "--env", "ORGTREE_SCALE_SQL_COUNTS=1", "--env", "ORGTREE_SCALE_SQL_LABELS=1"], name + "-serve")
+            "--env", "ORGTREE_SCALE_SQL_COUNTS=1", "--env", "ORGTREE_SCALE_SQL_LABELS=1",
+            "--env", "ORGTREE_SCALE_FG_WHY=1"], name + "-serve")
         try:
             deadline = time.monotonic() + 300
             while True:
@@ -153,7 +154,10 @@ def arm(ctrl, admin, n):
             if row["label"] not in server_rows:
                 raise RuntimeError(f"{name}: no server row for {row['label']}")
             row["server"] = server_rows[row["label"]]
-        result = dict(n=n, calls=client_rows, node_val=node_keys(desc["pg_url"], desc["org"]))
+        why = root / "metrics/fg-why.jsonl"
+        result = dict(n=n, calls=client_rows, node_val=node_keys(desc["pg_url"], desc["org"]),
+                      why=[json.loads(line) for line in why.read_text(encoding="utf-8").splitlines()]
+                          if why.exists() else None)
         write(ctrl.root / "receipts" / f"{name}.json", result)
         return result
     finally:
@@ -175,3 +179,81 @@ def probe(ctrl, admin):
     from baseline import write
     write(ctrl.root / "receipts" / "fg-probe.json", summary)
     return summary
+
+
+RUNTIME_PARTS = ("fingerprint", "limits_at", "primed_restart", "inval", "bucket")
+
+
+def install_why(path):
+    """Harness only: log why the foreground status fast path did or did not apply.
+
+    Re-evaluates foreground_cache._status's checks in order before calling it,
+    and logs every full select_foreground. One JSON line per event.
+    """
+    import threading
+    from orgtree import foreground_cache as cache, foreground_store, pgfeed, store, tree_changes
+    lock = threading.Lock()
+    seen = {}
+
+    def log(row):
+        row["at"] = time.time()
+        with lock, open(path, "a", encoding="utf-8") as target:
+            target.write(json.dumps(row, default=str) + "\n")
+
+    original_status = cache._status
+
+    def status(raw, slug, entry, stamp, mark, feed):
+        why = dict(event="status-check")
+        previous, state = entry["stamp"], entry["fast"]
+        if state is None:
+            why["miss"] = "no fast state (first build was not stable)"
+        elif state["mark"][1] != mark[1]:
+            old, new = state["mark"][1], mark[1]
+            why["miss"] = "runtime moved"
+            why["runtime_changed"] = [RUNTIME_PARTS[i] if i < len(RUNTIME_PARTS) else i
+                                      for i in range(max(len(old), len(new)))
+                                      if i >= len(old) or i >= len(new) or old[i] != new[i]]
+        elif any(previous[k] != stamp[k] for k in ("org_id", "catalog_revision", "view_revision")):
+            why["miss"] = "stamp identity moved"
+            why["stamp_changed"] = [k for k in previous if previous.get(k) != stamp.get(k)]
+        elif not pgfeed.snapshot_changes_published(feed, slug, previous["org_revision"], stamp["org_revision"]):
+            why["miss"] = "feed has not published the change"
+        else:
+            change = tree_changes.since(store.DATA_ROOT, slug, state["mark"][0], mark[0])
+            if change is None:
+                why["miss"] = "journal has no record"
+                why["seq"] = [state["mark"][0], mark[0]]
+            else:
+                keys, ids, structural = change
+                why.update(keys=sorted(keys), ids=sorted(ids), structural=structural,
+                           node_revision_delta=stamp["node_revision"] - previous["node_revision"])
+                if structural or keys - {"nodes", "log"}:
+                    why["miss"] = "non-status keys or structural change"
+                elif why["node_revision_delta"] != len(ids):
+                    why["miss"] = "node_revision delta != changed ids"
+                elif not ids <= state["hashes"].keys():
+                    why["miss"] = "changed id not in the cached selection"
+        result = original_status(raw, slug, entry, stamp, mark, feed)
+        why["fast"] = result is not None
+        if result is None and "miss" not in why:
+            why["miss"] = "changed node not live or signature beyond last_status moved"
+            rows = foreground_store._rows(raw, sorted(why.get("ids") or []))
+            why["changed_fields"] = {nid: sorted(k for k in set(row["node"]) | set(seen.get(nid, {}))
+                                                 if row["node"].get(k) != seen.get(nid, {}).get(k))
+                                     for nid, row in rows.items()}
+            why["states"] = {nid: row["meta"]["state"] for nid, row in rows.items()}
+        log(why)
+        return result
+
+    original_select = foreground_store.select_foreground
+
+    def select(raw, stamp, include=()):
+        log(dict(event="full select", org_revision=stamp.get("org_revision"),
+                 node_revision=stamp.get("node_revision")))
+        graph = original_select(raw, stamp, include)
+        seen.clear()
+        seen.update({nid: json.loads(json.dumps(row["node"])) for nid, row in graph["rows"].items()})
+        return graph
+
+    cache._status = status
+    foreground_store.select_foreground = select
