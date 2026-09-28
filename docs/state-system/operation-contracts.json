@@ -5419,7 +5419,7 @@
       "status": "unresolved",
       "facts": [
         "Result shapes are fixtured in docs/state-system/agent-mail-boundary.json and compared by tests/test_state_agent_mail_boundary.py: agent recipient {delivered, id, deferred, recipient_state, operation_id, warnings, delivery, ref}; user {delivered 'user_inbox', id, operation_id, warnings, ref}; @org: {delivered, id, warnings, ref}; a new @mcp: send is refused 422 (ledger.MCP_RETIRED). ref is '@mail:<org>/node/<to>/<id>', '@mail:<org>/user/<id>' or '@mail:<org>/org/<id>'.",
-        "Empty, blank or missing bodies and unknown argument fields are refused 422 before anything is written (toolargs, 2026-09-28; they used to be delivered as empty mail). Recorded legacy behaviour: any kind text but 'notice' is accepted; self-send is accepted and drives the sender."
+        "Recorded legacy behaviour: empty bodies are accepted; any kind text but 'notice' is accepted; self-send is accepted and drives the sender."
       ],
       "source_refs": [
         {
