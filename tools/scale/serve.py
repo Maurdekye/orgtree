@@ -343,6 +343,33 @@ def child(args) -> int:
             return _orig_fb(why)
         _st._lazy_fallback = _counting_fallback
     app, *_ = load_app()
+    if os.environ.get("ORGTREE_SCALE_TRACE_LOCKTIMEOUT"):
+        # probe-only: which rows a transaction that hit 55P03 had declared,
+        # and who opened it (orgtx.org_tx is reached through the module)
+        import contextlib as _cl
+        from orgtree import orgtx as _otx
+        _real_org_tx = _otx.org_tx
+        _lt_path = root / "metrics" / "locktimeouts.jsonl"
+
+        @_cl.contextmanager
+        def _logged_org_tx(slug, *a, **kw):
+            try:
+                with _real_org_tx(slug, *a, **kw) as tx:
+                    yield tx
+            except _otx.LockTimeout as exc:
+                import traceback as _tb
+                who = [f"{os.path.basename(f.filename)}:{f.lineno}:{f.name}"
+                       for f in _tb.extract_stack()[:-1]
+                       if "orgtree" in f.filename and "tools" not in f.filename][-6:]
+                rec = {"at": time.time(), "slug": slug, "error": str(exc)[:200], "caller": who}
+                for k, v in kw.items():
+                    if k in ("nodes", "sections", "share_nodes", "share_sections", "logs", "whole"):
+                        rec[k] = (sorted(map(str, v)) if isinstance(v, (list, set, tuple, frozenset))
+                                  else str(v))
+                with open(_lt_path, "a", encoding="utf-8") as fh:
+                    fh.write(json.dumps(rec) + chr(10))
+                raise
+        _otx.org_tx = _logged_org_tx
     from orgtree import api, store, supervisor
     if os.environ.get("ORGTREE_SCALE_HALT_FENCE") == "0":
         # halt._FENCE is a hard-coded True that ignores ORGTREE_ORGTX_FENCE
