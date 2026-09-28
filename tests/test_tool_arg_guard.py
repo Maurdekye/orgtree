@@ -145,6 +145,21 @@ class ClientRefuses(unittest.TestCase):
         self.assertEqual(sent['tool'], 'orgtree_message')
         self.assertEqual(sent['args'], {'to': 'boss', 'body': 'hello'})
 
+    def test_the_stdio_tools_call_goes_through_the_check(self):
+        # the path a real agent takes: one JSON-RPC line into main()
+        import io
+        line = json.dumps({'jsonrpc': '2.0', 'id': 7, 'method': 'tools/call',
+                           'params': {'name': 'orgtree_message',
+                                      'arguments': {'to': 'boss', 'message': 'hi'}}})
+        out = io.StringIO()
+        with patch.object(mcptool.sys, 'stdin', io.StringIO(line + '\n')), \
+                patch.object(mcptool.sys, 'stdout', out):
+            mcptool.main()
+        answer = json.loads(out.getvalue())['result']
+        self.assertTrue(answer['isError'])
+        self.assertIn('did you mean `body`?', answer['content'][0]['text'])
+        self.assertEqual(self.wire.posts, [])
+
     def test_accepted_undeclared_spelling_still_passes(self):
         # `sha` is read by the review branch beside `candidate`; refusing it
         # would break callers that worked before this guard
