@@ -860,6 +860,10 @@ def claim_data_root(root: str | None = None) -> None:
     except OSError:
         pass
     _owner_fd = fd              # held for the process lifetime, deliberately
+    if STORE_BACKEND == "postgres" and on_data_root:
+        # after the claim, so a process refused the root changes nothing; and
+        # before any org is loaded or cached, so no view holds the old format
+        reconcile_receipt_storage()
     if STORE_BACKEND == "sqlite" and on_data_root:
         try:
             migrate_pending()
@@ -4674,11 +4678,60 @@ _ROW_CAS = os.environ.get("ORGTREE_ROW_CAS",
 #: an org whose `mail_transitions` was converted to receipt rows (migration
 #: 0013, receiptstore.convert) loads it as a row-backed
 #: `receiptmapping.ReceiptSection` instead of one doc blob, and a save writes
-#: only the receipts it changed. DEFAULT OFF until reviewed. Nothing converts
-#: an org in production yet, so with the switch on an unconverted org behaves
-#: exactly as before apart from one probe row per load.
+#: only the receipts it changed. DEFAULT OFF until reviewed. The data-root
+#: claim puts every org in the format the switch asks for
+#: (`reconcile_receipt_storage`): ON converts, OFF converts back, so switching
+#: it off and restarting is the way back.
 RECEIPT_ROWS = os.environ.get("ORGTREE_RECEIPT_ROWS", "").strip() == "1"
 RECEIPT_KEY = "mail_transitions"
+
+
+def reconcile_receipt_storage(*, on: bool | None = None,
+                              lock_timeout_ms: int = 5000) -> dict[str, Any]:
+    """At the data-root claim on postgres: put every live org's custody
+    receipts in the format the switch asks for. ON converts each unconverted
+    org to receipt rows (receiptstore.convert); OFF puts each converted org
+    back on the legacy blob (receiptstore.unconvert), so turning the switch off
+    and restarting is the way back, and an older engine can then load the org.
+
+    Each org is its own transaction under the org's EXCLUSIVE org_tx lock (the
+    whole-org advisory key every org_tx takes shared), so no transaction runs
+    beside it. An org that fails (a lock wait past `lock_timeout_ms`, a shape
+    the codec refuses) is logged and skipped: it stays in the format it had,
+    which the load path handles either way (a blob loads on both; rows refuse
+    to load with the switch off, as before). Returns {slug: outcome}."""
+    from . import orgtx, pgstore, receiptrows, receiptstore
+    want = RECEIPT_ROWS if on is None else on
+    out: dict[str, Any] = {}
+    with pgstore.connect() as c:
+        orgs = c.execute("SELECT org_id, slug FROM public.orgs "
+                         "WHERE deleted_at IS NULL ORDER BY org_id").fetchall()
+        for org_id, slug in orgs:
+            org_id = int(org_id)
+            t0 = time.perf_counter()
+            try:
+                with c.transaction():
+                    c.execute(f"SET LOCAL search_path TO org_{org_id}, public")
+                    c.execute(f"SET LOCAL lock_timeout = '{int(lock_timeout_ms)}ms'")
+                    marked = c.execute("SELECT 1 FROM receipt_format WHERE singleton"
+                                       ).fetchone() is not None
+                    if marked == want:
+                        continue            # nothing to do: no whole-org lock taken
+                    c.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))",
+                              (org_id, f"org:{orgtx._ORG_KEY}"))
+                    proof = (receiptstore.convert(c, org_id) if want
+                             else receiptstore.unconvert(c, org_id))
+                out[str(slug)] = {"converted" if want else "unconverted": proof,
+                                  "ms": round((time.perf_counter() - t0) * 1000, 1)}
+                if proof is not None:
+                    _log(f"custody receipts of {slug!r} "
+                         f"{'converted to rows' if want else 'put back on the blob'}: "
+                         f"{proof.get('owners')} owners, {proof.get('receipts')} receipts, "
+                         f"{out[str(slug)]['ms']} ms")
+            except (receiptrows.Unsupported, pgstore._psycopg().Error) as exc:
+                out[str(slug)] = {"skipped": f"{type(exc).__name__}: {exc}"[:300]}
+                _log(f"custody receipts of {slug!r} left as they were: {exc}")
+    return out
 
 
 def _receipt_view(conn: sqlite3.Connection, slug: str, *, bind: bool

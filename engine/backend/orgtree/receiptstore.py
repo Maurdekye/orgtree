@@ -90,6 +90,44 @@ def convert(raw: Any, org_id: int) -> dict[str, Any] | None:
     return proof
 
 
+def unconvert(raw: Any, org_id: int) -> dict[str, Any] | None:
+    """Put a converted org back on the legacy blob, in place: the reverse of
+    `convert`, so the format change is not one-way. None when the org is not
+    converted.
+
+    The caller holds the same whole-org exclusion as for `convert`. The blob is
+    rebuilt by `export` (which refuses missing, duplicate or cross-owner rows),
+    written with the store's one serialisation, and re-split to prove it holds
+    exactly what the rows held before the rows, the marker and the meta flag go.
+    It never commits: a failure rolls back with its caller and leaves the rows.
+    """
+    _transaction(raw)
+    if raw.execute("SELECT current_schema()").fetchone()[0] != f"org_{org_id}":
+        raise RuntimeError("receipt un-conversion organization/schema mismatch")
+    raw.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
+                (f"orgtree:receipt-conversion:{org_id}",))
+    # writers outside the whole-org lock (a legacy save) still fail on their
+    # owner-version check; this makes them wait for the outcome instead
+    raw.execute("LOCK TABLE receipt_owners, receipts, receipt_carriers IN EXCLUSIVE MODE")
+    exported = export(raw)
+    if exported is None:
+        return None
+    present, value = exported
+    if raw.execute("SELECT 1 FROM doc WHERE key='mail_transitions'").fetchone():
+        raise receiptrows.Unsupported("a converted org also holds a mail_transitions blob")
+    source = receiptrows.dumps(value) if present else None
+    back = receiptrows.split(source)          # the blob the old path will read
+    if back.checksum != receiptrows.checksum(present, value):
+        raise receiptrows.Unsupported("receipt un-conversion checksum mismatch")
+    if source is not None:
+        raw.execute("INSERT INTO doc(key,val) VALUES('mail_transitions',%s)", (source,))
+    for relation in ("receipt_carriers", "receipts", "receipt_owners", "receipt_format"):
+        from psycopg import sql
+        raw.execute(sql.SQL("DELETE FROM {}").format(_table(raw, relation)))
+    raw.execute("DELETE FROM meta WHERE key='receipt_rows'")
+    return receiptrows.verify(back)
+
+
 def read_operations(raw: Any, owner: str, operations: list[str]) -> dict[str, Any] | None:
     """Exact keys, including a true empty result only after format validation."""
     _transaction(raw)
