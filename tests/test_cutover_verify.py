@@ -11,6 +11,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import re
 import shutil
 import sys
 import tempfile
@@ -167,6 +168,43 @@ class OrgRows(unittest.TestCase):
             broken = {k: list(v) for k, v in dst.items()}
             change(broken)
             self.assertTrue(cv.compare_org("acme", src, broken, 2, after_launch=True)["problems"], label)
+
+    def test_after_launch_allows_only_the_restart_notice_trim(self) -> None:
+        # Rehearsal 2 (a copy of live data): each start's restart notice keeps
+        # an agent's newest 100 mail_log rows (archive_keep=100), so agents
+        # already at 100 lost their oldest rows. That is listed, not failed.
+        keep = 100
+        self.assertEqual(cv.MAIL_ARCHIVE_KEEP, keep)
+        src = sqlite_side(self.ITEMS)
+        steer = (0, "steered_log", "n1", None, "{}")  # older than every mail row
+        mail = [(seq, "mail_log", "n1", None, json.dumps({"n": seq})) for seq in range(1, keep + 1)]
+        other = (keep + 2, "mail_log", "n2", None, "{}")
+        src["log_d"] = [steer] + mail + [other]
+        notices = [(1000 + i, "mail_log", "n1", None, '{"from":"orgtree"}') for i in range(2)]
+        dst = pg_side(src, self.ITEMS)
+        dst["log_d"] = [steer] + mail[2:] + [other] + notices  # n1: rows 1-2 trimmed, two notices, 100 left
+        out = cv.compare_org("acme", src, dst, 2, after_launch=True)
+        self.assertEqual(out["problems"], [])
+        self.assertTrue(any("restart notice" in c and "2 oldest" in c for c in out["changed_since_backup"]),
+                        out["changed_since_backup"])
+        for label, rows in {
+                "fewer than the kept number remain": [steer] + mail[2:] + [other] + notices[:1],
+                "a row lost from the middle": [steer] + mail[:5] + mail[7:] + [other] + notices,
+                "a trimmed-age row changed, not removed": [steer, (1, "steered_log", "n1", None, "{}")] + mail[2:]
+                + [other] + notices,
+                "a lost row that is not mail_log": mail[2:] + [other] + notices,
+                "another agent's row under the kept number": [steer] + mail[2:] + notices,
+        }.items():
+            broken = {**dst, "log_d": rows}
+            self.assertTrue(cv.compare_org("acme", src, broken, 2, after_launch=True)["problems"], label)
+        # the exact mode never allows it
+        self.assertTrue(cv.compare_org("acme", src, dst, 2)["problems"])
+
+    def test_the_kept_number_matches_the_engines_restart_notice(self) -> None:
+        # the verifier may not import the engine, so pin its constant to the source
+        source = (Path(__file__).resolve().parents[1] / "engine" / "backend" / "orgtree" / "restart_wake.py") \
+            .read_text(encoding="utf-8")
+        self.assertEqual(re.findall(r"archive_keep=(\d+)", source), [str(cv.MAIL_ARCHIVE_KEEP)])
 
 
 class Independence(unittest.TestCase):

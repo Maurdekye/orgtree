@@ -93,7 +93,14 @@ few minutes on a large data folder (it reads every file of both folders).
    PostgreSQL, and:
    - every agent in the backup is still there;
    - every history row in the backup (mail history, turn history, event
-     logs) is still there, unchanged, under the same sequence number;
+     logs) is still there, unchanged, under the same sequence number. One
+     removal is expected: every start sends each live agent a restart notice
+     that keeps only that agent's newest 100 mail-history entries, so an
+     agent that already had 100 loses its oldest ones. Those are listed under
+     `changed_since_backup` ("oldest mail-archive row(s) trimmed by the
+     engine's restart notice"), not as problems, and only when the agent
+     still has at least 100 entries and every missing one is older than all
+     of them;
    - every ticket that was open in the backup is still open, or has since
      been archived.
 
