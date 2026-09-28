@@ -4835,10 +4835,11 @@ def reconcile_receipt_storage(*, on: bool | None = None,
     Each org is its own transaction under the org's EXCLUSIVE org_tx lock (the
     whole-org advisory key every org_tx takes shared), so no transaction runs
     beside it. An org that fails (a lock wait past `lock_timeout_ms`, a shape
-    the codec refuses) is logged and skipped: it stays in the format it had,
+    the codec refuses, any other error) is logged and skipped, so the engine
+    still starts: it stays in the format it had,
     which the load path handles either way (a blob loads on both; rows refuse
     to load with the switch off, as before). Returns {slug: outcome}."""
-    from . import orgtx, pgstore, receiptrows, receiptstore
+    from . import orgtx, pgstore, receiptstore
     want = RECEIPT_ROWS if on is None else on
     out: dict[str, Any] = {}
     with pgstore.connect() as c:
@@ -4866,9 +4867,14 @@ def reconcile_receipt_storage(*, on: bool | None = None,
                          f"{'converted to rows' if want else 'put back on the blob'}: "
                          f"{proof.get('owners')} owners, {proof.get('receipts')} receipts, "
                          f"{out[str(slug)]['ms']} ms")
-            except (receiptrows.Unsupported, pgstore._psycopg().Error) as exc:
+            except Exception as exc:  # noqa: BLE001 — any failure skips THIS org
+                # not only the codec's refusal or a lock wait: this runs at
+                # every start, switch on or off, and an error escaping it would
+                # stop the engine starting at all (review f3). The org's own
+                # transaction has rolled back, so it stays as it was.
                 out[str(slug)] = {"skipped": f"{type(exc).__name__}: {exc}"[:300]}
-                _log(f"custody receipts of {slug!r} left as they were: {exc}")
+                _log(f"custody receipts of {slug!r} left as they were: "
+                     f"{type(exc).__name__}: {exc}")
     return out
 
 

@@ -171,6 +171,62 @@ class ReceiptBootstrap(unittest.TestCase):
             store.reconcile_receipt_storage(on=True)
         self.assertEqual(seen, [False])
 
+    # -- a failure part-way through the pass (review-astra's probes, f3) ----
+    CONVERTED = (None, (1,), ('1',), 2, 1, 1)
+
+    def plain(self):
+        return ((self.blob,), None, None, 0, 0, 0)
+
+    def run_armed(self, fn_name, on, exc):
+        """The pass with receiptrows.verify raising `exc` on its SECOND call
+        inside receiptstore.<fn_name> for this org only — call 1 is split's
+        own check, before anything is written; call 2 comes after the rows
+        were written (convert) or deleted (unconvert)."""
+        real_verify, real_fn = receiptrows.verify, getattr(receiptstore, fn_name)
+        state = {'on': False, 'n': 0, 'fired': 0}
+
+        def verify(x):
+            if state['on']:
+                state['n'] += 1
+                if state['n'] >= 2:
+                    state['fired'] += 1
+                    raise exc
+            return real_verify(x)
+
+        def fn(raw, org_id):
+            state['on'], state['n'] = org_id == self.oid, 0
+            try:
+                return real_fn(raw, org_id)
+            finally:
+                state['on'] = False
+        with patch.object(receiptrows, 'verify', side_effect=verify), \
+                patch.object(receiptstore, fn_name, side_effect=fn):
+            out = store.reconcile_receipt_storage(on=on)
+        self.assertEqual(state['fired'], 1, 'the fault never fired: this proves nothing')
+        return out
+
+    def test_unconvert_failing_after_the_deletes_leaves_the_org_converted(self):
+        self.convert()
+        out = self.run_armed('unconvert', False, receiptrows.Unsupported('after the deletes'))
+        self.assertIn('skipped', out[self.slug])
+        self.assertEqual(self.state(), self.CONVERTED)
+        self.assertIn('unconverted', store.reconcile_receipt_storage(on=False)[self.slug])
+        self.assertEqual(self.state(), self.plain())
+
+    def test_convert_failing_after_the_rows_leaves_the_org_on_the_blob(self):
+        out = self.run_armed('convert', True, receiptrows.Unsupported('after the row COPY'))
+        self.assertIn('skipped', out[self.slug])
+        self.assertEqual(self.state(), self.plain())
+        self.assertIn('converted', store.reconcile_receipt_storage(on=True)[self.slug])
+        self.assertEqual(self.state(), self.CONVERTED)
+
+    def test_any_other_error_is_skipped_so_the_engine_still_starts(self):
+        self.convert()
+        out = self.run_armed('unconvert', False, KeyError('a shape nobody foresaw'))
+        self.assertIn('skipped', out[self.slug])
+        self.assertIn('KeyError', out[self.slug]['skipped'])
+        self.assertEqual(self.state(), self.CONVERTED)
+
     def test_the_claim_runs_the_pass(self):
         calls = []
         store.release_data_root()
