@@ -67,10 +67,16 @@ class ForegroundContext:
         'children_index', 'model_for', 'versions_for', 'harness_for', 'prefer_reserve_for', 'effective_effort', 'node_ask', '_scope_item_label', '_tomb_expired',
         'seat_cost', 'free', 'is_kiosk', 'kiosk_ceiling', '_has_audience', 'multi_holder_enabled', '_boot_at', 'account_fallback_for'))
 
-    def __init__(self, *, settings, graph, funding, windows, inbox, work_counts):
+    def __init__(self, *, settings, graph, funding, windows, inbox, work_counts, reuse=None):
         if work_counts is None:
             raise CompatibilityRequired('coherent work counts unavailable')
-        nodes = {nid: copy.deepcopy(row['node']) for nid, row in graph['rows'].items()}
+        # `reuse`: nodes an earlier context of THE SAME settings already
+        # normalized (foreground-tree F3b-2). Normalization is idempotent, so
+        # re-running it below over them changes nothing; only the others are
+        # copied from the graph and normalized for the first time.
+        reuse = reuse or {}
+        nodes = {nid: reuse[nid] if nid in reuse else copy.deepcopy(row['node'])
+                 for nid, row in graph['rows'].items()}
         _compatible(settings, nodes)
         if any(not row.get('id') for row in settings.get('user_inbox', [])):
             raise CompatibilityRequired('legacy user mail identifiers require normalization')
@@ -165,9 +171,15 @@ class ForegroundContext:
 
 
 def build(raw, slug: str, graph: dict, *, header: bool = True,
-          viewer: str = USER, now_ts: float | None = None) -> ForegroundContext:
-    """Consume the graph's still-open committed snapshot; never open another."""
-    from . import foreground_store, store
+          viewer: str = USER, now_ts: float | None = None,
+          reuse: dict | None = None, reuse_settings: str | None = None) -> ForegroundContext:
+    """Consume the graph's still-open committed snapshot; never open another.
+
+    ``reuse`` hands over nodes an earlier context normalized; they are used
+    only when this snapshot's settings still equal ``reuse_settings`` (that
+    context's ``settings_key``), otherwise every node is copied and normalized.
+    """
+    from . import foreground_store, store, tree_delta
     check = raw.execute("SELECT current_setting('transaction_isolation'), "
                         "current_setting('transaction_read_only'), revision FROM public.orgs "
                         "WHERE org_id=%s", (graph['stamp']['org_id'],)).fetchone()
@@ -200,7 +212,14 @@ def build(raw, slug: str, graph: dict, *, header: bool = True,
         raise CompatibilityRequired('indexed work count reader is not installed') from exc
     counts = workread.counts_raw(raw, graph['stamp']['org_id'], viewer=viewer,
                                 now_ts=time.time() if now_ts is None else now_ts)
-    return ForegroundContext(settings=blobs, graph=graph,
+    # Node normalization reads these settings: a context whose nodes are
+    # reused is only equivalent to a fresh one under the same settings.
+    settings_key = tree_delta.encode({key: blobs.get(key) for key in SETTINGS})
+    if reuse_settings != settings_key:
+        reuse = None
+    context = ForegroundContext(settings=blobs, graph=graph,
         funding=foreground_store.read_funding(raw),
         windows=foreground_store.read_card_windows(raw, ids, header=header),
-        inbox=foreground_store.read_org_inbox_window(raw), work_counts=counts)
+        inbox=foreground_store.read_org_inbox_window(raw), work_counts=counts, reuse=reuse)
+    context.settings_key = settings_key
+    return context

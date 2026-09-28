@@ -23,14 +23,18 @@ def publish(root, slug, changes):
             old, _ = _history.popitem(last=False)
             _pending.pop(old, None)
         try:
+            # The fourth element counts node row WRITES (a node saved twice
+            # before one commit is two), matching the index's node_revision.
             value = None if changes is None else (
                 frozenset(changes.changed_keys()),
                 frozenset(changes.node_updates),
-                bool(changes.node_inserts or changes.node_deletes))
+                bool(changes.node_inserts or changes.node_deletes),
+                len(changes.node_updates))
             if key in _pending:
                 prior = _pending[key]
                 value = None if prior is None or value is None else (
-                    prior[0] | value[0], prior[1] | value[1], prior[2] or value[2])
+                    prior[0] | value[0], prior[1] | value[1], prior[2] or value[2],
+                    prior[3] + value[3])
             _pending[key] = value
         except BaseException:
             _pending[key] = None
@@ -58,9 +62,16 @@ def forget(root, slug):
 
 
 def since(root, slug, after, through):
+    detail = since_detail(root, slug, after, through)
+    return None if detail is None else (detail['keys'], detail['nodes'], detail['structural'])
+
+
+def since_detail(root, slug, after, through):
+    """Every journaled change in (after, through], or None when any is unknown:
+    {keys, nodes, structural, node_writes}."""
     if through < after or through - after > MAX_HISTORY:
         return None
-    keys, nodes, structural = set(), set(), False
+    keys, nodes, structural, writes = set(), set(), False, 0
     with _lock:
         history = _history.get((str(root), slug), {})
         for seq in range(after + 1, through + 1):
@@ -70,4 +81,5 @@ def since(root, slug, after, through):
             keys.update(value[0])
             nodes.update(value[1])
             structural |= value[2]
-    return keys, nodes, structural
+            writes += value[3]
+    return {'keys': keys, 'nodes': nodes, 'structural': structural, 'node_writes': writes}

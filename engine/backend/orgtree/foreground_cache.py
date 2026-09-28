@@ -116,38 +116,42 @@ def _db(stamp):
     return {k: v for k, v in stamp.items() if k != 'seq'}
 
 
-def _status(raw, slug, entry, stamp, feed):
-    """Status-only change set since the entry's snapshot, or None: {nid: fields}."""
+def _changes(raw, slug, entry, stamp, feed):
+    """What changed since the entry's snapshot, when that is provable, else None:
+    {'rows': fresh rows of exactly the changed nodes,
+     'status': {nid: fields} when only status fields of live nodes changed and
+               nothing else the projection reads moved, else None}."""
     previous = entry['stamp']
     state = entry['fast']
     if state is None:
         return None
-    if any(previous[k] != stamp[k] for k in ('org_id', 'catalog_revision', 'view_revision')):
+    if any(previous[k] != stamp[k] for k in ('org_id', 'catalog_revision')):
         return None
     if not pgfeed.snapshot_changes_published(feed, slug, previous['org_revision'], stamp['org_revision']):
         return None
     # Both positions were pinned with their snapshots (foreground_store
     # ._snapshot), so this is exactly the set of local changes between them.
-    change = tree_changes.since(store.DATA_ROOT, slug, state['seq'], stamp['seq'])
-    if change is None:
+    change = tree_changes.since_detail(store.DATA_ROOT, slug, state['seq'], stamp['seq'])
+    if change is None or change['structural']:
         return None
-    keys, ids, structural = change
-    if structural or keys - {'nodes', 'log'}:
-        return None
-    # Direct SQL node changes also advance the index, but not the local
-    # journal. Any extra write makes this proof incomplete. Repeated writes
-    # to one node may fall back unnecessarily; they can never conceal a row.
-    if stamp['node_revision'] - previous['node_revision'] != len(ids):
+    ids = change['nodes']
+    # Direct SQL node writes also advance node_revision, but not the local
+    # journal: the counts agree only when every node row written since is one
+    # of `ids`. Unchanged rows are reused, so this proof is what keeps them.
+    if stamp['node_revision'] - previous['node_revision'] != change['node_writes']:
         return None
     if not ids <= state['hashes'].keys():
         return None
     rows = storage._rows(raw, list(ids))
-    changes = {}
-    for nid, row in rows.items():
-        if row['meta']['state'] != 'live' or tree_fast.signature(row['node']) != state['hashes'][nid]:
-            return None
-        changes[nid] = {'last_status': row['node'].get('last_status')}
-    return changes
+    status = None
+    if previous['view_revision'] == stamp['view_revision'] and not change['keys'] - {'nodes', 'log'}:
+        status = {}
+        for nid, row in rows.items():
+            if row['meta']['state'] != 'live' or tree_fast.signature(row['node']) != state['hashes'][nid]:
+                status = None
+                break
+            status[nid] = {'last_status': row['node'].get('last_status')}
+    return {'rows': rows, 'status': status}
 
 
 def _patch_status(entry, changes):
@@ -170,10 +174,12 @@ def _patch_saved(saved, changes):
 
 
 def read(slug, public, since, *, include=(), runtime, sync_revision, build,
-         compressed=False, feed=None, reproject=None):
+         compressed=False, feed=None, reproject=None, advance=None):
     """build(raw, graph) returns an annotated/scrubbed foreground snapshot, or
     (snapshot, saved) when reproject(saved) can repeat its in-memory
-    projection (context, header, annotation) without reading storage."""
+    projection (context, header, annotation) without reading storage, and
+    advance(raw, saved, stamp, rows) moves saved to a newer snapshot given the
+    fresh rows of exactly the nodes that changed."""
     selected = tuple(sorted(storage._wanted(include)))
     key = (str(store.DATA_ROOT), slug, public, selected)
     with _lock:
@@ -197,16 +203,23 @@ def read(slug, public, since, *, include=(), runtime, sync_revision, build,
                 if entry is None:
                     changes = None
                 elif entry['stamp'] == db:
-                    changes = {}                    # nothing committed
+                    changes = {'rows': {}, 'status': {}}      # nothing committed
                 else:
-                    changes = _status(raw, slug, entry, stamp, feed)
-                hashes = entry['fast']['hashes'] if changes is not None else None
-                if changes is not None and entry['runtime'] == run:
-                    version = _patch_status(entry, changes)
+                    changes = _changes(raw, slug, entry, stamp, feed)
+                hashes = dict(entry['fast']['hashes']) if changes is not None else None
+                reusable = (changes is not None and saved is not None and reproject is not None
+                            and (changes['status'] is not None or advance is not None))
+                if changes is not None and changes['status'] is not None and entry['runtime'] == run:
+                    version = _patch_status(entry, changes['status'])
                     if saved is not None:
-                        _patch_saved(saved, changes)
-                elif changes is not None and saved is not None and reproject is not None:
-                    _patch_saved(saved, changes)
+                        _patch_saved(saved, changes['status'])
+                elif reusable:
+                    if changes['status'] is not None:
+                        _patch_saved(saved, changes['status'])
+                    else:
+                        saved = advance(raw, saved, stamp, changes['rows'])
+                        hashes.update({nid: tree_fast.signature(row['node'])
+                                       for nid, row in changes['rows'].items()})
                     payload = reproject(saved)
                     payload.update(watermarks)
                     version = _version(payload)

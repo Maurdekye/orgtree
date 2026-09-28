@@ -20,7 +20,7 @@ class _Unavailable(RuntimeError):
     pass
 
 
-def _context(raw, slug, graph, *, header):
+def _context(raw, slug, graph, *, header, reuse=None, reuse_settings=None):
     # The shared adapter is a separately reviewed dependency. Do not silently
     # load a complete Org, or invent header counts, if it cannot serve a view.
     try:
@@ -30,7 +30,8 @@ def _context(raw, slug, graph, *, header):
             raise
         raise _Unavailable from error
     try:
-        return adapter.build(raw, slug, graph, header=header)
+        return adapter.build(raw, slug, graph, header=header, reuse=reuse,
+                             reuse_settings=reuse_settings)
     except adapter.CompatibilityRequired as error:
         raise _Unavailable from error
 
@@ -44,6 +45,19 @@ def _project(raw, slug, graph, request, *, sync_rev, kind, requested=None, keep=
     saved = {'context': context, 'graph': graph}
     payload = _reproject(saved, request, sync_rev=sync_rev, kind=kind, requested=requested)
     return (payload, saved) if keep else payload
+
+
+def _advance(raw, slug, saved, stamp, rows):
+    """The kept projection inputs moved to this snapshot, re-reading only the
+    changed node rows (the cache proved no other node row was written).
+    Settings, windows, mail, inbox and counts are read again as a full build
+    reads them; unchanged nodes keep their normalized copies."""
+    old, graph = saved['context'], saved['graph']
+    graph = {**graph, 'stamp': stamp, 'rows': {**graph['rows'], **rows}}
+    reuse = {nid: node for nid, node in old.nodes.items() if nid not in rows}
+    context = _context(raw, slug, graph, header=True, reuse=reuse,
+                       reuse_settings=getattr(old, 'settings_key', None))
+    return {'context': context, 'graph': graph}
 
 
 def _reproject(saved, request, *, sync_rev, kind='snapshot', requested=None):
@@ -90,7 +104,8 @@ def read(slug: str, request: Request, *, mode='snapshot', nid=None) -> Response:
                 build=lambda raw, graph: _project(raw, slug, graph, request,
                     sync_rev=api._current_sync_rev(slug), kind='snapshot', keep=True),
                 reproject=lambda saved: _reproject(saved, request,
-                    sync_rev=api._current_sync_rev(slug)))
+                    sync_rev=api._current_sync_rev(slug)),
+                advance=lambda raw, saved, stamp, rows: _advance(raw, slug, saved, stamp, rows))
         else:
             # Capture before storage, never a newer watermark stamped on an
             # older committed graph. The cache applies the same ordering.
