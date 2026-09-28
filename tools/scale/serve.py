@@ -277,6 +277,20 @@ def child(args) -> int:
                                     holders[key] = holders.get(key, 0) + 1
                             fr = fr.f_back
                     rec["holders"] = holders
+                if os.environ.get("ORGTREE_SCALE_TRACE_FALLBACKS"):
+                    rec["fallbacks"] = sorted(([n, k] for k, n in _fb_sites.items()), reverse=True)[:25]
+                    # per live Org: node rows decoded / complete (whole-walked)
+                    import gc
+                    per = []
+                    for o in gc.get_objects():
+                        if type(o).__name__ == "Org":
+                            nodes = o.d.get("nodes") if hasattr(o, "d") else None
+                            try:
+                                per.append([dict.__len__(nodes), bool(getattr(nodes, "_complete", True)),
+                                            bool(getattr(o, "_shared_snapshot", False))])
+                            except Exception:
+                                pass
+                    rec["org_rows"] = sorted(per, reverse=True)
                 if os.environ.get("ORGTREE_SCALE_TRACE_TYPES"):
                     # object census by type (count), no tracemalloc: at GB heaps a
                     # tracemalloc snapshot itself costs GBs and stalls the loop
@@ -304,6 +318,20 @@ def child(args) -> int:
                 with open(dump_path, "a", encoding="utf-8") as f:
                     f.write(json.dumps(rec) + chr(10))
         threading.Thread(target=_dumper, name="scale-trace-dump", daemon=True).start()
+    _fb_sites: dict = {}
+    if os.environ.get("ORGTREE_SCALE_TRACE_FALLBACKS"):
+        # every whole-walk fallback of a lazy map, by why + caller chain
+        import traceback as _tb
+        from orgtree import store as _st
+        _orig_fb = _st._lazy_fallback
+
+        def _counting_fallback(why):
+            fr = [f"{os.path.basename(f.filename)}:{f.lineno}:{f.name}"
+                  for f in _tb.extract_stack()[:-1] if "orgtree" in f.filename and "tools" not in f.filename]
+            key = why + " | " + " < ".join(reversed(fr[-8:]))
+            _fb_sites[key] = _fb_sites.get(key, 0) + 1
+            return _orig_fb(why)
+        _st._lazy_fallback = _counting_fallback
     app, *_ = load_app()
     from orgtree import api, store, supervisor
     if os.environ.get("ORGTREE_SCALE_HALT_FENCE") == "0":
