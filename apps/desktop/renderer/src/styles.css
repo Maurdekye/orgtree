@@ -613,6 +613,7 @@ main {
     in srgb, var(--provider-accent) 16%, transparent);
   pointer-events: none;
 }
+/* a process that is serving the current turn glows a little stronger */
 .sq.norm.proc-warm.busy::before {
   box-shadow: 0 0 9px color-mix(
     in srgb, var(--provider-accent) 28%, transparent);
@@ -877,9 +878,12 @@ button.badge.audience-fold.alert {
      (but very small) corner without eating the composer (user ruling) */
   border-radius: 2px; border-top-width: 2px;
 }
-/* D-201 — the soft provider halo says a process is already parked and ready,
-   not that the agent is healthy or working. Cold is ordinary, so it simply
-   omits the halo instead of adding an error colour or a boot animation. */
+/* D-201 — the soft provider halo says a CLI process exists for this agent,
+   parked and ready OR serving a turn (proc_live; user ruling 2026-09-28 — it
+   used to track "parked" only and so went dark exactly while the process
+   worked). It says nothing about health. Cold (no process) is ordinary, so it
+   simply omits the halo instead of adding an error colour or a boot
+   animation. The class keeps its historical name, proc-warm. */
 .sq.desk.proc-warm {
   box-shadow: 0 8px 40px rgba(0, 0, 0, .55),
     0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent),

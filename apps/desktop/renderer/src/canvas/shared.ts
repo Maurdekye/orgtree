@@ -382,6 +382,14 @@ export const providerOf = (tier: string): ProviderId =>
     : ANTIGRAVITY_TIERS.includes(tier) ? 'google'
       : isOpenRouterTier(tier) ? 'openrouter' : 'claude')
 
+/** D-201 halo class for a live agent card or desk (user ruling 2026-09-28):
+ *  the halo means a CLI process EXISTS for this seat, parked or serving a
+ *  turn (proc_live). It used to follow proc_warm ("parked and ready"), which
+ *  is cleared the moment the process is claimed for a turn, so the halo went
+ *  dark exactly while the process was working. '' for a non-live node. */
+export const procHaloClass = (node: { state: string; proc_live?: boolean }): string =>
+  node.state !== 'live' ? '' : node.proc_live ? 'proc-warm' : 'proc-cold'
+
 /** How a provider is named to the user in prose. The dialog says "Codex",
  *  not "openai" — the user picks tiers by the product name they see on the
  *  chips and in the accounts panel. */

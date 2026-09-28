@@ -54,7 +54,7 @@ import {
   isChatActive, isNoticeArmed, registerChat, setActiveChatKey, setNoticeArmed,
   toggleNoticeArmed, unregisterChat, useNoticeArmed,
 } from '../noticestore'
-import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, CODEX_TIERS, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, ANTIGRAVITY_TIERS, isOpenRouterTier, md, openrouterTierIds, PROVIDER_LABEL, providerOf, queuedSwitchTitle, reportedLabel, stateLabel, TIER_LETTER, tierCapabilityNotes, tierLabel, tierShown, USER, useHideRetired, usePolled } from './shared'
+import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, CODEX_TIERS, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, ANTIGRAVITY_TIERS, isOpenRouterTier, md, openrouterTierIds, procHaloClass, PROVIDER_LABEL, providerOf, queuedSwitchTitle, reportedLabel, stateLabel, TIER_LETTER, tierCapabilityNotes, tierLabel, tierShown, USER, useHideRetired, usePolled } from './shared'
 import { closeIfCentred, ModalOverPins, PinFrame } from './modalpin'
 import type { ProviderPresence } from './shared'
 import {
@@ -1880,8 +1880,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage, onConf
     return () => win.removeEventListener('keydown', onKey)
   }, [surfaceDocument, chatKey])
   const providerClass = node.tier ? ' prov-' + providerOf(node.tier) : ''
-  const processClass = node.state === 'live'
-    ? (node.proc_warm ? ' proc-warm' : ' proc-cold') : ''
+  const processClass = node.state === 'live' ? ' ' + procHaloClass(node) : ''
   const { chat, live_feed, draft, thinking, thinkSecs, pending } = {
     chat: convo.chat, live_feed: convo.live, draft: convo.draft,
     thinking: convo.thinking, thinkSecs: convo.thinkSecs, pending: convo.pending }
