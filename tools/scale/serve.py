@@ -219,6 +219,8 @@ def child(args) -> int:
     sys.addaudithook(launch_audit)
 
     t_import = time.time()
+    import engprof
+    engprof.start_sampler(root / "metrics")   # before load_app: startup and readiness are covered
     from engine.launch import load_app
     dump_s = float(os.environ.get("ORGTREE_SCALE_TRACE_DUMP", "0") or 0)
     if dump_s:
@@ -610,6 +612,8 @@ def child(args) -> int:
         from sql_counts import install as install_sql_counts, Boundary
         install_sql_counts()
         app = Boundary(app, root / "metrics" / "sql-counts.jsonl")
+        from sql_counts import current as _sql_current
+        engprof.install_request_hooks(_sql_current)
     if os.environ.get("ORGTREE_SCALE_TRACE_GIT") == "1":
         app = AuditRequestPath(app)
     import uvicorn

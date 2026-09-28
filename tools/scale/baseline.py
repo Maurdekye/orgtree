@@ -348,9 +348,12 @@ class Controller:
                     "--root", self.run_root, "--arm", arm, "--result", self.root / f"receipts/{arm}-verify.json", env=env)
                 self.script("baseline.py", arm + "-files", "--child", "files", "--root", self.root,
                             "--arm", arm, env=env)
+                # Diagnosis only (engprof.py): the controller's own env opts the engine in.
+                diag = [a for kv in ("ORGTREE_SCALE_ENGPROF=1", "ORGTREE_PROFILE_TIMING=1")
+                        if os.environ.get("ORGTREE_SCALE_ENGPROF") == "1" for a in ("--env", kv)]
                 server = self.spawn([sys.executable, "-I", "-B", str(REPO / "tools/scale/serve.py"),
                     "--root", str(self.run_root), "--env", "ORGTREE_SCALE_SIMULATED_PROVIDER=1",
-                    "--env", "ORGTREE_SCALE_SQL_COUNTS=1"], arm + "-serve")
+                    "--env", "ORGTREE_SCALE_SQL_COUNTS=1", *diag], arm + "-serve")
                 sampler = None
                 try:
                     deadline = time.monotonic() + c["readiness_s"]
@@ -416,7 +419,11 @@ class Controller:
                     shutil.copytree(self.run_root / "metrics", self.root / "receipts" / arm, dirs_exist_ok=True)
                 self.check()
                 self.drop_database(admin, database_name(url))
-            if outcome["small"]["config"]["plans"] != outcome["large"]["config"]["plans"]:
+                if os.environ.get("ORGTREE_SCALE_ENGPROF_SMALL_ONLY") == "1":
+                    # diagnosis run: the active arm is the one being attributed
+                    outcome["diagnosis_small_only"] = True
+                    break
+            if not outcome.get("diagnosis_small_only") and outcome["small"]["config"]["plans"] != outcome["large"]["config"]["plans"]:
                 raise RuntimeError("unequal demand between arms")
             outcome["complete"] = True
         except BaseException as exc:
