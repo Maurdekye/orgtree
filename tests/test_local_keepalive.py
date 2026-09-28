@@ -31,7 +31,7 @@ os.environ["ORGTREE_DATA"] = _root.name
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "engine/backend"))
 
-import import_provenance  # noqa: F401,E402
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 import uvicorn  # noqa: E402
 
 from orgtree import api  # noqa: E402
