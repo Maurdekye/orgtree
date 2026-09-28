@@ -6900,7 +6900,8 @@ def start_usage_warm_loop() -> None:
                 # nothing to warm the cache FOR on an install with no orgs —
                 # 288 requests a day at a semi-documented endpoint, each one
                 # possibly refreshing the host's OAuth token (redteam)
-                if store.list_orgs():
+                # (identities only - a summary listing reads every node row)
+                if policy_context.org_rows():
                     # D-205: shares this paced background pass rather than a
                     # new timer. `accounts` owns a durable once-hourly gate;
                     # this call is never on a turn path and its isolated CLI
@@ -14784,7 +14785,9 @@ def _abandoned_docket_recovery_pass(now: float | None = None) -> None:
     new owner is durable.  A missing top-level leaves the item untouched.
     """
     stamp = time.time() if now is None else now
-    for row in store.list_orgs():
+    # identities only: `list_orgs()` decoded every node row of every org per
+    # 20 s tick to build summary rows this loop never reads
+    for row in policy_context.org_rows():
         slug = str(row["slug"])
         moved: list[dict[str, Any]] = []
         try:

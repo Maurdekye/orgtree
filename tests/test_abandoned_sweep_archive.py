@@ -33,6 +33,7 @@ class AbandonedSweepArchive(unittest.TestCase):
         org.work_create('a', 'Live ticket', 'live', owner='b')
         base = org._work_active()[0]
         base['owner'] = {'node': active_owner, 'generation': 1}
+        base.update(docket_at=OLD, updated_at=OLD)
         arch = []
         for i, st in enumerate(archived_statuses):
             it = copy.deepcopy(base)
@@ -72,6 +73,18 @@ class AbandonedSweepArchive(unittest.TestCase):
             self.assertFalse(org.d.resident('work_items_archive'))
             slug = self._org(['done', 'blocked', 'done'])
             self.assertEqual(self._dry(slug)[1], ['arch-1'])
+
+
+    def test_recovery_pass_enumerates_identities_not_summaries(self):
+        # the 20 s pass must not build `list_orgs()` summary rows (every node
+        # row of every org); an active abandoned ticket is still recovered
+        from orgtree import supervisor
+        slug = self._org(['done'], active_owner='gone')
+        with mock.patch.object(store, 'list_orgs',
+                               side_effect=AssertionError('list_orgs on tick')),                 mock.patch.object(supervisor, 'send_message'),                 mock.patch.object(supervisor, 'mail_spark'):
+            supervisor._abandoned_docket_recovery_pass(now=time.time())
+        live = store.load_org(slug)._work_active()[0]
+        self.assertEqual(live['owner']['node'], 'a')
 
 
 if __name__ == '__main__':
