@@ -5,6 +5,7 @@ from unittest.mock import patch
 import unittest
 
 from test_prose_delta_lock import ProseDeltaBase
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import assistant_messages, reply_events, store, supervisor
 
 

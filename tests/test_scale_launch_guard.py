@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import unittest
 from tools.scale.launch_guard import LaunchAudit, pin_git
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 
 class LaunchGuardTests(unittest.TestCase):

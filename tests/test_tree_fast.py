@@ -4,6 +4,7 @@ import threading
 import unittest
 from unittest.mock import patch
 import test_tree_ui as fixture
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import ledger, store, tree_ui, tree_fast, tree_changes
 from orgtree.stateprobe import SaveChanges
 

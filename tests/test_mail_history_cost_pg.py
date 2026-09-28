@@ -14,6 +14,7 @@ import uuid
 from unittest.mock import patch
 
 import test_mail_archive_bounds_pg as fixture
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import ledger, mailtx, orgtx, store
 
 

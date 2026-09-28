@@ -25,6 +25,7 @@ from tools.migration_harness.harness import EnvelopeAdapter, Rehearsal, exclusiv
 from tools.migration_harness.legacy import Refused, decode, encode, manifest, plain_tree, read_source
 
 import child_python  # a child Python imports THIS checkout's engine (tests/child_python.py)
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 REPO = Path(__file__).resolve().parents[1]
 # Children also check where the harness package itself resolves.

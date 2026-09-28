@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 import test_policy_poll_behavior as fixture
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import ledger, store, supervisor as sup, warmpool
 
 

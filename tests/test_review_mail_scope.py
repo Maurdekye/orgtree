@@ -12,6 +12,7 @@ In-memory Org fixtures (test_authorized_review_workflow's), no database.
 import unittest
 
 from test_authorized_review_workflow import fixture, item, review
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree.ledger import USER
 
 

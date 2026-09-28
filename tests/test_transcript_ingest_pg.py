@@ -14,6 +14,7 @@ if ADMIN:
     os.environ['ORGTREE_STORE'] = 'postgres'
 
 import test_transcript_ingest as fixture
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 
 @unittest.skipUnless(ADMIN, 'ORGTREE_TEST_PG_ADMIN_URL not set: NOT RUN')

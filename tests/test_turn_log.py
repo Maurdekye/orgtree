@@ -25,6 +25,7 @@ import uuid
 from unittest.mock import patch
 
 import test_pgstore as f
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import history, ledger, orgtx, pgstore, store
 
 

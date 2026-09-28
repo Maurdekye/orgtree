@@ -25,6 +25,7 @@ if ADMIN:
     os.environ['ORGTREE_STORE'] = 'postgres'
 
 import test_steer_poll_cost as fixture
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 WRITER = '''
 import json, os, sys

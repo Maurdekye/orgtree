@@ -4,6 +4,7 @@ import dataclasses
 import json
 import unittest
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import receiptrows as rows
 
 

@@ -3,6 +3,7 @@ import json
 from unittest.mock import patch
 import unittest
 import test_pgimport as f
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import workrows
 from test_work_item_rows import items
 

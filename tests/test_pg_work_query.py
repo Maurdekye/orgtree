@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import test_pgstore as f
 import test_pg_work_read as fixture
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import pgstore, store, workrows, workread, workquery
 from orgtree.ledger import USER, Org
 

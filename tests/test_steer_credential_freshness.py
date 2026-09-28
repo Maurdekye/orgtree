@@ -9,6 +9,7 @@ from contextlib import closing
 import unittest
 from unittest.mock import patch
 import test_steer_poll_cost as fixture
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 
 class FeedLagTests(unittest.TestCase):

@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 import test_pgstore as fixture
 from fastapi.testclient import TestClient
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from engine.launch import TokenGate
 from orgtree import api, foreground_cache, ledger, orgtx, pgstore, store, tree_changes
 

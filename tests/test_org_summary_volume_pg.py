@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 import test_org_summary_behavior_pg as behavior
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import org_listing, org_summary, pgstore, store
 
 tearDownModule = behavior.tearDownModule

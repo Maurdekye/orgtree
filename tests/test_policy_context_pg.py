@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch
 
 import test_policy_candidates_pg as fixture
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import policy_context, store, supervisor, warmpool
 
 tearDownModule = fixture.tearDownModule

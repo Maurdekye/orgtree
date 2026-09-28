@@ -21,6 +21,7 @@ import psycopg
 
 import test_pgstore as f
 import test_pg_work_list_view as lists
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import worklist
 from orgtree.ledger import USER
 

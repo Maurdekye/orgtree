@@ -27,6 +27,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(REPO / "tools")]
 
 import pg5_load  # noqa: E402
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 
 def _run() -> dict:

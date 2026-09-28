@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"tools"))
 from v3_qualification import adapters, runner
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 
 def migration_payload(scenario="ordinary"):

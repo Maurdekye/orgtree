@@ -7,6 +7,7 @@ import types
 import unittest
 from unittest.mock import patch
 import test_pgstore as fixture
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 import orgtree
 from orgtree import foreground_store as fg, foreground_context as ctx, ledger, store
 

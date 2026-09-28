@@ -18,6 +18,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine" / "backend"))
 
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import pgfeed  # noqa: E402
 
 

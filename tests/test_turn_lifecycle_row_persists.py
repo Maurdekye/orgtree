@@ -24,6 +24,7 @@ from unittest.mock import patch
 
 import test_turn_org_state_shared as base
 from test_turn_org_state_shared import tearDownModule  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import halt, lifecycle, orgtx, supervisor as sup
 
 

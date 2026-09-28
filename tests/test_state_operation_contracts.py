@@ -16,6 +16,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 import state_operation_contracts as contracts
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 
 def site_names(sites):

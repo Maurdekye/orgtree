@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch
 
 import test_org_discovery_behavior_pg as fixture
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import api, store
 
 tearDownModule = fixture.tearDownModule

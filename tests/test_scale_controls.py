@@ -9,6 +9,7 @@ from unittest.mock import patch
 import psutil
 
 from tools.scale.control import BoundedPool, Feed, Workload, guarded_wait, memory_breach
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 
 class ScaleControlTests(unittest.TestCase):

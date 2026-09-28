@@ -7,6 +7,7 @@ import unittest
 from unittest import mock
 
 import test_pgstore as f
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import orgtx, store
 
 OLD = "1970-01-01T00:16:40Z"

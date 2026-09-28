@@ -22,6 +22,7 @@ if ADMIN:
     os.environ['ORGTREE_STORE'] = 'postgres'
 
 import test_chat_window as fixture
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 store, sup, chat_window = fixture.store, fixture.sup, fixture.chat_window
 

@@ -15,6 +15,7 @@ import test_pgstore as fixture
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools" / "scale"))
 import history_fixture as hf
 import history_pg as hp
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import foreground_store, ledger, pgstore, store, workread
 
 

@@ -8,6 +8,7 @@ from unittest.mock import patch
 from urllib.parse import urlsplit, urlunsplit
 
 import test_pgimport as fixture
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import pgstore, pgstats, store, workread
 
 ADMIN = os.environ.get('ORGTREE_TEST_PG_ADMIN_URL', '')

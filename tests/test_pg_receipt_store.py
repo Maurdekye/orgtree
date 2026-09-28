@@ -7,6 +7,7 @@ import uuid
 from unittest.mock import patch
 import test_pg_receiptrows as fixture
 from test_receiptrows import receipt
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import (ledger, mailruntime, orgtx, pgstore, receiptmapping, receiptstore,
                      store)
 

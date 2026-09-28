@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import test_state_receipt_lookup_boundary as _lookup  # noqa: E402
 from test_state_receipt_lookup_boundary import *  # noqa: E402,F401,F403
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import orgtx, pgdoor  # noqa: E402
 import unittest  # noqa: E402
 

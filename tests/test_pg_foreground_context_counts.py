@@ -4,6 +4,7 @@ import threading
 import unittest
 from unittest.mock import patch
 import test_pgstore as fixture
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import store, pgstore, ledger, workread, foreground_store as fg, foreground_context as ctx
 
 def tearDownModule():fixture.tearDownModule()

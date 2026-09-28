@@ -23,6 +23,7 @@ from unittest.mock import patch
 
 os.environ['ORGTREE_PGDOOR'] = '1'
 import test_pgstore as f  # noqa: E402  (sets the PG store environment)
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import api, ledger, pgstore, store, supervisor  # noqa: E402
 
 U = ledger.USER

@@ -9,6 +9,7 @@ from unittest.mock import patch
 root = tempfile.TemporaryDirectory(prefix='policy-reads-', ignore_cleanup_errors=True)
 os.environ.update(ORGTREE_DATA=root.name, ORGTREE_V2_TOKEN='test')
 import test_mail_archive_bounds_pg as fixture
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from engine.launch import load_app
 load_app()
 from orgtree import ledger, pgstore, policy_reads, store, supervisor as sup

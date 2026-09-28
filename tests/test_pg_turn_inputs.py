@@ -6,6 +6,7 @@ import uuid
 from contextlib import ExitStack
 from unittest.mock import patch
 import test_pgstore as f
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import halt, identity_context, ledger, orgtx, store, turn_inputs
 from orgtree import supervisor as sup
 from tools.scale.simulated import SimulatedProvider

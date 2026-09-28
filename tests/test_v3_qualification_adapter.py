@@ -26,6 +26,7 @@ os.environ.clear()
 os.environ.update(_environment)
 
 from v3_qualification.backend import Backend
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 
 class RefusalAdapterTests(unittest.TestCase):

@@ -1,5 +1,6 @@
 import unittest
 from tools.scale.ui_mix import polls, WINDOWS
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 
 class UIMix(unittest.TestCase):

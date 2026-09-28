@@ -1,6 +1,7 @@
 """Runtime temporary relations must not forge ANALYZE completion."""
 import unittest
 import test_pgstats as fixture
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import pgstats
 
 
