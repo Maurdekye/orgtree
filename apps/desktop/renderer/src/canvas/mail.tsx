@@ -1240,9 +1240,9 @@ export function NodeInboxModal({ node, slug, close, jumpTo, jumpSeq, onFocusAgen
           onFocusAgent={onFocusAgent
             ? (id) => { closeIfCentred('node-inbox', close, slug); onFocusAgent(id) }
             : undefined} />
-        <div className="row">
-          <button className="primary" onClick={close}>close</button>
-        </div>
+        {/* no footer `close` button (user 2026-09-28), as in the user's own
+            inbox: Escape, a backdrop click, the title bar's menu and — when
+            pinned — its ✕ close it */}
     </PinFrame>
   )
 }

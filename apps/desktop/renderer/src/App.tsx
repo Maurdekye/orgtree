@@ -2723,19 +2723,20 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
                   sender={(id: string) => <SenderChip id={id} nodes={nodes}
                     onFocusAgent={onFocusAgent ? (agentId) => { close(); onFocusAgent(agentId) } : undefined} />} />}
         </div>
-        <div className="row">
+        {/* No footer `close` button (user 2026-09-28): Escape, a backdrop
+            click, the title bar's menu and — when pinned — its ✕ close it. */}
+        {folder === 'inbox' && (box?.pending.length ?? 0) > 0 && <div className="row">
           {/* ⚠ the bump is not optional here. These rows come from getInbox,
               and the server's own `changed` broadcast only makes clients
               refetch the TREE — a different payload that does not carry them.
               So without this the button's effect waited for the 5 s poll: the
               per-mail path was fixed first and this sibling call site was
               missed, which is the same bug reported twice (2026-08-07/08). */}
-          {folder === 'inbox' && (box?.pending.length ?? 0) > 0 && <button onClick={() =>
+          <button onClick={() =>
             clearInbox(slug)
               .then(() => { setReadBump((n) => n + 1); refresh?.() })
-              .catch((e: Error) => toast([`error: ${e.message}`]))}>Mark all read</button>}
-          <button className="primary" onClick={close}>close</button>
-        </div>
+              .catch((e: Error) => toast([`error: ${e.message}`]))}>Mark all read</button>
+        </div>}
     </PinFrame>
   )
 }
