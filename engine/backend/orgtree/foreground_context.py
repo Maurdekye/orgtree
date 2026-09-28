@@ -198,12 +198,14 @@ class ForegroundContext:
 def build(raw, slug: str, graph: dict, *, header: bool = True,
           viewer: str = USER, now_ts: float | None = None,
           reuse: dict | None = None, reuse_settings: str | None = None,
-          inputs: dict | None = None) -> ForegroundContext:
+          inputs: dict | None = None, funding: list | None = None) -> ForegroundContext:
     """Consume the graph's still-open committed snapshot; never open another.
 
     ``reuse`` hands over nodes an earlier context normalized; they are used
     only when this snapshot's settings still equal ``reuse_settings`` (that
     context's ``settings_key``), otherwise every node is copied and normalized.
+    ``funding``: rows `read_funding` returned for this same node revision, so
+    a build that reads everything else need not read them again.
     """
     from . import foreground_store, store, tree_delta
     check = raw.execute("SELECT current_setting('transaction_isolation'), "
@@ -233,7 +235,8 @@ def build(raw, slug: str, graph: dict, *, header: bool = True,
                 if rows:
                     selected[nid] = rows
             blobs[sect] = selected
-        funding = foreground_store.read_funding(raw)
+        if funding is None:
+            funding = foreground_store.read_funding(raw)
         windows = foreground_store.read_card_windows(raw, ids, header=header)
         inbox = foreground_store.read_org_inbox_window(raw)
     else:

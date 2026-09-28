@@ -23,6 +23,8 @@ MAX_PAGE = 100
 MAX_INCLUDE = 128
 ASK_SECTIONS = ('asks', 'credit_requests', 'scope_requests')
 Projector = Callable[[Any, dict], Any]
+#: memo(stamp) -> an answer the caller already built for this exact stamp, or None
+Memo = Callable[[dict], Any]
 
 
 class CursorReset(ValueError):
@@ -284,10 +286,16 @@ def read_funding(raw: Any) -> list[dict]:
     Raw missing grant/model values remain visible to the context normalizer.
     It must apply the existing legacy rules or refuse the bounded context;
     this reader must not invent a zero budget for an incomplete record.
+
+    Only the four fields leave the database: `orgtree_foreground_meta` always
+    writes all four keys (text for parent/state/model, the raw JSON value or
+    null for grant), so these columns equal the whole-meta read's values
+    without shipping and decoding every live node's full index meta.
     """
-    return [{'id': nid, **{key: meta[key] for key in ('parent', 'state', 'model', 'grant')}}
-            for nid, meta in raw.execute(
-                "SELECT id,meta FROM node_index WHERE meta->>'state'<>'archived' ORDER BY ord,id").fetchall()]
+    return [{'id': nid, 'parent': parent, 'state': state, 'model': model, 'grant': grant}
+            for nid, parent, state, model, grant in raw.execute(
+                "SELECT id,meta->>'parent',meta->>'state',meta->>'model',meta->'grant' "
+                "FROM node_index WHERE meta->>'state'<>'archived' ORDER BY ord,id").fetchall()]
 
 
 def _project(raw: Any, graph: dict, project: Projector | None) -> Any:
@@ -319,9 +327,19 @@ def read_foreground(slug: str, include=(), *, project: Projector | None = None) 
         return _project(raw, select_foreground(raw, stamp, wanted), project)
 
 
-def read_exact(slug: str, nid: str, *, project: Projector | None = None) -> Any:
+def _remembered(memo: Memo | None, stamp: dict) -> Any:
+    """A caller's answer already computed for exactly this committed stamp,
+    or None. Asked before any page query, inside the pinned snapshot."""
+    return memo(stamp) if memo is not None else None
+
+
+def read_exact(slug: str, nid: str, *, project: Projector | None = None,
+               memo: Memo | None = None) -> Any:
     wanted = _wanted([nid])
     with _snapshot(slug) as (raw, stamp):
+        hit = _remembered(memo, stamp)
+        if hit is not None:
+            return hit
         return _project(raw, _graph(raw, stamp, list(wanted), wanted), project)
 
 
@@ -365,7 +383,7 @@ def read_references(slug: str, include=(), *, project: Projector | None = None) 
 
 def read_retired_children(slug: str, parent: str = '', *, limit: int = 50,
                           cursor: str | None = None, edge: str | None = None,
-                          project: Projector | None = None) -> Any:
+                          project: Projector | None = None, memo: Memo | None = None) -> Any:
     limit = _limit(limit)
     if edge not in (None, 'last'):
         raise ValueError('unknown retired child edge')
@@ -373,6 +391,9 @@ def read_retired_children(slug: str, parent: str = '', *, limit: int = 50,
         raise ValueError('last retired child requires limit=1 and no cursor')
     with _snapshot(slug) as (raw, stamp):
         after = _after(cursor, stamp, 'children', parent)
+        hit = _remembered(memo, stamp)
+        if hit is not None:
+            return hit
         params: list = [parent]
         suffix = ''
         if after is not None:
@@ -398,7 +419,8 @@ def read_retired_children(slug: str, parent: str = '', *, limit: int = 50,
 
 
 def search(slug: str, query: str, *, state: str | None = None, limit: int = 50,
-           cursor: str | None = None, project: Projector | None = None) -> Any:
+           cursor: str | None = None, project: Projector | None = None,
+           memo: Memo | None = None) -> Any:
     limit = _limit(limit)
     query = query.strip().lower()
     if not query or len(query) > 256:
@@ -410,6 +432,9 @@ def search(slug: str, query: str, *, state: str | None = None, limit: int = 50,
         after = _after(cursor, stamp, 'search', filters)
         if after is not None and not isinstance(after, str):
             raise ValueError('invalid search cursor')
+        hit = _remembered(memo, stamp)
+        if hit is not None:
+            return hit
         page = raw.execute(
             'SELECT id FROM node_index '
             'WHERE public.orgtree_id_grams(id) @> public.orgtree_id_grams(%s) '
