@@ -151,12 +151,13 @@ def _rows(raw: Any, ids: list[str]) -> dict[str, dict]:
     if not ids:
         return {}
     rows = raw.execute(
-        # tree_val is the node with only its newest TREE_TURNS turns, kept
-        # by the node trigger at write time (migration 0016). NULL means
+        # node_tree_val holds the node with only its newest TREE_TURNS turns,
+        # kept by its own trigger at write time (migration 0016). No row means
         # serve the stored text: nothing to trim, or jsonb could not
         # round-trip it exactly. The whole val is detoasted only then.
-        'SELECT i.id,i.ord,i.meta,i.lineage_count,i.consult_id,c.meta,coalesce(i.tree_val,n.val) '
+        'SELECT i.id,i.ord,i.meta,i.lineage_count,i.consult_id,c.meta,coalesce(t.val,n.val) '
         'FROM node_index i JOIN nodes n ON n.id=i.id '
+        'LEFT JOIN node_tree_val t ON t.id=i.id '
         'LEFT JOIN node_index c ON c.id=i.consult_id '
         'WHERE i.id=ANY(%s) ORDER BY i.ord,i.id', (ids,)).fetchall()
     if len(rows) != len(set(ids)):
