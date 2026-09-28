@@ -1188,6 +1188,12 @@ export interface EngineStats {
     full_200: number; not_modified_304: number; bytes_200: number; window_s: number
     cached_bodies: number; cached_bytes: number; cache_idle_s: number
   }
+  lazy_rows?: {
+    enabled: boolean; epoch: string | null
+    counts: Record<string, number>
+    stale_epoch_orgs: string[]
+    recent_fallbacks: { why: string; stack: string[] }[]
+  }
 }
 export const getEngineStats = (): Promise<EngineStats> =>
   req('/api/diagnostics/engine-stats', undefined, 5000)

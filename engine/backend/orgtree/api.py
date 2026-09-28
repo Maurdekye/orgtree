@@ -7824,6 +7824,9 @@ async def engine_stats() -> dict[str, Any]:
             "cached_bytes": sum(n for _, n in cached),
             "cache_idle_s": _WORK_CACHE_IDLE_S,
         },
+        # a silent fall back to whole-org loads is ~9x the memory of a chat
+        # read (measured on the live org, 64 MB vs 7 MB): make it visible
+        "lazy_rows": store.lazy_rows_report(),
     }
 
 

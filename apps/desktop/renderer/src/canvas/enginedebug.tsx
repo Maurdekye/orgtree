@@ -136,6 +136,7 @@ export function EngineDebugPanel({ onClose }: { onClose?: () => void }) {
   const col = (k: keyof Sample): number[] => history.map(h => h[k])
   const ws = stats?.websockets
   const wl = stats?.work_list
+  const lr = stats?.lazy_rows
   const privLabel = stats && stats.memory.private_bytes == null ? 'memory (rss)' : 'private bytes'
   return (
     <section className="edbg-panel" aria-label="Engine debug view">
@@ -161,6 +162,22 @@ export function EngineDebugPanel({ onClose }: { onClose?: () => void }) {
         <Metric name="200 bytes / min" value={wl.bytes_200} series={col('bytes200')} fmt={fmtBytes} />
         <Metric name="cached bodies" value={wl.cached_bytes} series={col('cached')} fmt={fmtBytes}
           detail={`${wl.cached_bodies} held · evicted after ${wl.cache_idle_s} s idle`} />
+
+        {lr && <>
+          <h4>On-demand rows</h4>
+          <div className="edbg-row">
+            <span>{lr.enabled ? 'on' : 'off'}</span>
+            <span>on-demand loads <b>{lr.counts.loads ?? 0}</b></span>
+            <span>whole loads, epoch not stamped <b>{lr.counts.epoch_fallbacks ?? 0}</b></span>
+            <span>other whole-load fallbacks <b>{lr.counts.fallbacks ?? 0}</b></span>
+          </div>
+          {lr.stale_epoch_orgs.length > 0 && <div className="ask-warn">
+            loading whole until the next write stamps their heal epoch: {lr.stale_epoch_orgs.join(', ')}
+          </div>}
+          {lr.recent_fallbacks.map((f, i) => (
+            <div key={i} className="dim" title={f.stack.join(' > ')}>fallback: {f.why}</div>
+          ))}
+        </>}
 
         <h4>Websockets</h4>
         <Metric name="frames queued (all)" value={history.length ? history[history.length - 1].queued : 0} series={col('queued')}

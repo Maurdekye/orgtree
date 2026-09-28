@@ -2892,6 +2892,10 @@ LAZY_ROWS_STATS: dict[str, int] = {"loads": 0, "fetches": 0, "rows": 0,
                                    "decode_heals": 0, "post_load_changes": 0}
 #: the last few fallback call sites (why, stack), newest last
 LAZY_ROWS_FALLBACKS: collections.deque[tuple[str, list[str]]] = collections.deque(maxlen=32)
+#: orgs whose LAST load was whole because their heal epoch is not stamped yet
+#: (slug -> wall time), cleared by the org's next on-demand load: the engine
+#: debug view names them, since each such load costs a whole-org decode
+LAZY_ROWS_STALE_EPOCH: dict[str, float] = {}
 #: set by a harness to attribute a fallback to its request (sql_counts)
 LAZY_ROWS_HOOK: Callable[[str], None] | None = None
 _META_HEAL_EPOCH = "heal_epoch"
@@ -2913,6 +2917,21 @@ def heal_epoch() -> str | None:
         except (OSError, TypeError):
             _heal_epoch_value.append(None)
     return _heal_epoch_value[0]
+
+
+def lazy_rows_report() -> dict[str, Any]:
+    """On-demand rows as the engine debug view shows them. `enabled` is
+    whether loads CAN go on demand here; the counters say whether they did
+    (`epoch_fallbacks` and `fallbacks` are whole-org decodes). Reads only
+    what the store already counts: no org is loaded."""
+    return {
+        "enabled": bool(LAZY_ROWS and ORGTX_RESCOPE and STORE_BACKEND == "postgres"),
+        "epoch": heal_epoch(),
+        "counts": dict(LAZY_ROWS_STATS),
+        "stale_epoch_orgs": sorted(LAZY_ROWS_STALE_EPOCH),
+        "recent_fallbacks": [{"why": why, "stack": list(stack)}
+                             for why, stack in list(LAZY_ROWS_FALLBACKS)[-5:]],
+    }
 
 
 def _lazy_count(key: str, n: int = 1) -> None:
@@ -4497,9 +4516,11 @@ def _load_lazy(conn: sqlite3.Connection, slug: str,
             if epoch is not None and epoch == heal_epoch():
                 lazy_nodes = True
                 _lazy_count("loads")
+                LAZY_ROWS_STALE_EPOCH.pop(slug, None)
             else:
                 d._stamp_heal_epoch = heal_epoch() is not None
                 _lazy_count("epoch_fallbacks")
+                LAZY_ROWS_STALE_EPOCH[slug] = time.time()
         if (lazy_nodes or lazy_sections) and not getattr(conn, "pinned", False):
             # outside org_tx: a later on-demand fetch may be newer than this
             # view; remember the view's snapshot so such rows are counted
