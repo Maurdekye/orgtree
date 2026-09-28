@@ -13,6 +13,7 @@ Run:  python tools/run-python-verification.py tests/test_worklist_statements_pg.
 from collections import Counter
 import json
 import re
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -125,6 +126,10 @@ class Statements(unittest.TestCase):
                         if 'archive_limit' in kw:
                             self.assertEqual(got['archived'], expected['archived'][:10])
                         totals[(end, viewer, tuple(kw))] = count
+        print('statements per request (4 items, 24 items):', {
+            f'{v}/{"+".join(k) or "plain"}': (totals[(4, v, k)].total, totals[(24, v, k)].total)
+            for v in (USER, 'a', 'b') for k in ((), ('backlogged',), ('archive_limit',))},
+            file=sys.stderr)
         for viewer in (USER, 'a', 'b'):
             for kw in ((), ('backlogged',), ('archive_limit',)):
                 small, large = totals[(4, viewer, kw)], totals[(24, viewer, kw)]
