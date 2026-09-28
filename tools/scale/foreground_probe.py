@@ -240,7 +240,35 @@ def install_why(path):
         with lock, open(path, "a", encoding="utf-8") as target:
             target.write(json.dumps(row, default=str) + "\n")
 
-    original_status = cache._status
+    if hasattr(cache, "_changes"):
+        original_changes = cache._changes
+
+        def changes(raw, slug, entry, stamp, feed):
+            why = dict(event="change-check")
+            previous, state = entry["stamp"], entry["fast"]
+            if any(previous[k] != stamp[k] for k in ("org_id", "catalog_revision")):
+                why["miss"] = "identity/catalog moved"
+            elif not pgfeed.snapshot_changes_published(feed, slug, previous["org_revision"], stamp["org_revision"]):
+                why["miss"] = "feed has not published the change"
+            else:
+                detail = tree_changes.since_detail(store.DATA_ROOT, slug, state["seq"], stamp["seq"])
+                if detail is None:
+                    why["miss"] = "journal has no record"
+                else:
+                    why.update(keys=sorted(detail["keys"]), ids=sorted(detail["nodes"]),
+                               writes=detail["node_writes"], structural=detail["structural"],
+                               node_delta=stamp["node_revision"] - previous["node_revision"])
+                    if detail["structural"]:
+                        why["miss"] = "structural"
+                    elif why["node_delta"] != detail["node_writes"]:
+                        why["miss"] = "node writes not all journaled"
+            result = original_changes(raw, slug, entry, stamp, feed)
+            why["result"] = None if result is None else ("status" if result["status"] is not None else "advance")
+            log(why)
+            return result
+        cache._changes = changes
+
+    original_status = getattr(cache, "_status", None) or (lambda *a, **k: None)
 
     def status(raw, slug, entry, stamp, mark, feed):
         why = dict(event="status-check")
@@ -295,7 +323,8 @@ def install_why(path):
         seen.update({nid: json.loads(json.dumps(row["node"])) for nid, row in graph["rows"].items()})
         return graph
 
-    cache._status = status
+    if hasattr(cache, "_status"):
+        cache._status = status
     foreground_store.select_foreground = select
 
     import traceback
