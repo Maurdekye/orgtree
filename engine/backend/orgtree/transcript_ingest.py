@@ -19,9 +19,18 @@ Cold catch-up (cold-transcript-ingest-at-n1000): active nodes are queued
 first from the active index, history waits until every active node settled,
 older records come in byte-bounded slices, and while work is pending the
 worker works WORK_BUDGET_S and pauses PENDING_PAUSE_S instead of a second.
+
+Shutdown (transcript-capture-loops-on-imported-agents-and): the worker stops
+BEFORE the database does. `start()` registers an atexit hook that signals
+`stop()` and waits for the thread. launch.py registers the database stop
+before the API loads, so earlier, and atexit runs hooks in reverse order: this
+one runs first. The worker checks the signal between
+captures, so an orderly stop no longer logs one traceback per capture while
+PostgreSQL is going down.
 """
 from __future__ import annotations
 
+import atexit
 import collections
 import logging
 import os
@@ -31,6 +40,10 @@ import time
 _log = logging.getLogger(__name__)
 _lock = threading.Lock()
 _started = False
+_stop = threading.Event()
+_thread: threading.Thread | None = None
+#: seconds the atexit hook waits for an in-flight capture to finish
+STOP_JOIN_S = 10.0
 _fresh: set[str] = set()
 #: Bounded (slug, nid) -> (settled fingerprint, source keys); durable data is untouched.
 _SETTLED_LIMIT = 512
@@ -299,6 +312,8 @@ class _SweepState:
         (SQLite, legacy blobs) keep being found by discovery alone."""
         from . import store
         for slug in slugs:
+            if _stop.is_set():
+                return
             after = None
             try:
                 while True:
@@ -326,7 +341,7 @@ class _SweepState:
             self.seed_active(list(self.orgs))
         archived = []
         budget = 8
-        while self.orgs and budget:
+        while self.orgs and budget and not _stop.is_set():
             slug = self.orgs[0]
             try:
                 page = store.read_transcript_nodes_page(slug, self.cursor, budget)
@@ -421,6 +436,8 @@ def _sweep(state, *, clock=time.monotonic):
     and re-enter ingestion when their slice finds change.
     """
     from . import supervisor as sup, transcript_records as records
+    if _stop.is_set():
+        return False
     records._drain_spool()
     now = clock()
     if state.last_busy is None or now - state.last_busy >= 1.0:
@@ -429,6 +446,8 @@ def _sweep(state, *, clock=time.monotonic):
         with sup._state_lock:
             busy = [key for key, value in sup._state.items() if value.get('busy')]
         for slug, nid in busy:
+            if _stop.is_set():
+                return False
             if not _backing_off(state, (slug, nid), now):
                 _captured(state, (slug, nid), capture_safely(slug, nid), clock())
     for key in state.discover():
@@ -438,7 +457,7 @@ def _sweep(state, *, clock=time.monotonic):
     pending = False
     checks = 0
     refilled = False
-    while clock() < deadline:
+    while clock() < deadline and not _stop.is_set():
         if not state.hot:
             if refilled:
                 break
@@ -475,7 +494,7 @@ def _sweep(state, *, clock=time.monotonic):
     if not pending and any(key not in state.settled_seen and key not in state.backoff
                            for key in state.hot):
         pending = True   # the tick ended with never-settled active nodes queued
-    while state.archived and clock() < deadline and (
+    while state.archived and clock() < deadline and not _stop.is_set() and (
             state.active_settled or state.archive_allowance > 0):
         key = state.archived.popleft()
         if _backing_off(state, key, clock()):
@@ -490,22 +509,43 @@ def _sweep(state, *, clock=time.monotonic):
 
 
 def start():
-    global _started
+    global _started, _thread
     with _lock:
         if _started:
             return
         _started = True
+        _stop.clear()
 
     def run():
         from . import transcript_records as records
         queue = _SweepState()
         with records.reuse_database():
-            while True:
+            while not _stop.is_set():
                 pending = False
                 try:
                     pending = _sweep(queue)
                 except Exception:
+                    if _stop.is_set():
+                        break      # the database is going down with the engine
                     _log.exception('Transcript capture sweep failed; retrying')
-                time.sleep(PENDING_PAUSE_S if pending else IDLE_PAUSE_S)
+                _stop.wait(PENDING_PAUSE_S if pending else IDLE_PAUSE_S)
 
-    threading.Thread(target=run, name='transcript-capture', daemon=True).start()
+    # Registered after launch.py's database stop, so it runs before it.
+    atexit.register(stop, STOP_JOIN_S)
+    _thread = threading.Thread(target=run, name='transcript-capture', daemon=True)
+    _thread.start()
+
+
+def stop(timeout: float = 0.0) -> bool:
+    """Ask the worker to stop; wait up to `timeout` seconds for it to leave.
+    True when no worker thread is still running."""
+    global _started
+    _stop.set()
+    thread = _thread
+    if thread is not None and timeout > 0 and thread is not threading.current_thread():
+        thread.join(timeout)
+    alive = thread is not None and thread.is_alive()
+    if not alive:
+        with _lock:
+            _started = False
+    return not alive

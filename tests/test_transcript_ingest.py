@@ -785,4 +785,57 @@ class CaptureTests(unittest.TestCase):
         self.assertEqual(len(self.rows()),5)
         self.assertFalse(self.backfill())
 
+    # ---- transcript-capture-loops-on-imported-agents-and (rehearsal 2) ----
+    def test_imported_agent_history_is_captured_once_on_every_backend(self):
+        """An imported agent's history file (desktop_import.history) used to
+        refuse on PostgreSQL with "V2 copy import requires the SQLite backend"
+        on every backfill, retried for ever. It is a read-only path lookup."""
+        slug=self.org.d['slug'];rel=f'imports/{slug}/history.jsonl'
+        hist=Path(store.DATA_ROOT)/rel;hist.parent.mkdir(parents=True,exist_ok=True)
+        with hist.open('w',encoding='utf8') as stream:
+            for i in range(30):stream.write(json.dumps({'type':'assistant','message':{'content':f'h{i}'}})+'\n')
+        org=store.load_org(slug);org.node('agent')['desktop_import']={'history':rel};store.save_org(org)
+        imported=lambda:records.tail(source_key(store.load_org(slug),'agent',True),1000)[0]
+        with patch.object(ingest._log,'exception',side_effect=AssertionError('capture failed')):
+            self.assertTrue(self.backfill())
+            self.assertFalse(self.backfill(),'settled after one pass: no retry loop')
+        self.assertEqual(len(imported()),30)
+        self.assertEqual(len({(r[0],r[1]) for r in imported()}),30,'no duplicated rows')
+
+    def test_worker_stops_before_the_database_at_exit(self):
+        """launch.py registers the database stop (atexit) before the API
+        starts this worker; atexit runs hooks last-in first-out. The worker
+        used to keep capturing while PostgreSQL shut down: one traceback per
+        capture (rehearsal 2: 216). Now its own hook stops it first."""
+        import atexit, threading
+        hooks=[];down=threading.Event();logged=[]
+        def failing(*a,**k):raise RuntimeError('the database system is shutting down')
+        def database_stop():
+            down.set()
+            with patch.object(store,'read_transcript_nodes_page',failing), \
+                 patch.object(store,'read_active_transcript_nodes',failing), \
+                 patch.object(store,'read_transcript_source',failing), \
+                 patch.object(store,'org_slugs',failing):
+                threading.Event().wait(0.5)   # pg_ctl stop takes a while
+        def log(*a,**k):
+            if down.is_set():logged.append(a[0] if a else '')
+        self.write(0,5)
+        hooks.append((database_stop,()))
+        self.addCleanup(lambda:getattr(ingest,'_stop',threading.Event()).clear())
+        with patch.object(atexit,'register',side_effect=lambda f,*a:hooks.append((f,a))), \
+             patch.object(ingest,'_started',False), \
+             patch.object(ingest,'IDLE_PAUSE_S',0.01),patch.object(ingest,'PENDING_PAUSE_S',0.01), \
+             patch.object(ingest._log,'exception',side_effect=log):
+            ingest.start()
+            deadline=threading.Event()
+            for _ in range(200):
+                if self.rows():break
+                deadline.wait(0.02)
+            self.assertEqual(len(self.rows()),5,'control: the worker really captured')
+            for f,a in reversed(hooks):f(*a)
+        self.assertTrue(down.is_set(),'control: the database stop ran')
+        self.assertGreater(len(hooks),1,'the worker registered its own exit hook')
+        self.assertEqual(logged,[],'no capture or discovery failure while the database stops')
+        self.assertTrue(ingest.stop(1.0),'worker thread gone')
+
 if __name__=='__main__':unittest.main()

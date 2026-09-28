@@ -387,7 +387,10 @@ def imported_history_path(org: Any, nid: str) -> str | None:
     rel = metadata.get("history")
     if not isinstance(rel, str):
         return None
-    store = _store()
+    # Read-only: this resolves a file under the bound data root and writes no
+    # org database, so it must work on PostgreSQL too (transcript capture and
+    # the chat window call it for every imported agent).
+    store = _store(writes_orgs=False)
     root = Path(store.DATA_ROOT).resolve()
     path = root / rel
     if not path.is_relative_to(root) or ".." in path.parts:
