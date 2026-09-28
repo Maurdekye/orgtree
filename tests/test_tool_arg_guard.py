@@ -10,8 +10,8 @@ instructions that never arrived.
 The guard has three parts and all are pinned here:
 
   * the MCP client (`mcptool.tool_call`, Claude and Antigravity lanes) refuses
-    any field the tool's card does not declare, a missing required field, and
-    a blank mail body — before anything is posted, so no receipt, no mail, no
+    any field the tool's card does not declare, and a missing or blank mail
+    body — before anything is posted, so no receipt, no mail, no
     wake;
   * the Codex lane, whose calls never pass through mcptool (they are answered
     in-process by `_run_codex_turn`'s `_tool_call`), runs the same check
