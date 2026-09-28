@@ -385,6 +385,25 @@ def child(args) -> int:
                         v = store._dumps([did, {"at": iso(t), "resolved": "recorded",
                                               "text": text(rng, quantile_draw(rng, PROFILE["steer_attempts_bytes"]))}])
                         cp.write_row(("steer_attempts", nid, iso(t), v)); rows_d += 1; bytes_d += len(v)
+            # a real org records every dict log's owners in meta (`owners:<sect>`,
+            # first-appearance order, maintained by the save); rows COPYed here
+            # must carry it too, or every lazy read of these sections falls
+            # back to scanning log_d for its owners (an N-sized read the product
+            # never does on a real org -- measured on a copy of a live org)
+            for sect, in cur.execute(f'SELECT DISTINCT sect FROM "{schema}".log_d').fetchall():
+                prior = cur.execute(f'SELECT val FROM "{schema}".meta WHERE key=%s',
+                                    ("owners:" + sect,)).fetchone()
+                owners = json.loads(prior[0]) if prior and prior[0] else []
+                seen = set(owners)
+                for owner, in cur.execute(
+                        f'SELECT owner FROM "{schema}".log_d WHERE sect=%s '
+                        'GROUP BY owner ORDER BY MIN(seq)', (sect,)).fetchall():
+                    if owner not in seen:
+                        owners.append(owner)
+                        seen.add(owner)
+                cur.execute(f'INSERT INTO "{schema}".meta(key, val) VALUES (%s, %s) '
+                            'ON CONFLICT (key) DO UPDATE SET val = EXCLUDED.val',
+                            ("owners:" + sect, store._dumps(owners)))
             with cur.copy(f'COPY "{schema}".log_l (sect, at, val) FROM STDIN') as cp:
                 archived_items = 0
                 for j in range(int(N * args.archived_items_per_live)):
