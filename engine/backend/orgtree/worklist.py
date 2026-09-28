@@ -28,6 +28,58 @@ class Context(workdetail.Context):
         revision = query.raw.execute(
             f'SELECT revision FROM {query.schema}.work_list_state WHERE singleton').fetchone()[0]
         query.catalog = [*query.catalog, int(revision)]
+        # read ahead for a whole list by `prime`; a miss reads one row as before
+        self._listed = {}
+        self._questions = {}
+        self._pointers = {}
+
+    def prime(self, rows):
+        """Read what `light` needs for every row in a few statements.
+
+        docket-foreground-list-runs-565-sql-statements-p: at N1000 the list ran
+        565 statements per request -- per item its list summary, its questions
+        three times (`_work_view`, `_work_attention`, `_work_archived`), each
+        pointer target and each actor's node row. Now: one summary read, the
+        questions the row was selected with (same snapshot, same table), one
+        lookup for every pointer and one read for every actor and ancestor."""
+        rows = list(rows)
+        if not rows:
+            return
+        for row in rows:
+            self._questions[row.summary['slug']] = row.questions
+        slugs = [row.summary['slug'] for row in rows if row.summary['slug'] not in self._listed]
+        if slugs:
+            for slug, digest, payload in self.query.raw.execute(
+                    f'SELECT slug,body_sha256,payload FROM {self.query.schema}.work_list_summary '
+                    f'WHERE slug=ANY(%s)', (slugs,)):
+                self._listed[slug] = (digest, payload)
+        items = [self._listed[row.summary['slug']][1] for row in rows
+                 if row.summary['slug'] in self._listed]
+        names = set()
+        actors = {self.query.viewer}
+        for item in items:
+            for key in ('parent', 'superseded_by'):
+                names.add(item.get(key))
+            names.update(item.get('dependencies') or [])
+            _actors(item, actors)
+        names = sorted(n for n in names if isinstance(n, str) and 0 < len(n) <= 256
+                       and n not in self._pointers)
+        for start in range(0, len(names), 128):
+            chunk = names[start:start + 128]
+            found = {row.summary['slug']: row.summary for row in self.query.lookup_many(chunk)}
+            for name in chunk:
+                self._pointers[name] = found.get(name)
+        self.nodes.prefetch(actors)
+
+    def _work_pointer_target(self, slug):
+        if slug in self._pointers:
+            return self._pointers[slug]
+        return super()._work_pointer_target(slug)
+
+    def _work_questions(self, slug):
+        if slug in self._questions:
+            return self._questions[slug]
+        return super()._work_questions(slug)
 
     def _work_scope_view(self, item, folded):
         # Not part of the desktop list contract. The retained summary is below;
@@ -44,7 +96,7 @@ class Context(workdetail.Context):
         return item['scope_archive_summary']
 
     def light(self, row, org_slug):
-        record = self.query.raw.execute(
+        record = self._listed.get(row.summary['slug']) or self.query.raw.execute(
             f'SELECT body_sha256,payload FROM {self.query.schema}.work_list_summary WHERE slug=%s',
             (row.summary['slug'],)).fetchone()
         if not record or bytes(record[0]) != row.body_sha256:
@@ -60,6 +112,23 @@ class Context(workdetail.Context):
         result['view'] = 'list'
         result['view_revision'] = work_ui._hash(result)
         return result
+
+
+def _actors(value, out):
+    """Every node id an item names (actor refs and participants), wherever it
+    sits: a superset of what the view reads, so one read covers it."""
+    if isinstance(value, dict):
+        node = value.get('node')
+        if isinstance(node, str):
+            out.add(node)
+        for key, inner in value.items():
+            if key == 'participants' and isinstance(inner, list):
+                out.update(x for x in inner if isinstance(x, str))
+            elif isinstance(inner, (dict, list)):
+                _actors(inner, out)
+    elif isinstance(value, list):
+        for inner in value:
+            _actors(inner, out)
 
 
 def reference(row):
@@ -152,7 +221,9 @@ def _foreground_body(ctx, org_slug, viewer, backlogged, archive_limit):
     body = dict(format=FORMAT, counts=counts, now=q.now, items=[], references=[], attention=[])
     if backlogged:
         body['backlogged'] = []
-    for raw in q.foreground(include_backlogged=backlogged):
+    selected = q.foreground(include_backlogged=backlogged)
+    ctx.prime(selected)
+    for raw in selected:
         row = ctx.light(raw, org_slug)
         group = 'backlogged' if ctx._work_backlogged(raw.summary) else 'items'
         body[group].append(row)
@@ -164,6 +235,7 @@ def _foreground_body(ctx, org_slug, viewer, backlogged, archive_limit):
         # and classification clock. A separately fetched first page can
         # silently omit or duplicate an item archived between requests.
         rows, following = q.archive(limit=archive_limit)
+        ctx.prime(rows)
         body['archived'] = [ctx.light(row, org_slug) for row in rows]
         body['references'].extend(reference(row) for row in body['archived'])
         body['next_cursor'] = following
@@ -180,6 +252,7 @@ def _foreground_body(ctx, org_slug, viewer, backlogged, archive_limit):
 def archive(slug, viewer=USER, *, limit=50, cursor='', now_ts=None):
     def build(ctx, org_slug):
         rows, following = ctx.query.archive(limit=limit, cursor=cursor)
+        ctx.prime(rows)
         rows = [ctx.light(row, org_slug) for row in rows]
         return dict(format=FORMAT, archived=rows, references=[reference(row) for row in rows],
                     next_cursor=following, catalog=ctx.query.catalog)
@@ -197,6 +270,8 @@ def lookup(slug, viewer, wid, *, now_ts=None):
 
 def lookup_many(slug, viewer, names, *, now_ts=None):
     def build(ctx, org_slug):
+        rows = ctx.query.lookup_many(names)
+        ctx.prime(rows)
         return dict(format=FORMAT, references=[reference(ctx.light(row, org_slug))
-            for row in ctx.query.lookup_many(names)], catalog=ctx.query.catalog)
+            for row in rows], catalog=ctx.query.catalog)
     return _read(slug, viewer, build, now_ts)

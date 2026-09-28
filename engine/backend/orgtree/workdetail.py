@@ -16,19 +16,47 @@ from .ledger import Org, USER, LedgerError
 from . import workquery
 
 
+_NODE_IDENTITY = ("jsonb_build_object('id',id,'parent',val::jsonb->'parent',"
+                  "'state',val::jsonb->'state','generation',val::jsonb->'generation',"
+                  "'seat_id',val::jsonb->'seat_id')")
+
+
 class _Nodes(Mapping):
     def __init__(self, query):
         self.query = query
         self.cache = OrderedDict()
+        # rows read ahead for a whole list (`prefetch`); unchecked until used
+        self.ahead = {}
+
+    def prefetch(self, ids):
+        """The identities of `ids` and every ancestor of them, in ONE read.
+
+        docket-foreground-list-runs-565-sql-statements-p: a list used to read
+        each actor's row on first touch (one statement per distinct actor).
+        An id without a row is remembered as absent, exactly as a single read
+        would. A row is only checked when it is used, so a prefetched row the
+        view never touches cannot turn the list into a compatibility read."""
+        want = sorted({i for i in ids if isinstance(i, str)} - self.ahead.keys() - self.cache.keys())
+        if not want:
+            return
+        rows = self.query.raw.execute(
+            f"WITH RECURSIVE up(id) AS (SELECT unnest(%s::text[]) UNION "
+            f"SELECT n.val::jsonb->>'parent' FROM {self.query.schema}.nodes n JOIN up ON n.id=up.id "
+            f"WHERE jsonb_typeof(n.val::jsonb->'parent')='string') "
+            f"SELECT up.id,(SELECT {_NODE_IDENTITY} FROM {self.query.schema}.nodes WHERE id=up.id) FROM up",
+            (want,)).fetchall()
+        for key, value in rows:
+            self.ahead.setdefault(key, value)
 
     def __getitem__(self, key):
         if key not in self.cache:
-            row = self.query.raw.execute(
-                f"SELECT jsonb_build_object('id',id,'parent',val::jsonb->'parent',"
-                f"'state',val::jsonb->'state','generation',val::jsonb->'generation',"
-                f"'seat_id',val::jsonb->'seat_id') FROM {self.query.schema}.nodes WHERE id=%s",
-                (key,)).fetchone()
-            value = row[0] if row else None
+            if key in self.ahead:
+                value = self.ahead[key]
+            else:
+                row = self.query.raw.execute(
+                    f"SELECT {_NODE_IDENTITY} FROM {self.query.schema}.nodes WHERE id=%s",
+                    (key,)).fetchone()
+                value = row[0] if row else None
             # Org's constructor can normalize old rows; this reader cannot.
             if value is not None and (not value.get('state') or not value.get('seat_id')):
                 raise workquery.CompatibilityRequired('node identity requires normalization')
