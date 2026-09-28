@@ -426,6 +426,71 @@ class ChatRuntimeView(unittest.TestCase):
         self.assertIn('"m1"', json.dumps(view), 'the mailbox row reached the payload')
 
 
+@unittest.skipUnless(f.ADMIN, 'disposable PostgreSQL required: NOT RUN')
+class NoticesRuntimeView(unittest.TestCase):
+    """Desktop notifications (every 5 s): runtime views + one frozen-agent
+    query, the same notices as the whole loads."""
+    setUpClass = LazyRows.setUpClass
+    setUp, raw, rows, epoch = LazyRows.setUp, LazyRows.raw, LazyRows.rows, LazyRows.epoch
+    stamp, stats, delta = LazyRows.stamp, LazyRows.stats, LazyRows.delta
+
+    def seed(self):
+        frozen = {'at': '2026-09-28T00:00:00Z', 'error': 'usage limit', 'until_ts': 9e9}
+        shapes = {'n2': node('n2', state='live', frozen=frozen, generation=3),
+                  'n3': node('n3', state='archived', frozen=frozen),       # not live
+                  'n4': node('n4', state='live', frozen=None),             # not frozen
+                  'n5': node('n5', state='live', frozen={})}               # falsy freeze
+        with self.raw() as raw:
+            for nid, val in shapes.items():
+                raw.execute('UPDATE nodes SET val=%s WHERE id=%s', (store._dumps(val), nid))
+        self.stamp()
+
+    def test_frozen_live_nodes_reads_only_the_frozen_agents(self):
+        self.seed()
+        view = store.load_runtime_org(self.slug)
+        before = self.stats()
+        got = [(nid, n['generation']) for nid, n in store.frozen_live_nodes(view)]
+        d = self.delta(before)
+        self.assertEqual(got, [('n2', 3)])
+        # candidates: n2, plus n5 whose freeze is an empty object (falsy, so
+        # filtered in Python); n3 (archived) and n4 (null) never leave PG
+        self.assertEqual((d['fetches'], d['rows'], d['fallbacks']), (1, 2, 0))
+        whole = store.load_org(self.slug)
+        self.assertEqual([nid for nid, _ in store.frozen_live_nodes(whole)], ['n2'])
+
+    def test_notices_on_runtime_views_equal_the_whole_loads(self):
+        from orgtree import desktop_notifications as dn
+        self.seed()
+        with orgtx.org_tx(self.slug, sections=['user_inbox', 'asks']) as tx:
+            tx.org.d.setdefault('user_inbox', []).append(
+                {'id': 'u1', 'from': 'n1', 'kind': 'message', 'urgent': True,
+                 'urgent_reason': 'look', 'body': 'b', 'at': '2026-09-28T00:00:00Z'})
+            tx.org.d.setdefault('asks', []).append(
+                {'id': 'a1', 'node': 'n2', 'status': 'open', 'question': 'q?'})
+        with patch.object(dn, '_RUNTIME_VIEWS', False):
+            whole = dn.notices(limit=10_000)
+        before = self.stats()
+        with patch.object(dn, '_RUNTIME_VIEWS', True):
+            view = dn.notices(limit=10_000)
+        self.assertEqual(view, whole)
+        self.assertEqual(self.delta(before)['fallbacks'], 0)
+        mine = [r for r in view['notices'] if r['org'] == self.slug]
+        self.assertEqual(sorted(r['kind'] for r in mine), ['agent-frozen', 'question', 'urgent-mail'])
+
+    def test_notices_use_runtime_views(self):
+        from orgtree import desktop_notifications as dn
+        self.seed()
+        seen = []
+        real = store.load_runtime_org
+        with patch.object(dn, '_RUNTIME_VIEWS', True), \
+                patch.object(store, 'load_runtime_org',
+                             lambda slug, *a, **k: seen.append(slug) or real(slug, *a, **k)), \
+                patch.object(store, 'list_orgs_with_docs',
+                             lambda *a, **k: self.fail('whole loads of every org')):
+            dn.notices()
+        self.assertIn(self.slug, seen)
+
+
 class SwitchDefault(unittest.TestCase):
     def test_lazy_rows_is_on_unless_explicitly_false(self):
         for v in (None, '', '1', 'true', 'on', 'yes', 'anything'):

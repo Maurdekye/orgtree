@@ -2894,6 +2894,30 @@ def prefetch_nodes(org: Org, ids: Iterable[str]) -> None:
         nodes.prefetch(ids)
 
 
+def frozen_live_nodes(org: Org) -> Iterator[tuple[str, Any]]:
+    """(id, node) for every node that is live and carries a freeze, in table
+    order — what a scan of `org.nodes.items()` filtered on `state == "live"`
+    and a truthy `frozen` yields. On on-demand rows (ORGTREE_LAZY_ROWS) the
+    candidates come from ONE server-side query and only they are decoded, so
+    the cost follows the frozen agents, not the org (N1000 notifications)."""
+    nodes = dict.get(cast("dict[str, Any]", org.d), "nodes")
+    if isinstance(nodes, LazyNodesMap) and not nodes._complete:
+        with _POOL.acquire(nodes._slug) as conn:
+            ids = [cast(str, r[0]) for r in conn.execute(
+                "SELECT id FROM nodes WHERE strpos(val, ?) > 0 "
+                "AND jsonb_typeof((val::jsonb)->'frozen') IS NOT NULL "
+                "AND jsonb_typeof((val::jsonb)->'frozen') <> 'null' "
+                "AND coalesce((val::jsonb)->>'state', 'live') = 'live' "
+                "ORDER BY ord", ('"frozen"',)).fetchall()]
+        nodes.prefetch(ids)
+        pairs: Iterable[tuple[str, Any]] = [(i, nodes[i]) for i in ids if i in nodes]
+    else:
+        pairs = list(cast("dict[str, Any]", nodes or {}).items())
+    for nid, node in pairs:
+        if isinstance(node, dict) and node.get("state") == "live" and node.get("frozen"):
+            yield nid, node
+
+
 class LazySplitSection(dict[str, Any]):
     """A split section (`mail` / `delivering` / `notices`, PG-3d) whose
     owner rows load when touched (ORGTREE_LAZY_ROWS) — the same contract as

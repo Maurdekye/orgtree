@@ -1,6 +1,27 @@
 """Bounded operator attention projection across organizations; no providers."""
 import hashlib
+import os
 from . import store
+from .ledger import LedgerError
+
+#: ORGTREE_NOTICES_RUNTIME_VIEW (ON by default; 0/false/off/no turns it off):
+#: on PostgreSQL each org is read through a runtime view (on-demand rows) and
+#: frozen agents through one query, instead of a whole load of every org on
+#: every poll (the desk polls this every 5 s; N1000 item
+#: desk-chat-read-and-other-request-paths-still-loa).
+_RUNTIME_VIEWS = store._switch_on(os.environ.get("ORGTREE_NOTICES_RUNTIME_VIEW"))
+
+
+def _orgs():
+    if _RUNTIME_VIEWS and store.STORE_BACKEND == "postgres":
+        for slug in store.org_slugs():
+            try:
+                yield store.load_runtime_org(slug)
+            except LedgerError:
+                continue          # deleted between the listing and the read
+        return
+    for _, org in store.list_orgs_with_docs():
+        yield org
 
 # Terminal outcomes are actionable even when they were not authored as urgent
 # mail.  Keep this classification structural: changing the rendered prose
@@ -33,7 +54,7 @@ def notices(limit=200, offset=0):
                      **({'source_id':str(source_id)} if source_id is not None else {}),
                      **({'generation':generation} if generation is not None else {}),
                      **({'agent':str(agent)} if agent else {}), **({'item':str(item)} if item else {})})
-    for _, org in store.list_orgs_with_docs():
+    for org in _orgs():
         for ask in org.d.get('asks') or []:
             node = (org.d.get('nodes') or {}).get(ask.get('node'))
             if ask.get('status') == 'open' and node and node.get('state') == 'live':
@@ -59,7 +80,7 @@ def notices(limit=200, offset=0):
         for doc in org.d.get('documents') or []:
             add(org, 'document:'+str(doc.get('id')), 'document', doc.get('title') or 'New presented document',
                 'Presented by '+str(doc.get('node')), doc.get('node'), source_id=doc.get('id'))
-        for nid, node in (org.d.get('nodes') or {}).items():
+        for nid, node in store.frozen_live_nodes(org):
             frozen = node.get('frozen')
             if node.get('state') == 'live' and frozen:
                 generation = int(node.get('generation') or 0)
