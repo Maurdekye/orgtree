@@ -25,7 +25,11 @@ from unittest.mock import patch
 import test_pgstore as f
 from orgtree import ledger, orgtx, store
 
-COSTS = [0.1, 1e16, 1e-12, 0.2, None, "missing", 0, "1.5", True, 0.3, 3.14159, 1e-12,
+# w1, w2 and w10 make the sum ORDER-sensitive even under compensated summation:
+# in table order (w1, w2, ...) 1e308 + 1e308 overflows to inf; in id order
+# (w1, w10, ..., w2) -1e308 comes between them and it does not (review-astra's
+# costs-by-id mutant survived a fixture without them)
+COSTS = [0.1, 1e308, 1e308, 0.2, None, "missing", 0, "1.5", True, 0.3, -1e308, 1e-12,
          -1e16, 0.7, 12.5, 0.1]
 
 
@@ -104,7 +108,7 @@ class LazyCostTotal(unittest.TestCase):
     def test_an_edit_a_delete_and_an_addition_count_as_the_walk_counts_them(self):
         def change(org):
             org.node("w5")["cost_usd"] = 7.25            # decoded + edited, unsaved
-            org.nodes.pop("w1")                          # deleted in this copy (1e16: no rounding hides it)
+            org.nodes.pop("w1")                          # deleted in this copy (1e308: no rounding hides it)
             org.nodes["new"] = {"id": "new", "cost_usd": 0.4, "state": "live",
                                 "parent": None}           # added, unsaved
         (lazy, rows, touched_all, complete), (walk, *_rest) = self.both(change)

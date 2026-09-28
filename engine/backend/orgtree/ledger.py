@@ -35,6 +35,7 @@ but it catches you after the fact, and one grep catches you before.
 from __future__ import annotations
 
 import contextlib
+import sys
 import copy
 import json
 import math
@@ -1068,10 +1069,18 @@ class Org:
 
     def __del__(self) -> None:
         # free this copy's lazy row maps with it instead of leaving the
-        # document and its maps to the cyclic GC (store._DocLink)
+        # document and its maps to the cyclic GC (store._DocLink) — but only
+        # when the DOCUMENT dies with this Org: held by nothing but this Org,
+        # `d`, getrefcount's argument and its own maps' back-pointers. A
+        # document someone else still holds keeps every pointer strong, so a
+        # map taken from it later is as safe as it always was.
         try:
+            d = self.__dict__.get("d")
+            if d is None:
+                return
             from . import store
-            store.release_doc_links(self.__dict__.get("d"))
+            if sys.getrefcount(d) == 3 + store.strong_doc_links(d):
+                store.release_doc_links(d)
         except Exception:                                  # noqa: BLE001
             pass
 

@@ -106,6 +106,25 @@ class WeakDoc(unittest.TestCase):
         self.assertEqual(sorted(mail), [f"w{i}" for i in range(5)])
         self.assertEqual(store.load_org(self.slug).nodes["w3"]["state"], "live")
 
+    def test_a_map_taken_from_a_live_document_after_its_org_died(self):
+        """review-astra's probe (fede452 round 2): the Org dies while the
+        document lives on elsewhere (`doc = org.d`); a map taken from that
+        document later, and kept after the document is dropped, must still
+        read rows — so an Org's death may weaken nothing while its document
+        is held."""
+        with orgtx.org_tx(self.slug, nodes=["w1"]) as tx:
+            org = tx.org
+        self.assertFalse(dict.__contains__(dict.get(org.d, "nodes"), "w7"),
+                         "setup: w7 already decoded, the read below would prove nothing")
+        doc = org.d
+        del tx
+        alive = weakref.ref(org)
+        del org                                   # the Org dies; the document lives on in `doc`
+        self.assertIsNone(alive(), "the Org is still held: this proves nothing")
+        nodes = doc["nodes"]                      # someone takes the map later ...
+        del doc                                   # ... and keeps only the map
+        self.assertEqual(nodes["w7"]["state"], "live")
+
     def test_a_dead_back_pointer_fails_loudly(self):
         """Unreachable by design (a map is weakened only when nothing else
         holds it); if it ever happens it must raise, never fetch rows with no

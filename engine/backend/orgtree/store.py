@@ -2951,9 +2951,10 @@ class _DocLink:
     mem-leak-probe, item n1000-engine-memory-climbs: with gc disabled the
     LazyDoc of a finished org_tx stayed alive; gc.collect() then freed it).
 
-    So when an Org is freed (`ledger.Org.__del__` -> `release_doc_links`),
-    every map of its document that NOTHING ELSE references is switched to a
-    weak pointer, and the copy is freed by refcount on the spot. A map someone
+    So when an Org is freed together with its document — nothing else holds
+    the document (`ledger.Org.__del__`) — every map of it that NOTHING ELSE
+    references is switched to a weak pointer (`release_doc_links`), and the
+    copy is freed by refcount on the spot. A map someone
     still holds keeps its strong pointer and its document, as before. A weak
     pointer can therefore only die once no one can reach the map; if it ever
     is used dead, it raises `LazyDocReleased` instead of fetching rows with no
@@ -2997,17 +2998,29 @@ class _DocLink:
         out.__dict__["_doc_strong"] = None if doc is None else copy.deepcopy(doc, memo)
 
 
+def strong_doc_links(doc: Any) -> int:
+    """How many of `doc`'s own lazy maps hold it strongly — the references to
+    a document that its maps, not its users, account for."""
+    if not isinstance(doc, LazyDoc):
+        return 0
+    return sum(1 for v in dict.values(doc)
+               if isinstance(v, _DocLink) and v.__dict__.get("_doc_strong") is doc)
+
+
 def release_doc_links(doc: Any) -> int:
-    """Called as an Org is freed: weaken the back-pointer of every lazy map in
-    `doc` that nothing but `doc` references, so the document and its maps are
-    freed by refcount instead of waiting for the cyclic GC (see `_DocLink`).
-    Returns how many were weakened."""
+    """Called as an Org and its DOCUMENT die together (`ledger.Org.__del__`
+    checks that nothing else holds the document): weaken the back-pointer of
+    every lazy map in `doc` that nothing but `doc` references, so the
+    document and its maps are freed by refcount instead of waiting for the
+    cyclic GC (see `_DocLink`). A map someone still holds keeps its strong
+    pointer, and with it the document. Returns how many were weakened."""
     if not isinstance(doc, LazyDoc):
         return 0
     n = 0
-    # held by: the document's storage, `v`, and getrefcount's own argument
+    # held by exactly: the document's storage, `v`, getrefcount's argument —
+    # an exact match, so any miscount errs toward NOT weakening
     for v in dict.values(doc):
-        if isinstance(v, _DocLink) and sys.getrefcount(v) <= 3:
+        if isinstance(v, _DocLink) and sys.getrefcount(v) == 3:
             v._weaken_doc()
             n += 1
     return n
