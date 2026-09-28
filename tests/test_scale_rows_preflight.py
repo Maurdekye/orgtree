@@ -2,11 +2,13 @@
 from pathlib import Path
 import sys
 import unittest
+from unittest import mock
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/scale"))
-from rows_preflight import (ITEM_JUDGED, ITEMS, SIZES, bytes_verdict, decide, judge,
-                            seeded_items, verdict)
+import rows_preflight
+from rows_preflight import (ITEM_JUDGED, ITEMS, LARGE, LARGE_JUDGED, SIZES, bytes_verdict, decide,
+                            judge, seeded_items, verdict)
 
 
 def arm(read, message, tokens=1, harness=5):
@@ -154,6 +156,61 @@ class ItemStep(unittest.TestCase):
         passed, _, _, fell = judge({20: sized(), 180: sized()}, steps=ITEMS)
         self.assertTrue(passed)
         self.assertEqual(fell, {})
+
+
+class LargeStep(unittest.TestCase):
+    """--preflight-large: preflight() also seeds N=1000 at ITEMS[0] items and
+    judges chat and message from N=100 to N=1000; any step failing fails it."""
+
+    def run_preflight(self, big, large=True):
+        import types
+        seen, written = [], {}
+        by = {(10, ITEMS[0]): sized(), (100, ITEMS[0]): sized(), (100, ITEMS[1]): sized(),
+              (LARGE, ITEMS[0]): big}
+        fake_baseline = types.SimpleNamespace(write=lambda path, data: written.update(summary=data))
+        ctrl = types.SimpleNamespace(root=Path("unused"))
+        def fake_arm(ctrl, admin, n, items=ITEMS[0]):
+            seen.append((n, items))
+            return by[(n, items)]
+        with mock.patch.object(rows_preflight, "arm", fake_arm),                 mock.patch.dict(sys.modules, {"baseline": fake_baseline}),                 mock.patch("builtins.print"):
+            try:
+                rows_preflight.preflight(ctrl, "admin", large=large)
+            except RuntimeError:
+                pass
+        return seen, written["summary"]
+
+    def test_attempt_4_message_growth_fails_only_the_large_step(self):
+        big = sized()
+        big["message"]["rows"] = 29           # 10 -> 29 rows: the 335 -> ~985 shape
+        seen, summary = self.run_preflight(big)
+        self.assertIn((LARGE, ITEMS[0]), seen)  # one axis: same item count as N=100
+        self.assertFalse(summary["passed"])
+        self.assertEqual(summary["failed_steps"], ["large"])
+        self.assertEqual(summary["large_step"]["steps"], (100, LARGE))
+        self.assertEqual(summary["large_step"]["judged"]["message"]["rows_large"], 29)
+
+    def test_flat_large_step_passes_and_judges_only_chat_and_message(self):
+        big = sized(org_list=9.0)             # recorded, not judged, at the large step
+        big["org_list"]["rows"] = 100
+        _, summary = self.run_preflight(big)
+        self.assertTrue(summary["passed"])
+        self.assertEqual(set(summary["large_step"]["judged"]), set(LARGE_JUDGED))
+        self.assertIn("org_list", summary["large_step"]["recorded"])
+
+    def test_a_fallback_at_n1000_fails_it(self):
+        big = sized()
+        big["chat"]["lazy_fallbacks"] = 2
+        _, summary = self.run_preflight(big)
+        self.assertEqual(summary["failed_steps"], ["large"])
+        self.assertEqual(summary["lazy_fallbacks"], {"large1000:chat": 2})
+
+    def test_without_the_flag_n1000_is_not_seeded(self):
+        big = sized()
+        big["message"]["rows"] = 29
+        seen, summary = self.run_preflight(big, large=False)
+        self.assertNotIn((LARGE, ITEMS[0]), seen)
+        self.assertTrue(summary["passed"])
+        self.assertIsNone(summary["large_step"])
 
 
 if __name__ == "__main__":

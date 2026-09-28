@@ -309,7 +309,7 @@ class Controller:
                 outcome["lock_burst"] = burst(self, admin, c["lock_burst"])
             if c.get("rows_preflight"):
                 from rows_preflight import preflight
-                outcome["rows_preflight"] = preflight(self, admin)
+                outcome["rows_preflight"] = preflight(self, admin, large=getattr(self.args, "preflight_large", False))
             if c.get("preflight_only"):
                 outcome["complete"] = True
                 return
@@ -527,6 +527,8 @@ def main():
     p.add_argument("--root", required=True, type=Path)
     p.add_argument("--small-control", action="store_true")
     p.add_argument("--preflight-only", action="store_true", help="only the N=10/N=100 rows preflight")
+    p.add_argument("--preflight-large", action="store_true",
+                   help="also seed N=1000 and judge chat/message from N=100 to N=1000 (opt-in, heavy)")
     p.add_argument("--lock-burst", type=int, help="small lock-wait burst probe at N agents (lock_burst.py)")
     p.add_argument("--go-file", type=Path)
     p.add_argument("--custodian")

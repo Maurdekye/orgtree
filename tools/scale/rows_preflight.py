@@ -52,6 +52,11 @@ JUDGED = ("work_items", "chat", "notifications", "org_list", "message")
 #: every active item (product cap 200) by design, so its reads follow the item
 #: count; it is still recorded. Anything else that follows the docket size fails.
 ITEM_JUDGED = tuple(c for c in JUDGED if c != "work_items")
+#: Opt-in heavy step (--preflight-large): the same rules from N=100 to N=1000,
+#: both at ITEMS[0] items (one axis), for the calls whose growth first showed
+#: only above N=100 (N1000 attempt 4: message 335 rows at N=100, ~985 at N=1000).
+LARGE = 1000
+LARGE_JUDGED = ("chat", "message")
 KIND = "rows-preflight"
 
 
@@ -211,26 +216,32 @@ def _step(results, steps, label, calls=JUDGED):
                 value_bytes={n: {k: v["value_bytes"] for k, v in r.items()} for n, r in results.items()})
 
 
-def preflight(ctrl, admin):
-    by_n = {n: arm(ctrl, admin, n) for n in SIZES}
+def preflight(ctrl, admin, large=False):
+    by_n = {n: arm(ctrl, admin, n) for n in SIZES + ((LARGE,) if large else ())}
     by_items = {ITEMS[0]: by_n[SIZES[1]], ITEMS[1]: arm(ctrl, admin, SIZES[1], ITEMS[1])}
     agents = _step(by_n, SIZES, f"N={SIZES[1]} vs N={SIZES[0]}, {ITEMS[0]} items")
     work = _step(by_items, ITEMS, f"{ITEMS[1]} vs {ITEMS[0]} active items, N={SIZES[1]}",
                  calls=ITEM_JUDGED)
-    passed, failed_steps = decide({"agents": agents, "items": work})
+    steps = {"agents": agents, "items": work}
+    if large:
+        steps["large"] = _step({n: by_n[n] for n in (SIZES[1], LARGE)}, (SIZES[1], LARGE),
+                               f"N={LARGE} vs N={SIZES[1]}, {ITEMS[0]} items", calls=LARGE_JUDGED)
+    passed, failed_steps = decide(steps)
     summary = dict(passed=passed, failed_steps=failed_steps, threshold=THRESHOLD,
                    bytes_threshold=BYTES_THRESHOLD,
                    sizes=SIZES, items=ITEMS, lazy_rows=os.environ.get("ORGTREE_LAZY_ROWS", ""), turn_log=os.environ.get("ORGTREE_TURN_LOG", ""),
-                   agents_step=agents, items_step=work,
+                   agents_step=agents, items_step=work, large_step=steps.get("large"),
                    # the agents step's fields at top level, as before
                    ratios=agents["ratios"], byte_ratios=agents["byte_ratios"], judged=agents["judged"],
                    lazy_fallbacks={**agents["lazy_fallbacks"], **{
-                       f"items{k}": v for k, v in work["lazy_fallbacks"].items()}})
+                       f"items{k}": v for k, v in work["lazy_fallbacks"].items()}, **{
+                       f"large{k}": v for k, v in (steps.get("large") or {}).get("lazy_fallbacks", {}).items()}})
     from baseline import write
     write(ctrl.root / "receipts" / "rows-preflight.json", summary)
     if not passed:
         raise RuntimeError(f"rows preflight: per-request reads grow (agents step: {agents['judged']}; "
-                           f"items step: {work['judged']}; rows limit x{THRESHOLD}, bytes limit "
+                           f"items step: {work['judged']}; large step: "
+                           f"{(steps.get('large') or {}).get('judged')}; rows limit x{THRESHOLD}, bytes limit "
                            f"x{BYTES_THRESHOLD}) or judged calls fell back to whole reads "
                            f"({summary['lazy_fallbacks']})")
     return summary
