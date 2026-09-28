@@ -428,7 +428,9 @@ def install_timers(path):
     lock = threading.Lock()
 
     def timed(owner, attr, name):
-        original = getattr(owner, attr)
+        original = getattr(owner, attr, None)
+        if original is None:
+            return
 
         def wrapper(*args, **kwargs):
             acc = getattr(local, "acc", None)
@@ -465,6 +467,8 @@ def install_timers(path):
             (view, "prepare", "prepare (tree_node loop)"), (api, "_annotate_org_view", "annotate"),
             (view, "finish", "finish"), (cache, "_version", "version"), (cache, "_full", "full wire"),
             (cache, "_delta", "delta"), (cache, "_status", "status fast path"),
+            (cache, "_changes", "change check"), (foreground_api, "_advance", "advance"),
+            (foreground_api, "_reproject", "reproject"),
             (tree_delta, "encode", "tree_delta.encode")):
         timed(owner, attr, name)
     original = cache.read
