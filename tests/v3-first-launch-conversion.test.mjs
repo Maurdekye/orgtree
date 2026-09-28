@@ -124,6 +124,33 @@ test('3c. negative controls: no conversion keeps the ordinary budget; an OLD fai
   assert.equal(engine.conversionFailure, '')
 })
 
+test('3d. f1: a stale running file whose pid is alive (reused) keeps only the ordinary budget', async () => {
+  const root = fs.mkdtempSync(path.join(temp, 'stale-'))
+  status(root, { at: new Date(Date.now() - 5000).toISOString() })
+  const engine = new Engine()
+  const phases = []
+  engine.on('conversion', phase => phases.push(phase))
+  const began = Date.now()
+  assert.equal(await engine.attachWithRetry({ dataRoot: root, forbiddenRoot: path.join(temp, 'v1') }, 300, 50, { staleMs: 2000, capMs: 60000 }), false)
+  assert.ok(Date.now() - began < 800, 'a stale file must not extend the wait')
+  assert.deepEqual(phases, [], 'a stale phase is never shown')
+  assert.ok(policy.CONVERSION_WINDOW_MS < (await load('engine')).ATTACH_CONVERSION_LIMITS.staleMs, 'stale only past the host checkpoint window')
+})
+
+test('3e. f1: a conversion that keeps reporting still stops at the absolute cap', async () => {
+  const root = fs.mkdtempSync(path.join(temp, 'cap-'))
+  status(root, {})
+  const refresh = setInterval(() => status(root, {}), 100)
+  const engine = new Engine()
+  const began = Date.now()
+  try {
+    assert.equal(await engine.attachWithRetry({ dataRoot: root, forbiddenRoot: path.join(temp, 'v1') }, 300, 50, { staleMs: 60000, capMs: 1200 }), false)
+  } finally { clearInterval(refresh) }
+  const waited = Date.now() - began
+  assert.ok(waited >= 1100 && waited < 2000, `waited ${waited} ms: expected the 1200 ms cap, not the budget and not forever`)
+  assert.equal(engine.conversionFailure, '')
+})
+
 let python = ''
 if (process.platform === 'win32') python = execFileSync('python', ['-c', 'import sys;print(sys.executable)'], { encoding: 'utf8' }).trim()
 const skip = process.platform !== 'win32' ? 'INERT: the fake engine is driven with the Windows python' : false

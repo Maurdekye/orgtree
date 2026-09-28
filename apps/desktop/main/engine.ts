@@ -11,6 +11,13 @@ export const ENGINE_REFUSED = 'Engine start refused: '
 // Attachment retries remain bounded independently of the child protocol.
 // This covers the host's initial 120s silence budget plus cleanup/attachment.
 export const ATTACH_RETRY_BUDGET_MS = 150000
+// While attaching to a host that is converting the data (review-astra f1):
+// a `running` status file counts only while its last step is younger than
+// the host's own checkpoint window plus a margin (every step rewrites it, and
+// the host kills a step that stalls longer), and the extended wait never
+// runs past an absolute ceiling, so a stale file whose pid Windows has
+// reused cannot hold the desktop forever.
+export const ATTACH_CONVERSION_LIMITS = { staleMs: CONVERSION_WINDOW_MS + 120000, capMs: 4 * 3600e3 }
 
 /** EVERY PHASE A QUIT CAN SPEND, and nothing else spends any. `stopForQuit`
  *  apportions ONE budget across these and never exceeds it, and the desktop
@@ -110,7 +117,8 @@ export class Engine extends EventEmitter {
    *  process is gone): the reason to show, instead of a lock refusal. */
   conversionFailure = ''
 
-  async attachWithRetry(options: Pick<EngineOptions, 'dataRoot' | 'forbiddenRoot'>, deadlineMs = ATTACH_RETRY_BUDGET_MS, intervalMs = 1000): Promise<boolean> {
+  async attachWithRetry(options: Pick<EngineOptions, 'dataRoot' | 'forbiddenRoot'>, deadlineMs = ATTACH_RETRY_BUDGET_MS, intervalMs = 1000,
+    limits = ATTACH_CONVERSION_LIMITS): Promise<boolean> {
     // The wait is long and windowless (opus N5): flip back to 'starting' so
     // the tray — the only surface that exists yet — reads as waiting rather
     // than carrying the failed spawn's 'unavailable'. (The contract's
@@ -127,13 +135,18 @@ export class Engine extends EventEmitter {
         // A host converting the data (user decision 38) publishes no
         // descriptor until the conversion is done, which can take far longer
         // than the ordinary budget: wait for as long as its process lives
-        // and reports. The host's own 900 s checkpoint window bounds a stall.
-        const wait = conversionWait(readConversionStatus(options.dataRoot))
-        if (wait && 'converting' in wait) { show(wait.converting); deadline = Math.max(deadline, Date.now() + deadlineMs) }
+        // and keeps reporting, up to ATTACH_CONVERSION_LIMITS.
+        const current = readConversionStatus(options.dataRoot)
+        const fresh = Date.now() - Date.parse(current?.at ?? '') <= limits.staleMs
+        const wait = conversionWait(current)
+        if (wait && 'converting' in wait && fresh) {
+          show(wait.converting)
+          deadline = Math.min(Math.max(deadline, Date.now() + deadlineMs), Math.max(began + deadlineMs, began + limits.capMs))
+        } else if (wait && 'converting' in wait) show('')
         else if (wait && 'failed' in wait) {
           // only a failure that happened during THIS wait is a verdict: an
           // older one belongs to a start the next conversion run replaces
-          const at = Date.parse(readConversionStatus(options.dataRoot)?.at ?? '')
+          const at = Date.parse(current?.at ?? '')
           if (Number.isFinite(at) && at >= began - 5000) { this.conversionFailure = wait.failed; return false }
         }
         if (Date.now() >= deadline) return false
