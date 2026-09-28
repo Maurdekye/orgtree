@@ -182,7 +182,7 @@ def probe(ctrl, admin):
                           timers=result["profile"],
                           calls=[dict(label=c["label"], status=c["status"], kind=c.get("answer_kind"),
                                       wire=c.get("wire_bytes"), body=c.get("body_bytes"),
-                                      client_seconds=round(c["client_seconds"], 4),
+                                      client_seconds=round(c.get("client_seconds") or 0.0, 4),
                                       **({k: c["server"][k] for k in ("statements", "rows", "value_bytes")}
                                          if "server" in c else {}))
                                  for c in result["calls"]])
