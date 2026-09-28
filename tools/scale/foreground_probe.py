@@ -641,6 +641,8 @@ def install_stall(metrics):
         began = gc_start.pop(threading.get_ident(), None)
         if began is None:
             return
+        if info.get("generation") == 0:
+            return              # frequent and cheap; a file write each would be the noise
         row = dict(at=time.time(), gen=info.get("generation"), seconds=round(time.perf_counter() - began, 5),
                    collected=info.get("collected"), thread=threading.current_thread().name)
         with gc_lock, open(gc_path, "a", encoding="utf-8") as target:
