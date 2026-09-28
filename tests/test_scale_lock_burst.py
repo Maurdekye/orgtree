@@ -54,18 +54,32 @@ class DecodeKey(unittest.TestCase):
 
 class Register(unittest.TestCase):
     def test_every_lock_block_registers_its_plan_by_backend_pid(self):
+        import contextlib
+        import threading
+
+        class Backend:
+            @contextlib.contextmanager
+            def transaction_many(self, txs, lock_timeout):
+                yield
+
         built = []
-        fake_orgtx = SimpleNamespace(_ORG_KEY="*",
+        fake_orgtx = SimpleNamespace(_ORG_KEY="*", PgBackend=Backend,
                                      _lock_block=lambda raw, org_id, entries: built.append(entries) or "DO $x$$x$")
         fake_pg = SimpleNamespace(connect=lambda: (_ for _ in ()).throw(RuntimeError("no PG here")))
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             stop = lock_waits.install(fake_orgtx, fake_pg, Path(tmp) / "waits.jsonl")
             try:
                 raw = SimpleNamespace(info=SimpleNamespace(backend_pid=4242))
                 sql = fake_orgtx._lock_block(raw, 1, [("section", "audiences", True),
                                                       ("node", "coord-0", False)])
+                with Backend().transaction_many([], 1):
+                    pass
             finally:
                 stop.set()
+                for t in threading.enumerate():
+                    if t.name in ("scale-lock-waits", "scale-tx-profile"):
+                        t.join(5)
+            self.assertTrue((Path(tmp) / "tx-profile.json").exists(), "the holder profile is written on stop")
         self.assertEqual(sql, "DO $x$$x$", "the real block is still built and returned")
         self.assertEqual(len(built), 1)
         entry = lock_waits._registry[4242]
