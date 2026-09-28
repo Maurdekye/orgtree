@@ -54,6 +54,7 @@ from control import BoundedPool, Workload, Feed, free_commit_gb, memory_breach
 from ui_mix import WINDOWS, polls as ui_polls
 from streaming import drive_planned, drive_streams, send_frames
 from settlement import settled as mailbox_settled
+from conn_reset import post_retry_reused_reset
 
 MARK = re.compile(r"\[\[m(\d+)\]\]")
 
@@ -278,12 +279,13 @@ def main(argv=None) -> int:
     def execute_call(due: float, me: str, tool: str, targs: dict, request_id: int) -> None:
         begun = time.time()
         response_at = begun
-        status, err, state, receipt = None, None, None, None
+        status, err, state, receipt, reset = None, None, None, None, None
         size, wire = 0, 0
         try:
-            r = client().post("/api/agent", json={"org": slug, "node": me, "tool": tool, "args": targs},
-                              headers={"X-Orgtree-Agent-Token": tokens[me],
-                                       "X-Scale-Kind": tool + ":" + targs.get("action", "")})
+            r, reset = post_retry_reused_reset(
+                client(), "/api/agent", json={"org": slug, "node": me, "tool": tool, "args": targs},
+                headers={"X-Orgtree-Agent-Token": tokens[me],
+                         "X-Scale-Kind": tool + ":" + targs.get("action", "")})
             status = r.status_code
             size, wire = len(r.content), r.num_bytes_downloaded
             response_at = time.time()
@@ -311,8 +313,9 @@ def main(argv=None) -> int:
                     err = "HTTP 200 response was not valid JSON"
         except Exception as e:                               # noqa: BLE001
             err = f"{type(e).__name__}: {e}"[:300]
+            reset = getattr(e, "scale_reset", None)
         end = time.time()
-        rec.write("calls", {"t": round(due - t0, 3), "tool": tool,
+        rec.write("calls", {"t": round(due - t0, 3), "tool": tool, "reused_reset": reset,
                             "request_id": request_id, "actor": me, "receipt": receipt,
                             "action": targs.get("action"), "status": status, "state": state,
                             "err": err, "lag_ms": round((begun - due) * 1000, 1),
@@ -438,18 +441,20 @@ def main(argv=None) -> int:
 
     def one_steer(due: float, me: str, request_id: int) -> None:
         begun = time.time()
-        status, err = None, None
+        status, err, reset = None, None, None
         try:
-            r = client().post(f"/api/orgs/{slug}/nodes/{me}/steer",
-                              json={"tool_use_id": f"toolu_scale_{args.seed}_{request_id}"},
-                              headers={"X-Orgtree-Agent-Token": tokens[me]})
+            r, reset = post_retry_reused_reset(
+                client(), f"/api/orgs/{slug}/nodes/{me}/steer",
+                json={"tool_use_id": f"toolu_scale_{args.seed}_{request_id}"},
+                headers={"X-Orgtree-Agent-Token": tokens[me]})
             status = r.status_code
             if status != 200:
                 err = r.text[:200]
         except Exception as e:                               # noqa: BLE001
             err = f"{type(e).__name__}: {e}"[:200]
+            reset = getattr(e, "scale_reset", None)
         end = time.time()
-        rec.write("steer", {"t": round(due - t0, 3), "status": status, "err": err,
+        rec.write("steer", {"t": round(due - t0, 3), "status": status, "err": err, "reused_reset": reset,
                             "request_id": request_id, "actor": me,
                             "lag_ms": round((begun - due) * 1000, 1),
                             "http_ms": round((end - begun) * 1000, 1),
@@ -777,7 +782,21 @@ def main(argv=None) -> int:
     calls, ui, samples = list(rows("calls")), list(rows("ui")), list(rows("samples"))
     from array import array
     steer_latencies, steer_errors, steer_error_examples = array("d"), 0, set()
+    # Reused keep-alive connections reset before any response, retried once
+    # (conn_reset.py). Reported on their own, never folded away.
+    resets = {"calls": sum(1 for c in calls if c.get("reused_reset")), "steer": 0,
+              "retry_failed": sum(1 for c in calls if c.get("reused_reset") and c["err"]),
+              "by_tool": {}, "examples": []}
+    for c in calls:
+        if c.get("reused_reset"):
+            key = c["tool"] + (":" + c["action"] if c.get("action") else "")
+            resets["by_tool"][key] = resets["by_tool"].get(key, 0) + 1
+            if len(resets["examples"]) < 3:
+                resets["examples"].append(c["reused_reset"]["err"])
     for row in rows("steer"):
+        if row.get("reused_reset"):
+            resets["steer"] += 1
+            resets["retry_failed"] += bool(row["err"])
         steer_latencies.append(row["total_ms"])
         if row["err"]:
             steer_errors += 1
@@ -859,6 +878,7 @@ def main(argv=None) -> int:
                "workload_completed_without_errors_or_overload": bool(valid),
                "qualification": "Per-target assessment required; this field does not certify renderer or 60-minute stability.",
                "client_counters": counters, "ui_counters": ui_counters,
+               "reused_connection_resets": resets,
                "write_oracle": oracle_counts, "workload_substitutions": workload.substitutions,
                "database_after": database_after,
                "achieved": {"calls": len(calls), "calls_per_s": round(completed_in_window / elapsed, 2),
