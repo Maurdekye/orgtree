@@ -2144,7 +2144,7 @@ def available_tools() -> list[dict[str, Any]]:
               'result as durable mail. Handle incoming mail; do not repeat the call.'}
              if tool['name'] in MANAGED_WAIT_TOOLS else tool for tool in tools]
     if os.environ.get('ORGTREE_DESKTOP_MANAGED') != '1':
-        return _strict(tools)
+        return tools
     tools = json.loads(json.dumps(_desktop_relaunch_catalogue(tools)))
     for tool in tools:
         if tool['name'] == 'orgtree_work':
@@ -2152,7 +2152,7 @@ def available_tools() -> list[dict[str, Any]]:
             actions.remove('verify')
             tool['description'] = tool['description'].replace(
                 _WORK_VERIFY_SENTENCE, '')
-    return _strict(tools)
+    return tools
 
 
 def _lost_kind(exc: Exception) -> str:
@@ -2519,32 +2519,24 @@ def main() -> None:
 def tool_call(tool: str, args: dict[str, Any]) -> str:
     """One MCP `tools/call`: check the arguments against the tool's card,
     then make the call. A refused call posts NOTHING."""
-    refused = _arg_refusal(tool, args)
+    refused = arg_refusal(tool, args)
     if refused is not None:
         return json.dumps({"error": refused, "state": "not_applied",
                            "reason": "invalid_arguments"})
     return call_api(tool, args)
 
 
-def _arg_refusal(tool: str, args: dict[str, Any]) -> str | None:
+def arg_refusal(tool: str, args: dict[str, Any]) -> str | None:
     """Refuse arguments the tool's advertised card does not declare, and a
     blank mail body, BEFORE anything is posted (toolargs explains the
     2026-09-28 empty-mail incident). A verb with no advertised card goes
-    through unchecked; the backend is the authority on it."""
+    through unchecked; the backend is the authority on it. Shared by both
+    agent lanes: `tool_call` here (Claude, Antigravity) and
+    `supervisor.codex_arg_guard` (Codex answers its calls in-process)."""
     for card in available_tools():
         if card.get('name') == tool:
             return toolargs.refusal(tool, card.get('inputSchema'), args)
     return toolargs.refusal(tool, None, args) if tool in toolargs.BODY_TOOLS else None
-
-
-def _strict(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Every card refuses unknown fields up front (a client that validates
-    the schema stops the call itself); the few tools with accepted undeclared
-    spellings keep an open schema and rely on `_arg_refusal` instead. Applied
-    to the FINAL list, so the desktop relaunch cards are strict too."""
-    return [tool if tool['name'] in toolargs.ACCEPTED_UNDECLARED
-            else {**tool, 'inputSchema': toolargs.strict_schema(tool['inputSchema'])}
-            for tool in tools]
 
 
 if __name__ == "__main__":

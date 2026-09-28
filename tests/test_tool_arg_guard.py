@@ -7,11 +7,15 @@ unknown field was dropped, `a.get("body", "")` found nothing, and about nine
 EMPTY mails were delivered with no error. Agents sat idle waiting on
 instructions that never arrived.
 
-The guard has two halves and both are pinned here:
+The guard has three parts and all are pinned here:
 
-  * the MCP client (`mcptool.tool_call`) refuses any field the tool's card does
-    not declare, a missing required field, and a blank mail body — before
-    anything is posted, so no receipt, no mail, no wake;
+  * the MCP client (`mcptool.tool_call`, Claude and Antigravity lanes) refuses
+    any field the tool's card does not declare, a missing required field, and
+    a blank mail body — before anything is posted, so no receipt, no mail, no
+    wake;
+  * the Codex lane, whose calls never pass through mcptool (they are answered
+    in-process by `_run_codex_turn`'s `_tool_call`), runs the same check
+    through `supervisor.codex_arg_guard`;
   * the backend (`api.agent_call`) repeats the check for the two mail verbs,
     so an older client or a direct caller still cannot send a blank mail.
 
@@ -169,15 +173,46 @@ class ClientRefuses(unittest.TestCase):
         self.assertEqual(len(self.wire.posts), 1)
 
 
-class CatalogueIsStrict(unittest.TestCase):
-    def test_cards_declare_additional_properties_false(self):
+class CodexLaneRefuses(unittest.TestCase):
+    """`supervisor.codex_arg_guard` — the Codex lane's dispatcher."""
+
+    def setUp(self):
+        self.calls = []
+        self.guarded = sup.codex_arg_guard(
+            lambda tool, args: self.calls.append((tool, args)) or '{"ok": true}')
+
+    def test_misnamed_field_on_a_non_mail_tool_never_dispatches(self):
+        out = self.guarded('orgtree_status', {'status': 'done', 'summry': 'x'})
+        self.assertIn('did you mean `summary`?', out)
+        self.assertIn('nothing was sent', out)
+        self.assertEqual(self.calls, [], 'a refused call must reach no backend')
+
+    def test_message_under_message_never_dispatches(self):
+        out = self.guarded('orgtree_message', {'to': 'boss', 'message': 'x'})
+        self.assertIn('did you mean `body`?', out)
+        self.assertEqual(self.calls, [])
+
+    def test_a_valid_call_is_dispatched_unchanged(self):
+        out = self.guarded('orgtree_status', {'status': 'done', 'summary': 'x'})
+        self.assertEqual(out, '{"ok": true}')
+        self.assertEqual(self.calls, [('orgtree_status', {'status': 'done', 'summary': 'x'})])
+
+    def test_the_codex_turn_installs_the_guard(self):
+        # the turn hands `tool_dispatch` to CodexTurn in exactly one place;
+        # without the wrapper there, the guard above guards nothing
+        import inspect
+        src = inspect.getsource(sup._codex_leg_attempt)
+        self.assertIn('tool_dispatch=codex_arg_guard(_tool_call)', src)
+        self.assertNotIn('tool_dispatch=_tool_call', src)
+
+
+class Catalogue(unittest.TestCase):
+    def test_cards_are_not_rewritten(self):
+        # no `additionalProperties` on the advertised cards: enforcement is
+        # the check above, and Gemini (Antigravity lane) has rejected that
+        # keyword in function declarations
         for card in mcptool.available_tools():
-            schema = card['inputSchema']
-            if card['name'] in toolargs.ACCEPTED_UNDECLARED:
-                self.assertNotIn('additionalProperties', schema)
-            else:
-                self.assertIs(schema.get('additionalProperties'), False,
-                              card['name'])
+            self.assertNotIn('additionalProperties', card['inputSchema'], card['name'])
 
     def test_accepted_undeclared_names_real_tools(self):
         names = {c['name'] for c in mcptool.TOOLS}

@@ -18473,7 +18473,7 @@ def _codex_leg_attempt(slug: str, nid: str, org: Org, st: dict[str, Any],
         sandbox=_codex_sandbox(n["scope"]),
         dynamic_tools=dyn, developer_instructions=ident,
         config_overrides=mcp_overrides,
-        on_event=_on_event, tool_dispatch=_tool_call,
+        on_event=_on_event, tool_dispatch=codex_arg_guard(_tool_call),
         approval_decide=_approve,
         on_late_tool_result=_late_tool_result,
         env_extra=dict(process_spec["env_extra"]),
@@ -37742,3 +37742,24 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
             out["messages"].append({"role": "assistant", "text": ex["a"], "tools": [],
                                     "ts": ex["at"], "oracle": True})
     return out
+
+
+# ⚠ DEFINED AT THE END ON PURPOSE: tools/state_operation_inventory.py pins
+# this module's dispatch comparisons by LINE, so new code above them would
+# silently re-key reviewed witnesses in docs/state-system.
+def codex_arg_guard(dispatch: "Callable[[str, dict[str, Any]], str]"
+                    ) -> "Callable[[str, dict[str, Any]], str]":
+    """The Codex lane's half of the empty-mail guard (toolargs).
+
+    Codex gets the orgtree cards as dynamicTools and `_run_codex_turn`'s
+    `_tool_call` answers them IN-PROCESS — it never passes through
+    `mcptool.tool_call`, where the Claude and Antigravity lanes are checked.
+    So the same check runs here: a misnamed or unknown field, a missing
+    required field or a blank mail body is answered with the refusal text and
+    `dispatch` is never called, so nothing reaches the backend."""
+    from . import mcptool                              # noqa: PLC0415
+
+    def guarded(tool: str, args: dict[str, Any]) -> str:
+        refused = mcptool.arg_refusal(tool, args)
+        return refused if refused is not None else dispatch(tool, args)
+    return guarded

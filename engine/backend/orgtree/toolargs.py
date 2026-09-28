@@ -94,8 +94,3 @@ def server_refusal(tool: str, args: Mapping[str, Any]) -> str | None:
     card = next((t for t in mcptool.TOOLS if t.get("name") == tool), None)
     return refusal(tool, card.get("inputSchema") if card else None, args)
 
-
-def strict_schema(schema: Mapping[str, Any]) -> dict[str, Any]:
-    """The card's schema with `additionalProperties: false`, so a client that
-    validates against it refuses an unknown field before it reaches us."""
-    return {**schema, "additionalProperties": False}
