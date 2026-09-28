@@ -78,7 +78,7 @@
       {
         "from": "tools/pypg",
         "to": "tools/pypg",
-        "filter": ["pgimport.py"]
+        "filter": ["pgimport.py", "cutover_verify.py"]
       },
       {
         "from": "dist/renderer",

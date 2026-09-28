@@ -2,7 +2,7 @@
 
 Version `3.0.0-alpha.0` is private-only and refused by this public release
 path, including candidate-only mode. Use the separately gated
-[private alpha packaging command](private-alpha-packaging.md). Do not create a
+[3.0.0-alpha.0 packaging command](private-alpha-packaging.md). Do not create a
 tag, GitHub release, or updater manifest for that version.
 
 Windows releases used to depend on scratch scripts and remembered filenames.
