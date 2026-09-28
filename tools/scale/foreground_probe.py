@@ -112,6 +112,35 @@ def node_keys(pg_url, slug):
                 keys=[dict(key=k, nodes=c, bytes=int(b)) for k, c, b in rows])
 
 
+def write_cost(pg_url, slug, saves=60):
+    """Commit time of single-node saves (each its own transaction, so the
+    deferred node triggers run inside the timed COMMIT). The node is the live
+    one with the most turns; each save changes one small key."""
+    import psycopg
+    times = []
+    with psycopg.connect(pg_url) as conn:
+        org_id = conn.execute("SELECT org_id FROM public.orgs WHERE slug=%s AND deleted_at IS NULL",
+                              (slug,)).fetchone()[0]
+        conn.execute(f"SET search_path TO org_{int(org_id)}, public")
+        nid, val = conn.execute(
+            "SELECT n.id, n.val FROM nodes n JOIN node_index i ON i.id=n.id "
+            "WHERE i.meta->>'state'<>'archived' "
+            "ORDER BY jsonb_array_length(coalesce(n.val::jsonb->'turns','[]'::jsonb)) DESC LIMIT 1").fetchone()
+        conn.commit()
+        node = json.loads(val)
+        for i in range(saves):
+            node["probe_write"] = i
+            text = json.dumps(node, separators=(",", ":"))
+            started = time.perf_counter()
+            conn.execute("UPDATE nodes SET val=%s WHERE id=%s", (text, nid))
+            conn.commit()
+            times.append((time.perf_counter() - started) * 1000)
+    times.sort()
+    return dict(node=nid, turns=len(node.get("turns") or []), val_bytes=len(val), saves=saves,
+                median_ms=round(times[len(times) // 2], 3), p90_ms=round(times[int(len(times) * 0.9)], 3),
+                min_ms=round(times[0], 3))
+
+
 def arm(ctrl, admin, n):
     from baseline import read, write, database_name, REPO
     root = ctrl.root / f"fgprobe-{n}"
@@ -162,6 +191,7 @@ def arm(ctrl, admin, n):
             row["server"] = server_rows[row["label"]]
         why = root / "metrics/fg-why.jsonl"
         result = dict(n=n, calls=client_rows, node_val=node_keys(desc["pg_url"], desc["org"]),
+                      write_cost=write_cost(desc["pg_url"], desc["org"]),
                       why=[json.loads(line) for line in why.read_text(encoding="utf-8").splitlines()]
                           if why.exists() else None,
                       profile=[json.loads(line) for line in
