@@ -1,4 +1,4 @@
-"""Reviewer probes (pg-workitems) for migration 0016: node_tree_val never stale.
+"""Reviewer probes (pg-workitems) for migration 0017: node_tree_val never stale.
 
 Adopted from the F2b review (artifact r1 on foreground-tree-at-n1000-full-server-rebuilds-on,
 sha256 8956df8719cd...). They cover write shapes the owner's suite missed: delete, id rename,
@@ -156,7 +156,7 @@ class TreeValProbe(unittest.TestCase):
 
 @unittest.skipUnless(fixture.ADMIN, 'disposable PostgreSQL required: NOT RUN')
 class LateMigrationOrder(unittest.TestCase):
-    """0004 applied AFTER 0016 (migrate applies any pending file)."""
+    """0004 applied AFTER 0017 (migrate applies any pending file)."""
 
     def test_late_0004(self):
         import psycopg

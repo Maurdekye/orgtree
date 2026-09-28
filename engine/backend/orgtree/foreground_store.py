@@ -152,7 +152,7 @@ def _rows(raw: Any, ids: list[str]) -> dict[str, dict]:
         return {}
     rows = raw.execute(
         # node_tree_val holds the node with only its newest TREE_TURNS turns,
-        # kept by its own trigger at write time (migration 0016). No row means
+        # kept by its own trigger at write time (migration 0017). No row means
         # serve the stored text: nothing to trim, or jsonb could not
         # round-trip it exactly. The whole val is detoasted only then.
         'SELECT i.id,i.ord,i.meta,i.lineage_count,i.consult_id,c.meta,coalesce(t.val,n.val) '
