@@ -275,6 +275,16 @@ def child(args) -> int:
                                 if tn in want:
                                     key = f"{os.path.basename(fr.f_code.co_filename)}:{fr.f_code.co_name}:{k}:{tn}"
                                     holders[key] = holders.get(key, 0) + 1
+                                elif hasattr(v, "__dict__") and not isinstance(v, type):
+                                    # an Org reached through an attribute (a
+                                    # transaction's or a turn-input's `.org`)
+                                    try:
+                                        inner = vars(v).get("org")
+                                    except Exception:
+                                        inner = None
+                                    if type(inner).__name__ == "Org":
+                                        key = f"{os.path.basename(fr.f_code.co_filename)}:{fr.f_code.co_name}:{k}.org:Org"
+                                        holders[key] = holders.get(key, 0) + 1
                             fr = fr.f_back
                     rec["holders"] = holders
                 if os.environ.get("ORGTREE_SCALE_TRACE_FALLBACKS"):
