@@ -45,7 +45,7 @@ from pathlib import Path
 ENABLED = os.environ.get("ORGTREE_SCALE_ENGPROF") == "1"
 SAMPLE_HZ = float(os.environ.get("ORGTREE_SCALE_ENGPROF_HZ", "20") or 20)
 STACK_DEPTH = int(os.environ.get("ORGTREE_SCALE_ENGPROF_DEPTH", "14") or 14)
-FLUSH_S = 60.0
+FLUSH_S = float(os.environ.get("ORGTREE_SCALE_ENGPROF_FLUSH_S", "15") or 15)
 
 #: native thread id -> route label of the request that thread is serving now
 _serving: dict[int, str] = {}
@@ -64,6 +64,41 @@ _k32 = ctypes.WinDLL("kernel32", use_last_error=True)
 _k32.OpenThread.restype = wintypes.HANDLE
 _k32.OpenThread.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
 _k32.GetThreadTimes.argtypes = (wintypes.HANDLE,) + (ctypes.POINTER(wintypes.FILETIME),) * 4
+_k32.QueryThreadCycleTime.argtypes = (wintypes.HANDLE, ctypes.POINTER(ctypes.c_ulonglong))
+_k32.GetCurrentThread.restype = wintypes.HANDLE
+#: CPU cycles per second of QueryThreadCycleTime, calibrated in start_sampler.
+#: thread_time/GetThreadTimes move in 15.6 ms scheduler ticks on Windows, far
+#: too coarse for one request; cycle counts are exact.
+CYCLES_HZ = 0.0
+
+
+def _cycles(handle) -> int | None:
+    out = ctypes.c_ulonglong()
+    if not _k32.QueryThreadCycleTime(handle, ctypes.byref(out)):
+        return None
+    return out.value
+
+
+def thread_cpu_now() -> float:
+    """This thread's CPU seconds (cycle-exact when calibrated)."""
+    if CYCLES_HZ:
+        c = _cycles(_k32.GetCurrentThread())
+        if c is not None:
+            return c / CYCLES_HZ
+    return time.thread_time()
+
+
+def _calibrate() -> float:
+    best = 0.0
+    me = _k32.GetCurrentThread()
+    for _ in range(5):
+        c0, t0 = _cycles(me), time.perf_counter()
+        while time.perf_counter() - t0 < 0.05:
+            pass
+        c1, t1 = _cycles(me), time.perf_counter()
+        if c0 is not None and c1 is not None:
+            best = max(best, (c1 - c0) / (t1 - t0))   # a preempted pass reads low
+    return best
 _k32.CloseHandle.argtypes = (wintypes.HANDLE,)
 _THREAD_QUERY_LIMITED_INFORMATION = 0x0800
 _handles: dict[int, int] = {}
@@ -76,6 +111,9 @@ def _thread_cpu_s(native_id: int) -> float | None:
         if not h:
             return None
         _handles[native_id] = h
+    if CYCLES_HZ:
+        c = _cycles(h)
+        return None if c is None else c / CYCLES_HZ
     c, e, k, u = (wintypes.FILETIME() for _ in range(4))
     if not _k32.GetThreadTimes(h, ctypes.byref(c), ctypes.byref(e), ctypes.byref(k), ctypes.byref(u)):
         return None
@@ -122,7 +160,6 @@ def _classify(frames: list[tuple[str, str]]) -> str:
 
 def _collapse(frame) -> tuple[list[tuple[str, str]], str]:
     out: list[tuple[str, str]] = []
-    last = None
     depth = 0
     while frame is not None and depth < 200:
         code = frame.f_code
@@ -130,9 +167,8 @@ def _collapse(frame) -> tuple[list[tuple[str, str]], str]:
         if "psycopg" in code.co_filename:
             f = "psycopg." + f
         item = (f, code.co_name)
-        if item != last:           # fold recursion (deepcopy, json encode)
+        if item not in out[-4:]:   # fold recursion (deepcopy <-> _deepcopy_dict, json encode)
             out.append(item)
-            last = item
         frame = frame.f_back
         depth += 1
     key = " < ".join(f"{f}:{fn}" for f, fn in out[:STACK_DEPTH])
@@ -203,7 +239,7 @@ class _Sampler(threading.Thread):
 
         def pct(q):
             return round(late[min(len(late) - 1, int(q * len(late)))] * 1000, 2) if late else None
-        minute = dict(t0=self.minute0, t1=now, ticks=self.ticks, hz=SAMPLE_HZ,
+        minute = dict(t0=self.minute0, t1=now, ticks=self.ticks, hz=SAMPLE_HZ, cycles_hz=CYCLES_HZ,
                       sampler_cost_s=round(self.cost_s, 3),
                       process_cpu_s=round(proc - self.proc_cpu0, 3),
                       gil_probe=dict(n=len(late), p50_ms=pct(.5), p95_ms=pct(.95), p99_ms=pct(.99),
@@ -236,7 +272,9 @@ def start_sampler(metrics: Path) -> None:
     """Call as early as possible in the engine child (covers startup/readiness)."""
     if not ENABLED:
         return
+    global CYCLES_HZ
     metrics.mkdir(parents=True, exist_ok=True)
+    CYCLES_HZ = _calibrate()
     try:
         # 1 ms timer resolution so the probe's 5 ms sleep measures the GIL, not the 15.6 ms tick
         ctypes.WinDLL("winmm").timeBeginPeriod(1)
@@ -269,7 +307,7 @@ def install_request_hooks(counts_var: contextvars.ContextVar) -> None:
 
         def timed():
             started = time.perf_counter()
-            cpu0 = time.thread_time()
+            cpu0 = thread_cpu_now()
             nid = threading.get_native_id()
             prev = _serving.get(nid)
             _serving[nid] = label
@@ -282,7 +320,7 @@ def install_request_hooks(counts_var: contextvars.ContextVar) -> None:
                     _serving[nid] = prev
                 counts["pool_wait_ms"] = counts.get("pool_wait_ms", 0.0) + (started - submitted) * 1000
                 counts["thread_ms"] = counts.get("thread_ms", 0.0) + (time.perf_counter() - started) * 1000
-                counts["thread_cpu_ms"] = counts.get("thread_cpu_ms", 0.0) + (time.thread_time() - cpu0) * 1000
+                counts["thread_cpu_ms"] = counts.get("thread_cpu_ms", 0.0) + (thread_cpu_now() - cpu0) * 1000
                 counts["pool_calls"] = counts.get("pool_calls", 0) + 1
         return await original(timed)
 
@@ -293,22 +331,22 @@ def install_request_hooks(counts_var: contextvars.ContextVar) -> None:
     original_serialize = fr.serialize_response
 
     async def timed_serialize(*args, **kwargs):
-        t, c = time.perf_counter(), time.thread_time()
+        t, c = time.perf_counter(), thread_cpu_now()
         try:
             return await original_serialize(*args, **kwargs)
         finally:
             _add("ser_ms", (time.perf_counter() - t) * 1000)
-            _add("ser_cpu_ms", (time.thread_time() - c) * 1000)
+            _add("ser_cpu_ms", (thread_cpu_now() - c) * 1000)
     fr.serialize_response = timed_serialize
 
     for cls in (sr.JSONResponse,):
         original_render = cls.render
 
         def timed_render(self, content, _orig=original_render):
-            t, c = time.perf_counter(), time.thread_time()
+            t, c = time.perf_counter(), thread_cpu_now()
             try:
                 return _orig(self, content)
             finally:
                 _add("render_ms", (time.perf_counter() - t) * 1000)
-                _add("render_cpu_ms", (time.thread_time() - c) * 1000)
+                _add("render_cpu_ms", (thread_cpu_now() - c) * 1000)
         cls.render = timed_render

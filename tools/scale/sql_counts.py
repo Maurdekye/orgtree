@@ -23,6 +23,10 @@ last_statement = contextvars.ContextVar("scale_sql_last_statement", default=None
 #: ORGTREE_SCALE_ENGPROF=1 (diagnosis only, see engprof.py): PG wall/CPU per
 #: request, a route label (tool + action for /api/agent) and threadpool timing.
 ENGPROF = os.environ.get("ORGTREE_SCALE_ENGPROF") == "1"
+if ENGPROF:
+    from engprof import thread_cpu_now as _cpu_now
+else:
+    _cpu_now = time.thread_time
 
 
 def route_label(path, body=b""):
@@ -90,7 +94,7 @@ def install():
             elif name in ("copy", "stream"):
                 counts["unsupported_operations"] += 1
             token = muted.set(True)
-            t_pg, c_pg = time.perf_counter(), time.thread_time()
+            t_pg, c_pg = time.perf_counter(), _cpu_now()
             try:
                 result = original(self, *args, **kwargs)
             except Exception as exc:
@@ -101,7 +105,7 @@ def install():
                 muted.reset(token)
                 if ENGPROF:
                     counts["pg_ms"] = counts.get("pg_ms", 0.0) + (time.perf_counter() - t_pg) * 1000
-                    counts["pg_cpu_ms"] = counts.get("pg_cpu_ms", 0.0) + (time.thread_time() - c_pg) * 1000
+                    counts["pg_cpu_ms"] = counts.get("pg_cpu_ms", 0.0) + (_cpu_now() - c_pg) * 1000
             if name in ("fetchone", "fetchmany", "fetchall", "__next__"):
                 rows = ([result] if result is not None else []) if name in ("fetchone", "__next__") else result
                 counts["rows"] += len(rows)
