@@ -355,6 +355,13 @@ class EveryRealEngineRigIsIsolated(unittest.TestCase):
         'tests/test_ws_no_deflate.py': 'parses engine/launch.py source with ast; it serves '
                                        'api.app with lifespan="off", so no startup and no hub',
         'tests/test_python_verification_runner.py': 'writes a one-line fixture launch.py',
+        'tests/test_state_desktop_import_boundary.py': 'builds the desktop app with load_app but never '
+                                                       'starts its lifecycle, and an audit hook refuses '
+                                                       'every process launch; names launch.py in its docstring',
+        'tests/test_state_operation_contracts.py': 'names engine/launch.py in an asserted reason string only',
+        'tests/test_state_operation_inventory.py': 'names engine/launch.py and service_host.py as '
+                                                   'inventory paths (strings, comments) only',
+        'tests/test_state_reservation_boundary.py': 'names engine/launch.py in a comment only',
         'tests/test_startup_progress.py': 'runs service_host.main against a stub launch.py',
         'tests/hub_isolation.py': 'the helpers themselves; boots no engine',
         'tests/test_hub_isolation.py': 'this audit and the tests of the helpers; MailhubRuntime() '
