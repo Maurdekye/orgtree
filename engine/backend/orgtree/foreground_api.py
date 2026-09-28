@@ -35,13 +35,23 @@ def _context(raw, slug, graph, *, header):
         raise _Unavailable from error
 
 
-def _project(raw, slug, graph, request, *, sync_rev, kind, requested=None):
-    from . import api
+def _project(raw, slug, graph, request, *, sync_rev, kind, requested=None, keep=False):
     started = time.perf_counter()
     context = _context(raw, slug, graph, header=kind == 'snapshot')
     profile = getattr(request.state, 'profile_timing', None)
     if profile is not None:
         profile['foreground_context_ms'] = (time.perf_counter() - started) * 1000
+    saved = {'context': context, 'graph': graph}
+    payload = _reproject(saved, request, sync_rev=sync_rev, kind=kind, requested=requested)
+    return (payload, saved) if keep else payload
+
+
+def _reproject(saved, request, *, sync_rev, kind='snapshot', requested=None):
+    """Header, node projection and runtime annotation from a committed context.
+    Reads no storage: a runtime-only change repeats just this part."""
+    from . import api
+    context, graph = saved['context'], saved['graph']
+    profile = getattr(request.state, 'profile_timing', None)
     prepared = foreground_view.prepare(context, graph, detail_token=api._archived_detail_rev,
         sync_rev=sync_rev, primed_restart=api.supervisor.primed_restart())
     annotated = api._annotate_org_view(context, prepared['tree'], request, profile=profile)
@@ -78,7 +88,9 @@ def read(slug: str, request: Request, *, mode='snapshot', nid=None) -> Response:
                 runtime=lambda: api._tree_runtime_stamp(slug),
                 sync_revision=lambda: api._current_sync_rev(slug), feed=api._REV_FEED,
                 build=lambda raw, graph: _project(raw, slug, graph, request,
-                    sync_rev=api._current_sync_rev(slug), kind='snapshot'))
+                    sync_rev=api._current_sync_rev(slug), kind='snapshot', keep=True),
+                reproject=lambda saved: _reproject(saved, request,
+                    sync_rev=api._current_sync_rev(slug)))
         else:
             # Capture before storage, never a newer watermark stamped on an
             # older committed graph. The cache applies the same ordering.

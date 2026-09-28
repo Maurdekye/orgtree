@@ -176,6 +176,98 @@ class ForegroundCache(unittest.TestCase):
         self.assertNotEqual(changed_tag, tag)
         self.assertEqual(json.loads(body)['header']['set']['name'], 'newer snapshot')
 
+    # F3b-1: a reusable projection (build returns (payload, saved)).
+    def reprojectable(self):
+        self.reprojects = 0
+
+        def project(saved):
+            self.reprojects += 1
+            nodes = saved['context'].nodes
+            return {'format': 'orgtree.foreground-tree/v1', 'kind': 'snapshot',
+                'catalog_revision': saved['catalog'], 'header': {'runtime': self.runtime},
+                'roots': ['boss'], 'org_rev': 0, 'sync_rev': 0, 'missing_requested': [],
+                'nodes': {nid: {'id': nid, 'children': [], 'last_status': node.get('last_status'),
+                                'runtime': self.runtime} for nid, node in nodes.items()}}
+
+        def build(raw, graph):
+            self.builds += 1
+            from types import SimpleNamespace
+            saved = {'graph': graph, 'catalog': f"{graph['stamp']['org_id']}:{graph['stamp']['catalog_revision']}",
+                     'context': SimpleNamespace(nodes={nid: json.loads(json.dumps(row['node']))
+                                                       for nid, row in graph['rows'].items()})}
+            return project(saved), saved
+
+        def read(tag=''):
+            return cache.read(self.slug, False, tag, runtime=lambda: self.runtime,
+                              sync_revision=lambda: 0, build=build, reproject=project)
+        return read
+
+    def body(self, tag, body):
+        response = json.loads(body)
+        if response['kind'] == 'snapshot':
+            return response['nodes']['boss']
+        return response['nodes'].get('boss', {}).get('set', {})
+
+    def test_runtime_only_change_reprojects_without_reading_storage(self):
+        read = self.reprojectable()
+        tag, _, _ = read()
+        self.runtime += 1
+        with patch.object(fg, 'select_foreground', side_effect=AssertionError('storage re-read')), \
+             patch.object(fg, '_rows', side_effect=AssertionError('node rows re-read')):
+            new, body, _ = read(tag)
+        self.assertNotEqual(new, tag)
+        self.assertEqual(self.body(tag, body)['runtime'], self.runtime)
+        self.assertEqual((self.builds, self.reprojects), (1, 2))
+
+    def test_status_and_runtime_change_together_never_serve_the_old_status(self):
+        read = self.reprojectable()
+        tag, _, _ = read()
+        self.status('new')
+        self.runtime += 1
+        with patch.object(fg, 'select_foreground', side_effect=AssertionError('storage re-read')):
+            new, body, _ = read(tag)
+        self.assertEqual(self.body(tag, body)['last_status'], {'summary': 'new'})
+        self.status('newer')                               # a later status-only patch
+        _, body, _ = read(new)
+        self.runtime += 1                                  # then a runtime-only reprojection
+        read(new)
+        _, body, _ = read('W/"foreground-none"')           # the whole current version
+        self.assertEqual(json.loads(body)['kind'], 'snapshot')
+        self.assertEqual(json.loads(body)['nodes']['boss']['last_status'], {'summary': 'newer'})
+        self.assertEqual(json.loads(body)['nodes']['boss']['runtime'], self.runtime)
+        self.assertEqual(self.builds, 1)
+
+    def test_a_commit_during_the_build_keeps_the_shortcut_and_is_shown_next(self):
+        read = self.reprojectable()
+        original = fg.select_foreground
+        interleaved = []
+
+        def select(raw, stamp, include=()):
+            if not interleaved:
+                interleaved.append(True)
+                self.status('during the build')            # commits AFTER the snapshot pinned
+            return original(raw, stamp, include)
+        with patch.object(fg, 'select_foreground', side_effect=select):
+            tag, body, _ = read()
+        self.assertNotEqual(json.loads(body)['nodes']['boss'].get('last_status'), {'summary': 'during the build'})
+        with patch.object(fg, 'select_foreground', side_effect=AssertionError('shortcut lost')):
+            new, body, _ = read(tag)
+        self.assertNotEqual(new, tag)
+        self.assertEqual(self.body(tag, body)['last_status'], {'summary': 'during the build'})
+        self.assertEqual(self.builds, 1)
+
+    def test_a_structural_change_rebuilds_the_whole_foreground(self):
+        read = self.reprojectable()
+        tag, _, _ = read()
+        org = store.load_org(self.slug)
+        org.hire(ledger.USER, 'boss', 'luna', 0, 'newcomer')
+        store.save_org(org)
+        self.runtime += 1
+        _, body, _ = read(tag)
+        response = json.loads(body)
+        self.assertIn('newcomer', response['nodes'])
+        self.assertEqual(self.builds, 2)
+
 
 if __name__ == '__main__':
     unittest.main()

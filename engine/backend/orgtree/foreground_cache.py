@@ -22,6 +22,9 @@ from . import pgfeed, store, tree_changes, tree_delta, tree_fast
 MAX_ENTRIES = 8
 MAX_VERSIONS = 3
 MAX_BYTES = 32 * 1024 * 1024
+#: entries that keep a reusable projection (a whole context: O(selected
+#: nodes) in memory); older entries drop it and rebuild on their next change
+MAX_SAVED = 2
 IDLE_S = 60.0
 _lock = threading.RLock()
 _cache: OrderedDict = OrderedDict()
@@ -107,16 +110,25 @@ def _size(entry):
         sum(sum(map(len, wire)) for wire in entry['deltas'].values())
 
 
-def _status(raw, slug, entry, stamp, mark, feed):
+def _db(stamp):
+    """The committed-content part of a snapshot stamp (`seq` is this process's
+    journal position, pinned with the snapshot, not content)."""
+    return {k: v for k, v in stamp.items() if k != 'seq'}
+
+
+def _status(raw, slug, entry, stamp, feed):
+    """Status-only change set since the entry's snapshot, or None: {nid: fields}."""
     previous = entry['stamp']
     state = entry['fast']
-    if state is None or state['mark'][1] != mark[1]:
+    if state is None:
         return None
     if any(previous[k] != stamp[k] for k in ('org_id', 'catalog_revision', 'view_revision')):
         return None
     if not pgfeed.snapshot_changes_published(feed, slug, previous['org_revision'], stamp['org_revision']):
         return None
-    change = tree_changes.since(store.DATA_ROOT, slug, state['mark'][0], mark[0])
+    # Both positions were pinned with their snapshots (foreground_store
+    # ._snapshot), so this is exactly the set of local changes between them.
+    change = tree_changes.since(store.DATA_ROOT, slug, state['seq'], stamp['seq'])
     if change is None:
         return None
     keys, ids, structural = change
@@ -135,18 +147,33 @@ def _status(raw, slug, entry, stamp, mark, feed):
         if row['meta']['state'] != 'live' or tree_fast.signature(row['node']) != state['hashes'][nid]:
             return None
         changes[nid] = {'last_status': row['node'].get('last_status')}
+    return changes
+
+
+def _patch_status(entry, changes):
+    """The cached version with only these status fields changed."""
     old = entry['versions'][entry['token']]
     version = {**old, 'nodes': dict(old['nodes']), 'hashes': dict(old['hashes']), 'wire': None}
     for nid, change in changes.items():
         body = tree_delta.encode({**json.loads(version['nodes'][nid]), **change})
         version['nodes'][nid] = body
         version['hashes'][nid] = hashlib.sha256(body).hexdigest()
-    return version, state['hashes']
+    return version
+
+
+def _patch_saved(saved, changes):
+    """Keep a reusable projection's inputs in step with a status patch, so a
+    later reprojection can never bring back a pre-change field."""
+    for nid, change in changes.items():
+        saved['graph']['rows'][nid]['node'].update(change)
+        saved['context'].nodes[nid].update(change)
 
 
 def read(slug, public, since, *, include=(), runtime, sync_revision, build,
-         compressed=False, feed=None):
-    """build(raw, graph) returns an annotated/scrubbed foreground snapshot."""
+         compressed=False, feed=None, reproject=None):
+    """build(raw, graph) returns an annotated/scrubbed foreground snapshot, or
+    (snapshot, saved) when reproject(saved) can repeat its in-memory
+    projection (context, header, annotation) without reading storage."""
     selected = tuple(sorted(storage._wanted(include)))
     key = (str(store.DATA_ROOT), slug, public, selected)
     with _lock:
@@ -157,23 +184,39 @@ def read(slug, public, since, *, include=(), runtime, sync_revision, build,
             entry = _cache.get(key)
             if entry is not None and now - entry['used'] >= IDLE_S:
                 entry = None
-        # Read replay/runtime evidence BEFORE the DB snapshot. If they move
-        # during assembly the result stays coherent, but loses fast-path trust.
-        mark = (store.org_seq(slug), runtime())
+        # Runtime evidence is read BEFORE the DB snapshot: if it moves during
+        # assembly, the next read sees a different value and reprojects.
+        run = runtime()
         sync = sync_revision()
         def refresh(raw, stamp):
             nonlocal entry
             watermarks = {'org_rev': stamp['org_revision'], 'sync_rev': sync}
-            if entry is None or entry['stamp'] != stamp or entry['runtime'] != mark[1]:
-                fast = _status(raw, slug, entry, stamp, mark, feed) if entry else None
-                if fast is None:
+            db = _db(stamp)
+            if entry is None or entry['stamp'] != db or entry['runtime'] != run:
+                saved = entry.get('saved') if entry else None
+                if entry is None:
+                    changes = None
+                elif entry['stamp'] == db:
+                    changes = {}                    # nothing committed
+                else:
+                    changes = _status(raw, slug, entry, stamp, feed)
+                hashes = entry['fast']['hashes'] if changes is not None else None
+                if changes is not None and entry['runtime'] == run:
+                    version = _patch_status(entry, changes)
+                    if saved is not None:
+                        _patch_saved(saved, changes)
+                elif changes is not None and saved is not None and reproject is not None:
+                    _patch_saved(saved, changes)
+                    payload = reproject(saved)
+                    payload.update(watermarks)
+                    version = _version(payload)
+                else:
                     graph = storage.select_foreground(raw, stamp, selected)
-                    payload = build(raw, graph)
+                    built = build(raw, graph)
+                    payload, saved = built if isinstance(built, tuple) else (built, None)
                     payload.update(watermarks)
                     version = _version(payload)
                     hashes = {nid: tree_fast.signature(row['node']) for nid, row in graph['rows'].items()}
-                else:
-                    version, hashes = fast
                 version['top'] = tree_delta.encode({**json.loads(version['top']), **watermarks})
                 token = _token(version)
                 versions = OrderedDict(entry['versions']) if entry else OrderedDict()
@@ -181,12 +224,9 @@ def read(slug, public, since, *, include=(), runtime, sync_revision, build,
                 versions.move_to_end(token)
                 while len(versions) > MAX_VERSIONS:
                     versions.popitem(last=False)
-                # A racing save/runtime change prevents trusting this journal
-                # baseline on the next read. The DB stamp is never restamped.
-                stable = mark == (store.org_seq(slug), runtime())
-                entry = {'stamp': stamp, 'runtime': mark[1], 'token': token,
-                         'versions': versions, 'deltas': {}, 'used': now,
-                         'fast': {'mark': mark, 'hashes': hashes} if stable else None}
+                entry = {'stamp': db, 'runtime': run, 'token': token,
+                         'versions': versions, 'deltas': {}, 'used': now, 'saved': saved,
+                         'fast': {'seq': stamp['seq'], 'hashes': hashes}}
             entry['used'] = now
             token = entry['token']
             current = entry['versions'][token]
@@ -210,6 +250,8 @@ def read(slug, public, since, *, include=(), runtime, sync_revision, build,
         with _lock:
             _cache[key] = entry
             _cache.move_to_end(key)
+            for older in list(_cache.values())[:-MAX_SAVED]:
+                older['saved'] = None
             while len(_cache) > MAX_ENTRIES or sum(_size(e) for e in _cache.values()) > MAX_BYTES:
                 _cache.popitem(last=False)
             if _cache:

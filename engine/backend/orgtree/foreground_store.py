@@ -122,19 +122,30 @@ def _snapshot(slug: str) -> Iterator[tuple[Any, dict]]:
             # writer's uncommitted nodes with its old index would violate it.
             raise RuntimeError('foreground reads cannot reuse a writer transaction')
         conn.use()
-        conn.raw.execute('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY')
+        # Pin the view and this process's change sequence as one step, under
+        # the gate a local commit holds for {COMMIT, publish, seq bump}: the
+        # journal after `seq` is then exactly the local changes this snapshot
+        # does not contain (store's shared snapshot pins the same way).
+        with store._snap_gate(slug):
+            seq = store.org_seq(slug)
+            conn.raw.execute('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY')
+            try:
+                row = conn.raw.execute(
+                    'SELECT o.org_id,o.revision,f.node_revision,f.catalog_revision,'
+                    'f.node_count,f.retired_axis_count,f.cost,f.cost_unknown,f.view_revision '
+                    'FROM public.orgs o CROSS JOIN foreground_meta f '
+                    'WHERE o.org_id=%s AND f.singleton=1', (conn.org_id,)).fetchone()
+            except BaseException:
+                conn.raw.execute('ROLLBACK')
+                raise
         try:
-            row = conn.raw.execute(
-                'SELECT o.org_id,o.revision,f.node_revision,f.catalog_revision,'
-                'f.node_count,f.retired_axis_count,f.cost,f.cost_unknown,f.view_revision '
-                'FROM public.orgs o CROSS JOIN foreground_meta f '
-                'WHERE o.org_id=%s AND f.singleton=1', (conn.org_id,)).fetchone()
             if row is None:
                 raise LedgerError('foreground index is incomplete')
             names = ('org_id', 'org_revision', 'node_revision', 'catalog_revision',
                      'node_count', 'retired_axis_count', 'cost', 'cost_unknown', 'view_revision')
             stamp = dict(zip(names, row))
             stamp['cost'] = str(stamp['cost'])  # exact decimal across cursor/JSON boundaries
+            stamp['seq'] = seq
             yield conn.raw, stamp
         finally:
             conn.raw.execute('ROLLBACK')
