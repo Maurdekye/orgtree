@@ -1,17 +1,21 @@
 """Immutable reply snapshots: references never relocate to another event."""
+import atexit
+import contextlib
 import hashlib
 import json
 import threading
 from pathlib import Path
 import sqlite3
 import uuid
+import weakref
 from . import census_contacts
 from . import store
 
 
-def _connect():
+def _connect(*, shared=False):
     path = Path(store.DATA_ROOT) / 'reply-events.sqlite3'
-    connection = sqlite3.connect(path, timeout=15, factory=census_contacts.sidecar("reply_events"))
+    connection = sqlite3.connect(path, timeout=15, check_same_thread=not shared,
+                                 factory=census_contacts.sidecar("reply_events"))
     connection.execute('CREATE TABLE IF NOT EXISTS events (org TEXT, agent TEXT, generation INTEGER, id TEXT, text TEXT, scope TEXT, PRIMARY KEY(org,agent,generation,id))')
     # WAL so a commit is one WAL append instead of a rollback-journal
     # create/fsync/delete pair. synchronous stays FULL: a quoted
@@ -25,6 +29,110 @@ def _connect():
     connection.execute('PRAGMA journal_mode=WAL').close()
     connection.execute('PRAGMA synchronous=FULL')
     return connection
+
+
+# ------------------------------------------------ stream writer connection
+# The two per-delta writers (`remember_ident`, `annotate_ident`) reuse ONE
+# connection per thread instead of connect + schema + PRAGMA + close per
+# streamed frame. MEASURED (5 streaming agents, PG root): a 5-frame tick fell
+# from ~24 ms to ~5 ms; most of the old cost was the connect and the WAL
+# checkpoint the close of the last connection pays. Rows, order and the
+# FULL-synchronous commit before the id is returned are unchanged.
+# Lifetime mirrors transcript_records.database(): replaced on a DATA_ROOT
+# change, closed on any error or a transaction left open, closed with its
+# thread, and closed by `close_all()` -- which `transcript_records.close_all()`
+# calls, so every teardown that already releases those handles releases these.
+_writer_state = threading.local()
+_writers = weakref.WeakSet()
+_writers_lock = threading.RLock()
+_writer_key = None
+
+
+class _Writer:
+    def __init__(self, key, conn):
+        self.key, self.conn, self.busy, self.discard = key, conn, False, False
+
+    def close(self):
+        conn, self.conn = self.conn, None
+        if conn is not None:
+            with contextlib.suppress(Exception):
+                conn.close()
+
+    __del__ = close
+
+
+def close_all(match=lambda key: True):
+    """Close every idle cached writer (whose path `match`es); a busy one
+    closes when its call ends. Returns the number deferred."""
+    deferred = 0
+    with _writers_lock:
+        for held in list(_writers):
+            if held.conn is None or not match(held.key):
+                continue
+            if held.busy:
+                held.discard = True
+                deferred += 1
+            else:
+                held.close()
+    return deferred
+
+
+atexit.register(close_all)
+
+
+@contextlib.contextmanager
+def _writer():
+    """This thread's writer connection inside `with conn:` (commit on
+    success, rollback on error)."""
+    global _writer_key
+    key = str(Path(store.DATA_ROOT) / 'reply-events.sqlite3')
+    if _writer_key != key:
+        # a root change releases every thread's idle handle on the old file
+        with _writers_lock:
+            if _writer_key != key:
+                close_all(lambda other: other != key)
+                _writer_key = key
+    held = getattr(_writer_state, 'held', None)
+    if held is not None and held.busy:
+        # re-entered on this thread: a private connection, as before
+        conn = _connect()
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
+        return
+    with _writers_lock:
+        # a writer on another root was closed by the root-change release
+        # above (it is idle whenever its own thread is here), so a closed
+        # handle is the only one to replace
+        if held is not None and held.conn is None:
+            held = None
+        if held is not None:
+            held.busy = True
+    if held is None:
+        held = _Writer(key, _connect(shared=True))
+        held.busy = True
+        with _writers_lock:
+            _writers.add(held)
+        _writer_state.held = held
+    conn = held.conn
+    try:
+        with conn:
+            yield conn
+        if conn.in_transaction:
+            with _writers_lock:
+                held.close()
+    except BaseException:
+        with _writers_lock:
+            held.close()
+        raise
+    finally:
+        with _writers_lock:
+            held.busy = False
+            if held.discard:
+                held.discard = False
+                held.close()
 
 
 def _eid(scope, source, kind, quote):
@@ -53,18 +161,16 @@ def remember(org, nid, source, kind, text, *, connection=None):
 def remember_ident(slug, nid, scope, generation, source, kind, text):
     """`remember` for a caller that resolved identity via `identity()` —
     the stream hot path, which must not load the org document per delta.
-    The connect-per-call is deliberate: WAL+NORMAL above already removed the
-    per-commit fsync pain, and a cached cross-thread handle outlives its
-    thread (it held test teardown hostage on Windows for exactly that)."""
+    Writes through this thread's cached `_writer()` connection. It used to
+    connect per call because a cached handle outlived its thread and held
+    Windows test teardown hostage; the writer cache is per thread, closes
+    with its thread, and is released by `close_all()` (which
+    `transcript_records.close_all()` calls)."""
     quote = str(text or '')[:4000]
     eid = _eid(scope, source, kind, quote)
-    connection = _connect()
-    try:
+    with _writer() as connection:
         connection.execute('INSERT OR IGNORE INTO events VALUES (?,?,?,?,?,?)',
                            (slug, nid, generation, eid, quote, scope))
-        connection.commit()
-    finally:
-        connection.close()
     return eid
 
 
@@ -270,7 +376,7 @@ def annotate_ident(slug, nid, scope, generation, chat):
     It does NOT mint. `identity()` already did, on the first delta of the
     session; calling this without having called that would write rows under an
     unminted scope, so the two belong together."""
-    with _connect() as connection:
+    with _writer() as connection:
         def save(source, kind, text):
             quote = str(text or '')[:4000]
             eid = _eid(scope, source, kind, quote)
@@ -278,7 +384,6 @@ def annotate_ident(slug, nid, scope, generation, chat):
                                (slug, nid, generation, eid, quote, scope))
             return eid
         result = _annotate_rows(chat, save)
-    connection.close()
     return result
 
 

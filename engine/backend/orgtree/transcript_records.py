@@ -90,9 +90,13 @@ def close_all():
     Safe to call more than once.
     """
     global _cache_generation
+    # the reply-event stream writers are cached the same way; every caller
+    # releasing these handles before a root moves needs those released too
+    from . import reply_events
+    deferred = reply_events.close_all()
     with _held_lock:
         _cache_generation += 1
-        return _dispose()
+        return _dispose() + deferred
 
 
 atexit.register(close_all)

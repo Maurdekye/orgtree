@@ -18,6 +18,7 @@ from orgtree import reply_events, store
 
 def tearDownModule():
     gc.collect()
+    reply_events.close_all()   # the stream writers keep one handle per thread
     _root.cleanup()
 
 
