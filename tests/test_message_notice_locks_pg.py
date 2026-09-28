@@ -51,7 +51,7 @@ class Spec(unittest.TestCase):
     def test_the_lock_plan_is_shared_container_plus_exclusive_box(self):
         spec = spec_for('b')
         rows, containers = orgtx._section_names(spec.sections, 'sections')
-        self.assertIn('noticesb', rows)
+        self.assertIn('notices' + '' + 'b', rows)
         self.assertNotIn('notices', rows)
         self.assertIn('notices', containers)
 
