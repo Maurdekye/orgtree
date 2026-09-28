@@ -109,7 +109,7 @@ class ForegroundTurnsPG(unittest.TestCase):
         self.assertEqual(node['turns'][-1]['n'], 'direct')
 
     def test_install_rederives_a_stale_copy(self):
-        self.direct("UPDATE node_index SET tree_val='{\"turns\":[]}' WHERE id='busy'")
+        self.direct("UPDATE node_tree_val SET val='{\"turns\":[]}' WHERE id='busy'")
         self.assertEqual(fg.read_foreground(self.slug)['rows']['busy']['node'], {'turns': []})
         with store._POOL.acquire(self.slug) as conn:
             org_id = conn.org_id
