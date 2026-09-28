@@ -57,11 +57,23 @@ def _wire(payload):
     return body, gzip.compress(body, compresslevel=1, mtime=0)
 
 
-def _version(payload):
-    nodes = {nid: tree_delta.encode(row) for nid, row in payload['nodes'].items()}
+def _version(payload, previous=None):
+    """Encoded rows and hashes of a payload. `previous` = (version, rows) of
+    the version this one replaces: a node whose projected dict compares equal
+    keeps its bytes and hash instead of being encoded and hashed again
+    (foreground-tree F3b-3). Python equality treats True/1/1.0 and 0.0/-0.0 as
+    equal; such a type-only flip keeps the previous spelling until that node
+    changes otherwise (the decoded value is the same)."""
+    old, rows = previous if previous is not None else (None, {})
+    nodes, hashes = {}, {}
+    for nid, row in payload['nodes'].items():
+        if old is not None and nid in old['nodes'] and rows.get(nid) == row:
+            nodes[nid], hashes[nid] = old['nodes'][nid], old['hashes'][nid]
+        else:
+            nodes[nid] = tree_delta.encode(row)
+            hashes[nid] = hashlib.sha256(nodes[nid]).hexdigest()
     return {'top': tree_delta.encode({k: v for k, v in payload.items() if k != 'nodes'}),
-            'nodes': nodes, 'hashes': {nid: hashlib.sha256(row).hexdigest() for nid, row in nodes.items()},
-            'wire': None}
+            'nodes': nodes, 'hashes': hashes, 'wire': None}
 
 
 def _token(version):
@@ -216,6 +228,9 @@ def read(slug, public, since, *, include=(), runtime, sync_revision, build,
                     version = _patch_status(entry, changes['status'])
                     if saved is not None:
                         _patch_saved(saved, changes['status'])
+                    rows = entry.get('rows')
+                    if rows is not None:
+                        rows = {**rows, **{nid: json.loads(version['nodes'][nid]) for nid in changes['status']}}
                 elif reusable:
                     if changes['status'] is not None:
                         _patch_saved(saved, changes['status'])
@@ -225,13 +240,17 @@ def read(slug, public, since, *, include=(), runtime, sync_revision, build,
                                        for nid, row in changes['rows'].items()})
                     payload = reproject(saved)
                     payload.update(watermarks)
-                    version = _version(payload)
+                    rows = entry.get('rows')
+                    version = _version(payload, (entry['versions'][entry['token']], rows)
+                                       if rows is not None else None)
+                    rows = payload['nodes']
                 else:
                     graph = storage.select_foreground(raw, stamp, selected)
                     built = build(raw, graph)
                     payload, saved = built if isinstance(built, tuple) else (built, None)
                     payload.update(watermarks)
                     version = _version(payload)
+                    rows = payload['nodes']
                     hashes = {nid: tree_fast.signature(row['node']) for nid, row in graph['rows'].items()}
                 version['top'] = tree_delta.encode({**json.loads(version['top']), **watermarks})
                 token = _token(version)
@@ -240,7 +259,7 @@ def read(slug, public, since, *, include=(), runtime, sync_revision, build,
                 versions.move_to_end(token)
                 while len(versions) > MAX_VERSIONS:
                     versions.popitem(last=False)
-                entry = {'stamp': db, 'runtime': run, 'token': token,
+                entry = {'stamp': db, 'runtime': run, 'token': token, 'rows': rows,
                          'versions': versions, 'deltas': {}, 'used': now, 'saved': saved,
                          'fast': {'seq': stamp['seq'], 'hashes': hashes}}
             entry['used'] = now
