@@ -24,6 +24,7 @@ def summarize_window(folder, config):
     routes = group(rows("ui"), lambda r: r["route"])
     def timings(groups):
         return {name: dict(count=len(values), errors=sum(bool(r["err"]) for r in values),
+            reused_resets=sum(bool(r.get("reused_reset")) for r in values),
             total_ms=pct([r["total_ms"] for r in values]),
             successful_total_ms=pct([r["total_ms"] for r in values if not r["err"]]),
             http_ms=pct([r.get("http_ms", r.get("ms", 0)) for r in values]),
