@@ -300,7 +300,8 @@ def main(argv=None) -> int:
                     if tool in ("orgtree_message", "orgtree_send_notice", "orgtree_status") or (
                             tool == "orgtree_work" and targs.get("action") in ("update", "evidence", "create")):
                         rec.write("write-receipts", {"request_id": request_id, "actor": me,
-                                                     "tool": tool, "args": targs, "response": j})
+                                                     "tool": tool, "args": targs, "response": j,
+                                                     "reused_reset": reset})
                     if isinstance(j, dict) and j.get("error"):
                         err = str(j.get("error"))[:300]
                     if oracle is not None:
@@ -313,7 +314,7 @@ def main(argv=None) -> int:
                     err = "HTTP 200 response was not valid JSON"
         except Exception as e:                               # noqa: BLE001
             err = f"{type(e).__name__}: {e}"[:300]
-            reset = getattr(e, "scale_reset", None)
+            reset = getattr(e, "scale_reset", reset)
         end = time.time()
         rec.write("calls", {"t": round(due - t0, 3), "tool": tool, "reused_reset": reset,
                             "request_id": request_id, "actor": me, "receipt": receipt,
@@ -452,7 +453,7 @@ def main(argv=None) -> int:
                 err = r.text[:200]
         except Exception as e:                               # noqa: BLE001
             err = f"{type(e).__name__}: {e}"[:200]
-            reset = getattr(e, "scale_reset", None)
+            reset = getattr(e, "scale_reset", reset)
         end = time.time()
         rec.write("steer", {"t": round(due - t0, 3), "status": status, "err": err, "reused_reset": reset,
                             "request_id": request_id, "actor": me,
