@@ -28572,13 +28572,17 @@ def interrupt_turn(slug: str, nid: str) -> dict[str, Any]:
 
 
 #: Claude tiers whose running CLI takes an effort change mid-session. Haiku
-#: has no effort parameter at all (measured on CLI 2.1.280: no `effort` on any
-#: of its transcript messages), so there is nothing to send it.
+#: has no effort parameter at all (measured on CLI 2.1.280 and 2.1.284: no
+#: `effort` on any of its transcript messages), so there is nothing to send it.
 LIVE_EFFORT_TIERS: Final = frozenset({"fable", "opus", "sonnet"})
 #: The CLI version the live-effort behaviour was measured on (item
-#: support-changing-a-claude-agent-s-effort-level-m, 2026-09-24). A test holds
+#: support-changing-a-claude-agent-s-effort-level-m, 2026-09-24, on 2.1.280;
+#: re-measured on 2.1.284 for item sonnet-5-5-support-in-a-2-1-13-build-and-v3,
+#: 2026-09-28: Opus 5.5, Sonnet 5 and Sonnet 5.5 each ran a low-effort turn of
+#: four tool calls, got the request after the first tool_use, and every later
+#: call was high; the same turn without the request stayed low). A test holds
 #: it equal to `clipin.PIN`: moving the pin must re-measure this behaviour.
-LIVE_EFFORT_MEASURED_CLI: Final = "2.1.280"
+LIVE_EFFORT_MEASURED_CLI: Final = "2.1.284"
 _LIVE_EFFORT_KEY = "effort_live"
 
 
@@ -28590,7 +28594,8 @@ def send_live_effort(org: Org, nid: str,
     so a change made while a turn runs used to wait for the next turn. The
     CLI takes a stream-json control request on stdin,
     `apply_flag_settings {effortLevel}`, and measured on 2.1.280 (Opus 5.5 and
-    Sonnet 5) the running turn's NEXT model call uses the new level; the call
+    Sonnet 5) and 2.1.284 (also Sonnet 5.5) the running turn's NEXT model call
+    uses the new level; the call
     already in flight finishes at the old one.
 
     ⚠ WHAT A SUCCESS REPLY PROVES, AND WHAT IT DOES NOT. The Agent SDK
