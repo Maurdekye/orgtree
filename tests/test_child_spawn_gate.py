@@ -76,7 +76,10 @@ ALLOWED = {
     'test_p02_replay_gate.py': (2, SELF),
     'test_pg5_load_tripwire.py': (2, TOOL),
     'test_pg_process.py': (1, NOIMPORT),
-    'test_pgimport.py': (2, SELF),
+    # 1 SELF child (-c, puts this checkout on sys.path); 2 run tools/pypg/pgimport.py by
+    # path (TOOL, it roots itself); 1 names sys.executable as a dummy --custodian
+    # argument that is never started (NOSPAWN; added with the first-launch conversion).
+    'test_pgimport.py': (4, f'{SELF}; {TOOL}; {NOSPAWN}'),
     'test_process_lifetime.py': (6, SELF),
     'test_provider_attempt_and_liveness.py': (2, NOIMPORT),
     'test_python_runner_skip_classification.py': (1, TOOL),
@@ -100,6 +103,7 @@ ALLOWED = {
     'test_steer_credential_pg.py': (1, SELF),
     'test_turn_end_stamp.py': (1, NOIMPORT),
     'test_turn_locals_org_copies.py': (1, NOIMPORT),
+    'test_turn_org_state_shared.py': (1, NOIMPORT),
     'test_v3_qualification.py': (1, NOSPAWN),
     'test_v3_qualification_adapters.py': (5, NOSPAWN),
     'test_v3_qualification_ui.py': (8, TOOL),
