@@ -3,6 +3,43 @@ import json
 from collections import defaultdict
 
 
+def memory_floor(points, bucket_s=60.0, flat_pct=5.0):
+    """Judge memory on its per-minute FLOOR and report the peak beside it.
+
+    ``points`` are ``(t_seconds, bytes)``. Attempt 6's raw slope read as
+    "climbing 16-21 MB/min", but the series was a square wave (430 <-> 640 MB
+    every ~21.5 s, a periodic archive decode) over a flat floor. Each
+    ``bucket_s`` bucket whose samples cover at least 90 % of it keeps its
+    minimum; a partial bucket is dropped because it may miss the trough.
+    ``floor_flat`` holds when the
+    least-squares floor trend, projected over the judged span, grows by at
+    most ``flat_pct`` percent of the first floor (None with < 2 buckets).
+    """
+    if not points:
+        return None
+    t0 = points[0][0]
+    floors, span = {}, {}
+    for t, b in points:
+        k = int((t - t0) // bucket_s)
+        floors[k] = min(b, floors.get(k, b))
+        first, last = span.get(k, (t, t))
+        span[k] = (min(first, t), max(last, t))
+    # A bucket counts when its samples cover at least 90 % of it.
+    mb = [floors[k] / 2 ** 20 for k in sorted(floors) if span[k][1] - span[k][0] >= 0.9 * bucket_s]
+    out = dict(bucket_s=bucket_s, floors_mb=[round(x, 1) for x in mb],
+               peak_mb=round(max(b for _, b in points) / 2 ** 20, 1),
+               floor_slope_mb_per_min=None, floor_growth_pct=None, floor_flat=None, flat_pct=flat_pct)
+    if len(mb) >= 2:
+        xs = range(len(mb))
+        mx, my = sum(xs) / len(mb), sum(mb) / len(mb)
+        per_bucket = sum((x - mx) * (y - my) for x, y in zip(xs, mb)) / sum((x - mx) ** 2 for x in xs)
+        growth = 100 * per_bucket * (len(mb) - 1) / mb[0] if mb[0] else None
+        out.update(floor_slope_mb_per_min=round(per_bucket * 60 / bucket_s, 2),
+                   floor_growth_pct=round(growth, 2) if growth is not None else None,
+                   floor_flat=growth is not None and growth <= flat_pct)
+    return out
+
+
 def summarize_window(folder, config):
     from load import pct
     begin, end = config["warmup_s"], config["duration_s"]
@@ -75,6 +112,7 @@ def summarize_window(folder, config):
         memory=dict(samples=len(mem), start_bytes=mem[0]["engine_private"] if mem else None,
             end_bytes=mem[-1]["engine_private"] if mem else None,
             peak_bytes=max((r["engine_private"] for r in mem), default=None),
-            last_half_bytes_per_second=slope),
+            last_half_bytes_per_second=slope,
+            floor=memory_floor([(r["t"], r["engine_private"]) for r in mem])),
         cpu_percent=pct([r["cpu"] for r in samples if "cpu" in r]),
         pg_sessions=pct([r["pg_conns"] for r in samples if "pg_conns" in r]))
