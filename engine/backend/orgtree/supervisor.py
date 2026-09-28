@@ -6155,6 +6155,10 @@ def _stamp_wakes_on_save(org: Org) -> None:
     if tx is not None and tx.org is org and not tx.all_nodes:
         locked = tx.lock_nodes
     nodes = cast("dict[str, Any]", org.d.get("nodes") or {})
+    if locked is None and hasattr(nodes, "materialize"):
+        # on-demand rows: outside a declared tx every node is in scope. Inside
+        # one, an undecoded row is unchanged and its own writer stamped it.
+        nodes.materialize("stamp wakes")        # pyright: ignore[reportAttributeAccessIssue]
     for nid in list(dict.keys(nodes)):
         if locked is not None and nid not in locked:
             continue

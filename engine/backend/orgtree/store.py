@@ -84,6 +84,7 @@ import sys
 import tempfile
 import threading
 import time
+import traceback
 from collections.abc import Callable, Generator, Iterable, Iterator, Mapping
 from typing import Any, cast
 
@@ -96,6 +97,7 @@ from .stateprobe import SaveChanges
 # Fail before importing ledger or creating/opening any storage.
 devguard.validate_root(os.environ.get("ORGTREE_DATA", os.path.expanduser("~/orgtree")))
 
+from . import ledger
 from .ledger import LedgerError, Org, slugify
 from .ledger import now as _ledger_now
 from .schema import OrgDoc
@@ -2763,6 +2765,570 @@ class NodesMap(dict[str, Any]):
         return dict(dict.items(self))
 
 
+# ------------------------------------------------ on-demand node rows (N1000)
+#: ORGTREE_LAZY_ROWS=1 (PostgreSQL + ORGTX_RESCOPE, lazy_work loads only): a
+#: load reads no node rows. A node row is fetched, decoded and healed the
+#: first time it is touched, on the pool connection of the thread — inside
+#: org_tx that is the tx's pinned connection, so it reads at the same READ
+#: COMMITTED view the whole-org load did. A walk over every node fetches the
+#: rest in one statement: that is a FALLBACK, counted in LAZY_ROWS_STATS.
+LAZY_ROWS = os.environ.get("ORGTREE_LAZY_ROWS", "").strip() == "1"
+LAZY_ROWS_STATS: dict[str, int] = {"loads": 0, "fetches": 0, "rows": 0,
+                                   "fallbacks": 0, "epoch_fallbacks": 0,
+                                   "decode_heals": 0, "post_load_changes": 0}
+#: the last few fallback call sites (why, stack), newest last
+LAZY_ROWS_FALLBACKS: collections.deque[tuple[str, list[str]]] = collections.deque(maxlen=32)
+#: set by a harness to attribute a fallback to its request (sql_counts)
+LAZY_ROWS_HOOK: Callable[[str], None] | None = None
+_META_HEAL_EPOCH = "heal_epoch"
+_heal_epoch_value: list[str | None] = []
+
+
+def heal_epoch() -> str | None:
+    """Which load heals a row decoded now would apply: a digest of ledger.py,
+    where every node heal lives. An org whose meta row carries this value
+    was loaded whole by this code and needed no heal, so healing on decode
+    changes nothing. None (source unreadable) disables on-demand rows."""
+    if not _heal_epoch_value:
+        try:
+            with open(ledger.__file__, "rb") as fh:
+                _heal_epoch_value.append(hashlib.sha256(fh.read()).hexdigest()[:24])
+        except (OSError, TypeError):
+            _heal_epoch_value.append(None)
+    return _heal_epoch_value[0]
+
+
+def _lazy_count(key: str, n: int = 1) -> None:
+    LAZY_ROWS_STATS[key] = LAZY_ROWS_STATS.get(key, 0) + n
+
+
+def _lazy_fallback(why: str) -> None:
+    _lazy_count("fallbacks")
+    stack = [f"{os.path.basename(f.filename)}:{f.lineno}:{f.name}"
+             for f in traceback.extract_stack()[-9:-2]]
+    LAZY_ROWS_FALLBACKS.append((why, stack))
+    _lazy_hook("fallback", why)
+
+
+def _lazy_hook(kind: str, why: str) -> None:
+    hook = LAZY_ROWS_HOOK
+    if hook is not None:
+        with contextlib.suppress(Exception):
+            hook(kind, why)
+
+
+def _xid_before(a: int, b: int) -> bool:
+    """PostgreSQL's 32-bit modular transaction-id order: a precedes b."""
+    return a != b and ((a - b) & 0xFFFFFFFF) > 0x7FFFFFFF
+
+
+def _after_load(snapshot: str | None, xmin: Any) -> bool:
+    """Was this row version committed AFTER the view's load snapshot?
+
+    A read-only runtime view (outside org_tx) fetches an on-demand row when it
+    is touched, at READ COMMITTED: it may be newer than the load (decision A,
+    2026-09-28 — fresher, never an error). This only COUNTS that. `snapshot`
+    is `pg_current_snapshot()` text (`xmin:xmax:xip,...`, 64-bit), `xmin` the
+    row's 32-bit xmin; frozen/bootstrap ids (< 3) are always old."""
+    if not snapshot or xmin is None:
+        return False
+    try:
+        x = int(xmin)
+        lo, hi, xip = snapshot.split(":")
+        s_lo, s_hi = int(lo) & 0xFFFFFFFF, int(hi) & 0xFFFFFFFF
+        running = {int(v) & 0xFFFFFFFF for v in xip.split(",") if v}
+    except (ValueError, TypeError):
+        return False
+    if x < 3:
+        return False
+    visible = _xid_before(x, s_lo) or (_xid_before(x, s_hi) and x not in running)
+    return not visible
+
+
+def _count_post_load(doc: Any, what: str, xmins: Iterable[Any]) -> None:
+    snap = getattr(doc, "_load_snapshot", None) if doc is not None else None
+    if not snap:
+        return
+    n = sum(1 for x in xmins if _after_load(snap, x))
+    if n:
+        _lazy_count("post_load_changes", n)
+        _lazy_hook("post_load_change", what)
+
+
+def stamp_heal_epoch(org: Org) -> None:
+    """Record, inside the caller's org_tx, that this WHOLE load of the org
+    needed no heal under this code: from its commit on, on-demand rows are
+    safe (a row healed on decode changes nothing). No-op unless the load was
+    a whole load taken for a stale epoch (`_stamp_heal_epoch`)."""
+    d = org.d
+    if not isinstance(d, LazyDoc) or not d._stamp_heal_epoch:
+        return
+    epoch = heal_epoch()
+    slug = d._slug
+    if epoch is None or not slug:
+        return
+    d._stamp_heal_epoch = False
+    with _POOL.acquire(slug) as conn:
+        # ⚠ NEVER WAIT: every org_tx that loaded whole since a deploy is here
+        # at once, and the upsert's row lock would queue them all behind the
+        # first stamper (measured: lock timeouts in test_pgstore). One
+        # stamper per org at a time; the rest skip — the next load re-reads.
+        got = conn.execute("SELECT pg_try_advisory_xact_lock(?, hashtext(?))",
+                           (getattr(conn, "org_id"), _META_HEAL_EPOCH)).fetchone()
+        if not got or not got[0]:
+            return
+        conn.execute("INSERT INTO meta(key, val) VALUES(?, ?) ON CONFLICT(key) "
+                     "DO UPDATE SET val = excluded.val", (_META_HEAL_EPOCH, epoch))
+
+
+def prefetch_nodes(org: Org, ids: Iterable[str]) -> None:
+    """Decode a known set of on-demand node rows in one statement."""
+    nodes = dict.get(cast("dict[str, Any]", org.d), "nodes")
+    if isinstance(nodes, LazyNodesMap) and ids:
+        nodes.prefetch(ids)
+
+
+class LazySplitSection(dict[str, Any]):
+    """A split section (`mail` / `delivering` / `notices`, PG-3d) whose
+    owner rows load when touched (ORGTREE_LAZY_ROWS) — the same contract as
+    `LazyNodesMap`: decoded owners live in the dict storage with their
+    baseline rows in the document's `_snap_doc`, so the compare-on-save
+    (`_split_rows` against `_snap_rows`) sees decoded owners only. Point
+    access fetches one owner row; any walk fetches the rest (sorted by row
+    key, as `_assemble` orders them) and counts a fallback. Writes fetch
+    first, so a replaced or deleted owner keeps its baseline and the save
+    UPDATEs or DELETEs it instead of treating it as new."""
+
+    lazy_rows = True
+
+    def __init__(self, slug: str = "", sect: str = "", doc: Any = None) -> None:
+        super().__init__()
+        self._slug = slug
+        self._sect = sect
+        self._doc = doc
+        self._complete = False
+        self._absent: set[str] = set()
+        self._deleted: set[str] = set()
+        self._nonempty: bool | None = None
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> "LazySplitSection":
+        out = LazySplitSection.__new__(LazySplitSection)
+        memo[id(self)] = out
+        for k, v in self.__dict__.items():
+            object.__setattr__(out, k, copy.deepcopy(v, memo))
+        for k, v in dict.items(self):
+            dict.__setitem__(out, k, copy.deepcopy(v, memo))
+        return out
+
+    def _decode(self, owner: str, raw: str) -> Any:
+        snap = getattr(self._doc, "_snap_doc", None)
+        if snap is not None:
+            snap[self._sect + SPLIT_SEP + owner] = raw
+        value = json.loads(raw)
+        if ledger.heal_decoded_box(self._sect, value):
+            _lazy_count("decode_heals")
+        return value
+
+    def _fetch(self, owners: Iterable[str]) -> None:
+        if self._complete:
+            return
+        want = [o for o in dict.fromkeys(owners) if isinstance(o, str)
+                and not dict.__contains__(self, o)
+                and o not in self._absent and o not in self._deleted]
+        if not want:
+            return
+        pre = self._sect + SPLIT_SEP
+        with _POOL.acquire(self._slug) as conn:
+            rows = conn.execute("SELECT key, val, xmin::text FROM doc WHERE key = ANY(?)",
+                                ([pre + o for o in want],)).fetchall()
+        _lazy_count("fetches")
+        _lazy_count("rows", len(rows))
+        _count_post_load(self._doc, self._sect, (r[2] for r in rows))
+        found = {cast(str, k)[len(pre):]: cast(str, v) for k, v, _x in rows}
+        for owner in want:
+            raw = found.get(owner)
+            if raw is None:
+                self._absent.add(owner)
+            else:
+                dict.__setitem__(self, owner, self._decode(owner, raw))
+
+    def materialize(self, why: str = "walk") -> None:
+        if self._complete:
+            return
+        _lazy_fallback(f"{self._sect}: {why}")
+        pre = self._sect + SPLIT_SEP
+        with _POOL.acquire(self._slug) as conn:
+            rows = conn.execute("SELECT key, val, xmin::text FROM doc "
+                                "WHERE substr(key, 1, ?) = ?",
+                                (len(pre), pre)).fetchall()
+        _lazy_count("rows", len(rows))
+        _count_post_load(self._doc, self._sect, (r[2] for r in rows))
+        stored = {cast(str, k): cast(str, v) for k, v, _x in rows}
+        held = dict(dict.items(self))
+        order: list[tuple[str, Any]] = []
+        for key in sorted(stored):                 # _assemble's order
+            owner = key[len(pre):]
+            if owner in self._deleted:
+                continue
+            if owner in held:
+                order.append((owner, held.pop(owner)))
+            else:
+                order.append((owner, self._decode(owner, stored[key])))
+        order += list(held.items())                # new, unsaved owners
+        dict.clear(self)
+        for owner, value in order:
+            dict.__setitem__(self, owner, value)
+        self._complete = True
+        self._absent.clear()
+
+    # -- point access -----------------------------------------------------
+    def __getitem__(self, owner: str) -> Any:
+        if not dict.__contains__(self, owner):
+            self._fetch((owner,))
+        return dict.__getitem__(self, owner)
+
+    def get(self, owner: str, default: Any = None) -> Any:  # pyright: ignore[reportIncompatibleMethodOverride]
+        if not dict.__contains__(self, owner):
+            self._fetch((owner,))
+        return dict.get(self, owner, default)
+
+    def __contains__(self, owner: object) -> bool:
+        if dict.__contains__(self, owner):
+            return True
+        if self._complete or not isinstance(owner, str):
+            return False
+        self._fetch((owner,))
+        return dict.__contains__(self, owner)
+
+    def setdefault(self, owner: str, default: Any = None) -> Any:  # pyright: ignore[reportIncompatibleMethodOverride]
+        if owner not in self:
+            self[owner] = default
+        return dict.__getitem__(self, owner)
+
+    def __bool__(self) -> bool:
+        if dict.__len__(self):
+            return True
+        if self._complete:
+            return False
+        if self._nonempty is None:
+            pre = self._sect + SPLIT_SEP
+            with _POOL.acquire(self._slug) as conn:
+                row = conn.execute("SELECT 1 FROM doc WHERE substr(key, 1, ?) = ? LIMIT 1",
+                                   (len(pre), pre)).fetchone()
+            self._nonempty = row is not None
+        # every stored owner deleted here leaves the section empty
+        return bool(self._nonempty) and not self._all_deleted()
+
+    def _all_deleted(self) -> bool:
+        if not self._deleted:
+            return False
+        self.materialize("emptiness after deletes")
+        return dict.__len__(self) == 0
+
+    def __setitem__(self, owner: str, v: Any) -> None:
+        if not dict.__contains__(self, owner):
+            self._fetch((owner,))
+        self._deleted.discard(owner)
+        self._absent.discard(owner)
+        dict.__setitem__(self, owner, v)
+
+    def __delitem__(self, owner: str) -> None:
+        if not dict.__contains__(self, owner):
+            self._fetch((owner,))
+        dict.__delitem__(self, owner)
+        self._deleted.add(owner)
+
+    def pop(self, owner: str, *default: Any) -> Any:  # pyright: ignore[reportIncompatibleMethodOverride]
+        if not dict.__contains__(self, owner):
+            self._fetch((owner,))
+        had = dict.__contains__(self, owner)
+        v = dict.pop(self, owner, *default)
+        if had:
+            self._deleted.add(owner)
+        return v
+
+    def update(self, *a: Any, **kw: Any) -> None:  # pyright: ignore[reportIncompatibleMethodOverride]
+        for m in a:
+            for k, v in (m.items() if isinstance(m, dict)
+                         else cast("Iterable[tuple[str, Any]]", m)):
+                self[k] = v
+        for k, v in kw.items():
+            self[k] = v
+
+    # -- whole-section access: fetch the rest first -----------------------
+    def __iter__(self):
+        self.materialize("iter")
+        return dict.__iter__(self)
+
+    def __len__(self) -> int:
+        self.materialize("len")
+        return dict.__len__(self)
+
+    def __reversed__(self):
+        self.materialize("reversed")
+        return dict.__reversed__(self)
+
+    def keys(self):  # pyright: ignore[reportIncompatibleMethodOverride]
+        self.materialize("keys")
+        return dict.keys(self)
+
+    def values(self):  # pyright: ignore[reportIncompatibleMethodOverride]
+        self.materialize("values")
+        return dict.values(self)
+
+    def items(self):  # pyright: ignore[reportIncompatibleMethodOverride]
+        self.materialize("items")
+        return dict.items(self)
+
+    def copy(self) -> dict[str, Any]:  # pyright: ignore[reportIncompatibleMethodOverride]
+        self.materialize("copy")
+        return dict(dict.items(self))
+
+    def popitem(self) -> tuple[str, Any]:
+        self.materialize("popitem")
+        owner, v = dict.popitem(self)
+        self._deleted.add(owner)
+        return owner, v
+
+    def clear(self) -> None:
+        self.materialize("clear")
+        self._deleted.update(dict.keys(self))
+        dict.clear(self)
+
+    def __eq__(self, other: object) -> bool:
+        self.materialize("eq")
+        if isinstance(other, LazySplitSection):
+            other.materialize("eq")
+        return dict.__eq__(self, other)
+
+    def __ne__(self, other: object) -> bool:
+        return not self.__eq__(other)
+
+    __hash__ = None  # type: ignore[assignment]
+
+    def __or__(self, other: Any) -> Any:
+        return self.copy() | other
+
+    def __repr__(self) -> str:
+        self.materialize("repr")
+        return dict.__repr__(self)
+
+
+class LazyNodesMap(NodesMap):
+    """`nodes` whose rows load when touched (ORGTREE_LAZY_ROWS).
+
+    Decoded rows live in the dict storage exactly as NodesMap holds them, so
+    the save, the dirty marks and the heal check see decoded rows only — and
+    only a decoded row can have changed. Point reads (`[]`, `in`, `get`,
+    `setdefault`, and writes, which fetch first so a replaced row keeps its
+    baseline) fetch one row. Everything that needs every key or value
+    (`iter`, `len`, `keys`, `values`, `items`, `copy`, comparison) fetches the
+    rest first, in `ord` order, and counts a fallback.
+
+    ⚠ DATA-LOSS INVARIANT: an undecoded row is not in the storage, so any
+    code that reads the storage directly (`dict.keys(nodes)`) and treats a
+    missing id as deleted must call `materialize()` first. The save does
+    (`_write_doc`). Deletions are remembered in `_deleted` so a later fetch
+    never resurrects them."""
+
+    lazy_rows = True
+
+    def __init__(self, slug: str = "", doc: Any = None) -> None:
+        super().__init__()
+        self._slug = slug
+        self._doc = doc
+        self._complete = False
+        self._absent: set[str] = set()
+        self._deleted: set[str] = set()
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> "LazyNodesMap":
+        # undecoded rows stay undecoded: the copy fetches them from the same
+        # table, and its baselines are copied with the document
+        out = LazyNodesMap.__new__(LazyNodesMap)
+        memo[id(self)] = out
+        for k, v in self.__dict__.items():
+            object.__setattr__(out, k, copy.deepcopy(v, memo))
+        for k, v in dict.items(self):
+            dict.__setitem__(out, k, copy.deepcopy(v, memo))
+        return out
+
+    # -- fetching ---------------------------------------------------------
+    def _decode(self, nid: str, raw: str, index: int | None) -> Any:
+        snap = getattr(self._doc, "_snap_nodes", None)
+        if snap is not None:
+            snap[nid] = raw
+        mark = _NodeMutation()
+        value = _track_node_value(json.loads(raw), mark)
+        mark.constructing = True
+        try:
+            healed = ledger.heal_decoded_node(self._doc, nid, value, index)
+        finally:
+            mark.constructing = False
+        if healed and mark.dirty:
+            _lazy_count("decode_heals")
+        return value if healed else None
+
+    def _fetch(self, ids: Iterable[str]) -> None:
+        if self._complete:
+            return
+        want = [i for i in dict.fromkeys(ids) if isinstance(i, str)
+                and not dict.__contains__(self, i)
+                and i not in self._absent and i not in self._deleted]
+        if not want:
+            return
+        with _POOL.acquire(self._slug) as conn:
+            rows = conn.execute("SELECT id, val, xmin::text FROM nodes WHERE id = ANY(?)",
+                                (want,)).fetchall()
+        _lazy_count("fetches")
+        _lazy_count("rows", len(rows))
+        _count_post_load(self._doc, "nodes", (r[2] for r in rows))
+        found = {cast(str, i): cast(str, v) for i, v, _x in rows}
+        for nid in want:
+            raw = found.get(nid)
+            if raw is None:
+                self._absent.add(nid)
+                continue
+            value = self._decode(nid, raw, None)
+            if value is None:
+                # this row's heal needs the whole table (a legacy row with no
+                # ui_order or seat_id): heal it the way a whole load would
+                self.materialize("heal needs all nodes")
+                return
+            dict.__setitem__(self, nid, value)
+
+    def prefetch(self, ids: Iterable[str]) -> None:
+        """Fetch a known set of rows in ONE statement (declared nodes)."""
+        self._fetch(ids)
+
+    def materialize(self, why: str = "walk") -> None:
+        if self._complete:
+            return
+        _lazy_fallback(why)
+        with _POOL.acquire(self._slug) as conn:
+            rows = conn.execute("SELECT id, val, xmin::text FROM nodes ORDER BY ord").fetchall()
+        _lazy_count("rows", len(rows))
+        held = dict(dict.items(self))
+        order: list[tuple[str, Any, str | None]] = []
+        _count_post_load(self._doc, "nodes", (r[2] for r in rows))
+        for nid, raw, _x in rows:
+            nid = cast(str, nid)
+            if nid in self._deleted:
+                continue
+            if nid in held:
+                order.append((nid, held.pop(nid), None))
+            else:
+                order.append((nid, None, cast(str, raw)))
+        order += [(nid, v, None) for nid, v in held.items()]   # new, unsaved
+        dict.clear(self)
+        for i, (nid, value, raw) in enumerate(order):
+            if raw is not None:
+                value = self._decode(nid, raw, i)
+            dict.__setitem__(self, nid, value)
+        self._complete = True
+        self._absent.clear()
+        if any(isinstance(v, dict) and not v.get("seat_id")
+               for v in dict.values(self)):
+            ledger.backfill_seat_ids(self, self._doc)
+
+    # -- point access -----------------------------------------------------
+    def __getitem__(self, nid: str) -> Any:
+        if not dict.__contains__(self, nid):
+            self._fetch((nid,))
+        return super().__getitem__(nid)
+
+    def __contains__(self, nid: object) -> bool:
+        if dict.__contains__(self, nid):
+            return True
+        if self._complete or not isinstance(nid, str):
+            return False
+        self._fetch((nid,))
+        return dict.__contains__(self, nid)
+
+    def __bool__(self) -> bool:
+        if dict.__len__(self) or self._complete:
+            return dict.__len__(self) > 0
+        with _POOL.acquire(self._slug) as conn:
+            row = conn.execute("SELECT 1 FROM nodes LIMIT 1").fetchone()
+        return row is not None
+
+    def __setitem__(self, nid: str, v: Any) -> None:
+        if not dict.__contains__(self, nid):
+            self._fetch((nid,))
+        self._deleted.discard(nid)
+        self._absent.discard(nid)
+        super().__setitem__(nid, v)
+
+    def __delitem__(self, nid: str) -> None:
+        if not dict.__contains__(self, nid):
+            self._fetch((nid,))
+        super().__delitem__(nid)
+        self._deleted.add(nid)
+
+    def pop(self, nid: str, *default: Any) -> Any:  # pyright: ignore[reportIncompatibleMethodOverride]
+        if not dict.__contains__(self, nid):
+            self._fetch((nid,))
+        had = dict.__contains__(self, nid)
+        v = super().pop(nid, *default)
+        if had:
+            self._deleted.add(nid)
+        return v
+
+    # -- whole-map access: fetch the rest first ---------------------------
+    def __iter__(self):
+        self.materialize("iter")
+        return dict.__iter__(self)
+
+    def __len__(self) -> int:
+        self.materialize("len")
+        return dict.__len__(self)
+
+    def __reversed__(self):
+        self.materialize("reversed")
+        return dict.__reversed__(self)
+
+    def keys(self):  # pyright: ignore[reportIncompatibleMethodOverride]
+        self.materialize("keys")
+        return dict.keys(self)
+
+    def values(self):  # pyright: ignore[reportIncompatibleMethodOverride]
+        self.materialize("values")
+        return super().values()
+
+    def items(self):  # pyright: ignore[reportIncompatibleMethodOverride]
+        self.materialize("items")
+        return super().items()
+
+    def copy(self) -> dict[str, Any]:  # pyright: ignore[reportIncompatibleMethodOverride]
+        self.materialize("copy")
+        return super().copy()
+
+    def popitem(self) -> tuple[str, Any]:
+        self.materialize("popitem")
+        nid, v = super().popitem()
+        self._deleted.add(nid)
+        return nid, v
+
+    def clear(self) -> None:
+        self.materialize("clear")
+        self._deleted.update(dict.keys(self))
+        super().clear()
+
+    def __eq__(self, other: object) -> bool:
+        self.materialize("eq")
+        if isinstance(other, LazyNodesMap):
+            other.materialize("eq")
+        return dict.__eq__(self, other)
+
+    def __ne__(self, other: object) -> bool:
+        return not self.__eq__(other)
+
+    __hash__ = None  # type: ignore[assignment]
+
+    def __repr__(self) -> str:
+        self.materialize("repr")
+        return dict.__repr__(self)
+
+
 class LazyDoc(dict[str, Any]):
     """The org document as `save_org`/`load_org` hand it to `ledger.Org` under
     the SQLite backend (§4.2). A real `dict` — `ledger.py` never learns the
@@ -2810,6 +3376,7 @@ class LazyDoc(dict[str, Any]):
         "_dropped": set, "_pending": dict, "_touched": set,
         "_lazy_exposed": set, "_deferred_doc": dict,
         "_receipt_rows": bool, "_receipt_present": bool,
+        "_stamp_heal_epoch": bool, "_lazy_keys": set, "_load_snapshot": str,
     }
 
     def __getattr__(self, name: str) -> Any:
@@ -3357,16 +3924,17 @@ _PRESENCE_SQL: str = " UNION ALL ".join(
 #: ...and the meta rows a load reads, in one `IN (...)` read
 #: written by receiptstore.convert in the conversion transaction
 _META_RECEIPT_ROWS = "receipt_rows"
-_LOAD_META_KEYS: tuple[str, ...] = ((_META_KEY_ORDER, "schema_version", _META_RECEIPT_ROWS)
+_LOAD_META_KEYS: tuple[str, ...] = ((_META_KEY_ORDER, "schema_version", _META_RECEIPT_ROWS,
+                                     _META_HEAL_EPOCH)
                                     + tuple(_META_OWNERS + s for s in DICT_LOGS))
 _LOAD_META_SQL: str = ("SELECT key, val FROM meta WHERE key IN ("
                        + ",".join("?" * len(_LOAD_META_KEYS)) + ")")
 
 
 def _load_probes(conn: sqlite3.Connection
-                 ) -> tuple[str | None, str | None, set[str], bool]:
-    """(key order, schema_version, present log sections, receipts converted)
-    in TWO statements.
+                 ) -> tuple[str | None, str | None, set[str], bool, str | None]:
+    """(key order, schema_version, present log sections, receipts converted,
+    heal epoch) in TWO statements.
 
     Exactly what the per-section probes answered (on PostgreSQL each was a
     round trip, about 35 per load): a dict log is present when it has a row
@@ -3382,7 +3950,8 @@ def _load_probes(conn: sqlite3.Connection
     present.update(s for s in LIST_LOGS if s in hits)
     return (cast("str | None", metas.get(_META_KEY_ORDER)),
             cast("str | None", metas.get("schema_version")), present,
-            metas.get(_META_RECEIPT_ROWS) is not None)
+            metas.get(_META_RECEIPT_ROWS) is not None,
+            cast("str | None", metas.get(_META_HEAL_EPOCH)))
 
 
 def _load_lazy(conn: sqlite3.Connection, slug: str,
@@ -3409,7 +3978,10 @@ def _load_lazy(conn: sqlite3.Connection, slug: str,
     if not txn_open:
         conn.execute("BEGIN")
     try:
-        raw_order, schema_version, present, receipt_marked = _load_probes(conn)
+        raw_order, schema_version, present, receipt_marked, epoch = _load_probes(conn)
+        lazy_rows_ok = bool(lazy_work and LAZY_ROWS and ORGTX_RESCOPE
+                            and STORE_BACKEND == "postgres" and slug)
+        lazy_sections = False
         if receipt_marked and not (RECEIPT_ROWS and STORE_BACKEND == "postgres"):
             # its receipts live only in rows: loading without them would show
             # an org with no custody receipts at all (duplicate delivery)
@@ -3422,14 +3994,41 @@ def _load_lazy(conn: sqlite3.Connection, slug: str,
         # full switch interval: 709 rows × ~5 ms stolen slices turned this
         # 100 ms load into 18-20 s (measured, 2026-09-19 incident).
         if lazy_work and ORGTX_RESCOPE and STORE_BACKEND == "postgres":
-            raw_doc = dict(conn.execute(
-                "SELECT key, val FROM doc WHERE NOT starts_with(key, ?)",
-                (workrows.PREFIX,)).fetchall())
+            if lazy_rows_ok and epoch is not None and epoch == heal_epoch():
+                # ORGTREE_LAZY_ROWS: no owner row of a split section either
+                # (work rows are read by _load_work_refs as before)
+                raw_doc = dict(conn.execute(
+                    "SELECT key, val FROM doc WHERE strpos(key, ?) = 0",
+                    (SPLIT_SEP,)).fetchall())
+                lazy_sections = True
+            else:
+                raw_doc = dict(conn.execute(
+                    "SELECT key, val FROM doc WHERE NOT starts_with(key, ?)",
+                    (workrows.PREFIX,)).fetchall())
             _load_work_refs(conn, slug, raw_doc)
         else:
             raw_doc = dict(conn.execute("SELECT key, val FROM doc").fetchall())
-        node_rows = [(cast(str, i), cast(str, v)) for i, v in
-                     conn.execute("SELECT id, val FROM nodes ORDER BY ord").fetchall()]
+        # ORGTREE_LAZY_ROWS: no node row is read here when this code already
+        # found the org heal-clean (its epoch row); LazyNodesMap fetches rows
+        # as they are touched. A stale epoch loads whole, and org_tx stamps
+        # the epoch once that whole load proves nothing needs healing.
+        lazy_nodes = False
+        if (lazy_work and LAZY_ROWS and ORGTX_RESCOPE and STORE_BACKEND == "postgres"
+                and slug and "nodes" in key_order and "nodes" not in raw_doc):
+            if epoch is not None and epoch == heal_epoch():
+                lazy_nodes = True
+                _lazy_count("loads")
+            else:
+                d._stamp_heal_epoch = heal_epoch() is not None
+                _lazy_count("epoch_fallbacks")
+        if (lazy_nodes or lazy_sections) and not getattr(conn, "pinned", False):
+            # outside org_tx: a later on-demand fetch may be newer than this
+            # view; remember the view's snapshot so such rows are counted
+            row = conn.execute("SELECT pg_current_snapshot()::text").fetchone()
+            d._load_snapshot = cast(str, row[0]) if row else ""
+        node_rows = [] if lazy_nodes else [
+            (cast(str, i), cast(str, v)) for i, v in
+            conn.execute("SELECT id, val FROM nodes ORDER BY ord").fetchall()]
         # PG-3d: a split section's owner rows travel with its container row
         grouped = _group_doc_rows(raw_doc)
         doc_rows: dict[str, str] = {k: rows[k] for k, rows in grouped.items()}
@@ -3536,11 +4135,18 @@ def _load_lazy(conn: sqlite3.Connection, slug: str,
                 dict.__setitem__(d, k, receipt[1])
             continue
         if k == "nodes" and "nodes" not in doc_rows:
-            nodes: NodesMap = NodesMap()
+            nodes: NodesMap = LazyNodesMap(slug, d) if lazy_nodes else NodesMap()
+            if lazy_nodes:
+                d._lazy_keys.add("nodes")
             for nid, v in node_rows:
                 dict.__setitem__(nodes, nid, json.loads(v))
                 d._snap_nodes[nid] = v
             dict.__setitem__(d, "nodes", nodes)
+        elif lazy_sections and k in SPLIT_SECTIONS and doc_rows.get(k) == "{}":
+            # the split form's container row: owners load when touched
+            d._snap_doc[k] = "{}"
+            dict.__setitem__(d, k, LazySplitSection(slug, k, d))
+            d._lazy_keys.add(k)
         elif k in doc_rows:
             # includes a lazy-named key (or `nodes`) stored as a blob because
             # its value had the wrong shape
@@ -4061,6 +4667,16 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
     new_nodes: dict[str, str] = {}
     new_logs: dict[str, Any] = {}
 
+    if lazy is not None and lazy._lazy_keys:
+        # ⚠ an on-demand section's undecoded rows are in no baseline, so a
+        # section REPLACED or removed wholesale would leave them behind
+        # (resurrected on the next load). Nothing does that; refuse loudly.
+        for k in lazy._lazy_keys:
+            v = dict.get(d, k)
+            if not isinstance(v, (LazySplitSection, LazyNodesMap)) \
+                    or (isinstance(v, LazySplitSection) and v._sect != k):
+                raise LedgerError(f"{k!r} loads on demand (ORGTREE_LAZY_ROWS) and "
+                                  "cannot be replaced or removed wholesale")
     # -- small sections (`doc`) ------------------------------------------
     db_doc_keys: set[str] = set()
     if snap_doc is None:
@@ -4174,6 +4790,11 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
             conn.execute("DELETE FROM doc WHERE key=?", ("nodes",))
         nodes: dict[str, Any] = cast("dict[str, Any]", nodes_v) if has_nodes_key else {}
         db_ids: set[str] | None = None
+        if isinstance(nodes, LazyNodesMap) and not nodes._complete \
+                and (snap_nodes is None or "nodes" in known_doc):
+            # ⚠ the id diff below deletes every STORED id the map lacks, and
+            # an undecoded row is not in the map: decode them all first
+            nodes.materialize("save without node baselines")
         if snap_nodes is None or "nodes" in known_doc:
             db_ids = {cast(str, i) for (i,) in conn.execute("SELECT id FROM nodes")}
         known_ids = db_ids if db_ids is not None else set(cast("dict[str, str]", snap_nodes))

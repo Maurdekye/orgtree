@@ -1014,6 +1014,12 @@ class PgBackend:
                     with profiling.stage("org_load_ms"):     # as SeamBackend's
                         tx.org = store._load_sqlite_org(tx.slug, lazy_work=True)   # pyright: ignore[reportPrivateUsage]
                     _check_heal(tx)
+                    # ORGTREE_LAZY_ROWS: a whole load that needed no heal
+                    # proves every row is at this code's heal fixed point
+                    store.stamp_heal_epoch(tx.org)          # pyright: ignore[reportUnknownMemberType]
+                    if not tx.all_nodes:
+                        # the declared rows in ONE statement, not one each
+                        store.prefetch_nodes(tx.org, tx.lock_nodes | tx.share_nodes)
                 yield
                 if any(tx.replayed for tx in order):
                     raw.execute("ROLLBACK")

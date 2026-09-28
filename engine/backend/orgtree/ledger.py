@@ -620,6 +620,116 @@ def retag_legacy_spend_freeze(fz: Any) -> bool:
     return False
 
 
+#: the short-lived GPT-6 tier spellings folded into Sol/Luna's version pin
+_GPT6_ALIASES: tuple[tuple[str, str], ...] = (("sol", "gpt-6-sol"), ("luna", "gpt-6-luna"))
+
+
+def _heal_node_basics(n: Any, i: int, d: Any) -> None:
+    """One node's share of `Org._normalize_display_basics` (the load heal)."""
+    sc = n.setdefault("scope", {})
+    sc["add_dirs"] = norm_dirs(sc.get("add_dirs"))
+    if "tools" not in sc:
+        sc["tools"] = norm_tools({"bash": sc.pop("bash", True), "mcp": []})
+    else:
+        sc["tools"] = norm_tools(sc["tools"])
+    # Cache-aware compaction replaced the editable idle timeout. A
+    # node row that contained only the legacy timeout becomes a clean
+    # inherit; enabled/off and the occupancy threshold survive.
+    _node_acc = sc.get("auto_cheap_compact")
+    if isinstance(_node_acc, dict):
+        _node_acc.pop("idle_s", None)
+        if not _node_acc:
+            sc.pop("auto_cheap_compact", None)
+    # default leans toward visibility, not opaque invisibility (user ruling)
+    sc.setdefault("org_visibility", "full")
+    sc.setdefault("permission_mode", d.get("permission_mode", "acceptEdits"))
+    n.setdefault("ui_order", float(i))
+    # user ruling 2026-07-31: `purpose` is dropped — charter is the one
+    # role statement. Migration folds an old purpose into an empty
+    # charter (dropping it silently would strip live agents' identity)
+    old_purpose = n.pop("purpose", None)
+    if old_purpose and not n.get("charter"):
+        n["charter"] = old_purpose
+    n.setdefault("charter", None)
+    # pre-unification relic: queued texts now persist as mailbox mail
+    n.pop("queued_msgs", None)
+
+
+def _fold_gpt6_node(n: Any, tier: str, six: str) -> None:
+    if n.get("model") == six:
+        n["model"] = tier
+        n.setdefault("scope", {})["model_version"] = "6"
+
+
+def heal_decoded_node(d: Any, nid: str, n: Any, index: int | None) -> bool:
+    """Every per-node load heal of `Org.__init__`, for ONE node row decoded
+    on demand (store.LazyNodesMap, ORGTREE_LAZY_ROWS) -- the same functions
+    the whole-table loops call, so the two cannot drift. `index` is the
+    row's position in the table, or None for a point fetch: then a row the
+    heals cannot finish alone (no `ui_order`, whose default is the position;
+    no `seat_id`, which is shared along a lineage) returns False and the
+    caller decodes the whole table instead. Doc-level heals are not here:
+    they run in `Org.__init__` against the document as always."""
+    if not isinstance(n, dict):
+        return True
+    if index is None and ("ui_order" not in n or not n.get("seat_id")):
+        return False
+    doc = d if d is not None else {}
+    if nid not in (getattr(doc, "_normalized_nodes", None) or ()):
+        _heal_node_basics(n, index if index is not None else 0, doc)
+    for tier, six in _GPT6_ALIASES:
+        _fold_gpt6_node(n, tier, six)
+    n.pop("gemini_session", None)
+    retag_legacy_spend_freeze(n.get("frozen"))
+    if not doc.get("fable_lock"):
+        n.pop("limit_locked", None)
+    return True
+
+
+def backfill_seat_ids(nodes: Any, d: Any) -> None:
+    """`Org._backfill_seat_ids` on a node table and its document."""
+    missing = [k for k, n in nodes.items() if not n.get("seat_id")]
+    migs = d.setdefault("_migrations", {})
+    if not missing:
+        migs.setdefault(Org.SEAT_ID_MIGRATION, {"at": now(), "minted": 0, "shared": 0})
+        return
+    minted = shared = 0
+    for k in sorted(missing, key=lambda k: ("@" in k, k)):
+        head = k.split("@", 1)[0]
+        stack = [head] + sorted(s for s in nodes if s.startswith(head + "@"))
+        seat = next((nodes[s].get("seat_id") for s in stack
+                     if s in nodes and nodes[s].get("seat_id")), None)
+        if seat:
+            shared += 1
+        else:
+            seat = Org.legacy_seat_id(head, nodes.get(head) or nodes[k])
+            minted += 1
+        nodes[k]["seat_id"] = seat
+    prev = cast("dict[str, Any]", migs.get(Org.SEAT_ID_MIGRATION) or {})
+    migs[Org.SEAT_ID_MIGRATION] = {
+        "at": prev.get("at") or now(),
+        "minted": int(prev.get("minted") or 0) + minted,
+        "shared": int(prev.get("shared") or 0) + shared}
+
+
+def heal_decoded_box(sect: str, box: Any) -> bool:
+    """The per-owner load heal for ONE split-section row decoded on demand:
+    the mail-id backfill of `Org.__init__` (see MAIL IDS there). True if it
+    changed the box."""
+    changed = False
+    if sect == "mail" and isinstance(box, list):
+        for m in box:
+            if isinstance(m, dict) and "id" not in m:
+                m["id"] = uuid.uuid4().hex[:12]
+                changed = True
+    return changed
+
+
+def _lazy_rows(nodes: Any) -> bool:
+    """Is this node table decoded on demand (heals run per row)?"""
+    return bool(getattr(nodes, "lazy_rows", False))
+
+
 def freeze_describes_provider(fz: FrozenInfo) -> bool:
     """Is this freeze ABOUT the node's provider/session — a usage limit, a
     network drop, or an auth rejection (`cause` is a string, never a flag, so
@@ -906,7 +1016,9 @@ class Org:
         for m in self.d.get("user_inbox", []):       # per-mail read tracking needs ids
             m.setdefault("id", uuid.uuid4().hex[:8])
         # non-literal key → cast; the box holds {node: [entry, ...]}
-        for ms in cast("dict[str, list[Any]]", self.d.get("mail") or {}).values():
+        _mail = self.d.get("mail")
+        for ms in (() if _lazy_rows(_mail)       # healed per box on decode
+                   else cast("dict[str, list[Any]]", _mail or {}).values()):
             for m in ms:
                 if isinstance(m, dict):
                     # cast: isinstance narrows Any to dict[Unknown, Unknown]
@@ -988,8 +1100,10 @@ class Org:
         # pre-№41 spend freezes wrote the usage-limit keys (error, until=None);
         # re-tag them so clear_hard_freeze("spend") actually clears them
         # instead of leaving a stale-reason freeze the API reports as cleared
-        for n in self.nodes.values():
-            retag_legacy_spend_freeze(n.get("frozen"))
+        _lazy = _lazy_rows(self.d.get("nodes"))
+        if not _lazy:
+            for n in self.nodes.values():
+                retag_legacy_spend_freeze(n.get("frozen"))
         # FABLE-2 (redteam + user report 2026-08-06): a fable_lock that
         # recorded a reset time releases itself once it passes — the same
         # rule the per-node freeze follows. (The timeless-waits-for-the-user
@@ -1056,7 +1170,7 @@ class Org:
         # healthy freeze underneath advertised a reset that could never
         # fire ("resumes 3pm", waits past 3pm, nothing). No announcement:
         # the freeze underneath resumes through its own machinery.
-        if not self.d.get("fable_lock"):
+        if not self.d.get("fable_lock") and not _lazy:
             for n in self.nodes.values():
                 n.pop("limit_locked", None)
         # org holdings carry RW/RO modes (user ruling — configured on the eye's
@@ -1096,37 +1210,13 @@ class Org:
         # rebuild exists to save. Everything below the loop still runs — the
         # once-per-document migrations are marker-gated and the rest is cheap.
         _normalized: set[str] = getattr(self.d, "_normalized_nodes", None) or set()
-        for i, (_nid, n) in enumerate(cast("dict[str, dict[str, Any]]",
-                                           self.d.get("nodes", {})).items()):
-            if _nid in _normalized:
-                continue
-            sc = n.setdefault("scope", {})
-            sc["add_dirs"] = norm_dirs(sc.get("add_dirs"))
-            if "tools" not in sc:
-                sc["tools"] = norm_tools({"bash": sc.pop("bash", True), "mcp": []})
-            else:
-                sc["tools"] = norm_tools(sc["tools"])
-            # Cache-aware compaction replaced the editable idle timeout. A
-            # node row that contained only the legacy timeout becomes a clean
-            # inherit; enabled/off and the occupancy threshold survive.
-            _node_acc = sc.get("auto_cheap_compact")
-            if isinstance(_node_acc, dict):
-                _node_acc.pop("idle_s", None)
-                if not _node_acc:
-                    sc.pop("auto_cheap_compact", None)
-            # default leans toward visibility, not opaque invisibility (user ruling)
-            sc.setdefault("org_visibility", "full")
-            sc.setdefault("permission_mode", self.d.get("permission_mode", "acceptEdits"))
-            n.setdefault("ui_order", float(i))
-            # user ruling 2026-07-31: `purpose` is dropped — charter is the one
-            # role statement. Migration folds an old purpose into an empty
-            # charter (dropping it silently would strip live agents' identity)
-            old_purpose = n.pop("purpose", None)
-            if old_purpose and not n.get("charter"):
-                n["charter"] = old_purpose
-            n.setdefault("charter", None)
-            # pre-unification relic: queued texts now persist as mailbox mail
-            n.pop("queued_msgs", None)
+        _nodes = cast("dict[str, dict[str, Any]]", self.d.get("nodes", {}))
+        # on-demand rows heal as each row is decoded (heal_decoded_node)
+        if not _lazy_rows(_nodes):
+            for i, (_nid, n) in enumerate(_nodes.items()):
+                if _nid in _normalized:
+                    continue
+                _heal_node_basics(n, i, self.d)
         if self.d.get("fable_limit_policy") in (None, "retire"):
             self.d["fable_limit_policy"] = "halt"   # 'retire' dropped by user ruling
         # machine-local account routing (user redesign 2026-08-25): the
@@ -1306,12 +1396,12 @@ class Org:
         # explicitly pinned choices keep their selected version. A former
         # GPT-6-tier node keeps its exact model.
         # Custom organization model IDs are never overwritten.
-        for _tier, _six in (("sol", "gpt-6-sol"), ("luna", "gpt-6-luna")):
+        _lazy = _lazy_rows(self.d.get("nodes"))
+        for _tier, _six in _GPT6_ALIASES:
             _old = f"gpt-5.6-{_tier}"
-            for _node in self.nodes.values():
-                if _node.get("model") == _six:
-                    _node["model"] = _tier
-                    _node.setdefault("scope", {})["model_version"] = "6"
+            if not _lazy:
+                for _node in self.nodes.values():
+                    _fold_gpt6_node(_node, _tier, _six)
             if _m.get(_tier) == _old:
                 _m[_tier] = MODELS[_tier]
             # The alias is no longer a tier, including in old saved orgs.
@@ -1333,8 +1423,9 @@ class Org:
         # taken for a live handle by nothing — dropped so the doc carries no
         # stale marker (the antigravity leg only ever resumes a conversation
         # id it harvested ITSELF, under its own marker).
-        for _n in self.nodes.values():
-            _n.pop("gemini_session", None)
+        if not _lazy:
+            for _n in self.nodes.values():
+                _n.pop("gemini_session", None)
 
     # ---------------------------------------------------------------- factory
     @staticmethod
@@ -2306,28 +2397,10 @@ class Org:
         to do and leaves the marker as it is, so a clean load is still clean.
         The marker records how many were given, once, and adds to that count
         if an imported or restored node ever arrives without one."""
-        missing = [k for k, n in self.nodes.items() if not n.get("seat_id")]
-        migs = self.d.setdefault("_migrations", {})
-        if not missing:
-            migs.setdefault(self.SEAT_ID_MIGRATION, {"at": now(), "minted": 0, "shared": 0})
-            return
-        minted = shared = 0
-        for k in sorted(missing, key=lambda k: ("@" in k, k)):
-            head = k.split("@", 1)[0]
-            stack = [head] + sorted(s for s in self.nodes if s.startswith(head + "@"))
-            seat = next((self.nodes[s].get("seat_id") for s in stack
-                         if s in self.nodes and self.nodes[s].get("seat_id")), None)
-            if seat:
-                shared += 1
-            else:
-                seat = self.legacy_seat_id(head, self.nodes.get(head) or self.nodes[k])
-                minted += 1
-            self.nodes[k]["seat_id"] = seat
-        prev = cast("dict[str, Any]", migs.get(self.SEAT_ID_MIGRATION) or {})
-        migs[self.SEAT_ID_MIGRATION] = {
-            "at": prev.get("at") or now(),
-            "minted": int(prev.get("minted") or 0) + minted,
-            "shared": int(prev.get("shared") or 0) + shared}
+        if _lazy_rows(self.d.get("nodes")) and self.SEAT_ID_MIGRATION in (
+                self.d.get("_migrations") or {}):
+            return      # per row at decode: a row with no seat_id decodes all
+        backfill_seat_ids(self.nodes, self.d)
 
     #: the row-shaped sections whose rows name their owning node, and the field
     ORPHAN_ROW_FIELDS: Final = {"op_receipts": "node", "documents": "node",

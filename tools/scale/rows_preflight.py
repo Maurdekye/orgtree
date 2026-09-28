@@ -14,6 +14,7 @@ Recorded, not judged: the harness routes /scale/tokens, /scale/workload and
 foreground tree, whose payload covers the visible agents by design.
 """
 import json
+import os
 import sys
 import time
 
@@ -34,6 +35,13 @@ def verdict(results, threshold=THRESHOLD):
             raise ValueError(f"rows preflight did no measurable work for {call}")
         ratios[call] = large[call]["rows"] / small[call]["rows"]
     return all(r <= threshold for r in ratios.values()), ratios
+
+
+def fallbacks(results):
+    """Judged calls that had to decode every node row (ORGTREE_LAZY_ROWS
+    fallbacks). A fallback is a whole-org read: any at all fails."""
+    return {f"{n}:{call}": results[n][call].get("lazy_fallbacks", 0)
+            for n in SIZES for call in JUDGED if results[n][call].get("lazy_fallbacks", 0)}
 
 
 def calls(desc):
@@ -70,7 +78,9 @@ def arm(ctrl, admin, n):
         ctrl.phase = name + "-serve"
         server = ctrl.spawn([sys.executable, "-I", "-B", str(REPO / "tools/scale/serve.py"),
             "--root", str(root), "--env", "ORGTREE_SCALE_SIMULATED_PROVIDER=1",
-            "--env", "ORGTREE_SCALE_SQL_COUNTS=1"], name + "-serve")
+            "--env", "ORGTREE_SCALE_SQL_COUNTS=1",
+            *(a for k in ("ORGTREE_LAZY_ROWS",) if k in os.environ
+              for a in ("--env", f"{k}={os.environ[k]}"))], name + "-serve")
         try:
             deadline = time.monotonic() + 300
             while True:
@@ -106,11 +116,15 @@ def arm(ctrl, admin, n):
 def preflight(ctrl, admin):
     results = {n: arm(ctrl, admin, n) for n in SIZES}
     passed, ratios = verdict(results)
+    fell = fallbacks(results)
+    passed = passed and not fell
     summary = dict(passed=passed, threshold=THRESHOLD, ratios=ratios, sizes=SIZES,
+                   lazy_rows=os.environ.get("ORGTREE_LAZY_ROWS", ""), lazy_fallbacks=fell,
                    rows={n: {k: v["rows"] for k, v in r.items()} for n, r in results.items()},
                    value_bytes={n: {k: v["value_bytes"] for k, v in r.items()} for n, r in results.items()})
     from baseline import write
     write(ctrl.root / "receipts" / "rows-preflight.json", summary)
     if not passed:
-        raise RuntimeError(f"rows preflight: per-request rows grow with N (N=100/N=10 {ratios})")
+        raise RuntimeError(f"rows preflight: per-request rows grow with N (N=100/N=10 {ratios}) "
+                           f"or judged calls fell back to whole reads ({fell})")
     return summary

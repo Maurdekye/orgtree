@@ -125,6 +125,8 @@ def frozen_on_account(org_d: dict[str, Any], ids: set[str]) -> list[str]:
     that follows, for a read."""
     from .supervisor import freeze_account_of     # noqa: PLC0415 — heavy module
     nodes = org_d.get("nodes") or {}
+    if hasattr(nodes, "materialize"):
+        nodes.materialize("markclear hint")     # on-demand rows: decode all
     out = []
     for nid in list(dict.keys(nodes)):
         n = dict.__getitem__(nodes, nid)

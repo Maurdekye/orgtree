@@ -73,13 +73,25 @@ def install():
         setattr(psycopg.Cursor, name, measured)
     for name in ("execute", "executemany", "fetchone", "fetchmany", "fetchall", "__next__", "copy", "stream"):
         wrap(name)
+    # ORGTREE_LAZY_ROWS: a request that had to decode every node row
+    try:
+        from orgtree import store
+    except ImportError:
+        store = None
+    if store is not None and hasattr(store, "LAZY_ROWS_HOOK"):
+        def fallback(kind, _why=""):
+            counts = current.get()
+            if counts is not None:
+                key = "lazy_post_load_changes" if kind == "post_load_change" else "lazy_fallbacks"
+                counts[key] += 1
+        store.LAZY_ROWS_HOOK = fallback
     return lambda: [setattr(psycopg.Cursor, name, fn) for name, fn in originals.items()]
 
 
 def empty():
     return dict(statements=0, rows=0, value_bytes=0, parameter_bytes=0,
                 write_parameter_bytes=0, lock_timeout_55P03=0, executemany_batches=0,
-                unsupported_operations=0)
+                unsupported_operations=0, lazy_fallbacks=0, lazy_post_load_changes=0)
 
 
 class Boundary:
