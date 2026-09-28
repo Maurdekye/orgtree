@@ -292,28 +292,29 @@ def install_request_hooks(counts_var: contextvars.ContextVar) -> None:
     if not ENABLED:
         return
     _counts_var = counts_var
-    import fastapi.concurrency as fc
-    import fastapi.dependencies.utils as fdu
+    import anyio.to_thread as att
     import fastapi.routing as fr
-    import starlette.concurrency as sc
     import starlette.responses as sr
-    original = sc.run_in_threadpool
+    # The lowest layer: starlette/fastapi run_in_threadpool AND the product's
+    # own UI/chat read paths (api._run_ui_read: anyio.to_thread.run_sync with
+    # its own CapacityLimiter) all call it by attribute at call time.
+    original = att.run_sync
 
-    async def timed_run_in_threadpool(func, *args, **kwargs):
+    async def timed_run_sync(func, *args, **kwargs):
         counts = counts_var.get()
         if counts is None:
             return await original(func, *args, **kwargs)
         submitted = time.perf_counter()
         label = counts.get("route_hint") or "-"
 
-        def timed():
+        def timed(*a):
             started = time.perf_counter()
             cpu0 = thread_cpu_now()
             nid = threading.get_native_id()
             prev = _serving.get(nid)
             _serving[nid] = label
             try:
-                return func(*args, **kwargs)
+                return func(*a)
             finally:
                 if prev is None:
                     _serving.pop(nid, None)
@@ -323,11 +324,9 @@ def install_request_hooks(counts_var: contextvars.ContextVar) -> None:
                 counts["thread_ms"] = counts.get("thread_ms", 0.0) + (time.perf_counter() - started) * 1000
                 counts["thread_cpu_ms"] = counts.get("thread_cpu_ms", 0.0) + (thread_cpu_now() - cpu0) * 1000
                 counts["pool_calls"] = counts.get("pool_calls", 0) + 1
-        return await original(timed)
+        return await original(timed, *args, **kwargs)
 
-    for mod in (sc, fc, fr, fdu):
-        if getattr(mod, "run_in_threadpool", None) is original:
-            mod.run_in_threadpool = timed_run_in_threadpool
+    att.run_sync = timed_run_sync
 
     original_serialize = fr.serialize_response
 
