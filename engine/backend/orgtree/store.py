@@ -2832,8 +2832,13 @@ def _lazy_count(key: str, n: int = 1) -> None:
 
 def _lazy_fallback(why: str) -> None:
     _lazy_count("fallbacks")
-    stack = [f"{os.path.basename(f.filename)}:{f.lineno}:{f.name}"
-             for f in traceback.extract_stack()[-9:-2]]
+    # the seven frames above this call and its caller, outermost first, as
+    # before -- but WITHOUT reading source lines: this runs inside the org_tx
+    # that fell back, and extract_stack's linecache reads showed up in its
+    # hold time (n1000-burst-27-of-messages-fail-with-locktimeout)
+    frames = traceback.StackSummary.extract(
+        traceback.walk_stack(sys._getframe(2)), limit=7, lookup_lines=False)
+    stack = [f"{os.path.basename(f.filename)}:{f.lineno}:{f.name}" for f in reversed(frames)]
     LAZY_ROWS_FALLBACKS.append((why, stack))
     _lazy_hook("fallback", why)
 
