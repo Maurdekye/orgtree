@@ -1,6 +1,7 @@
 """A runtime-only refresh repeats the projection from the kept context, and its
 bytes equal a fresh full build (foreground-tree-at-n1000 F3b-1)."""
 import copy
+import json
 import unittest
 from unittest.mock import patch
 
@@ -143,16 +144,16 @@ class ReprojectPG(unittest.TestCase):
         self.direct("UPDATE nodes SET val=jsonb_set(val::jsonb,'{scope}',(val::jsonb->'scope')-'permission_mode')::text "
                     "WHERE id='peer'")
         first = self.get()
-        self.direct("UPDATE doc SET val=%s WHERE key='permission_mode'", ('"plan"',))
+        # Only the setting moves (no Python save: a load/save would re-heal the
+        # node row itself and hide the reused copy).
         self.direct("INSERT INTO doc(key,val) VALUES('permission_mode',%s) ON CONFLICT(key) DO UPDATE SET val=excluded.val",
                     ('"plan"',))
-        org = store.load_org(self.slug)
-        org.nodes['boss']['charter'] = 'a local change in the same interval'
-        store.save_org(org)
         with patch.object(fg, 'select_foreground', side_effect=AssertionError('storage re-read')):
             changed = self.get(first.headers['etag'])
         self.assertEqual(changed.status_code, 200, changed.text)
-        self.assertEqual(self.cached().content, self.fresh().content)
+        fresh = self.fresh()
+        self.assertIn('"permission_mode":"plan"', json.dumps(fresh.json()['nodes']['peer'], separators=(',', ':')))
+        self.assertEqual(self.cached().content, fresh.content)
 
 
 if __name__ == '__main__':
