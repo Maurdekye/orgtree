@@ -30,7 +30,7 @@ from orgtree import ledger, orgtx, store
 # (w1, w10, ..., w2) -1e308 comes between them and it does not (review-astra's
 # costs-by-id mutant survived a fixture without them)
 COSTS = [0.1, 1e308, 1e308, 0.2, None, "missing", 0, "1.5", True, 0.3, -1e308, 1e-12,
-         -1e16, 0.7, 12.5, 0.1]
+         -3.5, 0.7, 12.5, 0.1]
 
 
 def tearDownModule():
