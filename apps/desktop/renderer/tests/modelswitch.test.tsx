@@ -154,6 +154,21 @@ configTest('Opus offers 5.5 as latest and saves an explicit older version',
     assert.equal(ops.some((o) => o.op === 'switch_model'), false)
   })
 
+configTest('Sonnet offers 5.5 as latest and shows a migrated agent pinned to 5',
+  async (mount) => {
+    const base = node('sonnet')
+    const { el } = await mount({
+      node: { ...base, seat: 2, scope: { ...base.scope, model_version: '5' } },
+      tree: tree({ tiers: { haiku: 1, sonnet: 2, opus: 4, fable: 10 } }) })
+    assert.equal(TIER_SEAT.sonnet, 2)
+    const versions = [...el.querySelectorAll<HTMLSelectElement>('select')]
+      .find((s) => [...s.options].some((o) => o.textContent === 'sonnet 5.5'))!
+    assert.ok(versions, 'Sonnet version selector is visible')
+    assert.deepEqual([...versions.options].map((o) => [o.value, o.textContent]),
+      [['', 'latest (5.5)'], ['5.5', 'sonnet 5.5'], ['5', 'sonnet 5']])
+    assert.equal(versions.value, '5', 'the pin is shown, not the default')
+  })
+
 test('the header summary counts every provider family', async (t: TestContext) => {
   useFakeClock()
   const tiers = ['opus', 'gpt-reserve', 'luna', 'terra', 'sol', 'flash', 'pro']
