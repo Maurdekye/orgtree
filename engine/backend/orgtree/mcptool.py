@@ -2143,14 +2143,8 @@ def available_tools() -> list[dict[str, Any]]:
               'operation continues once, independently of your turn, and sends its '
               'result as durable mail. Handle incoming mail; do not repeat the call.'}
              if tool['name'] in MANAGED_WAIT_TOOLS else tool for tool in tools]
-    # every card refuses unknown fields up front (a client that validates the
-    # schema stops the call itself); the few tools with accepted undeclared
-    # spellings keep an open schema and rely on `_arg_refusal` instead
-    tools = [tool if tool['name'] in toolargs.ACCEPTED_UNDECLARED
-             else {**tool, 'inputSchema': toolargs.strict_schema(tool['inputSchema'])}
-             for tool in tools]
     if os.environ.get('ORGTREE_DESKTOP_MANAGED') != '1':
-        return tools
+        return _strict(tools)
     tools = json.loads(json.dumps(_desktop_relaunch_catalogue(tools)))
     for tool in tools:
         if tool['name'] == 'orgtree_work':
@@ -2158,7 +2152,17 @@ def available_tools() -> list[dict[str, Any]]:
             actions.remove('verify')
             tool['description'] = tool['description'].replace(
                 _WORK_VERIFY_SENTENCE, '')
-    return tools
+    return _strict(tools)
+
+
+def _strict(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Every card refuses unknown fields up front (a client that validates
+    the schema stops the call itself); the few tools with accepted undeclared
+    spellings keep an open schema and rely on `_arg_refusal` instead. Applied
+    to the FINAL list, so the desktop relaunch cards are strict too."""
+    return [tool if tool['name'] in toolargs.ACCEPTED_UNDECLARED
+            else {**tool, 'inputSchema': toolargs.strict_schema(tool['inputSchema'])}
+            for tool in tools]
 
 
 def _lost_kind(exc: Exception) -> str:
