@@ -46,7 +46,15 @@ class ControllerSmoke(unittest.TestCase):
             self.assertTrue((root / f"receipts/{arm}-verify.json").is_file())
             readiness = json.loads((root / f"receipts/{arm}-readiness.json").read_text(encoding="utf-8"))
             self.assertTrue(readiness["verified"])
-            self.assertEqual(readiness["sources"], 12 if arm == "small" else 30)
+            # Readiness covers the 10 ACTIVE sources; history is sampled during traffic.
+            self.assertEqual(readiness["scope"], "active")
+            self.assertEqual(readiness["sources"], 10)
+            self.assertEqual(len(readiness["history"]), 2 if arm == "small" else 20)
+            self.assertEqual(summary["active_ready"]["sources"], 10)
+            history = summary["history_ingest"]
+            self.assertEqual(history["sources"], len(readiness["history"]))
+            self.assertGreater(history["samples"], 0)
+            self.assertIsNotNone(history["last"])
             counters = [json.loads(line) for line in (root / f"receipts/{arm}/sql-counts.jsonl").read_text().splitlines()]
             self.assertTrue(any(row["rows"] > 0 for row in counters))
             self.assertTrue(any(row["write_parameter_bytes"] > 0 for row in counters))
