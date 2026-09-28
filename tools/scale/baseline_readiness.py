@@ -102,8 +102,7 @@ class HistorySampler(threading.Thread):
                    bytes_total=sum(self.want.values()))
         self.rows.append(row)
         with open(self.out, "a", encoding="utf-8") as target:
-            target.write(json.dumps(row) + "
-")
+            target.write(json.dumps(row) + "\n")
         return row
 
     def run(self):
@@ -113,14 +112,14 @@ class HistorySampler(threading.Thread):
                     return
             except sqlite3.Error as exc:
                 with open(self.out, "a", encoding="utf-8") as target:
-                    target.write(json.dumps(dict(at=time.time(), error=str(exc))) + "
-")
+                    target.write(json.dumps(dict(at=time.time(), error=str(exc))) + "\n")
             self.stop.wait(self.every)
 
     def summary(self, traffic_phase):
         """Stop, take a last sample, and summarise for result.json."""
         self.stop.set()
-        self.join(timeout=60)
+        if self.is_alive():
+            self.join(timeout=60)
         if not self.rows or self.rows[-1]["done"] < len(self.want):
             try:
                 self.sample()
