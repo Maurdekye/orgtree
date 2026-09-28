@@ -4,7 +4,7 @@ import json
 import sqlite3
 import unittest
 from unittest.mock import patch
-import import_provenance
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import store, workrows
 from orgtree.stateprobe import SaveChanges
 

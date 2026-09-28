@@ -30,7 +30,7 @@ R = Path(_root.name)
 os.environ.update(ORGTREE_DATA=str(R / 'data'), HOME=str(R / 'home'),
                   USERPROFILE=str(R / 'home'), ORGTREE_STORE='sqlite')
 
-import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from orgtree import supervisor, warmpool  # noqa: E402
 

@@ -37,7 +37,7 @@ os.environ.update(ORGTREE_DATA=str(data), HOME=str(home), USERPROFILE=str(home),
                   ORGTREE_STORE='sqlite', ORGTREE_ORGTX_FENCE='0',
                   ORGTREE_ORGTX_TEST_HOOKS='1')
 
-import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from orgtree import orgtx, store  # noqa: E402
 from orgtree.ledger import LedgerError  # noqa: E402

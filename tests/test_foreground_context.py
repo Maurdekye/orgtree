@@ -6,7 +6,7 @@ from pathlib import Path
 import json
 import unittest
 from unittest.mock import patch, Mock
-import import_provenance
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 _temp = tempfile.TemporaryDirectory(prefix="orgtree-context-")
 os.environ["ORGTREE_DATA"] = str(Path(_temp.name) / "data")
 Path(os.environ["ORGTREE_DATA"]).mkdir()

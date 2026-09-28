@@ -27,7 +27,7 @@ os.environ.update(ORGTREE_DATA=str(_data), HOME=str(_home), USERPROFILE=str(_hom
                   ORGTREE_STORE_BACKEND="sqlite")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine/backend"))
 
-import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 import asyncio  # noqa: E402
 import threading  # noqa: E402

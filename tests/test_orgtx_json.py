@@ -35,7 +35,7 @@ os.environ.update(ORGTREE_DATA=str(data), HOME=str(home), USERPROFILE=str(home),
                   ORGTREE_STORE='json')
 os.environ.pop('ORGTREE_ORGTX_TEST_HOOKS', None)
 
-import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from orgtree import orgtx, store  # noqa: E402
 

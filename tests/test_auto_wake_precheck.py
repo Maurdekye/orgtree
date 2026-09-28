@@ -29,7 +29,7 @@ from unittest import mock
 _data = tempfile.TemporaryDirectory(prefix="orgtree-auto-wake-precheck-")
 os.environ["ORGTREE_DATA"] = _data.name
 
-import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from engine.backend.orgtree import appsettings, halt, ledger, store, supervisor, worktx  # noqa: E402
 assert str(store.DATA_ROOT).lower().startswith(_data.name.lower())

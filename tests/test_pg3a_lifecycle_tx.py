@@ -46,7 +46,7 @@ if PG_MODE:
     os.environ.pop("ORGTREE_PG_CONNINFO", None)
     os.environ["ORGTREE_STORE"] = "postgres"
 
-import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from orgtree import halt, ledger, lifecycle_tx, orgtx, store  # noqa: E402
 

@@ -25,7 +25,7 @@ _root = tempfile.TemporaryDirectory(prefix='pgdoor-orgtx-')
 os.environ['ORGTREE_DATA'] = _root.name
 os.environ['ORGTREE_STORE'] = 'sqlite'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine/backend'))
-import import_provenance  # noqa: F401,E402
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import ledger, orgtx, pgdoor, store  # noqa: E402
 # These tests prove ROW-lock behaviour, which the transition fence (every
 # org_tx behind DOC_LOCK, plan decision 19, PG-0b) would serialize away — as

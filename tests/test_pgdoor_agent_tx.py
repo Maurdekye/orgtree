@@ -25,7 +25,7 @@ import unittest
 _root = tempfile.TemporaryDirectory(prefix='pgdoor-agent-tx-')
 os.environ['ORGTREE_DATA'] = _root.name
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine/backend'))
-import import_provenance  # noqa: F401,E402
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import opreceipts, pgdoor  # noqa: E402
 from orgtree.ledger import LedgerError  # noqa: E402
 

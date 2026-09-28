@@ -26,7 +26,7 @@ from unittest.mock import patch
 _root = tempfile.TemporaryDirectory(prefix='principal-identity-')
 os.environ['ORGTREE_DATA'] = _root.name
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine/backend'))
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import inbox, ledger, mailruntime, opreceipts, schema, store, supervisor as sup
 
 assert Path(store.DATA_ROOT).resolve() == Path(_root.name).resolve()

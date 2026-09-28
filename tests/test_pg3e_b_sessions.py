@@ -32,7 +32,7 @@ _ROOT = tempfile.mkdtemp(prefix="orgtree-pg3e-b-")
 os.environ["ORGTREE_DATA"] = _ROOT
 os.environ["ORGTREE_STORE"] = "sqlite"
 
-import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from engine.backend.orgtree import ledger, orgtx, store, supervisor  # noqa: E402
 if not str(store.DATA_ROOT).lower().startswith(_ROOT.lower()):

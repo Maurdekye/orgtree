@@ -26,7 +26,7 @@ data = Path(_temp.name) / 'data'
 data.mkdir()
 os.environ.update(ORGTREE_DATA=str(data), ORGTREE_STORE='sqlite')
 
-import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 import orgtree  # noqa: E402
 from orgtree import orgtx  # noqa: E402

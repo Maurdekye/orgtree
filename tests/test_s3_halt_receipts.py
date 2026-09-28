@@ -26,7 +26,7 @@ _root = tempfile.TemporaryDirectory(prefix="orgtree-s3-halt-",
 os.environ["ORGTREE_DATA"] = _root.name
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine/backend"))
 
-import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from fastapi import HTTPException  # noqa: E402
 from orgtree import (api, ledger, opreceipts, store,  # noqa: E402

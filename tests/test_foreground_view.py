@@ -3,7 +3,7 @@ import copy
 import unittest
 from unittest.mock import patch
 
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import api, foreground_view as view, tree_delta
 from orgtree.ledger import LedgerError, Org, USER
 

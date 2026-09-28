@@ -67,7 +67,7 @@ import time  # noqa: E402
 import unittest  # noqa: E402
 import uuid  # noqa: E402
 
-import import_provenance  # noqa: E402,F401  (also drops the running engine's inherited hub address)
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from engine.launch import load_app  # noqa: E402
 app, *_ = load_app()
 from fastapi.testclient import TestClient  # noqa: E402

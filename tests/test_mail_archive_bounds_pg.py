@@ -17,7 +17,7 @@ if ADMIN:
     os.environ['ORGTREE_PG_URL'] = urlunsplit((url.scheme, url.netloc, '/' + DBNAME, url.query, url.fragment))
     os.environ['ORGTREE_STORE'] = 'postgres'
 
-import import_provenance  # noqa: E402,F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import ledger, mailtx, orgtx, pgstore, store  # noqa: E402
 
 

@@ -28,7 +28,7 @@ os.environ["ORGTREE_DATA"] = _ROOT.name
 os.environ["ORGTREE_WARM"] = "0"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine" / "backend"))
 
-import import_provenance  # noqa: F401,E402
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from orgtree import (accounts, ledger, orgtx, store,  # noqa: E402
                      supervisor as sup, warmpool)

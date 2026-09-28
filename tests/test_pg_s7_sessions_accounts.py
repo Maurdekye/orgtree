@@ -32,7 +32,7 @@ os.environ['ORGTREE_STORE'] = 'sqlite'
 os.environ['ORGTREE_PGDOOR'] = '1'
 os.environ.pop('ORGTREE_DESKTOP_MANAGED', None)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine/backend'))
-import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from fastapi import HTTPException  # noqa: E402
 from orgtree import (accountdoor, api, ledger, mailtx, opreceipts, orgtx,  # noqa: E402
                      pgdoor, registry, store, supervisor)

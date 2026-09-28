@@ -3,7 +3,7 @@ from pathlib import Path
 import sys
 import unittest
 
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/scale"))
 from rows_preflight import (ITEM_JUDGED, ITEMS, SIZES, bytes_verdict, decide, judge,
                             seeded_items, verdict)

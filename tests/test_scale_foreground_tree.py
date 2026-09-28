@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/scale"))
 import ui_hooks
 from ui_hooks import ForegroundTree, WindowDriver, visible_parents

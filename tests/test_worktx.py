@@ -36,7 +36,7 @@ home.mkdir()
 os.environ.update(ORGTREE_DATA=str(data), HOME=str(home), USERPROFILE=str(home),
                   ORGTREE_STORE='sqlite', ORGTREE_ORGTX_TEST_HOOKS='1')
 
-import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from orgtree import events, events_render  # noqa: E402,F401
 from orgtree import orgtx, store, worktx  # noqa: E402

@@ -37,7 +37,7 @@ os.environ['ORGTREE_PGDOOR'] = '1'
 os.environ.pop('ORGTREE_DESKTOP_MANAGED', None)
 _BACKEND = Path(__file__).resolve().parents[1] / 'engine/backend'
 sys.path.insert(0, str(_BACKEND))
-import import_provenance  # noqa: F401,E402
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from fastapi import HTTPException  # noqa: E402
 from orgtree import api, ledger, pgdoor, store, supervisor  # noqa: E402
 

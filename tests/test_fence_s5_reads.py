@@ -28,7 +28,7 @@ os.environ.update(ORGTREE_DATA=str(Path(_temp.name)), ORGTREE_STORE='sqlite',
                   ORGTREE_STEER_HOOK='0')
 os.environ.pop('ORGTREE_DESKTOP_MANAGED', None)
 
-import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from fastapi import HTTPException  # noqa: E402
 from orgtree import api, ledger, net, quickstaff, staffcache, store  # noqa: E402
 

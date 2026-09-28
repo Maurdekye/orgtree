@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-import import_provenance
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 spec = importlib.util.spec_from_file_location('cache_trace_under_test',
     Path(__file__).resolve().parents[1]/'tools/scale/cached_org_trace.py')

@@ -20,7 +20,7 @@ for _s in (sys.stdout, sys.stderr):
 _root = tempfile.TemporaryDirectory(prefix="codex-batch-drain-")
 os.environ["ORGTREE_DATA"] = _root.name
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import halt, ledger, maildrain, orgtx, store, supervisor as sup
 from tools.scale.simulated import SimulatedProvider
 

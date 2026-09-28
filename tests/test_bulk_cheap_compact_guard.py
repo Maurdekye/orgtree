@@ -21,7 +21,7 @@ for _key in ("ORGTREE_AGENT_PARENT_DATA", "ORGTREE_AGENT_LEGACY_DATA",
              "ORGTREE_LOCAL_HUB_ADDRESS"):
     os.environ.pop(_key, None)
 
-import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from engine.backend.orgtree import api  # noqa: E402
 from engine.backend.orgtree.ledger import Org, USER  # noqa: E402

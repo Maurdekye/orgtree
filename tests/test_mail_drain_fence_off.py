@@ -34,7 +34,7 @@ os.environ['ORGTREE_ORGTX_TEST_HOOKS'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine/backend'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from orgtree import store, ledger, mailtx, orgtx, supervisor as sup, maildrain  # noqa: E402
 import racekit  # noqa: E402

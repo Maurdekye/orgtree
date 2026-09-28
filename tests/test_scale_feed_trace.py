@@ -7,7 +7,7 @@ from contextlib import ExitStack
 import threading
 from unittest.mock import patch
 
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from tools.scale.feed_trace import Trace, install, install_waits, marker
 
 

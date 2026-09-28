@@ -13,7 +13,7 @@ _root = tempfile.TemporaryDirectory(prefix='tree-ui-')
 Path(_root.name, 'data').mkdir()
 os.environ.update(ORGTREE_DATA=str(Path(_root.name, 'data')), HOME=_root.name,
                   USERPROFILE=_root.name, ORGTREE_STORE='sqlite', ORGTREE_V2_TOKEN='operator')
-import import_provenance  # noqa: E402,F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from engine.launch import load_app  # noqa: E402
 app, *_ = load_app()
 from fastapi.testclient import TestClient  # noqa: E402

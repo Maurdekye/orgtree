@@ -33,7 +33,7 @@ DEPS = os.environ.get("ORGTREE_TEST_PYDEPS", "").strip()
 if DEPS:
     sys.path.insert(0, DEPS)
 
-import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from orgtree import devguard  # noqa: E402
 

@@ -65,7 +65,7 @@ os.environ['ORGTREE_ORGTX_TEST_HOOKS'] = '1'
 os.environ.pop('ORGTREE_DESKTOP_MANAGED', None)
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine/backend'))
-import import_provenance  # noqa: F401,E402
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 import racekit  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
 from orgtree import api, ledger, orgtx, pgdoor, store, supervisor  # noqa: E402

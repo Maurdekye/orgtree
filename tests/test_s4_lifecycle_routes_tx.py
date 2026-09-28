@@ -47,7 +47,7 @@ os.environ.update(ORGTREE_DATA=_root.name, HOME=_root.name, USERPROFILE=_root.na
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine" / "backend"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from fastapi import HTTPException  # noqa: E402
 from starlette.requests import Request  # noqa: E402

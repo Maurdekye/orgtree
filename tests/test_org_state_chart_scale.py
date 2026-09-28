@@ -43,7 +43,7 @@ os.environ.update(ORGTREE_DATA=str(Path(_temp.name) / "data"), HOME=str(Path(_te
 sys.path.insert(0, str(ROOT / "engine" / "backend"))
 sys.path.insert(0, str(ROOT))                # the `engine` package, for --regenerate runs
 sys.path.insert(0, str(ROOT / "tests"))      # the runtime's ._pth omits the script dir
-import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import ledger, store  # noqa: E402
 from orgtree import supervisor as sup  # noqa: E402
 

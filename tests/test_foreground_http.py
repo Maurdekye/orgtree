@@ -9,7 +9,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-import import_provenance  # noqa: F401,E402
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from engine.launch import TokenGate
 from fastapi.testclient import TestClient
 from orgtree import api, foreground_api as routes, foreground_store as fg, foreground_view as view, store

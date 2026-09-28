@@ -36,7 +36,7 @@ os.environ.update(ORGTREE_DATA=_temp.name, ORGTREE_STORE='sqlite',
                   ORGTREE_ORGTX_TEST_HOOKS='1')
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from orgtree import halt, ledger, orgtx, store, supervisor as sup  # noqa: E402
 import racekit  # noqa: E402

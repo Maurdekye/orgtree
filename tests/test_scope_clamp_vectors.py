@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 _temp = tempfile.TemporaryDirectory(prefix="scope-clamp-oracle-")
 os.environ["ORGTREE_DATA"] = _temp.name
 
-import import_provenance  # noqa: E402,F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import ledger  # noqa: E402
 
 CRATE = ROOT / "engine/native/scope-clamp"

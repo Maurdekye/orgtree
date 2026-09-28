@@ -134,7 +134,7 @@ import re  # noqa: E402
 import subprocess  # noqa: E402
 import unittest  # noqa: E402
 
-import import_provenance  # noqa: E402,F401  (also drops the running engine's inherited hub address)
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from engine.launch import load_app  # noqa: E402
 app, *_ = load_app()
 from fastapi import FastAPI  # noqa: E402

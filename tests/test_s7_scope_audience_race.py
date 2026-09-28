@@ -50,7 +50,7 @@ os.environ.update(ORGTREE_DATA=str(_data), HOME=str(_home), USERPROFILE=str(_hom
 os.environ.pop('ORGTREE_DESKTOP_MANAGED', None)
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from orgtree import api, ledger, orgtx, pgdoor, store, supervisor  # noqa: E402
 import racekit  # noqa: E402

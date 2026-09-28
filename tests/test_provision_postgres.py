@@ -5,7 +5,7 @@ import tempfile
 import unittest
 import zipfile
 
-import import_provenance  # noqa: F401  runner proves checkout imports
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 spec = importlib.util.spec_from_file_location("provision_postgres", Path(__file__).resolve().parents[1] / "tools/provision-postgres.py")
 provision = importlib.util.module_from_spec(spec)

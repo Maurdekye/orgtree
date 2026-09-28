@@ -33,7 +33,7 @@ os.environ.update(ORGTREE_DATA=str(data), HOME=str(home), USERPROFILE=str(home),
                   ORGTREE_STORE='sqlite', ORGTREE_STEER_HOOK='0',
                   ORGTREE_PORT='7404', ORGTREE_PUBLIC_PORT='7404')
 
-import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from orgtree import api, net, orgtx, store  # noqa: E402
 

@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 _temp = tempfile.TemporaryDirectory(prefix='e-row-scope-', ignore_cleanup_errors=True)
 os.environ.update(ORGTREE_DATA=_temp.name, ORGTREE_STORE='sqlite', ORGTREE_ROW_CAS='1')
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import orgtx, store
 from orgtree.ledger import Org
 

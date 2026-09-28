@@ -63,7 +63,7 @@ os.environ.update(ORGTREE_DATA=str(data), HOME=str(home), USERPROFILE=str(home),
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine" / "backend"))
-import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import pgfeed, pgstore, store  # noqa: E402
 
 

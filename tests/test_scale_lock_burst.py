@@ -11,7 +11,7 @@ import sys
 import tempfile
 import unittest
 
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools/scale"))
 import lock_burst
 import lock_waits

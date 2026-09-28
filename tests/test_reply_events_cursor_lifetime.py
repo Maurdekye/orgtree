@@ -12,7 +12,7 @@ from unittest.mock import patch
 _root = tempfile.TemporaryDirectory(prefix='reply-cursor-lifetime-')
 os.environ['ORGTREE_DATA'] = _root.name
 
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import reply_events, store
 
 

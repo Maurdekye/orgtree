@@ -8,7 +8,7 @@ import time
 import unittest
 import uuid
 
-import import_provenance  # noqa: F401 -- this checkout, including embedded Python
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 
 def operation_key():

@@ -32,7 +32,7 @@ for key in ('ORGTREE_V1_ROOT', 'ORGTREE_V1_DATA_ROOT', 'ORGTREE_V2_PORT',
             'ORGTREE_LOCAL_HUB_ADDRESS'):
     os.environ.pop(key, None)
 
-import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from orgtree import net, orgtx, store  # noqa: E402
 from orgtree.ledger import USER  # noqa: E402

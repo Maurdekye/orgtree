@@ -41,7 +41,7 @@ os.environ["ORGTREE_WARM"] = "0"
 os.environ["USERPROFILE"] = _HOME
 os.environ["HOME"] = _HOME
 
-import import_provenance  # noqa: F401,E402  asserts orgtree resolves inside this checkout
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from orgtree import ledger, registry, store, warmpool  # noqa: E402
 from orgtree import supervisor as sup  # noqa: E402

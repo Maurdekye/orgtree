@@ -33,7 +33,7 @@ os.environ['ORGTREE_DATA'] = _root.name
 os.environ['ORGTREE_STORE'] = 'sqlite'
 os.environ['ORGTREE_ORGTX_TEST_HOOKS'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine/backend'))
-import import_provenance  # noqa: F401,E402
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from orgtree import halt, ledger, maildrain, mailruntime, orgtx, store, supervisor as sup  # noqa: E402
 

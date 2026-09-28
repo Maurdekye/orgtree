@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 _temp = tempfile.TemporaryDirectory(prefix="backend-codec-oracle-")
 os.environ["ORGTREE_DATA"] = _temp.name
 
-import import_provenance  # noqa: E402,F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from orgtree import agentauth, ledger, openrouter  # noqa: E402
 
 _SPEC = importlib.util.spec_from_file_location(
