@@ -350,6 +350,10 @@ class EveryRealEngineRigIsIsolated(unittest.TestCase):
                                                   'run_path stubbed; it asserts the shim isolates',
         'tests/prepare-boot-paired-snapshot.cjs': 'copies files into a snapshot; boots nothing',
         'tests/test_mailhub_runtime.py': 'starts MailhubRuntime only on its own TEST_PORT',
+        'tests/test_p02_probe_provenance.py': 'sets a fake module __file__ to engine/launch.py; '
+                                              'boots nothing',
+        'tests/test_ws_no_deflate.py': 'parses engine/launch.py source with ast; it serves '
+                                       'api.app with lifespan="off", so no startup and no hub',
         'tests/test_python_verification_runner.py': 'writes a one-line fixture launch.py',
         'tests/test_startup_progress.py': 'runs service_host.main against a stub launch.py',
         'tests/hub_isolation.py': 'the helpers themselves; boots no engine',
