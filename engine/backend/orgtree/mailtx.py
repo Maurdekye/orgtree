@@ -86,6 +86,23 @@ def send_rows(*recipients: str) -> dict[str, list[Any]]:
     return {"nodes": _dedupe(nodes), "sections": _dedupe(sections), "logs": _dedupe(logs)}
 
 
+def owner_notices(rows: dict[str, list[Any]], *owners: str) -> dict[str, list[Any]]:
+    """`rows` with the org-wide `notices` lock narrowed to the named owners'
+    boxes: the section FOR SHARE (the container), each agent owner's box
+    FOR UPDATE. For a send whose notices can only reach its own recipients
+    (n1000-burst-27-of-messages-fail-with-locktimeout: every orgtree_message
+    held the whole section, so every send in the org waited on every other,
+    and on turns that already take the shared form). A send that may notify
+    anyone else -- the outside-mail audience handover notifies the replaced
+    holder -- must keep `send_rows`' whole section."""
+    agents = [o for o in owners if o and o != USER and not o.startswith("@")]
+    out = {k: list(v) for k, v in rows.items()}
+    out["sections"] = _dedupe([*(s for s in out.get("sections", []) if s != "notices"),
+                               *(("notices", o) for o in agents)])
+    out["share_sections"] = _dedupe([*out.get("share_sections", []), "notices"])
+    return out
+
+
 def merge(*parts: dict[str, list[Any]], **extra: Iterable[Any]) -> dict[str, list[Any]]:
     """Union row declarations (and plain `org_tx` name lists in `extra`)."""
     out: dict[str, list[Any]] = {}

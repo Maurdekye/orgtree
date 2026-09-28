@@ -275,6 +275,10 @@ def message_spec(snapshot: Any, call: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
     rows = mailtx.send_rows(*dest)
     if dest and dest[0].startswith("@net:"):
         rows = mailtx.merge(rows, sections=["net_spool"], share_sections=["net_hubs"])
+    if not any(d.startswith(("@net:", "@org:")) for d in dest):
+        # a local send notifies only its recipients: their boxes, not the
+        # whole org's (outside mail may notify a replaced audience holder)
+        rows = mailtx.owner_notices(rows, *dest)
     spec = pgdoor.TxSpec(**{k: tuple(v) for k, v in rows.items()})
     return _with_path(spec, snapshot, str(call.node), *dest)
 
