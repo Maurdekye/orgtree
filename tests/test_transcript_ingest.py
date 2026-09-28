@@ -838,4 +838,54 @@ class CaptureTests(unittest.TestCase):
         self.assertGreater(len(hooks),1,'the worker registered its own exit hook')
         self.assertTrue(ingest.stop(1.0),'worker thread gone')
 
+    def busy_exit(self,raises):
+        """The rehearsal case: the worker is INSIDE a capture when the exit
+        hooks run. The first capture blocks until stop is requested, then
+        returns (or raises, as a capture does once PostgreSQL goes away)."""
+        import atexit, threading
+        slug=self.org.d['slug'];org=store.load_org(slug)
+        for n in range(4):org.hire(ledger.USER,None,'haiku',0,f'extra{n}')
+        store.save_org(org)
+        hooks=[];entered=threading.Event();release=threading.Event();seen={}
+        calls=[];logged=[]
+        def blocking(*key,**kw):
+            calls.append(ingest._stop.is_set())
+            if not entered.is_set():
+                entered.set();release.wait(5)
+                if raises:raise RuntimeError('the database system is shutting down')
+            return True
+        def database_stop():
+            seen['worker_alive_at_database_stop']=ingest._thread.is_alive()
+        def log(*a,**k):
+            if ingest._stop.is_set():logged.append(a[0] if a else '')
+        def run_hooks():
+            for f,a in reversed(hooks):f(*a)
+        hooks.append((database_stop,()))
+        self.addCleanup(lambda:getattr(ingest,'_stop',threading.Event()).clear())
+        with patch.object(atexit,'register',side_effect=lambda f,*a:hooks.append((f,a))), \
+             patch.object(ingest,'_started',False), \
+             patch.object(ingest,'capture_safely',side_effect=blocking), \
+             patch.object(ingest,'WORK_BUDGET_S',30.0), \
+             patch.object(ingest,'IDLE_PAUSE_S',0.01),patch.object(ingest,'PENDING_PAUSE_S',0.01), \
+             patch.object(ingest._log,'exception',side_effect=log):
+            ingest.start()
+            self.assertTrue(entered.wait(5),'control: the worker entered a capture')
+            exiting=threading.Thread(target=run_hooks);exiting.start()
+            for _ in range(500):
+                if ingest._stop.is_set():break
+                threading.Event().wait(0.01)
+            threading.Event().wait(0.1)      # the stop hook is now waiting on the worker
+            release.set();exiting.join(15)
+        self.assertFalse(exiting.is_alive())
+        self.assertIn('worker_alive_at_database_stop',seen,'control: the database stop ran')
+        self.assertFalse(seen['worker_alive_at_database_stop'],'the stop hook waited for the busy worker')
+        self.assertNotIn(True,calls,'no capture starts after stop was requested')
+        self.assertEqual(logged,[],'nothing logged once stop was requested')
+
+    def test_busy_worker_finishes_its_capture_before_the_database_stops(self):
+        self.busy_exit(raises=False)
+
+    def test_busy_worker_failing_after_stop_leaves_quietly(self):
+        self.busy_exit(raises=True)
+
 if __name__=='__main__':unittest.main()
