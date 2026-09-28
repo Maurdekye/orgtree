@@ -130,7 +130,8 @@ class StartupExemptions(unittest.TestCase):
                                     'tripwire_armed', 'lifespan.startup.complete'], seen)
         # and the admin listener serves the app whose lifespan that is (source pin)
         import inspect
-        self.assertIn('uvicorn.Config(app, host=host, port=PORT)', inspect.getsource(api.main))
+        # (9ea99e8 added **LOCAL_UVICORN_OPTIONS after PORT: the local websocket skips deflate)
+        self.assertIn('uvicorn.Config(app, host=host, port=PORT,', inspect.getsource(api.main))
 
     def test_migrate_pending_runs_before_any_server_exists(self) -> None:
         import uvicorn
