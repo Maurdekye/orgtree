@@ -74,6 +74,10 @@ def require_go(args, source):
                         # the generator still proves BOTH 10x count and bytes.
                         item_chars=128, mail_chars=4096, transcript_chars=128)),
                     disk_gib=2, commit_gib=12, readiness_s=90)
+    if getattr(args, "foreground_probe", False):
+        # foreground-tree-at-n1000 M1: two tiny seeded orgs, one small slot, no GO.
+        return dict(kind="foreground probe only", commit_gib=12, disk_gib=2,
+                    foreground_probe=True, preflight_only=True)
     if getattr(args, "preflight_only", False):
         # Two tiny seeded orgs only (N=10, N=100): cheap, one small slot, no GO.
         return dict(kind="rows preflight only", commit_gib=12, disk_gib=2,
@@ -298,6 +302,9 @@ class Controller:
             if c.get("rows_preflight"):
                 from rows_preflight import preflight
                 outcome["rows_preflight"] = preflight(self, admin)
+            if c.get("foreground_probe"):
+                from foreground_probe import probe
+                outcome["foreground_probe"] = probe(self, admin)
             if c.get("preflight_only"):
                 outcome["complete"] = True
                 return
@@ -497,12 +504,16 @@ def main():
     p.add_argument("--root", required=True, type=Path)
     p.add_argument("--small-control", action="store_true")
     p.add_argument("--preflight-only", action="store_true", help="only the N=10/N=100 rows preflight")
+    p.add_argument("--foreground-probe", action="store_true",
+                   help="only the N=10/N=100 foreground-tree probe (implies --preflight-only limits)")
     p.add_argument("--go-file", type=Path)
     p.add_argument("--custodian")
     p.add_argument("--pg-bin")
     p.add_argument("--child", choices=("freeze", "bundle", "restore", "files", "ready", "prime"))
     p.add_argument("--arm", choices=("small", "large"))
     args = p.parse_args()
+    if args.foreground_probe:
+        args.preflight_only = True
     if args.child:
         return child(args)
     source = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
