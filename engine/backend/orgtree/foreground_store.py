@@ -17,7 +17,7 @@ import re
 from typing import Any, Callable, Iterator
 
 from . import store
-from .ledger import ASK_HISTORY_KEEP, TREE_TURNS, LedgerError
+from .ledger import ASK_HISTORY_KEEP, LedgerError
 
 MAX_PAGE = 100
 MAX_INCLUDE = 128
@@ -147,36 +147,14 @@ def _wanted(values) -> tuple[str, ...]:
     return values
 
 
-# Every stored node already parses as jsonb: the node_index trigger (migration
-# 0004) casts each written val, so NaN, \u0000 and lone surrogates cannot be
-# stored. What jsonb still does not round-trip exactly is two number forms:
-# exponents (1e+16 would read back as an int) and negative zero. A node holding
-# either is served as stored, untrimmed. The pattern matches json.dumps output
-# (a number follows : , or [); a false positive inside a string only costs
-# that node's trim.
-_NOT_JSONB_EXACT = r'[:,\[]-?[0-9]+(\.[0-9]+)?[eE]|[:,\[]-0\.0[,}\]]'
-
-# Only the newest TREE_TURNS entries of the `turns` ring are read. Everything
-# else in the node is returned unchanged; key order may differ, which no
-# reader depends on (projections and signatures sort keys).
-_NODE_VAL = (
-    "CASE WHEN n.val ~ %s THEN n.val ELSE ("
-    "SELECT CASE WHEN jsonb_typeof(j->'turns')='array' AND jsonb_array_length(j->'turns')>%s "
-    "THEN jsonb_set(j,'{turns}',(SELECT jsonb_agg(t.e ORDER BY t.o) "
-    "FROM jsonb_array_elements(j->'turns') WITH ORDINALITY t(e,o) "
-    "WHERE t.o>jsonb_array_length(j->'turns')-%s))::text ELSE n.val END "
-    "FROM (SELECT n.val::jsonb AS j) v) END")
-
-
 def _rows(raw: Any, ids: list[str]) -> dict[str, dict]:
     if not ids:
         return {}
     rows = raw.execute(
-        'SELECT i.id,i.ord,i.meta,i.lineage_count,i.consult_id,c.meta,' + _NODE_VAL + ' '
+        'SELECT i.id,i.ord,i.meta,i.lineage_count,i.consult_id,c.meta,n.val '
         'FROM node_index i JOIN nodes n ON n.id=i.id '
         'LEFT JOIN node_index c ON c.id=i.consult_id '
-        'WHERE i.id=ANY(%s) ORDER BY i.ord,i.id',
-        (_NOT_JSONB_EXACT, TREE_TURNS, TREE_TURNS, ids)).fetchall()
+        'WHERE i.id=ANY(%s) ORDER BY i.ord,i.id', (ids,)).fetchall()
     if len(rows) != len(set(ids)):
         raise LedgerError('foreground index and node rows disagree')
     return {nid: {'node': json.loads(value), 'meta': meta, 'ordinal': ordinal,

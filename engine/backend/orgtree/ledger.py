@@ -145,12 +145,6 @@ OPEN_ASK_STATUS: Final = frozenset({"open", "pending"})
 #: ⚠ Open asks are NOT capped by this — see `tree`.
 ASK_HISTORY_KEEP: Final = 12
 
-#: How many of a node's newest `turns` ride the tree payload. The foreground
-#: store trims the ring to this many in SQL (a live node carries hundreds, and
-#: they were ~90% of the bytes a foreground rebuild read), so the tree and the
-#: store must agree on it.
-TREE_TURNS: Final = 8
-
 #: How many org-inbox rows ride the tree payload. The canvas renders only the
 #: newest; the modal fetches the rest. See `tree`.
 ORG_INBOX_PREVIEW: Final = 3
@@ -11603,7 +11597,7 @@ class Org:
             # here would read as "seam ran, approved nothing"
             **({"last_approvals": n["last_approvals"]}
                if "last_approvals" in n else {}),
-            "turns": (n.get("turns") or [])[-TREE_TURNS:],
+            "turns": (n.get("turns") or [])[-8:],
             # the `if n.get("frozen")` guard proves the key present — the
             # Any view sidesteps pyright's NotRequired-[] access flag
             "frozen": ({**{k: cast(Any, n)["frozen"].get(k)
