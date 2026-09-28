@@ -9,7 +9,7 @@ instructions that never arrived.
 
 The guard has two halves and both are pinned here:
 
-  * the MCP client (`mcptool.call_api`) refuses any field the tool's card does
+  * the MCP client (`mcptool.tool_call`) refuses any field the tool's card does
     not declare, a missing required field, and a blank mail body — before
     anything is posted, so no receipt, no mail, no wake;
   * the backend (`api.agent_call`) repeats the check for the two mail verbs,
@@ -84,7 +84,7 @@ class _Wire:
 
 
 class ClientRefuses(unittest.TestCase):
-    """`mcptool.call_api` — the MCP layer every lane goes through."""
+    """`mcptool.tool_call` — the MCP `tools/call` every lane goes through."""
 
     def setUp(self):
         self.wire = _Wire()
@@ -98,7 +98,7 @@ class ClientRefuses(unittest.TestCase):
             p.stop()
 
     def refused(self, tool, args):
-        out = json.loads(mcptool.call_api(tool, args))
+        out = json.loads(mcptool.tool_call(tool, args))
         self.assertIn('error', out, f'{tool} {args} was not refused: {out}')
         self.assertEqual(out.get('state'), 'not_applied')
         self.assertEqual(self.wire.posts, [], 'a refused call must post NOTHING')
@@ -137,7 +137,7 @@ class ClientRefuses(unittest.TestCase):
         self.assertIn('did you mean `summary`?', err)
 
     def test_a_valid_message_still_goes_out(self):
-        out = json.loads(mcptool.call_api('orgtree_message',
+        out = json.loads(mcptool.tool_call('orgtree_message',
                                           {'to': 'boss', 'body': 'hello'}))
         self.assertNotIn('error', out)
         self.assertEqual(len(self.wire.posts), 1)
@@ -148,7 +148,7 @@ class ClientRefuses(unittest.TestCase):
     def test_accepted_undeclared_spelling_still_passes(self):
         # `sha` is read by the review branch beside `candidate`; refusing it
         # would break callers that worked before this guard
-        out = json.loads(mcptool.call_api(
+        out = json.loads(mcptool.tool_call(
             'orgtree_work', {'action': 'review', 'slug': 's', 'sha': 'abc1234'}))
         self.assertNotIn('error', out)
         self.assertEqual(len(self.wire.posts), 1)

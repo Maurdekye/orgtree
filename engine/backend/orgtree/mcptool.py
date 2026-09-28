@@ -2155,16 +2155,6 @@ def available_tools() -> list[dict[str, Any]]:
     return _strict(tools)
 
 
-def _strict(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Every card refuses unknown fields up front (a client that validates
-    the schema stops the call itself); the few tools with accepted undeclared
-    spellings keep an open schema and rely on `_arg_refusal` instead. Applied
-    to the FINAL list, so the desktop relaunch cards are strict too."""
-    return [tool if tool['name'] in toolargs.ACCEPTED_UNDECLARED
-            else {**tool, 'inputSchema': toolargs.strict_schema(tool['inputSchema'])}
-            for tool in tools]
-
-
 def _lost_kind(exc: Exception) -> str:
     """Was the request DELIVERED before the answer went missing?
 
@@ -2307,17 +2297,6 @@ def _finish_plain(answer: tuple[str, str]) -> str:
         "state": "unknown", "reason": "unsupported_build"})
 
 
-def _arg_refusal(tool: str, args: dict[str, Any]) -> str | None:
-    """Refuse arguments the tool's advertised card does not declare, and a
-    blank mail body, BEFORE anything is posted (toolargs explains the
-    2026-09-28 empty-mail incident). A verb with no advertised card goes
-    through unchecked; the backend is the authority on it."""
-    for card in available_tools():
-        if card.get('name') == tool:
-            return toolargs.refusal(tool, card.get('inputSchema'), args)
-    return toolargs.refusal(tool, None, args) if tool in toolargs.BODY_TOOLS else None
-
-
 def call_api(tool: str, args: dict[str, Any]) -> str:
     """One tool call, with an operation key so a LOST answer can be resolved
     instead of guessed at.
@@ -2330,10 +2309,6 @@ def call_api(tool: str, args: dict[str, Any]) -> str:
     those same older backends — and report what the org can actually prove. We
     never reissue the call automatically: `not_applied` is handed to the agent
     as a fact to act on, not acted on here."""
-    refused = _arg_refusal(tool, args)
-    if refused is not None:
-        return json.dumps({"error": refused, "state": "not_applied",
-                           "reason": "invalid_arguments"})
     # The receipt verbs are never themselves keyed: a lookup is a QUESTION,
     # and wrapping it would make asking whether something applied an
     # operation with its own key.
@@ -2521,7 +2496,7 @@ def main() -> None:
             reply(id_, {"tools": available_tools()})
         elif method == "tools/call":
             raw_args = params.get("arguments")
-            out = call_api(str(params.get("name", "")),
+            out = tool_call(str(params.get("name", "")),
                            cast("dict[str, Any]", raw_args)
                            if isinstance(raw_args, dict) else {})
             try:
@@ -2536,6 +2511,40 @@ def main() -> None:
                         "isError": bool(is_err)})
         else:                      # unknown request — answer, don't wedge the client
             reply(id_, {})
+
+
+# ⚠ DEFINED DOWN HERE ON PURPOSE: tools/state_operation_inventory.py pins the
+# dispatch comparisons in `call_api` by LINE, so new code above them would
+# silently re-key reviewed witnesses in docs/state-system.
+def tool_call(tool: str, args: dict[str, Any]) -> str:
+    """One MCP `tools/call`: check the arguments against the tool's card,
+    then make the call. A refused call posts NOTHING."""
+    refused = _arg_refusal(tool, args)
+    if refused is not None:
+        return json.dumps({"error": refused, "state": "not_applied",
+                           "reason": "invalid_arguments"})
+    return call_api(tool, args)
+
+
+def _arg_refusal(tool: str, args: dict[str, Any]) -> str | None:
+    """Refuse arguments the tool's advertised card does not declare, and a
+    blank mail body, BEFORE anything is posted (toolargs explains the
+    2026-09-28 empty-mail incident). A verb with no advertised card goes
+    through unchecked; the backend is the authority on it."""
+    for card in available_tools():
+        if card.get('name') == tool:
+            return toolargs.refusal(tool, card.get('inputSchema'), args)
+    return toolargs.refusal(tool, None, args) if tool in toolargs.BODY_TOOLS else None
+
+
+def _strict(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Every card refuses unknown fields up front (a client that validates
+    the schema stops the call itself); the few tools with accepted undeclared
+    spellings keep an open schema and rely on `_arg_refusal` instead. Applied
+    to the FINAL list, so the desktop relaunch cards are strict too."""
+    return [tool if tool['name'] in toolargs.ACCEPTED_UNDECLARED
+            else {**tool, 'inputSchema': toolargs.strict_schema(tool['inputSchema'])}
+            for tool in tools]
 
 
 if __name__ == "__main__":
