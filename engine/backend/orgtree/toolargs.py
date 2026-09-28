@@ -83,6 +83,18 @@ def refusal(tool: str, schema: Mapping[str, Any] | None,
             + "; ".join(problems) + "." + accepts)
 
 
+def server_refusal(tool: str, args: Mapping[str, Any]) -> str | None:
+    """The backend's check: only the mail verbs, against their own cards.
+    Other verbs are left to their handlers here, because internal callers
+    (the scale harness, tests, the send-file transport) post to the agent
+    door directly; the MCP client checks every verb before posting."""
+    if tool not in BODY_TOOLS:
+        return None
+    from . import mcptool
+    card = next((t for t in mcptool.TOOLS if t.get("name") == tool), None)
+    return refusal(tool, card.get("inputSchema") if card else None, args)
+
+
 def strict_schema(schema: Mapping[str, Any]) -> dict[str, Any]:
     """The card's schema with `additionalProperties: false`, so a client that
     validates against it refuses an unknown field before it reaches us."""
