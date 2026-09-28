@@ -31,14 +31,20 @@ class Sonnet55Tests(unittest.TestCase):
 
     def old_org(self):
         """An org saved by 2.1.12: the shipped Sonnet 5 default, no Sonnet
-        versions, a mix of tiers and one explicit pin."""
+        versions, a mix of tiers, and two Sonnet agents still carrying the
+        version they had on Opus (2.1.12 never cleared it on a switch)."""
         org = ledger.Org.create("sonnet55-old")
         org.hire(ledger.USER, None, "sonnet", 10, "plain")
-        org.hire(ledger.USER, None, "sonnet", 10, "pinned")
+        org.hire(ledger.USER, None, "opus", 10, "was-opus-55")
+        org.hire(ledger.USER, None, "opus", 10, "was-opus-48")
         org.hire(ledger.USER, None, "opus", 10, "opus")
         org.hire(ledger.USER, "plain", "sonnet", 0, "child")
         org.d["models"]["sonnet"] = SONNET_5
-        org.node("pinned").setdefault("scope", {})["model_version"] = "5.5"
+        for nid, ver in (("was-opus-55", "5.5"), ("was-opus-48", "4.8")):
+            org.set_scope(ledger.USER, nid, model_version=ver)
+            org.switch_model(ledger.USER, nid, "sonnet")
+            # what 2.1.12 left behind: the switch kept the Opus version
+            org.node(nid)["scope"]["model_version"] = ver
         return org
 
     def reload(self, org):
@@ -60,18 +66,18 @@ class Sonnet55Tests(unittest.TestCase):
         before = {n: copy.deepcopy(old.node(n)) for n in ("plain", "child", "opus")}
         loaded = self.reload(old)
         self.assertEqual(loaded.d["models"]["sonnet"], SONNET_5_5)
-        for nid in ("plain", "child"):
+        for nid in ("plain", "child", "was-opus-55", "was-opus-48"):
             with self.subTest(nid=nid):
                 self.assertEqual(loaded.node(nid)["scope"]["model_version"], "5")
                 self.assertEqual(loaded.model_for(nid), SONNET_5)
                 self.assertEqual(loaded.seat_cost(nid), 2)
+        for nid in ("plain", "child"):
+            with self.subTest(nid=nid):
                 # nothing but the pin moved
                 want = copy.deepcopy(before[nid])
                 want["scope"]["model_version"] = "5"
                 self.assertEqual(loaded.node(nid), want)
-        # an explicit pin stays, and other tiers are untouched
-        self.assertEqual(loaded.model_for("pinned"), SONNET_5_5)
-        self.assertEqual(loaded.node("pinned")["scope"]["model_version"], "5.5")
+        # other tiers are untouched
         self.assertEqual(loaded.node("opus"), before["opus"])
         self.assertEqual(loaded.d["tiers"], old.d["tiers"])
         # the trigger cannot fire twice
