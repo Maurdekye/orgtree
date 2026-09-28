@@ -92,6 +92,33 @@ class ForegroundTurnsPG(unittest.TestCase):
         self.assertEqual(before.content, after.content)
         self.assertEqual(before.headers['etag'], after.headers['etag'])
 
+    def direct(self, sql, params=()):
+        with store._POOL.acquire(self.slug) as conn:
+            conn.execute('BEGIN')
+            conn.raw.execute(sql, params)
+            conn.execute('COMMIT')
+
+    def test_a_direct_sql_write_keeps_the_trimmed_copy_current(self):
+        # The copy is kept by the node trigger, so a writer that bypasses the
+        # Python store is covered too, in the same commit.
+        value = copy.deepcopy(self.stored['busy'])
+        value['turns'].append({'at': '2026-09-28T09:00:00Z', 'cost': 0.5, 'n': 'direct'})
+        self.direct('UPDATE nodes SET val=%s WHERE id=%s', (store._dumps(value), 'busy'))
+        node = fg.read_foreground(self.slug)['rows']['busy']['node']
+        self.assertEqual(node['turns'], value['turns'][-ledger.TREE_TURNS:])
+        self.assertEqual(node['turns'][-1]['n'], 'direct')
+
+    def test_install_rederives_a_stale_copy(self):
+        self.direct("UPDATE node_index SET tree_val='{\"turns\":[]}' WHERE id='busy'")
+        self.assertEqual(fg.read_foreground(self.slug)['rows']['busy']['node'], {'turns': []})
+        with store._POOL.acquire(self.slug) as conn:
+            org_id = conn.org_id
+        self.direct('SELECT public.orgtree_install_tree_val(%s)', (org_id,))
+        node = fg.read_foreground(self.slug)['rows']['busy']['node']
+        self.assertEqual(node['turns'], self.stored['busy']['turns'][-ledger.TREE_TURNS:])
+        self.assertEqual({k: v for k, v in node.items() if k != 'turns'},
+                         {k: v for k, v in self.stored['busy'].items() if k != 'turns'})
+
     def test_status_fast_path_still_applies_after_the_trim(self):
         url = f'/api/orgs/{self.slug}/foreground-tree'
         with patch.object(api, '_tree_runtime_stamp', return_value=('fixed',)):
