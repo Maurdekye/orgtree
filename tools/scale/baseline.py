@@ -66,8 +66,8 @@ def require_go(args, source):
     if args.small_control and getattr(args, "burst_repro", False):
         # Tiny control of the burst repro (N=10): proves the mode end to end.
         return dict(kind="burst repro control", agents=10, active_items=8, transcript_kb=1, readiness_s=300,
-                    disk_gib=2, commit_gib=12, engine_gib=5, burst_repro=True, tracemalloc_frames=12,
-                    snap_every_s=2)
+                    disk_gib=2, commit_gib=12, engine_gib=5, burst_repro=True,
+                    tracemalloc_frames=getattr(args, "burst_tracemalloc", 0), snap_every_s=2)
     if args.small_control:
         return dict(kind="small controller control", agents=10, active_items=8, transcript_kb=1,
                     seconds=.05, warmup=3, measured=8, tool_rate=2, steer_rate=3,
@@ -93,7 +93,8 @@ def require_go(args, source):
         # burst under tracemalloc with /scale/mem snapshots. Nothing else.
         return dict(kind="N1000 message-burst memory repro", agents=1000, active_items=180,
                     transcript_kb=256, readiness_s=1800, disk_gib=30, commit_gib=24, engine_gib=5,
-                    burst_repro=True, tracemalloc_frames=12, snap_every_s=5)
+                    burst_repro=True, tracemalloc_frames=getattr(args, "burst_tracemalloc", 0),
+                    snap_every_s=5)
     return dict(kind="first N1000 baseline; no final qualification", agents=1000, active_items=180,
                 transcript_kb=256, seconds=10, warmup=120, measured=600, tool_rate=3.12,
                 steer_rate=9.36, recipe=asdict(Recipe()), disk_gib=80, commit_gib=24, readiness_s=900,
@@ -527,6 +528,9 @@ def main():
     p.add_argument("--arm", choices=("small", "large", "burst"))
     p.add_argument("--burst-repro", action="store_true",
                    help="only the N=1000 message-burst memory repro (heavy; needs a GO file)")
+    p.add_argument("--burst-tracemalloc", type=int, default=0, metavar="FRAMES",
+                   help="opt-in: serve --burst-repro under tracemalloc with /scale/mem snapshots every 5 s. WARNING: "
+                        "at N=1000 a snapshot blocks the event loop for minutes and grows memory by itself")
     args = p.parse_args()
     if args.child:
         return child(args)
