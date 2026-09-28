@@ -3942,6 +3942,40 @@ class LazyDoc(dict[str, Any]):
             return None
         return [(str(slug), legacy == "true") for slug, _, legacy in rows]
 
+    def archive_statuses(self) -> list[str | None] | None:
+        """The DISTINCT stored `status` values of the archived docket items,
+        from the PostgreSQL docket index, WITHOUT reading an archived body;
+        `None` whenever the index cannot stand in for the rows (the same
+        refusals as `archive_identity`), and the caller then reads the rows.
+
+        THE PROBLEM. The 20 s abandoned-ticket pass only acts on NON-closed
+        items, and archiving requires a closed status, yet it decoded every
+        archived body on every tick to learn that: MEASURED +220 MB private
+        and ~0.4 s per tick for 2000 x 55 KB archived items (N1000 attempt 6's
+        430 <-> 640 MB square wave). `summary` holds the item's own `status`
+        value (0006: a key subset of the body), so `->>'status'` is the same
+        text `str(it.get("status"))` sees for a string; JSON null or a missing
+        key is SQL NULL (None here). `work_index_status` indexes it."""
+        k = "work_items_archive"
+        if (STORE_BACKEND != "postgres" or dict.__contains__(self, k)
+                or k in self._dropped or k in self._pending
+                or k in self._snap_doc or k in self._deferred_doc
+                or k not in self._present):
+            return None
+        from . import workindex
+        with _POOL.acquire(self._slug) as conn:
+            raw = getattr(conn, "raw", None)
+            org_id = getattr(conn, "org_id", None)
+            if raw is None or org_id is None or not workindex.ready(raw, org_id):
+                return None
+            s = f"org_{int(org_id)}"
+            if raw.execute(f"SELECT 1 FROM {s}.doc WHERE key=%s", (k,)).fetchone():
+                return None
+            rows = raw.execute(
+                f"SELECT DISTINCT summary->>'status' FROM {s}.work_index "
+                f"WHERE location='archive'").fetchall()
+        return [None if st is None else str(st) for (st,) in rows]
+
     def materialize_all(self) -> None:
         for k in (*LAZY_SECTIONS, *list(self._pending), *list(self._deferred_doc)):
             if not dict.__contains__(self, k):

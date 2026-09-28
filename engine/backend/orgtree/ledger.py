@@ -12765,6 +12765,17 @@ class Org:
             names.add(name)
         return self.WORK_IDENTITY_SLUG
 
+    def _work_archive_statuses(self) -> list[Any]:
+        """The stored `status` of the archived items — distinct values from
+        the docket index when the store can answer that way (see
+        `store.LazyDoc.archive_statuses`), else from the projection (no
+        whole bodies), else from the rows."""
+        indexed = getattr(self.d, "archive_statuses", None)
+        got = indexed() if indexed is not None else None
+        if got is not None:
+            return got
+        return [it.get("status") for it in self._work_archive_rows()]
+
     def _work_archive_identity(self) -> list[tuple[str, bool]] | None:
         """`(slug, has_old_id)` per archived item from the docket index, or
         None when the store cannot answer that way (see
@@ -17245,7 +17256,16 @@ class Org:
         if not tops:
             return []
         moved: list[dict[str, Any]] = []
-        for it in list(self._work_all()):
+        # The archive is classified by STATUS ALONE, and read whole only when
+        # a non-closed row is actually there (archiving requires a closed
+        # status, so normally never). The 20 s keeper runs this dry pass on a
+        # fresh snapshot: walking `_work_all()` decoded every archived body per
+        # tick — MEASURED +220 MB private for 2000 x 55 KB archived items.
+        items = list(self._work_active())
+        if any(self._work_status({"status": st}) not in self.WORK_CLOSED
+               for st in self._work_archive_statuses()):
+            items += self._work_archive()
+        for it in items:
             if self._work_status(it) in self.WORK_CLOSED:
                 continue
             age = self._work_recovery_age_s(it, now_ts)
