@@ -221,11 +221,15 @@ class RevisionFeed:
 # runs org_tx's commit listeners (after the deferred save hooks: a median 68 ms
 # later at N=100, when EVERY org_tx commit was taken for foreign). So a save
 # registers its bumped revision with `begin_local` BEFORE its COMMIT, the
-# connection confirms it (`note_local`) the moment COMMIT succeeds, or releases
-# it (`abort_local`) on rollback. A callback that meets an in-flight revision
-# waits for that answer, bounded per call AND by a rolling budget, so a backlog
-# never stalls the feed for long; an unanswered wait is taken for foreign,
-# which only costs the safe full reload. The orgs row lock serializes revision
+# connection answers `confirm_local` the moment the server answers COMMIT, or
+# `abort_local` on rollback. A callback that meets an in-flight revision waits
+# for that answer, bounded per call AND by a rolling budget, so a backlog never
+# stalls the feed for long; an unanswered wait is taken for foreign, which only
+# costs the safe full reload. The confirmation only tells THE FEED the commit
+# was ours (`_committed`); it does NOT publish anything: `_local`/`_local_set`,
+# which `snapshot_changes_published` and `known_revision` read, are still fed
+# by `note_local` AFTER the committer published its change set, so a stamp is
+# never newer than the snapshot content. The orgs row lock serializes revision
 # numbers, so no other process can commit that number until ours commits or
 # rolls back: a rolled-back number reused by another process is still in
 # flight here only until our rollback releases it (or the wait expires).
@@ -233,6 +237,7 @@ _LOCAL_CAP = 1024
 _local: dict[str, int] = {}                 # the newest revision made here
 _local_set: dict[str, set[int]] = {}        # every revision made here, not yet passed
 _inflight: dict[str, set[int]] = {}         # bumped here, COMMIT not yet answered
+_committed: dict[str, set[int]] = {}        # COMMIT answered here, not yet passed by the feed
 _local_lock = threading.Lock()
 _answered = threading.Condition(_local_lock)
 #: longest one callback waits for a commit's answer
@@ -247,6 +252,20 @@ def begin_local(slug: str, revision: int) -> None:
     """Just before COMMIT: this process bumped ``revision``."""
     with _local_lock:
         _inflight.setdefault(slug, set()).add(revision)
+
+
+def confirm_local(slug: str, revision: int) -> None:
+    """The server answered COMMIT for ``revision``: the feed may take it for
+    ours. Publication (and so the published/known predicates) is note_local's."""
+    with _answered:
+        revs = _committed.setdefault(slug, set())
+        revs.add(revision)
+        if len(revs) > _LOCAL_CAP:
+            revs.discard(min(revs))
+        pending = _inflight.get(slug)
+        if pending is not None:
+            pending.discard(revision)
+        _answered.notify_all()
 
 
 def abort_local(slug: str, revision: int) -> None:
@@ -318,14 +337,13 @@ def _take_local(slug: str, revision: int) -> bool:
     feed never calls back for those again. Unanswered counts as foreign."""
     with _answered:
         _wait_answered(slug, revision)
-        pending = _inflight.get(slug)
-        if pending:
-            pending.difference_update([r for r in pending if r <= revision])
-        revs = _local_set.get(slug)
-        if not revs:
-            return False
-        mine = revision in revs
-        revs.difference_update([r for r in revs if r <= revision])
+        mine = False
+        for state in (_inflight, _committed, _local_set):
+            revs = state.get(slug)
+            if revs:
+                if state is not _inflight:
+                    mine = mine or revision in revs
+                revs.difference_update([r for r in revs if r <= revision])
         return mine
 
 

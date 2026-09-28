@@ -308,7 +308,7 @@ class InFlight(unittest.TestCase):
     because its NOTIFY outran COMMIT's answer (foreground-tree F3-0)."""
 
     def setUp(self) -> None:
-        for state in (pgfeed._local, pgfeed._local_set, pgfeed._inflight):
+        for state in (pgfeed._local, pgfeed._local_set, pgfeed._inflight, pgfeed._committed):
             state.clear()
             self.addCleanup(state.clear)
         pgfeed._budget.update(window=0.0, spent=0.0)
@@ -324,7 +324,7 @@ class InFlight(unittest.TestCase):
 
     def test_a_commit_answered_after_its_notify_is_still_local(self) -> None:
         pgfeed.begin_local("a", 7)
-        answer = threading.Timer(0.03, pgfeed.note_local, ("a", 7))
+        answer = threading.Timer(0.03, pgfeed.confirm_local, ("a", 7))
         answer.start()
         self.addCleanup(answer.cancel)
         elapsed = self.timed(7)
@@ -333,7 +333,7 @@ class InFlight(unittest.TestCase):
         self.assertEqual(pgfeed._inflight["a"], set())
 
     def test_control_without_registration_the_same_commit_is_foreign(self) -> None:
-        answer = threading.Timer(0.03, pgfeed.note_local, ("a", 7))
+        answer = threading.Timer(0.03, pgfeed.confirm_local, ("a", 7))
         answer.start()
         self.addCleanup(answer.cancel)
         self.assertLess(self.timed(7), 0.02)              # nothing to wait for
@@ -352,7 +352,7 @@ class InFlight(unittest.TestCase):
         self.assertLess(elapsed, pgfeed.INFLIGHT_WAIT_S + 0.05)
         self.assertGreaterEqual(elapsed, pgfeed.INFLIGHT_WAIT_S - 0.01)
         self.assertEqual(pgfeed._inflight["a"], set())    # no stale entry is kept
-        pgfeed.note_local("a", 7)                         # its late confirmation
+        pgfeed.confirm_local("a", 7)                      # its late confirmation
         self.cb("a", 8, False)                            # does not make 8 local
         self.assertEqual(self.unknown, ["a", "a"])
 
@@ -367,6 +367,19 @@ class InFlight(unittest.TestCase):
         self.assertLess(elapsed, pgfeed.INFLIGHT_BUDGET_S + 0.1)
         self.assertGreater(10 * pgfeed.INFLIGHT_WAIT_S, pgfeed.INFLIGHT_BUDGET_S + 0.1)
 
+    def test_a_confirmation_is_not_a_publication(self) -> None:
+        """review f2: the COMMIT answer tells the feed the commit was ours; the
+        published/known predicates move only with note_local, after the
+        committer published its change set."""
+        pgfeed.begin_local("a", 7)
+        pgfeed.confirm_local("a", 7)
+        self.assertFalse(pgfeed.snapshot_changes_published(None, "a", 6, 7))
+        self.assertEqual(pgfeed.known_revision(None, "a"), 0)
+        pgfeed.note_local("a", 7)
+        self.assertTrue(pgfeed.snapshot_changes_published(None, "a", 6, 7))
+        self.cb("a", 7, False)
+        self.assertEqual(self.unknown, [])
+
     def test_a_gap_is_never_local_even_when_in_flight(self) -> None:
         pgfeed.begin_local("a", 7)
         pgfeed.note_local("a", 7)
@@ -377,20 +390,26 @@ class InFlight(unittest.TestCase):
 class _Raw:
     """Just enough of a psycopg session for PgConn.execute's COMMIT/ROLLBACK."""
 
-    def __init__(self, fail: bool = False) -> None:
-        self.fail, self.ran = fail, []
+    def __init__(self, fail: bool = False, answer: str | None = None) -> None:
+        self.fail, self.ran, self.answer = fail, [], answer
+        self.closed, self.close_calls = False, 0
 
     def execute(self, sql, params=None):
         self.ran.append(sql)
         if self.fail:
             raise RuntimeError("commit refused")
+        from types import SimpleNamespace
+        return SimpleNamespace(statusmessage=self.answer or sql)
+
+    def close(self) -> None:
+        self.close_calls += 1
 
 
 class SessionAnswers(unittest.TestCase):
     def setUp(self) -> None:
         from orgtree import pgstore
         self.pgstore = pgstore
-        for state in (pgfeed._local, pgfeed._local_set, pgfeed._inflight):
+        for state in (pgfeed._local, pgfeed._local_set, pgfeed._inflight, pgfeed._committed):
             state.clear()
             self.addCleanup(state.clear)
 
@@ -399,22 +418,37 @@ class SessionAnswers(unittest.TestCase):
         raw._ot_pending = [("a", 7)]
         return self.pgstore.PgConn(raw, "a", 1)
 
-    def test_a_successful_commit_confirms_its_revisions(self) -> None:
+    def test_a_successful_commit_confirms_but_does_not_publish(self) -> None:
         raw = _Raw()
         self.conn(raw).execute("COMMIT")
-        self.assertEqual((pgfeed._local_set["a"], pgfeed._inflight["a"], raw._ot_pending),
+        self.assertEqual((pgfeed._committed["a"], pgfeed._inflight["a"], raw._ot_pending),
                          ({7}, set(), []))
+        self.assertEqual(pgfeed._local_set.get("a", set()), set())   # note_local's job
+
+    def test_a_commit_the_server_answers_with_rollback_confirms_nothing(self) -> None:
+        raw = _Raw(answer="ROLLBACK")                    # COMMIT of an aborted transaction
+        self.conn(raw).execute("COMMIT")
+        self.assertEqual((pgfeed._committed.get("a", set()), pgfeed._inflight["a"]), (set(), set()))
+
+    def test_a_session_closed_by_release_never_confirms_it(self) -> None:
+        raw = _Raw()
+        raw.closed = True                                # not reusable: _release closes it
+        raw._ot_pending = [("a", 7)]
+        pgfeed.begin_local("a", 7)
+        self.pgstore._release(raw)
+        self.assertEqual((pgfeed._committed.get("a", set()), pgfeed._inflight["a"], raw._ot_pending),
+                         (set(), set(), []))
 
     def test_a_rollback_releases_its_revisions_as_not_ours(self) -> None:
         raw = _Raw()
         self.conn(raw).execute("ROLLBACK")
-        self.assertEqual((pgfeed._local_set.get("a", set()), pgfeed._inflight["a"]), (set(), set()))
+        self.assertEqual((pgfeed._committed.get("a", set()), pgfeed._inflight["a"]), (set(), set()))
 
     def test_a_failed_commit_releases_its_revisions_as_not_ours(self) -> None:
         raw = _Raw(fail=True)
         with self.assertRaises(RuntimeError):
             self.conn(raw).execute("COMMIT")
-        self.assertEqual((pgfeed._local_set.get("a", set()), pgfeed._inflight["a"]), (set(), set()))
+        self.assertEqual((pgfeed._committed.get("a", set()), pgfeed._inflight["a"]), (set(), set()))
 
     def test_a_pinned_commit_that_does_not_reach_the_server_confirms_nothing(self) -> None:
         raw = _Raw()
@@ -429,7 +463,7 @@ class SessionAnswers(unittest.TestCase):
         pgfeed.begin_local("a", 7)
         self.pgstore._settle_revisions(raw, False)       # what _release/_checkout do
         self.pgstore.PgConn(raw, "a", 1).execute("COMMIT")   # an unrelated later commit
-        self.assertEqual((pgfeed._local_set.get("a", set()), pgfeed._inflight["a"]), (set(), set()))
+        self.assertEqual((pgfeed._committed.get("a", set()), pgfeed._inflight["a"]), (set(), set()))
 
 
 if __name__ == "__main__":

@@ -382,13 +382,16 @@ class PgConn:
         try:
             if st.kind != "sql":
                 try:
-                    self.raw.execute(st.sql)
+                    done = self.raw.execute(st.sql)
                 except BaseException:
                     if st.kind in ("commit", "rollback"):
                         _settle_revisions(self.raw, False)
                     raise
                 if st.kind in ("commit", "rollback"):
-                    _settle_revisions(self.raw, st.kind == "commit")
+                    # COMMIT of an aborted transaction does not raise: the
+                    # server answers ROLLBACK, and nothing was committed
+                    _settle_revisions(self.raw, st.kind == "commit"
+                                      and getattr(done, "statusmessage", None) == "COMMIT")
                 if self.creating is not None and st.kind in ("commit", "rollback"):
                     marker, self.creating = self.creating, None
                     self.pinned = self.commit_armed = False
@@ -479,14 +482,15 @@ def _checkout() -> Any:
 
 def _settle_revisions(raw: Any, committed: bool) -> None:
     """Answer the feed for every revision this session bumped (pgfeed "IN
-    FLIGHT"): confirmed only by a COMMIT that succeeded on this session."""
+    FLIGHT"): confirmed only by a COMMIT the server answered as COMMIT on this
+    session. Publication stays with the committer's later note_local."""
     pending = getattr(raw, "_ot_pending", None)
     if not pending:
         return
     raw._ot_pending = []
     from . import pgfeed
     for slug, revision in pending:
-        (pgfeed.note_local if committed else pgfeed.abort_local)(slug, revision)
+        (pgfeed.confirm_local if committed else pgfeed.abort_local)(slug, revision)
 
 
 def _release(raw: Any) -> None:

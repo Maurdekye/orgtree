@@ -201,6 +201,58 @@ class Rt9Live(unittest.TestCase):
         self.assertEqual((unknown, told), ([slug], [slug]))
         self.assertGreaterEqual(r.feed.stats.notifications, 2)
 
+    def test_a_revision_is_not_reported_published_before_its_changes_are(self) -> None:
+        """review f2 (review-astra's probe): inside _publish_changes, after
+        COMMIT, the new revision must not yet count as published or known."""
+        from unittest import mock
+        slug = _fresh_org("f30-window")
+        rev0 = _rev(slug)
+        seen: dict = {}
+        real, real_u = store._publish_changes, store._publish_changes_unknown
+
+        def probe() -> None:
+            if "published" not in seen:
+                seen["published"] = pgfeed.snapshot_changes_published(None, slug, rev0, rev0 + 1)
+                seen["known"] = pgfeed.known_revision(None, slug)
+
+        def pub(s, ch):
+            if s == slug:
+                probe()
+            return real(s, ch)
+
+        def pub_u(s):
+            if s == slug:
+                probe()
+            return real_u(s)
+        with mock.patch.object(store, "_publish_changes", pub), \
+                mock.patch.object(store, "_publish_changes_unknown", pub_u):
+            org = store.load_org(slug)
+            org.d["nodes"]["a"]["name"] = "window"
+            store.save_org(org)
+        self.assertEqual(_rev(slug), rev0 + 1, "the save did not commit one revision")
+        self.assertIn("published", seen, "the publication hook never ran: the probe did nothing")
+        self.assertFalse(seen["published"], "revision reported published before its change set")
+        self.assertEqual(seen["known"], rev0, "known_revision ran ahead of the published content")
+        self.assertTrue(pgfeed.snapshot_changes_published(None, slug, rev0, rev0 + 1))
+
+    def test_commit_of_an_aborted_transaction_confirms_nothing(self) -> None:
+        """review f3: psycopg does not raise on COMMIT of an aborted
+        transaction; the server answers ROLLBACK and nothing committed."""
+        slug = _fresh_org("f30-aborted")
+        with pgstore.connect() as raw:
+            org_id = int(raw.execute("SELECT org_id FROM public.orgs WHERE slug=%s",
+                                     (slug,)).fetchone()[0])
+            conn = pgstore.PgConn(raw, slug, org_id)
+            conn.execute("BEGIN")
+            pgfeed.begin_local(slug, 10 ** 9)
+            raw._ot_pending = [(slug, 10 ** 9)]
+            with self.assertRaises(Exception):
+                conn.execute("SELECT 1/0")
+            conn.execute("COMMIT")
+        self.assertNotIn(10 ** 9, pgfeed._committed.get(slug, set()))
+        self.assertNotIn(10 ** 9, pgfeed._local_set.get(slug, set()))
+        self.assertNotIn(10 ** 9, pgfeed._inflight.get(slug, set()))
+
     def _missed_while_down(self, slug: str, r: _Rig, calls: list) -> tuple[int, int]:
         n = _rev(slug)
         self.assertTrue(_wait(lambda: r.feed.last_seen(slug) == n or not r.feed.catch_up_enabled))
