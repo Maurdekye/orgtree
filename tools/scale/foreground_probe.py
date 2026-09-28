@@ -220,6 +220,8 @@ def arm(ctrl, admin, n):
             *(["--env", "ORGTREE_SCALE_SQL_COUNTS=1", "--env", "ORGTREE_SCALE_SQL_LABELS=1",
                "--env", "ORGTREE_SCALE_FG_WHY=1"] if DIAG else []),
             *(["--env", "ORGTREE_SCALE_FG_STALL=1"] if os.environ.get("FG_PROBE_STALL") == "1" else []),
+            *(["--env", "ORGTREE_SCALE_FG_STALL_DEPTH=" + os.environ["FG_PROBE_STALL_DEPTH"]]
+              if os.environ.get("FG_PROBE_STALL_DEPTH") else []),
             "--env", "ORGTREE_SCALE_FG_PROFILE=1"], name + "-serve")
         try:
             deadline = time.monotonic() + 300
@@ -601,13 +603,27 @@ STALL_SAMPLE_S = 0.002
 STALL_KEEP_S = 0.2
 
 
-def _frame_key(frame, depth=4):
-    parts = []
-    while frame is not None and len(parts) < depth:
+STALL_DEPTH = int(os.environ.get("ORGTREE_SCALE_FG_STALL_DEPTH", "4"))
+# Frames that make up a deepcopy recursion: the copy module itself and the
+# store's __deepcopy__ methods. The key names the innermost frames AND the
+# first frames outside such a recursion, so the site that asked for the copy
+# is visible however deep the copy goes.
+_COPY_FRAMES = ("copy.py:", "store.py:__deepcopy__", "launch_guard.py:__call__", "foreground_probe.py:on_gc")
+
+
+def _frame_key(frame, depth=None):
+    depth = depth or STALL_DEPTH
+    frames = []
+    while frame is not None:
         code = frame.f_code
-        parts.append(f"{os.path.basename(code.co_filename)}:{code.co_name}:{frame.f_lineno}")
+        frames.append(f"{os.path.basename(code.co_filename)}:{code.co_name}:{frame.f_lineno}")
         frame = frame.f_back
-    return " < ".join(parts)
+    inner = frames[:min(depth, 4)]
+    copying = [i for i, f in enumerate(frames) if f.startswith(_COPY_FRAMES)]
+    if copying and depth > 4:
+        outer = frames[copying[-1] + 1:copying[-1] + 1 + depth]
+        return " < ".join(inner) + " || COPY CALLER: " + " < ".join(outer)
+    return " < ".join(frames[:depth])
 
 
 def install_stall(metrics):
