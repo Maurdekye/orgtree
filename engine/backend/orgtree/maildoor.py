@@ -279,8 +279,34 @@ def message_spec(snapshot: Any, call: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
         # a local send notifies only its recipients: their boxes, not the
         # whole org's (outside mail may notify a replaced audience holder)
         rows = mailtx.owner_notices(rows, *dest)
+    if not _may_write_audiences(snapshot, str(call.node), dest):
+        # read, not written: FOR SHARE, so sends stop serializing on it. A
+        # wrong "no" is refused at save (UnlockedWrite) and pgdoor re-runs
+        # the whole call holding it FOR UPDATE -- exactly once, rolled back
+        rows = mailtx.shared_audiences(rows)
     spec = pgdoor.TxSpec(**{k: tuple(v) for k, v in rows.items()})
     return _with_path(spec, snapshot, str(call.node), *dest)
+
+
+def _may_write_audiences(snapshot: Any, sender: str, dest: list[str]) -> bool:
+    """Would this message write `audiences`? `post_mail` writes it for the
+    outside-mail auto-grant and for the §7.3 reply grant (the sender is a
+    strict, non-parent ancestor of the recipient, who holds no audience to
+    it yet). A prediction from the snapshot; unknown means yes."""
+    if not dest:
+        return True                                 # unresolved: the body decides
+    for d in dest:
+        if d.startswith(("@net:", "@org:")):
+            return True
+        if d == mailtx.USER or d.startswith("@"):
+            continue
+        try:
+            if (snapshot.is_ancestor(sender, d) and snapshot.node(d)["parent"] != sender
+                    and not snapshot._has_audience(d, sender)):
+                return True
+        except Exception:                           # noqa: BLE001
+            return True
+    return False
 
 
 def hold_path(t: pgdoor.AgentTx, *others: str) -> None:

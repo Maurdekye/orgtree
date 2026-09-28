@@ -103,6 +103,18 @@ def owner_notices(rows: dict[str, list[Any]], *owners: str) -> dict[str, list[An
     return out
 
 
+def shared_audiences(rows: dict[str, list[Any]]) -> dict[str, list[Any]]:
+    """`rows` with `audiences` held FOR SHARE instead of FOR UPDATE: for a send
+    that only READS the audience list to authorize itself
+    (n1000-burst-27-of-messages-fail-with-locktimeout: every orgtree_message
+    held it FOR UPDATE, so every send in the org waited on every other). The
+    caller must be able to widen back to FOR UPDATE if the body writes it."""
+    out = {k: list(v) for k, v in rows.items()}
+    out["sections"] = [s for s in out.get("sections", []) if s != "audiences"]
+    out["share_sections"] = _dedupe([*out.get("share_sections", []), "audiences"])
+    return out
+
+
 def merge(*parts: dict[str, list[Any]], **extra: Iterable[Any]) -> dict[str, list[Any]]:
     """Union row declarations (and plain `org_tx` name lists in `extra`)."""
     out: dict[str, list[Any]] = {}
