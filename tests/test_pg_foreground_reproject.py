@@ -156,6 +156,30 @@ class ReprojectPG(unittest.TestCase):
         self.assertIn('"permission_mode":"plan"', json.dumps(fresh.json()['nodes']['peer'], separators=(',', ':')))
         self.assertEqual(kept.content, fresh.content)
 
+    # F3b-3: doc-derived inputs are reused only while view_revision stands still.
+    def test_a_node_only_change_reuses_the_doc_inputs(self):
+        first = self.get()
+        org = store.load_org(self.slug)
+        org.nodes['peer']['charter'] = 'node only'
+        store.save_org(org)
+        with patch.object(fg, 'read_card_windows', side_effect=AssertionError('windows re-read')), \
+             patch.object(fg, 'select_foreground', side_effect=AssertionError('storage re-read')):
+            changed = self.get(first.headers['etag'])
+        self.assertEqual(changed.status_code, 200, changed.text)
+        self.assertEqual(self.cached().content, self.fresh().content)
+
+    def test_a_settings_and_node_change_together_rereads_the_doc_inputs(self):
+        first = self.get()
+        org = store.load_org(self.slug)
+        org.d['name'] = 'renamed with a node change'
+        org.nodes['peer']['charter'] = 'changed beside a setting'
+        store.save_org(org)
+        changed = self.get(first.headers['etag'])
+        self.assertEqual(changed.status_code, 200, changed.text)
+        kept = self.cached()
+        self.assertEqual(kept.json()['header']['name'], 'renamed with a node change')
+        self.assertEqual(kept.content, self.fresh().content)
+
 
 if __name__ == '__main__':
     unittest.main()
