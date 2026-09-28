@@ -1066,6 +1066,15 @@ class Org:
         with construction():
             self._initialize_doc(doc)
 
+    def __del__(self) -> None:
+        # free this copy's lazy row maps with it instead of leaving the
+        # document and its maps to the cyclic GC (store._DocLink)
+        try:
+            from . import store
+            store.release_doc_links(self.__dict__.get("d"))
+        except Exception:                                  # noqa: BLE001
+            pass
+
     def _initialize_doc(self, doc: OrgDoc) -> None:
         self._normalize_display_basics()
         # kiosk permission ceiling (consensus spec §3): pre-ceiling kiosk docs

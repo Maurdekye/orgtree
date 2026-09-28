@@ -75,6 +75,7 @@ from __future__ import annotations
 import contextlib
 import collections
 import copy
+import weakref
 import hashlib
 import json
 import os
@@ -2932,7 +2933,87 @@ def frozen_live_nodes(org: Org) -> Iterator[tuple[str, Any]]:
             yield nid, node
 
 
-class LazySplitSection(dict[str, Any]):
+class LazyDocReleased(RuntimeError):
+    """A lazy row map was used after its document was released. Not an
+    AttributeError on purpose: `getattr(map._doc, ..., None)` would swallow
+    that and fetch rows with no baselines instead of failing."""
+
+
+class _DocLink:
+    """The lazy row maps' back-pointer to the document that holds them.
+
+    STRONG while anything outside the document may hold the map — so
+    `store.load_org(slug).nodes["a"]`, whose Org and document are temporaries,
+    keeps working exactly as it always did. But the document holds the map, so
+    a strong pointer back makes every loaded copy a reference cycle that only
+    the cyclic GC frees: a finished transaction's copy — ~200 MB at N=1000 once
+    walked — outlived it until the next gen-2 collection (measured 2026-09-28,
+    mem-leak-probe, item n1000-engine-memory-climbs: with gc disabled the
+    LazyDoc of a finished org_tx stayed alive; gc.collect() then freed it).
+
+    So when an Org is freed (`ledger.Org.__del__` -> `release_doc_links`),
+    every map of its document that NOTHING ELSE references is switched to a
+    weak pointer, and the copy is freed by refcount on the spot. A map someone
+    still holds keeps its strong pointer and its document, as before. A weak
+    pointer can therefore only die once no one can reach the map; if it ever
+    is used dead, it raises `LazyDocReleased` instead of fetching rows with no
+    baseline or heal context."""
+
+    @property
+    def _doc(self) -> Any:
+        state = self.__dict__
+        doc = state.get("_doc_strong")
+        if doc is not None:
+            return doc
+        ref = state.get("_doc_weak")
+        if ref is None:
+            return None
+        doc = ref()
+        if doc is None:
+            raise LazyDocReleased(
+                f"{type(self).__name__} of {state.get('_slug')!r} used after its "
+                f"document was released")
+        return doc
+
+    @_doc.setter
+    def _doc(self, doc: Any) -> None:
+        self.__dict__["_doc_weak"] = None
+        self.__dict__["_doc_strong"] = doc
+
+    def _weaken_doc(self) -> None:
+        doc = self.__dict__.get("_doc_strong")
+        if doc is not None:
+            self.__dict__["_doc_weak"] = weakref.ref(doc)
+            self.__dict__["_doc_strong"] = None
+
+    def _copy_state(self, out: Any, memo: dict[int, Any]) -> None:
+        """`__deepcopy__`'s instance state; the copy points (strongly, as it
+        always did) at its document's copy."""
+        for k, v in self.__dict__.items():
+            if k not in ("_doc_strong", "_doc_weak"):
+                object.__setattr__(out, k, copy.deepcopy(v, memo))
+        doc = self._doc
+        out.__dict__["_doc_weak"] = None
+        out.__dict__["_doc_strong"] = None if doc is None else copy.deepcopy(doc, memo)
+
+
+def release_doc_links(doc: Any) -> int:
+    """Called as an Org is freed: weaken the back-pointer of every lazy map in
+    `doc` that nothing but `doc` references, so the document and its maps are
+    freed by refcount instead of waiting for the cyclic GC (see `_DocLink`).
+    Returns how many were weakened."""
+    if not isinstance(doc, LazyDoc):
+        return 0
+    n = 0
+    # held by: the document's storage, `v`, and getrefcount's own argument
+    for v in dict.values(doc):
+        if isinstance(v, _DocLink) and sys.getrefcount(v) <= 3:
+            v._weaken_doc()
+            n += 1
+    return n
+
+
+class LazySplitSection(_DocLink, dict[str, Any]):
     """A split section (`mail` / `delivering` / `notices`, PG-3d) whose
     owner rows load when touched (ORGTREE_LAZY_ROWS) — the same contract as
     `LazyNodesMap`: decoded owners live in the dict storage with their
@@ -2958,8 +3039,7 @@ class LazySplitSection(dict[str, Any]):
     def __deepcopy__(self, memo: dict[int, Any]) -> "LazySplitSection":
         out = LazySplitSection.__new__(LazySplitSection)
         memo[id(self)] = out
-        for k, v in self.__dict__.items():
-            object.__setattr__(out, k, copy.deepcopy(v, memo))
+        self._copy_state(out, memo)
         for k, v in dict.items(self):
             dict.__setitem__(out, k, copy.deepcopy(v, memo))
         return out
@@ -3164,7 +3244,7 @@ class LazySplitSection(dict[str, Any]):
         return dict.__repr__(self)
 
 
-class LazyNodesMap(NodesMap):
+class LazyNodesMap(_DocLink, NodesMap):
     """`nodes` whose rows load when touched (ORGTREE_LAZY_ROWS).
 
     Decoded rows live in the dict storage exactly as NodesMap holds them, so
@@ -3204,8 +3284,7 @@ class LazyNodesMap(NodesMap):
         # table, and its baselines are copied with the document
         out = LazyNodesMap.__new__(LazyNodesMap)
         memo[id(self)] = out
-        for k, v in self.__dict__.items():
-            object.__setattr__(out, k, copy.deepcopy(v, memo))
+        self._copy_state(out, memo)
         for k, v in dict.items(self):
             dict.__setitem__(out, k, copy.deepcopy(v, memo))
         return out
