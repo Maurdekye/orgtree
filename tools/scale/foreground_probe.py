@@ -13,6 +13,7 @@ SQL counters AND per-query labels on, and records for GET /foreground-tree:
 Nothing here is judged; the receipt is evidence for the fix plan.
 """
 import json
+import os
 import sys
 import time
 
@@ -20,6 +21,9 @@ import httpx
 
 SIZES = (10, 100)
 KIND = "fg-probe"
+# FG_PROBE_DIAG=0: timers only. SQL counters, labels and the why-log add work
+# inside the measured read, so a timing arm must run without them.
+DIAG = os.environ.get("FG_PROBE_DIAG", "1") == "1"
 
 
 def _get(client, url, label, etag=None, gzip=True):
@@ -121,8 +125,9 @@ def arm(ctrl, admin, n):
         ctrl.phase = name + "-serve"
         server = ctrl.spawn([sys.executable, "-I", "-B", str(REPO / "tools/scale/serve.py"),
             "--root", str(root), "--env", "ORGTREE_SCALE_SIMULATED_PROVIDER=1",
-            "--env", "ORGTREE_SCALE_SQL_COUNTS=1", "--env", "ORGTREE_SCALE_SQL_LABELS=1",
-            "--env", "ORGTREE_SCALE_FG_WHY=1", "--env", "ORGTREE_SCALE_FG_PROFILE=1"], name + "-serve")
+            *(["--env", "ORGTREE_SCALE_SQL_COUNTS=1", "--env", "ORGTREE_SCALE_SQL_LABELS=1",
+               "--env", "ORGTREE_SCALE_FG_WHY=1"] if DIAG else []),
+            "--env", "ORGTREE_SCALE_FG_PROFILE=1"], name + "-serve")
         try:
             deadline = time.monotonic() + 300
             while True:
@@ -143,14 +148,15 @@ def arm(ctrl, admin, n):
         if (root / "metrics/qualification-invalid.json").exists():
             raise RuntimeError(f"{name}: unexpected process launch")
         server_rows = {}
-        for line in (root / "metrics/sql-counts.jsonl").read_text(encoding="utf-8").splitlines():
+        counts = root / "metrics/sql-counts.jsonl"
+        for line in (counts.read_text(encoding="utf-8").splitlines() if DIAG else []):
             row = json.loads(line)
             if row["kind"].startswith(KIND + ":"):
                 label = row["kind"][len(KIND) + 1:]
                 if label in server_rows:
                     raise RuntimeError(f"{name}: two server rows for {label}")
                 server_rows[label] = row
-        for row in client_rows:
+        for row in (client_rows if DIAG else []):
             if row["label"] not in server_rows:
                 raise RuntimeError(f"{name}: no server row for {row['label']}")
             row["server"] = server_rows[row["label"]]
@@ -159,8 +165,8 @@ def arm(ctrl, admin, n):
                       why=[json.loads(line) for line in why.read_text(encoding="utf-8").splitlines()]
                           if why.exists() else None,
                       profile=[json.loads(line) for line in
-                               (root / "metrics/fg-profile/summary.jsonl").read_text(encoding="utf-8").splitlines()]
-                              if (root / "metrics/fg-profile/summary.jsonl").exists() else None)
+                               (root / "metrics/fg-timers.jsonl").read_text(encoding="utf-8").splitlines()]
+                              if (root / "metrics/fg-timers.jsonl").exists() else None)
         write(ctrl.root / "receipts" / f"{name}.json", result)
         return result
     finally:
@@ -173,11 +179,12 @@ def probe(ctrl, admin):
     for n, result in results.items():
         summary[n] = dict(node_val_bytes=result["node_val"]["val_bytes"],
                           live_nodes=result["node_val"]["live_nodes"],
+                          timers=result["profile"],
                           calls=[dict(label=c["label"], status=c["status"], kind=c.get("answer_kind"),
                                       wire=c.get("wire_bytes"), body=c.get("body_bytes"),
-                                      statements=c["server"]["statements"], rows=c["server"]["rows"],
-                                      value_bytes=c["server"]["value_bytes"],
-                                      seconds=round(c["server"]["seconds"], 4))
+                                      client_seconds=round(c["client_seconds"], 4),
+                                      **({k: c["server"][k] for k in ("statements", "rows", "value_bytes")}
+                                         if "server" in c else {}))
                                  for c in result["calls"]])
     from baseline import write
     write(ctrl.root / "receipts" / "fg-probe.json", summary)
@@ -311,5 +318,71 @@ def install_profile(directory):
             with lock, open(directory / "summary.jsonl", "a", encoding="utf-8") as target:
                 target.write(json.dumps(dict(index=index, at=time.time(), seconds=round(elapsed, 4),
                                              phases=phases)) + "\n")
+
+    cache.read = read
+
+
+def install_timers(path):
+    """Harness only: wall time per phase of each foreground_cache.read, counted
+    only on the reading thread (cProfile on 3.13 also sees other threads)."""
+    import threading
+    from orgtree import (api, foreground_api, foreground_cache as cache, foreground_context,
+                         foreground_store as store_, foreground_view as view, tree_delta)
+    local = threading.local()
+    lock = threading.Lock()
+
+    def timed(owner, attr, name):
+        original = getattr(owner, attr)
+
+        def wrapper(*args, **kwargs):
+            acc = getattr(local, "acc", None)
+            if acc is None:
+                return original(*args, **kwargs)
+            started = time.perf_counter()
+            try:
+                return original(*args, **kwargs)
+            finally:
+                acc[name] = acc.get(name, 0.0) + time.perf_counter() - started
+                acc[name + "#"] = acc.get(name + "#", 0) + 1
+        setattr(owner, attr, wrapper)
+
+    class TimedJson:
+        def __getattr__(self, name):
+            return getattr(json, name)
+
+        def loads(self, *args, **kwargs):
+            acc = getattr(local, "acc", None)
+            started = time.perf_counter()
+            try:
+                return json.loads(*args, **kwargs)
+            finally:
+                if acc is not None:
+                    acc["store json.loads"] = acc.get("store json.loads", 0.0) + time.perf_counter() - started
+
+    store_.json = TimedJson()
+    for owner, attr, name in (
+            (store_, "select_foreground", "select_foreground"), (store_, "_rows", "_rows"),
+            (store_, "_ancestors", "_ancestors"), (store_, "read_card_windows", "card_windows"),
+            (store_, "read_funding", "funding"), (store_, "read_org_inbox_window", "org_inbox"),
+            (foreground_api, "_context", "context total"),
+            (foreground_context.ForegroundContext, "__init__", "context __init__"),
+            (view, "prepare", "prepare (tree_node loop)"), (api, "_annotate_org_view", "annotate"),
+            (view, "finish", "finish"), (cache, "_version", "version"), (cache, "_full", "full wire"),
+            (cache, "_delta", "delta"), (cache, "_status", "status fast path"),
+            (tree_delta, "encode", "tree_delta.encode")):
+        timed(owner, attr, name)
+    original = cache.read
+
+    def read(*args, **kwargs):
+        local.acc = acc = {}
+        started = time.perf_counter()
+        try:
+            return original(*args, **kwargs)
+        finally:
+            local.acc = None
+            row = dict(at=time.time(), seconds=round(time.perf_counter() - started, 4),
+                       phases={k: (round(v, 4) if isinstance(v, float) else v) for k, v in acc.items()})
+            with lock, open(path, "a", encoding="utf-8") as target:
+                target.write(json.dumps(row) + "\n")
 
     cache.read = read
