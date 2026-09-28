@@ -62,6 +62,25 @@ class ControllerControls(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "exact source"):
                 baseline.require_go(args, "abc")
 
+    def test_guard_survives_an_engine_pid_that_vanished(self):
+        # The descriptor's engine pid can exit between reads (seen live in the
+        # rows preflight's startup, 2026-09-28); that alone must not trip the guard.
+        import subprocess
+        gone = subprocess.Popen([sys.executable, "-c", "pass"])
+        gone.wait()
+        with tempfile.TemporaryDirectory() as folder:
+            ctrl = baseline.Controller(Path(folder), {}, SimpleNamespace(small_control=True, preflight_only=False))
+            ctrl.engine_pid = gone.pid
+            guard = threading.Thread(target=ctrl.guard)
+            guard.start()
+            ctrl.stop_guard.wait(2.5)
+            ctrl.stop_guard.set()
+            guard.join(timeout=10)
+            self.assertIsNone(ctrl.breach)
+            rows = (Path(folder) / "guard.jsonl").read_text(encoding="utf-8").splitlines()
+            self.assertGreaterEqual(len(rows), 2)
+            self.assertEqual(json.loads(rows[-1])["engine_private"], 0)
+
     def test_frozen_external_inventory_refuses_changed_or_extra_file(self):
         with tempfile.TemporaryDirectory() as folder:
             source = Path(folder) / "source"

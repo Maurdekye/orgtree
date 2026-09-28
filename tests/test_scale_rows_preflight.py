@@ -65,6 +65,16 @@ class BytesVerdict(unittest.TestCase):
         passed, _ = bytes_verdict({10: sized(message=0.40), 100: sized(message=0.75)})
         self.assertTrue(passed)
 
+    def test_tiny_reads_are_exempt_from_the_bytes_ratio(self):
+        # notifications on a9a96e6: 8.3 KB -> 29.3 KB (3.53x), flat rows.
+        passed, ratios = bytes_verdict({10: sized(notifications=0.0083), 100: sized(notifications=0.0293)})
+        self.assertTrue(passed)
+        self.assertGreater(ratios["notifications"], 3)
+
+    def test_growth_crossing_the_floor_fails(self):
+        passed, _ = bytes_verdict({10: sized(org_list=0.37), 100: sized(org_list=3.25)})
+        self.assertFalse(passed)
+
     def test_zero_bytes_refuses_a_verdict(self):
         with self.assertRaises(ValueError):
             bytes_verdict({10: sized(org_list=0), 100: sized()})

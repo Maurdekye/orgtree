@@ -155,7 +155,12 @@ class Controller:
             try:
                 free = free_commit_gb()
                 disk = shutil.disk_usage(self.root).free / 2**30
-                engine = psutil.Process(self.engine_pid).memory_info().private if self.engine_pid else 0
+                try:
+                    engine = psutil.Process(self.engine_pid).memory_info().private if self.engine_pid else 0
+                except psutil.NoSuchProcess:
+                    # The pid read from the descriptor can vanish while the engine
+                    # starts or stops; a real engine exit is caught by server.poll().
+                    engine = 0
                 family = {p.pid: p for p in [psutil.Process(), *psutil.Process().children(recursive=True)]}
                 if self.pg_pid:
                     pg = psutil.Process(self.pg_pid)

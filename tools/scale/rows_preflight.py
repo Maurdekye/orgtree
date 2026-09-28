@@ -26,6 +26,10 @@ THRESHOLD = 2.0
 #: Value bytes may grow when rows do not (a whole-org read hidden behind a
 #: large per-node log, e.g. node_chat), so bytes are judged too, more loosely.
 BYTES_THRESHOLD = 3.0
+#: ...but only when the N=100 read is big enough to matter: a 8 KB -> 29 KB read
+#: is 3.5x yet costs nothing. Every whole-org load seen so far read >= 3 MB at
+#: N=100 (notifications 5.2, chat 6.1, org list 3.3).
+BYTES_FLOOR = 1_000_000
 JUDGED = ("work_items", "chat", "notifications", "org_list", "message")
 KIND = "rows-preflight"
 
@@ -41,15 +45,19 @@ def verdict(results, threshold=THRESHOLD):
     return all(r <= threshold for r in ratios.values()), ratios
 
 
-def bytes_verdict(results, threshold=BYTES_THRESHOLD):
-    """(passed, per-call value-byte ratios N=100/N=10); refuses zero-byte calls."""
+def bytes_verdict(results, threshold=BYTES_THRESHOLD, floor=BYTES_FLOOR):
+    """(passed, per-call value-byte ratios N=100/N=10); refuses zero-byte calls.
+    A call fails only if its ratio exceeds `threshold` AND its N=100 read is at
+    least `floor` bytes."""
     small, large = (results[n] for n in SIZES)
-    ratios = {}
+    ratios, failed = {}, []
     for call in JUDGED:
         if not small[call].get("value_bytes"):
             raise ValueError(f"rows preflight read no value bytes for {call}")
         ratios[call] = large[call]["value_bytes"] / small[call]["value_bytes"]
-    return all(r <= threshold for r in ratios.values()), ratios
+        if ratios[call] > threshold and large[call]["value_bytes"] >= floor:
+            failed.append(call)
+    return not failed, ratios
 
 
 def fallbacks(results):
