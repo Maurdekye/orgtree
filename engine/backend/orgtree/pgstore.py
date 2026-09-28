@@ -381,7 +381,14 @@ class PgConn:
             return _EMPTY
         try:
             if st.kind != "sql":
-                self.raw.execute(st.sql)
+                try:
+                    self.raw.execute(st.sql)
+                except BaseException:
+                    if st.kind in ("commit", "rollback"):
+                        _settle_revisions(self.raw, False)
+                    raise
+                if st.kind in ("commit", "rollback"):
+                    _settle_revisions(self.raw, st.kind == "commit")
                 if self.creating is not None and st.kind in ("commit", "rollback"):
                     marker, self.creating = self.creating, None
                     self.pinned = self.commit_armed = False
@@ -464,12 +471,28 @@ def _checkout() -> Any:
         while _idle:
             u, raw = _idle.pop()
             if u == target and not raw.closed:
+                _settle_revisions(raw, False)
                 return raw
             _close_quietly(raw)
     return connect(target)
 
 
+def _settle_revisions(raw: Any, committed: bool) -> None:
+    """Answer the feed for every revision this session bumped (pgfeed "IN
+    FLIGHT"): confirmed only by a COMMIT that succeeded on this session."""
+    pending = getattr(raw, "_ot_pending", None)
+    if not pending:
+        return
+    raw._ot_pending = []
+    from . import pgfeed
+    for slug, revision in pending:
+        (pgfeed.note_local if committed else pgfeed.abort_local)(slug, revision)
+
+
 def _release(raw: Any) -> None:
+    # A revision still pending here was not confirmed by a COMMIT this session
+    # answered; never let a later checkout's COMMIT confirm it.
+    _settle_revisions(raw, False)
     pq = _psycopg().pq
     clean = (not raw.closed
              and raw.info.transaction_status == pq.TransactionStatus.IDLE)
@@ -745,6 +768,14 @@ def on_save_commit(conn: PgConn, changed: bool, *, work_changed: bool = False) -
             "work_revision = CASE WHEN %s THEN revision + 1 ELSE work_revision END "
             "WHERE org_id = %s RETURNING revision", (work_changed, conn.org_id,)).fetchone()
         rev = int(row[0])
+        # Before the NOTIFY can be delivered (at COMMIT): tell the feed this
+        # process is committing it, so it does not take it for foreign.
+        from . import pgfeed
+        pgfeed.begin_local(conn.slug, rev)
+        pending = getattr(conn.raw, "_ot_pending", None)
+        if pending is None:
+            pending = conn.raw._ot_pending = []
+        pending.append((conn.slug, rev))
         conn.raw.execute("SELECT pg_notify('org_rev', %s)", (f"{conn.slug}:{rev}",))
     except Exception as e:
         if isinstance(e, _psycopg().Error):

@@ -215,20 +215,61 @@ class RevisionFeed:
 # snapshot (PG-4 review f1). The feed only moves forward, so each callback
 # prunes every entry at or below the revision it was called for; the cap bounds
 # a set whose revisions the feed never reaches (for example, a stopped feed).
+#
+# IN FLIGHT. PostgreSQL delivers the NOTIFY at COMMIT, and the listener can
+# drain it before the committing thread gets COMMIT's answer back, let alone
+# runs org_tx's commit listeners (after the deferred save hooks: a median 68 ms
+# later at N=100, when EVERY org_tx commit was taken for foreign). So a save
+# registers its bumped revision with `begin_local` BEFORE its COMMIT, the
+# connection confirms it (`note_local`) the moment COMMIT succeeds, or releases
+# it (`abort_local`) on rollback. A callback that meets an in-flight revision
+# waits for that answer, bounded per call AND by a rolling budget, so a backlog
+# never stalls the feed for long; an unanswered wait is taken for foreign,
+# which only costs the safe full reload. The orgs row lock serializes revision
+# numbers, so no other process can commit that number until ours commits or
+# rolls back: a rolled-back number reused by another process is still in
+# flight here only until our rollback releases it (or the wait expires).
 _LOCAL_CAP = 1024
 _local: dict[str, int] = {}                 # the newest revision made here
 _local_set: dict[str, set[int]] = {}        # every revision made here, not yet passed
+_inflight: dict[str, set[int]] = {}         # bumped here, COMMIT not yet answered
 _local_lock = threading.Lock()
+_answered = threading.Condition(_local_lock)
+#: longest one callback waits for a commit's answer
+INFLIGHT_WAIT_S = 0.1
+#: most the feed thread waits in total per rolling BUDGET_WINDOW_S
+INFLIGHT_BUDGET_S = 0.25
+BUDGET_WINDOW_S = 1.0
+_budget = {"window": 0.0, "spent": 0.0}
+
+
+def begin_local(slug: str, revision: int) -> None:
+    """Just before COMMIT: this process bumped ``revision``."""
+    with _local_lock:
+        _inflight.setdefault(slug, set()).add(revision)
+
+
+def abort_local(slug: str, revision: int) -> None:
+    """The transaction that bumped ``revision`` did not commit."""
+    with _answered:
+        revs = _inflight.get(slug)
+        if revs is not None:
+            revs.discard(revision)
+        _answered.notify_all()
 
 
 def note_local(slug: str, revision: int) -> None:
-    with _local_lock:
+    with _answered:
         if revision > _local.get(slug, 0):
             _local[slug] = revision
         revs = _local_set.setdefault(slug, set())
         revs.add(revision)
         if len(revs) > _LOCAL_CAP:
             revs.discard(min(revs))
+        pending = _inflight.get(slug)
+        if pending is not None:
+            pending.discard(revision)
+        _answered.notify_all()
 
 
 def local_revision(slug: str) -> int:
@@ -255,10 +296,31 @@ def snapshot_changes_published(feed: "RevisionFeed | None", slug: str,
         return all(rev in local for rev in range(applied + 1, through + 1))
 
 
+def _wait_answered(slug: str, revision: int) -> None:
+    """Under _answered: wait, bounded, while ``revision`` is in flight here."""
+    if revision not in _inflight.get(slug, ()):
+        return
+    now = time.monotonic()
+    if now - _budget["window"] >= BUDGET_WINDOW_S:
+        _budget["window"], _budget["spent"] = now, 0.0
+    deadline = now + min(INFLIGHT_WAIT_S, max(0.0, INFLIGHT_BUDGET_S - _budget["spent"]))
+    while revision in _inflight.get(slug, ()):
+        left = deadline - time.monotonic()
+        if left <= 0:
+            break
+        _answered.wait(left)
+    _budget["spent"] += time.monotonic() - now
+
+
 def _take_local(slug: str, revision: int) -> bool:
-    """Was ``revision`` made by this process? Prunes every recorded revision at
-    or below it: the feed never calls back for those again."""
-    with _local_lock:
+    """Was ``revision`` made by this process? Waits (bounded) for an in-flight
+    commit's answer, then prunes every recorded revision at or below it: the
+    feed never calls back for those again. Unanswered counts as foreign."""
+    with _answered:
+        _wait_answered(slug, revision)
+        pending = _inflight.get(slug)
+        if pending:
+            pending.difference_update([r for r in pending if r <= revision])
         revs = _local_set.get(slug)
         if not revs:
             return False

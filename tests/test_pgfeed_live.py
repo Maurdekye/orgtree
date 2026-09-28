@@ -178,6 +178,29 @@ class Rt9Live(unittest.TestCase):
         # callback will not answer it with a second, full reload
         self.assertEqual(pgfeed.local_revision(slug), before + 1)
 
+    def test_an_org_tx_commit_is_local_before_its_listeners_run(self) -> None:
+        """F3-0: the NOTIFY reaches the listener before org_tx's commit
+        listeners (which note_local after the deferred save hooks). No listener
+        is installed here at all, so only the session's own COMMIT answer can
+        make the feed take it for local; a foreign commit still reloads."""
+        from orgtree import orgtx
+        slug = _fresh_org("f30-local")
+        seen: list = []
+        unknown: list = []
+        told: list = []
+        cb = pgfeed.engine_callback(unknown.append, told.append)
+        r = self.rig(lambda s, v, g: (seen.append((s, v, g)), cb(s, v, g)))
+        self.assertEqual(orgtx.commit_listeners, [], "a listener would hide the race")
+        before = _rev(slug)
+        with orgtx.org_tx(slug, nodes=["a"]) as tx:
+            tx.org.d["nodes"]["a"]["name"] = "via-org-tx"
+        self.assertTrue(_wait(lambda: (slug, before + 1, False) in seen), seen)
+        self.assertEqual((unknown, told), ([], []), "an org_tx commit was taken for foreign")
+        last = _foreign_rename(slug, "foreign")
+        self.assertTrue(_wait(lambda: (slug, last, False) in seen), seen)
+        self.assertEqual((unknown, told), ([slug], [slug]))
+        self.assertGreaterEqual(r.feed.stats.notifications, 2)
+
     def _missed_while_down(self, slug: str, r: _Rig, calls: list) -> tuple[int, int]:
         n = _rev(slug)
         self.assertTrue(_wait(lambda: r.feed.last_seen(slug) == n or not r.feed.catch_up_enabled))
