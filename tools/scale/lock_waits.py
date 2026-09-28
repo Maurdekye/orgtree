@@ -18,6 +18,9 @@ import time
 import traceback
 
 INTERVAL_S = float(os.environ.get("ORGTREE_SCALE_LOCK_WAITS_INTERVAL_S", "0.05"))
+#: names locked outside the lock block (org/node pseudo-rows, receipts, halt)
+_EXTRA = ["org:*", "node:*", "section:mail_transitions", "section:killswitch",
+          "section:audiences", "section:notices"]
 _registry = {}          # backend pid -> {"t": wall time, "site": [...], "plan": [...], "org_id": int}
 _lock = threading.Lock()
 
@@ -63,9 +66,12 @@ def install(orgtx, pgstore, out_path):
     hashes = {}
 
     def decode(conn, org_id, objid, names):
-        for name in names:
+        # pg_locks.objid is the key's int4 as an UNSIGNED oid; hashtext is signed
+        with _lock:
+            known = {n for r in _registry.values() for n in r.get("names", [])}
+        for name in [*names, *sorted(known - set(names)), *_EXTRA]:
             if name not in hashes:
-                hashes[name] = conn.execute("SELECT hashtext(%s)", (name,)).fetchone()[0]
+                hashes[name] = conn.execute("SELECT hashtext(%s)", (name,)).fetchone()[0] & 0xFFFFFFFF
             if hashes[name] == objid:
                 return name
         return None
