@@ -2383,9 +2383,17 @@ class _WorkRowRef(str):
 
 
 def _load_work_refs(conn: Any, slug: str, rows: dict[str, str]) -> None:
-    versions = conn.execute(
-        "SELECT key, xmin::text, ctid::text, tableoid::text FROM doc WHERE starts_with(key, ?)",
-        (workrows.PREFIX,)).fetchall()
+    # Every item's version in ONE row (message-send-reads-grow-above-n-100-
+    # 985-rows-1-2): a row per item made each load's cost follow the docket
+    # size -- four loads per ordinary message, 720 rows at 180 active items.
+    # The same keys and versions, so every check below is unchanged; the
+    # bytes remain (~15 KB at the 200-item cap).
+    agg = conn.execute(
+        "SELECT array_agg(key ORDER BY key), array_agg(xmin::text ORDER BY key), "
+        "array_agg(ctid::text ORDER BY key), array_agg(tableoid::text ORDER BY key) "
+        "FROM doc WHERE starts_with(key, ?)",
+        (workrows.PREFIX,)).fetchone()
+    versions = list(zip(*agg)) if agg and agg[0] is not None else []
     if workrows.SECTION not in rows:
         if versions:
             raise ValueError("orphaned work-item rows")

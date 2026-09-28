@@ -140,7 +140,8 @@ class LazyRows(unittest.TestCase):
         original=pgstore.PgConn.execute; fired=[]
         def execute(c,sql,params=()):
             cur=original(c,sql,params)
-            if sql.startswith('SELECT key, xmin::text') and not fired:
+            # right after the version listing (one aggregated row since option B)
+            if 'starts_with(key' in sql and 'xmin::text' in sql and not fired:
                 fired.append(True)
                 with psycopg.connect(os.environ['ORGTREE_PG_URL'],autocommit=True) as other:
                     row=other.execute(f'SELECT val FROM org_{c.org_id}.doc WHERE key=%s',(workrows.PREFIX+'one',)).fetchone()
@@ -428,5 +429,90 @@ class LazyRows(unittest.TestCase):
         self.assertIsNone(store.read_runtime_node(self.slug,'absent')['node'])
         with patch.object(store,'row_store',return_value=False):
             self.assertIsNone(store.read_runtime_node(self.slug,'a'))
+
+
+@unittest.skipUnless(f.ADMIN, 'disposable PG not configured: NOT RUN')
+class WorkRefsListing(unittest.TestCase):
+    """Every load lists all active items' versions in ONE row, whatever the
+    docket size (message-send-reads-grow-above-n-100-985-rows-1-2, option B:
+    same keys and versions, so the checks are exactly as before)."""
+    setUpClass = LazyRows.setUpClass
+
+    def setUp(self):
+        self.slug = f._fresh_org('wlist-' + self._testMethodName[-20:])
+        org = store.load_org(self.slug)
+        org.d['work_items'] = items()
+        store.save_org(org)
+        with orgtx.org_tx(self.slug, nodes=['a']) as tx: pass   # heal epoch
+
+    def grow(self, n):
+        with orgtx.org_tx(self.slug, sections=['work_items', 'asks']) as tx:
+            for i in range(n):
+                tx.d['work_items'].append({'slug': f'extra-{i:02d}', 'notification_attention_active': False,
+                                           'nested': {'values': []}, 'rev': 1})
+
+    def listing_rows(self, body):
+        """Rows the version listing returned, per listing statement."""
+        counts = []; original = pgstore.PgConn.execute
+        class Counted:
+            def __init__(s, cur): s.cur = cur
+            def fetchone(s):
+                r = s.cur.fetchone(); counts.append(1 if r is not None else 0); return r
+            def fetchall(s):
+                r = s.cur.fetchall(); counts.append(len(r)); return r
+            def __getattr__(s, name): return getattr(s.cur, name)
+        def execute(c, sql, params=()):
+            result = original(c, sql, params)
+            if 'starts_with(key' in sql and params and params[0] == workrows.PREFIX:
+                return Counted(result)
+            return result
+        with patch.object(pgstore.PgConn, 'execute', execute):
+            body()
+        return counts
+
+    def node_tx(self):
+        with orgtx.org_tx(self.slug, nodes=['a']) as tx:
+            tx.d['nodes']['a']['last_status'] = {'summary': 'node only'}
+
+    def test_a_load_lists_every_item_version_in_one_row(self):
+        small = self.listing_rows(self.node_tx)
+        self.grow(30)
+        large = self.listing_rows(self.node_tx)
+        self.assertTrue(small, 'control: the listing ran')
+        self.assertEqual(small, [1] * len(small))
+        self.assertEqual(large, small)
+
+    def test_the_listing_still_carries_every_item_and_its_version(self):
+        self.grow(3)
+        with store._POOL.acquire(self.slug) as conn:
+            rows = {workrows.SECTION: conn.execute('SELECT val FROM doc WHERE key=?',
+                                                   (workrows.SECTION,)).fetchone()[0]}
+            store._load_work_refs(conn, self.slug, rows)
+            stored = {k: tuple(v) for k, *v in conn.execute(
+                "SELECT key, xmin::text, ctid::text, tableoid::text FROM doc "
+                "WHERE starts_with(key, ?)", (workrows.PREFIX,)).fetchall()}
+        refs = {k: v for k, v in rows.items() if k != workrows.SECTION}
+        self.assertEqual(set(refs), set(stored))
+        self.assertEqual(len(refs), 5)
+        for key, ref in refs.items():
+            if isinstance(ref, store._WorkRowRef):
+                self.assertEqual(ref.version, stored[key])
+
+    def test_a_missing_item_row_is_still_an_identity_mismatch(self):
+        with store._POOL.acquire(self.slug) as conn:
+            conn.execute('DELETE FROM doc WHERE key=?', (workrows.PREFIX + 'two',))
+        with self.assertRaises(ValueError):
+            store._load_sqlite_org(self.slug, lazy_work=True)
+
+    def test_orphaned_item_rows_are_still_refused(self):
+        with store._POOL.acquire(self.slug) as conn:
+            conn.execute('DELETE FROM doc WHERE key=?', (workrows.SECTION,))
+        with self.assertRaises(ValueError):
+            store._load_sqlite_org(self.slug, lazy_work=True)
+
+    def test_an_org_with_no_docket_lists_nothing(self):
+        slug = f._fresh_org('wlist-empty-' + self._testMethodName[-8:])
+        with orgtx.org_tx(slug, nodes=['a']) as tx:
+            self.assertEqual(list(tx.d.get('work_items') or []), [])
 
 if __name__=='__main__': unittest.main()
