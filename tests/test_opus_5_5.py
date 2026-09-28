@@ -32,7 +32,7 @@ class Opus55Tests(unittest.TestCase):
         self.assertEqual((row["model"], row["provider"], row["seat"]),
                          ("claude-opus-5-5", "claude", 4))
         self.assertEqual(org.seat_cost("agent"), 4)
-        self.assertEqual(clipin.PIN, "2.1.280")
+        self.assertEqual(clipin.PIN, "2.1.284")
 
     def test_saved_default_migrates_without_changing_account_or_grant(self):
         original = self.org()

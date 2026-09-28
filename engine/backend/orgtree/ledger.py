@@ -170,7 +170,11 @@ MODELS: Final[dict[str, str]] = {
     # Official Anthropic model overview and Claude Code 2.1.280 registry,
     # 2026-09-22. The Opus tier now costs four credits by the user's ruling.
     "opus": "claude-opus-5-5",
-    "sonnet": "claude-sonnet-5",
+    # Sonnet 5.5 (2026-09-28): the Claude Code 2.1.284 model catalog lists
+    # `claude-sonnet-5-5` as the latest Sonnet, at Sonnet 5's price
+    # (tier_2_10, $2/M input) and window (1M). Existing Sonnet agents are
+    # pinned to 5 by the migration below; 5 stays a model VERSION.
+    "sonnet": "claude-sonnet-5-5",
     "haiku": "claude-haiku-4-5",
     # the codex family — exact IDs from the installed CLI's model inventory;
     # Sol and Luna default to GPT-6, with 5.6 available below as versions.
@@ -216,6 +220,7 @@ MODEL_VERSIONS: Final[dict[str, dict[str, str]]] = {
     "luna": {"6": "gpt-6-luna", "5.6": "gpt-5.6-luna"},
     "opus": {"5.5": "claude-opus-5-5", "5": "claude-opus-5",
              "4.8": "claude-opus-4-8"},
+    "sonnet": {"5.5": "claude-sonnet-5-5", "5": "claude-sonnet-5"},
     # Fable 5.1 is the tier default; 5.0 stays selectable in the gear for the
     # same reason Opus 4.8 does — a version is a subcategory inside the band,
     # never a chip, and never a different price.
@@ -1560,6 +1565,25 @@ class Org:
         # verbatim to the CLI, never silently substituted with Opus 5.
         if _m.get("opus") == "claude-opus-5":
             _m["opus"] = MODELS["opus"]
+        # Sonnet 5.5 becomes the default for NEW hires and switches, while
+        # every existing Sonnet agent keeps running Sonnet 5: it is pinned to
+        # version "5" once, when the shipped 5.0 default is upgraded (the
+        # trigger cannot fire twice). A custom organization id is never
+        # overwritten and its agents are not pinned; an explicit pin stays.
+        # ⚠ v3 on-demand rows: the pin must reach EVERY node in the load that
+        # flips the default, or an undecoded agent silently moves to 5.5. It
+        # does: editing this file changes store.heal_epoch, so the first load
+        # after an upgrade is a whole load, and the epoch is stamped only once
+        # a whole load needs no heal (the flip is committed). A lazy table
+        # still seeing the old default therefore cannot happen; if it ever
+        # does, both halves wait for the next whole load rather than one.
+        if (_m.get("sonnet") == "claude-sonnet-5"
+                and not _lazy_rows(self.d.get("nodes"))):
+            for _node in self.nodes.values():
+                if (_node.get("model") == "sonnet"
+                        and not (_node.get("scope") or {}).get("model_version")):
+                    _node.setdefault("scope", {})["model_version"] = "5"
+            _m["sonnet"] = MODELS["sonnet"]
         # Fold the short-lived GPT-6 tier spelling into Sol/Luna's version
         # selector. Existing unpinned Sol/Luna nodes advance with the default;
         # explicitly pinned choices keep their selected version. A former
@@ -5702,6 +5726,9 @@ class Org:
         if tier is not None:
             if tier not in self.d["tiers"]:
                 raise LedgerError(f"unknown tier {tier!r}")
+            if tier != n["model"]:
+                # a version belongs to one tier (see switch_model)
+                cast("dict[str, Any]", n.setdefault("scope", {})).pop("model_version", None)
             n["model"] = tier
         if own_bearer and n["parent"] != actor:
             # user ruling: a self-hired bearer is the node's OWN subordinate —
@@ -6198,6 +6225,12 @@ class Org:
                                         cascade=bool(self.d.get("cascade_alloc", True)))
             n["model"] = tier
             n["grant"] = _q(n["grant"] - own)  # holding grows by exactly the shortfall
+        # A model VERSION belongs to one tier (the gear resets it on a tier
+        # change too). Tiers now share version keys — "5" is Opus 5 and
+        # Sonnet 5 — so a pin carried across a switch would silently pick the
+        # other tier's old version instead of its default.
+        if tier != old:
+            cast("dict[str, Any]", n.setdefault("scope", {})).pop("model_version", None)
         # D-196: a switch that CROSSES PROVIDERS cannot keep the session, and
         # must not pretend to. `session_id` holds a provider-owned handle — a
         # codex threadId, an antigravity conversation id, a Claude session uuid — and

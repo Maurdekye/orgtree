@@ -625,7 +625,8 @@ def claude_model_for(org: Org, nid: str) -> str:
     This remains a Fable-only compatibility rule. In particular, Opus 5.5
     must reach the CLI verbatim, even if an operator resolves an older CLI;
     silently replacing it with Opus 5 would run a different requested model.
-    The packaged CLI pin includes Opus 5.5 support and pricing.
+    The same holds for Sonnet 5.5. The packaged CLI pin includes Opus 5.5
+    and Sonnet 5.5 support and pricing.
     """
     want = org.model_for(nid)
     if want == clipin.FABLE_5_1 and not cli_knows_fable_5_1():
