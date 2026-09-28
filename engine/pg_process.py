@@ -23,9 +23,11 @@ postgres the bracket also sets ``ORGTREE_STORE=postgres`` for the engine, so
 the store cannot disagree. FRESH INSTALLS (the packaged 3.0.0-alpha.0
 desktop, which alone sets ``ORGTREE_PG_BOOTSTRAP=1``): a root with no org
 store yet is bound and recorded as postgres before the choice is made, so it
-never starts on SQLite; a root that already holds orgs is left exactly as it
-is until the PG-2 cutover, and a root in between refuses (see
-``bootstrap_fresh_root``). A cutover record that does not parse, or names a
+never starts on SQLite; a root that already holds SQLite orgs (a 2.1.x
+install upgraded in place) is CONVERTED on that first launch by the PG-2
+importer, and switched only when every org copied and read back exactly
+(``convert_existing_root``, user decision 38, 2026-09-28); a root in between
+refuses (see ``bootstrap_fresh_root``). A cutover record that does not parse, or names a
 backend we do not know, REFUSES rather than guessing. Once postgres is chosen,
 ``ORGTREE_PG_CUSTODIAN`` must name an existing absolute executable (no PATH
 lookup, no fallback) and the data root must pass the checks below, or the
@@ -540,6 +542,220 @@ def bootstrap_fresh_root(root: Path, env: Mapping[str, str], progress: Progress 
     return kind
 
 
+# ---------------------------------------------------------------- first-launch conversion
+
+#: The cutover record's ``via`` when the packaged engine converted the root itself.
+CONVERT_VIA = "first-launch-conversion"
+#: Where each conversion attempt keeps its reports and logs, under the root.
+CONVERT_DIR = "conversion"
+#: The bundled importer (``resources/tools/pypg`` beside ``resources/engine``).
+IMPORTER = _ENGINE.parent / "tools" / "pypg" / "pgimport.py"
+#: Progress phases are at most 100 characters (``startup_progress.parse_progress``).
+CONVERT_PHASE = "database-convert"
+
+
+class ConversionFailed(BracketError):
+    """The first-launch conversion did not complete; the message is written
+    for the user (launch.py prints it as a structured refusal)."""
+
+
+def _convert_message(root: Path, reason: str, logdir: Path | None) -> str:
+    record = None
+    try:
+        record = read_cutover(root)
+    except BracketError:
+        pass
+    if record is not None and record.get("backend") == "postgres":
+        state = ("The switch to the new database was recorded, but moving the old files aside did not "
+                 "finish; the old files are still there.")
+    else:
+        state = ("Nothing was switched: your data is still in the old format, unchanged, and Orgtree "
+                 "2.1.12 can open it.")
+    details = f" Details: {logdir}." if logdir is not None else ""
+    return (f"Orgtree could not convert your data to its new database, so it has not started. {state} "
+            f"Reason: {reason}{details} To keep working now, reinstall Orgtree 2.1.12. "
+            f"The guide docs/state-system/pypg-cutover-runbook.md says what to send the Orgtree team.")
+
+
+#: The conversion's latest state for a desktop that ATTACHED to an engine it
+#: did not start (the boot host's), and so cannot read its progress lines.
+CONVERT_STATUS = "current.json"
+CONVERT_STATUS_SCHEMA = "orgtree.conversion-status/v1"
+
+
+def write_convert_status(root: Path, state: str, phase: str, logdir: Path | None = None,
+                         reason: str | None = None) -> None:
+    """``<root>/conversion/current.json``: state running|failed|done, the
+    latest phase, this engine's pid, the log folder and (failed) the reason
+    shown to the user. Replaced atomically; best effort (a status file that
+    cannot be written never stops or fails the conversion)."""
+    folder = root / CONVERT_DIR
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        value = {"schema": CONVERT_STATUS_SCHEMA, "state": state, "phase": phase, "pid": os.getpid(),
+                 "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                 "log": str(logdir) if logdir is not None else None, "reason": reason}
+        tmp = folder / f"{CONVERT_STATUS}.{os.getpid()}.tmp"
+        tmp.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+        os.replace(tmp, folder / CONVERT_STATUS)
+    except OSError:
+        pass
+
+
+def _trash_sources(root: Path) -> list[str]:
+    folder = root / "deleted"
+    return sorted(p.name for p in folder.iterdir() if p.is_file() and _is_source(p.name)) \
+        if folder.is_dir() else []
+
+
+def _run_importer(args: list[str], env: Mapping[str, str], logdir: Path, name: str,
+                  step: Progress) -> tuple[int, str]:
+    """Run the bundled importer in a CHILD process with the engine's own
+    Python: it sets ``ORGTREE_STORE=sqlite`` for itself and loads the
+    SQLite store, neither of which may leak into this engine. Its
+    ``--progress`` lines become startup checkpoints; stderr goes to a file.
+    Returns (exit code, stderr text)."""
+    err_path = logdir / f"{name}.stderr.txt"
+    with open(err_path, "wb") as err:
+        proc = subprocess.Popen([sys.executable, str(IMPORTER), *args], stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=err, env=dict(env), cwd=str(IMPORTER.parent),
+                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        assert proc.stdout is not None
+        with open(logdir / f"{name}.progress.txt", "w", encoding="utf-8") as log:
+            for raw in proc.stdout:
+                line = raw.decode("utf-8", errors="replace").strip()
+                log.write(line + "\n")
+                log.flush()
+                try:
+                    value = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(value, dict) and value.get("type") == "pgimport-progress":
+                    step(f"{CONVERT_PHASE}: {value.get('step', '')}"[:100])
+        code = proc.wait()
+    return code, err_path.read_text(encoding="utf-8", errors="replace")
+
+
+def _last_line(text: str) -> str:
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    return lines[-1][:600] if lines else "(no message)"
+
+
+def convert_existing_root(root: Path, env: Mapping[str, str], progress: Progress | None = None) -> dict[str, Any]:
+    """The packaged engine's FIRST LAUNCH on a root that still holds SQLite
+    orgs (user decision 38, 2026-09-28): convert it to PostgreSQL before
+    anything is served, with the PG-2 importer unchanged in what it checks.
+
+    Order: a read-only dry run (any unrecognised data refuses here, before
+    anything is written); the product binding; the import, which copies each
+    org in one transaction, reads it back and compares it byte for byte;
+    then, only when every org passed, the cutover record (``via`` =
+    ``first-launch-conversion``) and the move of the old files to
+    ``pre-postgres/orgs``. Every report and log goes to
+    ``<root>/conversion/<time>-<pid>/``.
+
+    Interrupted anywhere before the record: the old files are untouched and
+    the next launch runs this again (orgs already copied and verified are
+    skipped). Interrupted after the record: the next launch finishes the
+    move (:func:`finish_interrupted_conversion`). Refused or failed: raises
+    :class:`ConversionFailed` with a message for the user; nothing is
+    switched unless the record was already written.
+
+    Every step also lands in ``<root>/conversion/current.json``
+    (:func:`write_convert_status`), ending ``done`` or ``failed`` with the
+    reason, for a desktop attached to an engine it did not start."""
+    outer = progress or (lambda _phase: None)
+    state: dict[str, Path | None] = {"logdir": None}
+
+    def step(phase: str) -> None:
+        outer(phase)
+        write_convert_status(root, "running", phase, state["logdir"])
+
+    try:
+        result = _convert(root, env, step, state)
+    except BaseException as exc:
+        write_convert_status(root, "failed", f"{CONVERT_PHASE}: failed", state["logdir"],
+                             str(exc) if isinstance(exc, ConversionFailed) else f"{type(exc).__name__}: {exc}")
+        raise
+    write_convert_status(root, "done", f"{CONVERT_PHASE}: done", state["logdir"])
+    return result
+
+
+def _convert(root: Path, env: Mapping[str, str], step: Progress, state: dict[str, Path | None]) -> dict[str, Any]:
+    trash = _trash_sources(root)
+    if trash:
+        # checked before anything is written: this refusal leaves the root as it was
+        raise ConversionFailed(_convert_message(
+            root, f"the trash holds {len(trash)} file(s) of deleted organizations in the old format "
+                  f"({', '.join(trash[:5])}), which the conversion does not carry over. Open Orgtree 2.1.12, "
+                  "restore or permanently delete them, then start this version again.", None))
+    _refuse_overlap(root, product_deny_locations(env))
+    custodian = _executable(env, CUSTODIAN_ENV)
+    if not IMPORTER.is_file():
+        raise ConversionFailed(_convert_message(root, f"the bundled importer is missing ({IMPORTER}).", None))
+    logdir = root / CONVERT_DIR / f"{time.strftime('%Y%m%dT%H%M%S')}-{os.getpid()}"
+    logdir.mkdir(parents=True, exist_ok=True)
+    state["logdir"] = logdir
+    child = {k: v for k, v in env.items() if k not in ("ORGTREE_V2_TOKEN", CONNINFO_ENV, STORE_ENV)}
+    child.update({"ORGTREE_DATA": str(root), "PYTHONUNBUFFERED": "1"})
+    step(f"{CONVERT_PHASE}: checking your data")
+    code, err = _run_importer(["dry-run", "--root", str(root), "--out", str(logdir / "dry-run.json")],
+                              child, logdir, "dry-run", step)
+    if code != 0:
+        reason = _last_line(err)
+        try:
+            refused = json.loads((logdir / "dry-run.json").read_text(encoding="utf-8")).get("refused") or []
+            if refused:
+                reason = "some data is not recognised: " + "; ".join(str(r) for r in refused[:3])
+        except (OSError, ValueError):
+            pass
+        raise ConversionFailed(_convert_message(root, reason.rstrip(".") + ".", logdir))
+    step(f"{CONVERT_PHASE}: preparing the new database")
+    code, err = _run_importer(["prepare", "--root", str(root), "--custodian", str(custodian)],
+                              child, logdir, "prepare", step)
+    if code != 0:
+        raise ConversionFailed(_convert_message(root, _last_line(err), logdir))
+    code, err = _run_importer(["import", "--root", str(root), "--custodian", str(custodian), "--cutover",
+                               "--via", CONVERT_VIA, "--progress", "--out", str(logdir / "import.json")],
+                              child, logdir, "import", step)
+    record = read_cutover(root)
+    if code != 0 or record is None or record.get("backend") != "postgres" or record.get("via") != CONVERT_VIA:
+        raise ConversionFailed(_convert_message(root, _last_line(err) if code != 0 else
+                                                "the importer finished without switching to the new database.",
+                                                logdir))
+    step(f"{CONVERT_PHASE}: switched to the new database")
+    return {"logdir": str(logdir), "orgs": sorted(record.get("orgs", {}))}
+
+
+def finish_interrupted_conversion(root: Path, env: Mapping[str, str]) -> list[str]:
+    """A first-launch conversion that wrote its record but was stopped
+    before every old file was moved: finish the move (a rename; the bytes
+    are not touched; an existing rollback copy is never overwritten). Only
+    for the packaged engine and only for a record this conversion wrote --
+    a hand-run cutover keeps its explicit refusal in
+    :func:`check_cutover_finished`."""
+    if env.get(BOOTSTRAP_ENV, "").strip() != "1" or env.get(STORE_ENV, "").strip() or _unc_or_device(root):
+        return []
+    record = read_cutover(root)
+    if record is None or record.get("backend") != "postgres" or record.get("via") != CONVERT_VIA:
+        return []
+    orgs, dest = root / "orgs", root / "pre-postgres" / "orgs"
+    left = [p for p in sorted(orgs.iterdir(), key=lambda p: p.name)
+            if p.is_file() and not p.name.endswith(".pg") and not _MARKER_TMP.fullmatch(p.name)] \
+        if orgs.is_dir() else []
+    moved: list[str] = []
+    if left:
+        dest.mkdir(parents=True, exist_ok=True)
+    for p in left:
+        target = dest / p.name
+        if target.exists():
+            raise BracketError(f"finishing the conversion of {root}: {target} already exists; refusing to "
+                               f"overwrite a rollback copy with {p}")
+        os.rename(p, target)
+        moved.append(p.name)
+    return moved
+
+
 # ---------------------------------------------------------------- the bracket
 
 class ManagedPostgres:
@@ -587,7 +803,10 @@ def start_for_engine(root: Path, env: MutableMapping[str, str], migrator: Migrat
     (after writing the event-log line) when the engine must not start."""
     try:
         if bootstrap_wanted(root, env):
-            bootstrap_fresh_root(root, env, progress)
+            if bootstrap_fresh_root(root, env, progress) == "existing":
+                convert_existing_root(root, env, progress)
+        else:
+            finish_interrupted_conversion(root, env)
         if not wanted(env, root):
             env.pop(CONNINFO_ENV, None)  # never a stale connection from a parent
             return None

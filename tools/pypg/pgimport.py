@@ -65,7 +65,7 @@ import sqlite3
 import sys
 import tempfile
 import time
-from typing import Any, Iterable, Iterator, Mapping, Protocol
+from typing import Any, Callable, Iterable, Iterator, Mapping, Protocol
 
 _REPO = Path(__file__).resolve().parents[2]
 if str(_REPO / "engine" / "backend") not in sys.path:
@@ -138,6 +138,14 @@ LEGACY_DOC_ROW_LOGS = frozenset({"lifecycle", "work_items_archive"}) & LIST_LOGS
 
 class ImportRefused(RuntimeError):
     """The import (or the cutover) must not proceed. Nothing was switched."""
+
+
+#: Progress reporter: one short line per real step (never a timer).
+Progress = Callable[[str], None]
+
+
+def _no_progress(_line: str) -> None:
+    return None
 
 
 # ---------------------------------------------------------------- rows
@@ -464,8 +472,9 @@ def cut_over(root: Path) -> bool:
     return isinstance(record, dict) and record.get("backend") == "postgres"
 
 
-def dry_run(root: Path) -> dict[str, Any]:
+def dry_run(root: Path, progress: Progress | None = None) -> dict[str, Any]:
     """Every org: source, counts, checksums, problems. Writes nothing."""
+    say = progress or _no_progress
     if cut_over(root):
         raise ImportRefused(f"{root} is already cut over to PostgreSQL ({CUTOVER_FILE}); "
                             "there is nothing to import (run `import` again only to finish an interrupted cutover)")
@@ -477,7 +486,8 @@ def dry_run(root: Path) -> dict[str, Any]:
                                              "pgimport": str(Path(__file__).resolve())},
                               "orgs": {}, "ignored": layout["ignored"], "markers": layout["markers"],
                               "refused": list(layout["refused"])}
-    for slug, entry in layout["orgs"].items():
+    for number, (slug, entry) in enumerate(layout["orgs"].items(), start=1):
+        say(f"checking {slug} ({number} of {len(layout['orgs'])})")
         try:
             org = extract(slug, entry)
         except ImportRefused as exc:
@@ -512,7 +522,8 @@ class Sink(Protocol):
     (the real sink writes PG-0's ``orgs/<slug>.pg`` marker there)."""
 
     def recorded(self, slug: str) -> Mapping[str, Any] | None: ...
-    def replace_org(self, slug: str, rows: Mapping[str, list[tuple[Any, ...]]], receipt: Mapping[str, Any]) -> None: ...
+    def replace_org(self, slug: str, rows: Mapping[str, list[tuple[Any, ...]]], receipt: Mapping[str, Any],
+                    copied: Callable[[int], None] | None = None) -> None: ...
     def read_org(self, slug: str) -> dict[str, list[tuple[Any, ...]]]: ...
     def finish_org(self, slug: str) -> None: ...
 
@@ -525,24 +536,32 @@ def _ordered(rows: Mapping[str, list[tuple[Any, ...]]]) -> dict[str, list[tuple[
     return out
 
 
-def import_root(root: Path, sink: Sink, *, only: Iterable[str] | None = None) -> dict[str, Any]:
+def import_root(root: Path, sink: Sink, *, only: Iterable[str] | None = None,
+                plan: Mapping[str, Any] | None = None, progress: Progress | None = None) -> dict[str, Any]:
     """Import every org (or ``only``). Refuses up front if the dry run finds
     anything unrecognised. Resumable: an org whose recorded receipt matches
     its source fingerprint AND whose rows read back to the same manifest is
     skipped; anything else is replaced whole. After every import the rows are
     read back and must match the source BYTE FOR BYTE (PG-0 stores ``val`` as
     text, exactly as SQLite held it) as well as by manifest. Returns the
-    per-org record."""
-    plan = dry_run(root)
+    per-org record. ``plan`` is a dry run of this root made just before (the
+    caller's), so it is not repeated; every org is still re-extracted and
+    re-checked below."""
+    say = progress or _no_progress
+    if plan is None:
+        plan = dry_run(root)
     if plan["refused"]:
         raise ImportRefused("the dry run refused: " + "; ".join(plan["refused"][:20])
                             + (f" (+{len(plan['refused']) - 20} more)" if len(plan["refused"]) > 20 else ""))
     wanted = set(only) if only is not None else None
     layout = classify_orgs_dir(root)
     result: dict[str, Any] = {"schema": SCHEMA, "kind": "import", "root": str(root), "orgs": {}}
+    todo = [s for s in layout["orgs"] if wanted is None or s in wanted]
     for slug, entry in layout["orgs"].items():
         if wanted is not None and slug not in wanted:
             continue
+        where = f"{slug} ({todo.index(slug) + 1} of {len(todo)})"
+        say(f"reading {where}")
         org = extract(slug, entry)
         # The source may have changed since the dry run: re-check it.
         found = problems(org)
@@ -561,8 +580,14 @@ def import_root(root: Path, sink: Sink, *, only: Iterable[str] | None = None) ->
                 and manifest_digest(manifest(sink.read_org(slug))) == digest:
             sink.finish_org(slug)
             result["orgs"][slug] = {"action": "already_imported", "manifest_sha256": digest}
+            say(f"already copied {where}")
             continue
-        sink.replace_org(slug, target, receipt)
+        say(f"copying {where}")
+        if progress is None:
+            sink.replace_org(slug, target, receipt)
+        else:
+            sink.replace_org(slug, target, receipt, copied=lambda n: say(f"copying {where}: {n} rows"))
+        say(f"checking the copy of {where}")
         read = sink.read_org(slug)
         back = manifest(read)
         if back != m:
@@ -578,6 +603,7 @@ def import_root(root: Path, sink: Sink, *, only: Iterable[str] | None = None) ->
             if workrows.checksum(workrows.assemble(rows)) != item_check:
                 raise ImportRefused(f"{slug}: work-items count/checksum mismatch after read-back")
         sink.finish_org(slug)
+        say(f"copied and checked {where}")
         result["orgs"][slug] = {"action": "imported", "manifest_sha256": digest,
                                 "tables": {t: v["count"] for t, v in m["tables"].items()}, "work_items": item_check,
                                 "source_manifest_sha256": manifest_digest(source_m)}
@@ -630,7 +656,12 @@ class PgSink:
                                 (org_id, self.OP_KEY)).fetchone()
         return json.loads(row[0]) if row and row[0] else None
 
-    def replace_org(self, slug: str, rows: Mapping[str, list[tuple[Any, ...]]], receipt: Mapping[str, Any]) -> None:
+    #: A long COPY reports how far it got at most this often (seconds), so a
+    #: watcher sees the rows advance; a stalled COPY reports nothing.
+    COPY_REPORT_EVERY = 5.0
+
+    def replace_org(self, slug: str, rows: Mapping[str, list[tuple[Any, ...]]], receipt: Mapping[str, Any],
+                    copied: Callable[[int], None] | None = None) -> None:
         # The import writes no receipt rows (and clears any, below), so the
         # converted marker must not come with it: a marked org with no
         # conversion record would load with no custody receipts at all.
@@ -655,12 +686,17 @@ class PgSink:
                                      (f"{schema}.{table}",)).fetchone()[0] is not None:
                     self.conn.execute(f"DELETE FROM {schema}.{table}")
             cur = self.conn.cursor()
+            done, last = 0, time.monotonic()
             for table in TABLES:
                 if not rows.get(table):
                     continue
                 with cur.copy(f"COPY {schema}.{table} ({', '.join(COLUMNS[table])}) FROM STDIN") as copy:
                     for row in rows[table]:
                         copy.write_row(row)
+                        done += 1
+                        if copied is not None and time.monotonic() - last >= self.COPY_REPORT_EVERY:
+                            copied(done)
+                            last = time.monotonic()
             for table in ("log_d", "log_l"):
                 self.conn.execute(
                     f"SELECT setval(pg_get_serial_sequence('{schema}.{table}', 'seq'), "
@@ -733,7 +769,8 @@ PRODUCT_BINDING = "orgtree-product-root.json"
 ROLLBACK_DIR = Path("pre-postgres") / "orgs"
 
 
-def write_cutover(root: Path, dry: Mapping[str, Any], imported: Mapping[str, Any]) -> dict[str, Any]:
+def write_cutover(root: Path, dry: Mapping[str, Any], imported: Mapping[str, Any],
+                  via: str | None = None) -> dict[str, Any]:
     """Record that ``root`` now runs on PostgreSQL (decision 18.1: the engine
     reads this record when ``ORGTREE_STORE`` is unset) and move the old files
     aside. Refuses unless the dry run was clean and EVERY org in it was
@@ -768,6 +805,10 @@ def write_cutover(root: Path, dry: Mapping[str, Any], imported: Mapping[str, Any
               "moved_to": ROLLBACK_DIR.as_posix(),
               "rollback": f"move the files in {ROLLBACK_DIR.as_posix()} back into orgs/ and delete this file; "
                           "writes made after the switch are lost"}
+    if via:
+        # who switched (the engine's first-launch conversion finishes an
+        # interrupted file move by itself only for its own record)
+        record["via"] = via
     target = root / CUTOVER_FILE
     tmp = target.with_suffix(".tmp")
     tmp.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
@@ -880,8 +921,18 @@ def main(argv: list[str] | None = None) -> int:
     imp.add_argument("--custodian", type=Path, required=True)
     imp.add_argument("--cutover", action="store_true")
     imp.add_argument("--out", type=Path)
+    imp.add_argument("--via", help="recorded in the cutover record as who switched")
+    imp.add_argument("--progress", action="store_true",
+                     help="print one JSON progress line per real step on stdout (needs --out)")
     args = parser.parse_args(argv)
     root = args.root.resolve()
+    progress: Progress | None = None
+    if getattr(args, "progress", False):
+        if not args.out:
+            parser.error("--progress needs --out: stdout carries the progress lines")
+
+        def progress(line: str) -> None:
+            print(json.dumps({"type": "pgimport-progress", "step": line}), flush=True)
     if not (root / "orgs").is_dir():
         print(f"pgimport: {root} has no orgs/ folder", file=sys.stderr)
         return 2
@@ -908,17 +959,28 @@ def main(argv: list[str] | None = None) -> int:
                               "moved": complete_cutover(root)}
                     code, summary = 0, {"cutover_completed": True, "moved": len(report["moved"])}
                 else:
-                    plan = dry_run(root)
+                    plan = dry_run(root, progress)
+                    if plan["refused"]:
+                        # before the database is touched: nothing is written
+                        raise ImportRefused("the dry run refused: " + "; ".join(plan["refused"][:20])
+                                            + (f" (+{len(plan['refused']) - 20} more)"
+                                               if len(plan["refused"]) > 20 else ""))
+                    if progress:
+                        progress("starting the database")
                     with database(root, _custodian(args.custodian), os.environ) as admin:
                         sink = PgSink(admin, root / "orgs")
                         try:
-                            report = import_root(root, sink)
+                            report = import_root(root, sink, plan=plan, progress=progress)
                             report["migrations"] = sink.migrations
                         finally:
                             sink.close()
+                        if progress:
+                            progress("stopping the database")
                     report["provenance"] = plan["provenance"]
                     if args.cutover:
-                        report["cutover"] = write_cutover(root, plan, report)
+                        if progress:
+                            progress("switching to PostgreSQL and moving the old files aside")
+                        report["cutover"] = write_cutover(root, plan, report, args.via)
                     code = 0
                     summary = {"orgs": len(report["orgs"]), "cutover": bool(args.cutover)}
     except ImportRefused as exc:

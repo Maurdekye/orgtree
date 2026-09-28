@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import shutil
 import tempfile
 import threading
 import time
@@ -625,6 +626,59 @@ class ServiceHostIntegrationTests(unittest.TestCase):
                     host.wait(timeout=15)
                 if host.stderr:
                     host.stderr.close()
+
+
+class PackagedPostgresTests(unittest.TestCase):
+    """The boot host starts the engine BEFORE the desktop on an all-users
+    install with the boot task (the v3 installer starts that task at once), so
+    it must give the engine what the packaged desktop gives it: the bundled
+    PostgreSQL and ORGTREE_PG_BOOTSTRAP=1, so the first-launch conversion runs
+    in whichever process starts the engine first (p03-ws4 finding 2026-09-28)."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="orgtree-host-pg-"))
+        self.engine = self.tmp / "resources" / "engine"
+        (self.engine / "postgresql" / "bin").mkdir(parents=True)
+        (self.engine / "pg-custodian.exe").write_bytes(b"")
+        for name in ("postgres.exe", "pg_ctl.exe", "initdb.exe", "psql.exe", "pg_controldata.exe"):
+            (self.engine / "postgresql" / "bin" / name).write_bytes(b"")
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_an_installed_app_gets_the_bundled_postgres_and_bootstrap(self) -> None:
+        (self.tmp / "resources" / "app.asar").write_bytes(b"")
+        env = service_host.packaged_postgres_environment(self.engine)
+        self.assertEqual(env, {"ORGTREE_PG_CUSTODIAN": str(self.engine / "pg-custodian.exe"),
+                               "ORGTREE_P03_PG_BIN": str(self.engine / "postgresql" / "bin"),
+                               "ORGTREE_PG_BOOTSTRAP": "1"})
+
+    def test_a_source_checkout_gets_nothing(self) -> None:
+        self.assertEqual(service_host.packaged_postgres_environment(self.engine), {})
+
+    def test_a_missing_bundled_file_fails_the_start(self) -> None:
+        (self.tmp / "resources" / "app.asar").write_bytes(b"")
+        (self.engine / "postgresql" / "bin" / "psql.exe").unlink()
+        with self.assertRaisesRegex(RuntimeError, "packaged PostgreSQL executable is missing: .*psql.exe"):
+            service_host.packaged_postgres_environment(self.engine)
+
+    def test_the_conversion_phases_get_the_long_window(self) -> None:
+        line = json.dumps({"type": "startup-progress", "phase": "database-convert: copying acme (1 of 2)"})
+        self.assertEqual(service_host.checkpoint_window(line), service_host.CONVERT_READY_TIMEOUT)
+        self.assertGreaterEqual(service_host.CONVERT_READY_TIMEOUT, 600)
+        for other in (json.dumps({"type": "startup-progress", "phase": "database-start"}), "not json", "[]"):
+            self.assertEqual(service_host.checkpoint_window(other), service_host.READY_TIMEOUT)
+
+    def test_the_host_never_inherits_the_bootstrap_switch(self) -> None:
+        source = Path(service_host.__file__).read_text(encoding="utf-8")
+        main = source[source.index("def main()"):]
+        self.assertIn('"ORGTREE_PG_BOOTSTRAP"', main[:main.index("packaged_postgres_environment(")])
+
+    def test_a_failed_conversion_is_reported_not_retried_as_a_lost_race(self) -> None:
+        source = Path(service_host.__file__).read_text(encoding="utf-8")
+        reader = source[source.index("def read_stdout()"):source.index("reader = threading.Thread")]
+        self.assertIn('"conversion-failed"', reader)
+        self.assertIn("conversion failed: ", reader)
 
 
 if __name__ == "__main__":

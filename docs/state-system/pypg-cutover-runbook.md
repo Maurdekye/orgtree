@@ -1,12 +1,13 @@
-# Moving Orgtree's data to PostgreSQL: instructions for an outside agent
+# Upgrading from Orgtree 2.1.12 to v3: the automatic data conversion
 
-You are a coding agent running in an ordinary terminal on the user's Windows
-PC, **outside** Orgtree. These instructions move the user's Orgtree data from
-its current storage (one SQLite database file per organization) into a private
-PostgreSQL database that Orgtree then runs on. Follow them in order. Do not
-skip a check. When a step tells you to stop, stop: do not improvise a fix,
-and do not edit any file in the data folder by hand except where a step says
-exactly what to do.
+This guide is for the user, or for a coding agent working on the user's
+behalf in an ordinary terminal **outside** Orgtree. It explains what happens
+to the data when Orgtree v3 is installed over 2.1.12, how to confirm that the
+conversion worked, what to do when it did not, and how to go back to 2.1.12.
+
+You do not run the conversion yourself. Orgtree v3 does it by itself the
+first time it starts. The steps below are the backup before it, the checks
+after it, and the way back.
 
 ## 1. Words used here
 
@@ -14,119 +15,102 @@ exactly what to do.
   **engine** (a Python process) that reads and writes the data.
 - **Data folder**: `%APPDATA%\Orgtree v2\data` (for example
   `C:\Users\<name>\AppData\Roaming\Orgtree v2\data`). Everything Orgtree
-  stores is in it.
-- **Organization (org)**: one team inside Orgtree. Each org is stored today
-  as one file in `<data folder>\orgs\`, named `<slug>.db` (a SQLite database;
-  it may have `<slug>.db-wal` and `<slug>.db-shm` beside it) or, for very old
-  orgs, `<slug>.json`. The **slug** is the org's short name.
-- **PostgreSQL**: a database server. Here it is a private copy that only
-  Orgtree uses, stored in `<data folder>\pg\` and listening only on this PC
-  (127.0.0.1).
-- **pg-custodian**: a small program (`pg-custodian.exe`) that creates, starts,
-  stops and checks that private PostgreSQL. It refuses to work on any folder
-  it has not been told is safe.
-- **pgimport**: the Python script `tools\pypg\pgimport.py` that copies the
-  orgs into PostgreSQL and then switches Orgtree over.
-- **Dry run**: pgimport reading every org and reporting counts, checksums and
-  problems, without writing anything.
-- **Manifest / checksum**: for each org, pgimport counts the rows of every
-  kind of data and computes a SHA-256 checksum of them. `manifest_sha256` is
-  one checksum over all of that. The same data always gives the same value, so
-  matching expected values and the independent read-back prove the copy.
-  The active docket changes physical layout: one `work_items` header plus one
-  row per item. `source_manifest_sha256` describes the original five tables;
-  `manifest_sha256` describes the expected destination tables. They may differ.
-  The per-org `work_items` count and logical SHA-256 must match after rebuilding
-  the ordered item list; all other rows remain byte-identical.
-- **Cutover record**: the file `<data folder>\store-backend.json`. When it
-  says `"backend": "postgres"`, Orgtree uses PostgreSQL. When it is absent
-  and existing org files are present, Orgtree keeps using those files. A
-  packaged app initializes PostgreSQL only for a fresh data folder; ambiguous
-  leftovers cause startup to refuse instead of choosing a backend.
-- **Product binding**: the file `<data folder>\orgtree-product-root.json`,
-  written by the `prepare` step. It tells pg-custodian that this data folder
-  is Orgtree's real one and may be served.
-- **Rollback folder**: `<data folder>\pre-postgres\orgs\`. At cutover the old
-  org files are moved here unchanged, so they can be put back.
-- **Marker file**: `<data folder>\orgs\<slug>.pg`, a small file saying this
-  org now lives in PostgreSQL.
-- **Event log**: the Windows Application event log. When Orgtree refuses to
-  start on PostgreSQL it writes one line there, source `Orgtree P03`.
+  stores is in it. v3 uses the same folder as 2.1.12.
+- **User-data folder**: `%APPDATA%\Orgtree v2`, the folder that holds the data
+  folder plus the app's window and browser settings.
+- **Organization (org)**: one team inside Orgtree, with its agents, tickets
+  (work items) and mail. **Slug**: the org's short name.
+- **SQLite**: the storage 2.1.12 uses: one database file per org,
+  `data\orgs\<slug>.db` (sometimes with `<slug>.db-wal` and `<slug>.db-shm`
+  beside it).
+- **PostgreSQL**: the database server v3 uses instead. v3 carries its own
+  private copy, stored in `data\pg\`, reachable only from this PC
+  (127.0.0.1). No separate PostgreSQL install is needed.
+- **Conversion**: v3 copying every org from SQLite into PostgreSQL on its
+  first start, checking the copy, and then switching over.
+- **Cutover record**: the file `data\store-backend.json`. When it says
+  `"backend": "postgres"`, Orgtree uses PostgreSQL. The conversion writes it
+  last, and only after every check passed; it then also says
+  `"via": "first-launch-conversion"`.
+- **Rollback folder**: `data\pre-postgres\orgs\`. After the switch, the old
+  SQLite files are moved here **unchanged**, so they can be put back.
+- **Marker file**: `data\orgs\<slug>.pg`, a small file saying that this org
+  now lives in PostgreSQL.
+- **Conversion log folder**: `data\conversion\<date-time>-<number>\`. Each
+  conversion attempt writes its reports and logs here.
+- **Status file**: `data\conversion\current.json`. It holds the conversion's
+  latest step and, at the end, `done` or `failed` with the reason.
+- **Install folder**: where Orgtree's program files are. Normally
+  `%LOCALAPPDATA%\Programs\Orgtree`, or `C:\Program Files\Orgtree` for an
+  install made "for all users". Its `resources\` subfolder holds the engine,
+  the bundled Python, PostgreSQL and the tools this guide uses.
+- **Boot task**: the Windows scheduled task **Orgtree Background Engine**,
+  which some installs use to start the engine when Windows starts, before
+  anyone opens the app.
+- **Event log**: the Windows Application event log. When the engine refuses
+  to start it writes one line there, source `Orgtree P03`.
 
-## 2. Load the installed app's paths
+## 2. What happens during the upgrade
 
-The v3 package includes Python, its binary psycopg driver, PostgreSQL 18.6,
-pg-custodian and pgimport. No source checkout or separate PostgreSQL install
-is needed. On launch the desktop writes `%APPDATA%\Orgtree v2\engine-paths.json`
-with its actual installation and selected data paths. Launch the approved v3
-build once before doing this cutover; existing stores remain on their current
-backend. A genuinely fresh install already starts on PostgreSQL and does not
-need this migration. Top-level org source files in `DATA\deleted\` count as
-existing data even when `DATA\orgs\` is empty: that installation stays on
-SQLite and requires this external cutover before selecting PostgreSQL. Source
-files end in `.db`, `.db-wal`, `.db-shm`, `.json` or `.db.migrating`, or contain
-`.json.premigration`; trash subfolders and other trash files do not count.
-The full ordered classification is in
-[the packaged-runtime guide](pypg-packaged-runtime.md).
+1. You quit 2.1.12 and (recommended) back up the user-data folder (section 3).
+2. You run the v3 installer by hand. It replaces 2.1.12 in the same install
+   folder. It does not start the app at the end.
+3. The first time the v3 engine starts, it sees that the data folder still
+   holds SQLite orgs and converts them before it shows anything:
+   1. **Check** (reads only): every org is read and counted, and a
+      checksum (SHA-256) is computed for every kind of data. Anything it does
+      not fully recognise stops the conversion here, before anything is
+      written.
+   2. **Prepare**: it marks the data folder as Orgtree's own for its private
+      PostgreSQL (`data\orgtree-product-root.json`) and creates the database
+      in `data\pg\`.
+   3. **Copy**: each org is copied in one database transaction (all of it or
+      nothing), then read back and compared with the original byte for byte
+      and by checksum. An org that does not match stops the conversion.
+   4. **Switch**: only when every org passed, it writes the cutover record
+      and moves the old SQLite files to the rollback folder, unchanged.
+4. The engine then starts normally on PostgreSQL.
 
-Open **PowerShell from the Start menu**, outside Orgtree, and run:
+**Where the conversion runs.** Usually in the app you open. If this PC has the
+boot task (all-users installs), the installer starts that task at once, so
+the conversion may already be running in the background when the installer
+finishes. Either way, the progress is in the status file, and the app shows
+it while it waits.
 
-```powershell
-$paths = Get-Content "$env:APPDATA\Orgtree v2\engine-paths.json" -Raw -ErrorAction Stop | ConvertFrom-Json
-if ($paths.schema -ne 'orgtree.engine-paths/v1') { throw 'Unexpected engine path descriptor' }
-foreach ($file in @($paths.python, $paths.custodian, $paths.importer, (Join-Path $paths.pgBin 'postgres.exe'))) {
-  if (-not [IO.Path]::IsPathRooted($file) -or -not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Missing installed file: $file" }
-}
-if (-not [IO.Path]::IsPathRooted($paths.data)) { throw 'Invalid data path' }
-$env:PY = $paths.python
-$env:PG = $paths.custodian
-$env:PGBIN = $paths.pgBin
-$env:DATA = $paths.data
-$env:IMPORTER = $paths.importer
-$env:RESOURCES = Split-Path $paths.engine
-cmd.exe
-```
+**How long.** Measured on 2026-09-28 on a copy of this PC's data (four orgs,
+238 MB): about 106 seconds from the first check to the switch, and about 110
+seconds until the engine was ready. The longest single step was 33 seconds
+(creating and starting the database). A larger store or a slower disk takes
+longer. Allow several minutes. Do not close the app or turn the PC off while
+it runs; if that happens anyway, see section 6, "Interrupted".
 
-Keep this terminal for the commands below. These variables affect this
-terminal only; no `setx` or registry changes are needed. If the descriptor or a
-file is missing, stop and ask the team to verify the installed build. Do not
-substitute another Python or custodian. For a separate Dev installation, use
-its own user-data descriptor rather than this production one.
+**If it fails.** Nothing is switched: the data stays in the old SQLite form,
+unchanged, and Orgtree 2.1.12 can still open it. v3 does not start; it shows
+a message saying what failed and where the log is (the conversion log
+folder). The next start of v3 tries again from the beginning. To keep working
+in the meantime, reinstall 2.1.12 (section 7).
 
-## 3. Things that must be in place first
+**What is converted, and what is not.** Only the org databases in
+`data\orgs\` move to PostgreSQL: agents, tickets (open and archived), mail
+and mail history, turn history, every setting stored with the org. Everything
+else in the data folder stays exactly where it is and is used as before:
+transcripts (`transcript-records.sqlite3`, `turnlog\`), attachments and
+outbox files (`scratch\...\uploads\`, `scratch\...\outbox\`), workspaces,
+profiles, logs. Organizations in the trash (`data\deleted\`) are **not**
+converted: if the trash holds any, the conversion refuses (section 6).
 
-Check each one. If one fails, stop at this point: nothing has changed yet.
+## 3. Before installing v3
 
-1. **The installed Orgtree must be a build that can run on PostgreSQL.**
-   It must include the PG-0, PG-1, PG-2 and bundled-runtime work. Ask the team
-   for the approved build's version and confirm it before continuing.
-2. **psycopg** (the Python library that talks to PostgreSQL) must be
-   importable by `PY`, which is the installed app's own Python. Check it:
+1. **Quit 2.1.12 completely**: from its window and from the tray icon
+   (right-click it, then Quit). If the boot task exists, stop it too. In
+   PowerShell:
 
-   ```bat
-   "%PY%" -c "import psycopg; print(psycopg.__version__, psycopg.__file__, psycopg.pq.__impl__)"
+   ```powershell
+   Get-ScheduledTask -TaskName 'Orgtree Background Engine' -ErrorAction SilentlyContinue | Stop-ScheduledTask
    ```
 
-   Expected: a version (3.x), a path under the installed runtime, and `binary`.
-   `ModuleNotFoundError` or another implementation means stop.
-3. **pg-custodian.exe and the PostgreSQL binaries** exist at `PG` and
-   `PGBIN` inside the installed package.
-
-   ```bat
-   dir "%PG%"
-   dir "%PGBIN%\postgres.exe"
-   ```
-
-4. **The packaged desktop supplies both executable paths automatically.**
-   Backend selection and connection details belong to the engine. Do not set
-   `ORGTREE_STORE` or `ORGTREE_PG_CONNINFO` globally.
-5. **Enough free disk** for a full copy of `DATA` (step 5 makes one).
-
-## 4. Stop Orgtree completely
-
-1. Quit Orgtree from its window and from the tray icon (right-click it, then
-   Quit).
-2. Confirm nothing from Orgtree is still running. In PowerShell:
+   (If this is refused, run PowerShell as administrator.) Then confirm that
+   nothing from Orgtree is running:
 
    ```powershell
    Get-CimInstance Win32_Process | Where-Object {
@@ -134,370 +118,167 @@ Check each one. If one fails, stop at this point: nothing has changed yet.
    } | Select-Object ProcessId, Name, CommandLine | Format-List
    ```
 
-   Expected: nothing. That covers the app, its engine, any agents it
-   started, and any PostgreSQL. If something is listed, wait a minute and
-   run it again. If it is still there, ask the user to close it. Do not kill
-   processes yourself unless the user says so.
+   Expected: nothing. If something is listed, wait a minute and look again.
 
-pgimport checks this again itself. It takes the data folder's lock file
-(`DATA\.owner`), which a running engine holds, and refuses with
-`is in use (its owner lock is held): stop the engine first`.
-
-## 5. Back up the data folder
-
-```bat
-robocopy "%DATA%" "%DATA%-backup-pre-postgres" /E /COPY:DAT /R:0 /W:0
-```
-
-Expected: robocopy's exit code is 0 or 1 (it uses 0-7 for success), with 0
-files `FAILED` in its summary. Keep this copy until the user says it can go.
-
-## 6. Open a clean terminal
-
-Use the terminal from section 2, which was opened outside Orgtree. If it was
-closed, repeat section 2 to load the recorded paths. Then run:
-
-```bat
-set "ORGTREE_DATA=%DATA%"
-set ORGTREE_AGENT_PARENT_DATA=
-set ORGTREE_AGENT_LEGACY_DATA=
-set ORGTREE_STORE=
-set ORGTREE_PG_BOOTSTRAP=
-set ORGTREE_PG_CONNINFO=
-set ORGTREE_PG_URL=
-set "ORGTREE_P03_PG_BIN=%PGBIN%"
-cd /d "%RESOURCES%"
-```
-
-`set NAME=` with nothing after the `=` removes that variable. The two
-`ORGTREE_AGENT_*` variables exist only inside Orgtree's own agents. If they
-are set, both pgimport and pg-custodian refuse on purpose.
-
-## 7. Dry run (reads only, changes nothing)
-
-```bat
-"%PY%" "%IMPORTER%" dry-run --root "%DATA%" --out "%USERPROFILE%\pgimport-dry-run.json"
-echo exit=%ERRORLEVEL%
-```
-
-Expected: `exit=0`. The terminal also shows a line like
-`pgimport dry-run: {"orgs": 12, "importable": true, "refused": 0}`.
-
-Check the report `%USERPROFILE%\pgimport-dry-run.json`:
-- `"importable": true` and `"refused": []`.
-- `"orgs"` has one entry per org file in `DATA\orgs\`. Each entry has
-  `manifest_sha256` and a `manifest` with row counts.
-- `provenance.store` is inside `%RESOURCES%\engine\backend\`, the same
-  installed package as `PY` and `IMPORTER`. Any other checkout or installation
-  means the wrong code was loaded: stop.
-
-`exit=3` means **refused**. Nothing was written. The `refused` list says which
-org and why. See section 12, "Refused unknown data". Stop here.
-
-## 8. Prepare (writes the product binding)
-
-```bat
-"%PY%" "%IMPORTER%" prepare --root "%DATA%" --custodian "%PG%"
-echo exit=%ERRORLEVEL%
-```
-
-Expected: `exit=0`, and `DATA\orgtree-product-root.json` now exists. This
-step changes nothing else. `exit=3` prints
-`pg-custodian bind-product refused: <code>: <message>` (see section 12, "The
-guard refuses").
-
-## 9. Import and cut over
-
-```bat
-"%PY%" "%IMPORTER%" import --root "%DATA%" --custodian "%PG%" --cutover --out "%USERPROFILE%\pgimport-import.json"
-echo exit=%ERRORLEVEL%
-```
-
-It does these, in order:
-1. Takes the lock, so Orgtree cannot start during the import.
-2. Creates the private PostgreSQL in `DATA\pg\` (first run only) and starts
-   it.
-3. Creates the database tables.
-4. Copies each org in one transaction, including collection of planner
-   statistics after the copy, then reads it back and compares it byte for
-   byte. Planner statistics (PostgreSQL's `ANALYZE`) are row counts and value
-   summaries that PostgreSQL uses to choose how to run each query; collecting
-   them here means they exist before Orgtree first uses the database.
-   Orgtree checks again at every start, before it reports ready, and
-   collects them only when an org lacks a completion marker for the current
-   schema version.
-5. Writes `DATA\orgs\<slug>.pg`.
-6. Writes the cutover record `DATA\store-backend.json`.
-7. Moves every other file in `DATA\orgs\` to `DATA\pre-postgres\orgs\`,
-   unchanged.
-8. Stops PostgreSQL.
-
-The first run can take several minutes.
-
-What was measured (2026-09-27, one run each, on a disposable copy of four
-orgs totalling 238 MB, with the same importer and runtime, d900196, in both
-arms): the verified import took 32.7 s with the measured schema (migrations
-0001-0009), against 20.1 s with only 0001-0003. Running the same command
-again, with every org already imported, took about 16 s. Python and the
-private PostgreSQL together peaked at about 630 MiB of private memory
-(835 MiB summed working set, which can count shared pages twice).
-Collecting planner statistics was measured separately, on a warm retained
-copy, and is NOT included in the 32.7 s: it took 0.7 s, and about 3 ms when
-the completion marker was already present. Upgrading an already-imported database
-to newer migrations took seconds per migration. These are single
-measurements, not upper bounds: a larger or slower install can take longer,
-so allow several minutes and do not skip the backup or the checks in
-section 10. Do not count on PostgreSQL's background autovacuum to collect
-the statistics in time. It is on, but it runs on its own schedule (a default
-60 s launcher naptime and an analyze threshold of 50 rows plus 10% of the
-table), and in the measured
-run it had not run yet at first inspection. Full provenance and limits:
-`artifacts/migration-history-audit-20260927/REPORT.md` and
-`statistics-real-copy.json` (local measurement packet, not in the repo).
-
-Expected: `exit=0`, plus a line
-`pgimport import: {"orgs": N, "cutover": true}`.
-
-If it stops part-way (closed window, crash, power loss), run the **same
-command again**. Orgs already copied with an identical checksum are skipped. A
-cutover that wrote its record but did not finish moving files is finished;
-that re-run prints `{"cutover_completed": true, "moved": K}`.
-
-No persistent environment changes follow the import. On the next launch the
-desktop supplies the bundled paths, and the engine reads the cutover record.
-
-## 10. Success checks (before starting Orgtree)
-
-All of these must hold. If one does not, go to section 13 (abort).
-
-1. **The checksums match.** In PowerShell:
-
-   ```powershell
-   $d = Get-Content "$env:USERPROFILE\pgimport-dry-run.json" -Raw | ConvertFrom-Json
-   $i = Get-Content "$env:USERPROFILE\pgimport-import.json" -Raw | ConvertFrom-Json
-   foreach ($s in $d.orgs.PSObject.Properties.Name) {
-     "{0}  dry={1}  imported={2}  same={3}" -f $s, $d.orgs.$s.manifest_sha256, $i.orgs.$s.manifest_sha256, ($d.orgs.$s.manifest_sha256 -eq $i.orgs.$s.manifest_sha256)
-   }
-   ```
-
-   Expected: one line per org, every one `same=True`. Each org's `action` in
-   the import report is `imported` (or `already_imported` on a re-run).
-2. **The cutover record exists:** `type "%DATA%\store-backend.json"` shows
-   `"backend": "postgres"`, the per-org checksums, and `"moved_to":
-   "pre-postgres/orgs"`.
-3. **`DATA\orgs\` holds only marker files:** `dir /b "%DATA%\orgs"` lists only
-   `<slug>.pg` files, one per org.
-4. **The old files are still present, unchanged:**
-   `dir /b "%DATA%\pre-postgres\orgs"` lists every `.db` / `.db-wal` /
-   `.db-shm` / `.json` file that used to be in `orgs\`. Their sizes equal the
-   copies in the step 5 backup.
-5. **PostgreSQL is stopped again:**
-   `"%PG%" status --root "%DATA%" --product` prints JSON with `"ok": true` and
-   `"cluster": { "state": "stopped", ... }`. pg-custodian always prints JSON:
-   `"ok": false` with a `code` and a `message` means it refused.
-
-## 11. Start Orgtree and check it
-
-1. Start Orgtree from the Start menu.
-2. **Orgtree is running on PostgreSQL.** Within a minute or two of start:
-
-   ```powershell
-   Get-CimInstance Win32_Process -Filter "Name='postgres.exe'" | Select-Object ProcessId, CommandLine
-   ```
-
-   Expected: postgres processes whose command line contains
-   `Orgtree v2\data\pg` (the path may be written with `/`).
-3. **No refusal was logged:**
-
-   ```powershell
-   Get-EventLog -LogName Application -Source 'Orgtree P03' -Newest 5 -ErrorAction SilentlyContinue | Format-List TimeGenerated, EntryType, Message
-   ```
-
-   Expected: nothing newer than the moment you started Orgtree. An `Error`
-   entry is a refusal: its message is JSON naming the reason. Windows may put
-   a "description cannot be found" note in front of it; that is normal.
-4. **The data is visible.** Ask the user to confirm:
-   - the org list shows every org from the dry-run report;
-   - a work item and a recent mail they know well are there, as before;
-   - they can make one small harmless change (for example, a docket note)
-     and it is still there after restarting Orgtree.
-
-If all of this holds, the cutover is done. Give the user the two report files,
-and tell them the backup from step 5 is still in place.
-
-## 12. Troubleshooting
-
-In every case, copy the **exact** error text into your report (see section
-14).
-
-**Refused unknown data (dry run exit 3).** pgimport only copies data it fully
-recognizes. It refuses rather than guess, by design. Typical messages:
-- `unrecognised file` or `unexpected folder` in `orgs\`;
-- an unknown table, column, document key or log section;
-- a NUL character, or JSON that is not strict (for example `NaN`);
-- `a .json beside <slug>.db (which one is the authority?)`;
-- `an interrupted JSON->SQLite migration (start the SQLite engine once to finish it)`.
-
-Nothing was changed. Do not delete or edit data to get past it. For the
-interrupted migration only: start Orgtree once normally (it is still on
-SQLite), quit it, and run the dry run again. For everything else: stop, and
-send the report.
-
-**Checksum or count mismatch.** For example `read-back does not match the
-source in ...`, `read-back is not byte-identical ...`, or
-`cutover refused: imported manifests differ from the dry run`. The copy in
-PostgreSQL differs from the original, so pgimport refused to cut over. The old
-files are untouched and `store-backend.json` was not written. Stop and send
-everything. Do not re-run repeatedly.
-
-**`is in use (its owner lock is held): stop the engine first`.** Orgtree or
-its engine is still running. Go back to section 4.
-
-**Port in use** (`port.occupied`) **or** `port.pick`. PostgreSQL could not get
-a network port on 127.0.0.1. Normally it picks a free one itself. Check that
-no other `postgres.exe` from a previous attempt is running (section 4 command)
-and try again once. If it repeats, stop and send the error.
-
-**psycopg missing** (`ModuleNotFoundError: No module named 'psycopg'`, or
-`orgtree.pgstore (PG-0) is not importable`). The Python used has no psycopg.
-If it came from pgimport, the `PY` you were given is wrong: stop and ask. If
-Orgtree refused with it after cutover, the installed build lacks psycopg:
-abort (section 13).
-
-**The guard refuses.** pg-custodian or Orgtree refuses to serve the folder.
-The codes are:
-- `product.not_engine_root`: `ORGTREE_DATA` is not set to exactly `DATA`.
-  Redo section 6.
-- `root.protected`: the folder overlaps a protected place (an agent's data
-  or the install folder), or an `ORGTREE_AGENT_*` variable is set. Redo
-  section 6 in a fresh terminal from the Start menu.
-- `product.refused`: a pg-custodian command that is never allowed on the real
-  data folder (for example `destroy` or `restore`). Nothing in this document
-  runs one. If you see it, report which command printed it.
-- `product.unbound` or `... has no product binding`: `prepare` was not run.
-  Run step 8.
-- `Desktop agent development storage requires an explicit independent
-  ORGTREE_DATA`: you are inside an Orgtree agent session. This work cannot be
-  done from there, by design. Use a plain terminal.
-- `root.reparse_point`: `DATA` or `DATA\pg` is a link or junction. Stop and
-  report it. Do not change it.
-
-Do not try to get around a guard. They exist to protect the user's data.
-
-**`the cutover of ... to PostgreSQL did not finish: orgs/ still holds ...`**
-(Orgtree refuses at start). Step 9 stopped between writing the record and
-moving the files. Quit Orgtree, run the step 9 import command again (it only
-moves the remaining files), and start Orgtree again. Or abort (section 13).
-
-**`ORGTREE_STORE=postgres needs ORGTREE_PG_CUSTODIAN`** or
-**`ORGTREE_PG_CUSTODIAN=... is not an existing absolute file`** (Orgtree
-refuses at start; the text is in the event log). The installed build has
-missing runtime wiring or a missing payload file. Quit completely (section 4),
-retain the descriptor and exact error, and ask the team to verify the build.
-Do not point the app at another PostgreSQL installation to repair it.
-
-**Orgtree does not come up after cutover, or shows a white window.** Look in
-the event log (step 11.3). It does not fall back to SQLite by itself, by
-design. Abort (section 13).
-
-**Any other error** (a Python traceback, exit code 1 or 2). Stop and send it.
-
-## 13. Abort: go back to the old storage
-
-Stop when any of these happens:
-- a check in section 3, 10 or 11 fails;
-- a checksum or count mismatch appears;
-- the same error comes back after the one retry this document allows;
-- Orgtree will not start on PostgreSQL, or data looks missing or wrong.
-
-To put SQLite back in charge:
-
-1. Quit Orgtree and confirm nothing is running (section 4).
-2. If `DATA\store-backend.json` exists, rename it:
-   `ren "%DATA%\store-backend.json" store-backend.json.aborted`.
-   Keep Orgtree stopped until the source files and explicit SQLite selection
-   below are restored.
-3. If `DATA\pre-postgres\orgs\` holds files, move them back:
+2. **Back up the user-data folder** (recommended). This copy is the simplest
+   way back (section 7):
 
    ```bat
-   move "%DATA%\pre-postgres\orgs\*" "%DATA%\orgs\"
+   robocopy "%APPDATA%\Orgtree v2" "%APPDATA%\Orgtree v2 backup before v3" /E /COPY:DAT /DCOPY:DAT /R:0 /W:0
    ```
 
-4. Move the marker files out of the way:
-   `mkdir "%DATA%\pre-postgres\markers"` then
-   `move "%DATA%\orgs\*.pg" "%DATA%\pre-postgres\markers\"`.
-5. Check: `dir /b "%DATA%\orgs"` shows the `.db` (and any `.json`) files again
-   and no `.pg`, and `store-backend.json` is gone.
-6. Record the rollback explicitly, including when the original store had no
-   orgs. This prevents the fresh-install logic from treating the leftover
-   PostgreSQL folder as unexplained data:
+   Expected: robocopy's exit code is 0 or 1 (it uses 0-7 for success) and its
+   summary shows 0 files `FAILED`. It needs as much free disk as the folder
+   uses: on this PC the transcript database alone is about 11 GB. Keep the
+   copy until you are satisfied with v3.
 
-   ```bat
-   "%PY%" -c "import json,os,pathlib; p=pathlib.Path(os.environ['DATA'])/'store-backend.json'; t=p.with_suffix('.json.tmp'); t.write_text(json.dumps({'schema':'orgtree.store-backend/v1','backend':'sqlite','via':'external-rollback'}),encoding='utf-8'); os.replace(t,p)"
-   ```
+3. **Keep the 2.1.12 installer**, `Orgtree-Setup-2.1.12.exe` (the GitHub
+   release v2.1.12), in case you need to go back.
 
-   Expected: `type "%DATA%\store-backend.json"` names `sqlite`. No user
-   environment variables were created by this runbook, so none need deleting.
-7. Start Orgtree. It runs on SQLite. Ask the user to confirm the orgs look as
-   before.
+## 4. Install and start v3
 
-Leave `DATA\pg\` and `DATA\orgtree-product-root.json` alone. The explicit
-SQLite record keeps them inactive; the team may want to examine them.
+1. Run `Orgtree-Setup-3.0.0-alpha.0.exe`. It installs over 2.1.12, keeps the
+   same Start-menu entry "Orgtree", and does not start the app at the end.
+   Automatic updates are off in this build.
+2. Start Orgtree from the Start menu. On the first start it shows that a
+   one-time conversion is running and which org it is on. Wait for it.
+3. When the app opens as usual, the conversion is done. Check it (section 5)
+   before relying on v3.
 
-Anything written in Orgtree **after** it switched to PostgreSQL exists only in
-PostgreSQL, and going back loses it. This is accepted. If steps 1-7 fail or
-the data still looks wrong, restore the step 5 backup:
-1. With Orgtree stopped, rename `DATA` to `data-failed-<date>`.
-2. Copy `%DATA%-backup-pre-postgres` back to the original data path.
-3. Start Orgtree.
+## 5. Confirm that the conversion worked
 
-## 14. What to send back
+### Quick check (a minute)
+
+With Orgtree quit (and the boot task stopped, section 3.1), in a Command
+Prompt:
+
+```bat
+type "%APPDATA%\Orgtree v2\data\conversion\current.json"
+type "%APPDATA%\Orgtree v2\data\store-backend.json"
+dir /b "%APPDATA%\Orgtree v2\data\orgs"
+dir /b "%APPDATA%\Orgtree v2\data\pre-postgres\orgs"
+```
+
+Expected:
+- `current.json` shows `"state": "done"` and `"reason": null`;
+- `store-backend.json` shows `"backend": "postgres"`,
+  `"via": "first-launch-conversion"`, and one entry per org under `"orgs"`;
+- `orgs` lists only `<slug>.pg` files, one per org;
+- `pre-postgres\orgs` lists every `.db` (and `-wal`, `-shm`) file that
+  2.1.12 had in `orgs`.
+
+Then open Orgtree and look: every org is in the list, and a ticket and a
+recent mail you know well are there as before.
+
+### Full check (independent)
+
+The full check compares the backup from section 3.2 with the converted data,
+row by row, using only the installed app's own Python and PostgreSQL. It does
+not use the code that did the conversion, so it can be run by an outside
+agent that did not take part. It is written up separately, with exact
+commands, what PASS looks like and what to report:
+[the verification procedure](pypg-cutover-verification.md).
+
+## 6. Troubleshooting
+
+In every case, keep the conversion log folder and copy the **exact** message
+into your report (section 8).
+
+**v3 shows "Orgtree could not convert your data to its new database".** The
+message says what failed, whether anything was switched, and where the log
+is. The usual reasons:
+
+- *"some data is not recognised: ..."*: the check found data it does not fully
+  understand (for example an unknown kind of record, a stray file in
+  `data\orgs\`, a `.json` org beside a `.db` org, a text value PostgreSQL
+  cannot hold). It refuses rather than guess. Nothing was written. Do not
+  edit or delete data to get past it: reinstall 2.1.12 and send the log
+  folder (its `dry-run.json` lists every problem).
+- *"the trash holds N file(s) of deleted organizations"*: the conversion does
+  not carry trashed orgs over. Reinstall 2.1.12, restore those orgs or delete
+  them permanently from the trash, then install v3 again.
+- *"... is in use (its owner lock is held)"*: another Orgtree engine was
+  running on the same data folder. Quit everything (section 3.1) and start v3
+  again.
+- *"read-back does not match"* or *"is not byte-identical"*: an org's copy
+  in PostgreSQL differed from the original. Nothing was switched. Do not
+  retry repeatedly: reinstall 2.1.12 and send the log folder.
+- *"pg-custodian ... refused"* with a code: the private database could not be
+  prepared or started. `port.occupied` / `port.pick`: an old `postgres.exe`
+  is still running (section 3.1 lists it); `root.protected` or
+  `product.not_engine_root`: the engine was started in an unexpected way (for
+  example from inside an agent session); `root.reparse_point`: the data folder
+  is a link or junction. Send the message.
+- *"the bundled importer is missing"* or *"packaged PostgreSQL executable is
+  missing"*: the install is incomplete. Reinstall v3; if it repeats, send the
+  message.
+
+**Interrupted** (the app was closed, the PC turned off or crashed during the
+conversion). Start v3 again. If the switch had not happened yet, it starts the
+conversion again; orgs already copied and checked are skipped. If the switch
+had happened but the old files were not all moved yet, it finishes moving them
+and starts. `current.json` may say `"running"` for an attempt that was
+interrupted; the next start replaces it.
+
+**v3 refuses to start after the conversion succeeded** (the event log, source
+`Orgtree P03`, has an `Error` line; its message is JSON naming the reason).
+Send the line and go back (section 7).
+
+**Anything else** (a Python traceback in a log, an unexpected exit): send it.
+
+## 7. Going back to 2.1.12 (rollback)
+
+**Anything written in v3 after the switch exists only in PostgreSQL and is
+lost when you go back.** That is accepted for this upgrade.
+
+1. Quit Orgtree completely and stop the boot task (section 3.1).
+2. Run `Orgtree-Setup-2.1.12.exe`. It installs 2.1.12 over v3 in the same
+   folder. (No version check blocks this, according to the installer's
+   source. It has not been tried.)
+3. Put the data back. Choose one:
+   - **A. The conversion failed** (v3 said "Nothing was switched"): nothing
+     to do. 2.1.12 ignores what the attempt left behind (`pg\`, `conversion\`,
+     `orgtree-product-root.json`, and any `.pg` marker files beside the
+     `.db` files): it only looks for `.db` and `.json` files in `orgs\`.
+     (Read from 2.1.12's code; not tried.)
+   - **B. From the backup** (section 3.2), the simplest and most complete way:
+
+     ```bat
+     ren "%APPDATA%\Orgtree v2" "Orgtree v2 after v3"
+     robocopy "%APPDATA%\Orgtree v2 backup before v3" "%APPDATA%\Orgtree v2" /E /COPY:DAT /DCOPY:DAT /R:0 /W:0
+     ```
+
+     Keep `Orgtree v2 after v3` until 2.1.12 runs well; the team may want to
+     look at it.
+   - **C. Without a backup**, from the rollback folder:
+
+     ```bat
+     cd /d "%APPDATA%\Orgtree v2\data"
+     ren store-backend.json store-backend.json.after-v3
+     mkdir pre-postgres\markers
+     move orgs\*.pg pre-postgres\markers\
+     move pre-postgres\orgs\* orgs\
+     ```
+
+     Check: `dir /b orgs` shows the `.db` files again and no `.pg`, and
+     `store-backend.json` is gone. Leave `pg\` alone.
+4. Start Orgtree 2.1.12 and confirm the orgs look as before.
+
+If you later install v3 again after going back with C, v3 treats the data as
+2.1.12 data and converts it again.
+
+## 8. What to send back
 
 Put these in one folder and give it to the user for the Orgtree team:
-- `%USERPROFILE%\pgimport-dry-run.json` and
-  `%USERPROFILE%\pgimport-import.json` (whichever exist);
-- the full terminal output of every pgimport and pg-custodian command, with
-  its exit code;
-- the exact text of every error;
-- the output of `dir /s /b "%DATA%\orgs" "%DATA%\pre-postgres"` and
-  `type "%DATA%\store-backend.json"` (if it exists);
-- `"%PG%" status --root "%DATA%" --product` output;
-- the event log lines from step 11.3, and any Orgtree crash reports in
-  `%APPDATA%\Orgtree v2\Crashpad\reports\`;
-- the Orgtree version and installed commit from
-  `%RESOURCES%\build-info.json`, plus the `engine-paths.json` descriptor;
-- which step you stopped at, and whether you aborted.
+- the whole conversion log folder (`data\conversion\`), including
+  `current.json`;
+- `data\store-backend.json` (if it exists);
+- the output of `dir /s /b "%APPDATA%\Orgtree v2\data\orgs" "%APPDATA%\Orgtree v2\data\pre-postgres"`;
+- the exact text of every message, and the event-log lines (source
+  `Orgtree P03`);
+- the verification report, if you ran the full check;
+- `<install folder>\resources\build-info.json` (the installed version);
+- which step you stopped at, and whether you went back.
 
-Do not send the contents of `DATA\pg\` or any `.db` file unless asked. They
+Do not send the contents of `data\pg\` or any `.db` file unless asked. They
 hold the user's private data.
-
-
-## Per-item work storage (migration 0003)
-
-Use an approved package containing `0003_work_item_rows.sql`. Fresh PostgreSQL
-organizations and both pgimport input paths (SQLite and legacy JSON) write one
-active work-item row per slug. The small header records the layout version and
-ordered slugs. Existing PostgreSQL organizations are upgraded transactionally
-before the engine starts. Archive rows and scope-history logs keep their format.
-
-For an existing PostgreSQL root, stop the app and preserve a complete offline
-backup of its PostgreSQL data before starting the new build. The migration
-refuses unknown list/header shapes, duplicate/invalid slugs and mixed/orphaned
-rows. It verifies item counts and SHA-256 of the ordered raw item values, then
-records the count, item checksum and original document checksum in the per-org
-`work-items-layout/v1` operation receipt. A failed migration rolls back its data
-and schema-version receipt; do not clear the error or edit rows to bypass it.
-
-For SQLite/JSON cutover, retain the dry-run report and import report. Compare
-`manifest_sha256` between those reports and require no refusals. Each report
-also retains `source_manifest_sha256` and a `work_items` count/checksum. The
-importer independently rebuilds the destination item list and checks it against
-the source before publishing the org marker. Original files still move intact
-to `pre-postgres/orgs`; do not delete them.
-
-An older build must refuse the newer migration. Do not remove the migration
-receipt to force an old engine to open a new-layout database. Rollback is an
-offline restore of the complete pre-upgrade PostgreSQL backup, or the existing
-SQLite rollback procedure. Either restores a snapshot in time: preserve/export
-any writes made after cutover before choosing that rollback with the user.
-Never silently import the old SQLite snapshot over a currently used PG root.

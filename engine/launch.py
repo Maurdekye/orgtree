@@ -437,8 +437,15 @@ def _own_database(data: Path, report: Any = None) -> None:
     progress reporter: each database step is a checkpoint, so the desktop's
     readiness window restarts between them (review N-B)."""
     import atexit  # noqa: PLC0415  (a top-level import would move main's lines)
-    from engine.pg_process import start_for_engine
-    database = start_for_engine(data, os.environ, progress=report)
+    from engine.pg_process import ConversionFailed, start_for_engine
+    try:
+        database = start_for_engine(data, os.environ, progress=report)
+    except ConversionFailed as exc:
+        # The desktop discards stderr: a structured line is how the user sees
+        # WHY the first-launch conversion stopped and where its log is.
+        print(json.dumps({"type": "refused", "code": "conversion-failed", "reason": str(exc)[:2000]},
+                         separators=(",", ":")), flush=True)
+        raise
     if database is not None:
         atexit.register(database.stop)
 

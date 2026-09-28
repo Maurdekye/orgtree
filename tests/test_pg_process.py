@@ -62,6 +62,58 @@ STUB_CUSTODIAN = textwrap.dedent('''
 ''')
 
 
+#: Stands in for tools/pypg/pgimport.py in the first-launch conversion tests:
+#: the real importer is exercised against a real database by its own tests and
+#: by the rehearsal; these pin what the ENGINE does with its outcomes.
+STUB_IMPORTER = textwrap.dedent('''
+    import json, os, sys
+    from pathlib import Path
+    args = sys.argv[1:]
+    with open(os.environ["STUB_LOG"], "a", encoding="utf-8") as f:
+        f.write(json.dumps({"who": "importer", "args": args,
+                            "token": os.environ.get("ORGTREE_V2_TOKEN"),
+                            "conninfo": os.environ.get("ORGTREE_PG_CONNINFO"),
+                            "store": os.environ.get("ORGTREE_STORE"),
+                            "data": os.environ.get("ORGTREE_DATA")}) + "\\n")
+    root = Path(args[args.index("--root") + 1])
+    out = Path(args[args.index("--out") + 1]) if "--out" in args else None
+    cmd = args[0]
+    if cmd == "dry-run":
+        refused = ["acme: unrecognised section 'x'"] if os.environ.get("STUB_DRY_REFUSE") else []
+        out.write_text(json.dumps({"refused": refused}))
+        sys.exit(3 if refused else 0)
+    if cmd == "prepare":
+        if os.environ.get("STUB_PREPARE_FAILS"):
+            print("pgimport prepare: REFUSED: pg-custodian bind-product refused: product.refused: stub", file=sys.stderr)
+            sys.exit(3)
+        (root / "orgtree-product-root.json").write_text("{}")
+        sys.exit(0)
+    for step in ("checking acme (1 of 1)", "copying acme (1 of 1): " + "9" * 200):
+        print(json.dumps({"type": "pgimport-progress", "step": step}), flush=True)
+    print("not json, ignored", flush=True)
+    if os.environ.get("STUB_IMPORT_FAILS"):
+        print("pgimport import: REFUSED: acme: read-back does not match the source in ['nodes']", file=sys.stderr)
+        sys.exit(3)
+    if os.environ.get("STUB_IMPORT_NO_SWITCH"):
+        out.write_text("{}")
+        sys.exit(0)
+    orgs = root / "orgs"
+    for db in orgs.glob("*.db"):
+        (orgs / (db.stem + ".pg")).write_text("{}")
+    record = {"schema": "orgtree.store-backend/v1", "backend": "postgres", "orgs": {"acme": "x"},
+              "via": os.environ.get("STUB_VIA") or args[args.index("--via") + 1]}
+    (root / "store-backend.json").write_text(json.dumps(record))
+    if os.environ.get("STUB_CRASH_AFTER_RECORD"):
+        sys.exit(1)
+    dest = root / "pre-postgres" / "orgs"
+    dest.mkdir(parents=True, exist_ok=True)
+    for p in list(orgs.iterdir()):
+        if not p.name.endswith(".pg"):
+            os.rename(p, dest / p.name)
+    out.write_text("{}")
+''')
+
+
 class BracketTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="orgtree-pypg-bracket-"))
@@ -575,17 +627,22 @@ class BracketTests(unittest.TestCase):
         self.assertEqual(json.loads((root / bracket.CUTOVER_FILE).read_text(encoding="utf-8"))["backend"], "postgres")
         owned.stop()
 
-    def test_an_existing_org_store_keeps_its_backend_untouched(self) -> None:
+    def test_an_existing_org_store_is_handed_to_the_first_launch_conversion(self) -> None:
+        # user decision 38 (2026-09-28): an existing SQLite root converts on the
+        # packaged app's first launch; the bracket itself writes nothing before it
         for name in ("acme.db", "acme.json", "acme.db.migrating", "acme.json.premigration", "acme.db-wal"):
             root, env = self.fresh()
             (root / "orgs").mkdir(exist_ok=True)
             for p in (root / "orgs").iterdir():
                 p.unlink()
             (root / "orgs" / name).write_text("x")
-            (root / "orgs" / "notes.txt").write_text("a stray beside a real store is the store's business")
+            (root / "orgs" / "notes.txt").write_text("a stray beside a real store is the importer's business")
             before = self.tree(root)
-            self.assertIsNone(bracket.start_for_engine(root, env, self.migrator), name)
-            self.assertEqual(self.tree(root), before, name)
+            seen: list = []
+            with mock.patch.object(bracket, "convert_existing_root",
+                                   side_effect=lambda r, e, p=None: seen.append((r, self.tree(r)))):
+                self.assertIsNone(bracket.start_for_engine(root, env, self.migrator), name)
+            self.assertEqual(seen, [(root, before)], name)
             self.assertNotIn(bracket.CONNINFO_ENV, env)
         self.assertEqual(self.calls(), [])
         self.assertEqual(self.refusals, [])
@@ -593,11 +650,12 @@ class BracketTests(unittest.TestCase):
     def test_orgs_only_in_the_trash_are_an_existing_store(self) -> None:
         # coordinator ruling (a) on review finding f1: store.delete_org moves an
         # org flat into deleted/ and moving it back is the restore, so such a
-        # root stays on SQLite until the cutover
+        # root is an existing store; the first-launch conversion does not carry
+        # the trash over, so it refuses before writing anything
         import shutil
         for name in ("acme-20260901T120000.db", "acme-20260901T120000.json",
                      "acme-20260901T120000.json.premigration", "acme-20260901T120000-1.db-wal"):
-            root, env = self.fresh()
+            root, env = self.fresh(**{bracket.CUSTODIAN_ENV: str(self.custodian)})
             for p in list(root.iterdir()):
                 shutil.rmtree(p) if p.is_dir() else p.unlink()
             (root / "orgs").mkdir()
@@ -605,7 +663,12 @@ class BracketTests(unittest.TestCase):
             (root / "deleted" / name).write_text("x")
             before = self.tree(root)
             self.assertEqual(bracket.classify_for_bootstrap(root), ("existing", [f"deleted/{name}"]))
-            self.assertIsNone(bracket.start_for_engine(root, env, self.migrator), name)
+            with self.assertRaisesRegex(bracket.ConversionFailed, "the trash holds 1 file"):
+                bracket.start_for_engine(root, env, self.migrator)
+            # only the status file for an attached desktop is written
+            status = root / bracket.CONVERT_DIR / bracket.CONVERT_STATUS
+            self.assertIn("the trash holds 1 file", json.loads(status.read_text(encoding="utf-8"))["reason"])
+            shutil.rmtree(root / bracket.CONVERT_DIR)
             self.assertEqual(self.tree(root), before, name)
         self.assertEqual(self.calls(), [])
         # an empty trash, or one holding no org file, does not stop a fresh root
@@ -664,6 +727,140 @@ class BracketTests(unittest.TestCase):
             bracket.start_for_engine(root, env, self.migrator)
         self.assertFalse((root / bracket.CUTOVER_FILE).exists())
         self.assertEqual(self.cmds(), ["bind-product"])
+
+    # -- first-launch conversion of an existing SQLite root (user decision 38)
+
+    def converting(self, **extra: str) -> tuple[Path, dict, list[str]]:
+        """A packaged first launch on the engine's own root holding one SQLite
+        org, with the importer stubbed. Returns (root, env, progress phases)."""
+        importer = self.tmp / "tools" / "pypg" / "pgimport.py"
+        importer.parent.mkdir(parents=True, exist_ok=True)
+        importer.write_text(STUB_IMPORTER)
+        patcher = mock.patch.object(bracket, "IMPORTER", importer)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        root, env = self.fresh(**{bracket.CUSTODIAN_ENV: str(self.custodian), "ORGTREE_V2_TOKEN": "desktop-secret",
+                                  bracket.CONNINFO_ENV: "host=stale", **extra})
+        (root / "orgs").mkdir(exist_ok=True)
+        (root / "orgs" / "acme.db").write_bytes(b"sqlite bytes")
+        (root / "orgs" / "acme.db-wal").write_bytes(b"wal bytes")
+        return root, env, []
+
+    def importer_calls(self) -> list[dict]:
+        return [c for c in self.calls() if c["who"] == "importer"]
+
+    def test_the_first_launch_converts_switches_and_starts_on_postgres(self) -> None:
+        root, env, phases = self.converting()
+        owned = bracket.start_for_engine(root, env, self.migrator, progress=phases.append)
+        self.assertTrue(owned.product)
+        calls = self.importer_calls()
+        self.assertEqual([c["args"][0] for c in calls], ["dry-run", "prepare", "import"])
+        for call in calls:
+            # the importer never sees the desktop token, a stale connection or a store choice
+            self.assertEqual((call["token"], call["conninfo"], call["store"], call["data"]),
+                             (None, None, None, str(root)))
+        imp = calls[2]["args"]
+        self.assertIn("--cutover", imp)
+        self.assertEqual(imp[imp.index("--via") + 1], "first-launch-conversion")
+        self.assertIn("--progress", imp)
+        record = json.loads((root / bracket.CUTOVER_FILE).read_text(encoding="utf-8"))
+        self.assertEqual((record["backend"], record["via"]), ("postgres", bracket.CONVERT_VIA))
+        self.assertEqual(sorted(p.name for p in (root / "orgs").iterdir()), ["acme.pg"])
+        self.assertEqual((root / "pre-postgres" / "orgs" / "acme.db").read_bytes(), b"sqlite bytes")
+        # then the ordinary postgres start
+        self.assertEqual([c["args"][0] for c in self.calls() if c["who"] == "custodian"],
+                         ["status", "init", "start", "attach"])
+        self.assertEqual(env[bracket.STORE_ENV], "postgres")
+        convert = [p for p in phases if p.startswith(bracket.CONVERT_PHASE)]
+        self.assertEqual(convert[0], "database-convert: checking your data")
+        self.assertIn("database-convert: checking acme (1 of 1)", convert)
+        self.assertEqual(convert[-1], "database-convert: switched to the new database")
+        self.assertTrue(all(0 < len(p) <= 100 for p in phases), phases)
+        status = json.loads((root / bracket.CONVERT_DIR / bracket.CONVERT_STATUS).read_text(encoding="utf-8"))
+        self.assertEqual((status["schema"], status["state"], status["reason"]),
+                         (bracket.CONVERT_STATUS_SCHEMA, "done", None))
+        logs = [p for p in (root / bracket.CONVERT_DIR).iterdir() if p.is_dir()]
+        self.assertEqual(len(logs), 1)
+        self.assertEqual(status["log"], str(logs[0]))
+        self.assertIn("pgimport-progress", (logs[0] / "import.progress.txt").read_text(encoding="utf-8"))
+        owned.stop()
+
+    def test_a_refused_dry_run_switches_nothing(self) -> None:
+        root, env, _ = self.converting(STUB_DRY_REFUSE="1")
+        with self.assertRaises(bracket.ConversionFailed) as caught:
+            bracket.start_for_engine(root, env, self.migrator)
+        text = str(caught.exception)
+        self.assertIn("Nothing was switched", text)
+        self.assertIn("unrecognised section 'x'", text)
+        self.assertIn(str(root / bracket.CONVERT_DIR), text)
+        self.assertFalse((root / bracket.CUTOVER_FILE).exists())
+        self.assertFalse((root / bracket.PRODUCT_FILE).exists())
+        self.assertEqual(sorted(p.name for p in (root / "orgs").iterdir()), ["acme.db", "acme.db-wal"])
+        self.assertEqual([c["args"][0] for c in self.importer_calls()], ["dry-run"])
+        self.assertEqual([c for c in self.calls() if c["who"] == "custodian"], [])
+        self.assertEqual(len(self.refusals), 1, "the refusal writes the event-log line")
+        # a desktop attached to someone else's engine reads the same reason here
+        status = json.loads((root / bracket.CONVERT_DIR / bracket.CONVERT_STATUS).read_text(encoding="utf-8"))
+        self.assertEqual((status["state"], status["reason"]), ("failed", text))
+
+    def test_a_failed_import_or_prepare_switches_nothing(self) -> None:
+        for flag, expect in (("STUB_IMPORT_FAILS", "read-back does not match"),
+                             ("STUB_PREPARE_FAILS", "product.refused"),
+                             ("STUB_IMPORT_NO_SWITCH", "finished without switching")):
+            self.log.unlink(missing_ok=True)
+            root, env, _ = self.converting(**{flag: "1"})
+            with self.assertRaisesRegex(bracket.ConversionFailed, expect):
+                bracket.start_for_engine(root, env, self.migrator)
+            self.assertFalse((root / bracket.CUTOVER_FILE).exists(), flag)
+            self.assertTrue((root / "orgs" / "acme.db").is_file(), flag)
+            self.assertFalse((root / "pre-postgres").exists(), flag)
+            self.assertEqual([c for c in self.calls() if c["who"] == "custodian"], [], flag)
+            import shutil
+            shutil.rmtree(root)
+            root.mkdir()
+
+    def test_a_switch_the_conversion_did_not_record_is_not_taken_as_its_own(self) -> None:
+        root, env, _ = self.converting(STUB_VIA="hand-run")
+        with self.assertRaisesRegex(bracket.ConversionFailed, "finished without switching"):
+            bracket.start_for_engine(root, env, self.migrator)
+        self.assertEqual([c for c in self.calls() if c["who"] == "custodian"], [])
+
+    def test_an_interrupted_move_is_finished_by_the_next_launch(self) -> None:
+        root, env, _ = self.converting(STUB_CRASH_AFTER_RECORD="1")
+        with self.assertRaisesRegex(bracket.ConversionFailed, "switch to the new database was recorded"):
+            bracket.start_for_engine(root, env, self.migrator)
+        self.assertEqual(sorted(p.name for p in (root / "orgs").iterdir()), ["acme.db", "acme.db-wal", "acme.pg"])
+        # the next launch: no importer, the move is finished, the engine starts
+        env.pop("STUB_CRASH_AFTER_RECORD")
+        self.log.unlink()
+        owned = bracket.start_for_engine(root, env, self.migrator)
+        self.assertEqual(self.importer_calls(), [])
+        self.assertEqual(sorted(p.name for p in (root / "orgs").iterdir()), ["acme.pg"])
+        self.assertEqual((root / "pre-postgres" / "orgs" / "acme.db-wal").read_bytes(), b"wal bytes")
+        owned.stop()
+
+    def test_only_the_packaged_engine_finishes_only_its_own_conversion(self) -> None:
+        root, env, _ = self.converting()
+        (root / "orgs" / "acme.pg").write_text("{}")
+        (root / bracket.PRODUCT_FILE).write_text("{}")
+        for record, flag in (({"via": "hand-run"}, "1"), ({}, "1"), ({"via": bracket.CONVERT_VIA}, "")):
+            (root / bracket.CUTOVER_FILE).write_text(json.dumps(
+                {"schema": bracket.CUTOVER_SCHEMA, "backend": "postgres", **record}), encoding="utf-8")
+            with self.assertRaisesRegex(BracketError, "did not finish: orgs/ still holds acme.db"):
+                bracket.start_for_engine(root, {**env, "ORGTREE_PG_BOOTSTRAP": flag}, self.migrator)
+            self.assertTrue((root / "orgs" / "acme.db").is_file())
+
+    def test_finishing_never_overwrites_a_rollback_copy(self) -> None:
+        root, env, _ = self.converting()
+        (root / "orgs" / "acme.pg").write_text("{}")
+        (root / bracket.CUTOVER_FILE).write_text(json.dumps(
+            {"schema": bracket.CUTOVER_SCHEMA, "backend": "postgres", "via": bracket.CONVERT_VIA}), encoding="utf-8")
+        (root / "pre-postgres" / "orgs").mkdir(parents=True)
+        (root / "pre-postgres" / "orgs" / "acme.db").write_bytes(b"older copy")
+        with self.assertRaisesRegex(BracketError, "refusing to overwrite a rollback copy"):
+            bracket.start_for_engine(root, env, self.migrator)
+        self.assertEqual((root / "pre-postgres" / "orgs" / "acme.db").read_bytes(), b"older copy")
+        self.assertEqual((root / "orgs" / "acme.db").read_bytes(), b"sqlite bytes")
 
     def test_the_deny_list_is_the_rust_guards(self) -> None:
         rust = (Path(bracket.__file__).resolve().parent / "native" / "prototype-guard" / "src" / "product.rs").read_text(encoding="utf-8")
@@ -733,6 +930,24 @@ class LaunchWiringTests(unittest.TestCase):
         with mock.patch("atexit.register", side_effect=registered.append),              mock.patch("engine.pg_process.start_for_engine", return_value=None):
             launch._own_database(Path("C:/root"))
         self.assertEqual(registered, [], "nothing to stop when the store is not postgres")
+
+    def test_a_failed_conversion_prints_one_structured_refusal_then_raises(self) -> None:
+        import contextlib
+        import io
+        import engine.launch as launch
+        out = io.StringIO()
+        failure = bracket.ConversionFailed("Orgtree could not convert your data. Details: C:\\d\\conversion\\x.")
+        with mock.patch("engine.pg_process.start_for_engine", side_effect=failure), \
+                contextlib.redirect_stdout(out), self.assertRaises(bracket.ConversionFailed):
+            launch._own_database(Path("C:/root"), print)
+        line = json.loads(out.getvalue().strip())
+        self.assertEqual((line["type"], line["code"], line["reason"]), ("refused", "conversion-failed", str(failure)))
+        # an ordinary refusal prints nothing (the desktop only retries root-owned)
+        out = io.StringIO()
+        with mock.patch("engine.pg_process.start_for_engine", side_effect=BracketError("x")), \
+                contextlib.redirect_stdout(out), self.assertRaises(BracketError):
+            launch._own_database(Path("C:/root"), print)
+        self.assertEqual(out.getvalue(), "")
 
     def test_a_refusal_propagates_out_of_the_helper(self) -> None:
         import engine.launch as launch

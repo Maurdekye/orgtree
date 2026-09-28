@@ -47,6 +47,10 @@ except ImportError:  # script entrypoint
     from engine.startup_progress import parse_progress
 
 READY_TIMEOUT = 120.0  # boot is contended; the desktop's 60s is too tight
+#: Between two checkpoints of the first-launch conversion (phases starting
+#: ``database-convert``): copying or reading back one large org is ONE step.
+CONVERT_READY_TIMEOUT = 900.0
+CONVERT_PHASE = "database-convert"
 SHUTDOWN_WAIT = 10.0
 DESCRIPTOR = "engine-attach.json"
 # Exit when another engine or host already owns the data root (a lost boot
@@ -395,6 +399,36 @@ def request_shutdown(port: int, token: str) -> bool:
         return False
 
 
+def packaged_postgres_environment(engine_dir: Path) -> dict[str, str]:
+    """What the packaged desktop sets for its engine (postgres-runtime.ts):
+    the bundled custodian and PostgreSQL, and ``ORGTREE_PG_BOOTSTRAP=1``, so
+    a fresh root starts on PostgreSQL and an existing SQLite root is
+    converted on this first start whichever process starts the engine first.
+    Only for an INSTALLED app (``resources/app.asar`` beside ``engine``); a
+    source checkout gets nothing, as the desktop's development build does
+    not. A missing bundled file raises, as the desktop does."""
+    if not (engine_dir.parent / "app.asar").is_file():
+        return {}
+    custodian = engine_dir / "pg-custodian.exe"
+    bin_dir = engine_dir / "postgresql" / "bin"
+    # Keep aligned with postgres-runtime.ts and PgBin::locate in pg-custodian.
+    for target in [custodian, *(bin_dir / n for n in ("postgres.exe", "pg_ctl.exe", "initdb.exe", "psql.exe",
+                                                       "pg_controldata.exe"))]:
+        if not target.is_file():
+            raise RuntimeError(f"packaged PostgreSQL executable is missing: {target}")
+    return {"ORGTREE_PG_CUSTODIAN": str(custodian), "ORGTREE_P03_PG_BIN": str(bin_dir), "ORGTREE_PG_BOOTSTRAP": "1"}
+
+
+def checkpoint_window(line: str) -> float:
+    """How long the host waits for the NEXT checkpoint after this one."""
+    try:
+        value = json.loads(line)
+    except ValueError:
+        return READY_TIMEOUT
+    phase = value.get("phase") if isinstance(value, dict) else None
+    return CONVERT_READY_TIMEOUT if isinstance(phase, str) and phase.startswith(CONVERT_PHASE) else READY_TIMEOUT
+
+
 def main() -> int:
     root = resolve_data_root()
     ui = resolve_ui_dir()
@@ -418,8 +452,13 @@ def main() -> int:
                 # guardian terminates the engine tree instead of orphaning it
                 # behind a stale descriptor.
                 "ORGTREE_V2_PARENT_PID": str(os.getpid())})
-    for key in ("ORGTREE_PORT", "ORGTREE_BASE"):
+    for key in ("ORGTREE_PORT", "ORGTREE_BASE", "ORGTREE_PG_BOOTSTRAP"):
         env.pop(key, None)
+    try:
+        env.update(packaged_postgres_environment(Path(__file__).resolve().parent))
+    except RuntimeError as exc:
+        print(f"service host: {exc}", file=sys.stderr, flush=True)
+        return 1
     launcher = Path(__file__).resolve().parent / "launch.py"
     child = subprocess.Popen([sys.executable, str(launcher)], cwd=str(launcher.parent),
                              env=env, stdout=subprocess.PIPE, stderr=sys.stderr,
@@ -427,7 +466,7 @@ def main() -> int:
 
     ready: dict[str, Any] = {}
     failure: list[str] = []
-    checkpoints = {"sequence": 0, "at": time.monotonic(), "refused": False}
+    checkpoints = {"sequence": 0, "at": time.monotonic(), "refused": False, "window": READY_TIMEOUT}
     def read_stdout() -> None:
         assert child.stdout is not None
         while True:
@@ -440,13 +479,18 @@ def main() -> int:
             line = raw.decode("utf-8", "replace").strip()
             sequence = parse_progress(line, child.pid, root, checkpoints["sequence"])
             if sequence > checkpoints["sequence"]:
-                checkpoints.update(sequence=sequence, at=time.monotonic())
+                checkpoints.update(sequence=sequence, at=time.monotonic(), window=checkpoint_window(line))
                 continue
             try:
                 refusal = json.loads(line)
                 if isinstance(refusal, dict) and refusal.get("type") == "refused" and refusal.get("code") == "root-owned":
                     checkpoints["refused"] = True
                     failure.append("another engine owns this data root")
+                    break
+                if isinstance(refusal, dict) and refusal.get("type") == "refused" \
+                        and refusal.get("code") == "conversion-failed":
+                    # not a lost race: report it (the reason is written for the user)
+                    failure.append(f"conversion failed: {refusal.get('reason')}")
                     break
             except ValueError:
                 pass
@@ -468,7 +512,8 @@ def main() -> int:
     # a file carrying OUR pid, so pre-write failures are a safe no-op and a
     # newer host's file can never be taken down by a dying older one.
     try:
-        while not ready and not failure and child.poll() is None and time.monotonic() - checkpoints["at"] < READY_TIMEOUT:
+        while not ready and not failure and child.poll() is None \
+                and time.monotonic() - checkpoints["at"] < checkpoints["window"]:
             if stop_requested():
                 # Stopped before readiness: no descriptor exists yet, so
                 # take the tree down and report an orderly stop.

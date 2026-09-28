@@ -638,5 +638,75 @@ class Cutover(Base):
         self.assertEqual(pp.PRODUCT_FILE, pgimport.PRODUCT_BINDING)
 
 
+class ProgressSink(FakeSink):
+    """A sink that accepts the copy-progress callback and reports every row."""
+
+    def replace_org(self, slug, rows, receipt, copied=None):
+        super().replace_org(slug, rows, receipt)
+        if copied is not None:
+            copied(sum(len(v) for v in rows.values()))
+
+
+class Progress(Base):
+    """The first-launch conversion's progress lines (user decision 38): one
+    per real step, naming the org and its place in the list."""
+
+    def two_orgs(self) -> None:
+        write_db(self.orgs() / "acme.db", sample_doc())
+        write_db(self.orgs() / "beta.db", sample_doc("Beta"))
+
+    def test_the_dry_run_and_the_import_report_each_step(self) -> None:
+        self.two_orgs()
+        lines: list[str] = []
+        plan = pgimport.dry_run(self.root, lines.append)
+        self.assertEqual(lines, ["checking acme (1 of 2)", "checking beta (2 of 2)"])
+        lines.clear()
+        pgimport.import_root(self.root, ProgressSink(self.sink_path), plan=plan, progress=lines.append)
+        self.assertEqual([ln for ln in lines if "rows" not in ln],
+                         ["reading acme (1 of 2)", "copying acme (1 of 2)", "checking the copy of acme (1 of 2)",
+                          "copied and checked acme (1 of 2)", "reading beta (2 of 2)",
+                          "copying beta (2 of 2)", "checking the copy of beta (2 of 2)",
+                          "copied and checked beta (2 of 2)"])
+        self.assertTrue(any(ln.startswith("copying acme (1 of 2): ") and ln.endswith(" rows") for ln in lines))
+        lines.clear()
+        pgimport.import_root(self.root, ProgressSink(self.sink_path), progress=lines.append)
+        self.assertIn("already copied acme (1 of 2)", lines)
+
+    def test_a_given_plan_is_not_run_again_but_a_refused_one_still_refuses(self) -> None:
+        self.two_orgs()
+        plan = pgimport.dry_run(self.root)
+        real = pgimport.dry_run
+        try:
+            pgimport.dry_run = lambda *a, **k: self.fail("the dry run was repeated")
+            pgimport.import_root(self.root, self.sink(), plan=plan)
+            with self.assertRaisesRegex(ImportRefused, "the dry run refused: x"):
+                pgimport.import_root(self.root, self.sink(), plan=dict(plan, refused=["x"]))
+        finally:
+            pgimport.dry_run = real
+
+    def test_without_progress_the_sink_is_called_as_before(self) -> None:
+        # a Sink written before the callback existed keeps working
+        self.two_orgs()
+        result = pgimport.import_root(self.root, self.sink())
+        self.assertEqual(sorted(result["orgs"]), ["acme", "beta"])
+
+    def test_the_cutover_record_names_who_switched(self) -> None:
+        self.two_orgs()
+        (self.root / pgimport.PROTOTYPE_MARKER).write_text("{}")
+        sink = FakeSink(self.sink_path, orgs_dir=self.orgs())
+        dry = pgimport.dry_run(self.root)
+        record = pgimport.write_cutover(self.root, dry, pgimport.import_root(self.root, sink), "first-launch-conversion")
+        self.assertEqual(record["via"], "first-launch-conversion")
+        on_disk = json.loads((self.root / pgimport.CUTOVER_FILE).read_text(encoding="utf-8"))
+        self.assertEqual(on_disk["via"], "first-launch-conversion")
+
+    def test_progress_on_the_command_line_needs_out(self) -> None:
+        tool = Path(pgimport.__file__)
+        proc = subprocess.run([sys.executable, str(tool), "import", "--root", str(self.root), "--custodian",
+                               sys.executable, "--progress"], capture_output=True, text=True, timeout=120)
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("--progress needs --out", proc.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
