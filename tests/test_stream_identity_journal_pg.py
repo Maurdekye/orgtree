@@ -154,15 +154,16 @@ class UntouchedRule(unittest.TestCase):
         self.assertTrue(tree_changes.since_detail(self.ROOT, self.SLUG, 0, 2)['blob_nodes'])
 
     def test_blob_write_is_not_hidden_by_other_rows_in_the_same_commit(self):
-        self.journal()
         change = type('C', (), {'node_inserts': (), 'node_deletes': ()})
         rows, blob = change(), change()
         rows.node_updates, rows.changed_keys = ['b'], lambda: ['nodes']
         blob.node_updates, blob.changed_keys = [], lambda: ['nodes']
-        tree_changes.publish(self.ROOT, self.SLUG, rows)
-        tree_changes.publish(self.ROOT, self.SLUG, blob)
-        tree_changes.commit(self.ROOT, self.SLUG, 1)
-        self.assertFalse(self.ok(1))
+        for first, second in ((rows, blob), (blob, rows)):
+            self.journal()
+            tree_changes.publish(self.ROOT, self.SLUG, first)
+            tree_changes.publish(self.ROOT, self.SLUG, second)
+            tree_changes.commit(self.ROOT, self.SLUG, 1)
+            self.assertFalse(self.ok(1))
 
 
 def tearDownModule():
