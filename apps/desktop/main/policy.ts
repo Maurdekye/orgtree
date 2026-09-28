@@ -7,7 +7,7 @@ import { isStartupMode } from '../../../packages/contracts/desktop-window'
 import path from 'node:path'
 import fs from 'node:fs'
 import type { DesktopPreferences, EngineReady } from '../../../packages/contracts/index'
-import { PRIVATE_ALPHA_APP_ID, type DesktopIdentity } from './build-channel'
+import type { DesktopIdentity } from './build-channel'
 
 export const DEFAULT_PREFERENCES: DesktopPreferences = { ...DEFAULT_NOTIFICATIONS, visualTheme: 'orgtree', contrastTheme: DEFAULT_CONTRAST, agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false, startupMode: 'restore' }
 export const TOKEN_HEADER = 'X-Orgtree-Desktop-Token'
@@ -67,22 +67,23 @@ export function validateDataRoot(candidate: string, forbidden: string): string {
 
 /** The backend data root this process starts or attaches to.
  *
- *  ⚠ A PRIVATE ALPHA HAS EXACTLY ONE DATA ROOT: `<userData>\data`, where
- *  userData is its own compiled `Orgtree v3 Alpha` folder. ORGTREE_V2_DATA is
- *  a development override, and obeying it here would let the private build
- *  read and write stable's `Orgtree v2\data` and adopt stable's engine
- *  through that folder's attach descriptor. So for the private identity the
- *  variable is allowed only when unset or when it resolves to that same
+ *  ⚠ THE 3.0.0-alpha.0 BUILD HAS EXACTLY ONE DATA ROOT: `<userData>\data`,
+ *  which is 2.1.12's own `%APPDATA%\Orgtree v2\data`, because this build
+ *  replaces 2.1.12 (user decision 2026-09-28). ORGTREE_V2_DATA is a
+ *  development override, and obeying it here would let the installed v3 app
+ *  read and write, or bootstrap PostgreSQL into, some other folder and adopt
+ *  whatever engine that folder's attach descriptor names. So for this build
+ *  the variable is allowed only when unset or when it resolves to that same
  *  folder; any other value, including an empty or relative one, is refused
  *  before anything is started or attached, and the refusal names both paths.
  *
  *  Every other identity keeps the override exactly as before. */
-export function resolveDataRoot(requested: string | undefined, userData: string, identity: Pick<DesktopIdentity, 'appId'>): string {
+export function resolveDataRoot(requested: string | undefined, userData: string, identity: Pick<DesktopIdentity, 'ownDataRootOnly'>): string {
   const own = path.join(userData, 'data')
-  if (identity.appId !== PRIVATE_ALPHA_APP_ID) return requested ?? own
+  if (!identity.ownDataRootOnly) return requested ?? own
   if (requested === undefined) return own
   if (path.isAbsolute(requested) && canonicalRoot(resolveExisting(path.resolve(requested))) === canonicalRoot(resolveExisting(path.resolve(own)))) return own
-  throw new Error(`The private alpha uses only its own data folder, ${own}. ORGTREE_V2_DATA is set to ${JSON.stringify(requested)}, which is a different folder. Unset ORGTREE_V2_DATA and start it again.`)
+  throw new Error(`Orgtree 3.0.0-alpha.0 uses only its own data folder, ${own}. ORGTREE_V2_DATA is set to ${JSON.stringify(requested)}, which is a different folder. Unset ORGTREE_V2_DATA and start it again.`)
 }
 
 /** A checkpoint is evidence only for this child/root and only once. Arbitrary

@@ -7,11 +7,10 @@ import fs from 'node:fs'
  *  impersonate the installed release. */
 export const RELEASE_APP_ID = 'com.maurdekye.orgtree'
 export const DEV_APP_ID = 'com.maurdekye.orgtree.dev'
-export const PRIVATE_ALPHA_APP_ID = 'com.maurdekye.orgtree.private-alpha'
 
 declare const __ORGTREE_PRIVATE_ALPHA__: string
-// Compiled identity survives absent/corrupt build-info; a private build must
-// never fall back to the installed release's data directory or updater.
+// Compiled identity survives absent/corrupt build-info: the 3.0.0-alpha.0
+// build must never turn its updater on, whatever build-info says.
 const privateAlphaBuild = typeof __ORGTREE_PRIVATE_ALPHA__ !== 'undefined'
   && __ORGTREE_PRIVATE_ALPHA__.endsWith(':enabled')
 
@@ -85,6 +84,10 @@ export interface DesktopIdentity {
    *  all, and unpackaged development never had one. Everything update-shaped
    *  in the main process gates on this rather than on app.isPackaged. */
   updatesSupported: boolean
+  /** Only the 3.0.0-alpha.0 build sets it: the backend data root is
+   *  `<userData>\data` and nothing else (see resolveDataRoot). Absent, the
+   *  ORGTREE_V2_DATA development override is obeyed as before. */
+  ownDataRootOnly?: true
 }
 
 /** One place deciding who this process is. A packaged dev-channel build is a
@@ -116,9 +119,13 @@ export interface DesktopIdentity {
 export function desktopIdentity(
   packaged: boolean, channel: BuildChannel, updateFixtureComposed = false): DesktopIdentity {
   if (packaged && (privateAlphaBuild || channel === 'private-alpha')) {
-    return { appId: PRIVATE_ALPHA_APP_ID, name: 'Orgtree v3 Alpha',
-      appUserModelId: PRIVATE_ALPHA_APP_ID, displayName: 'Orgtree Private Alpha',
-      updatesSupported: false }
+    // The first v3 build REPLACES 2.1.12 (user decision 2026-09-28): the
+    // installed release's identity exactly, so it installs over 2.1.12 and
+    // uses its data folder (`Orgtree v2`), with the updater compiled off so
+    // it can never "update" itself back to 2.1.x.
+    return { appId: RELEASE_APP_ID, name: 'Orgtree v2',
+      appUserModelId: RELEASE_APP_ID, displayName: 'Orgtree',
+      updatesSupported: false, ownDataRootOnly: true }
   }
   const dev = packaged && channel === 'dev'
   return {

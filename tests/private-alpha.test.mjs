@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process'
 import { build } from 'esbuild'
 import {
   PRIVATE_ALPHA_VERSION as VERSION, PRIVATE_ALPHA_INSTALLER as INSTALLER,
-  PRIVATE_ALPHA_APP_ID, PRIVATE_ALPHA_MARKER, privateAlphaConfig,
+  RELEASE_IDENTITY, PRIVATE_ALPHA_MARKER, privateAlphaConfig,
 } from '../tools/private-alpha-policy.mjs'
 import {
   APPROVAL_SCHEMA, assertIntegrationApproval, assertLocalPath,
@@ -176,13 +176,13 @@ test('build and approval require an exact reviewed candidate before packaging', 
 test('real electron-builder validation and provider resolution disable every publish level even with credentials', async t => {
   const original = structuredClone(pkg.build)
   const config = privateAlphaConfig({ ...pkg.build,
-    win: { publish: [{ provider: 'github' }] }, nsis: { publish: [{ provider: 'github' }] } })
+    win: { publish: [{ provider: 'github' }] }, nsis: { ...pkg.build.nsis, publish: [{ provider: 'github' }] } })
   await validateConfiguration(config, { isEnabled: false })
-  assert.equal(config.appId, PRIVATE_ALPHA_APP_ID)
+  assert.equal(config.appId, RELEASE_IDENTITY.appId)
   assert.equal(config.extraMetadata.version, VERSION)
   assert.equal(config.artifactName, INSTALLER)
   assert.equal(config.nsis.runAfterFinish, false)
-  assert.equal(config.nsis.include, 'build/installer-dev.nsh')
+  assert.equal(config.nsis.include, 'build/installer.nsh')
   const prior = process.env.GH_TOKEN
   process.env.GH_TOKEN = 'fixture-only-no-network'
   t.after(() => { if (prior === undefined) delete process.env.GH_TOKEN; else process.env.GH_TOKEN = prior })
@@ -212,7 +212,7 @@ test('public preflight refuses renamed private bundles as well as private metada
   assert.throws(() => assertReleaseProvenance({ ...info, version: VERSION }, candidate, ''), /private-only/)
 })
 
-test('compiled private identity survives corrupt or absent metadata and cannot enable updates', async t => {
+test('compiled 3.0.0-alpha.0 identity survives corrupt or absent metadata and cannot enable updates', async t => {
   const root = fixture(t)
   for (const enabled of [false, true]) {
     const outfile = path.join(root, `${enabled}.cjs`)
@@ -226,8 +226,11 @@ test('compiled private identity survives corrupt or absent metadata and cannot e
     assert.equal(channel, enabled ? 'private-alpha' : 'release')
     const identity = compiled.desktopIdentity(true, channel, true)
     assert.equal(identity.updatesSupported, !enabled)
-    assert.equal(identity.name, enabled ? 'Orgtree v3 Alpha' : 'Orgtree v2')
-    assert.equal(identity.appId, enabled ? PRIVATE_ALPHA_APP_ID : pkg.build.appId)
+    // the installed release's identity either way (it replaces 2.1.12); only
+    // the updater and the data-root lock tell them apart
+    assert.equal(identity.name, 'Orgtree v2')
+    assert.equal(identity.appId, pkg.build.appId)
+    assert.equal(identity.ownDataRootOnly, enabled ? true : undefined)
   }
 })
 
