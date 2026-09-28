@@ -126,7 +126,8 @@ def _group(name: str) -> str:
         return "worker"
     if name == "MainThread":
         return "loop"
-    return name.rstrip("0123456789-_ ()").strip() or name
+    import re
+    return re.sub(r"\d+", "N", name)
 
 
 _PG = ("psycopg",)
@@ -144,7 +145,7 @@ def _classify(frames: list[tuple[str, str]]) -> str:
     leaf_f, leaf_fn = frames[0]
     if leaf_f in ("threading", "queue") and leaf_fn in _LOCKS + ("get",):
         # an AnyIO worker parked on its queue is idle, not waiting for a lock
-        if any(fn == "run" and f in ("_threads", "to_thread") for f, fn in frames[:4]):
+        if any(fn == "run" and f in ("_threads", "to_thread", "_asyncio") for f, fn in frames[:5]):
             return "idle"
         return "lock"
     if leaf_f in ("selectors", "windows_events", "proactor_events", "base_events") and leaf_fn in (
