@@ -605,6 +605,9 @@ def child(args) -> int:
         from sql_counts import install as install_sql_counts, Boundary
         install_sql_counts()
         app = Boundary(app, root / "metrics" / "sql-counts.jsonl")
+    if os.environ.get("ORGTREE_SCALE_FG_WHY") == "1":
+        from foreground_probe import install_why
+        install_why(root / "metrics" / "fg-why.jsonl")
     if os.environ.get("ORGTREE_SCALE_TRACE_GIT") == "1":
         app = AuditRequestPath(app)
     import uvicorn
