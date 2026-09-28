@@ -20,7 +20,7 @@ class _Unavailable(RuntimeError):
     pass
 
 
-def _context(raw, slug, graph, *, header, reuse=None, reuse_settings=None):
+def _context(raw, slug, graph, *, header, reuse=None, reuse_settings=None, inputs=None):
     # The shared adapter is a separately reviewed dependency. Do not silently
     # load a complete Org, or invent header counts, if it cannot serve a view.
     try:
@@ -31,7 +31,7 @@ def _context(raw, slug, graph, *, header, reuse=None, reuse_settings=None):
         raise _Unavailable from error
     try:
         return adapter.build(raw, slug, graph, header=header, reuse=reuse,
-                             reuse_settings=reuse_settings)
+                             reuse_settings=reuse_settings, inputs=inputs)
     except adapter.CompatibilityRequired as error:
         raise _Unavailable from error
 
@@ -53,10 +53,21 @@ def _advance(raw, slug, saved, stamp, rows):
     Settings, windows, mail, inbox and counts are read again as a full build
     reads them; unchanged nodes keep their normalized copies."""
     old, graph = saved['context'], saved['graph']
+    inputs = getattr(old, 'inputs', None)
+    if inputs is not None and stamp['view_revision'] == graph['stamp']['view_revision']:
+        # No doc or listed-log row was written since (the 0004 triggers bump
+        # view_revision for every one, direct SQL included): settings, mail,
+        # windows and inbox are as read. Funding follows the changed rows' meta.
+        funding = [{**row, **{key: rows[row['id']]['meta'][key]
+                              for key in ('parent', 'state', 'model', 'grant')}}
+                   if row['id'] in rows else row for row in inputs['funding']]
+        inputs = {**inputs, 'funding': funding}
+    else:
+        inputs = None
     graph = {**graph, 'stamp': stamp, 'rows': {**graph['rows'], **rows}}
     reuse = {nid: node for nid, node in old.nodes.items() if nid not in rows}
     context = _context(raw, slug, graph, header=True, reuse=reuse,
-                       reuse_settings=getattr(old, 'settings_key', None))
+                       reuse_settings=getattr(old, 'settings_key', None), inputs=inputs)
     return _kept(context, graph)
 
 

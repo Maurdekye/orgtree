@@ -102,7 +102,12 @@ class ForegroundContext:
             raise CompatibilityRequired('legacy pending mail identifiers require normalization')
         self.d = ProjectionDoc(copy.deepcopy(settings))
         self.d['nodes'] = nodes
-        for nid, node in nodes.items():
+        # Reused nodes are already normalized under these settings: skip their
+        # per-node work (F3b-3). `_normalized_nodes` is the Org seam the shared
+        # snapshot's section-granular rebuild uses for the same purpose.
+        fresh = {nid: node for nid, node in nodes.items() if nid not in reuse}
+        self.d._normalized_nodes = set(reuse)
+        for nid, node in fresh.items():
             node.setdefault('ui_order', float(graph['rows'][nid]['ordinal']))
         # These helpers perform local normalization only, with no event/migration
         # side effects and no history scans. Never call Org.__init__ here.
@@ -115,7 +120,7 @@ class ForegroundContext:
             cap = int(kiosk.get('credits') or 0)
             if cap and int(self.d.get('default_top_grant') or 0) >= cap:
                 self.d['default_top_grant'] = 0
-        for node in nodes.values():
+        for node in fresh.values():
             retag_legacy_spend_freeze(node.get('frozen'))
             if not self.d.get('fable_lock'):
                 node.pop('limit_locked', None)
@@ -189,7 +194,8 @@ class ForegroundContext:
 
 def build(raw, slug: str, graph: dict, *, header: bool = True,
           viewer: str = USER, now_ts: float | None = None,
-          reuse: dict | None = None, reuse_settings: str | None = None) -> ForegroundContext:
+          reuse: dict | None = None, reuse_settings: str | None = None,
+          inputs: dict | None = None) -> ForegroundContext:
     """Consume the graph's still-open committed snapshot; never open another.
 
     ``reuse`` hands over nodes an earlier context normalized; they are used
@@ -203,26 +209,35 @@ def build(raw, slug: str, graph: dict, *, header: bool = True,
     if check != ('repeatable read', 'on', graph['stamp']['org_revision']):
         raise CompatibilityRequired('graph/context must share one committed read-only snapshot')
     ids = list(graph['rows'])
-    owner_sections = ('mail', 'delivering')
-    keys = list(SETTINGS + CURRENT_LISTS + owner_sections)
-    keys += [sect + store.SPLIT_SEP + nid for sect in owner_sections for nid in ids]
-    blobs = {key: json.loads(val) for key, val in raw.execute(
-        'SELECT key,val FROM doc WHERE key=ANY(%s)', (keys,)).fetchall()}
-    if blobs.get('slug') != slug:
-        raise CompatibilityRequired('organization identity changed')
-    for sect in CURRENT_LISTS:
-        if sect not in blobs:
-            blobs[sect] = [json.loads(row[0]) for row in raw.execute(
-                'SELECT val FROM log_l WHERE sect=%s ORDER BY seq', (sect,)).fetchall()]
-    for sect in owner_sections:
-        legacy = blobs.get(sect) or {}
-        selected = {}
-        for nid in ids:
-            key = sect + store.SPLIT_SEP + nid
-            rows = blobs.pop(key, legacy.get(nid, []))
-            if rows:
-                selected[nid] = rows
-        blobs[sect] = selected
+    if inputs is None:
+        owner_sections = ('mail', 'delivering')
+        keys = list(SETTINGS + CURRENT_LISTS + owner_sections)
+        keys += [sect + store.SPLIT_SEP + nid for sect in owner_sections for nid in ids]
+        blobs = {key: json.loads(val) for key, val in raw.execute(
+            'SELECT key,val FROM doc WHERE key=ANY(%s)', (keys,)).fetchall()}
+        if blobs.get('slug') != slug:
+            raise CompatibilityRequired('organization identity changed')
+        for sect in CURRENT_LISTS:
+            if sect not in blobs:
+                blobs[sect] = [json.loads(row[0]) for row in raw.execute(
+                    'SELECT val FROM log_l WHERE sect=%s ORDER BY seq', (sect,)).fetchall()]
+        for sect in owner_sections:
+            legacy = blobs.get(sect) or {}
+            selected = {}
+            for nid in ids:
+                key = sect + store.SPLIT_SEP + nid
+                rows = blobs.pop(key, legacy.get(nid, []))
+                if rows:
+                    selected[nid] = rows
+            blobs[sect] = selected
+        funding = foreground_store.read_funding(raw)
+        windows = foreground_store.read_card_windows(raw, ids, header=header)
+        inbox = foreground_store.read_org_inbox_window(raw)
+    else:
+        # The caller proved no doc or listed-log row changed since these were
+        # read (equal view_revision) and patched funding for changed nodes.
+        blobs, funding = inputs['blobs'], inputs['funding']
+        windows, inbox = inputs['windows'], inputs['inbox']
     try:
         from . import workread
     except ImportError as exc:
@@ -234,10 +249,10 @@ def build(raw, slug: str, graph: dict, *, header: bool = True,
     settings_key = tree_delta.encode({key: blobs.get(key) for key in SETTINGS})
     if reuse_settings != settings_key:
         reuse = None
-    context = ForegroundContext(settings=blobs, graph=graph,
-        funding=foreground_store.read_funding(raw),
-        windows=foreground_store.read_card_windows(raw, ids, header=header),
-        inbox=foreground_store.read_org_inbox_window(raw), work_counts=counts, reuse=reuse)
+    context = ForegroundContext(settings=blobs, graph=graph, funding=funding,
+        windows=windows, inbox=inbox, work_counts=counts, reuse=reuse)
+    # What was read, kept so a later advance with no doc change reuses it.
+    context.inputs = {'blobs': blobs, 'funding': funding, 'windows': windows, 'inbox': inbox}
     context.settings_key = settings_key
     context.valid_until = valid_until(blobs)
     return context
