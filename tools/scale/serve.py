@@ -601,6 +601,11 @@ def child(args) -> int:
 
     if os.environ.get("ORGTREE_SCALE_REQPROF"):
         app = _reqprof_wrap(app, root)
+    if os.environ.get("ORGTREE_SCALE_LOCK_WAITS") == "1":
+        # harness-only: which org_tx locks wait, on whom, for how long
+        from lock_waits import install as install_lock_waits
+        from orgtree import orgtx as _orgtx, pgstore as _pgstore
+        install_lock_waits(_orgtx, _pgstore, root / "metrics" / "lock-waits.jsonl")
     if os.environ.get("ORGTREE_SCALE_SQL_COUNTS") == "1":
         from sql_counts import install as install_sql_counts, Boundary
         install_sql_counts()

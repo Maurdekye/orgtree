@@ -74,6 +74,10 @@ def require_go(args, source):
                         # the generator still proves BOTH 10x count and bytes.
                         item_chars=128, mail_chars=4096, transcript_chars=128)),
                     disk_gib=2, commit_gib=12, readiness_s=90)
+    if getattr(args, "lock_burst", None):
+        # One tiny served org and a 16-way message burst: one small slot, no GO.
+        return dict(kind="lock burst probe", commit_gib=12, disk_gib=2,
+                    lock_burst=args.lock_burst, preflight_only=True)
     if getattr(args, "preflight_only", False):
         # Two tiny seeded orgs only (N=10, N=100): cheap, one small slot, no GO.
         return dict(kind="rows preflight only", commit_gib=12, disk_gib=2,
@@ -300,6 +304,9 @@ class Controller:
             self.pg_pid = int((self.root / "pg/pg/cluster/data/postmaster.pid").read_text().splitlines()[0])
             admin = self.pg("urls")["urls"]["P03_PG_ADMIN_URL"]
             c = self.config
+            if c.get("lock_burst"):
+                from lock_burst import burst
+                outcome["lock_burst"] = burst(self, admin, c["lock_burst"])
             if c.get("rows_preflight"):
                 from rows_preflight import preflight
                 outcome["rows_preflight"] = preflight(self, admin)
@@ -502,6 +509,7 @@ def main():
     p.add_argument("--root", required=True, type=Path)
     p.add_argument("--small-control", action="store_true")
     p.add_argument("--preflight-only", action="store_true", help="only the N=10/N=100 rows preflight")
+    p.add_argument("--lock-burst", type=int, help="small lock-wait burst probe at N agents (lock_burst.py)")
     p.add_argument("--go-file", type=Path)
     p.add_argument("--custodian")
     p.add_argument("--pg-bin")
@@ -514,7 +522,7 @@ def main():
     if subprocess.check_output(["git", "status", "--porcelain", "-uno"], cwd=REPO, text=True).strip():
         raise ValueError("commit tracked source before any controller probe")
     config = require_go(args, source)
-    require_slots(args.small_control or args.preflight_only)
+    require_slots(args.small_control or args.preflight_only or bool(args.lock_burst))
     root = check_root(args.root)
     if free_commit_gb() < config["commit_gib"] or shutil.disk_usage(root.parent).free < config["disk_gib"] * 2**30:
         raise RuntimeError("insufficient free commit or disk for admission")
