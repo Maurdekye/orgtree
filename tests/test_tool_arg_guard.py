@@ -285,6 +285,14 @@ class ServerRefuses(unittest.TestCase):
                 self.assertIn('`body` is empty', str(cm.exception.detail))
         self.assertEqual(self.mailbox('boss'), [])
 
+    def test_retired_restart_wake_mode_is_refused_not_ignored(self):
+        # retired 2026-09-28: even its one old value is refused by the backend,
+        # so a direct caller is told rather than silently ignored
+        with self.assertRaises(api.HTTPException) as cm:
+            self.call('orgtree_restart_wake', {'action': 'arm', 'mode': 'one_shot'})
+        self.assertEqual(cm.exception.status_code, 422)
+        self.assertIn('`mode` is retired', str(cm.exception.detail))
+
     def test_a_valid_message_and_notice_still_deliver(self):
         self.call('orgtree_message', {'to': 'boss', 'body': 'hello'})
         self.call('orgtree_send_notice', {'to': 'boss', 'body': 'fyi'})
