@@ -1,4 +1,4 @@
-﻿"""PG-0: the org_tx / org_read interface and its in-process fake (orgtx.py).
+"""PG-0: the org_tx / org_read interface and its in-process fake (orgtx.py).
 
 What these prove, on the SeamBackend fake over a throwaway SQLite root:
   * named rows commit; the revision bumps by one; listeners hear it;

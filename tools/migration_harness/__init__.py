@@ -1,1 +1,1 @@
-﻿"""Synthetic-only migration rehearsal helpers; never imported by the runtime."""
+"""Synthetic-only migration rehearsal helpers; never imported by the runtime."""

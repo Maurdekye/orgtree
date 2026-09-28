@@ -1,4 +1,4 @@
-﻿"""Formatting-only log saves must avoid SQL without weakening stored-value/CAS checks."""
+"""Formatting-only log saves must avoid SQL without weakening stored-value/CAS checks."""
 import json
 import os
 import sqlite3

@@ -1,4 +1,4 @@
-﻿"""Foreground partial contexts retain display semantics and cannot be saved."""
+"""Foreground partial contexts retain display semantics and cannot be saved."""
 import copy
 import os
 import tempfile

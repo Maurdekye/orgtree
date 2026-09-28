@@ -1,4 +1,4 @@
-﻿"""Actual receipt baseline adoption: retained aliases, rollback and commit races."""
+"""Actual receipt baseline adoption: retained aliases, rollback and commit races."""
 import unittest
 import test_pg_receiptrows as fixture
 from test_receiptrows import receipt

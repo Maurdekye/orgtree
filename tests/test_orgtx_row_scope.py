@@ -1,4 +1,4 @@
-﻿"""Row scoping must save nested edits, including references retained at load."""
+"""Row scoping must save nested edits, including references retained at load."""
 import copy
 import json
 import pickle

@@ -1,4 +1,4 @@
-﻿"""Receipt adoption runs after the actual PostgreSQL commit, never a save tail."""
+"""Receipt adoption runs after the actual PostgreSQL commit, never a save tail."""
 import json
 import unittest
 import uuid

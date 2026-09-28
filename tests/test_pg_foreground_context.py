@@ -1,4 +1,4 @@
-﻿"""Actual PG snapshot checks for the foreground context (count seam stubbed)."""
+"""Actual PG snapshot checks for the foreground context (count seam stubbed)."""
 import copy
 import json
 import sys
