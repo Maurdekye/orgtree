@@ -11,7 +11,8 @@ import { Preferences } from './preferences'
 import { WindowPlacement } from './window-placement'
 import { configureTaskbar } from './taskbar'
 import { allowPrereleaseUpdates, desktopIdentity, readBuildChannel } from './build-channel'
-import { closeAction, HARNESS_LINKS, resolveDataRoot, validateDataRoot } from './policy'
+import { closeAction, CONVERSION_FAILED, HARNESS_LINKS, resolveDataRoot, validateDataRoot } from './policy'
+import { ConversionWindow } from './conversion-window'
 import { configureArtifactSession, configureEngineSession, configureWindow, popoutRegistry, revealPopout } from './windows'
 import { registerHeldEventChannels } from './held-events'
 import { openOrg, orgWindowRegistry, planRestore, resolveNativeSender } from './org-windows'
@@ -1704,6 +1705,10 @@ else {
     engine.on('status', status => { if (status.state === 'ready') for (const record of records.values()) record.loadRecovery?.onEngineReady() })
     const base = app.isPackaged ? process.resourcesPath : app.getAppPath()
     const directory = path.join(base, 'engine')
+    // The first v3 start converts a 2.1.12 data folder (user decision 38):
+    // shown while it runs, whether this app or the boot host is converting.
+    const conversionWindow = new ConversionWindow(iconPath)
+    engine.on('conversion', (phase: string | null) => conversionWindow.update(phase))
     try {
       const engineOptions = { directory,
         ...postgresLaunchOptions(app.isPackaged, process.env),
@@ -1726,6 +1731,9 @@ else {
           // ready. Retry attaching instead of showing the fatal dialog.
           if (!(error instanceof Error) || !error.message.startsWith(ENGINE_REFUSED)) throw error
           if (!await engine.attachWithRetry(engineOptions)) {
+            // the boot host's conversion failed while we waited: its reason
+            // (with the log folder), not the lock refusal
+            if (engine.conversionFailure) throw new Error(CONVERSION_FAILED + engine.conversionFailure)
             // The root is owned AND no descriptor verified for the whole
             // budget: the reason it was declined is the actual diagnosis
             // (an unverifiable owner, a stale port), not the lock refusal.

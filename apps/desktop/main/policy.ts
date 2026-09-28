@@ -238,6 +238,103 @@ export function parseRefusal(line: string): string | null {
   return r.reason.slice(0, 300)
 }
 
+/** ⚠ THE FIRST-LAUNCH CONVERSION (user decision 38, 2026-09-28): a 2.1.12
+ *  data folder still on SQLite is converted to PostgreSQL by the engine on
+ *  the first v3 start, in whichever process starts the engine first — this
+ *  app, or the boot host the installer starts at once. The engine side
+ *  (engine/pg_process.py, service_host.py) is p03-ws1-pgservice's; the
+ *  contract the desktop pins is these three things, all agreed with it:
+ *
+ *   · progress: the ordinary startup-progress lines, phase prefixed
+ *     `database-convert` (at most 100 characters);
+ *   · failure: one stdout line `{"type":"refused","code":"conversion-failed",
+ *     "reason":...}`, the reason written for the user and naming the log
+ *     folder. Unlike `root-owned` it is NOT an attach race: never retried;
+ *   · status file `<data>\conversion\current.json`, written ONLY by a
+ *     conversion (a leftover `done` just means "converted then"), so a
+ *     desktop waiting to ATTACH to a converting boot host, which cannot see
+ *     that host's stdout, can still show what is happening. */
+export const CONVERSION_PHASE = 'database-convert'
+export const CONVERSION_FAILED = 'Orgtree could not convert your data to the new storage.\n'
+/** Between checkpoints while converting: copying one large org, or reading
+ *  it back, is a single step that can outlast the ordinary 60 s window.
+ *  The boot host uses the same 900 s. */
+export const CONVERSION_WINDOW_MS = 900000
+
+export function parseConversionFailure(line: string): string | null {
+  let value: unknown
+  try { value = JSON.parse(line) } catch { return null }
+  if (!value || typeof value !== 'object') return null
+  const r = value as { type?: unknown; code?: unknown; reason?: unknown }
+  if (r.type !== 'refused' || r.code !== 'conversion-failed' || typeof r.reason !== 'string') return null
+  return r.reason.slice(0, 2000)
+}
+
+/** The phase of a progress line `parseProgress` has already accepted. */
+export function progressPhase(line: string): string | null {
+  try {
+    const p = JSON.parse(line) as { type?: unknown; phase?: unknown }
+    return p && p.type === 'startup-progress' && typeof p.phase === 'string' ? p.phase.slice(0, 200) : null
+  } catch { return null }
+}
+
+export function isConversionPhase(phase: string | null | undefined): phase is string {
+  return typeof phase === 'string' && phase.startsWith(CONVERSION_PHASE)
+}
+
+export interface ConversionStatus { state: 'running' | 'failed' | 'done'; phase: string; pid: number; at: string; log: string | null; reason: string | null }
+
+/** `<data>\conversion\current.json`, or null when absent, unreadable or not
+ *  the agreed schema (a malformed file is never a verdict either way). */
+export function readConversionStatus(dataRoot: string, io: Pick<typeof fs, 'readFileSync'> = fs): ConversionStatus | null {
+  let value: unknown
+  try { value = JSON.parse(io.readFileSync(path.join(dataRoot, 'conversion', 'current.json'), 'utf8')) } catch { return null }
+  if (!value || typeof value !== 'object') return null
+  const s = value as Record<string, unknown>
+  if (s.schema !== 'orgtree.conversion-status/v1' || !['running', 'failed', 'done'].includes(s.state as string)
+    || typeof s.phase !== 'string' || !Number.isSafeInteger(s.pid) || (s.pid as number) <= 0 || typeof s.at !== 'string'
+    || (s.log !== null && typeof s.log !== 'string') || (s.reason !== null && typeof s.reason !== 'string')) return null
+  return { state: s.state as ConversionStatus['state'], phase: s.phase.slice(0, 200), pid: s.pid as number, at: s.at,
+    log: s.log as string | null, reason: s.reason === null ? null : (s.reason as string).slice(0, 2000) }
+}
+
+/** Is that pid a process at all? EPERM means it exists under another
+ *  principal; only ESRCH is "gone". */
+export function processExists(pid: number, kill: (pid: number, signal: 0) => unknown = process.kill): boolean {
+  try { kill(pid, 0); return true } catch (error) { return (error as NodeJS.ErrnoException)?.code === 'EPERM' }
+}
+
+/** What a desktop waiting to attach should do about a conversion:
+ *  'converting' (keep waiting, show `phase`), a failure reason, or null
+ *  (no conversion in progress: the ordinary attach budget applies). A
+ *  `running` file whose process is gone is a conversion that was killed;
+ *  the next start re-runs it, so it is not a verdict. */
+export function conversionWait(status: ConversionStatus | null, exists: (pid: number) => boolean = processExists):
+  { converting: string } | { failed: string } | null {
+  if (!status) return null
+  if (status.state === 'running') return exists(status.pid) ? { converting: status.phase } : null
+  if (status.state === 'failed' && !exists(status.pid)) return { failed: status.reason ?? `The conversion failed; see ${status.log ?? 'the conversion log folder'}.` }
+  return null
+}
+
+/** The one sentence the conversion window shows. */
+export function conversionMessage(phase: string): string {
+  const detail = phase.startsWith(CONVERSION_PHASE) ? phase.slice(CONVERSION_PHASE.length).replace(/^[:\s]+/, '') : phase
+  return 'Orgtree is converting your data to the new storage. This happens once and may take a few minutes.'
+    + (detail ? `\n\n${detail}` : '')
+}
+
+const escapeHtml = (text: string) => text.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string)
+
+/** The page the conversion window shows: static, no script, no remote
+ *  content. Exported so a test can read exactly what the user sees. */
+export function conversionPage(phase: string): string {
+  const [lead, ...rest] = conversionMessage(phase).split('\n\n')
+  return '<!doctype html><meta charset="utf-8"><title>Orgtree</title>'
+    + '<style>body{font:14px Segoe UI,sans-serif;margin:24px;color:#222;background:#fafafa}p{margin:0 0 12px}.d{color:#555;font-size:12px}</style>'
+    + `<p>${escapeHtml(lead)}</p>` + rest.map(line => `<p class="d">${escapeHtml(line)}</p>`).join('')
+}
+
 export function engineUrl(value: string, origin: string): boolean {
   try {
     const u = new URL(value), expected = new URL(origin)

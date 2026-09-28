@@ -13,7 +13,7 @@ export const RELEASE_IDENTITY = Object.freeze({
     oneClick: false, allowToChangeInstallationDirectory: true }),
 })
 export const PRIVATE_ALPHA_OUTPUT = 'release-private-alpha'
-export const PRIVATE_ALPHA_INSTALLER = `Orgtree-Private-Setup-${PRIVATE_ALPHA_VERSION}.exe`
+export const PRIVATE_ALPHA_INSTALLER = `Orgtree-Setup-${PRIVATE_ALPHA_VERSION}.exe`
 export const PRIVATE_ALPHA_MARKER = 'ORGTREE-PRIVATE-ALPHA-BUILD:enabled'
 
 export function assertPublicReleaseAllowed(version, info = {}) {

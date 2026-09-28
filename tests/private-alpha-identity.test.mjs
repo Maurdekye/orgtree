@@ -46,7 +46,7 @@ test('the private v3 package and lockfile identify exactly 3.0.0-alpha.0', () =>
   // and names the one deliverable after it.
   const config = privateAlphaConfig(pkg.build)
   assert.equal(config.extraMetadata.version, pkg.version)
-  assert.equal(config.artifactName, `Orgtree-Private-Setup-${pkg.version}.exe`)
+  assert.equal(config.artifactName, `Orgtree-Setup-${pkg.version}.exe`)
   assert.equal(config.nsis.artifactName, PRIVATE_ALPHA_INSTALLER)
   const plan = privateAlphaPlan(pkg.build)
   assert.equal(plan.version, pkg.version)

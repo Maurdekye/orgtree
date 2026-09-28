@@ -4,7 +4,8 @@ import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import path from 'node:path'
 import { postgresRuntimeEnvironment } from './postgres-runtime'
-import { canonicalPath, parseAttach, parseReady, parseRefusal, parseProgress, TOKEN_HEADER, validateDataRoot, verifyDescriptorTrust, type DescriptorOwner } from './policy'
+import { canonicalPath, parseAttach, parseReady, parseRefusal, parseProgress, TOKEN_HEADER, validateDataRoot, verifyDescriptorTrust, type DescriptorOwner,
+  CONVERSION_FAILED, CONVERSION_WINDOW_MS, conversionWait, isConversionPhase, parseConversionFailure, progressPhase, readConversionStatus } from './policy'
 
 export const ENGINE_REFUSED = 'Engine start refused: '
 // Attachment retries remain bounded independently of the child protocol.
@@ -53,7 +54,7 @@ import type { EngineStatus } from '../../../packages/contracts/index'
 import { maintenanceRequest, type MaintenanceRequest } from './maintenance'
 import { orgActivityRows, type OrgActivityRow } from './traylist'
 
-export interface EngineOptions { python: string; directory: string; dataRoot: string; forbiddenRoot: string; uiDirectory: string; timeoutMs?: number; packagedPostgres?: boolean; bootstrapPostgres?: boolean }
+export interface EngineOptions { python: string; directory: string; dataRoot: string; forbiddenRoot: string; uiDirectory: string; timeoutMs?: number; conversionWindowMs?: number; packagedPostgres?: boolean; bootstrapPostgres?: boolean }
 /** The bundled mail hub's live state, as /api/desktop/status reports it —
  *  feeds the tray's right-click status line (user requirement 2026-09-15). */
 export interface MailhubStats { running: boolean; healthy: boolean; port: number; exposed: boolean; error?: string }
@@ -104,6 +105,11 @@ export class Engine extends EventEmitter {
   /** Keep trying to attach for a bounded window. A missing descriptor only
    *  means no host has FINISHED starting — during the boot race the host may
    *  need most of its readiness budget before the file exists. */
+  /** Set when an attach wait ended because the engine's first-launch
+   *  conversion failed DURING the wait (its status file says so and its
+   *  process is gone): the reason to show, instead of a lock refusal. */
+  conversionFailure = ''
+
   async attachWithRetry(options: Pick<EngineOptions, 'dataRoot' | 'forbiddenRoot'>, deadlineMs = ATTACH_RETRY_BUDGET_MS, intervalMs = 1000): Promise<boolean> {
     // The wait is long and windowless (opus N5): flip back to 'starting' so
     // the tray — the only surface that exists yet — reads as waiting rather
@@ -111,12 +117,29 @@ export class Engine extends EventEmitter {
     // starting state carries no message; a fuller waiting UI is a renderer
     // follow-up outside this scope.)
     this.state({ state: 'starting' })
-    const deadline = Date.now() + deadlineMs
-    for (;;) {
-      if (await this.attach(options)) return true
-      if (Date.now() >= deadline) return false
-      await new Promise(resolve => setTimeout(resolve, intervalMs))
-    }
+    this.conversionFailure = ''
+    const began = Date.now()
+    let deadline = began + deadlineMs, shown = ''
+    const show = (phase: string) => { if (phase !== shown) { shown = phase; this.emit('conversion', phase || null) } }
+    try {
+      for (;;) {
+        if (await this.attach(options)) return true
+        // A host converting the data (user decision 38) publishes no
+        // descriptor until the conversion is done, which can take far longer
+        // than the ordinary budget: wait for as long as its process lives
+        // and reports. The host's own 900 s checkpoint window bounds a stall.
+        const wait = conversionWait(readConversionStatus(options.dataRoot))
+        if (wait && 'converting' in wait) { show(wait.converting); deadline = Math.max(deadline, Date.now() + deadlineMs) }
+        else if (wait && 'failed' in wait) {
+          // only a failure that happened during THIS wait is a verdict: an
+          // older one belongs to a start the next conversion run replaces
+          const at = Date.parse(readConversionStatus(options.dataRoot)?.at ?? '')
+          if (Number.isFinite(at) && at >= began - 5000) { this.conversionFailure = wait.failed; return false }
+        }
+        if (Date.now() >= deadline) return false
+        await new Promise(resolve => setTimeout(resolve, intervalMs))
+      }
+    } finally { show('') }
   }
 
   /** A method (not an inline closure) so tests can FORCE the ordering the
@@ -203,15 +226,19 @@ export class Engine extends EventEmitter {
     child.stderr.on('data', () => { /* Engine owns on-disk diagnostics; avoid reflecting arbitrary secrets. */ })
     child.on('exit', () => this.childExited(child))
     await new Promise<void>((resolve, reject) => {
-      let buffered = '', settled = false, progress = 0, refused = false
+      let buffered = '', settled = false, progress = 0, refused = false, converting = false
       let timer: ReturnType<typeof setTimeout>
       const resetDeadline = () => {
         clearTimeout(timer)
-        timer = setTimeout(() => { void finish(new Error('Engine did not become ready in time')) }, options.timeoutMs ?? 60000)
+        // the first-launch conversion's single steps (one org's copy or
+        // read-back) can outlast the ordinary window between checkpoints
+        const window = converting ? options.conversionWindowMs ?? CONVERSION_WINDOW_MS : options.timeoutMs ?? 60000
+        timer = setTimeout(() => { void finish(new Error('Engine did not become ready in time')) }, window)
       }
       const finish = async (error?: Error) => {
         if (settled) return
         settled = true; clearTimeout(timer); child.stdout.off('data', onData)
+        if (converting) { converting = false; this.emit('conversion', null) }
         child.stdout.resume()
         // A failed spawn no longer occupies this engine: the boot-race path
         // retries attach() on the same instance after a structured refusal.
@@ -243,10 +270,21 @@ export class Engine extends EventEmitter {
         if (buffered.length > 65536) return finish(new Error('Engine readiness exceeded size limit'))
         while (buffered.includes('\n')) {
           const at = buffered.indexOf('\n'), line = buffered.slice(0, at).trim(); buffered = buffered.slice(at + 1)
+          // not a lock race: the conversion itself failed and left the old
+          // data as it was; never retried, the reason goes to the user
+          const failed = parseConversionFailure(line)
+          if (failed) { void finish(new Error(CONVERSION_FAILED + failed)); return }
           const refusal = parseRefusal(line)
           if (refusal) { refused = true; void finish(new Error(ENGINE_REFUSED + refusal)); return }
           const next = parseProgress(line, realRoot, child.pid ?? -1, progress)
-          if (next > progress) { progress = next; resetDeadline(); continue }
+          if (next > progress) {
+            progress = next
+            const phase = progressPhase(line), was = converting
+            converting = isConversionPhase(phase)
+            if (converting) this.emit('conversion', phase)
+            else if (was) this.emit('conversion', null)
+            resetDeadline(); continue
+          }
           try {
             const ready = parseReady(line, realRoot, child.pid ?? -1)
             if (ready) { this.endpoint = `http://127.0.0.1:${ready.port}`; this.state({ state: 'ready' }); finish(); return }
