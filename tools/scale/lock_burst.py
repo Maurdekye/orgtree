@@ -144,6 +144,10 @@ def burst(ctrl, admin, n):
         waits = [json.loads(line) for line in waits_path.read_text(encoding="utf-8").splitlines()] \
             if waits_path.exists() else []
         summary = dict(agents=n, knobs=knobs, **summarize(waits, counts, sends))
+        profile = root / "metrics/tx-profile.json"
+        if profile.exists():
+            sites = json.loads(profile.read_text(encoding="utf-8"))["sites"]
+            summary["tx_profile_top"] = dict(list(sites.items())[:6])
         write(ctrl.root / "receipts" / f"{name}.json", dict(summary, sends=sends))
         write(ctrl.root / "receipts" / f"{name}-summary.json", summary)
         print(json.dumps(summary, indent=1)[:6000])

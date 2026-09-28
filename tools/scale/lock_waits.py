@@ -119,4 +119,90 @@ def install(orgtx, pgstore, out_path):
                 stop.wait(INTERVAL_S)
 
     threading.Thread(target=sampler, name="scale-lock-waits", daemon=True).start()
+    _profile_holders(orgtx, out_path.with_name("tx-profile.json"), stop)
     return stop
+
+
+def _profile_holders(orgtx, out_path, stop):
+    """Where do org_tx bodies spend their time? Each thread inside
+    PgBackend.transaction_many is marked with its site; a sampler takes that
+    thread's stack every PROFILE_INTERVAL_S and counts its innermost orgtree
+    frame (and a 4-frame path), split into WAITING for its locks (inside the
+    lock statements) and HOLDING them (everything after). Totals per site
+    (count, seconds) come from the transaction's own start and end."""
+    import collections
+    import contextlib
+    import sys
+    interval = float(os.environ.get("ORGTREE_SCALE_TX_PROFILE_INTERVAL_S", "0.01"))
+    inside = {}                                  # thread id -> (site, start)
+    durations = collections.defaultdict(list)
+    samples = collections.defaultdict(lambda: {"waiting": collections.Counter(),
+                                               "holding": collections.Counter(),
+                                               "holding_path": collections.Counter()})
+    original = orgtx.PgBackend.transaction_many
+
+    @contextlib.contextmanager
+    def transaction_many(self, txs, lock_timeout):
+        site = " < ".join(_site()[:3]) or "?"
+        tid = threading.get_ident()
+        inside[tid] = (site, time.time())
+        try:
+            with original(self, txs, lock_timeout):
+                yield
+        finally:
+            start = inside.pop(tid, (site, time.time()))[1]
+            durations[site].append(time.time() - start)
+
+    orgtx.PgBackend.transaction_many = transaction_many
+
+    def frames_of(frame):
+        st = traceback.extract_stack(frame)
+        ours = [f for f in st if os.path.basename(os.path.dirname(f.filename)) == "orgtree"]
+        return st, ours
+
+    def sampler():
+        last = time.time()
+        while not stop.is_set():
+            if time.time() - last > 2:           # the server is killed, not stopped
+                dump(); last = time.time()
+            current = sys._current_frames()
+            for tid, (site, _t) in list(inside.items()):
+                frame = current.get(tid)
+                if frame is None:
+                    continue
+                st, ours = frames_of(frame)
+                locking = any(f.name == "transaction_many" and "raw.execute(block)" in (f.line or "")
+                              for f in st) or any(f.name == "_lock_block" for f in st)
+                inner = [f for f in ours if os.path.basename(f.filename) != "orgtx.py"]
+                leaf = f"{os.path.basename(st[-1].filename)}:{st[-1].name}"
+                key = (f"{os.path.basename(inner[-1].filename)}:{inner[-1].lineno}:{inner[-1].name}"
+                       if inner else leaf)
+                bucket = samples[site]
+                if locking:
+                    bucket["waiting"][key] += 1
+                else:
+                    bucket["holding"][f"{key} [{leaf}]"] += 1
+                    bucket["holding_path"][" > ".join(
+                        f"{os.path.basename(f.filename)}:{f.name}" for f in inner[-4:])] += 1
+            stop.wait(interval)
+        dump()
+
+    def dump():
+        try:
+            snap = {site: list(v) for site, v in list(durations.items())}
+        except RuntimeError:                     # a tx thread added a site mid-copy
+            return
+        report = {}
+        for site in sorted(set(snap) | set(samples), key=lambda s: -sum(snap.get(s, []))):
+            d = sorted(snap.get(site, []))
+            b = samples.get(site)
+            report[site] = dict(
+                n=len(d), seconds=round(sum(d), 3),
+                p50=round(d[len(d) // 2], 3) if d else None, max=round(d[-1], 3) if d else None,
+                waiting=dict(b["waiting"].most_common(8)) if b else {},
+                holding=dict(b["holding"].most_common(12)) if b else {},
+                holding_path=dict(b["holding_path"].most_common(8)) if b else {})
+        out_path.write_text(json.dumps(dict(interval_s=interval, sites=report), indent=1),
+                            encoding="utf-8")
+
+    threading.Thread(target=sampler, name="scale-tx-profile", daemon=True).start()
