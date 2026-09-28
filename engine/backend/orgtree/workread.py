@@ -10,6 +10,7 @@ from collections import Counter, OrderedDict
 from collections.abc import Mapping
 import json
 import logging
+import threading
 from types import SimpleNamespace
 
 from .ledger import Org, USER
@@ -263,16 +264,66 @@ def bootstrap(raw) -> None:
             refresh(raw,org_id)
 
 
+#: COUNTS CACHE (N1000 engprof run 2, 2026-09-28: counts_raw was 28% of
+#: foreground-tree/children, the largest engine-CPU route). A clean answer
+#: depends only on the derived work_read_* rows, work_index and the clock.
+#: Every write that can change those rows fires orgtree_work_access_dirty,
+#: which bumps work_read_state.revision in the writer's transaction; a
+#: refresh that only settles dirty markers changes no clean answer, because
+#: dirty states are never cached. The key also names the database and the
+#: server's start, so an org id reused by another database or cluster never
+#: meets an old entry. The clock only
+#: moves an item when it passes its policy deadline (`_work_eligible`:
+#: strictly older than the hour), so an entry serves while
+#: computed_at <= now < next deadline - _DEADLINE_MARGIN_S. Only clean
+#: answers (ready, not dirty) are stored; a None is never cached.
+_COUNTS_MAX = 4096
+_DEADLINE_MARGIN_S = 1.0
+_counts_cache: OrderedDict = OrderedDict()
+_counts_lock = threading.Lock()
+
+
+def _counts_get(key, stamp, now_ts):
+    with _counts_lock:
+        hit = _counts_cache.get(key)
+        if hit is None or hit[0] != stamp or not (hit[1] <= now_ts < hit[2]):
+            return None
+        _counts_cache.move_to_end(key)
+        return dict(hit[3])
+
+
+def _counts_put(key, stamp, now_ts, until, result):
+    with _counts_lock:
+        _counts_cache[key] = (stamp, now_ts, until, dict(result))
+        _counts_cache.move_to_end(key)
+        while len(_counts_cache) > _COUNTS_MAX:
+            _counts_cache.popitem(last=False)
+
+
 def counts_raw(raw, org_id: int, *, viewer: str, now_ts: float) -> dict[str,int] | None:
     """Exact viewer counts in caller's existing repeatable-read snapshot.
 
     None is explicit whole-context fallback; never unfiltered totals or zeros.
     The physical index counts are deliberately not the viewer's toolbar counts.
+    Clean answers are reused for the same docket revision (see _counts_cache).
     """
     schema=f'org_{int(org_id)}'
     if not _installed(raw,schema) or not workindex.ready(raw,org_id): return None
-    state=raw.execute(f"SELECT ready AND initialized AND NOT questions_dirty AND format='orgtree.work-access/v1' AND NOT EXISTS(SELECT 1 FROM {schema}.work_read_dirty LIMIT 1) FROM {schema}.work_read_state WHERE singleton").fetchone()
+    state=raw.execute(f"SELECT ready AND initialized AND NOT questions_dirty AND format='orgtree.work-access/v1' AND NOT EXISTS(SELECT 1 FROM {schema}.work_read_dirty LIMIT 1), revision, current_database(), pg_postmaster_start_time()::text FROM {schema}.work_read_state WHERE singleton").fetchone()
     if not state or not state[0]: return None
+    key=(state[2],state[3],int(org_id),viewer)
+    stamp=int(state[1])
+    cached=_counts_get(key,stamp,now_ts)
+    if cached is not None: return cached
+    result=_counts_compute(raw,org_id,schema,viewer,now_ts)
+    if result is not None:
+        nxt=raw.execute(f"SELECT min(deadline) FROM {schema}.work_read_policy WHERE location='active' AND deadline >= %s",(now_ts,)).fetchone()[0]
+        until=float('inf') if nxt is None else float(nxt)-_DEADLINE_MARGIN_S
+        if until>now_ts: _counts_put(key,stamp,now_ts,until,result)
+    return result
+
+
+def _counts_compute(raw, org_id, schema, viewer, now_ts):
     total=raw.execute(f'SELECT total FROM {schema}.work_read_totals WHERE viewer=%s',(viewer,)).fetchone()
     total=int(total[0]) if total else 0
     candidates=f"""WITH candidates AS (
