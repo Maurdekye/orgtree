@@ -74,6 +74,10 @@ def require_go(args, source):
                         # the generator still proves BOTH 10x count and bytes.
                         item_chars=128, mail_chars=4096, transcript_chars=128)),
                     disk_gib=2, commit_gib=12, readiness_s=90)
+    if args.preflight_only:
+        # Two tiny seeded orgs only (N=10, N=100): cheap, one small slot, no GO.
+        return dict(kind="rows preflight only", commit_gib=12, disk_gib=2,
+                    rows_preflight=True, preflight_only=True)
     if not args.go_file:
         raise ValueError("large root/seed/run requires coordinator GO file")
     go = read(args.go_file)
@@ -81,7 +85,8 @@ def require_go(args, source):
         raise ValueError("GO must name the exact source and coordinator message")
     return dict(kind="first N1000 baseline; no final qualification", agents=1000, active_items=180,
                 transcript_kb=256, seconds=10, warmup=120, measured=600, tool_rate=3.12,
-                steer_rate=9.36, recipe=asdict(Recipe()), disk_gib=80, commit_gib=24, readiness_s=1800)
+                steer_rate=9.36, recipe=asdict(Recipe()), disk_gib=80, commit_gib=24, readiness_s=1800,
+                rows_preflight=True)
 
 
 def check_root(root):
@@ -159,7 +164,7 @@ class Controller:
                         total += process.memory_info().private
                     except psutil.NoSuchProcess:
                         pass
-                if free < 12 or engine > 5 * 2**30 or disk < (1 if self.args.small_control else 20):
+                if free < 12 or engine > 5 * 2**30 or disk < (1 if self.args.small_control or self.args.preflight_only else 20):
                     raise RuntimeError(f"guard: free commit {free:.2f} GiB, engine {engine}, disk {disk:.2f} GiB")
                 with (self.root / "guard.jsonl").open("a", encoding="utf-8") as out:
                     out.write(json.dumps(dict(at=time.time(), phase=self.phase, free_commit_gib=free,
@@ -288,6 +293,12 @@ class Controller:
             self.pg_pid = int((self.root / "pg/pg/cluster/data/postmaster.pid").read_text().splitlines()[0])
             admin = self.pg("urls")["urls"]["P03_PG_ADMIN_URL"]
             c = self.config
+            if c.get("rows_preflight"):
+                from rows_preflight import preflight
+                outcome["rows_preflight"] = preflight(self, admin)
+            if c.get("preflight_only"):
+                outcome["complete"] = True
+                return
             self.script("seed.py", "seed", "--root", self.run_root, "--agents", c["agents"],
                 "--active-items", c["active_items"], "--archived-per-live", 0,
                 "--archived-items-per-live", 0, "--transcript-kb", c["transcript_kb"],
@@ -483,6 +494,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--root", required=True, type=Path)
     p.add_argument("--small-control", action="store_true")
+    p.add_argument("--preflight-only", action="store_true", help="only the N=10/N=100 rows preflight")
     p.add_argument("--go-file", type=Path)
     p.add_argument("--custodian")
     p.add_argument("--pg-bin")
@@ -495,7 +507,7 @@ def main():
     if subprocess.check_output(["git", "status", "--porcelain", "-uno"], cwd=REPO, text=True).strip():
         raise ValueError("commit tracked source before any controller probe")
     config = require_go(args, source)
-    require_slots(args.small_control)
+    require_slots(args.small_control or args.preflight_only)
     root = check_root(args.root)
     if free_commit_gb() < config["commit_gib"] or shutil.disk_usage(root.parent).free < config["disk_gib"] * 2**30:
         raise RuntimeError("insufficient free commit or disk for admission")
