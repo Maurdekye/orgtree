@@ -88,7 +88,7 @@ class HistorySampler(threading.Thread):
         self.want = {h["source"]: h["bytes"] for h in history}
         self.stop, self.rows = threading.Event(), []
 
-    def sample(self):
+    def sample(self, phase=None):
         conn = sqlite3.connect(f"file:{Path(self.database).as_posix()}?mode=ro", uri=True, timeout=30)
         try:
             have = {src: (lo, hi) for src, lo, hi in conn.execute(
@@ -97,7 +97,7 @@ class HistorySampler(threading.Thread):
             conn.close()
         done = [src for src, size in self.want.items() if have.get(src) == (0, size)]
         got = sum(max(0, have[src][1] - have[src][0]) for src in self.want if src in have)
-        row = dict(at=time.time(), t=time.time() - self.t0, phase=self.phase(), done=len(done),
+        row = dict(at=time.time(), t=time.time() - self.t0, phase=phase or self.phase(), done=len(done),
                    total=len(self.want), bytes_done=min(got, sum(self.want.values())),
                    bytes_total=sum(self.want.values()))
         self.rows.append(row)
