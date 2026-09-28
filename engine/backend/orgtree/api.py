@@ -140,7 +140,13 @@ app = FastAPI(title="orgtree", version="1.0.0")
 #: Chromium always offers the extension, so switching it off here is enough;
 #: the server then does not accept it. The public listener keeps uvicorn's
 #: default, since remote clients may benefit from compression.
-LOCAL_UVICORN_OPTIONS: dict[str, Any] = {"ws_per_message_deflate": False}
+#: timeout_keep_alive: uvicorn closes an idle keep-alive connection after 5 s
+#: by default, the same moment a client that also expires idle connections at
+#: 5 s reuses it, so the request lands on a closing socket (WinError 10054,
+#: measured under GIL load); the desktop's undici expires at 4 s, a thin
+#: margin. 30 s keeps the server's close well after every local client's.
+LOCAL_UVICORN_OPTIONS: dict[str, Any] = {"ws_per_message_deflate": False,
+                                         "timeout_keep_alive": 30}
 from . import p03_door  # P03 door hook: installs NOTHING unless a marked prototype root is set (p03_door.py)
 p03_door.install(app, store.DATA_ROOT)
 from . import startup
