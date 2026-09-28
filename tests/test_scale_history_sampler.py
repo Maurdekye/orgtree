@@ -1,4 +1,5 @@
 """The N1000 controller's read-only history-ingest sampler (baseline_readiness.HistorySampler)."""
+from contextlib import closing
 import json
 from pathlib import Path
 import sqlite3
@@ -16,7 +17,7 @@ class Sampler(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.db = Path(self.dir.name) / "transcript-records.sqlite3"
-        with sqlite3.connect(self.db) as conn:
+        with closing(sqlite3.connect(self.db)) as conn, conn:
             conn.execute("CREATE TABLE transcript_sources (source TEXT, lower_byte INT, upper_byte INT)")
         self.phase = "small-prime"
         self.sampler = HistorySampler(self.db, [dict(node="a", source="A", bytes=100),
@@ -27,7 +28,7 @@ class Sampler(unittest.TestCase):
         self.dir.cleanup()
 
     def put(self, source, lower, upper):
-        with sqlite3.connect(self.db) as conn:
+        with closing(sqlite3.connect(self.db)) as conn, conn:
             conn.execute("DELETE FROM transcript_sources WHERE source=?", (source,))
             conn.execute("INSERT INTO transcript_sources VALUES (?,?,?)", (source, lower, upper))
 
