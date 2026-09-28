@@ -834,8 +834,8 @@ class CaptureTests(unittest.TestCase):
             self.assertEqual(len(self.rows()),5,'control: the worker really captured')
             for f,a in reversed(hooks):f(*a)
         self.assertTrue(down.is_set(),'control: the database stop ran')
-        self.assertGreater(len(hooks),1,'the worker registered its own exit hook')
         self.assertEqual(logged,[],'no capture or discovery failure while the database stops')
+        self.assertGreater(len(hooks),1,'the worker registered its own exit hook')
         self.assertTrue(ingest.stop(1.0),'worker thread gone')
 
 if __name__=='__main__':unittest.main()
