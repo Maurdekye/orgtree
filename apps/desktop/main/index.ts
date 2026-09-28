@@ -174,7 +174,7 @@ else {
   let installerUpgradeShutdown = false, installerUpgradePending = false, engineReady = false
   // Set once an automatic attempt is refused before anything is disturbed, so
   // the 5s poll neither retries it forever nor re-probes the filesystem.
-  let updateHold: string | undefined, updateHoldAnnounced = false
+  let updateHold: string | undefined
   let updateExitWatchdog: NodeJS.Timeout | undefined
   let lastInstallError: unknown, installErrorWaiter: ((error: unknown) => void) | undefined
   /** Assigned once the poll exists, so an abandoned update can restore it. */
@@ -975,16 +975,13 @@ else {
       updateApplying = false
       refreshTrayUpdates()
       // Held, never silently dropped: automatic updates stay ON and the
-      // package stays ready. Said once per run, because the idle path would
-      // otherwise reach this every five seconds.
-      if (!updateHoldAnnounced) {
-        updateHoldAnnounced = true
-        // A failed write means "this process cannot replace these files" and
-        // nothing more specific: an all-users installation is the usual cause,
-        // but a read-only volume or a restrictive ACL reads identically.
-        void dialog.showMessageBox({ type: 'info', message: 'Orgtree is ready to update, but cannot install it on its own.',
-          detail: `Orgtree cannot write to ${installDirectory()}, so the installer cannot run unattended. Choose "Update now" in the Orgtree tray menu and approve any Windows prompt. Automatic updates remain enabled.` }).catch(() => {})
-      }
+      // package stays ready. ⚠ QUIETLY (user 2026-09-28: "please stop showing
+      // that popup when a new version is downloaded but unable to be updated
+      // or installed"). This used to open a native dialog once per run; an
+      // all-users installation hits this on every run with a download
+      // waiting. What remains is the `held` record above, the tray status
+      // line (`updateHold` -> "Update X: cannot install unattended - use
+      // Update now") and the header's glowing "Update now" button.
       return
     }
     // A boot-host engine is stopped gracefully through its authenticated

@@ -200,6 +200,17 @@ test('the update controller is wired end to end: contracts, preload, main proces
   // An unattended automatic install that provably needs elevation is HELD, not
   // performed: performing it shuts the app down and installs nothing.
   assert.match(main, /if \(unattended && !canInstallUnattended\(\)\)/)
+  // ...and QUIETLY (user 2026-09-28: stop the popup shown when an update is
+  // downloaded but cannot be installed automatically). The branch records the
+  // hold and sets the tray status, and opens no dialog of any kind.
+  const held = main.slice(main.indexOf('if (unattended && !canInstallUnattended())'))
+  const heldBranch = held.slice(0, held.search(/\r?\n    \}\r?\n/))
+  assert.match(heldBranch, /updateLog\.record\('held'/, 'the hold must still be recorded in update-log.json')
+  assert.match(heldBranch, /updateHold = 'cannot install unattended - use Update now'/,
+    'the tray status line must still say why the update is waiting')
+  assert.doesNotMatch(heldBranch, /dialog\.|showMessageBox|new BrowserWindow|Notification/,
+    'a held automatic update must not interrupt the user with a popup')
+  assert.doesNotMatch(main, /cannot install it on its own/, 'the held-update popup text must be gone')
   // decided by WRITING, because Windows access checks report the read-only
   // attribute rather than the ACL, and probed once rather than every poll
 
