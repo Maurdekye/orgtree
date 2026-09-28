@@ -268,6 +268,15 @@ def install_why(path):
     cache._status = status
     foreground_store.select_foreground = select
 
+    import traceback
+    for attr in ("_publish_changes_unknown", "external_change"):
+        def unknown(slug, _original=getattr(store, attr), _attr=attr):
+            frames = [f"{f.filename.replace(chr(92), '/').rsplit('/', 1)[-1]}:{f.name}"
+                      for f in traceback.extract_stack(limit=8)[:-1]]
+            log(dict(event="journal unknown", via=_attr, stack=frames))
+            return _original(slug)
+        setattr(store, attr, unknown)
+
 
 PHASES = {
     "select_foreground": "foreground_store.py:select_foreground",
