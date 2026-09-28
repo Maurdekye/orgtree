@@ -61,7 +61,7 @@ const V2112 = { appId: 'com.maurdekye.orgtree', productName: 'Orgtree', nsis: { 
   perMachine: false, allowToChangeInstallationDirectory: true, deleteAppDataOnUninstall: false,
   createStartMenuShortcut: true, shortcutName: 'Orgtree', menuCategory: 'Orgtree', include: 'build/installer.nsh' } }
 
-test('the 3.0.0-alpha.0 installer IS 2.1.12's installation: it upgrades it in place', () => {
+test("the 3.0.0-alpha.0 installer IS 2.1.12's installation: it upgrades it in place", () => {
   const config = privateAlphaConfig(pkg.build)
   // Same appId -> same NSIS GUID -> the same uninstall entry and install
   // registry key, so electron-builder's installer treats 2.1.12 as the older
@@ -80,7 +80,7 @@ test('the 3.0.0-alpha.0 installer IS 2.1.12's installation: it upgrades it in pl
   assert.notEqual(config.directories.output, pkg.build.directories.output)
 })
 
-test('negative control: a build config that drifted from 2.1.12's identity is refused', () => {
+test("negative control: a build config that drifted from 2.1.12's identity is refused", () => {
   for (const [what, build] of [
     ['appId', { ...pkg.build, appId: 'com.maurdekye.orgtree.private-alpha' }],
     ['productName', { ...pkg.build, productName: 'Orgtree Private Alpha' }],
