@@ -54,7 +54,7 @@ from control import BoundedPool, Workload, Feed, free_commit_gb, memory_breach
 from ui_mix import WINDOWS, polls as ui_polls
 from streaming import drive_planned, drive_streams, send_frames
 from settlement import settled as mailbox_settled
-from conn_reset import post_retry_reused_reset
+from conn_reset import keepalive_limits, post_retry_reused_reset
 from baseline_measurement import memory_floor
 
 MARK = re.compile(r"\[\[m(\d+)\]\]")
@@ -205,7 +205,7 @@ def main(argv=None) -> int:
     stream_rng = random.Random(args.seed + 2)
     H = {"X-Orgtree-Desktop-Token": token}
 
-    boot = httpx.Client(base_url=origin, headers=H, timeout=30)
+    boot = httpx.Client(base_url=origin, headers=H, timeout=30, limits=keepalive_limits())
     tokens = boot.get("/scale/tokens").raise_for_status().json()
     metadata = boot.get("/scale/workload").raise_for_status().json()
     live = [a for a in desc["live_agents"] if a in tokens]
@@ -274,8 +274,13 @@ def main(argv=None) -> int:
     def client():
         c = getattr(local, "c", None)
         if c is None:
-            c = local.c = httpx.Client(base_url=origin, timeout=30)
+            c = local.c = httpx.Client(base_url=origin, timeout=30, limits=keepalive_limits())
         return c
+
+    def mutating(tool: str, targs: dict) -> bool:
+        """A write may already have been applied when its connection reset: never resent."""
+        return tool in ("orgtree_message", "orgtree_send_notice", "orgtree_status") or (
+            tool == "orgtree_work" and targs.get("action") in ("update", "evidence", "create"))
 
     def execute_call(due: float, me: str, tool: str, targs: dict, request_id: int) -> None:
         begun = time.time()
@@ -284,7 +289,7 @@ def main(argv=None) -> int:
         size, wire = 0, 0
         try:
             r, reset = post_retry_reused_reset(
-                client(), "/api/agent", json={"org": slug, "node": me, "tool": tool, "args": targs},
+                client(), "/api/agent", retry=not mutating(tool, targs), json={"org": slug, "node": me, "tool": tool, "args": targs},
                 headers={"X-Orgtree-Agent-Token": tokens[me],
                          "X-Scale-Kind": tool + ":" + targs.get("action", "")})
             status = r.status_code
@@ -298,8 +303,7 @@ def main(argv=None) -> int:
                     state = j.get("state") if isinstance(j, dict) else None
                     if isinstance(j, dict):
                         receipt = {k: j[k] for k in ("id", "created", "slug", "state", "ok", "operation_id") if k in j}
-                    if tool in ("orgtree_message", "orgtree_send_notice", "orgtree_status") or (
-                            tool == "orgtree_work" and targs.get("action") in ("update", "evidence", "create")):
+                    if mutating(tool, targs):
                         rec.write("write-receipts", {"request_id": request_id, "actor": me,
                                                      "tool": tool, "args": targs, "response": j,
                                                      "reused_reset": reset})
@@ -475,7 +479,7 @@ def main(argv=None) -> int:
     def ui_window(w: int):
         if args.renderer_hooks:
             return hook_drivers[w].run(t0, args.duration)
-        c = httpx.Client(base_url=origin, headers=H, timeout=30)
+        c = httpx.Client(base_url=origin, headers=H, timeout=30, limits=keepalive_limits())
         etags: dict[str, str] = {}
         watch = stream_nodes[w % len(stream_nodes)] if stream_nodes else live[0]
         polls = ui_polls(slug, watch, w, bool(stream_nodes))
@@ -580,7 +584,7 @@ def main(argv=None) -> int:
         async def run():
             # A shared connection limit below the producer count would add
             # another artificial cross-agent admission queue in the client.
-            limits = httpx.Limits(max_connections=len(stream_nodes),
+            limits = keepalive_limits(max_connections=len(stream_nodes),
                                  max_keepalive_connections=len(stream_nodes))
             async with httpx.AsyncClient(base_url=origin, headers=H, timeout=30, limits=limits) as c:
                 if args.renderer_hooks:
@@ -619,7 +623,7 @@ def main(argv=None) -> int:
         pg = observer
         eproc.cpu_percent(None)
         last_stats = 0.0
-        sc = httpx.Client(base_url=origin, headers=H, timeout=30)
+        sc = httpx.Client(base_url=origin, headers=H, timeout=30, limits=keepalive_limits())
         while not stop.is_set():
             row = {"t": round(time.time() - t0, 1)}
             try:
@@ -718,7 +722,7 @@ def main(argv=None) -> int:
     if args.renderer_hooks:
         # Mount-only requests from App are outside the continuous traffic
         # window. Native IPC and compositor work are not simulated here.
-        with httpx.Client(base_url=origin, headers=H, timeout=30) as startup:
+        with httpx.Client(base_url=origin, headers=H, timeout=30, limits=keepalive_limits()) as startup:
             for path in ("/api/host", f"/api/orgs/{slug}/staffing-options"):
                 start = time.time()
                 response = startup.get(path)
@@ -761,7 +765,7 @@ def main(argv=None) -> int:
     settlement = None
     if steady and not guard:
         deadline = time.monotonic() + 120
-        with httpx.Client(base_url=origin, headers=H, timeout=30) as boundary:
+        with httpx.Client(base_url=origin, headers=H, timeout=30, limits=keepalive_limits()) as boundary:
             while time.monotonic() < deadline and not guard:
                 settlement = boundary.get("/scale/settlement").raise_for_status().json()
                 rec.write("settlement", {"t": time.time() - t0, **settlement})
@@ -787,7 +791,8 @@ def main(argv=None) -> int:
     # Reused keep-alive connections reset before any response, retried once
     # (conn_reset.py). Reported on their own, never folded away.
     resets = {"calls": sum(1 for c in calls if c.get("reused_reset")), "steer": 0,
-              "retry_failed": sum(1 for c in calls if c.get("reused_reset") and c["err"]),
+              "retry_failed": sum(1 for c in calls if (c.get("reused_reset") or {}).get("retried") and c["err"]),
+              "mutating_not_retried": sum(1 for c in calls if (c.get("reused_reset") or {}).get("retried") is False),
               "by_tool": {}, "examples": []}
     for c in calls:
         if c.get("reused_reset"):

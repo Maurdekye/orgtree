@@ -1,22 +1,34 @@
-"""Retry a request ONCE when a REUSED keep-alive connection is reset first.
+"""Keep-alive reuse for the scale load clients, and the one allowed retry.
 
 Attempt 6 failed its workload on three client ReadErrors (WinError 10054)
-that came back in about 1 ms with no HTTP status. The coordinator's rule
-(2026-09-28): retry once, and only when (a) the connection was reused from
-the pool, not freshly opened for this request, and (b) no response headers
-arrived. Anything else raises exactly as before. Every retry is returned to
-the caller so it is recorded and counted, never hidden: the resets may be a
-real engine bug that real agents' tool calls can hit too.
+that came back in about 1 ms with no HTTP status. n1-review-astra measured
+the cause: httpx keeps an idle connection for 5 s and uvicorn closes it at
+5 s, so under GIL load the two race. Real agents cannot hit it (mcptool
+opens a fresh connection per call).
+
+The fix is ``keepalive_limits()``: every load client expires idle
+connections at 2 s, well inside the server's 5 s. ``post_retry_reused_reset``
+stays as a guard, per coordinator-opus (2026-09-28): a reset of a REUSED
+connection before any response headers is retried ONCE only for
+NON-MUTATING requests (``retry=True``). A mutating POST may already have
+been applied, so with ``retry=False`` it raises as before, carrying the
+reset record. Every reset is returned or attached so the caller counts it.
 """
 import time
 
 import httpx
 
+KEEPALIVE_EXPIRY_S = 2.0
 RESET_ERRORS = (httpx.ReadError, httpx.WriteError, httpx.RemoteProtocolError)
 
 
-def post_retry_reused_reset(client, url, **kw):
-    """Return ``(response, reset)``; ``reset`` is None or a dict describing the retry."""
+def keepalive_limits(**kw):
+    """``httpx.Limits`` for a load client: idle connections expire at 2 s."""
+    return httpx.Limits(keepalive_expiry=KEEPALIVE_EXPIRY_S, **kw)
+
+
+def post_retry_reused_reset(client, url, *, retry=True, **kw):
+    """Return ``(response, reset)``; ``reset`` is None or a dict describing the reset."""
     events = []
     begun = time.time()
     try:
@@ -27,7 +39,10 @@ def post_retry_reused_reset(client, url, **kw):
         if fresh or answered:
             raise
         reset = {"err": f"{type(exc).__name__}: {exc}"[:200],
-                 "ms": round((time.time() - begun) * 1000, 1)}
+                 "ms": round((time.time() - begun) * 1000, 1), "retried": retry}
+        if not retry:
+            exc.scale_reset = reset   # mutating: never resent, still counted
+            raise
     try:
         return client.post(url, **kw), reset
     except Exception as exc:
