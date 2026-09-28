@@ -2920,6 +2920,12 @@ class LazySplitSection(dict[str, Any]):
             dict.__setitem__(out, k, copy.deepcopy(v, memo))
         return out
 
+    def __reduce_ex__(self, protocol: Any) -> Any:
+        # pickle / copy.copy: EVERY row, as a plain dict (see SERIALIZERS).
+        # Restoring the lazy type would run __setitem__ before its state.
+        self.materialize("pickle")
+        return (dict, (list(dict.items(self)),))
+
     def _decode(self, owner: str, raw: str) -> Any:
         snap = getattr(self._doc, "_snap_doc", None)
         if snap is not None:
@@ -3129,7 +3135,15 @@ class LazyNodesMap(NodesMap):
     code that reads the storage directly (`dict.keys(nodes)`) and treats a
     missing id as deleted must call `materialize()` first. The save does
     (`_write_doc`). Deletions are remembered in `_deleted` so a later fetch
-    never resurrects them."""
+    never resurrects them.
+
+    ⚠ SERIALIZERS: C-level readers of the storage — the C json encoder
+    (`json.dumps(container)` writes "{}" when NO row is decoded, calling no
+    override), `dict(container)`, `{**container}` — see decoded rows only.
+    Serialize the DOCUMENT (its walk decodes every container first, see
+    `LazyDoc.materialize_all`) or call `materialize()` first; never dump a
+    container on its own. tests/test_pg_lazy_rows.py scans the engine for
+    such calls."""
 
     lazy_rows = True
 
@@ -3151,6 +3165,12 @@ class LazyNodesMap(NodesMap):
         for k, v in dict.items(self):
             dict.__setitem__(out, k, copy.deepcopy(v, memo))
         return out
+
+    def __reduce_ex__(self, protocol: Any) -> Any:
+        # pickle / copy.copy: EVERY row, as a plain dict (see SERIALIZERS).
+        # Restoring the lazy type would run __setitem__ before its state.
+        self.materialize("pickle")
+        return (dict, (list(dict.items(self)),))
 
     # -- fetching ---------------------------------------------------------
     def _decode(self, nid: str, raw: str, index: int | None) -> Any:
@@ -3220,14 +3240,17 @@ class LazyNodesMap(NodesMap):
                 order.append((nid, None, cast(str, raw)))
         order += [(nid, v, None) for nid, v in held.items()]   # new, unsaved
         dict.clear(self)
+        fresh: list[Any] = []
         for i, (nid, value, raw) in enumerate(order):
             if raw is not None:
                 value = self._decode(nid, raw, i)
+                fresh.append(value)
             dict.__setitem__(self, nid, value)
         self._complete = True
         self._absent.clear()
-        if any(isinstance(v, dict) and not v.get("seat_id")
-               for v in dict.values(self)):
+        # the load heal, for STORED rows only: a node this transaction added
+        # without a seat is left alone, exactly as a whole load leaves it
+        if any(isinstance(v, dict) and not v.get("seat_id") for v in fresh):
             ledger.backfill_seat_ids(self, self._doc)
 
     # -- point access -----------------------------------------------------
@@ -3582,6 +3605,16 @@ class LazyDoc(dict[str, Any]):
                 value = dict.__getitem__(self, k)
                 if isinstance(value, SectionMap):
                     value.materialize_all()
+        # ORGTREE_LAZY_ROWS: a whole-document walk (json.dumps(org.d), pickle,
+        # repr, dict(doc)...) must see every row. ⚠ The C json encoder writes
+        # "{}" for a dict subclass whose STORAGE is empty without calling a
+        # single override, so an undecoded container would serialize as empty
+        # (silent loss). The document itself is never storage-empty, so its
+        # walk reaches here first and decodes them (counted fallbacks).
+        for k in self._lazy_keys:
+            value = dict.get(self, k)
+            if isinstance(value, (LazyNodesMap, LazySplitSection)):
+                value.materialize("whole-document walk")
 
     def _unmaterialized(self) -> set[str]:
         return {k for k in (self._present | set(self._pending))
@@ -6273,8 +6306,13 @@ def eager_sections(d: dict[str, Any]) -> dict[str, Any]:
     if isinstance(d, LazyDoc):
         for key in list(d._deferred_doc):
             d[key]
-    return {k: dict.__getitem__(d, k) for k in dict.keys(d)
-            if k not in LAZY_SECTIONS}
+    out = {k: dict.__getitem__(d, k) for k in dict.keys(d)
+           if k not in LAZY_SECTIONS}
+    for v in out.values():
+        if isinstance(v, (LazyNodesMap, LazySplitSection)):
+            # ORGTREE_LAZY_ROWS: the caller serializes this; see SERIALIZERS
+            v.materialize("eager_sections")
+    return out
 
 
 def mail_archive_max(d: dict[str, Any], owner: str) -> int | None:

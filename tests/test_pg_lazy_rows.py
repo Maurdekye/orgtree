@@ -222,13 +222,143 @@ class LazyRows(unittest.TestCase):
         self.assertEqual(seen, ['post_load_change', 'post_load_change'])
 
     def test_rows_read_inside_org_tx_are_never_counted_as_post_load(self):
+        # a real post-load change: committed from ANOTHER connection after
+        # the org_tx loaded and before the tx touches the row
         self.stamp()
         before = self.stats()
-        with orgtx.org_tx(self.slug, nodes=['n8']) as tx:
-            tx.org.node('n8')['payload']['v'] = 3
-        with orgtx.org_tx(self.slug, nodes=['n8']) as tx:
-            self.assertEqual(tx.org.node('n8')['payload'], {'v': 3})
+        with orgtx.org_tx(self.slug, nodes=['n0']) as tx:
+            with self.raw() as raw:
+                raw.execute('UPDATE nodes SET val=%s WHERE id=%s',
+                            (store._dumps(dict(json.loads(self.rows()[0]['n11']),   # the store's encoding
+                                               payload={'v': 'elsewhere'})), 'n11'))
+            self.assertEqual(tx.org.nodes.get('n11')['payload'], {'v': 'elsewhere'})
         self.assertEqual(self.delta(before)['post_load_changes'], 0)
+
+    # -- the mail drain path (pg-supervisor-a review, 2026-09-28) ----------
+    def test_take_mail_of_an_undecoded_box_drains_it_and_deletes_the_row(self):
+        self.stamp()
+        with orgtx.org_tx(self.slug, nodes=['n3'], sections=[('mail', 'n3')]) as tx:
+            self.assertFalse(dict.__contains__(dict.get(tx.org.d, 'mail'), 'n3'))
+            got = tx.org.take_mail('n3')
+            self.assertEqual(got, [{'id': 'm3', 'body': 'hello 3'}])
+        _, doc = self.rows()
+        self.assertNotIn('mail\x1fn3', doc)
+        self.assertIn('mail\x1fn4', doc)
+
+    def test_a_partial_drain_readded_box_survives_a_walk_and_is_stored(self):
+        # supervisor._take_delivery_mail: take the box, put a remainder back
+        self.stamp()
+        rest = [{'id': 'rest', 'body': 'kept for later'}]
+        with orgtx.org_tx(self.slug, nodes=['n4'], sections=[('mail', 'n4')]) as tx:
+            self.assertEqual(len(tx.org.take_mail('n4')), 1)
+            tx.org.d.setdefault('mail', {})['n4'] = rest
+            # bookkeeping: a present owner is never also recorded as deleted
+            self.assertNotIn('n4', dict.get(tx.org.d, 'mail')._deleted)
+            self.assertIn('n4', list(tx.org.d['mail']))          # a walk
+            self.assertEqual(len(tx.org.d['mail']), 10)
+        _, doc = self.rows()
+        self.assertEqual(json.loads(doc['mail\x1fn4']), rest)
+
+    def test_a_drained_box_is_not_resurrected_by_a_walk(self):
+        self.stamp()
+        with orgtx.org_tx(self.slug, nodes=['n5'], sections=[('mail', 'n5')]) as tx:
+            tx.org.take_mail('n5')
+            self.assertNotIn('n5', list(tx.org.d['mail']))
+        _, doc = self.rows()
+        self.assertNotIn('mail\x1fn5', doc)
+        self.assertEqual(sum(1 for k in doc if k.startswith('mail\x1f')), 9)
+
+    def test_membership_and_get_use_the_real_operators_on_undecoded_nodes(self):
+        self.stamp()
+        view = store.load_runtime_org(self.slug)
+        nm = dict.get(view.d, 'nodes')
+        self.assertFalse(dict.__contains__(nm, 'n9'))
+        self.assertTrue('n9' in view.nodes)
+        self.assertFalse('nope' in view.nodes)
+        self.assertEqual(view.nodes.get('n12')['payload'], {'v': 1})
+        self.assertIsNone(view.nodes.get('nope'))
+        box = view.d.get('mail') or {}
+        self.assertTrue('n2' in box)
+        self.assertEqual(box.get('n2'), [{'id': 'm2', 'body': 'hello 2'}])
+
+    def test_a_node_deleted_then_readded_survives_a_walk(self):
+        self.stamp()
+        with orgtx.org_tx(self.slug, nodes=orgtx.ALL) as tx:
+            nm = tx.org.d['nodes']
+            del nm['n10']
+            nm['n10'] = node('n10', payload={'v': 'again'})
+            self.assertNotIn('n10', dict.get(tx.org.d, 'nodes')._deleted)
+            self.assertIn('n10', list(nm))
+        nodes, _ = self.rows()
+        self.assertEqual(json.loads(nodes['n10'])['payload'], {'v': 'again'})
+        self.assertEqual(len(nodes), 30)
+
+    def test_a_section_saved_as_a_blob_deletes_every_owner_row(self):
+        # a non-list box turns the section into one blob row: every stored
+        # owner row must go, including the ones never decoded (encoding the
+        # non-empty section calls items(), which decodes every owner before
+        # the save diffs its baselines)
+        self.stamp()
+        with orgtx.org_tx(self.slug, sections=['mail']) as tx:
+            tx.org.d['mail']['n1'] = 'not a list'
+        _, doc = self.rows()
+        self.assertEqual([k for k in doc if k.startswith('mail\x1f')], [])
+        blob = json.loads(doc['mail'])
+        self.assertEqual(blob['n1'], 'not a list')
+        self.assertEqual(blob['n7'], [{'id': 'm7', 'body': 'hello 7'}])
+        self.assertEqual(len(blob), 10)
+
+    # -- serializers never emit an undecoded container as empty -------------
+    def test_every_document_serializer_sees_undecoded_rows(self):
+        import pickle
+        from orgtree import statepreview
+        self.stamp()
+        whole = store.load_org(self.slug)
+        want_mail = {k: list(v) for k, v in whole.d['mail'].items()}
+        want_notices = {k: list(v) for k, v in whole.d['notices'].items()}
+        want_nodes = sorted(whole.nodes)
+
+        def check(doc, how):
+            self.assertEqual(doc['mail'], want_mail, how)
+            self.assertEqual(doc['notices'], want_notices, how)
+            self.assertEqual(sorted(doc['nodes']), want_nodes, how)
+
+        def fresh():
+            view = store.load_runtime_org(self.slug)
+            for k in ('nodes', 'mail', 'notices'):
+                self.assertEqual(dict.__len__(dict.get(view.d, k)), 0, 'must start undecoded')
+            return view
+        check(json.loads(json.dumps(fresh().d)), 'json.dumps (C encoder)')
+        check(json.loads(json.dumps(fresh().d, indent=2)), 'json.dumps indent (Python encoder)')
+        check(json.loads(orgtx._json_image(fresh())), 'orgtx._json_image')
+        check(statepreview.isolated(fresh()).d, 'statepreview.isolated')
+        check_json = json.loads(json.dumps(store.eager_sections(fresh().d)))
+        self.assertEqual(check_json['mail'], want_mail, 'eager_sections json')
+        eager = pickle.loads(pickle.dumps(store.eager_sections(fresh().d)))   # quickstaff
+        self.assertEqual(eager['mail'], want_mail)
+        self.assertEqual(sorted(eager['nodes']), want_nodes)
+        with orgtx.org_tx(self.slug, nodes=['n0']) as tx:
+            check(json.loads(json.dumps(tx.org.d)), 'json.dumps inside org_tx')
+            copy_org = ledger.Org(json.loads(json.dumps(tx.org.d)))   # switch_model's dry run
+            check(copy_org.d, 'switch_model dry-run copy')
+
+    def test_no_engine_code_serializes_a_lazy_container_on_its_own(self):
+        # the C json encoder writes "{}" for a container with nothing decoded:
+        # only whole-document dumps are safe (LazyDoc.materialize_all)
+        import pathlib
+        import re
+        root = pathlib.Path(store.__file__).parent
+        # an org document is reached as `<x>.d` (or `.nodes`); other dicts
+        # that happen to have a 'nodes' key (foreground caches) are not lazy
+        bad = re.compile(r'(json\.dumps|_dumps|dict)\(\s*[\w.]*'
+                         r'(\.nodes\s*\)|\.d\[\s*["\'](nodes|mail|delivering|notices)["\']\s*\]\s*\)'
+                         r'|\.d\.get\(\s*["\'](nodes|mail|delivering|notices)["\']\s*\)\s*\))')
+        hits = []
+        for p in sorted(root.glob('*.py')):
+            for i, line in enumerate(p.read_text(encoding='utf-8').splitlines(), 1):
+                if bad.search(line):
+                    hits.append(f'{p.name}:{i}: {line.strip()}')
+        self.assertEqual(hits, [], 'a lazy container dumped on its own')
 
     # -- walks, prefetch, copies -------------------------------------------
     def test_a_walk_counts_a_fallback_calls_the_hook_and_equals_the_whole_load(self):
