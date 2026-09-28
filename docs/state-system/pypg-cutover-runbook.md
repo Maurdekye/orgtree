@@ -220,6 +220,13 @@ had happened but the old files were not all moved yet, it finishes moving them
 and starts. `current.json` may say `"running"` for an attempt that was
 interrupted; the next start replaces it.
 
+**"finishing the switch: moving ... failed"** (v3 shows the conversion
+message saying the switch was recorded). The data is already in PostgreSQL,
+but an old file could not be moved to the rollback folder, usually because
+another program (a virus scan, a backup or sync tool) had it open. Close that
+program and start v3 again: it finishes the move by itself. If it repeats,
+send the message, or go back (section 7, choice B or C).
+
 **v3 refuses to start after the conversion succeeded** (the event log, source
 `Orgtree P03`, has an `Error` line; its message is JSON naming the reason).
 Send the line and go back (section 7).

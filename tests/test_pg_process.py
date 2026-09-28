@@ -857,10 +857,34 @@ class BracketTests(unittest.TestCase):
             {"schema": bracket.CUTOVER_SCHEMA, "backend": "postgres", "via": bracket.CONVERT_VIA}), encoding="utf-8")
         (root / "pre-postgres" / "orgs").mkdir(parents=True)
         (root / "pre-postgres" / "orgs" / "acme.db").write_bytes(b"older copy")
-        with self.assertRaisesRegex(BracketError, "refusing to overwrite a rollback copy"):
+        with self.assertRaisesRegex(bracket.ConversionFailed, "a rollback copy is never overwritten"):
             bracket.start_for_engine(root, env, self.migrator)
         self.assertEqual((root / "pre-postgres" / "orgs" / "acme.db").read_bytes(), b"older copy")
         self.assertEqual((root / "orgs" / "acme.db").read_bytes(), b"sqlite bytes")
+
+    def test_a_move_that_fails_while_finishing_is_reported_to_the_user(self) -> None:
+        # review N1: a file held open (a virus scan, a backup tool) must end in the
+        # user-facing conversion-failed message, not a silent engine exit
+        root, env, _ = self.converting()
+        (root / "orgs" / "acme.pg").write_text("{}")
+        (root / bracket.PRODUCT_FILE).write_text("{}")
+        (root / bracket.CUTOVER_FILE).write_text(json.dumps(
+            {"schema": bracket.CUTOVER_SCHEMA, "backend": "postgres", "via": bracket.CONVERT_VIA}), encoding="utf-8")
+        with mock.patch.object(bracket.os, "rename", side_effect=PermissionError(13, "in use by another process")):
+            with self.assertRaises(bracket.ConversionFailed) as caught:
+                bracket.start_for_engine(root, env, self.migrator)
+        text = str(caught.exception)
+        self.assertIn("switch to the new database was recorded", text)
+        self.assertIn("in use by another process", text)
+        self.assertIn("finishes the move by itself", text)
+        self.assertEqual(len(self.refusals), 1, "the refusal writes the event-log line")
+        status = json.loads((root / bracket.CONVERT_DIR / bracket.CONVERT_STATUS).read_text(encoding="utf-8"))
+        self.assertEqual((status["state"], status["reason"]), ("failed", text))
+        self.assertEqual((root / "orgs" / "acme.db").read_bytes(), b"sqlite bytes")
+        # the next start, with the file free, finishes the move
+        owned = bracket.start_for_engine(root, env, self.migrator)
+        self.assertEqual(sorted(p.name for p in (root / "orgs").iterdir()), ["acme.pg"])
+        owned.stop()
 
     def test_the_deny_list_is_the_rust_guards(self) -> None:
         rust = (Path(bracket.__file__).resolve().parent / "native" / "prototype-guard" / "src" / "product.rs").read_text(encoding="utf-8")

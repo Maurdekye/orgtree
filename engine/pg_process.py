@@ -749,9 +749,20 @@ def finish_interrupted_conversion(root: Path, env: Mapping[str, str]) -> list[st
     for p in left:
         target = dest / p.name
         if target.exists():
-            raise BracketError(f"finishing the conversion of {root}: {target} already exists; refusing to "
-                               f"overwrite a rollback copy with {p}")
-        os.rename(p, target)
+            reason = (f"finishing the switch: {target} already exists, and a rollback copy is never "
+                      f"overwritten (with {p}).")
+            write_convert_status(root, "failed", f"{CONVERT_PHASE}: failed", None, _convert_message(root, reason, None))
+            raise ConversionFailed(_convert_message(root, reason, None))
+        try:
+            os.rename(p, target)
+        except OSError as exc:
+            # e.g. an antivirus scan or a backup tool holding the file (review N1):
+            # the user must see why, not an engine that silently did not start
+            reason = (f"finishing the switch: moving {p.name} to pre-postgres\\orgs failed ({exc}). Close any "
+                      "program that may be holding it, such as a virus scan or a backup tool, then start "
+                      "Orgtree again; it finishes the move by itself.")
+            write_convert_status(root, "failed", f"{CONVERT_PHASE}: failed", None, _convert_message(root, reason, None))
+            raise ConversionFailed(_convert_message(root, reason, None)) from exc
         moved.append(p.name)
     return moved
 
