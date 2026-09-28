@@ -83,18 +83,27 @@ def _body(raw, schema, location, key):
     return row[0]
 
 
-def refresh(raw, org_id, known_pending=None):
+def refresh(raw, org_id, known_pending=None, locked=False):
     """Same writer transaction; SQL errors abort, unsupported data disables reads.
 
     `known_pending`: the caller's own reading of `pending(raw, org_id)` in this
-    transaction (workread's save probe), so it is not read twice."""
+    transaction (workread's save probe), so it is not read twice.
+    `locked`: the caller already holds the work_read_state row lock in this
+    transaction and has seen work_list_state exist (it cannot be dropped while
+    this transaction holds it), so pending and initialized come in one read."""
     schema = f'org_{int(org_id)}'
-    if not (pending(raw, org_id) if known_pending is None else known_pending):
-        return
-    # Same lock and ordering as access metadata: every relevant writer takes
-    # this before recording dirties. Never erase a concurrent invalidation.
-    raw.execute(f'SELECT singleton FROM {schema}.work_read_state WHERE singleton FOR UPDATE')
-    state = raw.execute(f'SELECT initialized FROM {schema}.work_list_state WHERE singleton').fetchone()
+    if locked:
+        state = raw.execute(f'SELECT initialized, NOT initialized OR EXISTS(SELECT 1 FROM {schema}.work_list_dirty) '
+                            f'FROM {schema}.work_list_state WHERE singleton').fetchone()
+        if not (state and state[1]):
+            return
+    else:
+        if not (pending(raw, org_id) if known_pending is None else known_pending):
+            return
+        # Same lock and ordering as access metadata: every relevant writer takes
+        # this before recording dirties. Never erase a concurrent invalidation.
+        raw.execute(f'SELECT singleton FROM {schema}.work_read_state WHERE singleton FOR UPDATE')
+        state = raw.execute(f'SELECT initialized FROM {schema}.work_list_state WHERE singleton').fetchone()
     try:
         if raw.execute(f"SELECT 1 FROM {schema}.doc WHERE key='work_scope_log'").fetchone():
             raise ValueError('legacy scope blob requires exact reader')
@@ -108,9 +117,12 @@ def refresh(raw, org_id, known_pending=None):
                 if hashlib.sha256(body.encode()).digest() != bytes(digest):
                     raise ValueError('body hash mismatch')
                 payload = {**summary, **_Static(raw, schema).derive(body)}
-                raw.execute(f'INSERT INTO {schema}.work_list_summary VALUES(%s,%s,%s::jsonb) '
+                # the summary row and its dirty marker in one statement
+                raw.execute(f'WITH done AS (DELETE FROM {schema}.work_list_dirty WHERE slug=%s) '
+                            f'INSERT INTO {schema}.work_list_summary VALUES(%s,%s,%s::jsonb) '
                             'ON CONFLICT(slug) DO UPDATE SET body_sha256=excluded.body_sha256,payload=excluded.payload',
-                            (slug, digest, json.dumps(payload)))
+                            (slug, slug, digest, json.dumps(payload)))
+                continue
             raw.execute(f'DELETE FROM {schema}.work_list_dirty WHERE slug=%s', (slug,))
         if not state[0]:
             valid = reconcile(raw, org_id)

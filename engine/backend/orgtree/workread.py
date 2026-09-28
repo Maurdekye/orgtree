@@ -39,6 +39,24 @@ class _Parents(Mapping):
             raise ValueError('unknown node parent shape')
         return value
 
+    def prefetch(self, ids):
+        """Load these nodes and their parent chains in ONE statement instead of
+        one read per level. Only rows found are cached; anything else is still
+        read one by one on access. Does not mark anything touched."""
+        ids=[i for i in ids if isinstance(i,str) and i not in self.cache]
+        if not ids: return
+        rows=self.raw.execute(
+            f"WITH RECURSIVE up(id) AS ("
+            f"SELECT id FROM {self.schema}.nodes WHERE id=ANY(%s) "
+            f"UNION SELECT n.id FROM up JOIN {self.schema}.nodes c ON c.id=up.id "
+            f"JOIN {self.schema}.nodes n ON json_typeof(c.val::json->'parent')='string' "
+            f"AND n.id=c.val::json->>'parent') "
+            f"SELECT id,val::json->'parent' FROM {self.schema}.nodes WHERE id IN (SELECT id FROM up)",
+            (ids,)).fetchall()
+        for key,parent in rows:
+            if key not in self.cache and len(self.cache)<1024:
+                self.cache[key]={'parent':parent}
+
     def __contains__(self,key):
         try: self[key]; return True
         except KeyError: return False
@@ -91,6 +109,8 @@ def _expected(policy, item, location):
         raise ValueError('unknown work participants shape; exact compatibility required')
     candidates = {USER, *participants, *(x for x in (owner,creator,reviewer) if x)}
     anchor = owner or creator
+    if isinstance(policy.nodes,_Parents):
+        policy.nodes.prefetch(sorted(candidates-{USER}))
     if anchor and anchor in policy.nodes:
         candidates.update(policy.ancestors(anchor))
     allowed = {a for a in candidates if policy._work_can_read(a,item)}
@@ -128,6 +148,16 @@ def _replace_access(raw,schema,slug,allowed):
         raw.execute(f'INSERT INTO {schema}.work_read_totals VALUES(%s,1) ON CONFLICT(viewer) DO UPDATE SET total={schema}.work_read_totals.total+1',(viewer,))
 
 
+def _replace_dependencies(raw,schema,slug,deps):
+    """One statement: drop the rows no longer depended on, add the new ones.
+    Rows kept are left alone (ON CONFLICT on the (slug,node_id) key)."""
+    deps=sorted(deps)
+    raw.execute(f'WITH gone AS (DELETE FROM {schema}.work_read_dependency '
+                f'WHERE slug=%s AND NOT node_id=ANY(%s)) '
+                f'INSERT INTO {schema}.work_read_dependency SELECT %s,unnest(%s::text[]) '
+                f'ON CONFLICT DO NOTHING',(slug,deps,slug,deps))
+
+
 def refresh(raw, org_id: int) -> bool:
     """Keep raw writes compatible when legacy data cannot be projected.
 
@@ -141,9 +171,12 @@ def refresh(raw, org_id: int) -> bool:
         if result:
             from . import worklistmeta
             # a quiet save (no access work) reuses the probe's list state;
-            # after access work the list state is read again, as before
+            # after access work the list state is read again in one statement:
+            # _refresh then holds the work_read_state row lock, and the probe
+            # saw the list table
             quiet = probe is not None and _quiet(probe)
-            worklistmeta.refresh(raw,org_id,known_pending=bool(probe[6]) if quiet else None)
+            worklistmeta.refresh(raw,org_id,known_pending=bool(probe[6]) if quiet else None,
+                                 locked=probe is not None and not quiet)
         return result
     except (KeyError,ValueError) as exc:
         schema=f'org_{int(org_id)}'
@@ -226,15 +259,15 @@ def _refresh(raw, org_id: int, probe=None) -> bool:
             values,allowed,deps=_expected(policy,row[1],row[0])
             _replace_access(raw,schema,slug,allowed)
             raw.execute(f'INSERT INTO {schema}.work_read_policy VALUES(%s,%s,%s,%s) ON CONFLICT(slug) DO UPDATE SET location=excluded.location,deadline=excluded.deadline,manual=excluded.manual',(slug,*values))
-            raw.execute(f'DELETE FROM {schema}.work_read_dependency WHERE slug=%s',(slug,))
-            for node in deps:
-                raw.execute(f'INSERT INTO {schema}.work_read_dependency VALUES(%s,%s)',(slug,node))
+            _replace_dependencies(raw,schema,slug,deps)
         else:
             _replace_access(raw,schema,slug,set())
             raw.execute(f'DELETE FROM {schema}.work_read_policy WHERE slug=%s',(slug,))
             raw.execute(f'DELETE FROM {schema}.work_read_dependency WHERE slug=%s',(slug,))
-        raw.execute(f'DELETE FROM {schema}.work_read_dirty WHERE slug=%s',(slug,))
-    raw.execute(f'UPDATE {schema}.work_read_state SET questions_dirty=false WHERE singleton')
+    # The processed dirty markers go in the same statement that clears the
+    # questions flag. If an item above raised, none of them is cleared.
+    raw.execute(f'WITH done AS (DELETE FROM {schema}.work_read_dirty WHERE slug=ANY(%s)) '
+                f'UPDATE {schema}.work_read_state SET questions_dirty=false WHERE singleton',(dirty,))
     if not state[0]:
         # Raw-row reconciliation is mandatory before the first usable answer.
         valid=reconcile(raw,org_id)
