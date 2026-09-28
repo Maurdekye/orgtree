@@ -3,16 +3,36 @@
 Value bytes are UTF-8 bytes of fetched scalar values (JSON for structured
 values), NOT PG wire bytes or physical page reads. Parameter bytes include
 all bound values; write_parameter_bytes covers explicit INSERT/UPDATE/DELETE.
-No SQL text, payloads or stacks are retained.
+No SQL text, payloads or stacks are retained. With ORGTREE_SCALE_SQL_LABELS=1
+each row also carries `by_query`: per statement shape (table names plus a
+short hash of the normalized text), statements, rows, value bytes and value
+bytes per result column.
 """
 import contextvars
+import hashlib
 import json
+import os
 import re
 import threading
 import time
+import weakref
 
 current = contextvars.ContextVar("scale_sql_counts", default=None)
 muted = contextvars.ContextVar("scale_sql_nested_fetch", default=False)
+LABELS = os.environ.get("ORGTREE_SCALE_SQL_LABELS") == "1"
+_labels = weakref.WeakKeyDictionary()
+
+
+def label(query):
+    text = " ".join(query.split())
+    tables = re.findall(r"\b(?:FROM|JOIN|INTO|UPDATE)\s+([A-Za-z_][\w.]*)", text, re.I)
+    return "+".join(dict.fromkeys(t.lower() for t in tables)) + "#" + \
+        hashlib.sha1(text.encode("utf-8")).hexdigest()[:6]
+
+
+def _bucket(counts, name):
+    return counts.setdefault("by_query", {}).setdefault(
+        name, dict(statements=0, rows=0, value_bytes=0, column_bytes=[]))
 
 
 def value_bytes(value):
@@ -54,6 +74,10 @@ def install():
                 # keywords in the observed DML/CTE statements.
                 if re.search(r"\b(INSERT|UPDATE|DELETE|MERGE)\b", query, re.I):
                     counts["write_parameter_bytes"] += size
+                if LABELS:
+                    shape = label(query)
+                    _labels[self] = shape
+                    _bucket(counts, shape)["statements"] += len(batches)
             elif name in ("copy", "stream"):
                 counts["unsupported_operations"] += 1
             token = muted.set(True)
@@ -69,6 +93,17 @@ def install():
                 rows = ([result] if result is not None else []) if name in ("fetchone", "__next__") else result
                 counts["rows"] += len(rows)
                 counts["value_bytes"] += sum(sum(value_bytes(v) for v in row) for row in rows)
+                if LABELS and rows:
+                    bucket = _bucket(counts, _labels.get(self, "?"))
+                    bucket["rows"] += len(rows)
+                    for row in rows:
+                        values = list(row.values()) if isinstance(row, dict) else list(row)
+                        columns = bucket["column_bytes"]
+                        columns.extend([0] * (len(values) - len(columns)))
+                        for i, v in enumerate(values):
+                            size = value_bytes(v)
+                            columns[i] += size
+                            bucket["value_bytes"] += size
             return result
         setattr(psycopg.Cursor, name, measured)
     for name in ("execute", "executemany", "fetchone", "fetchmany", "fetchall", "__next__", "copy", "stream"):
