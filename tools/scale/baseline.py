@@ -89,7 +89,7 @@ def require_go(args, source):
         raise ValueError("GO must name the exact source and coordinator message")
     return dict(kind="first N1000 baseline; no final qualification", agents=1000, active_items=180,
                 transcript_kb=256, seconds=10, warmup=120, measured=600, tool_rate=3.12,
-                steer_rate=9.36, recipe=asdict(Recipe()), disk_gib=80, commit_gib=24, readiness_s=1800,
+                steer_rate=9.36, recipe=asdict(Recipe()), disk_gib=80, commit_gib=24, readiness_s=3600,
                 rows_preflight=True)
 
 
@@ -351,6 +351,7 @@ class Controller:
                 server = self.spawn([sys.executable, "-I", "-B", str(REPO / "tools/scale/serve.py"),
                     "--root", str(self.run_root), "--env", "ORGTREE_SCALE_SIMULATED_PROVIDER=1",
                     "--env", "ORGTREE_SCALE_SQL_COUNTS=1"], arm + "-serve")
+                sampler = None
                 try:
                     deadline = time.monotonic() + c["readiness_s"]
                     while time.monotonic() < deadline:
@@ -364,8 +365,16 @@ class Controller:
                         time.sleep(.2)
                     else:
                         raise RuntimeError("startup deadline expired")
+                    ready_t0, ready_m0 = time.time(), time.monotonic()
                     self.script("baseline.py", arm + "-readiness", "--child", "ready", "--root", self.root,
                         "--arm", arm, env=env, timeout=max(1, deadline-time.monotonic()))
+                    # Readiness covers ACTIVE sources only; history ingest keeps
+                    # running during traffic and is sampled read-only.
+                    ready = read(self.root / f"receipts/{arm}-readiness.json")
+                    from baseline_readiness import HistorySampler
+                    sampler = HistorySampler(ready["database"], ready["history"],
+                        self.run_root / "metrics/history-ingest.jsonl", ready_t0, lambda: self.phase)
+                    sampler.start()
                     self.script("baseline.py", arm + "-prime", "--child", "prime", "--root", self.root,
                         "--arm", arm, env=env, timeout=max(1, deadline-time.monotonic()))
                     for label, duration in (("measured", c["measured"]),):
@@ -379,6 +388,10 @@ class Controller:
                         self.script("load.py", arm + "-" + label, *args, "--label", label,
                                     "--plans-dir", plans / label, timeout=duration+c["warmup"]+240)
                     outcome[arm] = read(self.run_root / "metrics/measured/summary.json")
+                    outcome[arm]["active_ready"] = dict(seconds=ready["seconds"], sources=ready["sources"],
+                        bytes=ready["bytes"], events=ready["events"], startup_s=ready_m0 - (deadline - c["readiness_s"]))
+                    outcome[arm]["history_ingest"] = sampler.summary(arm + "-measured")
+                    sampler = None
                     counters = [json.loads(line) for line in
                         (self.run_root / "metrics/sql-counts.jsonl").read_text(encoding="utf-8").splitlines()]
                     if (not any(row["rows"] for row in counters) or
@@ -393,6 +406,8 @@ class Controller:
                     if source_files() != capsule:
                         raise RuntimeError("source changed during baseline arm")
                 finally:
+                    if sampler is not None:
+                        sampler.summary(arm + "-measured")
                     self.kill(server)
                     self.engine_pid = None
                     shutil.copytree(self.run_root / "metrics", self.root / "receipts" / arm, dirs_exist_ok=True)
