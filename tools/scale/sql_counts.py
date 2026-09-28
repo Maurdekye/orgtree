@@ -20,6 +20,20 @@ muted = contextvars.ContextVar("scale_sql_nested_fetch", default=False)
 #: innermost orgtree frames that issued it -- so a growing read can be named.
 BY_STATEMENT = os.environ.get("ORGTREE_SCALE_SQL_STATEMENTS") == "1"
 last_statement = contextvars.ContextVar("scale_sql_last_statement", default=None)
+#: ORGTREE_SCALE_ENGPROF=1 (diagnosis only, see engprof.py): PG wall/CPU per
+#: request, a route label (tool + action for /api/agent) and threadpool timing.
+ENGPROF = os.environ.get("ORGTREE_SCALE_ENGPROF") == "1"
+
+
+def route_label(path, body=b""):
+    if path == "/api/agent":
+        tool = re.search(rb'"tool"\s*:\s*"([a-z_]+)"', body or b"")
+        action = re.search(rb'"action"\s*:\s*"([a-z_]+)"', body or b"")
+        return "agent:" + (tool.group(1).decode() if tool else "?") + (
+            ":" + action.group(1).decode() if action else "")
+    path = re.sub(r"^/api/orgs/[^/]+", "/api/orgs/{slug}", path)
+    path = re.sub(r"/nodes/[^/]+", "/nodes/{nid}", path)
+    return path
 
 
 def _statement_key(query):
@@ -76,6 +90,7 @@ def install():
             elif name in ("copy", "stream"):
                 counts["unsupported_operations"] += 1
             token = muted.set(True)
+            t_pg, c_pg = time.perf_counter(), time.thread_time()
             try:
                 result = original(self, *args, **kwargs)
             except Exception as exc:
@@ -84,6 +99,9 @@ def install():
                 raise
             finally:
                 muted.reset(token)
+                if ENGPROF:
+                    counts["pg_ms"] = counts.get("pg_ms", 0.0) + (time.perf_counter() - t_pg) * 1000
+                    counts["pg_cpu_ms"] = counts.get("pg_cpu_ms", 0.0) + (time.thread_time() - c_pg) * 1000
             if name in ("fetchone", "fetchmany", "fetchall", "__next__"):
                 rows = ([result] if result is not None else []) if name in ("fetchone", "__next__") else result
                 counts["rows"] += len(rows)
@@ -129,6 +147,20 @@ class Boundary:
         counts = empty()
         token = current.set(counts)
         start, status = time.time(), None
+        if ENGPROF:
+            counts["route_hint"] = route_label(scope["path"])
+            if scope["path"] == "/api/agent":
+                # peek the JSON body for the tool name; replay it unchanged
+                chunks, more = [], True
+                while more:
+                    message = await receive()
+                    chunks.append(message)
+                    more = message.get("type") == "http.request" and message.get("more_body", False)
+                body = b"".join(m.get("body", b"") for m in chunks)
+                counts["route_hint"] = route_label(scope["path"], body)
+                replay = list(chunks)
+                async def receive(_orig=receive, _replay=replay):
+                    return _replay.pop(0) if _replay else await _orig()
         async def observe(message):
             nonlocal status
             if message["type"] == "http.response.start":
@@ -141,5 +173,7 @@ class Boundary:
             headers = dict(scope.get("headers", ()))
             row = dict(at=start, seconds=time.time()-start, path=scope["path"], status=status,
                        kind=headers.get(b"x-scale-kind", b"").decode(), **counts)
+            if ENGPROF:
+                row["route"] = row.pop("route_hint", None)
             with self.lock, self.path.open("a", encoding="utf-8") as target:
                 target.write(json.dumps(row) + "\n")
