@@ -202,8 +202,11 @@ class CodexLaneRefuses(unittest.TestCase):
         # without the wrapper there, the guard above guards nothing
         import inspect
         src = inspect.getsource(sup._codex_leg_attempt)
-        self.assertIn('tool_dispatch=codex_arg_guard(_tool_call)', src)
-        self.assertNotIn('tool_dispatch=_tool_call', src)
+        # (booleans, not assertIn: a failure would print the whole turn source)
+        self.assertTrue('tool_dispatch=codex_arg_guard(_tool_call)' in src,
+                        'the codex turn must hand CodexTurn the guarded dispatcher')
+        self.assertFalse('tool_dispatch=_tool_call' in src,
+                         'the codex turn hands out the unguarded dispatcher')
 
 
 class Catalogue(unittest.TestCase):
