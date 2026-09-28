@@ -15237,10 +15237,22 @@ async def _node_chat_route(slug: str, nid: str, request: Request,
     return await _run_chat_read(node_chat, slug, nid, request, last, before)
 
 
+#: ORGTREE_CHAT_RUNTIME_VIEW (ON by default; 0/false/off/no turns it off):
+#: the desk chat read takes a runtime view (store.load_runtime_org — private
+#: like load_org, but with on-demand rows under ORGTREE_LAZY_ROWS) instead of
+#: a whole-org load, whose cost grew with the org (N1000 item
+#: desk-chat-read-and-other-request-paths-still-loa).
+_CHAT_RUNTIME_VIEW = store._switch_on(os.environ.get("ORGTREE_CHAT_RUNTIME_VIEW"))
+
+
 def node_chat(slug: str, nid: str, request: Request = cast(Request, None),
               last: int = 300, before: str | None = None) -> dict[str, Any]:
     try:
-        org = store.load_org(slug)
+        # a PRIVATE copy either way: identity stamping (transcript
+        # incarnation) is only safe on one
+        org = (store.load_runtime_org(slug)
+               if _CHAT_RUNTIME_VIEW and store.STORE_BACKEND == "postgres"
+               else store.load_org(slug))
         org.node(nid)
     except LedgerError as e:
         raise HTTPException(404, str(e))

@@ -79,7 +79,7 @@ def arm(ctrl, admin, n):
         server = ctrl.spawn([sys.executable, "-I", "-B", str(REPO / "tools/scale/serve.py"),
             "--root", str(root), "--env", "ORGTREE_SCALE_SIMULATED_PROVIDER=1",
             "--env", "ORGTREE_SCALE_SQL_COUNTS=1",
-            *(a for k in ("ORGTREE_LAZY_ROWS",) if k in os.environ
+            *(a for k in ("ORGTREE_LAZY_ROWS", "ORGTREE_CHAT_RUNTIME_VIEW") if k in os.environ
               for a in ("--env", f"{k}={os.environ[k]}"))], name + "-serve")
         try:
             deadline = time.monotonic() + 300

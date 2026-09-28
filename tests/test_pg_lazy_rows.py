@@ -394,6 +394,59 @@ class LazyRows(unittest.TestCase):
         self.assertEqual(dup['mail']['n9'], [{'id': 'm9', 'body': 'hello 9'}])
 
 
+@unittest.skipUnless(f.ADMIN, 'disposable PostgreSQL required: NOT RUN')
+class ChatRuntimeView(unittest.TestCase):
+    """The desk chat read (api.node_chat) on a runtime view: the same payload
+    as the whole load, reading only the rows it touches."""
+    setUpClass = LazyRows.setUpClass
+    setUp, raw, rows, epoch = LazyRows.setUp, LazyRows.raw, LazyRows.rows, LazyRows.epoch
+    stamp, stats, delta = LazyRows.stamp, LazyRows.stats, LazyRows.delta
+
+    def test_node_chat_on_a_runtime_view_matches_the_whole_load(self):
+        from orgtree import api
+        with self.raw() as raw:           # a realistic pending mail entry
+            raw.execute('UPDATE doc SET val=%s WHERE key=%s', (store._dumps([
+                {'id': 'm1', 'from': 'n0', 'kind': 'message', 'at': '2026-09-28T00:00:00Z',
+                 'body': 'hello 1'}]), 'mail\x1fn1'))
+        self.stamp()
+        with patch.object(api, '_CHAT_RUNTIME_VIEW', False):
+            whole = api.node_chat(self.slug, 'n1', last=8)
+        seen = []
+        real = store.load_runtime_org
+        before = self.stats()
+        with patch.object(api, '_CHAT_RUNTIME_VIEW', True), \
+                patch.object(store, 'load_runtime_org',
+                             lambda slug, *a, **k: seen.append(slug) or real(slug, *a, **k)):
+            view = api.node_chat(self.slug, 'n1', last=8)
+        d = self.delta(before)
+        self.assertEqual(seen, [self.slug], 'the chat read must take the runtime view')
+        self.assertEqual(view, whole)
+        self.assertEqual(d['fallbacks'], 0)
+        self.assertLessEqual(d['rows'], 4, 'only the node and its own boxes are read')
+        self.assertIn('"m1"', json.dumps(view), 'the mailbox row reached the payload')
+
+
+class SwitchDefault(unittest.TestCase):
+    def test_lazy_rows_is_on_unless_explicitly_false(self):
+        for v in (None, '', '1', 'true', 'on', 'yes', 'anything'):
+            self.assertTrue(store._switch_on(v), repr(v))
+        for v in ('0', 'false', 'FALSE', 'off', 'no', ' No '):
+            self.assertFalse(store._switch_on(v), repr(v))
+
+    def test_the_process_default_is_on(self):
+        import os
+        if 'ORGTREE_LAZY_ROWS' in os.environ:
+            self.skipTest('ORGTREE_LAZY_ROWS set in this environment: default NOT tested')
+        self.assertTrue(store.LAZY_ROWS)
+
+    def test_the_chat_view_default_is_on(self):
+        import os
+        from orgtree import api
+        if 'ORGTREE_CHAT_RUNTIME_VIEW' in os.environ:
+            self.skipTest('ORGTREE_CHAT_RUNTIME_VIEW set in this environment: default NOT tested')
+        self.assertTrue(api._CHAT_RUNTIME_VIEW)
+
+
 class PostLoad(unittest.TestCase):
     def test_modular_visibility_against_a_load_snapshot(self):
         snap = '100:105:101,103'
