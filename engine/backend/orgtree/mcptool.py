@@ -21,13 +21,13 @@ import urllib.request
 from typing import Any, cast
 
 if __package__:
-    from . import deployment, opreceipts, workfields
+    from . import deployment, opreceipts, toolargs, workfields
 else:
     # Sandboxed Claude runs this dependency-free server by its mounted file
     # path rather than with ``-m``. Preserve that supported entry point while
     # sharing the one authoritative policy parser.
     sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-    from orgtree import deployment, opreceipts, workfields
+    from orgtree import deployment, opreceipts, toolargs, workfields
 
 ORG: str = os.environ.get("ORGTREE_ORG", "")
 NODE: str = os.environ.get("ORGTREE_NODE", "")
@@ -2143,6 +2143,12 @@ def available_tools() -> list[dict[str, Any]]:
               'operation continues once, independently of your turn, and sends its '
               'result as durable mail. Handle incoming mail; do not repeat the call.'}
              if tool['name'] in MANAGED_WAIT_TOOLS else tool for tool in tools]
+    # every card refuses unknown fields up front (a client that validates the
+    # schema stops the call itself); the few tools with accepted undeclared
+    # spellings keep an open schema and rely on `_arg_refusal` instead
+    tools = [tool if tool['name'] in toolargs.ACCEPTED_UNDECLARED
+             else {**tool, 'inputSchema': toolargs.strict_schema(tool['inputSchema'])}
+             for tool in tools]
     if os.environ.get('ORGTREE_DESKTOP_MANAGED') != '1':
         return tools
     tools = json.loads(json.dumps(_desktop_relaunch_catalogue(tools)))
@@ -2297,6 +2303,17 @@ def _finish_plain(answer: tuple[str, str]) -> str:
         "state": "unknown", "reason": "unsupported_build"})
 
 
+def _arg_refusal(tool: str, args: dict[str, Any]) -> str | None:
+    """Refuse arguments the tool's advertised card does not declare, and a
+    blank mail body, BEFORE anything is posted (toolargs explains the
+    2026-09-28 empty-mail incident). A verb with no advertised card goes
+    through unchecked; the backend is the authority on it."""
+    for card in available_tools():
+        if card.get('name') == tool:
+            return toolargs.refusal(tool, card.get('inputSchema'), args)
+    return toolargs.refusal(tool, None, args) if tool in toolargs.BODY_TOOLS else None
+
+
 def call_api(tool: str, args: dict[str, Any]) -> str:
     """One tool call, with an operation key so a LOST answer can be resolved
     instead of guessed at.
@@ -2309,6 +2326,10 @@ def call_api(tool: str, args: dict[str, Any]) -> str:
     those same older backends — and report what the org can actually prove. We
     never reissue the call automatically: `not_applied` is handed to the agent
     as a fact to act on, not acted on here."""
+    refused = _arg_refusal(tool, args)
+    if refused is not None:
+        return json.dumps({"error": refused, "state": "not_applied",
+                           "reason": "invalid_arguments"})
     # The receipt verbs are never themselves keyed: a lookup is a QUESTION,
     # and wrapping it would make asking whether something applied an
     # operation with its own key.

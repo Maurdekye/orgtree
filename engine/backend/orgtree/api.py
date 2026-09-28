@@ -99,6 +99,7 @@ from . import workevidence
 from . import orgtx
 from . import worktx
 from . import opreceipts
+from . import toolargs
 from . import pgdoor
 from . import workdoor
 from . import runtimedoor
@@ -12714,6 +12715,17 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
         a = _norm_args(body.args)
     except LedgerError as e:
         raise HTTPException(422, str(e))
+    if body.tool in toolargs.BODY_TOOLS:
+        # the server half of the empty-mail guard (toolargs): a client older
+        # than the check in mcptool, or any direct caller, still cannot send
+        # a blank mail or have its misnamed text silently dropped
+        from . import mcptool
+        _card = next((t for t in mcptool.TOOLS if t.get("name") == body.tool),
+                     None)
+        _refused = toolargs.refusal(
+            body.tool, _card.get("inputSchema") if _card else None, a)
+        if _refused is not None:
+            raise HTTPException(422, _refused)
     if body.tool == OP_EPOCH:
         # THE PREFLIGHT. The client asks for the operation epoch before it
         # mints a key, and binds the key to the answer. A VERB, for the same
