@@ -63,6 +63,11 @@ def copy_inventory(source, target, expected):
 
 
 def require_go(args, source):
+    if args.small_control and getattr(args, "burst_repro", False):
+        # Tiny control of the burst repro (N=10): proves the mode end to end.
+        return dict(kind="burst repro control", agents=10, active_items=8, transcript_kb=1, readiness_s=300,
+                    disk_gib=2, commit_gib=12, engine_gib=5, burst_repro=True, tracemalloc_frames=12,
+                    snap_every_s=2)
     if args.small_control:
         return dict(kind="small controller control", agents=10, active_items=8, transcript_kb=1,
                     seconds=.05, warmup=3, measured=8, tool_rate=2, steer_rate=3,
@@ -83,6 +88,12 @@ def require_go(args, source):
     go = read(args.go_file)
     if go.get("source") != source or go.get("go") is not True or not go.get("coordinator_message"):
         raise ValueError("GO must name the exact source and coordinator message")
+    if getattr(args, "burst_repro", False):
+        # tools/scale/burst_repro.py: seed N=1000, readiness, one 16-way message
+        # burst under tracemalloc with /scale/mem snapshots. Nothing else.
+        return dict(kind="N1000 message-burst memory repro", agents=1000, active_items=180,
+                    transcript_kb=256, readiness_s=1800, disk_gib=30, commit_gib=24, engine_gib=5,
+                    burst_repro=True, tracemalloc_frames=12, snap_every_s=5)
     return dict(kind="first N1000 baseline; no final qualification", agents=1000, active_items=180,
                 transcript_kb=256, seconds=10, warmup=120, measured=600, tool_rate=3.12,
                 steer_rate=9.36, recipe=asdict(Recipe()), disk_gib=80, commit_gib=24, readiness_s=900,
@@ -171,7 +182,7 @@ class Controller:
                         total += process.memory_info().private
                     except psutil.NoSuchProcess:
                         pass
-                if free < 10 or engine > 5 * 2**30 or disk < (1 if self.args.small_control or self.args.preflight_only else 20):
+                if free < 10 or engine > self.config.get("engine_gib", 5) * 2**30 or disk < (1 if self.args.small_control or self.args.preflight_only else 20):
                     raise RuntimeError(f"guard: free commit {free:.2f} GiB, engine {engine}, disk {disk:.2f} GiB")
                 with (self.root / "guard.jsonl").open("a", encoding="utf-8") as out:
                     out.write(json.dumps(dict(at=time.time(), phase=self.phase, free_commit_gib=free,
@@ -300,6 +311,11 @@ class Controller:
             self.pg_pid = int((self.root / "pg/pg/cluster/data/postmaster.pid").read_text().splitlines()[0])
             admin = self.pg("urls")["urls"]["P03_PG_ADMIN_URL"]
             c = self.config
+            if c.get("burst_repro"):
+                from burst_repro import run as burst
+                outcome["burst"] = burst(self, admin)
+                outcome["complete"] = True
+                return
             if c.get("rows_preflight"):
                 from rows_preflight import preflight
                 outcome["rows_preflight"] = preflight(self, admin, large=getattr(self.args, "preflight_large", False))
@@ -508,7 +524,9 @@ def main():
     p.add_argument("--custodian")
     p.add_argument("--pg-bin")
     p.add_argument("--child", choices=("freeze", "bundle", "restore", "files", "ready", "prime"))
-    p.add_argument("--arm", choices=("small", "large"))
+    p.add_argument("--arm", choices=("small", "large", "burst"))
+    p.add_argument("--burst-repro", action="store_true",
+                   help="only the N=1000 message-burst memory repro (heavy; needs a GO file)")
     args = p.parse_args()
     if args.child:
         return child(args)
