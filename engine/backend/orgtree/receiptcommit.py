@@ -1,4 +1,4 @@
-﻿"""Receipt baseline callbacks owned by the actual PostgreSQL transaction.
+"""Receipt baseline callbacks owned by the actual PostgreSQL transaction.
 
 The org_tx save loop suppresses intermediate COMMITs. These callbacks must be
 released by that loop only after its final server COMMIT, never by a save tail.
