@@ -50,7 +50,10 @@ def decode_key(objid, candidates, cache, hashtext):
 
 
 def _site():
-    frames = [f for f in traceback.extract_stack()[:-3]
+    # no source lines: this runs inside every org_tx, so it must stay cheap
+    stack = traceback.StackSummary.extract(traceback.walk_stack(None), lookup_lines=False)
+    stack.reverse()
+    frames = [f for f in list(stack)[:-3]
               if os.path.basename(os.path.dirname(f.filename)) == "orgtree"
               and os.path.basename(f.filename) not in ("orgtx.py", "halt.py")]
     return [f"{os.path.basename(f.filename)}:{f.lineno}:{f.name}" for f in frames[-3:]][::-1]
@@ -155,8 +158,16 @@ def _profile_holders(orgtx, out_path, stop):
 
     orgtx.PgBackend.transaction_many = transaction_many
 
+    import inspect
+    src, first = inspect.getsourcelines(original.__wrapped__ if hasattr(original, "__wrapped__") else original)
+    # the lock statements: the org pseudo-row, the node pseudo-row/bulk and the plan block
+    lock_lines = {first + i for i, line in enumerate(src)
+                  if "pg_advisory_xact_lock" in line or "raw.execute(block)" in line
+                  or "FOR UPDATE\").fetchall()" in line}
+
     def frames_of(frame):
-        st = traceback.extract_stack(frame)
+        st = traceback.StackSummary.extract(traceback.walk_stack(frame), lookup_lines=False)
+        st.reverse()
         ours = [f for f in st if os.path.basename(os.path.dirname(f.filename)) == "orgtree"]
         return st, ours
 
@@ -171,7 +182,7 @@ def _profile_holders(orgtx, out_path, stop):
                 if frame is None:
                     continue
                 st, ours = frames_of(frame)
-                locking = any(f.name == "transaction_many" and "raw.execute(block)" in (f.line or "")
+                locking = any(f.name == "transaction_many" and f.lineno in lock_lines
                               for f in st) or any(f.name == "_lock_block" for f in st)
                 inner = [f for f in ours if os.path.basename(f.filename) != "orgtx.py"]
                 leaf = f"{os.path.basename(st[-1].filename)}:{st[-1].name}"
