@@ -57,4 +57,40 @@ class PolicyInputs(unittest.TestCase):
         old.assert_called_once_with(self.slug)
 
 
+    # background-keepers K1: read() decodes its graph for this call alone, so
+    # the context adopts those node dicts instead of deep-copying them.
+    def test_a_read_adopts_its_private_graph(self):
+        seen = []
+        real = policy_context._adopt
+
+        def spy(graph):
+            nodes = real(graph)
+            seen.append((graph.private, nodes is graph.nodes))
+            return nodes
+        with patch.object(policy_context, '_adopt', side_effect=spy):
+            got = self.projected()
+        self.assertEqual(seen, [(True, True)])
+        self.assertIs(got.nodes, got.d['nodes'])
+
+    def test_two_reads_never_share_node_dicts(self):
+        first = self.projected()
+        first.nodes['worker']['charter'] = 'mutated through one read'
+        second = self.projected()
+        self.assertNotEqual(second.nodes['worker'].get('charter'), 'mutated through one read')
+        self.assertEqual(second.nodes, store.load_org(self.slug).nodes)
+
+    def test_a_shared_graph_is_copied_and_a_private_one_adopted_once(self):
+        from orgtree import policy_candidates
+        shared = policy_candidates.read(self.slug)       # returned to its caller
+        self.assertFalse(shared.private)
+        before = json.dumps(shared.nodes, sort_keys=True)
+        nodes = policy_context._adopt(shared)
+        self.assertIsNot(nodes, shared.nodes)
+        nodes['worker']['charter'] = 'changed on the copy'
+        self.assertEqual(json.dumps(shared.nodes, sort_keys=True), before)
+        private = policy_candidates.Graph({'worker': {}}, ('worker',), {'worker': 0}, private=True)
+        self.assertIs(policy_context._adopt(private), private.nodes)
+        with self.assertRaises(RuntimeError):
+            policy_context._adopt(private)
+
 if __name__ == '__main__': unittest.main()

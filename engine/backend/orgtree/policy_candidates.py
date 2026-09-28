@@ -72,6 +72,10 @@ class Graph:
     nodes: dict[str, dict]
     candidates: tuple[str, ...]
     ordinals: dict[str, int]
+    # True only for a graph read() decoded for this one call: nobody else holds
+    # its node dicts, so a consumer may adopt them instead of deep-copying
+    # (keeper GIL stalls at N1000). Any other graph is shared and is copied.
+    private: bool = False
 
 
 def read(slug: str, project: Callable[[Any, Graph], Any] | None = None):
@@ -106,7 +110,9 @@ def read(slug: str, project: Callable[[Any, Graph], Any] | None = None):
             nodes[nid], ordinals[nid] = row, ordinal
             if selected:
                 candidates.append(nid)
-        graph = Graph(nodes, tuple(candidates), ordinals)
+        # Private only while it goes straight to `project`; a graph returned
+        # to the caller is the caller's, so it stays shared.
+        graph = Graph(nodes, tuple(candidates), ordinals, private=project is not None)
         return graph if project is None else project(conn, graph)
 
     return store._bounded_read(slug, body)

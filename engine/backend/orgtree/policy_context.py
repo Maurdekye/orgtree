@@ -28,6 +28,18 @@ def candidate_ids(org):
     return org.nodes
 
 
+def _adopt(graph):
+    """The graph's node dicts, adopted when read() decoded them for this call
+    alone, else deep-copied. Normalization below mutates them, so a shared
+    graph must never be adopted, and a private one only once."""
+    if not getattr(graph, 'private', False):
+        return copy.deepcopy(graph.nodes)
+    if getattr(graph, '_adopted', False):
+        raise RuntimeError('a private policy graph was adopted twice')
+    object.__setattr__(graph, '_adopted', True)
+    return graph.nodes
+
+
 class PolicyContext:
     _read_only_projection = True
     _shared_snapshot = True
@@ -44,7 +56,7 @@ class PolicyContext:
         from .foreground_context import _compatible, CompatibilityRequired
         from .readonly_projection import ProjectionDoc
 
-        nodes = copy.deepcopy(graph.nodes)
+        nodes = _adopt(graph)
         _compatible(settings, nodes)
         if any(node.get('cheap_compacted') for node in nodes.values()):
             # First-turn recovery may read authorized docket bodies through
