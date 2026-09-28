@@ -509,6 +509,8 @@ TOOLS: list[dict[str, Any]] = [
                 # the source. Found while adding `approve_stage`, which cannot
                 # work unless callers know the field exists.
                 "candidate_sha": {"type": "string", "description": "verdict: alias for candidate"},
+                "sha": {"type": "string", "description": "review/verdict: alias for candidate"},
+                "evidence": {"description": "review/verdict: refs backing the decision — a ref string, or a list of refs or {kind, ref, note}"},
                 "next_actor": {"type": "string", "description": "verdict: existing item holder who acts next; defaults to the owner"},
                 "verdict": {"type": "string", "enum": ["approve", "changes"], "description": "verdict: alias for decision"},
                 "review_candidate": {"type": "string", "description": "update: exact lowercase Git SHA included in the atomic review packet"},
@@ -1177,6 +1179,9 @@ TOOLS: list[dict[str, Any]] = [
                          "description": "tier id from orgtree_list_tiers; "
                                         "the backend rechecks availability, "
                                         "scope and credits before hiring"},
+                "harness": {"type": "string", "enum": ["claude-code", "codex-cli"],
+                            "description": "OpenRouter tiers only: which CLI runs "
+                                           "the hire; omitted = the app default"},
                 "grant": {"type": "integer", "minimum": 0,
                           "description": "credits it may spend on ITS OWN hires"},
                 "charter": {"type": "string",
@@ -1570,6 +1575,9 @@ TOOLS: list[dict[str, Any]] = [
                          "description": "hire: 1-2 words, the node id · rehire: "
                                         "rename it as it comes back"},
                 "tier": {"type": "string", "description": "hire: tier id from orgtree_list_tiers"},
+                "harness": {"type": "string", "enum": ["claude-code", "codex-cli"],
+                            "description": "hire, OpenRouter tiers only: which CLI "
+                                           "runs the hire; omitted = the app default"},
                 "grant": {"type": "integer", "minimum": 0,
                           "description": "credits it may spend on ITS OWN hires"},
                 "charter": {"type": "string",

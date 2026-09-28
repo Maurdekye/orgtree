@@ -49,7 +49,7 @@ import import_provenance  # noqa: F401  asserts orgtree resolves inside this che
 from engine.launch import load_app                             # noqa: E402
 load_app()
 from orgtree import store, ledger, supervisor as sup           # noqa: E402
-from orgtree import api, mcptool, toolargs                     # noqa: E402
+from orgtree import api, mcptool, openrouter_harness, toolargs  # noqa: E402
 assert Path(store.DATA_ROOT).resolve() == Path(os.environ['ORGTREE_DATA']).resolve(), \
     'this process would have written to the live root'
 assert Path(toolargs.__file__).resolve().is_relative_to(_ROOT), \
@@ -171,9 +171,9 @@ class ClientRefuses(unittest.TestCase):
         self.assertIn('did you mean `body`?', answer['content'][0]['text'])
         self.assertEqual(self.wire.posts, [])
 
-    def test_accepted_undeclared_spelling_still_passes(self):
-        # `sha` is read by the review branch beside `candidate`; refusing it
-        # would break callers that worked before this guard
+    def test_the_sha_alias_still_passes(self):
+        # `sha` is read by the review branch beside `candidate` (now declared);
+        # callers that used it before this guard keep working
         out = json.loads(mcptool.tool_call(
             'orgtree_work', {'action': 'review', 'slug': 's', 'sha': 'abc1234'}))
         self.assertNotIn('error', out)
@@ -224,10 +224,22 @@ class Catalogue(unittest.TestCase):
         for card in mcptool.available_tools():
             self.assertNotIn('additionalProperties', card['inputSchema'], card['name'])
 
-    def test_accepted_undeclared_names_real_tools(self):
-        names = {c['name'] for c in mcptool.TOOLS}
-        for tool in toolargs.ACCEPTED_UNDECLARED:
-            self.assertIn(tool, names)
+    def test_once_undeclared_fields_are_declared(self):
+        # read by their handlers, so declared on their cards (2026-09-28)
+        cards = {c['name']: c['inputSchema']['properties'] for c in mcptool.TOOLS}
+        for tool, field in (('orgtree_work', 'sha'), ('orgtree_work', 'evidence'),
+                            ('orgtree_hire', 'harness'), ('orgtree_staff', 'harness')):
+            self.assertIn(field, cards[tool], f'{tool}.{field}')
+        self.assertEqual(cards['orgtree_hire']['harness']['enum'],
+                         list(openrouter_harness.HARNESSES))
+        self.assertEqual(cards['orgtree_staff']['harness']['enum'],
+                         list(openrouter_harness.HARNESSES))
+
+    def test_retired_restart_wake_mode_is_refused(self):
+        err = toolargs.refusal('orgtree_restart_wake',
+                               next(c for c in mcptool.TOOLS if c['name'] == 'orgtree_restart_wake')['inputSchema'],
+                               {'action': 'arm', 'mode': 'one_shot'})
+        self.assertIn('unknown field `mode`', err or '')
 
 
 class ServerRefuses(unittest.TestCase):

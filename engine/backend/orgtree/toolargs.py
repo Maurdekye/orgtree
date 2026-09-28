@@ -29,19 +29,11 @@ BODY_TOOLS = frozenset({"orgtree_message", "orgtree_send_notice"})
 #: no letters a similarity ratio would reward.
 _TEXT_ALIASES = ("message", "text", "content", "msg", "body_text", "note")
 
-#: Fields a handler reads although its card does not advertise them — older
-#: spellings agents may still have written down. Accepted rather than refused
-#: so this check changes nothing that used to work; they stay undocumented.
-ACCEPTED_UNDECLARED: Mapping[str, frozenset[str]] = {
-    # the review/verdict branches read `sha` beside `candidate`/`candidate_sha`
-    # and pass `evidence` through (api._work_call)
-    "orgtree_work": frozenset({"sha", "evidence"}),
-    # api.new_hire_harness: an explicit harness choice for an OpenRouter hire
-    "orgtree_hire": frozenset({"harness"}),
-    "orgtree_staff": frozenset({"harness"}),
-    # only `one_shot` is accepted; anything else is refused by the handler
-    "orgtree_restart_wake": frozenset({"mode"}),
-}
+#: ⚠ EVERY FIELD A HANDLER READS MUST BE ON ITS CARD: anything else is now
+#: refused as unknown. The four that used to be read without being declared
+#: were settled on 2026-09-28 — `sha` and `evidence` (orgtree_work) and
+#: `harness` (orgtree_hire, orgtree_staff) were declared; restart_wake's
+#: `mode`, whose only accepted value was the behaviour anyway, was retired.
 
 
 def _suggest(key: str, declared: list[str]) -> str | None:
@@ -61,8 +53,7 @@ def refusal(tool: str, schema: Mapping[str, Any] | None,
     declared: list[str] = []
     if schema is not None:
         declared = [str(k) for k in (schema.get("properties") or {})]
-        extra = ACCEPTED_UNDECLARED.get(tool, frozenset())
-        unknown = [k for k in args if k not in declared and k not in extra]
+        unknown = [k for k in args if k not in declared]
         for key in unknown:
             hint = _suggest(str(key), declared)
             problems.append(f"unknown field `{key}`"

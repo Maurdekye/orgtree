@@ -13891,10 +13891,10 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 elif act == "cancel":
                     result = restart_wake.cancel_restart_wake(body.org, target)
                 else:
-                    if a.get("mode") and a.get("mode") != "one_shot":
+                    if "mode" in a:            # retired 2026-09-28: refused, never ignored
                         raise HTTPException(
                             422,
-                            "only one-shot restart wakes are supported (re-arm after waking if needed)")
+                            "`mode` is retired: only one-shot restart wakes are supported (re-arm after waking if needed)")
                     reason = a.get("reason")
                     if reason is not None:
                         reason = str(reason)[:200]

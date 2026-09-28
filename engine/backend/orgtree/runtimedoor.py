@@ -211,9 +211,9 @@ def restart_wake_body(refuse: Refuse
             t.org._require_live(target)
         reason = a.get("reason")
         if act == "arm":
-            if a.get("mode") and a.get("mode") != "one_shot":
-                refuse(422, "only one-shot restart wakes are supported "
-                            "(re-arm after waking if needed)")
+            if "mode" in a:            # retired 2026-09-28: refused, never ignored
+                refuse(422, "`mode` is retired: only one-shot restart wakes "
+                            "are supported (re-arm after waking if needed)")
             if reason is not None:
                 reason = str(reason)[:200]
         slug, actor = str(t.call.org), t.node
