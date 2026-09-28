@@ -284,7 +284,7 @@ def child(args) -> int:
                     per = []
                     for o in gc.get_objects():
                         if type(o).__name__ == "Org":
-                            nodes = dict.get(o.__dict__.get("d") or {}, "nodes")
+                            _d = o.__dict__.get("d"); nodes = dict.get(_d, "nodes") if isinstance(_d, dict) else None
                             try:
                                 per.append([dict.__len__(nodes), bool(getattr(nodes, "_complete", True)),
                                             bool(getattr(o, "_shared_snapshot", False))])
