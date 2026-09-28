@@ -277,6 +277,21 @@ def child(args) -> int:
                                     holders[key] = holders.get(key, 0) + 1
                             fr = fr.f_back
                     rec["holders"] = holders
+                if os.environ.get("ORGTREE_SCALE_TRACE_TYPES"):
+                    # object census by type (count), no tracemalloc: at GB heaps a
+                    # tracemalloc snapshot itself costs GBs and stalls the loop
+                    import gc, collections
+                    t_c = time.time()
+                    objs = gc.get_objects()
+                    tc = collections.Counter(type(o).__name__ for o in objs)
+                    rec["types"] = tc.most_common(14)
+                    big = []
+                    for o in objs:
+                        if type(o) is dict and len(o) > 5000:
+                            big.append(len(o))
+                    rec["big_dicts"] = sorted(big)[-10:]
+                    del objs
+                    rec["census_s"] = round(time.time() - t_c, 2)
                 if frames_n:
                     snap = tracemalloc.take_snapshot().filter_traces(
                         [tracemalloc.Filter(False, tracemalloc.__file__)])
