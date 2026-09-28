@@ -145,6 +145,25 @@ class UntouchedRule(unittest.TestCase):
         self.assertFalse(self.ok(self.journal((['mail'],), None)))
         self.assertTrue(tree_changes.untouched(self.ROOT, self.SLUG, 3, 3, 'a'))
 
+    def test_blob_write_is_not_hidden_by_other_rows_in_the_range(self):
+        # another node's row save, then a whole-`nodes` blob write (and the
+        # reverse order): merging the range must not let b's row excuse it
+        self.assertFalse(self.ok(self.journal((['nodes'], ['b']), (['nodes'],))))
+        self.assertFalse(self.ok(self.journal((['nodes'],), (['nodes'], ['b']))))
+        self.assertFalse(tree_changes.since_detail(self.ROOT, self.SLUG, 1, 2)['blob_nodes'])
+        self.assertTrue(tree_changes.since_detail(self.ROOT, self.SLUG, 0, 2)['blob_nodes'])
+
+    def test_blob_write_is_not_hidden_by_other_rows_in_the_same_commit(self):
+        self.journal()
+        change = type('C', (), {'node_inserts': (), 'node_deletes': ()})
+        rows, blob = change(), change()
+        rows.node_updates, rows.changed_keys = ['b'], lambda: ['nodes']
+        blob.node_updates, blob.changed_keys = [], lambda: ['nodes']
+        tree_changes.publish(self.ROOT, self.SLUG, rows)
+        tree_changes.publish(self.ROOT, self.SLUG, blob)
+        tree_changes.commit(self.ROOT, self.SLUG, 1)
+        self.assertFalse(self.ok(1))
+
 
 def tearDownModule():
     if ADMIN:

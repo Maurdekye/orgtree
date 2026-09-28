@@ -25,16 +25,21 @@ def publish(root, slug, changes):
         try:
             # The fourth element counts node row WRITES (a node saved twice
             # before one commit is two), matching the index's node_revision.
-            value = None if changes is None else (
-                frozenset(changes.changed_keys()),
-                frozenset(changes.node_updates),
-                bool(changes.node_inserts or changes.node_deletes),
-                len(changes.node_updates))
+            # The fifth marks a whole-`nodes` blob write (the key with no
+            # named rows), kept per change so a merge with another change's
+            # named rows cannot hide it.
+            value = None
+            if changes is not None:
+                keys = frozenset(changes.changed_keys())
+                value = (keys, frozenset(changes.node_updates),
+                         bool(changes.node_inserts or changes.node_deletes),
+                         len(changes.node_updates),
+                         'nodes' in keys and not changes.node_updates)
             if key in _pending:
                 prior = _pending[key]
                 value = None if prior is None or value is None else (
                     prior[0] | value[0], prior[1] | value[1], prior[2] or value[2],
-                    prior[3] + value[3])
+                    prior[3] + value[3], prior[4] or value[4])
             _pending[key] = value
         except BaseException:
             _pending[key] = None
@@ -73,7 +78,8 @@ def untouched(root, slug, after, through, nid, keys=()):
 
     Every node-row write also journals the doc key `nodes`, so `nodes` in
     `keys` only blocks a change that named NO node rows (a whole-`nodes` blob
-    write); named rows are judged by id.
+    write); named rows are judged by id. The blob mark is kept per change,
+    so another change's named rows in the same range cannot hide it.
 
     The per-node stream identity caches ask this, so a save to one agent (or
     to mail/work) no longer invalidates every other agent's cached identity
@@ -85,17 +91,18 @@ def untouched(root, slug, after, through, nid, keys=()):
     if detail is None or detail['structural'] or nid in detail['nodes']:
         return False
     blocked = set(keys)
-    if detail['nodes']:
-        blocked.discard('nodes')
+    if 'nodes' in blocked and detail['blob_nodes']:
+        return False
+    blocked.discard('nodes')
     return not detail['keys'].intersection(blocked)
 
 
 def since_detail(root, slug, after, through):
     """Every journaled change in (after, through], or None when any is unknown:
-    {keys, nodes, structural, node_writes}."""
+    {keys, nodes, structural, node_writes, blob_nodes}."""
     if through < after or through - after > MAX_HISTORY:
         return None
-    keys, nodes, structural, writes = set(), set(), False, 0
+    keys, nodes, structural, writes, blob = set(), set(), False, 0, False
     with _lock:
         history = _history.get((str(root), slug), {})
         for seq in range(after + 1, through + 1):
@@ -106,4 +113,6 @@ def since_detail(root, slug, after, through):
             nodes.update(value[1])
             structural |= value[2]
             writes += value[3]
-    return {'keys': keys, 'nodes': nodes, 'structural': structural, 'node_writes': writes}
+            blob |= value[4]
+    return {'keys': keys, 'nodes': nodes, 'structural': structural, 'node_writes': writes,
+            'blob_nodes': blob}
