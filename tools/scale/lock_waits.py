@@ -37,6 +37,18 @@ FROM pg_stat_activity WHERE pid = ANY(%s)
 """
 
 
+def decode_key(objid, candidates, cache, hashtext):
+    """The "kind:name" whose advisory key is `objid`, or None. pg_locks.objid
+    is the key's int4 as an UNSIGNED oid, while hashtext() is signed: compare
+    modulo 2**32 (negative hashes never matched before that)."""
+    for name in candidates:
+        if name not in cache:
+            cache[name] = hashtext(name) & 0xFFFFFFFF
+        if cache[name] == objid:
+            return name
+    return None
+
+
 def _site():
     frames = [f for f in traceback.extract_stack()[:-3]
               if os.path.basename(os.path.dirname(f.filename)) == "orgtree"
@@ -66,15 +78,10 @@ def install(orgtx, pgstore, out_path):
     hashes = {}
 
     def decode(conn, org_id, objid, names):
-        # pg_locks.objid is the key's int4 as an UNSIGNED oid; hashtext is signed
         with _lock:
             known = {n for r in _registry.values() for n in r.get("names", [])}
-        for name in [*names, *sorted(known - set(names)), *_EXTRA]:
-            if name not in hashes:
-                hashes[name] = conn.execute("SELECT hashtext(%s)", (name,)).fetchone()[0] & 0xFFFFFFFF
-            if hashes[name] == objid:
-                return name
-        return None
+        return decode_key(objid, [*names, *sorted(known - set(names)), *_EXTRA], hashes,
+                          lambda name: conn.execute("SELECT hashtext(%s)", (name,)).fetchone()[0])
 
     def sampler():
         conn = None
