@@ -156,15 +156,16 @@ def _wanted(values) -> tuple[str, ...]:
 # that node's trim.
 _NOT_JSONB_EXACT = r'[:,\[]-?[0-9]+(\.[0-9]+)?[eE]|[:,\[]-0\.0[,}\]]'
 
-# Only the newest TREE_TURNS entries of the `turns` ring are read. Everything
-# else in the node is returned unchanged; key order may differ, which no
-# reader depends on (projections and signatures sort keys).
+# Only the newest TREE_TURNS entries of the `turns` ring are read, as ONE
+# jsonpath slice (re-extracting j->'turns' per element is quadratic in the
+# ring and cost seconds at N=100). Everything else in the node is returned
+# unchanged; key order may differ, which no reader depends on (projections
+# and signatures sort keys).
+_LAST_TURNS = f'$.turns[last - {TREE_TURNS - 1} to last]'
 _NODE_VAL = (
     "CASE WHEN n.val ~ %s THEN n.val ELSE ("
     "SELECT CASE WHEN jsonb_typeof(j->'turns')='array' AND jsonb_array_length(j->'turns')>%s "
-    "THEN jsonb_set(j,'{turns}',(SELECT jsonb_agg(t.e ORDER BY t.o) "
-    "FROM jsonb_array_elements(j->'turns') WITH ORDINALITY t(e,o) "
-    "WHERE t.o>jsonb_array_length(j->'turns')-%s))::text ELSE n.val END "
+    "THEN jsonb_set(j,'{turns}',jsonb_path_query_array(j,%s::jsonpath))::text ELSE n.val END "
     "FROM (SELECT n.val::jsonb AS j) v) END")
 
 
@@ -176,7 +177,7 @@ def _rows(raw: Any, ids: list[str]) -> dict[str, dict]:
         'FROM node_index i JOIN nodes n ON n.id=i.id '
         'LEFT JOIN node_index c ON c.id=i.consult_id '
         'WHERE i.id=ANY(%s) ORDER BY i.ord,i.id',
-        (_NOT_JSONB_EXACT, TREE_TURNS, TREE_TURNS, ids)).fetchall()
+        (_NOT_JSONB_EXACT, TREE_TURNS, _LAST_TURNS, ids)).fetchall()
     if len(rows) != len(set(ids)):
         raise LedgerError('foreground index and node rows disagree')
     return {nid: {'node': json.loads(value), 'meta': meta, 'ordinal': ordinal,
