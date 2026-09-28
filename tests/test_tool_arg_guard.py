@@ -88,7 +88,7 @@ class _Wire:
 
 
 class ClientRefuses(unittest.TestCase):
-    """`mcptool.tool_call` — the MCP `tools/call` every lane goes through."""
+    """`mcptool.tool_call` — the MCP `tools/call` of the Claude and Antigravity lanes."""
 
     def setUp(self):
         self.wire = _Wire()
