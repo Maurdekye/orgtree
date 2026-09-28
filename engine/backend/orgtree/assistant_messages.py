@@ -68,7 +68,11 @@ def scope_ident(slug, nid):
     seq = store.org_seq(slug)
     with _scope_lock:
         hit = _scope_cache.get(key)
-    if hit is not None and hit[0] == seq:
+    from . import reply_events
+    if hit is not None and reply_events._still_current(slug, nid, hit[0], seq):
+        with _scope_lock:
+            if _scope_cache.get(key) is hit:
+                _scope_cache[key] = (seq, hit[1])
         return hit[1]
     # Keep stream cache misses independent of unrelated Org rebuilds.
     fields = store.read_stream_identity(slug, nid)

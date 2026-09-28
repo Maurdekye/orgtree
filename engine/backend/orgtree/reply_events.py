@@ -79,6 +79,22 @@ _ident_lock = threading.Lock()
 _ident_cache = {}
 
 
+#: what the stream identities are read from besides the node's own row: the
+#: org-level incarnation, and the legacy whole-`nodes` doc blob
+IDENTITY_KEYS = ('reply_incarnation', 'nodes')
+
+
+def _still_current(slug, nid, cached, seq):
+    """The cached entry still describes the node at `seq`: either nothing was
+    saved since, or the change journal proves no save since touched this
+    node's row, the org incarnation or a node insert/delete."""
+    if cached == seq:
+        return True
+    from . import tree_changes
+    return tree_changes.untouched(store.DATA_ROOT, slug, cached, seq, nid,
+                                  IDENTITY_KEYS)
+
+
 def _ident_forget(slug=None):
     """Test seam / delete hook: drop cached identities (one org or all)."""
     with _ident_lock:
@@ -107,7 +123,10 @@ def identity(slug, nid):
     seq = store.org_seq(slug)
     with _ident_lock:
         hit = _ident_cache.get(key)
-    if hit is not None and hit[0] == seq:
+    if hit is not None and _still_current(slug, nid, hit[0], seq):
+        with _ident_lock:
+            if _ident_cache.get(key) is hit:
+                _ident_cache[key] = (seq, hit[1], hit[2])
         return hit[1], hit[2]
     # A save invalidates this cache even when it only changes mail/work.
     # Do not wait for the whole shared Org to rebuild just to read identity.

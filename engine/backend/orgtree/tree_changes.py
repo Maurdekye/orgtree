@@ -66,6 +66,30 @@ def since(root, slug, after, through):
     return None if detail is None else (detail['keys'], detail['nodes'], detail['structural'])
 
 
+def untouched(root, slug, after, through, nid, keys=()):
+    """True only when the journal PROVES every change in (after, through]
+    left node row `nid` and doc keys `keys` alone and inserted or deleted no
+    node. Unknown, too old, or any doubt is False: the caller re-reads.
+
+    Every node-row write also journals the doc key `nodes`, so `nodes` in
+    `keys` only blocks a change that named NO node rows (a whole-`nodes` blob
+    write); named rows are judged by id.
+
+    The per-node stream identity caches ask this, so a save to one agent (or
+    to mail/work) no longer invalidates every other agent's cached identity
+    -- MEASURED 10 PG statements per streamed frame when any save landed
+    between frames."""
+    if through == after:
+        return True
+    detail = since_detail(root, slug, after, through)
+    if detail is None or detail['structural'] or nid in detail['nodes']:
+        return False
+    blocked = set(keys)
+    if detail['nodes']:
+        blocked.discard('nodes')
+    return not detail['keys'].intersection(blocked)
+
+
 def since_detail(root, slug, after, through):
     """Every journaled change in (after, through], or None when any is unknown:
     {keys, nodes, structural, node_writes}."""
