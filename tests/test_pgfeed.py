@@ -302,5 +302,135 @@ class EngineCallback(unittest.TestCase):
         self.assertEqual(len(revs), pgfeed._LOCAL_CAP)
         self.assertEqual(min(revs), 11)               # the oldest were dropped
 
+
+class InFlight(unittest.TestCase):
+    """A commit this process is still making must not be taken for foreign
+    because its NOTIFY outran COMMIT's answer (foreground-tree F3-0)."""
+
+    def setUp(self) -> None:
+        for state in (pgfeed._local, pgfeed._local_set, pgfeed._inflight):
+            state.clear()
+            self.addCleanup(state.clear)
+        pgfeed._budget.update(window=0.0, spent=0.0)
+        self.addCleanup(pgfeed._budget.update, window=0.0, spent=0.0)
+        self.unknown: list[str] = []
+        self.sent: list[str] = []
+        self.cb = pgfeed.engine_callback(self.unknown.append, self.sent.append)
+
+    def timed(self, revision: int) -> float:
+        started = time.monotonic()
+        self.cb("a", revision, False)
+        return time.monotonic() - started
+
+    def test_a_commit_answered_after_its_notify_is_still_local(self) -> None:
+        pgfeed.begin_local("a", 7)
+        answer = threading.Timer(0.03, pgfeed.note_local, ("a", 7))
+        answer.start()
+        self.addCleanup(answer.cancel)
+        elapsed = self.timed(7)
+        self.assertEqual((self.unknown, self.sent), ([], []))
+        self.assertGreaterEqual(elapsed, 0.02)            # it really waited for the answer
+        self.assertEqual(pgfeed._inflight["a"], set())
+
+    def test_control_without_registration_the_same_commit_is_foreign(self) -> None:
+        answer = threading.Timer(0.03, pgfeed.note_local, ("a", 7))
+        answer.start()
+        self.addCleanup(answer.cancel)
+        self.assertLess(self.timed(7), 0.02)              # nothing to wait for
+        self.assertEqual((self.unknown, self.sent), (["a"], ["a"]))
+
+    def test_a_rolled_back_number_committed_by_another_process_is_foreign(self) -> None:
+        pgfeed.begin_local("a", 7)
+        pgfeed.abort_local("a", 7)
+        self.assertLess(self.timed(7), 0.02)              # the abort answered at once
+        self.assertEqual((self.unknown, self.sent), (["a"], ["a"]))
+
+    def test_an_unanswered_commit_is_foreign_after_a_bounded_wait(self) -> None:
+        pgfeed.begin_local("a", 7)
+        elapsed = self.timed(7)
+        self.assertEqual((self.unknown, self.sent), (["a"], ["a"]))
+        self.assertLess(elapsed, pgfeed.INFLIGHT_WAIT_S + 0.05)
+        self.assertGreaterEqual(elapsed, pgfeed.INFLIGHT_WAIT_S - 0.01)
+        self.assertEqual(pgfeed._inflight["a"], set())    # no stale entry is kept
+        pgfeed.note_local("a", 7)                         # its late confirmation
+        self.cb("a", 8, False)                            # does not make 8 local
+        self.assertEqual(self.unknown, ["a", "a"])
+
+    def test_the_feed_waits_at_most_its_budget_across_a_backlog(self) -> None:
+        for r in range(1, 11):
+            pgfeed.begin_local("a", r)
+        started = time.monotonic()
+        for r in range(1, 11):
+            self.cb("a", r, False)
+        elapsed = time.monotonic() - started
+        self.assertEqual(len(self.unknown), 10)
+        self.assertLess(elapsed, pgfeed.INFLIGHT_BUDGET_S + 0.1)
+        self.assertGreater(10 * pgfeed.INFLIGHT_WAIT_S, pgfeed.INFLIGHT_BUDGET_S + 0.1)
+
+    def test_a_gap_is_never_local_even_when_in_flight(self) -> None:
+        pgfeed.begin_local("a", 7)
+        pgfeed.note_local("a", 7)
+        self.cb("a", 7, True)
+        self.assertEqual(self.unknown, ["a"])
+
+
+class _Raw:
+    """Just enough of a psycopg session for PgConn.execute's COMMIT/ROLLBACK."""
+
+    def __init__(self, fail: bool = False) -> None:
+        self.fail, self.ran = fail, []
+
+    def execute(self, sql, params=None):
+        self.ran.append(sql)
+        if self.fail:
+            raise RuntimeError("commit refused")
+
+
+class SessionAnswers(unittest.TestCase):
+    def setUp(self) -> None:
+        from orgtree import pgstore
+        self.pgstore = pgstore
+        for state in (pgfeed._local, pgfeed._local_set, pgfeed._inflight):
+            state.clear()
+            self.addCleanup(state.clear)
+
+    def conn(self, raw: _Raw):
+        pgfeed.begin_local("a", 7)
+        raw._ot_pending = [("a", 7)]
+        return self.pgstore.PgConn(raw, "a", 1)
+
+    def test_a_successful_commit_confirms_its_revisions(self) -> None:
+        raw = _Raw()
+        self.conn(raw).execute("COMMIT")
+        self.assertEqual((pgfeed._local_set["a"], pgfeed._inflight["a"], raw._ot_pending),
+                         ({7}, set(), []))
+
+    def test_a_rollback_releases_its_revisions_as_not_ours(self) -> None:
+        raw = _Raw()
+        self.conn(raw).execute("ROLLBACK")
+        self.assertEqual((pgfeed._local_set.get("a", set()), pgfeed._inflight["a"]), (set(), set()))
+
+    def test_a_failed_commit_releases_its_revisions_as_not_ours(self) -> None:
+        raw = _Raw(fail=True)
+        with self.assertRaises(RuntimeError):
+            self.conn(raw).execute("COMMIT")
+        self.assertEqual((pgfeed._local_set.get("a", set()), pgfeed._inflight["a"]), (set(), set()))
+
+    def test_a_pinned_commit_that_does_not_reach_the_server_confirms_nothing(self) -> None:
+        raw = _Raw()
+        conn = self.conn(raw)
+        conn.pinned = True                               # an org_tx's earlier save
+        conn.execute("COMMIT")
+        self.assertEqual((raw.ran, pgfeed._inflight["a"]), ([], {7}))
+
+    def test_a_session_returned_to_the_pool_never_confirms_it_later(self) -> None:
+        raw = _Raw()
+        raw._ot_pending = [("a", 7)]
+        pgfeed.begin_local("a", 7)
+        self.pgstore._settle_revisions(raw, False)       # what _release/_checkout do
+        self.pgstore.PgConn(raw, "a", 1).execute("COMMIT")   # an unrelated later commit
+        self.assertEqual((pgfeed._local_set.get("a", set()), pgfeed._inflight["a"]), (set(), set()))
+
+
 if __name__ == "__main__":
     unittest.main()
