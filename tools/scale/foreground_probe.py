@@ -277,7 +277,7 @@ def proof_summary(calls):
     kinds = {}
     for c in calls:
         label = c["label"]
-        if label.startswith("proof-") and not label.endswith("-write") and label != "proof-load":
+        if label.startswith("proof-") and "tool" not in c and label != "proof-load":
             kinds.setdefault(label[len("proof-"):], []).append(c)
     out = {kind: dict(reads=len(rows), p50_ms=_pct([r["client_seconds"] for r in rows], .5),
                       p95_ms=_pct([r["client_seconds"] for r in rows], .95),
