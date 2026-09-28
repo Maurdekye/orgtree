@@ -80,6 +80,16 @@ class Sonnet55Tests(unittest.TestCase):
         loaded.hire(ledger.USER, None, "sonnet", 10, "fresh")
         self.assertEqual(loaded.model_for("fresh"), SONNET_5_5)
 
+    def test_a_lazy_node_table_never_flips_the_default_without_the_pins(self):
+        # v3 on-demand rows: undecoded agents would miss the pin, so a lazy
+        # load leaves both halves for the next whole load
+        old = self.old_org()
+        with patch.object(ledger, "_lazy_rows", return_value=True):
+            loaded = self.reload(old)
+        self.assertEqual(loaded.d["models"]["sonnet"], SONNET_5)
+        self.assertNotIn("model_version", loaded.node("plain")["scope"])
+        self.assertEqual(loaded.model_for("plain"), SONNET_5)
+
     def test_unpinning_a_migrated_agent_moves_it_to_5_5(self):
         loaded = self.reload(self.old_org())
         loaded.set_scope(ledger.USER, "plain", model_version="")
