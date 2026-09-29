@@ -11013,11 +11013,11 @@ class Org:
         # began was handed off to its predecessor; one still queued then
         # renders as its own bubble (see above). Every in-place session
         # split (cheap compaction, CLI compaction, model switch, reseed)
-        # records the predecessor with its `archived_at`.
-        session_at = self._session_began(nid)
-        if session_at and session_at > cutoff:
-            cutoff = session_at
-        if (best.get("resolved_at") or best["at"]) < cutoff:
+        # records the predecessor with its `archived_at`. Read LAST, only for
+        # a card that would otherwise show: the bearer is an archived node,
+        # and this runs for every node on every tree payload.
+        resolved = best.get("resolved_at") or best["at"]
+        if resolved < cutoff or resolved < self._session_began(nid):
             return None
         return best
 
