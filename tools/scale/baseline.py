@@ -81,11 +81,16 @@ def paint_config(value):
 
 def require_go(args, source):
     if args.small_control:
+        probe_s = getattr(args, "startup_probe_s", None)
+        probe = None if not probe_s else dict(seconds=probe_s, engine_cap_gib=5, trace_dump_s=2, trace_frames=6)
         paint = None if not getattr(args, "paint_build", None) else dict(
             build=str(args.paint_build), seconds=args.paint_seconds, repeats=args.paint_repeats)
         return dict(kind="small controller control", agents=10, active_items=8, transcript_kb=1,
                     seconds=.05, warmup=3, measured=getattr(args, "measured_s", None) or 8, tool_rate=2, steer_rate=3,
                     paint=paint_config(paint),
+                    stream_reset_s=getattr(args, "stream_reset_s", 0) or 0,
+                    startup_probe=probe, engine_cap_gib=probe["engine_cap_gib"] if probe else 5,
+                    arms=("large",) if probe else ("small", "large"),
                     recipe=asdict(Recipe(retired_agents=2, archived_items=2, read_mail=2,
                         old_transcripts=2, payload_profile="fixed", node_chars=128,
                         # Tiny 128-character mail needs ~89k generated rows
@@ -119,7 +124,27 @@ def require_go(args, source):
     measured = go.get("measured_s", 600)
     if not (isinstance(measured, int) and 600 <= measured <= 3600):
         raise ValueError("GO measured_s must be an integer 600..3600")
+    # Run-only (attempt 11): start a new stream message every N seconds (0 = one
+    # message for the whole run, as attempts 1-10 did).
+    reset = go.get("stream_reset_s", 0)
+    if not (isinstance(reset, (int, float)) and 0 <= reset <= 3600):
+        raise ValueError("GO stream_reset_s must be 0..3600")
+    # Run-only (10x startup probe, coordinator 2026-09-29 12:44Z): the large arm
+    # only, no load; the engine is traced (tracemalloc + thread stacks) for
+    # `seconds` after spawn under a raised per-engine guard cap.
+    probe = go.get("startup_probe")
+    if probe is not None:
+        probe = dict(seconds=probe.get("seconds", 600), engine_cap_gib=probe.get("engine_cap_gib", 12),
+                     trace_dump_s=probe.get("trace_dump_s", 3), trace_frames=probe.get("trace_frames", 6))
+        if not (isinstance(probe["seconds"], int) and 60 <= probe["seconds"] <= 1800
+                and isinstance(probe["engine_cap_gib"], (int, float)) and 5 <= probe["engine_cap_gib"] <= 16
+                and isinstance(probe["trace_dump_s"], (int, float)) and 1 <= probe["trace_dump_s"] <= 60
+                and isinstance(probe["trace_frames"], int) and 0 <= probe["trace_frames"] <= 16):
+            raise ValueError("GO startup_probe: seconds 60..1800, engine_cap_gib 5..16, trace_dump_s 1..60, trace_frames 0..16")
     return dict(kind="first N1000 baseline; no final qualification", agents=1000, active_items=180,
+                stream_reset_s=reset, startup_probe=probe,
+                engine_cap_gib=probe["engine_cap_gib"] if probe else 5,
+                arms=("large",) if probe else ("small", "large"),
                 transcript_kb=256, seconds=10, warmup=120, measured=measured, tool_rate=3.12,
                 paint=paint_config(go.get("paint")),
                 steer_rate=9.36, recipe=asdict(Recipe()), disk_gib=80 if disk is None else disk,
@@ -209,7 +234,7 @@ class Controller:
                         total += process.memory_info().private
                     except psutil.NoSuchProcess:
                         pass
-                if free < 12 or engine > 5 * 2**30 or disk < (1 if self.args.small_control or self.args.preflight_only else 20):
+                if free < 12 or engine > self.config.get("engine_cap_gib", 5) * 2**30 or disk < (1 if self.args.small_control or self.args.preflight_only else 20):
                     raise RuntimeError(f"guard: free commit {free:.2f} GiB, engine {engine}, disk {disk:.2f} GiB")
                 with (self.root / "guard.jsonl").open("a", encoding="utf-8") as out:
                     out.write(json.dumps(dict(at=time.time(), phase=self.phase, free_commit_gib=free,
@@ -271,6 +296,35 @@ class Controller:
     def script(self, script, name, *args, env=None, timeout=900):
         self.command([sys.executable, "-I", "-B", str(REPO / "tools/scale" / script), *map(str, args)],
                      name, env, timeout)
+
+    def probe_env(self):
+        p = self.config.get("startup_probe")
+        if not p:
+            return []
+        return ["--env", f"ORGTREE_SCALE_TRACE_DUMP={p['trace_dump_s']}",
+                "--env", f"ORGTREE_SCALE_TRACE_FRAMES={p['trace_frames']}"]
+
+    def startup_probe(self, server, probe):
+        """Run-only: watch a freshly spawned engine for probe['seconds'] with no
+        load. serve.py writes metrics/trace-dump.jsonl (tracemalloc top sites,
+        thread stacks, private MB); the guard keeps its 1 s timeline."""
+        t0 = time.monotonic()
+        ready_s = None
+        while time.monotonic() - t0 < probe["seconds"]:
+            self.check()
+            if server.poll() is not None:
+                raise RuntimeError("server exited during startup probe")
+            try:
+                serve = read(self.run_root / "scale-descriptor.json").get("serve", {})
+            except (OSError, ValueError):
+                serve = {}
+            self.engine_pid = serve.get("pid") or self.engine_pid
+            if ready_s is None and serve.get("state") == "ready":
+                ready_s = round(time.monotonic() - t0, 1)
+                print(f"startup probe: engine ready at {ready_s} s", flush=True)
+            time.sleep(.5)
+        self.check()
+        return dict(startup_probe=probe, ready_s=ready_s, observed_s=probe["seconds"])
 
     def paint_side(self, arm, label, c, result):
         """Run-only (attempt 9): start renderer-paint once the load reports its
@@ -447,7 +501,7 @@ class Controller:
             self.script("baseline.py", "bundle", "--child", "bundle", "--root", self.root, env=env)
             self.drop_database(admin, desc["pg_database"])
             plans = self.root / "plans"
-            for arm in ("small", "large"):
+            for arm in c.get("arms", ("small", "large")):
                 if source_files() != capsule:
                     raise RuntimeError("source changed between baseline phases")
                 self.clear_run()
@@ -474,9 +528,12 @@ class Controller:
                             "--arm", arm, env=env)
                 server = self.spawn([sys.executable, "-I", "-B", str(REPO / "tools/scale/serve.py"),
                     "--root", str(self.run_root), "--env", "ORGTREE_SCALE_SIMULATED_PROVIDER=1",
-                    "--env", "ORGTREE_SCALE_SQL_COUNTS=1"], arm + "-serve")
+                    "--env", "ORGTREE_SCALE_SQL_COUNTS=1", *self.probe_env()], arm + "-serve")
                 sampler = None
                 try:
+                    if c.get("startup_probe"):
+                        outcome[arm] = self.startup_probe(server, c["startup_probe"])
+                        continue  # the finally below still kills the engine and keeps metrics
                     deadline = time.monotonic() + c["readiness_s"]
                     while time.monotonic() < deadline:
                         self.check()
@@ -506,7 +563,7 @@ class Controller:
                                 "--steer-rate", c["steer_rate"], "--workers", 64, "--windows", 4,
                                 "--stream-nodes", 5, "--stream-hz", 4, "--renderer-hooks", "--write-oracle",
                                 # Run-only (attempt 9): in-engine feed producer, no HTTP hop per frame.
-                                "--stream-inproc",
+                                "--stream-inproc", "--stream-reset-s", c.get("stream_reset_s", 0),
                                 "--warmup", c["warmup"]]
                         if arm == "small":
                             self.script("load.py", "plan", *args, "--label", "plan", "--plan-only")
@@ -571,7 +628,7 @@ class Controller:
                         shutil.copytree(diag, self.root / "receipts" / arm / "diagnostics", dirs_exist_ok=True)
                 self.check()
                 self.drop_database(admin, database_name(url))
-            if outcome["small"]["config"]["plans"] != outcome["large"]["config"]["plans"]:
+            if not c.get("startup_probe") and outcome["small"]["config"]["plans"] != outcome["large"]["config"]["plans"]:
                 raise RuntimeError("unequal demand between arms")
             outcome["complete"] = True
         except BaseException as exc:
@@ -686,6 +743,8 @@ def main():
     p.add_argument("--measured-s", type=int, help="small control only: measured window seconds")
     p.add_argument("--paint-build", type=Path, help="small control only: renderer-paint build dir")
     p.add_argument("--paint-seconds", type=int, default=15)
+    p.add_argument("--stream-reset-s", type=float, default=0, help="small control only: stream message reset")
+    p.add_argument("--startup-probe-s", type=int, help="small control only: large-arm startup probe seconds")
     p.add_argument("--paint-repeats", type=int, default=3)
     p.add_argument("--preflight-only", action="store_true", help="only the N=10/N=100 rows preflight")
     p.add_argument("--preflight-large", action="store_true",

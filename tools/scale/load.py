@@ -170,6 +170,8 @@ def main(argv=None) -> int:
     p.add_argument("--stream-inproc", action="store_true",
                    help="renderer-hooks plan replay by in-engine producer threads calling supervisor.stream "
                         "(the CLI reader's path), not one HTTP POST per frame; needs serve.py /scale/stream-plan")
+    p.add_argument("--stream-reset-s", type=float, default=0.0,
+                   help="run-only: start a new assistant message every N seconds per stream node (0 = one message for the run)")
     p.add_argument("--write-oracle", action="store_true")
     p.add_argument("--plan-only", action="store_true")
     p.add_argument("--plans-dir", type=Path)
@@ -250,7 +252,7 @@ def main(argv=None) -> int:
                          "groups": "archive/backlog closed; full details only on user open",
                          "chat_window": 8, "changed_events": "120ms coalesced refresh",
                          "limits": "Visible idle views; no clicks, scrolling or hidden-window simulation"},
-              "stream_nodes": len(stream_nodes), "stream_hz": args.stream_hz,
+              "stream_nodes": len(stream_nodes), "stream_hz": args.stream_hz, "stream_reset_s": args.stream_reset_s,
               "stream_mode": args.stream_mode, "stream_catchup_max": args.stream_catchup_max,
               "duration_s": args.duration, "workers": args.workers,
               "warmup_s": args.warmup, "measured_s": measured_duration,
@@ -380,13 +382,20 @@ def main(argv=None) -> int:
             request_id += 1
             yield {"request_id": request_id, "t": due, "actor": steer_rng.choice(live)}
 
+    # Run-only (attempt 11): start a new assistant message every N seconds. With
+    # reset only at tick 0 each stream node grew ONE message for the whole run,
+    # and every delta frame carries the whole message so far (attempt 10: 234 KB
+    # frames, ~22 GB per window per hour). 0 keeps the old single message.
+    reset_ticks = max(1, round(args.stream_reset_s * args.stream_hz)) if args.stream_reset_s > 0 else 0
+
     def stream_plan():
         marker, tick = 0, 0
         while tick / args.stream_hz < args.duration:
             for node in stream_nodes:
                 marker += 1
+                reset = tick == 0 or bool(reset_ticks and tick % reset_ticks == 0)
                 yield {"m": marker, "t": tick / args.stream_hz, "node": node,
-                       "reset": tick == 0, "text": f"[[m{marker}]] " + stream_ctx.text(40) + " "}
+                       "reset": reset, "text": f"[[m{marker}]] " + stream_ctx.text(40) + " "}
             tick += 1
 
     if args.plans_dir:

@@ -105,6 +105,29 @@ class ControllerControls(unittest.TestCase):
                 paint = baseline.require_go(args, "abc")["paint"]
             self.assertEqual(paint, dict(build=str(build), seconds=60, repeats=10))
 
+    def test_go_startup_probe_runs_the_large_arm_only_under_a_raised_engine_cap(self):
+        args = argparse.Namespace(small_control=False, go_file=None)
+        with tempfile.TemporaryDirectory() as folder:
+            args.go_file = Path(folder) / "go.json"
+            base = dict(go=True, source="abc", coordinator_message="mail-id")
+            baseline.write(args.go_file, base)
+            c = baseline.require_go(args, "abc")
+            self.assertEqual((c["arms"], c["engine_cap_gib"], c["startup_probe"], c["stream_reset_s"]),
+                             (("small", "large"), 5, None, 0))
+            baseline.write(args.go_file, dict(base, startup_probe=dict(seconds=600, engine_cap_gib=12), stream_reset_s=60))
+            c = baseline.require_go(args, "abc")
+            self.assertEqual((c["arms"], c["engine_cap_gib"], c["stream_reset_s"]), (("large",), 12, 60))
+            self.assertEqual(c["startup_probe"]["trace_dump_s"], 3)
+            ctrl = baseline.Controller(Path(folder), c, args)
+            self.assertIn("ORGTREE_SCALE_TRACE_DUMP=3", ctrl.probe_env())
+            for bad in (dict(seconds=30), dict(engine_cap_gib=20), dict(trace_frames=-1)):
+                baseline.write(args.go_file, dict(base, startup_probe=bad))
+                with self.assertRaisesRegex(ValueError, "startup_probe"):
+                    baseline.require_go(args, "abc")
+            baseline.write(args.go_file, dict(base, stream_reset_s=-1))
+            with self.assertRaisesRegex(ValueError, "stream_reset_s"):
+                baseline.require_go(args, "abc")
+
     def test_guard_survives_an_engine_pid_that_vanished(self):
         # The descriptor's engine pid can exit between reads (seen live in the
         # rows preflight's startup, 2026-09-28); that alone must not trip the guard.
