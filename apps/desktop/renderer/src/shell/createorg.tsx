@@ -63,6 +63,17 @@ export function creationDirty(form: {
     || form.netAuto === false
 }
 
+/** Cancel on the Create view. ⚠ NATIVE, NOT A LOCAL RESET: native puts the
+ *  unfinished-form confirmation in front of the discard. A Create view started
+ *  in a Homepage window goes back to it (a plain close there would close the
+ *  user's Homepage, possibly their only window); any other Create window gets
+ *  the same native close the title bar and a whole-app Quit get. A shell
+ *  without cancelCreation only knows the close. */
+export function cancelCreationNatively(bridge = desktop()): void {
+  if (bridge?.cancelCreation) void bridge.cancelCreation().catch(() => {})
+  else if (bridge?.closeWindow) void bridge.closeWindow().catch(() => {})
+}
+
 export function CreateOrgView({ onCreated, onRequestClose, wrapCreate }: CreateOrgViewProps) {
   const [name, setName] = useState('')
   const [dirs, setDirs] = useState<string[]>([])

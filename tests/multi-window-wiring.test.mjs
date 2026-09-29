@@ -127,12 +127,24 @@ test('an unfinished creation form is confirmed on a deliberate close and on a qu
     'Escape and the window X must mean KEEP; the destructive answer is never the dismissal')
   assert.equal(main.split('CREATION_DISCARD_DIALOG').length - 1, 4,
     'defined once, used by the close route, the quit route and Cancel back to a Homepage')
-  // Cancel in a Create view started in a Homepage window (user 2026-09-29):
-  // the same duplicate-prompt guard, and a declined discard changes nothing
+  // every route reads the answer the same way: index 0 is Discard, and only
+  // Discard discards (a flipped check makes KEEP destroy the form)
+  assert.equal(main.split('discard = response === 0').length - 1, 2, 'the close and quit routes')
+  assert.doesNotMatch(main, /discard = response (?:===|==|!==|!=) [1-9]/)
+  // (the Cancel route's own check is pinned with its handler below)
+  // Create and Cancel (user 2026-09-29): the decisions are org-windows.ts's
+  // beginCreation/cancelCreation, driven in tests/org-windows.test.mjs; the host
+  // supplies only the effects, and BOTH re-send the window's identity
+  assert.match(main, /handle\('desktop:open-create-window', caller => beginCreation\(windows, caller\.id, \{/)
+  assert.match(main, /handle\('desktop:cancel-creation', caller => cancelCreation\(windows, caller\.id, \{/)
+  assert.equal(main.split('adopt: () => adoptIdentity(caller),').length - 1, 2)
   const cancel = main.slice(main.indexOf("handle('desktop:cancel-creation'"))
-  assert.match(cancel, /const gate = windows\.beginClose\(caller\.id\)/)
-  assert.match(cancel, /if \(gate === 'awaiting'\) return 'kept'/)
-  assert.match(cancel, /if \(!discard\) return 'kept'/)
+  assert.match(cancel, /close: \(\) => \{ if \(!caller\.window\.isDestroyed\(\)\) caller\.window\.close\(\) \},/)
+  assert.match(cancel, /confirmDiscard: async \(\) => \(await dialog\.showMessageBox\(caller\.window, CREATION_DISCARD_DIALOG\)\)\.response === 0,/)
+  // and the renderer's Cancel goes to native cancelCreation, never straight to
+  // closeWindow, which would close a switched Homepage window outright
+  const app = read('apps/desktop/renderer/src/App.tsx')
+  assert.match(app, /onRequestClose=\{\(\) => cancelCreationNatively\(\)\}/)
 
   // the close route
   assert.match(main, /creation: quitting \? 'close' : windows\.beginClose\(id\)/)

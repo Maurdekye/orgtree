@@ -604,6 +604,57 @@ export async function openOrg<W extends MainWindowLike, Reveal>(
 
 // --------------------------------------------------------------- sender trust
 
+/** What "Create new organization" and Cancel need from the native host. The
+ *  decisions live here, beside the registry, so they are tested without
+ *  Electron; the host supplies only the effects. */
+export interface CreationHost {
+  /** re-send this window's `window-identity`, so its renderer switches view */
+  adopt(): void
+  /** open a separate Create window (only from a window with an organization) */
+  openNew(): Promise<OrgWindowIdentity | null>
+  /** the ordinary close of this window, with its own confirmation */
+  close(): void
+  /** the ONE discard question; resolves true only for an explicit Discard */
+  confirmDiscard(): Promise<boolean>
+}
+
+/** "Create new organization" from the window \`id\` (user 2026-09-29). A
+ *  Homepage window becomes the Create view itself and its renderer is told; a
+ *  window already creating stays; any other gets a new Create window. */
+export async function beginCreation<W extends MainWindowLike, Reveal>(
+  windows: OrgWindowRegistry<W, Reveal>, id: string, host: Pick<CreationHost, 'adopt' | 'openNew'>,
+): Promise<OrgWindowIdentity | null> {
+  const start = windows.startCreation(id)
+  if (start === 'switched') host.adopt()
+  if (start !== 'open') return windows.identity(id) ?? null
+  return host.openNew()
+}
+
+/** Cancel on the Create view in window \`id\`. A view started in a Homepage
+ *  window goes back to that Homepage, after the same discard question a close
+ *  asks when something was typed; every other Create window closes through
+ *  its ordinary close. A declined or failed question changes nothing, and the
+ *  prompt is always settled, so a later Cancel, close or quit can ask again. */
+export async function cancelCreation<W extends MainWindowLike, Reveal>(
+  windows: OrgWindowRegistry<W, Reveal>, id: string, host: Pick<CreationHost, 'adopt' | 'close' | 'confirmDiscard'>,
+): Promise<'home' | 'close' | 'kept'> {
+  if (!windows.get(id)?.returnToHomepage) {
+    host.close()
+    return 'close'
+  }
+  const gate = windows.beginClose(id)
+  if (gate === 'awaiting') return 'kept'
+  if (gate === 'confirm') {
+    let discard = false
+    try { discard = (await host.confirmDiscard()) === true } catch { discard = false }
+    windows.settleClose(id, discard)
+    if (!discard) return 'kept'
+  }
+  if (!windows.returnHome(id)) return 'kept'
+  host.adopt()
+  return 'home'
+}
+
 /** The structural shape of an IpcMainInvokeEvent this module needs, so the
  *  refusal rules can be tested without Electron. `senderFrame` is compared by
  *  IDENTITY against the window's own main frame, exactly as assertNativeSender

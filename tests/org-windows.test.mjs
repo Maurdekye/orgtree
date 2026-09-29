@@ -24,7 +24,7 @@ async function load(entry, name) {
   await build({ entryPoints: [entry], outfile: out, bundle: true, platform: 'node', format: 'cjs' })
   return req(out)
 }
-const { orgWindowRegistry, openOrg, resolveNativeSender, planRestore } =
+const { orgWindowRegistry, openOrg, resolveNativeSender, planRestore, beginCreation, cancelCreation } =
   await load('apps/desktop/main/org-windows.ts', 'org-windows')
 const { isOrgSlug } = await load('packages/contracts/desktop-window.ts', 'desktop-window')
 const { isAppPath } = await load('packages/contracts/ui-route.ts', 'ui-route')
@@ -294,6 +294,104 @@ test('Cancel returns a switched window to its Homepage; a separately opened Crea
   assert.equal(registry.returnHome('fresh'), false, 'a Create window that was never a Homepage closes instead')
   assert.equal(registry.identity('fresh').kind, 'create')
   assert.equal(registry.startCreation('home'), 'switched', 'and the Homepage can start again')
+})
+
+// the native host's side of Create and Cancel, driven with a recording host
+const creationHost = ({ discard = false, fail = false } = {}) => {
+  const log = []
+  let answer
+  return {
+    log,
+    adopt: () => log.push('adopt'),
+    openNew: async () => { log.push('openNew'); return { windowId: 'new', kind: 'create', notificationOwner: false } },
+    close: () => log.push('close'),
+    confirmDiscard: () => {
+      log.push('confirm')
+      if (fail) return Promise.reject(new Error('dialog failed'))
+      return answer ?? Promise.resolve(discard)
+    },
+    hold() { let release; answer = new Promise(r => { release = r }); return v => release(v) },
+  }
+}
+
+test('beginCreation: a Homepage switches in place and its renderer is TOLD; only an org window opens a new one', async () => {
+  const registry = orgWindowRegistry()
+  add(registry, 'home', 'homepage')
+  add(registry, 'bound', 'org', 'acme')
+  add(registry, 'create', 'create')
+  let host = creationHost()
+  assert.equal((await beginCreation(registry, 'home', host)).kind, 'create')
+  assert.deepEqual(host.log, ['adopt'], 'the identity is re-sent, or the window would keep showing its Homepage')
+  host = creationHost()
+  assert.equal((await beginCreation(registry, 'bound', host)).windowId, 'new')
+  assert.deepEqual(host.log, ['openNew'])
+  host = creationHost()
+  assert.equal((await beginCreation(registry, 'create', host)).windowId, 'create')
+  assert.deepEqual(host.log, [], 'a window already creating is left exactly as it is')
+})
+
+test('cancelCreation: a Create window that was never a Homepage CLOSES, through its own close', async () => {
+  const registry = orgWindowRegistry()
+  add(registry, 'fresh', 'create')
+  registry.setUnsavedCreation('fresh', true)
+  const host = creationHost({ discard: true })
+  assert.equal(await cancelCreation(registry, 'fresh', host), 'close')
+  assert.deepEqual(host.log, ['close'], 'the close asks its own question; Cancel does not ask a second one')
+})
+
+test('cancelCreation: a switched window with nothing typed goes straight back to its Homepage', async () => {
+  const registry = orgWindowRegistry()
+  add(registry, 'home', 'homepage')
+  registry.startCreation('home')
+  const host = creationHost()
+  assert.equal(await cancelCreation(registry, 'home', host), 'home')
+  assert.deepEqual(host.log, ['adopt'], 'no question, and the renderer is told it is a Homepage again')
+  assert.equal(registry.identity('home').kind, 'homepage')
+})
+
+test('cancelCreation: typed details are discarded only on an explicit Discard', async () => {
+  const registry = orgWindowRegistry()
+  add(registry, 'home', 'homepage')
+  registry.startCreation('home')
+  registry.setUnsavedCreation('home', true)
+  let host = creationHost({ discard: true })
+  assert.equal(await cancelCreation(registry, 'home', host), 'home')
+  assert.deepEqual(host.log, ['confirm', 'adopt'])
+  assert.equal(registry.identity('home').kind, 'homepage')
+  assert.equal(registry.beginClose('home'), 'close', 'nothing left to confirm')
+})
+
+test('NEGATIVE CONTROL: Keep editing, or a failed dialog, changes nothing and leaves the window closable', async () => {
+  for (const options of [{ discard: false }, { fail: true }, { discard: 1 }]) {
+    const registry = orgWindowRegistry()
+    add(registry, 'home', 'homepage')
+    registry.startCreation('home')
+    registry.setUnsavedCreation('home', true)
+    const host = creationHost(options)
+    assert.equal(await cancelCreation(registry, 'home', host), 'kept', JSON.stringify(options))
+    assert.deepEqual(host.log, ['confirm'], 'no adopt: the window still shows the form')
+    assert.equal(registry.identity('home').kind, 'create')
+    // the prompt was SETTLED: the next Cancel, close or quit asks again rather than
+    // answering "awaiting" forever, which would leave the window impossible to close
+    assert.equal(registry.beginClose('home'), 'confirm', JSON.stringify(options))
+    registry.settleClose('home', false)
+    assert.equal(registry.quitCreationGate().action, 'confirm')
+  }
+})
+
+test('cancelCreation: a second Cancel while the question is on screen asks nothing and changes nothing', async () => {
+  const registry = orgWindowRegistry()
+  add(registry, 'home', 'homepage')
+  registry.startCreation('home')
+  registry.setUnsavedCreation('home', true)
+  const host = creationHost()
+  const release = host.hold()
+  const first = cancelCreation(registry, 'home', host)
+  assert.equal(await cancelCreation(registry, 'home', host), 'kept')
+  assert.deepEqual(host.log, ['confirm'], 'one question on screen, not two')
+  release(true)
+  assert.equal(await first, 'home')
+  assert.deepEqual(host.log, ['confirm', 'adopt'])
 })
 
 // ------------------------------------------- the host completes its own work

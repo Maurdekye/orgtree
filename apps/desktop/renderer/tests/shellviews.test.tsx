@@ -22,7 +22,7 @@ import React from 'react'
 import assert from 'node:assert/strict'
 import { OrgtreeMenu } from '../src/shell/menu'
 import { HomepageView } from '../src/shell/homepage'
-import { CreateOrgView, creationDirty } from '../src/shell/createorg'
+import { CreateOrgView, cancelCreationNatively, creationDirty } from '../src/shell/createorg'
 import { openOrgEffect, refusalText } from '../src/shell/openorg'
 import { OrgViewToggle } from '../src/shell/modetoggle'
 import { OrgStatusBar } from '../src/shell/statusbar'
@@ -378,6 +378,24 @@ test('a successful creation clears the flag before it binds', async () => {
     assert.equal(c.dirty.at(-1), false,
       'success is terminal for the form, whatever the binding then does')
   } finally { await c.stop() }
+})
+
+// Cancel goes to native cancelCreation, which returns a switched Homepage window to its
+// Homepage. Straight to closeWindow would close that window outright (decision #3 on
+// v3-new-organization-window-show-the-advanced-set).
+test('Cancel asks native to CANCEL the creation, and only an older shell falls back to a close', async () => {
+  const calls: string[] = []
+  cancelCreationNatively({
+    cancelCreation: async () => { calls.push('cancel'); return 'home' as const },
+    closeWindow: async () => { calls.push('close') },
+  } as never)
+  assert.deepEqual(calls, ['cancel'])
+  calls.length = 0
+  cancelCreationNatively({ closeWindow: async () => { calls.push('close') } } as never)
+  assert.deepEqual(calls, ['close'], 'a shell without cancelCreation only knows the close')
+  calls.length = 0
+  cancelCreationNatively(undefined)
+  assert.deepEqual(calls, [])
 })
 
 // user 2026-09-29: "in the new organization window, make the advanced

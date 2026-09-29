@@ -36,7 +36,7 @@ import { ShellAction, ShellHeader } from './shell/header'
 import { OrgtreeMenu } from './shell/menu'
 import { OrgStatusBar } from './shell/statusbar'
 import { HomepageView } from './shell/homepage'
-import { CreateOrgView } from './shell/createorg'
+import { CreateOrgView, cancelCreationNatively } from './shell/createorg'
 import { OrgViewToggle } from './shell/modetoggle'
 import { onHeldEvent } from './events/heldbus'
 import { setOrgView, useOrgView } from './attention/mode'
@@ -1202,15 +1202,8 @@ export default function App() {
               ? ((create) => onboardingCreate(create,
                 (m) => toast([`setup: charter documents were not populated — ${m}`])))
               : undefined}
-            onRequestClose={() => {
-              // ⚠ NATIVE, NOT A LOCAL RESET. It is what puts the unfinished-
-              // form confirmation in front of the discard. A Create view
-              // started in a Homepage window goes back to it; any other is the
-              // same native close the title bar and a whole-app Quit get.
-              const bridge = desktop()
-              if (bridge?.cancelCreation) void bridge.cancelCreation().catch(() => {})
-              else if (bridge?.closeWindow) void bridge.closeWindow().catch(() => {})
-            }}
+            // ⚠ NATIVE, NOT A LOCAL RESET: see cancelCreationNatively
+            onRequestClose={() => cancelCreationNatively()}
             onCreated={async (created) => {
               void refreshOrgs()
               const bridge = desktop()
