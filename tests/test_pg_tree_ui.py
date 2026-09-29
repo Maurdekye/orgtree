@@ -122,6 +122,25 @@ class CommittedTree(unittest.TestCase):
             self.read()
         self.assertEqual(seen, ['tree_unverified'])
 
+    def test_a_proof_for_another_org_under_the_same_slug_is_not_trusted(self):
+        """review N4: the proof is keyed by slug, so an org deleted and
+        re-created under that slug can reach the same revision number. Only
+        the org_id tells the two apart; a match on the revision alone must
+        not skip the refresh."""
+        self.expire()
+        proof = (str(store.DATA_ROOT), self.slug)
+        with tree_ui._lock:
+            org_id, revision = tree_ui._verified[proof]
+            tree_ui._verified[proof] = (org_id + 1, revision)
+        seen = []
+        real = store.external_change
+        with patch.object(store, 'external_change',
+                          side_effect=lambda slug, reason='': (seen.append(reason), real(slug, reason))):
+            self.read()
+        self.assertEqual(seen, ['tree_unverified'])
+        with tree_ui._lock:
+            self.assertEqual(tree_ui._verified[proof], (org_id, revision))
+
     def test_foreign_commit_after_an_idle_entry_is_still_refreshed(self):
         stale = store.cached_org(self.slug)
         self.expire()

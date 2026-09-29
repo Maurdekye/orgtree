@@ -259,8 +259,13 @@ _undecided: dict[str, set[int]] = {}        # notified while in flight, wait exp
 #: what an undecided revision's abort does: the engine callback's reload and
 #: broadcast (set by `engine_callback`; None until one exists)
 _on_undecided_abort: "Callable[[str], None] | None" = None
-#: why the engine callback marked a snapshot unknown, by cause
+#: why the engine callback marked a snapshot unknown, by cause (plus
+#: "undecided_evicted": unanswered revisions dropped at the cap)
 causes: dict[str, int] = {}
+#: most unanswered revisions one org has held at once. While one is pending,
+#: every tree read covering it does a full reload, so a revision whose answer
+#: never comes shows here as a peak that keeps climbing (N1000 #4 review N2)
+undecided_peak = 0
 _local_lock = threading.Lock()
 _answered = threading.Condition(_local_lock)
 #: longest one callback waits for a commit's answer
@@ -302,17 +307,25 @@ def abort_local(slug: str, revision: int) -> None:
         revs = _inflight.get(slug)
         if revs is not None:
             revs.discard(revision)
-        undecided = _undecided.get(slug)
-        late = undecided is not None and revision in undecided
-        if late:
-            undecided.discard(revision)
+        late = revision in _undecided.get(slug, ())
         act = _on_undecided_abort
         _answered.notify_all()
-    if late and act is not None:
-        # the feed already passed this revision believing it might be ours;
-        # it was not, so whatever committed that number is foreign
-        _count("undecided_abort")
-        act(slug)
+    if not late:
+        return
+    try:
+        if act is not None:
+            # the feed already passed this revision believing it might be ours;
+            # it was not, so whatever committed that number is foreign
+            _count("undecided_abort")
+            act(slug)
+    finally:
+        # only now: until the unknown change set is published, a tree read
+        # must keep refusing the range (`snapshot_changes_published`), or it
+        # could trust the snapshot from before the foreign commit
+        with _answered:
+            undecided = _undecided.get(slug)
+            if undecided is not None:
+                undecided.discard(revision)
 
 
 def _count(cause: str) -> None:
@@ -332,6 +345,12 @@ def note_local(slug: str, revision: int) -> None:
         if pending is not None:
             pending.discard(revision)
         _answered.notify_all()
+
+
+def undecided_pending() -> int:
+    """Unanswered revisions right now, all orgs (0 once every save answered)."""
+    with _local_lock:
+        return sum(len(revs) for revs in _undecided.values())
 
 
 def local_revision(slug: str) -> int:
@@ -382,6 +401,7 @@ def _take_local(slug: str, revision: int) -> "bool | None":
     commit's answer, then prunes every recorded revision at or below it: the
     feed never calls back for those again. Still unanswered after the wait:
     None, and the revision is left UNDECIDED for its own answer to settle."""
+    global undecided_peak
     with _answered:
         _wait_answered(slug, revision)
         pending = revision in _inflight.get(slug, ())
@@ -394,7 +414,14 @@ def _take_local(slug: str, revision: int) -> "bool | None":
             undecided = _undecided.setdefault(slug, set())
             undecided.add(revision)
             if len(undecided) > _LOCAL_CAP:
+                # More than _LOCAL_CAP unanswered commits on one org: the
+                # oldest is forgotten and from then on counts as trusted, even
+                # though its answer never came. Every exit of a save answers
+                # (confirm or abort), so this needs a leak or a stuck
+                # committer; the count makes it visible in a scale run.
                 undecided.discard(min(undecided))
+                causes["undecided_evicted"] = causes.get("undecided_evicted", 0) + 1
+            undecided_peak = max(undecided_peak, len(undecided))
             return None
         return mine
 

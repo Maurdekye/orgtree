@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine" / "backend"))
@@ -391,6 +392,57 @@ class InFlight(unittest.TestCase):
         pgfeed.confirm_local("a", 7)
         self.assertTrue(pgfeed.snapshot_changes_published(feed, "a", 6, 7))
         self.assertEqual(self.unknown, [])
+
+    def test_an_aborting_revision_stays_untrusted_until_its_reload_is_published(self) -> None:
+        """review N1: the abort acts outside the lock, and until it has
+        published the unknown change set a tree read must still refuse the
+        range, or it serves the snapshot from before the foreign commit."""
+        feed = pgfeed.RevisionFeed(lambda: None, self.cb)
+        seen: list[bool] = []
+
+        def publish_unknown(slug: str) -> None:
+            seen.append(pgfeed.snapshot_changes_published(feed, slug, 6, 7))
+            self.unknown.append(slug)
+        self.cb = pgfeed.engine_callback(publish_unknown, self.sent.append)
+        feed._on_change = self.cb
+        feed.observe("a", 6, source="catchup")
+        pgfeed.begin_local("a", 7)
+        feed.observe("a", 7, source="notify")             # waits, then undecided
+        pgfeed.abort_local("a", 7)
+        self.assertEqual((seen, self.unknown, self.sent), ([False], ["a"], ["a"]))
+        self.assertEqual(pgfeed._undecided["a"], set())   # settled after the reload
+        self.assertEqual(pgfeed.undecided_pending(), 0)
+
+    def test_an_abort_whose_reload_raises_still_settles_the_revision(self) -> None:
+        def publish_unknown(slug: str) -> None:
+            raise RuntimeError("reload failed")
+        self.cb = pgfeed.engine_callback(publish_unknown, self.sent.append)
+        pgfeed.begin_local("a", 7)
+        self.timed(7)
+        with self.assertRaises(RuntimeError):
+            pgfeed.abort_local("a", 7)
+        self.assertEqual(pgfeed._undecided["a"], set())
+
+    def test_unanswered_revisions_are_counted_and_the_cap_eviction_is_visible(self) -> None:
+        """review N2/N3: a revision whose answer never comes shows as pending
+        and in the peak; one dropped at the cap is counted, not silent."""
+        pgfeed.causes.pop("undecided_evicted", None)
+        self.addCleanup(pgfeed.causes.pop, "undecided_evicted", None)
+        self.addCleanup(setattr, pgfeed, "undecided_peak", pgfeed.undecided_peak)
+        pgfeed.undecided_peak = 0
+        pgfeed._budget.update(window=time.monotonic(), spent=pgfeed.INFLIGHT_BUDGET_S)
+        with mock.patch.object(pgfeed, "_LOCAL_CAP", 3):
+            for r in range(1, 6):
+                pgfeed.begin_local("a", r)
+                self.cb("a", r, False)                    # budget spent: no wait
+        self.assertEqual(pgfeed._undecided["a"], {3, 4, 5})
+        self.assertEqual(pgfeed.undecided_pending(), 3)
+        self.assertEqual(pgfeed.undecided_peak, 3)
+        self.assertEqual(pgfeed.causes["undecided_evicted"], 2)
+        for r in range(3, 6):
+            pgfeed.confirm_local("a", r)
+        self.assertEqual(pgfeed.undecided_pending(), 0)
+        self.assertEqual(pgfeed.undecided_peak, 3)        # the peak is kept
 
     def test_control_an_abort_of_a_never_notified_revision_acts_not(self) -> None:
         pgfeed.begin_local("a", 7)
