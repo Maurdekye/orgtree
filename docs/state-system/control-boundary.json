@@ -383,6 +383,7 @@
   "profiles": {
     "desktop_refusal": {
       "orgtree_self_restart": "desktop-managed V2 renamed orgtree_self_restart to orgtree_self_relaunch; use orgtree_self_relaunch for an installed-app relaunch",
+      "orgtree_self_update": "desktop-managed V2 renamed orgtree_self_update to orgtree_self_relaunch; use orgtree_self_relaunch for an installed-app relaunch",
       "orgtree_prime_restart": "desktop-managed V2 renamed orgtree_prime_restart to orgtree_prime_relaunch; use orgtree_prime_relaunch for an installed-app relaunch"
     },
     "desktop_stripped_routes": [

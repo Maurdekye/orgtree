@@ -10930,8 +10930,13 @@ def _arg_flag(a: dict[str, Any], key: str) -> bool:
 _DESKTOP_RELAUNCH_TOOLS = frozenset({
     "orgtree_self_relaunch", "orgtree_prime_relaunch",
 })
+#: Refused by name on the desktop-managed profile. `orgtree_self_update` is
+#: the deprecated alias of `orgtree_self_restart` (rename 2026-08-21), so it is
+#: steered to the same relaunch verb. Left dispatchable it filed a desktop
+#: maintenance request with action `update` and a caller-chosen target
+#: (`mailhub`, `both`), an update-shaped operation the relaunch verbs refuse.
 _DESKTOP_LEGACY_RESTART_TOOLS = frozenset({
-    "orgtree_self_restart", "orgtree_prime_restart",
+    "orgtree_self_restart", "orgtree_self_update", "orgtree_prime_restart",
 })
 
 
@@ -12962,9 +12967,9 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 "profile")
         _desktop_relaunch_args(body.tool, a)
     elif _desktop_managed and body.tool in _DESKTOP_LEGACY_RESTART_TOOLS:
-        replacement = ("orgtree_self_relaunch"
-                       if body.tool == "orgtree_self_restart"
-                       else "orgtree_prime_relaunch")
+        replacement = ("orgtree_prime_relaunch"
+                       if body.tool == "orgtree_prime_restart"
+                       else "orgtree_self_relaunch")
         raise HTTPException(
             422,
             f"desktop-managed V2 renamed {body.tool} to {replacement}; "

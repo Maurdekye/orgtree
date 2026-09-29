@@ -361,6 +361,28 @@ class ControlBoundary(unittest.TestCase):
         for s in (self.launch, self.arm, self.cancel):
             s.assert_not_called()
 
+    def test_desktop_profile_refuses_self_update_so_no_verb_files_an_update(self):
+        # orgtree_self_update is self_restart's deprecated alias. Left dispatchable on the
+        # desktop it filed a maintenance request with action 'update' and a caller-chosen
+        # target (docket on-the-desktop-app-orgtree-self-update-lets-an-a).
+        want = self.spec['profiles']['desktop_refusal']['orgtree_self_update']
+        for args in ({}, {'target': 'mailhub'}, {'target': 'both'}, {'target': 'org', 'force': True}):
+            with self.subTest(args=args):
+                r = self.refused(self.agent('orgtree_self_update', args, 'top'), 'desktop-managed V2 renamed')
+                self.assertEqual(r.json()['detail'], want)
+        self.launch.assert_not_called()
+        # every restart- or update-shaped verb, with deployment-shaped options: whatever
+        # each one answers, none of them reaches the launcher asking for an update
+        for tool, args in (('orgtree_self_update', {'target': 'mailhub'}), ('orgtree_self_restart', {'target': 'both'}),
+                           ('orgtree_self_relaunch', {}), ('orgtree_self_relaunch', {'target': 'both'}),
+                           ('orgtree_self_relaunch', {'action': 'update'}), ('orgtree_prime_restart', {'action': 'arm'}),
+                           ('orgtree_prime_relaunch', {'action': 'arm', 'target': 'mailhub'})):
+            with self.subTest(tool=tool, args=args):
+                self.agent(tool, args, 'top')()
+        for call in self.launch.call_args_list:
+            self.assertNotEqual(call.kwargs.get('action'), 'update', call)
+            self.assertNotIn('update', call.args, call)
+
     def test_non_desktop_profile_gates_and_launches(self):
         with NoDesktop():
             self.case(self.agent('orgtree_self_restart', {}, 'top'), 'nd_self_restart')
