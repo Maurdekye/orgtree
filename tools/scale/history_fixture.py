@@ -307,14 +307,19 @@ def estimate(base, recipe=Recipe(), current_bytes=0):
                 limit="sampled size estimate; no latency, memory or full-fixture build-time measurement")
 
 
-def build_pair(base, output, recipe=Recipe(), current_files=None, guard=lambda: None):
-    """Write complete marker last. Failure leaves an explicitly incomplete bundle."""
+def build_pair(base, output, recipe=Recipe(), current_files=None, guard=lambda: None,
+               reserve_bytes=None):
+    """Write complete marker last. Failure leaves an explicitly incomplete bundle.
+
+    reserve_bytes (run-only): a coordinator-approved disk reserve that replaces
+    the sampled estimate's (GO disk_gib, ruling 2026-09-29 02:38Z)."""
     recipe.validate()
     validate_base(base)
     output = safe_root(output, new=True)
     output.mkdir(parents=True, exist_ok=True)
     planning = estimate(base, recipe, sum(regular_file(p).stat().st_size for p in (current_files or {}).values()))
-    if shutil.disk_usage(output).free < planning["suggested_free_disk_bytes"]:
+    need = planning["suggested_free_disk_bytes"] if reserve_bytes is None else reserve_bytes
+    if shutil.disk_usage(output).free < need:
         raise ValueError("insufficient disk reserve for bundle and one restored arm")
     started = time.perf_counter()
     (output / "PREPARING").write_text(FORMAT, encoding="utf-8")

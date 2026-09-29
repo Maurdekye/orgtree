@@ -118,6 +118,14 @@ class HistoryFixture(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "never overwrite"):
             hf.build_pair(self.base, path, SMALL)
 
+    def test_an_approved_reserve_replaces_the_estimate(self):
+        huge = 1 << 60
+        with self.assertRaisesRegex(ValueError, "insufficient disk reserve"):
+            hf.build_pair(self.base, self.root / "too-big", SMALL, reserve_bytes=huge)
+        manifest = hf.build_pair(self.base, self.root / "approved", SMALL, reserve_bytes=0)
+        self.assertTrue((self.root / "approved" / "COMPLETE").exists())
+        self.assertTrue(manifest)
+
     def test_rejects_unsafe_paths_live_history_and_invalid_recipe(self):
         for bad in ("../escape", "/absolute", "C:/outside", "a\\b", None, "a/./b", "a//b"):
             with self.subTest(path=bad), self.assertRaises(ValueError):
