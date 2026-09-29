@@ -245,6 +245,57 @@ test('becoming an organization clears the unfinished-form flag', () => {
   assert.equal(registry.beginClose('create'), 'close', 'a bound window is no longer a form in progress')
 })
 
+// ------------------ "Create new organization" from each kind of window
+// user 2026-09-29: "it should change the window to the create org window, not
+// open a fresh one. open a fresh one only if an org is already open"
+
+test('Create from a Homepage switches THAT window to the Create view; no new window', () => {
+  const registry = orgWindowRegistry()
+  add(registry, 'home', 'homepage')
+  assert.equal(registry.startCreation('home'), 'switched')
+  assert.equal(registry.identity('home').kind, 'create')
+  assert.equal(registry.list().length, 1, 'still one window')
+  registry.setUnsavedCreation('home', true)
+  assert.equal(registry.beginClose('home'), 'confirm', 'a switched window guards its form like any Create window')
+  registry.settleClose('home', false)
+  assert.deepEqual(registry.bindCreated('home', 'acme'), { action: 'bound', windowId: 'home', org: 'acme' },
+    'and a successful creation binds it, as it binds a Create window')
+  assert.equal(registry.returnHome('home'), false, 'a bound window never goes back to a Homepage')
+  assert.equal(registry.identity('home').org, 'acme')
+})
+
+test('Create from an organization window asks for a NEW window, and changes nothing', () => {
+  const registry = orgWindowRegistry()
+  add(registry, 'bound', 'org', 'acme')
+  assert.equal(registry.startCreation('bound'), 'open')
+  assert.deepEqual(registry.identity('bound'), { windowId: 'bound', kind: 'org', org: 'acme', notificationOwner: true })
+  assert.equal(registry.startCreation(null), 'open', 'no caller (tray) also opens a new window')
+})
+
+test('Create from a window already on the Create view stays there', () => {
+  const registry = orgWindowRegistry()
+  add(registry, 'create', 'create')
+  registry.setUnsavedCreation('create', true)
+  assert.equal(registry.startCreation('create'), 'already-creating')
+  assert.equal(registry.identity('create').kind, 'create')
+  assert.equal(registry.beginClose('create'), 'confirm', 'and its typed details are still guarded')
+})
+
+test('Cancel returns a switched window to its Homepage; a separately opened Create window is refused', () => {
+  const registry = orgWindowRegistry()
+  add(registry, 'home', 'homepage')
+  add(registry, 'fresh', 'create')
+  registry.startCreation('home')
+  registry.setUnsavedCreation('home', true)
+  assert.equal(registry.returnHome('home'), true)
+  assert.equal(registry.identity('home').kind, 'homepage')
+  assert.equal(registry.beginClose('home'), 'close', 'a Homepage holds no form')
+  assert.equal(registry.returnHome('home'), false, 'already home')
+  assert.equal(registry.returnHome('fresh'), false, 'a Create window that was never a Homepage closes instead')
+  assert.equal(registry.identity('fresh').kind, 'create')
+  assert.equal(registry.startCreation('home'), 'switched', 'and the Homepage can start again')
+})
+
 // ------------------------------------------- the host completes its own work
 
 const hostFor = (registry, log = []) => ({

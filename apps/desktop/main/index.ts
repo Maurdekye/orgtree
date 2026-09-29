@@ -1545,11 +1545,39 @@ else {
       if (created) revealWindow(created)
       return created ? windows.identity(created.id) ?? null : null
     })
-    /** ALWAYS a separate new window, including from a Homepage. */
-    handle('desktop:open-create-window', async () => {
+    /** "Create new organization" (user 2026-09-29): a Homepage window
+     *  becomes the Create view itself; a window already on the Create view
+     *  stays as it is; only a window with an organization open gets a new
+     *  Create window. */
+    handle('desktop:open-create-window', async caller => {
+      const start = windows.startCreation(caller.id)
+      if (start === 'switched') adoptIdentity(caller)
+      if (start !== 'open') return windows.identity(caller.id) ?? null
       const created = await createMainWindow?.({ kind: 'create' })
       if (created) revealWindow(created)
       return created ? windows.identity(created.id) ?? null : null
+    })
+    /** Cancel on the Create view. A Create view started in a Homepage window
+     *  goes back to that Homepage, after the same discard confirmation a
+     *  close gets when something was typed; any other Create window closes,
+     *  through its ordinary close path. Answers 'home', 'close' or 'kept'. */
+    handle('desktop:cancel-creation', async caller => {
+      const entry = windows.get(caller.id)
+      if (!entry?.returnToHomepage) {
+        if (!caller.window.isDestroyed()) caller.window.close()
+        return 'close'
+      }
+      const gate = windows.beginClose(caller.id)
+      if (gate === 'awaiting') return 'kept'
+      if (gate === 'confirm') {
+        let discard = false
+        try { discard = (await dialog.showMessageBox(caller.window, CREATION_DISCARD_DIALOG)).response === 0 } catch { discard = false }
+        windows.settleClose(caller.id, discard)
+        if (!discard) return 'kept'
+      }
+      if (!windows.returnHome(caller.id)) return 'kept'
+      adoptIdentity(caller)
+      return 'home'
     })
     handle('desktop:request-org', (caller, org) => requestOrgWindow(org, caller.id))
     handle('desktop:bind-created-org', (caller, org) => {

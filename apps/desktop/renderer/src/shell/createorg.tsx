@@ -1,8 +1,9 @@
 // shell/createorg.tsx — the Create view: one page, one organization, its own
 // window.
 //
-// Creating always gets a separate window, including when it was started from a
-// Homepage, and that window becomes the new organization's Canvas when the
+// Started from a Homepage window, the Create view takes over that same window;
+// started from an organization's window, it gets a new one (user 2026-09-29).
+// Either way the window becomes the new organization's Canvas when the
 // creation succeeds. Failure changes nothing about any window: the form keeps
 // everything typed and shows what went wrong, because the one thing a creation
 // form must never do is lose the details somebody just entered.
@@ -17,10 +18,12 @@
 // creation, and a confirmed discard. Cancelling the confirmation clears
 // nothing and preserves everything.
 //
-// ⚠ AND CANCEL IS A WINDOW CLOSE, NOT A FORM RESET. Routing it through
-// `closeWindow()` is what makes the button get the identical confirmation the
-// title-bar X does. A Cancel that quietly wiped the form would be the one
-// discard path with no confirmation in front of it.
+// ⚠ AND CANCEL IS NATIVE, NOT A FORM RESET. Routing it through
+// `cancelCreation()` is what makes the button get the identical confirmation
+// the title-bar X does: a view started in a Homepage window then goes back to
+// that Homepage, and any other Create window closes. A Cancel that quietly
+// wiped the form would be the one discard path with no confirmation in front
+// of it.
 //
 // NO DRAFTS ARE PERSISTED and none are restored after a crash — settled, and
 // the cheapest honest behaviour: a draft restored into a window the user did

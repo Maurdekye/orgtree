@@ -1091,9 +1091,9 @@ export default function App() {
     void desktop()?.openHomepageWindow?.().catch((e: Error) =>
       toast([`could not open a window: ${e.message}`]))
   }, [toast])
-  // ⚠ ALWAYS A SEPARATE WINDOW, including from a Homepage. The Homepage is not
-  // consumed by starting a creation; the CREATION window is what becomes the
-  // new organization's Canvas.
+  // A Homepage window becomes the Create view itself; only a window with an
+  // organization open gets a separate one (user 2026-09-29). Native decides,
+  // and a switched window re-renders from its new `window-identity`.
   const createWindow = useCallback(() => {
     void desktop()?.openCreateOrgWindow?.().catch((e: Error) =>
       toast([`could not open the creation window: ${e.message}`]))
@@ -1203,11 +1203,13 @@ export default function App() {
                 (m) => toast([`setup: charter documents were not populated — ${m}`])))
               : undefined}
             onRequestClose={() => {
-              // ⚠ THE NATIVE CLOSE, NOT A LOCAL RESET. It is what puts the
-              // unfinished-form confirmation in front of the discard, and it
-              // is the same one the title bar and a whole-app Quit get.
+              // ⚠ NATIVE, NOT A LOCAL RESET. It is what puts the unfinished-
+              // form confirmation in front of the discard. A Create view
+              // started in a Homepage window goes back to it; any other is the
+              // same native close the title bar and a whole-app Quit get.
               const bridge = desktop()
-              if (bridge?.closeWindow) void bridge.closeWindow().catch(() => {})
+              if (bridge?.cancelCreation) void bridge.cancelCreation().catch(() => {})
+              else if (bridge?.closeWindow) void bridge.closeWindow().catch(() => {})
             }}
             onCreated={async (created) => {
               void refreshOrgs()

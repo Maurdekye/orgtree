@@ -65,7 +65,15 @@ export interface OrgWindowEntry<W extends MainWindowLike> {
   unsavedCreation: boolean
   /** A discard confirmation for THIS window is on screen right now. */
   confirming: boolean
+  /** This Create view was started IN a Homepage window (user 2026-09-29), so
+   *  cancelling it returns the window to its Homepage instead of closing it. */
+  returnToHomepage?: boolean
 }
+
+/** Where "Create new organization" goes for the window that asked (user
+ *  2026-09-29: "it should change the window to the create org window, not open
+ *  a fresh one. open a fresh one only if an org is already open"). */
+export type CreationStart = 'switched' | 'already-creating' | 'open'
 
 /** How long a reservation BLOCKS OTHER CALLERS. Not how long the ticket is
  *  valid — see `adoptReservation`, and review finding f1 for why the two came
@@ -184,12 +192,14 @@ export function orgWindowRegistry<W extends MainWindowLike, Reveal = unknown>(op
     return identityOf(entry)
   }
 
-  /** BIND, the one transition a window's kind may ever make, and only in this
-   *  direction. An org-bound window is terminal by settled behavior, so the
-   *  guard is the invariant rather than a convenience. */
+  /** BIND. An org-bound window is terminal by settled behavior, so the guard
+   *  is the invariant rather than a convenience. The only other transitions
+   *  are Homepage -> Create and back (startCreation / returnHome), and neither
+   *  ever touches a window that holds an organization. */
   const bind = (entry: OrgWindowEntry<W>, org: string): OrgWindowIdentity => {
     entry.kind = 'org'
     entry.org = org
+    entry.returnToHomepage = false
     // A window that just became an organization is no longer a form in
     // progress; leaving the flag set would confirm a discard on its close.
     entry.unsavedCreation = false
@@ -262,6 +272,38 @@ export function orgWindowRegistry<W extends MainWindowLike, Reveal = unknown>(op
       reservations.delete(ticket)
       return register({ ...window, kind: 'org', org: held.org })
     },
+    /** "Create new organization" from the window `callerId`.
+     *
+     *    Homepage -> switched         (THIS window becomes the Create view)
+     *    Create   -> already-creating (nothing changes; no second form)
+     *    Org, or no caller -> open    (the host opens a new Create window)
+     */
+    startCreation: (callerId?: string | null): CreationStart => {
+      prune()
+      const caller = callerId ? entries.get(callerId) : undefined
+      if (caller?.kind === 'homepage') {
+        caller.kind = 'create'
+        caller.returnToHomepage = true
+        caller.unsavedCreation = false
+        return 'switched'
+      }
+      if (caller?.kind === 'create') return 'already-creating'
+      return 'open'
+    },
+    /** Cancel in a Create view that was started in a Homepage window: the
+     *  window goes back to its Homepage. Refused (false) for every other
+     *  window, whose Cancel is a close. Settling any unfinished input is the
+     *  caller's job, before this, through beginClose/settleClose. */
+    returnHome: (callerId: string): boolean => {
+      prune()
+      const caller = entries.get(callerId)
+      if (!caller || caller.kind !== 'create' || !caller.returnToHomepage) return false
+      caller.kind = 'homepage'
+      caller.returnToHomepage = false
+      caller.unsavedCreation = false
+      return true
+    },
+
     /** The window could not be created.
      *
      *  ⚠ RELEASING IS THE HOST'S OBLIGATION AND IT IS IMMEDIATE — the TTL is

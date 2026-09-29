@@ -75,7 +75,12 @@ export interface NativeWindowBridge {
   windowIdentity?: OrgWindowIdentity | null
   getWindowIdentity?(): Promise<OrgWindowIdentity>
   openHomepageWindow?(): Promise<OrgWindowIdentity>
+  /** "Create new organization": switches a Homepage window to the Create
+   *  view in place; opens a new Create window only from an organization's. */
   openCreateOrgWindow?(): Promise<OrgWindowIdentity>
+  /** Cancel on the Create view: back to the Homepage when the view was started
+   *  in one, otherwise the window's ordinary close. */
+  cancelCreation?(): Promise<'home' | 'close' | 'kept'>
   /** THE way an organization is opened. Never falls back to switching a bound
    *  window's organization. */
   requestOrg?(org: string): Promise<OrgOpenOutcome>

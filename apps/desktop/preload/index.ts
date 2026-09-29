@@ -39,6 +39,7 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     getWindowIdentity: () => ipcRenderer.invoke('desktop:window-identity'),
     openHomepageWindow: () => ipcRenderer.invoke('desktop:open-homepage-window'),
     openCreateOrgWindow: () => ipcRenderer.invoke('desktop:open-create-window'),
+    cancelCreation: () => ipcRenderer.invoke('desktop:cancel-creation'),
     requestOrg: (org: string) => ipcRenderer.invoke('desktop:request-org', org),
     bindCreatedOrg: (org: string) => ipcRenderer.invoke('desktop:bind-created-org', org),
     setUnsavedCreation: (dirty: boolean) => ipcRenderer.invoke('desktop:set-unsaved-creation', dirty),

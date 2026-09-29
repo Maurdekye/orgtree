@@ -159,8 +159,15 @@ export interface DesktopBridge {
   getWindowIdentity?(): Promise<OrgWindowIdentity | null>
   /** A new Homepage window, bound to nothing. */
   openHomepageWindow?(): Promise<OrgWindowIdentity | null>
-  /** A new Create window. ALWAYS separate, including from a Homepage. */
+  /** "Create new organization" (user 2026-09-29): a Homepage window switches
+   *  to the Create view in place; a window already on it stays; only a window
+   *  with an organization open gets a new Create window. Resolves to the
+   *  identity of the window that now shows the Create view. */
   openCreateOrgWindow?(): Promise<OrgWindowIdentity | null>
+  /** Cancel on the Create view: a view started in a Homepage window goes back
+   *  to it (after the discard confirmation when something was typed); any
+   *  other Create window closes through its ordinary close. */
+  cancelCreation?(): Promise<'home' | 'close' | 'kept'>
   /** THE way an organization is opened. The native host has already finished
    *  the whole transaction by the time this resolves: `focused`, `opened` and
    *  `pending` all require nothing further of the caller. */
