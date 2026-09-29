@@ -41,7 +41,8 @@ def _is_listing(sql):
 
 
 def _is_body_fetch(sql):
-    return 'key = ANY' in sql and 'xmin::text' in sql
+    # WHERE: the eager doc read also names `key = ANY` and xmin (row reuse)
+    return 'WHERE key = ANY' in sql and 'xmin::text' in sql
 
 
 @unittest.skipUnless(f.ADMIN, 'disposable PostgreSQL required: NOT RUN')
