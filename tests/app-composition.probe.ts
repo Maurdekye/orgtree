@@ -352,11 +352,21 @@ app.whenReady().then(async () => {
       check('settings-local-open', await settingsOpen(a) && !await settingsOpen(b), 'opening settings in first App does not open it in second')
       await openSettings(b)
       check('settings-concurrent', await settingsOpen(a) && await settingsOpen(b) && !a.window.isDestroyed() && !b.window.isDestroyed(), 'two real BrowserWindows have App settings open concurrently')
-      await click(a, 'input[name="orgtree-startup"][value="homepage"]')
-      const selected = (r: AppWindow) => evaluate<string>(r, 'document.querySelector("input[name=orgtree-startup]:checked")?.value')
+      // the startup choice is a plain dropdown under Display > Startup
+      // (2026-09-29; it was a pair of radio cards on a General tab)
+      const STARTUP = `document.querySelector('select[aria-label="On startup"]')`
+      for (const r of [a, b]) {
+        await click(r, '#app-settings-tab-display')
+        await until(() => evaluate<boolean>(r, `!!${STARTUP}`), Boolean)
+      }
+      const pick = (r: AppWindow, v: string) => evaluate(r, `(()=>{const s=${STARTUP};`
+        + `Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(s,${JSON.stringify(v)});`
+        + `s.dispatchEvent(new Event('change',{bubbles:true}));return true})()`)
+      await pick(a, 'homepage')
+      const selected = (r: AppWindow) => evaluate<string>(r, `${STARTUP}?.value`)
       await until(() => selected(b), v => v === 'homepage')
       check('settings-a-to-b', await selected(a) === 'homepage' && await selected(b) === 'homepage' && new Preferences(prefsFile).get().startupMode === 'homepage', 'first window edit updates second and is persisted by production Preferences')
-      await click(b, 'input[name="orgtree-startup"][value="restore"]')
+      await pick(b, 'restore')
       await until(() => selected(a), v => v === 'restore')
       check('settings-b-to-a', await selected(a) === 'restore' && await selected(b) === 'restore' && new Preferences(prefsFile).get().startupMode === 'restore', 'second window edit updates first and persisted shared value')
       await screenshot(a, 'settings-a'); await screenshot(b, 'settings-b')
