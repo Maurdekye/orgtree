@@ -41,6 +41,9 @@ does not claim full multiwindow, all-agent or physical-monitor coverage.
 
 Obtain the exclusive machine slot first. Build before starting engine load. Do not
 attach to another agent's measurement. Until coordinator approval, use at most N10.
+Approved for N1000 by coordinator-opus on 2026-09-29 04:03Z (scale attempt 9): one run
+as a side process during the active arm's measured window. The build and Electron
+startup stay outside that window, and the renderer's memory is reported.
 Use the existing scale seeder/prepare/server/load orchestrator with its disposable
 PG instance and approved launch audit. Start the load with streams, tool calls and
 steer polling enabled; allow enough duration for renderer startup, setup clicks,

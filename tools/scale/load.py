@@ -167,6 +167,9 @@ def main(argv=None) -> int:
     p.add_argument("--stream-catchup-max", type=int, default=8,
                    help="renderer-hooks plan replay: most overdue frames one agent sends in one "
                         "request when it has fallen behind (1 = the old one-frame-per-request producer)")
+    p.add_argument("--stream-inproc", action="store_true",
+                   help="renderer-hooks plan replay by in-engine producer threads calling supervisor.stream "
+                        "(the CLI reader's path), not one HTTP POST per frame; needs serve.py /scale/stream-plan")
     p.add_argument("--write-oracle", action="store_true")
     p.add_argument("--plan-only", action="store_true")
     p.add_argument("--plans-dir", type=Path)
@@ -178,6 +181,8 @@ def main(argv=None) -> int:
     if args.warmup < 0:
         p.error("warmup cannot be negative")
     args.duration += args.warmup
+    if args.stream_inproc and not args.renderer_hooks:
+        p.error("--stream-inproc replays the renderer-hooks stream plan; add --renderer-hooks")
     if measured_duration <= 0 or args.workers < 1 or args.stream_hz <= 0:
         p.error("duration, workers and stream-hz must be positive")
 
@@ -467,7 +472,7 @@ def main(argv=None) -> int:
                             "total_ms": round((end - due) * 1000, 1), "end_t": round(end - t0, 3)})
 
     # ---------------- 2. UI windows + 3. screen feed -----------------------
-    feed_tracker = Feed(0 if args.no_ui else args.windows)
+    feed_tracker = Feed(0 if args.no_ui else args.windows, early=args.stream_inproc)
     ws_ready = {w: threading.Event() for w in range(0 if args.no_ui else args.windows)}
     ws_state = {w: {"connects": 0, "closes": 0, "frames": 0, "bytes": 0} for w in range(args.windows)}
     ui_changed = {w: threading.Event() for w in range(args.windows)}
@@ -580,6 +585,59 @@ def main(argv=None) -> int:
             first_seq = seq - len(frames) + 1
             await send_frames(c, frames, first_seq=first_seq, emit=now, due=due,
                               started=t0, feed=feed_tracker, rec=rec)
+
+        def run_inproc():
+            # In-engine producer: the engine replays the SAME plan file and writes
+            # one marker row before and one stream row after each supervisor.stream
+            # call; follow that file and account exactly as the HTTP producer did.
+            receipts = out / "stream-inproc.jsonl"
+            with httpx.Client(base_url=origin, headers=H, timeout=30) as c:
+                r = c.post("/scale/stream-plan", json={"plan": str(out / "stream-plan.jsonl"),
+                    "receipts": str(receipts), "started": t0, "duration": args.duration,
+                    "max_batch": args.stream_catchup_max})
+                if r.status_code != 200 or not r.json().get("ok"):
+                    raise RuntimeError(f"stream-plan refused: {r.text[:200]}")
+                done, stopped, pos, buf = False, False, 0, b""
+                try:
+                    while not done:
+                        if stop.is_set() and not stopped:
+                            c.post("/scale/stream-stop")
+                            stopped = True
+                        chunk = b""
+                        if receipts.exists():
+                            with receipts.open("rb") as fh:
+                                fh.seek(pos)
+                                chunk = fh.read()
+                                pos += len(chunk)
+                        buf += chunk
+                        *lines, buf = buf.split(b"\n")
+                        for line in lines:
+                            row = json.loads(line)
+                            kind = row.pop("kind")
+                            if kind == "marker":
+                                for early in feed_tracker.emit(row["m"], row["emit"]):
+                                    rec.write("feed-receipts", early)
+                                emitted_count[0] += 1
+                                rec.write("markers", row)
+                            elif kind == "stream":
+                                feed_tracker.acknowledge(row["ids"], not row["err"])
+                                rec.write("stream", row)
+                            elif kind == "done":
+                                done = True
+                        feed_tracker.retire(time.time())
+                        if not chunk and not done:
+                            time.sleep(.05)
+                finally:
+                    if not done:
+                        c.post("/scale/stream-stop")
+
+        if args.stream_inproc:
+            try:
+                run_inproc()
+            except Exception as exc:
+                rec.write("stream", {"t": time.time() - t0, "frames": 0,
+                                     "err": f"stream driver: {type(exc).__name__}: {exc}"[:200]})
+            return
 
         async def run():
             # A shared connection limit below the producer count would add

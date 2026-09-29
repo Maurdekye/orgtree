@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 
 
@@ -97,6 +98,44 @@ async def drive_planned(jobs, submit, *, started, duration, stop, max_batch,
             if not task.done():
                 task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+
+
+def run_planned_threads(jobs, submit, *, started, duration, stop, max_batch,
+                        clock=time.time, sleep=time.sleep):
+    """``drive_planned`` with one THREAD per agent, for the in-engine producer.
+
+    The engine's CLI reader threads call ``supervisor.stream`` directly, so the
+    in-engine producer does the same (coordinator approval 2026-09-29 04:03Z):
+    no HTTP hop per frame. Same catch-up bound and close rule as
+    ``drive_planned``: overdue rows go together, at most ``max_batch`` per
+    call, and nothing is emitted at or after ``started + duration``.
+    Returns the started threads; ``submit(rows)`` runs on them.
+    """
+    if max_batch < 1 or duration <= 0:
+        raise ValueError('invalid catch-up bound or duration')
+    end = started + duration
+
+    def producer(rows):
+        i = 0
+        while i < len(rows) and not stop.is_set():
+            now = clock()
+            if now >= end:
+                return
+            delay = started + rows[i]['t'] - now
+            if delay > 0:
+                sleep(min(delay, .1))
+                continue
+            j = i + 1
+            while j < len(rows) and j - i < max_batch and started + rows[j]['t'] <= now:
+                j += 1
+            submit(rows[i:j])
+            i = j
+
+    threads = [threading.Thread(target=producer, args=(rows,), daemon=True, name=f'scale-stream-{node}')
+               for node, rows in jobs.items()]
+    for thread in threads:
+        thread.start()
+    return threads
 
 
 async def drive_streams(nodes, submit, *, started, duration, hz, stop,

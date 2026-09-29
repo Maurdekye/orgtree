@@ -125,7 +125,7 @@ class Feed:
     Latencies use packed doubles, not a dict per marker. A missed 5-second
     delivery is counted once, even if a later frame repeats that marker.
     """
-    def __init__(self, windows):
+    def __init__(self, windows, early=False):
         from array import array
         self.lock = threading.Lock()
         self.pending = {}
@@ -133,10 +133,17 @@ class Feed:
         self.latencies = {w: array("d") for w in range(windows)}
         self.counts = {w: dict(due=0, missing=0, over_1s=0) for w in range(windows)}
         self.failed = 0
+        # In-engine producer: the engine's emit receipt reaches this client
+        # through a file, so a window can see the marker first. Hold such
+        # receipts until the emit arrives (bounded to 10 s in retire()).
+        self.early = {} if early else None
 
     def emit(self, marker, when):
+        """Returns the receipts of windows that saw ``marker`` before its emit."""
         with self.lock:
-            self.pending[marker] = [when, None, {}]
+            seen = (self.early.pop(marker, None) if self.early is not None else None) or {}
+            self.pending[marker] = [when, None, seen]
+            return [{"w": w, "m": marker, "emit": when, "receive": t} for w, t in seen.items()]
 
     def acknowledge(self, markers, success):
         with self.lock:
@@ -146,6 +153,9 @@ class Feed:
     def receive(self, window, marker, when):
         with self.lock:
             item = self.pending.get(marker)
+            if item is None and self.early is not None:
+                self.early.setdefault(marker, {}).setdefault(window, when)
+                return None
             if item is not None and window not in item[2]:
                 item[2][window] = when
                 return {"w": window, "m": marker, "emit": item[0], "receive": when}
@@ -153,6 +163,9 @@ class Feed:
 
     def retire(self, now):
         with self.lock:
+            if self.early:
+                for marker in [m for m, seen in self.early.items() if now - min(seen.values()) > 10]:
+                    del self.early[marker]
             for marker, (emitted, accepted, seen) in list(self.pending.items()):
                 if accepted is None or now - emitted < 5:
                     continue
