@@ -520,13 +520,27 @@ class Controller:
                             painter = threading.Thread(target=self.paint_side, name=arm + "-paint",
                                 args=(arm, label, c, paint), daemon=True)
                             painter.start()
-                        self.script("load.py", arm + "-" + label, *args, "--label", label,
-                                    "--plans-dir", plans / label, timeout=duration+c["warmup"]+240)
+                        load_error = None
+                        try:
+                            self.script("load.py", arm + "-" + label, *args, "--label", label,
+                                        "--plans-dir", plans / label, timeout=duration+c["warmup"]+240)
+                        except RuntimeError as exc:
+                            # Run-only (attempt 10, coordinator 2026-09-29 08:52Z): a load that
+                            # finished its window and wrote summary.json but exited nonzero
+                            # (unclean workload) is recorded, and the pair continues. A guard
+                            # stop, timeout or a load without a summary still ends the run.
+                            if (f"{arm}-{label} exited" not in str(exc)
+                                    or (self.run_root / "metrics/qualification-invalid.json").exists()
+                                    or not (self.run_root / "metrics" / label / "summary.json").is_file()):
+                                raise
+                            load_error = str(exc)
+                            print(f"{arm} load not clean, recorded: {exc}", flush=True)
                         if painter is not None:
                             self.paint_finish(arm, painter, paint)
                     outcome[arm] = read(self.run_root / "metrics/measured/summary.json")
                     if c.get("paint"):
                         outcome[arm]["paint"] = paint
+                    outcome[arm]["load_exit_error"] = load_error
                     outcome[arm]["active_ready"] = dict(seconds=ready["seconds"], sources=ready["sources"],
                         bytes=ready["bytes"], events=ready["events"], startup_s=ready_m0 - (deadline - c["readiness_s"]))
                     outcome[arm]["history_ingest"] = sampler.summary(arm + "-measured")
