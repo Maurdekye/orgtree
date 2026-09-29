@@ -235,5 +235,90 @@ class AnsweredCardLingerTests(unittest.TestCase):
                              'no stamp to judge by — the card stands, as before')
 
 
+class AnsweredCardAcrossSessionReplacementTests(unittest.TestCase):
+    """USER REPORT 2026-09-29 (item v3-an-old-answered-question-card-reappears-
+    in-th): right after coordinator-opus was cheap-compacted, a question it had
+    asked and the user had answered minutes earlier came back at full size at
+    the bottom of its chat, and cleared only when the 15 minutes ran out. No
+    restart happened, so the boot bound above never fired; the desk followed
+    the node to its NEW session, whose rows cannot hold the answer mail that
+    was handed to the old one. The linger is now bounded by the node's
+    current session as well: its predecessor bearer's `archived_at`.
+
+    Every test runs in ONE long-lived process (booted an hour ago), so only
+    the session bound can be what hides a card."""
+
+    def setUp(self) -> None:
+        _boot(_booted(3600))
+
+    def tearDown(self) -> None:
+        _boot('')
+
+    @staticmethod
+    def _split_at(org, seconds_ago: float) -> None:
+        """Place the node's latest session split in time (the real call stamps
+        `now()`, which is after every fixture answer)."""
+        org.nodes[org.nodes['agent']['predecessor']]['archived_at'] = _at(seconds_ago)
+
+    def test_8_a_cheap_compaction_ends_the_linger(self):
+        # THE REPORTED BUG: answered a minute before the compaction.
+        org = fixture_org('linger-cheap-compact')
+        _answered(org, resolved_at=_at(120))
+        self.assertIsNotNone(org.node_ask('agent'), 'fixture: pinned before the compaction')
+        org.cheap_compact(USER, 'agent')
+        self._split_at(org, 60)
+        self.assertIsNone(org.node_ask('agent'),
+                          'the successor session never received this answer: no card')
+        self.assertIsNone(org.tree_node('agent')['ask'],
+                          'and the tree payload the desk draws from carries none')
+
+    def test_8b_an_answer_after_the_compaction_still_lingers(self):
+        # The anti-vacuity control: the successor's OWN handoff is covered.
+        org = fixture_org('linger-after-compact')
+        org.cheap_compact(USER, 'agent')
+        self._split_at(org, 120)
+        _answered(org, resolved_at=_at(60))
+        card = org.node_ask('agent')
+        self.assertIsNotNone(card, 'an answer given to this session keeps its card')
+        assert card is not None
+        self.assertEqual(card['status'], 'answered')
+
+    def test_8c_an_open_question_survives_a_cheap_compaction(self):
+        # user ruling 2026-09-16: the standing request survives cheap
+        # compaction, and so must its card.
+        org = fixture_org('linger-open-compact')
+        org.ask_user('agent', 'Still waiting on you?')
+        org.cheap_compact(USER, 'agent')
+        card = org.node_ask('agent')
+        self.assertIsNotNone(card)
+        assert card is not None
+        self.assertEqual(card['status'], 'open')
+
+    def test_8d_a_cli_compaction_ends_the_linger_too(self):
+        # The other in-place split: the CLI's own compaction.
+        org = fixture_org('linger-cli-compact')
+        _answered(org, resolved_at=_at(120))
+        org.compact_split('agent', 'sess-after-compact')
+        self._split_at(org, 60)
+        self.assertIsNone(org.node_ask('agent'))
+
+    def test_8e_an_answer_still_queued_at_compaction_is_not_invisible(self):
+        # Same guarantee as §6: with no card, the queued answer is its own
+        # bubble, because it is still in the mailbox the successor will read.
+        org = fixture_org('linger-queued-compact')
+        org.ask_user('agent', 'Proceed?')
+        aid = org.d['asks'][-1]['id']
+        org.ask_answer(aid, selected=['yes'])
+        org.d.setdefault('mail', {}).setdefault('agent', []).append(
+            {'id': 'mail-c', 'from': '@user', 'kind': 'message',
+             'body': 'Answer: yes', 'at': _at(120)})
+        org.bind_answer_mail('mail-c', ask=aid)
+        org.d['asks'][-1]['resolved_at'] = _at(120)
+        org.cheap_compact(USER, 'agent')
+        self._split_at(org, 60)
+        self.assertIsNone(org.node_ask('agent'))
+        self.assertIn('mail-c', [m['id'] for m in org.d['mail']['agent']])
+
+
 if __name__ == '__main__':
     unittest.main()

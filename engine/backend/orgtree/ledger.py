@@ -11002,9 +11002,34 @@ class Org:
         boot_at = self._boot_at()
         if boot_at and boot_at > cutoff:
             cutoff = boot_at
+        # …AND PER SESSION, for the same reason (user report 2026-09-29: an
+        # answered card came back at full size in coordinator-opus's chat
+        # right after a cheap compaction, and stayed until the 15 minutes
+        # ran out). Replacing the session needs no restart, so the boot
+        # bound above never fires — but the desk follows the node to its
+        # NEW session and loses its in-page record exactly as a reload does,
+        # and the new session's rows cannot contain the answer mail that was
+        # handed to the old one. An answer resolved before this session
+        # began was handed off to its predecessor; one still queued then
+        # renders as its own bubble (see above). Every in-place session
+        # split (cheap compaction, CLI compaction, model switch, reseed)
+        # records the predecessor with its `archived_at`.
+        session_at = self._session_began(nid)
+        if session_at and session_at > cutoff:
+            cutoff = session_at
         if (best.get("resolved_at") or best["at"]) < cutoff:
             return None
         return best
+
+    def _session_began(self, nid: str) -> str:
+        """When this node's CURRENT session began: its predecessor bearer's
+        `archived_at`, in `now()` format. Empty for a node that has never
+        had its session replaced — no bound, rather than a guess."""
+        pred_id = str((self.nodes.get(nid) or {}).get("predecessor") or "")
+        pred = self.nodes.get(pred_id) if pred_id else None
+        if not pred or pred.get("successor") != nid:
+            return ""
+        return str(pred.get("archived_at") or "")
 
     @staticmethod
     def _boot_at() -> str:
