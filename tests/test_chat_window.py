@@ -46,6 +46,29 @@ class WindowTests(unittest.TestCase):
         return {'type':role,'uuid':f'id-{i}','timestamp':f'2026-09-10T12:{i//60%60:02d}:{i%60:02d}Z',
                 'message':{'id':f'm-{i}','role':role,'content':text or f'message {i}'}}
     def read(self,n=8): return chat_window.read_window(self.org,'agent',n)
+    def test_equal_timestamp_pages_advance_unique_cursor_and_reach_end(self):
+        rows = [self.rec(i) for i in range(40)]
+        for row in rows:
+            row['timestamp'] = '2026-09-29T22:28:00Z'
+        self.write(rows)
+        page = self.read(8)
+        seen_cursors, seen_rows = set(), set()
+        for _ in range(10):
+            ids = {row['row_id'] for row in page['messages']}
+            self.assertFalse(ids & seen_rows, 'a page must not repeat a visible row')
+            seen_rows.update(ids)
+            if not page['has_older']:
+                break
+            cursor = page['before']
+            self.assertIsNotNone(cursor, 'older history needs a cursor')
+            self.assertNotIn(cursor, seen_cursors, 'timestamp ties must not cycle the cursor')
+            seen_cursors.add(cursor)
+            page = chat_window.read_page(self.org, 'agent', 8, cursor)
+        else:
+            self.fail('equal timestamp history did not terminate')
+        self.assertEqual(len(seen_rows), 40)
+        self.assertFalse(page['has_older'])
+        self.assertIsNone(page['before'])
     def test_db_only_history_survives_compaction_retirement_and_rehire(self):
         from orgtree import transcript_records
         self.org.node('agent')['model'] = 'luna'

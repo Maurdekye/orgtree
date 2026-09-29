@@ -33,6 +33,20 @@ import { useCallback, useSyncExternalStore } from 'react'
  *  carries markdown and tool chips — so this is deliberately small. */
 export const CHAT_WINDOW = 8
 export const MAX_WINDOW = 1_000_000   // expanded only on viewport demand or history scrolling
+const MAX_PAGING_BATCH = 64
+
+// A successful HTTP response need not be a successful page. Repeated rows
+// used to retrigger the desk's viewport fill on every store notification.
+function olderPageProgress(current: ChatPayload, page: ChatPayload): boolean {
+  const oldest = current.messages[0]?.seq
+  const ids = new Set(current.messages.map(row => row.row_id ?? row.event_id ?? row.seq))
+  return page.messages.some(row => !ids.has(row.row_id ?? row.event_id ?? row.seq)
+    && (typeof oldest !== 'number' || typeof row.seq !== 'number' || row.seq < oldest))
+}
+
+function stalledPage(slug: string, nid: string, reason: string): void {
+  console.warn('Transcript pagination stopped', { slug, nid, reason })
+}
 const BUSY_POLL_MS = 2500      // heartbeat while the payload says busy
 const IDLE_POLL_MS = 7000      // heartbeat otherwise — slower, never off
 const NUDGE_MS = 200           // burst coalescing for the post-event refetch
@@ -806,12 +820,21 @@ export function refreshConvo(slug: string, nid: string,
     if (!changedConversation && e.s.paged && e.s.chat?.messages.length && c.messages.length) {
       const previousLast = e.s.chat.messages.filter(row => typeof row.seq === 'number').at(-1)?.seq
       let cursor = c.before
+      const visited = new Set<string>()
       while (cursor && typeof previousLast === 'number'
              && typeof c.messages[0]?.seq === 'number' && c.messages[0].seq > previousLast) {
+        if (visited.has(cursor) || visited.size >= MAX_PAGING_BATCH) {
+          stalledPage(slug, nid, 'burst cursor cycle or page limit')
+          throw new Error('Transcript pagination did not advance')
+        }
+        visited.add(cursor)
         const page = await getChat(slug, nid, e.s.win, cursor)
         if (!stillFreshest()) return
         if ((page.order_epoch ?? 0) !== (c.order_epoch ?? 0)) throw new Error('Transcript order changed while paging')
-        if (!page.messages.length || page.before === cursor) break
+        if (!olderPageProgress(c, page) || (page.has_older && (!page.before || page.before === cursor))) {
+          stalledPage(slug, nid, 'burst page did not advance')
+          throw new Error('Transcript pagination did not advance')
+        }
         const ids = new Set(c.messages.map(row => row.row_id ?? row.event_id ?? row.seq))
         c = { ...c, messages: [...page.messages.filter(row => row.assistant_id
           || !ids.has(row.row_id ?? row.event_id ?? row.seq)), ...c.messages] }
@@ -822,6 +845,7 @@ export function refreshConvo(slug: string, nid: string,
     // viewport. Page just that interval until its actual visible row is found;
     // never dismiss an unseen send merely because its sequence is old.
     let proofCursor = c.before
+    const proofVisited = new Set<string>()
     const needsProof = () => {
       const ids = serverMailIds(c)
       const ops = serverOpIds(c)
@@ -832,10 +856,18 @@ export function refreshConvo(slug: string, nid: string,
         && typeof oldest === 'number' && g.seq0 !== UNKNOWN_SEQ && oldest > g.seq0)
     }
     while (!changedConversation && proofCursor && needsProof()) {
+      if (proofVisited.has(proofCursor) || proofVisited.size >= MAX_PAGING_BATCH) {
+        stalledPage(slug, nid, 'proof cursor cycle or page limit')
+        break
+      }
+      proofVisited.add(proofCursor)
       const page = await getChat(slug, nid, e.s.win, proofCursor)
       if (!stillFreshest()) return
       if ((page.order_epoch ?? 0) !== (c.order_epoch ?? 0)) throw new Error('Transcript order changed while paging')
-      if (!page.messages.length || page.before === proofCursor) break
+      if (!olderPageProgress(c, page) || (page.has_older && (!page.before || page.before === proofCursor))) {
+        stalledPage(slug, nid, 'proof page did not advance')
+        break
+      }
       const ids = new Set(c.messages.map(row => row.row_id ?? row.event_id ?? row.seq))
       c = { ...c, messages: [...page.messages.filter(row => row.assistant_id
         || !ids.has(row.row_id ?? row.event_id ?? row.seq)), ...c.messages] }
@@ -1021,7 +1053,13 @@ export function refreshConvo(slug: string, nid: string,
     const live: LiveRow[] = (c.live ?? []).map((r) => ({ ...r, text: r.text ?? '' }))
     const grew = e.growingOlder
     e.growingOlder = false
-    patchEntry(e, { chat: c, paged: changedConversation ? false : e.s.paged, loaded: true, loadingOlder: Boolean(e.pageInFlight), pending, live, ...retire, ...(grew ? { olderError: false } : {}) }, ownerVersion)
+    const stalledGrowth = grew && !changedConversation && !!c.has_older && !!e.s.chat
+      && !olderPageProgress(e.s.chat, c)
+    if (stalledGrowth) {
+      stalledPage(slug, nid, 'viewport window returned no older rows')
+      c = { ...c, messages: e.s.chat!.messages, has_older: false, before: null }
+    }
+    patchEntry(e, { chat: c, paged: changedConversation ? false : e.s.paged, loaded: true, loadingOlder: Boolean(e.pageInFlight), pending, live, ...retire, ...(grew ? { olderError: stalledGrowth } : {}) }, ownerVersion)
     // the grow-path settle: a leave-history recorded while this (viewport
     // window growth) refresh was the in-flight work runs now, once no page
     // request remains to own it
@@ -1055,6 +1093,7 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
   const k = key(slug, nid)
   const e = entry(k)
   if (e.s.loadingOlder || e.pageInFlight || e.s.win >= MAX_WINDOW) return false
+  if (e.s.chat?.has_older === false) return false
   const before = e.s.chat?.before
   if (before && !viewport) {
     const version = e.ownerVersion
@@ -1130,6 +1169,12 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
         return
       }
       const ids = new Set(current.messages.map(row => row.row_id ?? row.event_id ?? row.seq))
+      if (!olderPageProgress(current, page) || (page.has_older && (!page.before || page.before === before))) {
+        stalledPage(slug, nid, 'history cursor or page did not advance')
+        patchEntry(e, { loadingOlder: false, olderError: true,
+          chat: { ...current, has_older: false, before: null } }, version)
+        return
+      }
       const added = page.messages.filter(row => row.assistant_id || !ids.has(row.row_id ?? row.event_id ?? row.seq))
       patchEntry(e, { paged: true, loadingOlder: false, olderError: false,
         chat: mergeCommitted(e, { ...current, messages: [...added, ...current.messages],
