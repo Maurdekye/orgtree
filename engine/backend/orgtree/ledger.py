@@ -3091,7 +3091,6 @@ class Org:
 
     def deposit_mail(self, to: str, entry: Mapping[str, Any], *,
                      archive: bool = True,
-                     archive_keep: int | None = None,
                      supersede: Callable[[Any], bool] | None = None
                      ) -> dict[str, Any]:
         """THE ONE DOOR a newly created message goes through to enter an agent
@@ -3107,8 +3106,6 @@ class Org:
         being hand-rolled beside a raw append:
         • `archive=False` — the one producer that deliberately keeps no
           `mail_log` copy (the self-heal invariant announcement).
-        • `archive_keep` — a producer that caps its own archive tail (the
-          restart notice keeps 100).
         • `supersede` — a producer whose new message REPLACES an unread one in
           place instead of stacking (the restart notice again: one unread
           "orgtree restarted" row, not one per restart). The replacement is a
@@ -3146,13 +3143,18 @@ class Org:
             box[at] = row
         if archive:
             from . import store
-            if archive_keep is None and supersede is None and store.mail_archive_append(self.d, to, dict(row)):
+            # NO archive is trimmed (user ruling 2026-09-07: mail is kept
+            # until manual removal; the restart notice's 100-row tail was a
+            # leftover, removed 2026-09-29). `supersede` edits the pending box
+            # only, so it takes the same bounded append door: the restart
+            # notice no longer loads every live agent's archive at startup
+            # (1.5 GB at N1000 with 10x history, engine-startup-cost-must-
+            # not-grow-with-retired-h).
+            if store.mail_archive_append(self.d, to, dict(row)):
                 return row
             log = cast("dict[str, list[dict[str, Any]]]",
                        self.d.setdefault("mail_log", {})).setdefault(to, [])
             log.append(dict(row))
-            if archive_keep is not None and archive_keep > 0:
-                del log[:-archive_keep]
         return row
 
     def reinsert_mail(self, to: str, rows: Iterable[Mapping[str, Any]], *,

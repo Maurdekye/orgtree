@@ -30,9 +30,10 @@ after the switch, where new writes are expected. Then nothing from the backup
 may be missing (every agent, every log row unchanged, every work item still
 open or archived, every attachment and moved org file), but additions and
 changes to live documents are listed as ``changed_since_backup`` instead of
-failing. One removal is expected and also listed rather than failed: each
-start's restart notice trims an agent's oldest ``mail_log`` rows down to the
-newest 100 (see restart_notice_trim). Without it, the comparison is exact.
+failing. No removal is expected: the engine's restart notice used to trim each
+agent's ``mail_log`` to its newest 100 rows, and no longer does (retention
+ruling 2026-09-07, trim removed 2026-09-29), so a missing mail row is a
+problem like any other. Without ``--after-launch``, the comparison is exact.
 
 Exit 0 = PASS, 1 = FAIL (differences listed), 2 = could not run the check.
 The private PostgreSQL is started only if it is stopped, and stopped again
@@ -75,9 +76,6 @@ NEW_TOP_DIRS = {"pg", "conversion", "host-logs"}
 #: The data folder's lock file: opened (and possibly created) by every engine
 #: and by pgimport to lock one byte. Its content is not data.
 LOCK_FILE = ".owner"
-#: How many ``mail_log`` rows per agent the engine's restart notice keeps
-#: (``archive_keep=100`` in ledger ``deposit_mail``); see restart_notice_trim.
-MAIL_ARCHIVE_KEEP = 100
 
 
 class CannotRun(RuntimeError):
@@ -333,46 +331,6 @@ def archived_slugs(rows: dict[str, list[tuple[Any, ...]]]) -> set[str]:
     return out
 
 
-def restart_notice_trim(src_rows: list[tuple[Any, ...]], dst_rows: list[tuple[Any, ...]],
-                        lost: list[Any]) -> set[Any]:
-    """--after-launch: the lost ``log_d`` seqs that the engine's restart notice
-    removed on purpose. Every start posts a restart notice to each live agent
-    with ``archive_keep=100`` (ledger ``deposit_mail``), which cuts that agent's
-    ``mail_log`` to its newest 100 rows. Rehearsal 2 on a copy of live data
-    lost 45 rows exactly this way. A lost row counts as trimmed only when ALL
-    of these hold for its agent: the row is a ``mail_log`` row that is absent
-    (not changed), the agent still has at least MAIL_ARCHIVE_KEEP ``mail_log``
-    rows, every lost row of that agent is older (lower seq) than every
-    ``mail_log`` row it still has, at most MAIL_ARCHIVE_KEEP - 1 of its backup
-    ``mail_log`` rows survive (the trim keeps 100 INCLUDING the new notice),
-    and it has at least one ``mail_log`` row the backup did not have (the
-    notice itself). Anything else stays a problem. Residual: rows that arrived
-    after the backup and were trimmed again are invisible here, so a bug that
-    removed a few extra of the oldest rows on top of such a trim can pass."""
-    have = {r[0] for r in dst_rows}
-    in_backup = {r[0] for r in src_rows}
-    lost_set = set(lost)
-    by_owner: dict[Any, list[Any]] = {}
-    for r in src_rows:
-        if r[0] in lost_set:
-            if r[1] != "mail_log" or r[0] in have:
-                continue
-            by_owner.setdefault(r[2], []).append(r[0])
-    kept: dict[Any, list[Any]] = {}
-    for r in dst_rows:
-        if r[1] == "mail_log":
-            kept.setdefault(r[2], []).append(r[0])
-    out: set[Any] = set()
-    for owner, seqs in by_owner.items():
-        now = kept.get(owner, [])
-        survivors = sum(1 for seq in now if seq in in_backup)
-        # >= KEEP rows with <= KEEP - 1 from the backup also proves a new row (the notice)
-        if (len(now) >= MAIL_ARCHIVE_KEEP and max(seqs) < min(now)
-                and survivors <= MAIL_ARCHIVE_KEEP - 1):
-            out.update(seqs)
-    return out
-
-
 def still_present(src: dict[str, list[tuple[Any, ...]]], dst: dict[str, list[tuple[Any, ...]]],
                   src_work: list[Any] | None, dst_work: list[Any] | None) -> tuple[list[str], list[str]]:
     """--after-launch: (problems, changes). Nothing from the backup may be
@@ -389,14 +347,6 @@ def still_present(src: dict[str, list[tuple[Any, ...]]], dst: dict[str, list[tup
     for table in ("log_d", "log_l"):
         have = {r[0]: r for r in dst[table]}
         lost = [r[0] for r in src[table] if have.get(r[0]) != r]
-        if table == "log_d":
-            trimmed = restart_notice_trim(src[table], dst[table], lost)
-            if trimmed:
-                lost = [seq for seq in lost if seq not in trimmed]
-                owners = sorted({r[2] for r in src[table] if r[0] in trimmed})
-                changes.append(f"table log_d: {len(trimmed)} oldest mail-archive row(s) trimmed by the engine's "
-                               f"restart notice (keeps the newest {MAIL_ARCHIVE_KEEP} per agent) for "
-                               f"{len(owners)} agent(s): {owners[:10]}")
         if lost:
             problems.append(f"table {table}: {len(lost)} history row(s) from the backup are missing or "
                             f"changed; first seq: {lost[:5]}")
