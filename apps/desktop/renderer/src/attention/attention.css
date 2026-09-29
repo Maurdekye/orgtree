@@ -27,7 +27,10 @@
   min-width: 0;
   min-height: 0;
   flex: 1 1 0;
-  padding: 8px;
+  /* COMPACT (user 2026-09-29: "the padding and margin on both of these
+   * attention panels is way too large"): 8px → 3px here, and each panel's own
+   * padding below roughly a third of what it was */
+  padding: 3px;
 }
 .attn-slot > * { flex: 1 1 auto; min-width: 0; }
 /* PinFrame's in-place wrapper: a column, so the panel inside can fill it.
@@ -56,7 +59,7 @@
   flex-direction: column;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 6px;
   box-shadow: var(--shadow);
 }
 .attn-slot .attn-panel {
@@ -67,6 +70,17 @@
   height: auto;
   margin: 0;
 }
+/* the queue panel keeps `.settings` for its type and controls, but not its
+ * 22px 26px modal padding or 14px gap. Published through the same variables,
+ * so the pin/pop-out bar still cancels exactly this padding. */
+.attn-slot .attn-panel-queue {
+  --panel-pad-y: 5px;
+  --panel-pad-x: 7px;
+  gap: 4px;
+}
+.attn-slot .attn-panel-queue > .modalpin-bar:not(.on):not(.detached) {
+  margin: -2px 0 -2px auto;
+}
 
 /* THE DESK PANEL IS A DESK, NOT A SETTINGS FORM (user 2026-09-29, image-20):
  * it carries no `.settings` class, whose roomy form metrics (14px buttons with
@@ -75,9 +89,9 @@
  * instead — `.pinwin`'s 13px type and `.pinwin-body`'s padding — so the same
  * desk looks the same in both places. */
 .attn-panel-desk {
-  --panel-pad-y: 6px;
-  --panel-pad-x: 8px;
-  padding: 6px 8px 8px;
+  --panel-pad-y: 3px;
+  --panel-pad-x: 4px;
+  padding: 3px 4px 4px;
   font-size: 13px;
   overflow: hidden;
 }
@@ -92,7 +106,7 @@
 
 /* ---------------------------------------------------------- the divider */
 .attn-divider {
-  flex: 0 0 10px;
+  flex: 0 0 6px;
   align-self: stretch;
   display: flex;
   align-items: center;
@@ -124,9 +138,9 @@
 .attn-head {
   display: flex;
   align-items: baseline;
-  gap: 10px;
+  gap: 8px;
   flex: 0 0 auto;
-  padding-bottom: 6px;
+  padding-bottom: 2px;
 }
 .attn-head h3 { margin: 0; display: flex; align-items: center; gap: 6px; }
 .attn-counts { font-size: 12px; }
@@ -135,23 +149,23 @@
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
-  gap: 8px;
+  gap: 4px;
 }
 .attn-list {
   flex: 0 0 42%;
   min-width: 180px;
   overflow-y: auto;
   border-right: 1px solid var(--line-soft);
-  padding-right: 6px;
+  padding-right: 3px;
 }
 .attn-list:focus-visible { outline: 1px solid var(--line-hover); outline-offset: -2px; }
-.attn-pane { flex: 1 1 auto; min-width: 0; overflow-y: auto; padding-left: 4px; }
+.attn-pane { flex: 1 1 auto; min-width: 0; overflow-y: auto; padding-left: 2px; }
 
 .attn-row {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  padding: 7px 8px;
+  gap: 6px;
+  padding: 4px 6px;
   border-radius: 4px;
   border-left: 2px solid transparent;
   cursor: pointer;
@@ -191,9 +205,9 @@
   font-size: 11px;
 }
 .attn-row-agent { display: flex; align-items: center; gap: 3px; }
-.attn-empty { padding: 18px 8px; }
+.attn-empty { padding: 8px 6px; }
 
-.attn-detail { display: flex; flex-direction: column; gap: 10px; padding: 4px 2px 12px; }
+.attn-detail { display: flex; flex-direction: column; gap: 6px; padding: 2px 2px 6px; }
 .attn-detail-title { margin: 0; font-size: 15px; line-height: 1.3; }
 .attn-detail-sub { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
 .attn-detail-reason { white-space: pre-wrap; line-height: 1.45; }
@@ -221,7 +235,7 @@
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  padding: 2px 4px 0 0;
+  padding: 0 3px 0 0;
 }
 .attn-agents-rail-label {
   writing-mode: vertical-rl;
@@ -231,37 +245,54 @@
   user-select: none;
 }
 
-/* COLLAPSED BY DEFAULT: the list is an overlay over the desk, so rolling it
- * out never takes width away from the desk and never reflows it. */
+/* THE DRAWER (user 2026-09-29, image-28). It expands from the rail over the
+ * desk — a clip that opens left to right, not a floating card — and it is
+ * opened only by the list button. Shut, it is `visibility: hidden`, so it takes
+ * no pointer and no focus. It sits above the scrim, and the scrim above the
+ * desk; the desk is its own stacking context (`.attn-desk`), so no z-index
+ * inside a desk (its "↑ you" jump chip, its menus) can climb over either. */
 .attn-agents {
   position: absolute;
   top: 0;
-  left: 26px;
+  left: 23px;
   bottom: 0;
   z-index: 3;
-  width: 224px;
+  width: 232px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   overflow-y: auto;
-  padding: 6px;
+  padding: 4px;
   background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.38);
-  opacity: 0;
-  transform: translateX(-8px);
-  pointer-events: none;
-  transition: opacity 110ms ease, transform 110ms ease;
+  border-right: 1px solid var(--line);
+  box-shadow: 6px 0 18px rgba(0, 0, 0, 0.32);
+  clip-path: inset(0 100% 0 0);
+  visibility: hidden;
+  transition: clip-path 160ms ease, visibility 0s linear 160ms;
 }
 .attn-agents-wrap.list-open .attn-agents {
-  opacity: 1;
-  transform: none;
-  pointer-events: auto;
+  clip-path: inset(0 -24px 0 0);
+  visibility: visible;
+  transition: clip-path 160ms ease, visibility 0s;
 }
-/* the keyboard must be able to reach the list before it is rolled out, or the
- * collapse would make it mouse-only */
-.attn-agents:focus-within { opacity: 1; transform: none; pointer-events: auto; }
+/* the dark layer over the desk while the drawer is out */
+.attn-agents-scrim {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 23px;
+  z-index: 2;
+  background: rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+.attn-agents-wrap.list-open .attn-agents-scrim {
+  opacity: 1;
+  pointer-events: auto;
+  cursor: default;
+}
 
 .attn-agent-row {
   display: flex;
@@ -288,31 +319,21 @@
 @keyframes attn-pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   .attn-agent-busy { animation: none; opacity: 0.8; }
-  .attn-agents { transition: none; }
+  .attn-agents, .attn-agents-wrap.list-open .attn-agents,
+  .attn-agents-scrim { transition: none; }
   .attn-divider-grip { transition: none; }
 }
-
-/* the thin hover strip that rolls the list out without a click */
-.attn-agents-peek {
-  position: absolute;
-  top: 0; bottom: 0; left: 22px;
-  width: 10px;
-  z-index: 2;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: var(--dim);
-  cursor: pointer;
-  opacity: 0;
-}
-.attn-agents-peek:hover, .attn-agents-peek:focus-visible { opacity: 1; }
 
 .attn-desk {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
   display: flex;
-  margin-left: 24px;
+  /* a stacking context of its own: whatever z-index the desk's contents use,
+   * they stay under the scrim and the drawer */
+  isolation: isolate;
+  position: relative;
+  z-index: 0;
 }
 .attn-desk > * { flex: 1 1 auto; min-width: 0; }
 .attn-desk-empty { padding: 24px; }

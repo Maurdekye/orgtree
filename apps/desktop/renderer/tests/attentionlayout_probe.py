@@ -18,6 +18,10 @@ unit test: every claim below is a pixel or a computed style.
      that watchdog's detail modal.
   G. A desk restored from the last session shows on the canvas but not over
      the Attention view.
+  H. The agents list is a drawer: hover opens nothing, a click opens it, the
+     desk behind is darkened, nothing inside the desk (whatever its z-index)
+     draws over it, and the scrim, Escape and the button close it.
+  I. Both Attention panels use compact padding.
 
     cd apps/desktop/renderer
     python tests/attentionlayout_probe.py <outdir>      # JSON + screenshots
@@ -203,6 +207,83 @@ def main() -> int:
         checks["E_desk_buttons_compared"] = len(common) >= 4
         checks["E_desk_buttons_match_pinned"] = len(common) >= 4 and not res["desk_button_diffs"]
         checks["E_desk_font_matches_pinned"] = res["attention_desk_font"] == res["pinned_desk_font"]
+
+        # ---- attention: H, the agents drawer, and I, the compact spacing
+        # (docket v3-attention-view-agents-list-becomes-a-click-on)
+        p = open_scene("attention")
+        res["spacing"] = p.evaluate("""() => { const pad = (sel) => { const e = document.querySelector(sel);
+            if (!e) return null; const s = getComputedStyle(e);
+            return [s.paddingTop, s.paddingRight, s.paddingBottom, s.paddingLeft].map(parseFloat) };
+          return {slot: pad('.attn-slot-queue'), queue: pad('.attn-panel-queue'), desk: pad('.attn-panel-desk')} }""")
+        sp = res["spacing"]
+        checks["I_slot_padding_at_most_4px"] = bool(sp["slot"]) and max(sp["slot"]) <= 4
+        checks["I_queue_panel_padding_at_most_8px"] = bool(sp["queue"]) and max(sp["queue"]) <= 8
+        checks["I_desk_panel_padding_at_most_5px"] = bool(sp["desk"]) and max(sp["desk"]) <= 5
+        # a stand-in for the desk's "↑ you" jump chip: something inside the desk
+        # with an absurd z-index, right where the drawer will be
+        p.evaluate("""() => { const d = document.querySelector('.attn-desk'); if (!d) return;
+          const x = document.createElement('div'); x.id = 'probe-high-z';
+          Object.assign(x.style, {position: 'absolute', left: '0', top: '40px', width: '400px',
+            height: '30px', zIndex: '99999', background: 'red'});
+          d.style.position = d.style.position || ''; d.appendChild(x) }""")
+        drawer_state = """() => { const w = document.querySelector('.attn-agents-wrap');
+          const a = document.querySelector('.attn-agents'), s = document.querySelector('.attn-agents-scrim');
+          const r = a && a.getBoundingClientRect();
+          return {open: !!w && w.classList.contains('list-open'),
+            visibility: a && getComputedStyle(a).visibility,
+            box: r && {x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height)},
+            scrimOpacity: s ? getComputedStyle(s).opacity : null } }"""
+        tog = p.query_selector(".attn-agents-toggle")
+        tb = tog.bounding_box() if tog else None
+        if tb:
+            p.mouse.move(tb["x"] + tb["width"] / 2, tb["y"] + tb["height"] / 2)
+            p.wait_for_timeout(400)
+        res["drawer_after_hover"] = p.evaluate(drawer_state)
+        h = res["drawer_after_hover"]
+        checks["H_hovering_the_button_opens_nothing"] = bool(tb) and not h["open"] and h["visibility"] == "hidden"
+        if tb:
+            p.mouse.click(tb["x"] + tb["width"] / 2, tb["y"] + tb["height"] / 2)
+            p.wait_for_timeout(400)
+        o = res["drawer_after_click"] = p.evaluate(drawer_state)
+        checks["H_click_opens_the_drawer"] = o["open"] and o["visibility"] == "visible" \
+            and bool(o["box"]) and o["box"]["w"] >= 200
+        p.screenshot(path=str(out / "attention-drawer.png"))
+        desk = p.evaluate(BOX, ".attn-desk")
+        # what the pointer actually hits: inside the drawer over the high-z
+        # stand-in, and on the desk to the right of the drawer
+        hit = """([x, y]) => { const e = document.elementFromPoint(x, y);
+          return e ? (e.closest('.attn-agents') ? 'drawer' : e.classList.contains('attn-agents-scrim') ? 'scrim'
+            : e.id === 'probe-high-z' ? 'desk-high-z' : 'other:' + e.className) : null }"""
+        if o["box"] and desk:
+            in_drawer = [o["box"]["x"] + o["box"]["w"] - 10, desk["y"] + 55]
+            on_desk = [o["box"]["x"] + o["box"]["w"] + 150, desk["y"] + desk["h"] // 2]
+            res["hit_in_drawer"] = p.evaluate(hit, in_drawer)
+            res["hit_on_desk"] = p.evaluate(hit, on_desk)
+            checks["H_nothing_in_the_desk_draws_over_the_drawer"] = res["hit_in_drawer"] == "drawer"
+            checks["H_desk_is_darkened"] = res["hit_on_desk"] == "scrim" and o["scrimOpacity"] == "1"
+            p.mouse.move(*on_desk)
+            p.wait_for_timeout(400)
+            checks["H_pointer_on_the_desk_keeps_it_open"] = p.evaluate(drawer_state)["open"]
+            p.mouse.click(*on_desk)
+            p.wait_for_timeout(400)
+            checks["H_scrim_click_closes"] = not p.evaluate(drawer_state)["open"]
+            closed = p.evaluate(drawer_state)
+            checks["H_closed_scrim_is_clear"] = closed["scrimOpacity"] == "0" and closed["visibility"] == "hidden"
+            p.mouse.click(tb["x"] + tb["width"] / 2, tb["y"] + tb["height"] / 2)
+            p.wait_for_timeout(300)
+            res["drawer_before_escape"] = p.evaluate(drawer_state)
+            res["focus_before_escape"] = p.evaluate("() => document.activeElement && document.activeElement.className")
+            p.keyboard.press("Escape")
+            p.wait_for_timeout(300)
+            checks["H_escape_closes"] = not p.evaluate(drawer_state)["open"]
+            p.mouse.click(tb["x"] + tb["width"] / 2, tb["y"] + tb["height"] / 2)
+            p.wait_for_timeout(300)
+            p.mouse.click(tb["x"] + tb["width"] / 2, tb["y"] + tb["height"] / 2)
+            p.wait_for_timeout(300)
+            checks["H_button_again_closes"] = not p.evaluate(drawer_state)["open"]
+        else:
+            checks["H_drawer_measured"] = False
+        p.close()
 
         # ---- settings: D
         for tab in ("about", "display"):

@@ -16,18 +16,21 @@
 // the fallback for a host that has no layout yet. Sorting by array index would
 // agree with the canvas only until somebody rearranged it.
 //
-// THE LIST IS COLLAPSED BY DEFAULT and rolls out OVER the desk on hover, so it
-// never permanently costs the desk width. It retracts when the pointer leaves
-// or a selection is made — and never when the keyboard is inside it, because a
-// list that vanished from under a focused row would be unusable without a
-// mouse. A deliberate toggle holds it open across all of that, and that choice
-// is remembered per organization.
+// THE LIST IS A DRAWER, OPENED ONLY BY A CLICK (user 2026-09-29, image-28).
+// It used to roll out on hover and retract when the pointer left it — and the
+// desk's own "↑ you: …" jump chip, drawn ABOVE it, counted as leaving, so
+// reaching for a row made the list vanish. Now the list button opens it, and
+// only the button again, the dark scrim over the desk, or Escape close it.
+// Choosing an agent leaves it open, as a click-opened list always did. The
+// desk is its own stacking context (attention.css), so nothing inside the desk
+// can draw over the drawer or the scrim. Open or shut is remembered per
+// organization, as the old toggle was.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
-import { ChevronLeftIcon, ChevronRightIcon, ViewListIcon } from '../icons'
+import { ChevronLeftIcon, ViewListIcon } from '../icons'
 import type { ToastFn, TreePayload } from '../types'
-import { DRAFT, USER } from '../canvas/shared'
+import { DRAFT, USER, useEsc } from '../canvas/shared'
 import type { CanvasNode, OpFn, Pt } from '../canvas/shared'
 import { DeskSlot } from '../canvas/deskhosts'
 import type { DeskChatProps } from '../canvas/desk'
@@ -141,10 +144,9 @@ export function AgentDeskPanel({
   const layout = useAttentionLayout(slug)
   const [query, setQuery] = useState('')
   const [archived, setArchived] = useState(false)
-  // rolled out by a hover or by the keyboard being inside it, as opposed to
-  // held open by the toggle (`layout.listOpen`, which persists)
-  const [transient, setTransient] = useState(false)
-  const open = layout.listOpen || transient
+  const open = layout.listOpen
+  const setOpen = useCallback((v: boolean) =>
+    setAttentionLayout(slug, { listOpen: v }), [slug])
 
   const rows = useMemo(() => agentRows(map, posOf, { archived, query }),
     [map, posOf, archived, query])
@@ -161,16 +163,28 @@ export function AgentDeskPanel({
 
   const select = useCallback((id: string) => {
     setAttentionLayout(slug, { agent: id })
-    // a selection is a decision: the rolled-out list retracts behind it,
-    // unless the user has deliberately held it open
-    setTransient(false)
   }, [slug])
 
   const listRef = useRef<HTMLDivElement>(null)
-  // hover and focus both roll the list out; only losing BOTH retracts it
-  const hovering = useRef(false)
-  const focused = useRef(false)
-  const settle = () => setTransient(hovering.current || focused.current)
+  const toggleRef = useRef<HTMLButtonElement>(null)
+  // closing from inside the drawer hands focus back to the button that opened
+  // it, or it would be left on a row that is no longer visible
+  const close = () => {
+    const inside = listRef.current?.contains(document.activeElement)
+    setOpen(false)
+    if (inside) toggleRef.current?.focus()
+  }
+  // shut, the drawer is out of the tab order and the accessibility tree
+  // (`inert`), so the keyboard reaches it through the button like a mouse.
+  // Set on the element directly: React 18's DOM types do not know `inert`.
+  useLayoutEffect(() => {
+    listRef.current?.toggleAttribute('inert', !open)
+  }, [open])
+  // Escape closes it from anywhere in the view — the pointer is usually over
+  // the desk, with focus still on the button or a row. Through the app's
+  // Escape stack, so the open drawer is the one thing this Escape closes (the
+  // panel around it is also on that stack, and used to take the key first).
+  useEsc(close, open)
 
   const onListKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (!rows.length) return
@@ -186,31 +200,26 @@ export function AgentDeskPanel({
     else if (e.key === 'ArrowUp') go(i < 0 ? rows.length - 1 : i - 1)
     else if (e.key === 'Home') go(0)
     else if (e.key === 'End') go(rows.length - 1)
-    else if (e.key === 'Escape' && transient) { setTransient(false); focused.current = false }
   }
 
   return (
     <div className={'attn-agents-wrap' + (open ? ' list-open' : '')}>
       <div className="attn-agents-bar">
-        <button type="button" className="iconbtn attn-agents-toggle"
-          aria-expanded={layout.listOpen}
-          title={layout.listOpen ? 'collapse the agents list' : 'keep the agents list open'}
-          aria-label={layout.listOpen ? 'Collapse the agents list' : 'Keep the agents list open'}
-          onClick={() => setAttentionLayout(slug, { listOpen: !layout.listOpen })}>
-          {layout.listOpen ? <ChevronLeftIcon fontSize="inherit" /> : <ViewListIcon fontSize="inherit" />}
+        <button type="button" className="iconbtn attn-agents-toggle" ref={toggleRef}
+          aria-expanded={open} aria-controls={`attn-agents-${slug}`}
+          title={open ? 'close the agents list' : 'open the agents list'}
+          aria-label={open ? 'Close the agents list' : 'Open the agents list'}
+          onClick={() => (open ? close() : setOpen(true))}>
+          {open ? <ChevronLeftIcon fontSize="inherit" /> : <ViewListIcon fontSize="inherit" />}
         </button>
         {!open && <span className="dim attn-agents-rail-label" aria-hidden="true">agents</span>}
       </div>
+      {/* the scrim: darkens the desk while the drawer is out, and a click on it
+          closes the drawer. Always rendered so the dimming can fade. */}
+      <div className="attn-agents-scrim" aria-hidden="true"
+        onClick={() => { if (open) close() }} />
       <div className="attn-agents" role="listbox" aria-label="Agents" ref={listRef}
-        onPointerEnter={() => { hovering.current = true; settle() }}
-        onPointerLeave={() => { hovering.current = false; settle() }}
-        onFocusCapture={() => { focused.current = true; settle() }}
-        onBlurCapture={(e) => {
-          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-            focused.current = false
-            settle()
-          }
-        }}
+        id={`attn-agents-${slug}`}
         onKeyDown={onListKey}>
         <input className="mail-filter tray-filter" placeholder="filter agents…"
           aria-label="Filter agents" value={query}
@@ -257,13 +266,6 @@ export function AgentDeskPanel({
               This organization has no agent to open a desk for yet.
             </div>}
       </div>
-      {!open && <button type="button" className="attn-agents-peek"
-        aria-label="Show the agents list"
-        onPointerEnter={() => { hovering.current = true; settle() }}
-        onFocus={() => { focused.current = true; settle() }}
-        onClick={() => setAttentionLayout(slug, { listOpen: true })}>
-        <ChevronRightIcon fontSize="inherit" />
-      </button>}
     </div>
   )
 }

@@ -168,12 +168,12 @@ async function run() {
     neitherCollapsed: (list?.w ?? 0) > 40 && (pane?.w ?? 0) > 40,
   }
 
-  // ---- 2. rolling the agents list out must not cost the Desk any width
-  phase('hover')
+  // ---- 2. opening the agents drawer must not cost the Desk any width. It
+  // opens on a CLICK of the list button only (user 2026-09-29, image-28).
+  phase('open')
   const deskBefore = box('.attn-desk')
-  const agents = el('.attn-agents')!
-  const ab = agents.getBoundingClientRect()
-  pointer(agents, 'pointerover', ab.left + 4, ab.top + 20)
+  const toggle = el('.attn-agents-toggle') as HTMLButtonElement
+  toggle.click()
   await settle(10)
   const deskAfter = box('.attn-desk')
   const listOut = box('.attn-agents')
@@ -188,7 +188,7 @@ async function run() {
     // …and the list is OVER the desk, which is the other half of the wording
     listOverlapsDesk: overlaps(listOut, deskAfter),
   }
-  pointer(agents, 'pointerout', ab.left - 40, ab.top + 20)
+  toggle.click()
   await settle(6)
   PROBE.retracted = { closed: !el('.attn-agents-wrap.list-open'), desk: box('.attn-desk') }
 
