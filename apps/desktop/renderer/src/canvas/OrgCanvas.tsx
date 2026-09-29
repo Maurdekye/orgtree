@@ -3099,7 +3099,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       else showNodeSurface(kind, id,
         kind === 'agent-docket' ? setAgentDocketId : setInboxId)
     },
-  }), [onOpenAgentGallery, toggleNodeSurface, showNodeSurface])
+    settings: toggleConfig,
+    lineage: (id) => toggleNodeSurface('lineage', id, setLineageId),
+  }), [onOpenAgentGallery, toggleNodeSurface, showNodeSurface, toggleConfig])
   // every desk's watchdog cards open the SAME modal the satellite chip does
   // (canvas/deskdogs.tsx)
   const deskDogs = useMemo((): DeskDogs => ({ dogs: tree.watchdogs ?? [], open: toggleDog }),

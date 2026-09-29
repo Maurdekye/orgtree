@@ -73,7 +73,7 @@ import { AskCard } from './asks'
 import { useWorkItems } from './useworkitems'
 import { AgentDocketView, actionableAssignedCount, agentItems } from './docket'
 import { AgentGalleryView } from './gallery'
-import { PanelCorner } from './panelcorner'
+import { PanelCorner, useAgentSurfaceRoutes } from './panelcorner'
 import { DogChip, useDeskDogs } from './deskdogs'
 import { PresentationCard } from './docs'
 import { buildNodeFacts } from './docket'
@@ -1822,11 +1822,19 @@ function ctxTargetElement(root: Element | null,
     ?? matches[0] ?? null
 }
 
-function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage, onConfig,
+function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineageProp, onConfig: configProp,
   onRecenter, onJump, maxTop, pxc, pub, bare = false, compact = false,
   compactAt, onMailLink, onWorkLink, onOpenDoc, onPin, openPresentedRequest,
   staleIdentity = false, onDismiss }: DeskChatProps) {
   const node = useNodeMetadata(slug, baseNode)
+  // A host that passes no settings/lineage handler (the Attention view's desk,
+  // a restored desk) gets the shell's own openers, so the gear and the
+  // `gen N` badge are never dead buttons. See AgentSurfaceRoutes.
+  const surfaceRoutes = useAgentSurfaceRoutes()
+  const onConfig = configProp
+    ?? (surfaceRoutes?.settings ? () => surfaceRoutes.settings?.(node.id) : undefined)
+  const onLineage = lineageProp
+    ?? (surfaceRoutes?.lineage ? () => surfaceRoutes.lineage?.(node.id) : undefined)
   // org killswitch latch — read here (context survives popout portals and
   // OwnedDeskChat's memo) for the halted banner above the composer
   const orgKillswitched = useContext(OrgKillswitchContext)
