@@ -13,7 +13,8 @@ Actual PostgreSQL (disposable, via test_pgstore). What this proves:
     is one statement too, and the loaded document is complete (nodes on
     demand, doc keys, docket, snapshot for later fetches);
   * a load that must read more in one snapshot (a stale heal epoch) still
-    runs in a transaction and gives the whole, healed document;
+    runs in a transaction and gives the whole, healed document, and inside
+    org_tx it never ends the caller's transaction (its row lock stays held);
   * a save that adds a node puts it after every existing node (MAX(ord) is
     read), and a save that only changes a node does not read MAX(ord);
   * a save of a loaded document does not read schema_version; a created
@@ -105,6 +106,23 @@ class OneStatementLoad(unittest.TestCase):
         self.assertTrue(any(s.startswith('SELECT id, val FROM nodes') for s in sent), sent)
         self.assertEqual(sorted(org.nodes), ['a', 'b', 'c'])
         self.assertEqual(org.d['settings_x'], {'v': 1})
+
+    def test_a_load_inside_org_tx_never_ends_the_callers_transaction(self):
+        # a load inside org_tx that needs its own snapshot for more reads (a
+        # stale heal epoch) must not roll back the org_tx it runs in: the
+        # node row lock taken before the load must still be held
+        import os
+        import psycopg
+        with store._POOL.acquire(self.slug) as conn:
+            conn.execute('UPDATE meta SET val=? WHERE key=?', ('stale', store._META_HEAL_EPOCH))
+            org_id = conn.org_id
+        with orgtx.org_tx(self.slug, nodes=['a']) as tx:
+            self.assertEqual(tx.d['settings_x'], {'v': 1})
+            with psycopg.connect(os.environ['ORGTREE_PG_URL'], autocommit=True) as other:
+                with self.assertRaises(psycopg.errors.LockNotAvailable):
+                    other.execute(f"SELECT 1 FROM org_{org_id}.nodes WHERE id='a' FOR UPDATE NOWAIT")
+            tx.d['nodes']['a']['name'] = 'held'
+        self.assertEqual(store.load_org(self.slug).nodes['a']['name'], 'held')
 
     # -- the save ---------------------------------------------------------
     def test_a_new_node_goes_after_every_existing_node(self):

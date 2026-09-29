@@ -4594,9 +4594,9 @@ def _probes_from(metas: dict[str, Any], hits: set[str]
 #: separate reads cannot happen inside it), and pg_current_snapshot() names
 #: that same snapshot for later on-demand fetches. A load that must read more
 #: in the SAME snapshot -- converted receipt rows, a stale heal epoch (whole
-#: read) or named preload sections -- takes the transaction as before
-#: (_LoadNeedsTxn; an org with receipt rows is remembered, so its next loads
-#: open the transaction at once).
+#: read) or named preload sections -- takes the transaction as before and
+#: reads again inside it (an org with receipt rows is remembered, so its next
+#: loads open the transaction at once).
 _NULL4 = "NULL::text[], NULL::text[], NULL::text[], NULL::text[]"
 _LOAD_ONE_SQL: str = " UNION ALL ".join(
     [f"SELECT 0, key, NULL, CASE WHEN key IN ({','.join('?' * len(_LOAD_OWNER_KEYS))}) "
@@ -4613,10 +4613,6 @@ _LOAD_ONE_SQL: str = " UNION ALL ".join(
        f"SELECT 4, pg_current_snapshot()::text, NULL, NULL, {_NULL4}"])
 #: orgs whose loads read receipt rows: they open the transaction up front
 _LOAD_TXN_ORGS: set[str] = set()
-
-
-class _LoadNeedsTxn(Exception):
-    """A bare one-statement load found it must read more in one snapshot."""
 
 
 class _LoadOne:
@@ -4654,21 +4650,6 @@ class _LoadOne:
 def _load_lazy(conn: sqlite3.Connection, slug: str,
                preload: Iterable[str] = (), *, txn_open: bool = False,
                lazy_work: bool = False, receipt_bind: bool = True) -> LazyDoc:
-    """`_load_lazy_body`, retried in a transaction when a bare one-statement
-    load needs more reads in its snapshot (see _LOAD_ONE_SQL)."""
-    try:
-        return _load_lazy_body(conn, slug, preload, txn_open=txn_open,
-                               lazy_work=lazy_work, receipt_bind=receipt_bind)
-    except _LoadNeedsTxn:
-        return _load_lazy_body(conn, slug, preload, txn_open=txn_open,
-                               lazy_work=lazy_work, receipt_bind=receipt_bind,
-                               bare_ok=False)
-
-
-def _load_lazy_body(conn: sqlite3.Connection, slug: str,
-                    preload: Iterable[str] = (), *, txn_open: bool = False,
-                    lazy_work: bool = False, receipt_bind: bool = True,
-                    bare_ok: bool = True) -> LazyDoc:
     """Load eager rows plus an optional coherent set of lazy sections.
 
     Ordinary loads pass no ``preload`` and retain S1's owner-selective lazy
@@ -4689,18 +4670,28 @@ def _load_lazy_body(conn: sqlite3.Connection, slug: str,
     preload_snaps: dict[str, Any] = {}
     one = bool(lazy_work and LAZY_ROWS and ORGTX_RESCOPE and LAZY_DOC_KEYS
                and STORE_BACKEND == "postgres" and slug)
-    bare = (one and not txn_open and not selected and bare_ok
-            and slug not in _LOAD_TXN_ORGS)
+    # bare: no transaction of its own AND none around it. Inside org_tx the
+    # connection is pinned and already in the caller's transaction, which a
+    # retry must never roll back (its row locks go with it).
+    bare = (one and not txn_open and not selected
+            and slug not in _LOAD_TXN_ORGS
+            and not getattr(conn, "pinned", False) and not conn.in_transaction)
+    got: _LoadOne | None = None
+    if bare:
+        got = _LoadOne(conn)
+        marked, ep = got.probes[3], got.probes[4]
+        if marked or ep is None or ep != heal_epoch():
+            # more reads must share one snapshot: read again in a transaction
+            if marked:
+                _LOAD_TXN_ORGS.add(slug)
+            bare, got = False, None
     if not txn_open and not bare:
         conn.execute("BEGIN")
     try:
-        got = _LoadOne(conn) if one else None
+        if one and got is None:
+            got = _LoadOne(conn)
         raw_order, schema_version, present, receipt_marked, epoch = (
             got.probes if got is not None else _load_probes(conn))
-        if bare and (receipt_marked or epoch is None or epoch != heal_epoch()):
-            if receipt_marked:
-                _LOAD_TXN_ORGS.add(slug)
-            raise _LoadNeedsTxn()
         lazy_rows_ok = bool(lazy_work and LAZY_ROWS and ORGTX_RESCOPE
                             and STORE_BACKEND == "postgres" and slug)
         lazy_sections = False
@@ -5556,8 +5547,12 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
         if snap_nodes is None or "nodes" in known_doc:
             db_ids = {cast(str, i) for (i,) in conn.execute("SELECT id FROM nodes")}
         known_ids = db_ids if db_ids is not None else set(cast("dict[str, str]", snap_nodes))
-        # N1000 #3: read only when a node row is actually inserted
+        # N1000 #3: on PostgreSQL read only when a node row is actually
+        # inserted (SQLite keeps its read: the P02 contact census pins it)
         next_ord: int | None = None
+        if STORE_BACKEND != "postgres":
+            row = conn.execute("SELECT COALESCE(MAX(ord), -1) FROM nodes").fetchone()
+            next_ord = cast(int, row[0]) + 1 if row is not None else 0
         # per-node scoping, same rule as the doc keys: a node row never
         # exposed mutably keeps its stored baseline. Disabled whenever the
         # baselines themselves are in doubt (plain dict, nodes-was-blob).
@@ -5677,8 +5672,9 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
         order = [k for k, _ in items]
         _meta_set(conn, _META_KEY_ORDER, _dumps(order))
     # N1000 #3: a document this code LOADED saw the row (a load without it
-    # refuses); the row is written once and never removed
-    if not (lazy is not None and lazy._schema_seen) \
+    # refuses); the row is written once and never removed. PostgreSQL only
+    # (SQLite keeps its read: the P02 contact census pins it)
+    if not (STORE_BACKEND == "postgres" and lazy is not None and lazy._schema_seen) \
             and _meta_get(conn, "schema_version") is None:
         _meta_set(conn, "schema_version", _SCHEMA_VERSION)
     return new_doc, new_nodes, new_logs, order
