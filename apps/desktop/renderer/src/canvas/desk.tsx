@@ -2929,6 +2929,30 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // already in the DOM when this reads scrollHeight — reading it inside the
   // handler would measure the outgoing text.
   useLayoutEffect(grow, [text, grow])
+  // Panel/divider changes rewrap a draft without changing `text`. Measure
+  // that width change too; otherwise a narrow panel's 160px height survives
+  // after widening, until another keystroke. Ignore height-only deliveries:
+  // our own height write must never become a resize feedback loop.
+  const composerRO = useRef<ResizeObserver | null>(null)
+  const attachComposer = useCallback((el: HTMLTextAreaElement | null) => {
+    composerRO.current?.disconnect()
+    composerRO.current = null
+    taRef.current = el
+    if (!el) return
+    if (!bare && !compact && !el.dataset.f) {
+      el.dataset.f = '1'
+      el.focus({ preventScroll: true })
+    }
+    if (typeof ResizeObserver === 'undefined') return
+    let width = -1
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth === width) return
+      width = el.clientWidth
+      grow()
+    })
+    composerRO.current = ro
+    ro.observe(el)
+  }, [bare, compact, grow])
   // Recall puts the caret at the END of the recalled message. Done as a layout
   // effect because the textarea only holds the new text once React has
   // committed it; setting selection inside the key handler would move it
@@ -3919,15 +3943,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             e.target.value = ''
           }} />
         <textarea rows={2} value={text} disabled={!canMail} data-first-use-chat={node.id}
-          ref={(el) => {
-            taRef.current = el
-            // autofocus single-desk only, and never let focus scroll the
-            // transform-panned viewport (same hazard as the draft input)
-            if (el && !bare && !compact && !el.dataset.f) {
-              el.dataset.f = '1'
-              el.focus({ preventScroll: true })
-            }
-          }}
+          ref={attachComposer}
           placeholder={live ? `message ${node.id}…`
             : node.state === 'archived'
               ? `message ${node.id} — queued until rehire…` : node.state}
@@ -3936,7 +3952,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             setActiveChatKey(chatKey)
             setComposerFocused(true)
           }}
-          onBlur={() => setComposerFocused(false)}
+          onBlur={() => { setComposerFocused(false); grow() }}
           onPaste={(e) => {
             // №6: Ctrl+V of an image/file auto-bridges to a real upload
             if (e.clipboardData?.files?.length) {
