@@ -410,78 +410,33 @@
       "maintenance": null
     },
     "d_update": {
-      "status": 200,
-      "results": [
-        "armed",
-        "maintenance",
-        "note"
-      ],
-      "detail": null,
-      "sections": [
-        "events"
-      ],
-      "events": [
-        [
-          "self_restart",
-          {}
-        ]
-      ],
-      "maintenance": {
-        "action": "update",
-        "target": "org",
-        "state": "pending"
-      }
+      "status": 422,
+      "results": null,
+      "detail": "desktop-managed V2 renamed orgtree_self_update to orgtree_self_relaunch; use orgtree_self_relaunch for an installed-app relaunch",
+      "sections": [],
+      "events": [],
+      "maintenance": null
     },
     "d_update_target_both": {
-      "status": 200,
-      "results": [
-        "armed",
-        "maintenance",
-        "note"
-      ],
-      "detail": null,
-      "sections": [
-        "events"
-      ],
-      "events": [
-        [
-          "self_restart",
-          {}
-        ]
-      ],
-      "maintenance": {
-        "action": "update",
-        "target": "both",
-        "state": "pending"
-      }
+      "status": 422,
+      "results": null,
+      "detail": "desktop-managed V2 renamed orgtree_self_update to orgtree_self_relaunch; use orgtree_self_relaunch for an installed-app relaunch",
+      "sections": [],
+      "events": [],
+      "maintenance": null
     },
     "d_update_target_mailhub": {
-      "status": 200,
-      "results": [
-        "armed",
-        "maintenance",
-        "note"
-      ],
-      "detail": null,
-      "sections": [
-        "events"
-      ],
-      "events": [
-        [
-          "self_restart",
-          {}
-        ]
-      ],
-      "maintenance": {
-        "action": "update",
-        "target": "mailhub",
-        "state": "pending"
-      }
+      "status": 422,
+      "results": null,
+      "detail": "desktop-managed V2 renamed orgtree_self_update to orgtree_self_relaunch; use orgtree_self_relaunch for an installed-app relaunch",
+      "sections": [],
+      "events": [],
+      "maintenance": null
     },
     "d_update_target_bad": {
       "status": 422,
       "results": null,
-      "detail": "invalid desktop maintenance target/action",
+      "detail": "desktop-managed V2 renamed orgtree_self_update to orgtree_self_relaunch; use orgtree_self_relaunch for an installed-app relaunch",
       "sections": [],
       "events": [],
       "maintenance": null
@@ -489,7 +444,7 @@
     "d_update_force": {
       "status": 422,
       "results": null,
-      "detail": "Desktop maintenance waits for idle; force is unavailable",
+      "detail": "desktop-managed V2 renamed orgtree_self_update to orgtree_self_relaunch; use orgtree_self_relaunch for an installed-app relaunch",
       "sections": [],
       "events": [],
       "maintenance": null
@@ -497,28 +452,17 @@
     "d_update_mid": {
       "status": 422,
       "results": null,
-      "detail": "a self-restart restarts the shared orgtree install for EVERY org on this machine — only top-level agents (or holders of a user audience) may trigger it; ask your superior to run it, or to grant you a user audience",
+      "detail": "desktop-managed V2 renamed orgtree_self_update to orgtree_self_relaunch; use orgtree_self_relaunch for an installed-app relaunch",
       "sections": [],
       "events": [],
       "maintenance": null
     },
     "d_update_pending": {
-      "status": 200,
-      "results": [
-        "already_armed",
-        "armed",
-        "maintenance"
-      ],
-      "detail": null,
-      "sections": [
-        "events"
-      ],
-      "events": [
-        [
-          "self_restart",
-          {}
-        ]
-      ],
+      "status": 422,
+      "results": null,
+      "detail": "desktop-managed V2 renamed orgtree_self_update to orgtree_self_relaunch; use orgtree_self_relaunch for an installed-app relaunch",
+      "sections": [],
+      "events": [],
       "maintenance": null
     },
     "d_self_restart": {
@@ -596,29 +540,12 @@
       "maintenance": null
     },
     "dk_update": {
-      "status": 200,
-      "results": [
-        "armed",
-        "maintenance",
-        "note"
-      ],
-      "detail": null,
-      "sections": [
-        "events",
-        "op_receipts",
-        "op_receipts_meta"
-      ],
-      "events": [
-        [
-          "self_restart",
-          {}
-        ]
-      ],
-      "maintenance": {
-        "action": "update",
-        "target": "org",
-        "state": "pending"
-      }
+      "status": 422,
+      "results": null,
+      "detail": "desktop-managed V2 renamed orgtree_self_update to orgtree_self_relaunch; use orgtree_self_relaunch for an installed-app relaunch",
+      "sections": [],
+      "events": [],
+      "maintenance": null
     },
     "dk_self_relaunch_replay": {
       "status": 200,
@@ -847,11 +774,11 @@
       "orgtree_prime_relaunch": "orgtree_prime_relaunch is available only to the desktop-managed V2 profile"
     },
     "frozen_refusal": "the frozen deployment profile disables agent-triggered self-update, self-restart, and primed restart; deploy this installation through an operator-controlled path",
-    "legacy_restart_refusal": "desktop-managed V2 renamed orgtree_self_restart to orgtree_self_relaunch; use orgtree_self_relaunch for an installed-app relaunch"
+    "legacy_restart_refusal": "desktop-managed V2 renamed orgtree_self_restart to orgtree_self_relaunch; use orgtree_self_relaunch for an installed-app relaunch",
+    "legacy_update_refusal": "desktop-managed V2 renamed orgtree_self_update to orgtree_self_relaunch; use orgtree_self_relaunch for an installed-app relaunch"
   },
   "legacy_defects": [
     "orgtree_self_relaunch accepts a reason and records none of it: the maintenance request says 'agent requested desktop maintenance' and the org event's detail is {}",
-    "orgtree_self_update is not refused as a renamed tool under the desktop-managed profile (it is absent from api._DESKTOP_LEGACY_RESTART_TOOLS) and records a maintenance request with action 'update' and the caller's target (mailhub and both accepted), options the renamed V2 verbs refuse",
     "orgtree_self_update's receipt keeps target, which the desktop-managed result does not carry, so its desktop receipt keeps nothing"
   ],
   "scope": "Legacy boundary of the desktop relaunch entry points and the deprecated orgtree_self_update (P01 relaunch-cards item) on disposable SQLite, per product profile. Under the desktop-managed profile the real desktop maintenance adapter runs and writes the machine-wide request file in the temporary data root; under the non-desktop profile the launch and the quiesce are spies. The doors, the gates, the receipts, save and reload are real. Legacy conformance evidence only: not a runtime census, not PostgreSQL or Rust qualification."

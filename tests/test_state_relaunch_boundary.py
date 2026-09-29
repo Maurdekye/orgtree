@@ -319,12 +319,14 @@ class RelaunchBoundary(unittest.TestCase):
     def test_an_armed_request_is_returned_not_replaced(self):
         for name, request, pre in (('d_self_relaunch_pending', self.agent(S, {'reason': 'second'}, 'top'), self.pending),
                                    ('d_self_relaunch_acked', self.agent(S, {}, 'top'), self.acknowledged),
-                                   ('d_prime_arm_pending', self.agent(P, {'action': 'arm'}, 'top'), self.pending),
-                                   ('d_update_pending', self.agent(U, {}, 'top'), self.pending)):
+                                   ('d_prime_arm_pending', self.agent(P, {'action': 'arm'}, 'top'), self.pending)):
             r, _ = self.case(name, request, pre=pre)
             # the caller is handed the request that was already there, another node's reason and all
             got = r.json()['maintenance']
             self.assertEqual((got['by_node'], got['reason'], got['action']), ('top2', 'fixture pending', 'restart'))
+        # self_update is refused as renamed before it reads anything, so the pending request stands untouched
+        self.case('d_update_pending', self.agent(U, {}, 'top'), pre=self.pending)
+        self.assertEqual((maintenance()['by_node'], maintenance()['action']), ('top2', 'restart'))
         r, _ = self.case('d_self_relaunch_twice', self.twice(self.agent(S, {}, 'top')))
         self.assertTrue(r.json()['already_armed'])
 
@@ -346,17 +348,21 @@ class RelaunchBoundary(unittest.TestCase):
         self.case('d_prime_bad', self.agent(P, {'action': 'nope'}, 'top'))
         self.case('d_prime_upper', self.agent(P, {'action': 'ARM'}, 'top'))
 
-    def test_self_update_records_an_update_request_on_the_desktop_profile(self):
-        # recorded legacy defect: the deprecated alias is not refused as renamed, and it records the old
-        # deployment-shaped request (action update, the caller's target) the renamed V2 verbs refuse
+    def test_self_update_is_refused_as_renamed_on_the_desktop_profile(self):
+        # the deprecated alias of self_restart is refused exactly as self_restart is, before the gate and before
+        # the adapter: it no longer files the old deployment-shaped request (action update, the caller's target,
+        # mailhub and both accepted) that the renamed V2 verbs refuse (docket on-the-desktop-app-orgtree-self-
+        # update-lets-an-a, fixing the legacy defect this test used to pin)
         self.case('d_self_restart', self.agent('orgtree_self_restart', {}, 'top'))
         self.assertEqual(self.spec['profiles']['legacy_restart_refusal'],
                          self.spec['cases']['d_self_restart']['detail'])
+        self.assertEqual(self.spec['profiles']['legacy_update_refusal'], self.spec['cases']['d_update']['detail'])
         self.case('d_update', self.agent(U, {}, 'top'))
         self.case('d_update_target_both', self.agent(U, {'target': 'both'}, 'top'))
         self.case('d_update_target_mailhub', self.agent(U, {'target': 'mailhub', 'reason': 'x'}, 'top'))
         self.case('d_update_target_bad', self.agent(U, {'target': 'nope'}, 'top'))
         self.case('d_update_force', self.agent(U, {'force': True, 'reason': 'r'}, 'top'))
+        self.assertIsNone(maintenance())
         self.quiesce.assert_not_called()
 
     # -- non-desktop profile ---------------------------------------------------------------------------------------
@@ -397,11 +403,12 @@ class RelaunchBoundary(unittest.TestCase):
     def test_receipt_classes_and_what_they_keep(self):
         for name, key, request in (('dk_self_relaunch', S, self.keyed(S, {}, 'top')),
                                    ('dk_prime_arm', P, self.keyed(P, {'action': 'arm'}, 'top')),
-                                   ('dk_prime_status', P + ':status', self.keyed(P, {'action': 'status'}, 'top')),
-                                   ('dk_update', U, self.keyed(U, {}, 'top'))):
+                                   ('dk_prime_status', P + ':status', self.keyed(P, {'action': 'status'}, 'top'))):
             _, after = self.case(name, request)
             rc = after['op_receipts'][-1]
             self.assertEqual([rc['cls'], sorted(rc['result'] or {})], self.spec['receipts'][key], name)
+        # a keyed self_update is refused as renamed like an unkeyed one and files no request
+        self.case('dk_update', self.keyed(U, {}, 'top'))
         # a replay answers from the first receipt and does not run the call again (one event, one request)
         r, after = self.case('dk_self_relaunch_replay', self.twice(self.keyed(S, {}, 'top')))
         self.assertEqual((r.json()['replayed'], r.json()['outcome']), (True, 'applied'))
