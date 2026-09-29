@@ -229,11 +229,15 @@ app.whenReady().then(async () => {
   const raf = percentiles(await js('window.__paintProbe.state.frames'))
   if (raf.n < 10 || raf.p50 > 40 || paints < 3) throw Error('Renderer frame-production calibration failed')
   if (run.mode !== 'selfcheck') {
-    await until(() => js('!!document.querySelector(".shell-mode")'))
-    // Label stable mode controls locally without changing behavior or React state.
-    await js(`document.querySelectorAll('.shell-mode').forEach(e=>e.dataset.paintMode=e.textContent.trim().startsWith('Attention')?'attention':'canvas')`)
+    await until(() => js('!!document.querySelector(".shell-switch, .shell-mode")'))
+    // Label the view control locally without changing behavior or React state.
+    // Since 2026-09-29 (v3 0dd34b7) it is ONE switch whose click flips the view,
+    // so it is tagged with the view a click would switch TO, before each use.
+    // Older builds have two .shell-mode radios, tagged by their own words.
+    const tagModes = () => js(`(() => { const sw = document.querySelector('.shell-switch'); if (sw) { sw.dataset.paintMode = sw.getAttribute('aria-checked') === 'true' ? 'canvas' : 'attention'; return true } document.querySelectorAll('.shell-mode').forEach(e=>e.dataset.paintMode=e.textContent.trim().startsWith('Attention')?'attention':'canvas'); return true })()`)
     for (let i = 0; i < run.repeats; i++) {
       const suffix = '-' + i
+      await tagModes()
       await action('open-attention' + suffix, '[data-paint-mode=attention]', 'document.querySelector(".attn-stage")?.dataset.attentionActive === "yes" && visible(document.querySelector(".attn-desk .desk-body"))')
       await until(() => js('!!document.querySelector(".attn-desk textarea")'))
       const other = descriptor.live_agents.find(n => n !== agent)
@@ -296,6 +300,7 @@ app.whenReady().then(async () => {
       }
       win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
       await until(() => js('!document.querySelector(".docket-modal")'))
+      if (i + 1 < run.repeats) await tagModes()
       if (i + 1 < run.repeats) await action('prepare-canvas' + suffix, '[data-paint-mode=canvas]', 'document.querySelector(".attn-stage")?.dataset.attentionActive !== "yes"', { measured: false })
     }
     loadNow()

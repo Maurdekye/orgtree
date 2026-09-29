@@ -58,8 +58,12 @@ export async function runAttentionScenarios(ctx: AppScenarioContext): Promise<vo
     await js(`document.querySelector(${JSON.stringify(selector)}).click(); true`)
   }
   const mode = async (label: string) => {
-    await js(`Array.from(document.querySelectorAll('.shell-mode')).find(e => e.textContent.trim().startsWith(${JSON.stringify(label)})).click(); true`)
-    await ready(`document.querySelector('.shell-mode[aria-checked="true"]').textContent.trim().startsWith(${JSON.stringify(label)})`)
+    // ONE switch since 2026-09-29 (0dd34b7): its word is the current view, and
+    // a click flips it
+    await ready(`!!document.querySelector('.shell-switch')`)
+    const current = () => js(`document.querySelector('.shell-switch-word').textContent.trim()`)
+    if (await current() !== label) await js(`document.querySelector('.shell-switch').click(); true`)
+    await ready(`document.querySelector('.shell-switch-word').textContent.trim() === ${JSON.stringify(label)}`)
   }
   const menu = async (label: string) => {
     await js(`document.querySelector('[data-attn-agent="beta"]').dispatchEvent(new MouseEvent('contextmenu', {bubbles:true,cancelable:true,clientX:300,clientY:180})); true`)
@@ -67,7 +71,7 @@ export async function runAttentionScenarios(ctx: AppScenarioContext): Promise<vo
     await js(`Array.from(document.querySelectorAll('[role="menuitem"]')).find(e => e.textContent.trim() === ${JSON.stringify(label)}).click(); true`)
   }
   try {
-    await ready(`document.querySelectorAll('.shell-mode').length === 2`)
+    await ready(`document.querySelectorAll('.shell-switch').length === 1`)
     await mode('Attention')
     await ready(`!!document.querySelector('.attn-desk textarea')`)
     const initial = await js(`(() => {

@@ -45,10 +45,12 @@ export async function runMultiwindowScenarios(ctx: AppScenarioContext): Promise<
   const ready = async (r:AppWindow,source:string) => {
     if (!await ctx.until(()=>js(r,source),Boolean,10000)) throw Error('Multiwindow prerequisite failed: '+source)
   }
+  // ONE switch since 2026-09-29 (0dd34b7): its word is the current view
+  const word = (r:AppWindow) => js(r,`document.querySelector('.shell-switch-word')?.textContent.trim()`)
   const mode = async (r:AppWindow,label:string) => {
-    await ready(r,`!!document.querySelector('.shell-mode')`)
-    await js(r,`Array.from(document.querySelectorAll('.shell-mode')).find(e=>e.textContent.trim().startsWith(${JSON.stringify(label)})).click();true`)
-    await ready(r,`document.querySelector('.shell-mode[aria-checked="true"]').textContent.trim().startsWith(${JSON.stringify(label)})`)
+    await ready(r,`!!document.querySelector('.shell-switch')`)
+    if (await word(r) !== label) await js(r,`document.querySelector('.shell-switch').click();true`)
+    await ready(r,`document.querySelector('.shell-switch-word').textContent.trim() === ${JSON.stringify(label)}`)
   }
   const camera = (r:AppWindow) => js(r,`document.querySelector('.canvas-world .space')?.getAttribute('style')`)
   const settleCamera = async (r:AppWindow) => {
@@ -79,7 +81,7 @@ export async function runMultiwindowScenarios(ctx: AppScenarioContext): Promise<
     ctx.check('MW2', !!before[0] && after[0]!==before[0] && before[1]===after[1] && before[2]===after[2],
       'With startup glide disabled, zooming one real Canvas leaves the other two camera transforms unchanged',{before,after})
     await mode(windows[0],'Attention')
-    ctx.check('MW3', (await Promise.all(windows.slice(1).map(r=>js(r,`document.querySelector('.shell-mode[aria-checked="true"]').textContent.trim()`)))).every(x=>x==='Canvas'),
+    ctx.check('MW3', (await Promise.all(windows.slice(1).map(word))).every(x=>x==='Canvas'),
       'Changing one organization to Attention leaves the other two in Canvas')
     for (const r of windows) {
       await mode(r,'Attention')
