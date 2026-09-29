@@ -416,6 +416,35 @@ class ItemScopedReads(unittest.TestCase):
             "participant")
         self.refusal(self.read_scratch, self.second, self.other)
 
+    def test_a_returning_holder_is_not_readable_through_its_old_stretch(self):
+        """`first` -> `second` -> `first`. The roster keeps `first`'s earlier
+        row, but `first` is the CURRENT holder again, so a listed participant
+        is refused its scratch and transcript — with the same shared refusal —
+        while `second`'s stretch stays readable."""
+        o = store.load_org(self.slug)
+        o.work_assign(ledger.USER, self.shared, self.second)
+        o.work_assign(ledger.USER, self.shared, self.first)
+        o.work_participants(ledger.USER, self.shared, add=[self.stranger])
+        it, _ = o._work_find(self.shared)
+        self.assertEqual([r["node"] for r in it["holders"]],
+                         [self.first, self.second, self.first])
+        store.save_org(o)
+        scratch = self.refusal(self.read_scratch, self.stranger, self.first)
+        transcript = self.refusal(self.read_transcript, self.stranger,
+                                  self.first)
+        # the one refusal both tools share, word for word, as for any other
+        # unreadable target
+        unrelated = self.refusal(self.read_scratch, self.stranger, self.other)
+        self.assertEqual(scratch, transcript)
+        self.assertEqual(scratch, unrelated.replace(self.other, self.first))
+        self.assertIsNone(o.work_item_read_grant(self.stranger, self.first))
+        got = self.read_scratch(self.stranger, self.second, path="")
+        self.assertEqual(got["access"]["via"], "item")
+        self.assertEqual(got["access"]["standing"], "participant")
+        self.assertEqual(
+            self.read_transcript(self.stranger, self.second)["access"]["item"],
+            self.shared)
+
     def test_a_holder_reads_only_behind_its_own_stretch(self):
         o = store.load_org(self.slug)
         o.work_assign(ledger.USER, self.shared, self.second)

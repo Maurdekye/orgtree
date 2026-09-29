@@ -13159,6 +13159,15 @@ class Org:
             # asked for. So the cut is the same for everybody — a holder reads
             # what came before its own stretch, and a participant or reviewer,
             # which holds no stretch at all, reads exactly the same rows.
+            #
+            # ⚠ "NOT THE CURRENT HOLDER" IS AN IDENTITY TEST, NOT A POSITION.
+            # The roster keeps every stretch, so an item that went A -> B -> A
+            # still has A's FIRST row after the last one is cut, and the cut
+            # alone let everyone listed read A's live material while A works
+            # the item again. The current holder is refused outright, whatever
+            # earlier stretches it has; B's stretch stays readable.
+            if self._work_actor_node(it.get("owner")) == whom:
+                continue
             roster = self._work_holders(it)[:-1]
             row = next((r for r in reversed(roster)
                         if self._work_actor_node(r) == whom), None)
@@ -13177,7 +13186,6 @@ class Org:
                              f"any other item and nothing about any other "
                              f"agent, and it ends when you stop being listed "
                              f"on the item or the item closes.")}
-        return None
         return None
 
     def _work_can_accept(self, actor: str, it: WorkItem) -> bool:
