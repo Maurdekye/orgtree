@@ -12,8 +12,9 @@ Actual PostgreSQL (disposable, via test_pgstore). What this proves:
   * a load outside org_tx sends exactly one statement, inside org_tx the load
     is one statement too, and the loaded document is complete (nodes on
     demand, doc keys, docket, snapshot for later fetches);
-  * a load that must read more in one snapshot (a stale heal epoch) still
-    runs in a transaction and gives the whole, healed document, and inside
+  * a load that must read more in one snapshot (a stale heal epoch, or an
+    org whose custody receipts are rows) runs in ONE transaction, ends it, and
+    gives the whole document; a receipt-row org is remembered; and inside
     org_tx it never ends the caller's transaction (its row lock stays held);
   * a save that adds a node puts it after every existing node (MAX(ord) is
     read), and a save that only changes a node does not read MAX(ord);
@@ -103,9 +104,51 @@ class OneStatementLoad(unittest.TestCase):
             conn.execute('UPDATE meta SET val=? WHERE key=?', ('stale', store._META_HEAL_EPOCH))
         sent, org = self.statements(lambda: store._load_sqlite_org(self.slug, lazy_work=True))
         self.assertIn('BEGIN', sent)
+        # the load ENDS its transaction: left open, the pool would roll it
+        # back on check-in and drop the connection instead of reusing it
+        self.assertIn('COMMIT', sent)
+        self.assertNotIn('ROLLBACK', sent)
         self.assertTrue(any(s.startswith('SELECT id, val FROM nodes') for s in sent), sent)
         self.assertEqual(sorted(org.nodes), ['a', 'b', 'c'])
         self.assertEqual(org.d['settings_x'], {'v': 1})
+
+    def test_a_receipt_row_org_loads_in_one_transaction_and_is_remembered(self):
+        # pg-supervisor-a's landing-2 review (M3): converted custody receipts
+        # are read by a later statement (_receipt_view), so such a load must
+        # leave the bare path and read everything inside ONE transaction, and
+        # the org is remembered so its next load opens the transaction at once
+        from orgtree import receiptstore
+        from test_receiptrows import receipt
+        with patch.object(store, 'RECEIPT_ROWS', True):
+            org = store.load_org(self.slug)
+            org.d['mail_transitions'] = {'z': {'op': receipt('z', 'op', 'carrier')}}
+            store.save_org(org)
+            with pgstore.connect() as raw:
+                oid = raw.execute('SELECT org_id FROM public.orgs WHERE slug=%s',
+                                  (self.slug,)).fetchone()[0]
+                raw.execute('BEGIN')
+                raw.execute(f'SET LOCAL search_path TO org_{oid},public')
+                self.assertIsNotNone(receiptstore.convert(raw, oid))
+                raw.execute('COMMIT')
+            with orgtx.org_tx(self.slug, nodes=['a']):      # heal epoch stays fresh
+                pass
+            store._LOAD_TXN_ORGS.discard(self.slug)
+            sent, org = self.statements(
+                lambda: store._load_sqlite_org(self.slug, lazy_work=True))
+            self.assertIn('pg_current_snapshot', sent[0], 'control: the bare statement was tried')
+            self.assertIn('BEGIN', sent, 'a receipt-row org loads inside a transaction')
+            self.assertIn('COMMIT', sent)
+            begin = sent.index('BEGIN')
+            receipts = [i for i, s in enumerate(sent) if 'receipt_format' in s]
+            self.assertTrue(receipts, sent)
+            self.assertGreater(min(receipts), begin, 'receipts read inside the transaction')
+            self.assertIn(self.slug, store._LOAD_TXN_ORGS)
+            self.assertTrue(org.d._receipt_rows)
+            again, org = self.statements(
+                lambda: store._load_sqlite_org(self.slug, lazy_work=True))
+            self.assertEqual(again[0], 'BEGIN', 'a remembered org opens the transaction first')
+            self.assertTrue(org.d._receipt_rows)
+        store._LOAD_TXN_ORGS.discard(self.slug)
 
     def test_a_load_inside_org_tx_never_ends_the_callers_transaction(self):
         # a load inside org_tx that needs its own snapshot for more reads (a
