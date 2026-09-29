@@ -24,6 +24,7 @@ use crate::guard::{lexical, PrototypeRoot};
 use crate::win::{self, ProcessHandle};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::ffi::OsStr;
 use std::fs;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::path::{Path, PathBuf};
@@ -89,15 +90,21 @@ impl PgBin {
 /// no Orgtree agent credentials, and C messages so output is parseable.
 pub fn child(exe: &Path) -> Command {
     let mut c = Command::new(exe);
-    for (k, _) in std::env::vars_os() {
-        let k = k.to_string_lossy().to_string();
-        let up = k.to_ascii_uppercase();
-        if up.starts_with("PG") || up.starts_with("ORGTREE_") || up == "LANGUAGE" {
-            c.env_remove(&k);
-        }
-    }
-    c.env("LC_ALL", "C").env("LC_MESSAGES", "C").env("LANG", "C");
+    c.env_clear().envs(child_env());
     c
+}
+
+/// The whole environment [`child`] gives a tool.
+pub fn child_env() -> Vec<(std::ffi::OsString, std::ffi::OsString)> {
+    const C_LOCALE: [&str; 3] = ["LC_ALL", "LC_MESSAGES", "LANG"];
+    let mut env: Vec<_> = std::env::vars_os()
+        .filter(|(k, _)| {
+            let up = k.to_string_lossy().to_ascii_uppercase();
+            !(up.starts_with("PG") || up.starts_with("ORGTREE_") || up == "LANGUAGE" || C_LOCALE.contains(&up.as_str()))
+        })
+        .collect();
+    env.extend(C_LOCALE.map(|k| (k.into(), "C".into())));
+    env
 }
 
 // ---------------------------------------------------------------- records
@@ -509,6 +516,9 @@ fn run_logged(mut cmd: Command, log: &Path, what: &'static str) -> Result<()> {
         .map_err(|e| CustodianError::new(what, format!("could not run: {e}")))?;
     if !status.success() {
         let tail = fs::read_to_string(log).unwrap_or_default();
+        if win::refused_as_admin(&tail) {
+            return Err(CustodianError::new("elevated.refused", format!("{} (log {})", win::ELEVATED_MESSAGE, log.display())));
+        }
         let tail: String = tail.lines().rev().take(15).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
         return Err(CustodianError::new(what, format!("exit {status}; log {}:\n{tail}", log.display())));
     }
@@ -539,31 +549,21 @@ pub fn system_identifier(bin: &PgBin, data: &Path) -> Result<String> {
 
 /// Run SQL through `postgres --single` (terminator: `;` + blank line). The
 /// single-user backend keeps going after an error, so any `ERROR:` in its
-/// output fails the call.
+/// output fails the call. Unlike initdb and pg_ctl, a `postgres` we start
+/// ourselves does not drop administrator rights, so it runs with a
+/// restricted token (the user's 2026-09-29 first v3 launch was elevated and
+/// failed here).
 fn single_user(bin: &PgBin, data: &Path, script: &str, log: &Path) -> Result<()> {
-    use std::io::Write;
-    let mut proc = child(&bin.exe("postgres"))
-        .arg("--single")
-        .arg("-j")
-        .arg("-D")
-        .arg(data)
-        .arg("postgres")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| CustodianError::new("init.bootstrap", format!("could not run postgres --single: {e}")))?;
-    proc.stdin
-        .take()
-        .expect("piped stdin")
-        .write_all(script.as_bytes())
-        .map_err(|e| CustodianError::new("init.bootstrap", e.to_string()))?;
-    let out = proc.wait_with_output().map_err(|e| CustodianError::new("init.bootstrap", e.to_string()))?;
-    let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-    // Never log the script itself: it carries passwords.
-    let _ = fs::write(log, &text);
-    if !out.status.success() || text.contains("ERROR:") || text.contains("FATAL:") {
-        return Err(CustodianError::new("init.bootstrap", format!("exit {}; see {}", out.status, log.display())));
+    let args = [OsStr::new("--single"), OsStr::new("-j"), OsStr::new("-D"), data.as_os_str(), OsStr::new("postgres")];
+    // The script goes to stdin only and is never logged: it carries passwords.
+    let code = win::run_restricted(&bin.exe("postgres"), &args, &child_env(), script.as_bytes(), log)
+        .map_err(|e| CustodianError::new("init.bootstrap", format!("could not run postgres --single: {}", e.message)))?;
+    let text = fs::read_to_string(log).unwrap_or_default();
+    if win::refused_as_admin(&text) {
+        return Err(CustodianError::new("elevated.refused", format!("{} (log {})", win::ELEVATED_MESSAGE, log.display())));
+    }
+    if code != 0 || text.contains("ERROR:") || text.contains("FATAL:") {
+        return Err(CustodianError::new("init.bootstrap", format!("exit code {code}; see {}", log.display())));
     }
     Ok(())
 }

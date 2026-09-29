@@ -8,7 +8,7 @@ the P03 plan's Q2 ruling (Rust crates from crates.io, each listed here).
 |---|---|---|---|
 | `serde` (+ `serde_derive`) | 1.0.228 | MIT OR Apache-2.0 | Derive the on-disk JSON records: the prototype-root marker, `instance.json`, `runtime.json`. |
 | `serde_json` | 1.0.150 | MIT OR Apache-2.0 | Read and write those records, and the CLI's JSON output. |
-| `windows-sys` | 0.61.2 | MIT OR Apache-2.0 | Raw Win32 declarations (Microsoft): free-commit reading (`GlobalMemoryStatusEx`), process snapshot and exit waits for the owned-process-family check, `BCryptGenRandom` for passwords and tokens. Windows only. |
+| `windows-sys` | 0.61.2 | MIT OR Apache-2.0 | Raw Win32 declarations (Microsoft): free-commit reading (`GlobalMemoryStatusEx`), process snapshot and exit waits for the owned-process-family check, `BCryptGenRandom` for passwords and tokens, and a restricted token (`CreateRestrictedToken`, `CreateProcessAsUserW`, `CreatePipe`) so the bootstrap `postgres --single` never runs with administrator rights. Windows only. |
 
 In-repo path dependency (not from crates.io): `orgtree-op-receipt-codec`
 (`../op-receipt-codec`, and through it `../backend-codec`), for its
