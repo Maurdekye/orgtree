@@ -87,9 +87,16 @@ def require_go(args, source):
     go = read(args.go_file)
     if go.get("source") != source or go.get("go") is not True or not go.get("coordinator_message"):
         raise ValueError("GO must name the exact source and coordinator message")
+    # Run-only: a GO may lower the disk admission (coordinator ruling 2026-09-29
+    # 02:38Z, attempt 7). It then replaces BOTH the 80 GiB admission and the
+    # frozen estimate's reserve; the continuous 20 GiB guard floor is unchanged.
+    disk = go.get("disk_gib")
+    if disk is not None and not (isinstance(disk, (int, float)) and disk >= 20):
+        raise ValueError("GO disk_gib must be a number >= 20 (the guard floor)")
     return dict(kind="first N1000 baseline; no final qualification", agents=1000, active_items=180,
                 transcript_kb=256, seconds=10, warmup=120, measured=600, tool_rate=3.12,
-                steer_rate=9.36, recipe=asdict(Recipe()), disk_gib=80, commit_gib=24, readiness_s=3600,
+                steer_rate=9.36, recipe=asdict(Recipe()), disk_gib=80 if disk is None else disk,
+                disk_override=disk is not None, commit_gib=24, readiness_s=3600,
                 rows_preflight=True)
 
 
@@ -324,7 +331,10 @@ class Controller:
             env = child_env(self.run_root, desc["pg_url"])
             self.script("baseline.py", "freeze", "--child", "freeze", "--root", self.root, env=env)
             frozen = read(self.root / "frozen/controller.json")
-            reserve = max(c["disk_gib"], frozen["estimate"]["suggested_free_disk_bytes"] / 2**30)
+            estimate = frozen["estimate"]["suggested_free_disk_bytes"] / 2**30
+            reserve = c["disk_gib"] if c.get("disk_override") else max(c["disk_gib"], estimate)
+            print(f"disk reserve {reserve:.2f} GiB (frozen estimate {estimate:.2f}, "
+                  f"override {bool(c.get('disk_override'))})", flush=True)
             if shutil.disk_usage(self.root).free / 2**30 < reserve:
                 raise RuntimeError(f"actual frozen estimate needs {reserve:.2f} GiB")
             self.script("baseline.py", "bundle", "--child", "bundle", "--root", self.root, env=env)
