@@ -17,6 +17,14 @@ header with the new rows, never a body under the wrong version), and that the
 re-read path actually ran (WORK_RACE_STATS). Actual PostgreSQL via
 test_pgstore.
 
+N1000 #3 (2026-09-29): with on-demand doc keys a load reads the doc rows, the
+docket header and the item listing in ONE statement (store._LoadOne), so a
+commit can no longer land between header and listing. The two "between
+header and listing" tests keep the separate-statement path honest with
+LAZY_DOC_KEYS off (it is still the path then); the one-statement tests
+commit right AFTER the load's statement and check the load kept one
+coherent docket without any re-read.
+
 Run:  python tools/run-python-verification.py tests/test_work_refs_snapshot_pg.py
 """
 import hashlib
@@ -36,8 +44,15 @@ def tearDownModule():
 
 
 def _is_listing(sql):
-    # the load's version listing, alone (not the header+listing re-read)
-    return 'starts_with(key' in sql and 'xmin::text' in sql and 'SELECT (SELECT' not in sql
+    # the load's version listing, alone (not the header+listing re-read, not
+    # the one-statement load)
+    return ('starts_with(key' in sql and 'xmin::text' in sql and 'SELECT (SELECT' not in sql
+            and not _is_one_load(sql))
+
+
+def _is_one_load(sql):
+    # store._LoadOne: probes, doc rows, header and listing in one statement
+    return 'pg_current_snapshot' in sql and 'starts_with(key' in sql
 
 
 def _is_body_fetch(sql):
@@ -119,10 +134,24 @@ class WorkRefsSnapshot(unittest.TestCase):
         with orgtx.org_tx(self.slug, nodes=['a']) as tx:
             return [dict(w) for w in tx.d['work_items']]
 
+    def after(self, match, action):
+        """Run `action` once, just AFTER the first statement `match` accepts
+        (its rows are already read); returns (patcher, fired list)."""
+        original = pgstore.PgConn.execute
+        fired = []
+
+        def execute(c, sql, params=()):
+            result = original(c, sql, params)
+            if not fired and match(sql):
+                fired.append(sql)
+                action()
+            return result
+        return patch.object(pgstore.PgConn, 'execute', execute), fired
+
     # -- the N1000 failure ------------------------------------------------
     def test_a_create_between_header_and_listing_loads_the_new_docket(self):
         p, fired = self.before(_is_listing, lambda: self.create('three'))
-        with p:
+        with p, patch.object(store, 'LAZY_DOC_KEYS', False):
             got = self.loaded()
         self.assertEqual(len(fired), 1, 'control: the create committed mid-load')
         self.assertEqual([w['slug'] for w in got], ['one', 'two', 'three'])
@@ -130,16 +159,31 @@ class WorkRefsSnapshot(unittest.TestCase):
 
     def test_an_archive_between_header_and_listing_loads_the_new_docket(self):
         p, fired = self.before(_is_listing, lambda: self.archive('two'))
-        with p:
+        with p, patch.object(store, 'LAZY_DOC_KEYS', False):
             got = self.loaded()
         self.assertEqual(len(fired), 1)
         self.assertEqual([w['slug'] for w in got], ['one'])
         self.assertEqual(self.raced('relisted'), 1)
 
+    # -- one statement: header and listing cannot disagree ------------------
+    def test_one_statement_load_keeps_header_and_listing_together(self):
+        # a create committed right after the load's single statement: the load
+        # keeps the docket it read, whole, with no re-read. Were the listing
+        # read by a later statement, it would see the new row against the old
+        # header (a race and a re-read, and the newer docket).
+        p, fired = self.after(_is_one_load, lambda: self.create('three'))
+        with p:
+            got = [w['slug'] for w in self.loaded()]
+        self.assertEqual(len(fired), 1, 'control: the load was one statement')
+        self.assertEqual(got, ['one', 'two'])
+        self.assertEqual(self.raced('relisted') + self.raced('whole'), 0)
+        self.assertEqual([w['slug'] for w in self.loaded()], ['one', 'two', 'three'])
+
     def test_a_create_in_a_message_door_call_does_not_fail_it(self):
         # the failing shape: store._load_sqlite_org(lazy_work=True) inside a
         # transaction that does not lock the docket
-        p, fired = self.before(_is_listing, lambda: self.create('three'))
+        p, fired = self.before(lambda sql: _is_listing(sql) or _is_one_load(sql),
+                               lambda: self.create('three'))
         with p, orgtx.org_tx(self.slug, nodes=['b'], sections=[('mail', 'b')]) as tx:
             slugs = [w['slug'] for w in tx.d['work_items']]
         self.assertEqual(len(fired), 1)

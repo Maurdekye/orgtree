@@ -2400,7 +2400,8 @@ class _WorkRefsRace(Exception):
     between them (READ COMMITTED gives every statement its own snapshot)."""
 
 
-def _load_work_refs(conn: Any, slug: str, rows: dict[str, str]) -> None:
+def _load_work_refs(conn: Any, slug: str, rows: dict[str, str],
+                    listing: Any = None) -> None:
     """Bind the docket's item rows into a lazy load's `rows`.
 
     work-items-header-row-mismatch-valueerror-under: inside org_tx the
@@ -2416,8 +2417,12 @@ def _load_work_refs(conn: Any, slug: str, rows: dict[str, str]) -> None:
          every item row in ONE statement (the full docket, only under churn).
     A disagreement inside one statement is not a race: it still raises."""
     try:
+        # `listing`: already read by the load's one statement (_LoadOne), in
+        # the same snapshot as the header it is compared with
         _bind_work_refs(conn, slug, rows, _work_versions(
-            conn.execute(_WORK_LISTING_SQL, (workrows.PREFIX,)).fetchone()), coherent=False)
+            listing if listing is not None
+            else conn.execute(_WORK_LISTING_SQL, (workrows.PREFIX,)).fetchone()),
+            coherent=False)
         return
     except _WorkRefsRace:
         _work_race_count("relisted")
@@ -3695,7 +3700,7 @@ class LazyDoc(dict[str, Any]):
         "_lazy_exposed": set, "_deferred_doc": dict,
         "_receipt_rows": bool, "_receipt_present": bool,
         "_stamp_heal_epoch": bool, "_lazy_keys": set, "_load_snapshot": str,
-        "_unfetched": set,
+        "_unfetched": set, "_schema_seen": bool,
     }
 
     def __getattr__(self, name: str) -> Any:
@@ -4361,13 +4366,27 @@ def _eager_doc_rows(conn: sqlite3.Connection) -> dict[str, str | None]:
             "FROM doc WHERE strpos(key, ?) = 0",
             (list(DEFERRED_DOC_KEYS), SPLIT_SEP)).fetchall())
     held = _row_reuse_held(slot)
+    rows = conn.execute(f"SELECT key, {_ROW_VERSION}, {_EAGER_DOC_VAL} "
+                        "FROM doc WHERE strpos(key, ?) = 0",
+                        _eager_doc_params(held)).fetchall()
+    return _eager_doc_from(slot, held, rows)
+
+
+#: the eager doc value column: NULL for a deferred key (listed, not read) and
+#: for a row whose version is held (see _ROW_VERSION)
+_EAGER_DOC_VAL = (f"CASE WHEN key = ANY(?) OR key || '|' || {_ROW_VERSION} = ANY(?) "
+                  "THEN NULL ELSE val END")
+
+
+def _eager_doc_params(held: dict[str, tuple[str, str]]) -> tuple[Any, ...]:
     # `key|version` never matches another row's: a version has no '|'
     names = [f"{k}|{v}" for k, (v, _) in held.items()] or [""]
-    rows = conn.execute(
-        f"SELECT key, {_ROW_VERSION}, CASE WHEN key = ANY(?) OR "
-        f"key || '|' || {_ROW_VERSION} = ANY(?) THEN NULL ELSE val END "
-        "FROM doc WHERE strpos(key, ?) = 0",
-        (list(DEFERRED_DOC_KEYS), names, SPLIT_SEP)).fetchall()
+    return (list(DEFERRED_DOC_KEYS), names, SPLIT_SEP)
+
+
+def _eager_doc_from(slot: tuple[str, str, str], held: dict[str, tuple[str, str]],
+                    rows: Iterable[Any]) -> dict[str, str | None]:
+    """(key, version, value-or-NULL) rows -> the load's raw doc rows."""
     out: dict[str, str | None] = {}
     seen: dict[str, tuple[str, str]] = {}
     for key, version, val in rows:
@@ -4551,6 +4570,11 @@ def _load_probes(conn: sqlite3.Connection
                              conn.execute(_LOAD_META_SQL, _LOAD_META_PARAMS).fetchall()}
     hits = {_PROBE_SECTS[int(r[0])] for r in
             conn.execute(_PRESENCE_SQL, _PROBE_PARAMS).fetchall()}
+    return _probes_from(metas, hits)
+
+
+def _probes_from(metas: dict[str, Any], hits: set[str]
+                 ) -> tuple[str | None, str | None, set[str], bool, str | None]:
     present = {s for s in DICT_LOGS
                if s in hits or metas.get(_META_OWNERS + s) is not None}
     present.update(s for s in LIST_LOGS if s in hits)
@@ -4560,9 +4584,91 @@ def _load_probes(conn: sqlite3.Connection
             cast("str | None", metas.get(_META_HEAL_EPOCH)))
 
 
+#: ONE ROUND TRIP PER LOAD (N1000 #3 landing 2, 2026-09-29). A lazy load
+#: sent four to eight statements -- BEGIN, the meta probe, the presence probe,
+#: the eager doc rows, the work listing, the snapshot, COMMIT -- and a tool
+#: call made three loads. On PostgreSQL with on-demand rows they are now ONE
+#: statement, and outside org_tx it runs without BEGIN/COMMIT: a single
+#: statement is its own snapshot, so the probes, the doc rows, the docket
+#: header and its item listing all agree (the work-ref race between two
+#: separate reads cannot happen inside it), and pg_current_snapshot() names
+#: that same snapshot for later on-demand fetches. A load that must read more
+#: in the SAME snapshot -- converted receipt rows, a stale heal epoch (whole
+#: read) or named preload sections -- takes the transaction as before
+#: (_LoadNeedsTxn; an org with receipt rows is remembered, so its next loads
+#: open the transaction at once).
+_NULL4 = "NULL::text[], NULL::text[], NULL::text[], NULL::text[]"
+_LOAD_ONE_SQL: str = " UNION ALL ".join(
+    [f"SELECT 0, key, NULL, CASE WHEN key IN ({','.join('?' * len(_LOAD_OWNER_KEYS))}) "
+     f"THEN '' ELSE val END, {_NULL4} FROM meta WHERE key IN "
+     f"({','.join('?' * len(_LOAD_META_KEYS))})"]
+    + [f"SELECT 1, '{i}', NULL, NULL, {_NULL4} WHERE (SELECT sect FROM "
+       f"{'log_d' if i < len(DICT_LOGS) else 'log_l'} WHERE sect>=? ORDER BY sect LIMIT 1)=?"
+       for i in range(len(_PROBE_SECTS))]
+    + [f"SELECT 2, key, {_ROW_VERSION}, {_EAGER_DOC_VAL}, {_NULL4} "
+       "FROM doc WHERE strpos(key, ?) = 0",
+       "SELECT 3, NULL, NULL, NULL, array_agg(key ORDER BY key), "
+       "array_agg(xmin::text ORDER BY key), array_agg(ctid::text ORDER BY key), "
+       "array_agg(tableoid::text ORDER BY key) FROM doc WHERE starts_with(key, ?)",
+       f"SELECT 4, pg_current_snapshot()::text, NULL, NULL, {_NULL4}"])
+#: orgs whose loads read receipt rows: they open the transaction up front
+_LOAD_TXN_ORGS: set[str] = set()
+
+
+class _LoadNeedsTxn(Exception):
+    """A bare one-statement load found it must read more in one snapshot."""
+
+
+class _LoadOne:
+    """The probes, eager doc rows, work listing and snapshot of one load,
+    read in ONE statement (see _LOAD_ONE_SQL)."""
+    __slots__ = ("probes", "doc", "listing", "snapshot")
+
+    def __init__(self, conn: Any) -> None:
+        slot = _row_reuse_slot(conn, "doc")
+        if slot is None:
+            raise RuntimeError("one-statement loads need PostgreSQL")
+        held = _row_reuse_held(slot)
+        rows = conn.execute(_LOAD_ONE_SQL, _LOAD_META_PARAMS + _PROBE_PARAMS
+                            + _eager_doc_params(held) + (workrows.PREFIX,)).fetchall()
+        metas: dict[str, Any] = {}
+        hits: set[str] = set()
+        doc: list[Any] = []
+        self.listing: Any = None
+        self.snapshot = ""
+        for part, key, version, val, *agg in rows:
+            if part == 0:
+                metas[cast(str, key)] = val
+            elif part == 1:
+                hits.add(_PROBE_SECTS[int(key)])
+            elif part == 2:
+                doc.append((key, version, val))
+            elif part == 3:
+                self.listing = agg
+            else:
+                self.snapshot = cast(str, key)
+        self.probes = _probes_from(metas, hits)
+        self.doc = _eager_doc_from(slot, held, doc)
+
+
 def _load_lazy(conn: sqlite3.Connection, slug: str,
                preload: Iterable[str] = (), *, txn_open: bool = False,
                lazy_work: bool = False, receipt_bind: bool = True) -> LazyDoc:
+    """`_load_lazy_body`, retried in a transaction when a bare one-statement
+    load needs more reads in its snapshot (see _LOAD_ONE_SQL)."""
+    try:
+        return _load_lazy_body(conn, slug, preload, txn_open=txn_open,
+                               lazy_work=lazy_work, receipt_bind=receipt_bind)
+    except _LoadNeedsTxn:
+        return _load_lazy_body(conn, slug, preload, txn_open=txn_open,
+                               lazy_work=lazy_work, receipt_bind=receipt_bind,
+                               bare_ok=False)
+
+
+def _load_lazy_body(conn: sqlite3.Connection, slug: str,
+                    preload: Iterable[str] = (), *, txn_open: bool = False,
+                    lazy_work: bool = False, receipt_bind: bool = True,
+                    bare_ok: bool = True) -> LazyDoc:
     """Load eager rows plus an optional coherent set of lazy sections.
 
     Ordinary loads pass no ``preload`` and retain S1's owner-selective lazy
@@ -4581,10 +4687,20 @@ def _load_lazy(conn: sqlite3.Connection, slug: str,
     d = LazyDoc(slug)
     preloaded: dict[str, Any] = {}
     preload_snaps: dict[str, Any] = {}
-    if not txn_open:
+    one = bool(lazy_work and LAZY_ROWS and ORGTX_RESCOPE and LAZY_DOC_KEYS
+               and STORE_BACKEND == "postgres" and slug)
+    bare = (one and not txn_open and not selected and bare_ok
+            and slug not in _LOAD_TXN_ORGS)
+    if not txn_open and not bare:
         conn.execute("BEGIN")
     try:
-        raw_order, schema_version, present, receipt_marked, epoch = _load_probes(conn)
+        got = _LoadOne(conn) if one else None
+        raw_order, schema_version, present, receipt_marked, epoch = (
+            got.probes if got is not None else _load_probes(conn))
+        if bare and (receipt_marked or epoch is None or epoch != heal_epoch()):
+            if receipt_marked:
+                _LOAD_TXN_ORGS.add(slug)
+            raise _LoadNeedsTxn()
         lazy_rows_ok = bool(lazy_work and LAZY_ROWS and ORGTX_RESCOPE
                             and STORE_BACKEND == "postgres" and slug)
         lazy_sections = False
@@ -4605,7 +4721,7 @@ def _load_lazy(conn: sqlite3.Connection, slug: str,
                 # (work rows are read by _load_work_refs as before)
                 if LAZY_DOC_KEYS:
                     # a deferred key's row is listed with no value: it exists
-                    raw_doc = _eager_doc_rows(conn)
+                    raw_doc = got.doc if got is not None else _eager_doc_rows(conn)
                     for k in [k for k, v in raw_doc.items() if v is None]:
                         if k in DEFERRED_DOC_KEYS:
                             del raw_doc[k]
@@ -4619,7 +4735,8 @@ def _load_lazy(conn: sqlite3.Connection, slug: str,
                 raw_doc = dict(conn.execute(
                     "SELECT key, val FROM doc WHERE NOT starts_with(key, ?)",
                     (workrows.PREFIX,)).fetchall())
-            _load_work_refs(conn, slug, raw_doc)
+            _load_work_refs(conn, slug, raw_doc,
+                            listing=got.listing if got is not None else None)
         else:
             raw_doc = dict(conn.execute("SELECT key, val FROM doc").fetchall())
         # ORGTREE_LAZY_ROWS: no node row is read here when this code already
@@ -4640,8 +4757,11 @@ def _load_lazy(conn: sqlite3.Connection, slug: str,
         if (lazy_nodes or lazy_sections) and not getattr(conn, "pinned", False):
             # outside org_tx: a later on-demand fetch may be newer than this
             # view; remember the view's snapshot so such rows are counted
-            row = conn.execute("SELECT pg_current_snapshot()::text").fetchone()
-            d._load_snapshot = cast(str, row[0]) if row else ""
+            if got is not None:
+                d._load_snapshot = got.snapshot
+            else:
+                row = conn.execute("SELECT pg_current_snapshot()::text").fetchone()
+                d._load_snapshot = cast(str, row[0]) if row else ""
         node_rows = [] if lazy_nodes else [
             (cast(str, i), cast(str, v)) for i, v in
             conn.execute("SELECT id, val FROM nodes ORDER BY ord").fetchall()]
@@ -4694,7 +4814,8 @@ def _load_lazy(conn: sqlite3.Connection, slug: str,
         raise
     else:
         try:
-            conn.execute("COMMIT")
+            if not bare:            # a bare load opened no transaction
+                conn.execute("COMMIT")
         except BaseException:
             if conn.in_transaction:
                 with contextlib.suppress(Exception):
@@ -4720,6 +4841,7 @@ def _load_lazy(conn: sqlite3.Connection, slug: str,
             "orgtree database (no schema_version row) — it may be truncated "
             "or zero-length; restore it from deleted/ or from its "
             ".json.premigration")
+    d._schema_seen = True
     # anything on disk but missing from the recorded order goes at the end
     order = list(key_order)
     known = set(order)
@@ -5434,8 +5556,8 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
         if snap_nodes is None or "nodes" in known_doc:
             db_ids = {cast(str, i) for (i,) in conn.execute("SELECT id FROM nodes")}
         known_ids = db_ids if db_ids is not None else set(cast("dict[str, str]", snap_nodes))
-        row = conn.execute("SELECT COALESCE(MAX(ord), -1) FROM nodes").fetchone()
-        next_ord = cast(int, row[0]) + 1 if row is not None else 0
+        # N1000 #3: read only when a node row is actually inserted
+        next_ord: int | None = None
         # per-node scoping, same rule as the doc keys: a node row never
         # exposed mutably keeps its stored baseline. Disabled whenever the
         # baselines themselves are in doubt (plain dict, nodes-was-blob).
@@ -5467,6 +5589,9 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
                     if changes is not None:
                         changes.node_updates.append(nid)
             else:
+                if next_ord is None:
+                    row = conn.execute("SELECT COALESCE(MAX(ord), -1) FROM nodes").fetchone()
+                    next_ord = cast(int, row[0]) + 1 if row is not None else 0
                 conn.execute("INSERT INTO nodes(id, ord, val) VALUES(?,?,?)",
                              (nid, next_ord, s))
                 next_ord += 1
@@ -5551,7 +5676,10 @@ def _write_doc(conn: sqlite3.Connection, d: dict[str, Any], lazy: LazyDoc | None
     else:
         order = [k for k, _ in items]
         _meta_set(conn, _META_KEY_ORDER, _dumps(order))
-    if _meta_get(conn, "schema_version") is None:
+    # N1000 #3: a document this code LOADED saw the row (a load without it
+    # refuses); the row is written once and never removed
+    if not (lazy is not None and lazy._schema_seen) \
+            and _meta_get(conn, "schema_version") is None:
         _meta_set(conn, "schema_version", _SCHEMA_VERSION)
     return new_doc, new_nodes, new_logs, order
 

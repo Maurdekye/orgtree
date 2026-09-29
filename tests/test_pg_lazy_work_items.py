@@ -461,16 +461,21 @@ class WorkRefsListing(unittest.TestCase):
         """Rows the version listing returned, per listing statement."""
         counts = []; original = pgstore.PgConn.execute
         class Counted:
-            def __init__(s, cur): s.cur = cur
+            def __init__(s, cur): s.cur = cur; s.one = False
             def fetchone(s):
                 r = s.cur.fetchone(); counts.append(1 if r is not None else 0); return r
             def fetchall(s):
-                r = s.cur.fetchall(); counts.append(len(r)); return r
+                r = s.cur.fetchall()
+                # the one-statement load (store._LoadOne): its listing part
+                counts.append(len([x for x in r if x[0] == 3]) if s.one else len(r)); return r
             def __getattr__(s, name): return getattr(s.cur, name)
         def execute(c, sql, params=()):
             result = original(c, sql, params)
             if 'starts_with(key' in sql and params and params[0] == workrows.PREFIX:
                 return Counted(result)
+            if 'starts_with(key' in sql and 'pg_current_snapshot' in sql:
+                counted = Counted(result); counted.one = True
+                return counted
             return result
         with patch.object(pgstore.PgConn, 'execute', execute):
             body()
