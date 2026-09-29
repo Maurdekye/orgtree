@@ -29,7 +29,6 @@ import { useEffect, useRef, useState } from 'react'
 import { createOrg, probeHub } from '../api'
 import { DirList } from '../forms'
 import { CloseIcon } from '../icons'
-import { AdvancedOrgModal } from './advancedorg'
 import { desktop } from '../desktop'
 import { beginFirstUse } from '../canvas/firstuse'
 
@@ -131,56 +130,52 @@ export function CreateOrgView({ onCreated, onRequestClose, wrapCreate }: CreateO
         <input id="shell-create-name" autoFocus required value={name}
           className="shell-create-name"
           onChange={(e) => setName(e.target.value)} />
+        {/* The advanced options fold out INSIDE this window (user 2026-09-29:
+            "make the advanced settings part of the window content, not a
+            separate modal"). Same settings, same state, applied by the one
+            Create button; there is no separate done step. */}
         <button type="button" className="disclosure" aria-expanded={advanced}
-          onClick={() => setAdvanced(true)}>
-          <span aria-hidden="true">▸</span> Advanced options
-          {(dirs.length > 0 || netAuto || netHubs.length > 0) && (
+          aria-controls="shell-create-advanced"
+          onClick={() => setAdvanced((v) => !v)}>
+          <span aria-hidden="true">{advanced ? '▾' : '▸'}</span> Advanced options
+          {!advanced && (dirs.length > 0 || netAuto || netHubs.length > 0) && (
             <span className="dim adv-sum"> · {[
               dirs.length ? `${dirs.length} folder${dirs.length > 1 ? 's' : ''}` : '',
               netAuto || netHubs.length ? 'hub' : '',
             ].filter(Boolean).join(' · ')}</span>)}
         </button>
         {advanced && (
-          <AdvancedOrgModal title={name.trim() || 'new organization'}
-            close={() => setAdvanced(false)}
-            tabs={[
-              { label: 'General', content: (
-                <>
-                  <div className="field-label">also grant existing folders</div>
-                  <DirList dirs={dirs} onChange={setDirs} />
-                </>
-              ) },
-              { label: 'Mail hub', content: (
-                <>
-                  <label className="row kiosk-sbx"
-                    title="being listed means peers can mail this org (and thereby spend its credits) — refusable here, at creation">
-                    <input type="checkbox" checked={netAuto}
-                      onChange={(e) => setNetAuto(e.target.checked)} />
-                    connect to this computer's mail hub
-                  </label>
-                  <div className="dim hub-hint">
-                    {hubSeen == null ? 'checking for a local hub…'
-                      : hubSeen.ok ? `detected: ${hubSeen.name || 'unnamed hub'}`
-                        : 'not running right now — the org will connect when it starts'}
-                  </div>
-                  <div className="field-label adv-sep">remote mail hubs</div>
-                  {netHubs.map((h, i) => (
-                    <div className="row" key={i}>
-                      <input style={{ flex: 1 }} placeholder="http://host:7370"
-                        value={h} onChange={(e) => setNetHubs(
-                          (l) => l.map((x, j) => (j === i ? e.target.value : x)))} />
-                      <button type="button" onClick={() => setNetHubs(
-                        (l) => l.filter((_, j) => j !== i))}>
-                        <CloseIcon fontSize="inherit" /></button>
-                    </div>
-                  ))}
-                  <button type="button" onClick={() => setNetHubs((l) => [...l, ''])}>
-                    + add a remote mail hub address</button>
-                  <div className="dim hub-hint">names are discovered on connect —
-                    only the address is typed</div>
-                </>
-              ) },
-            ]} />
+          <div className="advanced shell-create-advanced" id="shell-create-advanced">
+            <div className="field-label">also grant existing folders</div>
+            <DirList dirs={dirs} onChange={setDirs} />
+            <div className="field-label adv-sep">mail hub</div>
+            <label className="row kiosk-sbx"
+              title="being listed means peers can mail this org (and thereby spend its credits) — refusable here, at creation">
+              <input type="checkbox" checked={netAuto}
+                onChange={(e) => setNetAuto(e.target.checked)} />
+              connect to this computer's mail hub
+            </label>
+            <div className="dim hub-hint">
+              {hubSeen == null ? 'checking for a local hub…'
+                : hubSeen.ok ? `detected: ${hubSeen.name || 'unnamed hub'}`
+                  : 'not running right now — the org will connect when it starts'}
+            </div>
+            <div className="field-label adv-sep">remote mail hubs</div>
+            {netHubs.map((h, i) => (
+              <div className="row" key={i}>
+                <input style={{ flex: 1 }} placeholder="http://host:7370"
+                  value={h} onChange={(e) => setNetHubs(
+                    (l) => l.map((x, j) => (j === i ? e.target.value : x)))} />
+                <button type="button" onClick={() => setNetHubs(
+                  (l) => l.filter((_, j) => j !== i))}>
+                  <CloseIcon fontSize="inherit" /></button>
+              </div>
+            ))}
+            <button type="button" className="addrow" onClick={() => setNetHubs((l) => [...l, ''])}>
+              + add a remote mail hub address</button>
+            <div className="dim hub-hint">names are discovered on connect —
+              only the address is typed</div>
+          </div>
         )}
         {error && <div className="ask-warn shell-create-error" role="alert">{error}</div>}
         <div className="row shell-create-actions">

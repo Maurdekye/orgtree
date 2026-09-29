@@ -380,6 +380,55 @@ test('a successful creation clears the flag before it binds', async () => {
   } finally { await c.stop() }
 })
 
+// user 2026-09-29: "in the new organization window, make the advanced
+// settings part of the window content, not a separate modal"
+test('Advanced options fold out inside the window, with no modal, and Create applies them', async () => {
+  const posted: Record<string, unknown>[] = []
+  const c = await createView({ create: (body) => {
+    if (body && typeof body === 'object' && 'name' in body) posted.push(body as Record<string, unknown>)
+    return { slug: 'research' }
+  } })
+  try {
+    const el = c.view.el
+    const toggle = [...el.querySelectorAll<HTMLButtonElement>('button.disclosure')]
+      .find((b) => b.textContent?.includes('Advanced options'))!
+    assert.equal(toggle.getAttribute('aria-expanded'), 'false')
+    assert.equal(el.querySelector('#shell-create-advanced'), null, 'folded by default')
+    await inAct(async () => { toggle.click(); await flush(4) })
+    assert.equal(toggle.getAttribute('aria-expanded'), 'true')
+    const section = el.querySelector('#shell-create-advanced')
+    assert.ok(section, 'the settings are part of the page')
+    assert.ok(section!.closest('form'), 'inside the creation form itself')
+    assert.equal(el.ownerDocument.querySelector('.overlay, .modalpin-win, .adv-tabs'), null,
+      'no modal, no tab strip')
+    assert.ok(![...el.ownerDocument.querySelectorAll('button')].some((b) => b.textContent === 'done'),
+      'no separate done step')
+    assert.match(section!.textContent ?? '', /also grant existing folders/)
+    assert.match(section!.textContent ?? '', /connect to this computer's mail hub/)
+    assert.match(section!.textContent ?? '', /remote mail hubs/)
+
+    const button = (text: string) => [...section!.querySelectorAll<HTMLButtonElement>('button')]
+      .find((b) => b.textContent?.includes(text))!
+    await inAct(async () => { button('+ add folder').click(); await flush(4) })
+    await inAct(async () => { button('+ add a remote mail hub address').click(); await flush(4) })
+    await inAct(async () => {
+      typeInto(section!.querySelector<HTMLInputElement>('.dirrow input')!, 'E:\work')
+      typeInto(section!.querySelector<HTMLInputElement>('input[placeholder="http://host:7370"]')!, 'http://hub:7370')
+      section!.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click()
+      typeInto(c.name(), 'Research')
+      await flush(4)
+    })
+    await inAct(async () => { toggle.click(); await flush(4) })
+    assert.equal(el.querySelector('#shell-create-advanced'), null, 'it folds back up')
+    assert.match(toggle.textContent ?? '', /1 folder · hub/, 'and the folded row still says what is set')
+    await inAct(async () => { c.submit().dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); await flush(10) })
+    assert.deepEqual(posted, [{ name: 'Research', dirs: ['E:\work'],
+      net_autoconnect: false, net_hubs: ['http://hub:7370'] }],
+    'folding the section away keeps what was set, and Create sends it exactly as before')
+    assert.deepEqual(c.created, ['research'])
+  } finally { await c.stop() }
+})
+
 // ----------------------------------------------------- §5 the mode toggle
 
 test('the view switch shows ONE word, the current view, and flips on click', async () => {
