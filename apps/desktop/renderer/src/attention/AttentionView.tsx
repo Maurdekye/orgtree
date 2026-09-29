@@ -528,7 +528,7 @@ export function AttentionView(props: AttentionViewProps) {
       {deskOn && (
         <div className="attn-slot attn-slot-desk" style={rightStyle}>
           <PinFrame inline kind={DESK_KIND} title="Agent desk"
-            panel="settings attn-panel attn-panel-desk"
+            panel="attn-panel attn-panel-desk"
             dialogLabel="Agent desk"
             close={() => unpinModal(DESK_KIND, slug)}>
             <AgentDeskPanel slug={slug} tree={props.tree} op={props.op}

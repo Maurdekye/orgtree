@@ -234,8 +234,8 @@ test('§2a the zoomed-out card shows the configured level when it is non-default
     assert.ok(badge, 'no effort card on the zoomed-out node')
     // the LEVEL is legible, and legible enough to tell the five apart
     assert.equal(badge!.getAttribute('data-effort-level'), 'xhigh')
-    assert.match(badge!.textContent ?? '', /\bxhigh\b/)
-    assert.match(badge!.textContent ?? '', /Effort/)
+    // just the level, no "Effort" prefix (user 2026-09-29, image-14)
+    assert.equal(badge!.textContent, 'xhigh')
   })
 
 test('§2b default and unset agents get NO card and NO empty placeholder',
@@ -596,8 +596,8 @@ test('THE NAME AND NOTHING ELSE: no direction cue, either side of the default',
     // the visible text and the detail name the level and stop. In particular
     // the detail no longer names the org default — the card reports what this
     // agent is, not what it is measured against.
-    assert.equal(above.textContent, 'Effort max')
-    assert.equal(below.textContent, 'Effort low')
+    assert.equal(above.textContent, 'max')
+    assert.equal(below.textContent, 'low')
     assert.equal(above.getAttribute('title'), 'thinking effort — max')
     assert.equal(below.getAttribute('title'), 'thinking effort — low')
     assert.equal(above.getAttribute('aria-label'), 'thinking effort — max')

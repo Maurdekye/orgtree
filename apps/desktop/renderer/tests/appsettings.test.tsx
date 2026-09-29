@@ -145,13 +145,13 @@ test('§1 stable accessible tabs navigate by key without swapping identity',
     const view = await mountSettings()
     try {
       const tabs = view.el.querySelectorAll<HTMLButtonElement>('[role="tab"]')
-      // v3 (settled layout): General leads and is where the panel opens — the
-      // startup choice plus the version and repository link the removed
-      // sidebar used to carry. Default org settings closes the strip, having
+      // v3: About leads and is where the panel opens — the version and
+      // repository link the removed sidebar used to carry. (It was "General"
+      // until 2026-09-29, when its startup choice moved to Display.) Default org settings closes the strip, having
       // absorbed the standalone window that sidebar opened. Developer (the
       // engine debug view, 2026-09-26) comes last.
       assert.deepEqual([...tabs].map((b) => b.textContent?.trim()),
-        ['General', 'Providers', 'Runtime', 'Mail hub', 'Display', 'Import',
+        ['About', 'Providers', 'Runtime', 'Mail hub', 'Display', 'Import',
           'Default org settings', 'Developer'])
       assert.equal(tabs[4]!.querySelector('.app-settings-scope'), null,
         'Display has no device-label pill while retaining its tab identity')

@@ -30,17 +30,64 @@
   padding: 8px;
 }
 .attn-slot > * { flex: 1 1 auto; min-width: 0; }
+/* PinFrame's in-place wrapper: a column, so the panel inside can fill it.
+ * A DESCENDANT selector, not `>`: between the slot and it sit MovableSurface's
+ * `display: contents` wrappers, so it is the slot's flex item for layout
+ * without being its child in the DOM (measured, attentionlayout_probe.py). */
+.attn-slot .surface-inline {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 
-/* the panels themselves: the app's ordinary panel surface, filling the slot
- * rather than sitting at a modal's centred width */
+/* the panels themselves: the app's ordinary panel surface. Embedded, they FILL
+ * the slot rather than sitting at a modal's centred width.
+ *
+ * ⚠ THE EMBEDDED RULE NEEDS TWO CLASSES. main.tsx imports App (and so this
+ * sheet) BEFORE styles.css, so a lone `.attn-panel` loses every tie to
+ * `.settings { width: 660px; height: 88vh }` — which is exactly what shipped:
+ * the slots followed the divider and the 660px panels inside them did not
+ * (user report 2026-09-29, image-17). `attentionlayout_probe.py` loads the
+ * sheets in the app's order so this cannot pass by accident again. */
 .attn-panel {
   display: flex;
   flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+.attn-slot .attn-panel {
+  flex: 1 1 auto;
   width: auto;
   max-width: none;
   min-height: 0;
-  height: 100%;
+  height: auto;
   margin: 0;
+}
+
+/* THE DESK PANEL IS A DESK, NOT A SETTINGS FORM (user 2026-09-29, image-20):
+ * it carries no `.settings` class, whose roomy form metrics (14px buttons with
+ * 7px 15px padding, 13px badges, 22px 26px panel padding) restyled every
+ * button of the desk inside it. It takes the pinned desk window's metrics
+ * instead — `.pinwin`'s 13px type and `.pinwin-body`'s padding — so the same
+ * desk looks the same in both places. */
+.attn-panel-desk {
+  --panel-pad-y: 6px;
+  --panel-pad-x: 8px;
+  padding: 6px 8px 8px;
+  font-size: 13px;
+  overflow: hidden;
+}
+/* unpinned, the pin/pop-out cluster takes a short row of its own at the top
+ * right, instead of the 14px pull `.modalpin-bar` makes into a `.settings`
+ * panel's much larger padding. Not overlaid on the desk header: on a wide
+ * panel that header puts its tabs and ⚙ at the right end, exactly where the
+ * cluster sits (measured, attentionlayout_probe.py at 1600px). */
+.attn-panel-desk > .modalpin-bar:not(.on):not(.detached) {
+  margin: -2px 0 2px auto;
 }
 
 /* ---------------------------------------------------------- the divider */

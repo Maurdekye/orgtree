@@ -191,11 +191,14 @@ export function EffortLevelBadge({ node }: {
   // (2026-09-21): "no just the effort name no need for extra info". So the card
   // states the level and stops, and `orgDefault` is used for the one thing it
   // is still needed for — deciding whether to appear at all.
+  // The visible text is the level ALONE (user 2026-09-29, image-14: "Effort
+  // medium" → "medium"); the tooltip and the accessible name still say what
+  // the word is.
   const detail = `thinking effort — ${level}`
   return (
     <span className="badge effort-level" data-effort-level={level}
       title={detail} aria-label={detail}>
-      Effort {level}
+      {level}
     </span>
   )
 }

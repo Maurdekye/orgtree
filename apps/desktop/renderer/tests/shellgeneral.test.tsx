@@ -1,6 +1,9 @@
-// shellgeneral.test.tsx — the App settings "General" tab.
+// shellgeneral.test.tsx — the startup choice (App settings → Display →
+// Startup) and App settings → About. Both made up a "General" tab until
+// 2026-09-29, when the user ruled the one setting needed no tab of its own and
+// no custom cards: it is now an ordinary dropdown row.
 //
-// Two things the v3 shell moved here, for two different reasons.
+// Two things the v3 shell moved into App settings, for two different reasons.
 //
 // THE STARTUP CHOICE is new, and is a NATIVE preference rather than a renderer
 // one: what it decides — whether the app reopens your previous organization
@@ -36,8 +39,15 @@ function v3Bridge(initial: Saved, saves: Saved[], onEvent?: (fn: (e: { type: str
   })
 }
 
-const radios = (el: HTMLElement) =>
-  [...el.querySelectorAll<HTMLInputElement>('input[type="radio"]')]
+const picker = (el: HTMLElement) =>
+  el.querySelector<HTMLSelectElement>('select[aria-label="On startup"]')
+/** the offered choices, as option values — empty when the row is absent */
+const radios = (el: HTMLElement) => [...(picker(el)?.options ?? [])]
+const choose = (el: HTMLElement, value: string) => {
+  const s = picker(el)!
+  s.value = value
+  s.dispatchEvent(new Event('change', { bubbles: true }))
+}
 
 test('a shell that cannot honour the startup choice does not offer it', async () => {
   // no bridge at all — a plain browser
@@ -63,12 +73,12 @@ test('restoring previous windows is the default, and is what an older shell read
   try {
     const view = await mountView(<StartupWindowsSetting />, (el) => el)
     await inAct(async () => { await flush() })
-    const [restore, homepage] = radios(view.el)
-    assert.ok(restore && homepage, 'exactly the two settled choices')
+    const [restore, homepage, extra] = radios(view.el)
+    assert.ok(restore && homepage && !extra, 'exactly the two settled choices')
     assert.equal(restore!.value, 'restore')
     assert.equal(homepage!.value, 'homepage')
-    assert.equal(restore!.checked, true, 'restoring is the default')
-    assert.equal(homepage!.checked, false)
+    assert.equal(picker(view.el)!.value, 'restore', 'restoring is the default')
+    assert.match(restore!.textContent ?? '', /default/)
     assert.deepEqual(saves, [], 'reading the default writes nothing')
     await view.unmount()
   } finally { removeBridge(bridge) }
@@ -80,10 +90,10 @@ test('choosing the other option writes THAT KEY ALONE to the native preferences'
   try {
     const view = await mountView(<StartupWindowsSetting />, (el) => el)
     await inAct(async () => { await flush() })
-    await inAct(async () => { radios(view.el)[1]!.click(); await flush(6) })
+    await inAct(async () => { choose(view.el, 'homepage'); await flush(6) })
     assert.deepEqual(saves, [{ startupMode: 'homepage' }],
       'one key — a body carrying a neighbouring preference would rewrite a value nobody touched')
-    assert.equal(radios(view.el)[1]!.checked, true, 'and the choice is reflected back')
+    assert.equal(picker(view.el)!.value, 'homepage', 'and the choice is reflected back')
     await view.unmount()
   } finally { removeBridge(bridge) }
 })
@@ -95,12 +105,12 @@ test('a save in ANOTHER window lands here — the values are app-wide, the modal
   try {
     const view = await mountView(<StartupWindowsSetting />, (el) => el)
     await inAct(async () => { await flush() })
-    assert.equal(radios(view.el)[0]!.checked, true)
+    assert.equal(picker(view.el)!.value, 'restore')
     // the native `preferences` event is broadcast to every main window
     await inAct(async () => {
       fire({ type: 'preferences', data: { startupMode: 'homepage' } }); await flush(4)
     })
-    assert.equal(radios(view.el)[1]!.checked, true,
+    assert.equal(picker(view.el)!.value, 'homepage',
       'this window never asked and never focused the other one')
     assert.deepEqual(saves, [], 'and adopting somebody else’s save does not re-save it')
     await view.unmount()

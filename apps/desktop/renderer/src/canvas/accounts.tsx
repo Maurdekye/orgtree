@@ -212,15 +212,15 @@ export function UsageBars({ u }: { u: AccountUsage }) {
   )
 }
 
-type AppSettingsTab = 'general' | 'providers' | 'runtime' | 'mailhub'
+type AppSettingsTab = 'about' | 'providers' | 'runtime' | 'mailhub'
   | 'display' | 'import' | 'defaults' | 'developer'
 const APP_TABS: SettingsTab<AppSettingsTab>[] = [
-  // General is FIRST and is where the panel opens (the settled v3 layout):
-  // the startup choice and what is actually running. The v3 shell removes the
-  // sidebar that used to carry the version badge and the repository link, so
-  // the About group here is their new home; the compact menu's About entry
-  // shows the version inline beside it.
-  { id: 'general', label: 'General' },
+  // About is FIRST and is where the panel opens: what is actually running.
+  // The v3 shell removes the sidebar that used to carry the version badge and
+  // the repository link, so this is their home. It was "General" until
+  // 2026-09-29, when its one setting (the startup choice) moved to Display →
+  // Startup as an ordinary dropdown (user ruling via coordinator-opus).
+  { id: 'about', label: 'About' },
   { id: 'providers', label: 'Providers' },
   { id: 'runtime', label: 'Runtime' },
   // one installation hosts at most one mail hub, so hosting it and granting
@@ -504,7 +504,7 @@ export function TurnLimitSetting({ runtime, busy, onSave }: {
 export function AccountsPanel({ toast, close, initialTab }: {
   toast: ToastFn; close: () => void; initialTab?: AppSettingsTab
 }) {
-  const [tab, setTab] = useState<AppSettingsTab>(initialTab ?? 'general')
+  const [tab, setTab] = useState<AppSettingsTab>(initialTab ?? 'about')
   useEffect(() => {
     const open = (e: Event) => {
       const tab = (e as CustomEvent<{ tab?: string }>).detail?.tab
@@ -594,8 +594,7 @@ export function AccountsPanel({ toast, close, initialTab }: {
     <h3>App settings</h3>
     <SettingsTabs tabs={APP_TABS} tab={tab} setTab={setTab} idBase="app-settings" label="Application settings sections" />
     {error && <div className="ask-warn" role="alert">{error}</div>}
-    <SettingsTabPanel id="general" idBase="app-settings" active={tab === 'general'}>
-      <StartupWindowsSetting />
+    <SettingsTabPanel id="about" idBase="app-settings" active={tab === 'about'}>
       <AboutSection appVersion={appVersion} />
     </SettingsTabPanel>
     <SettingsTabPanel id="providers" idBase="app-settings" active={tab === 'providers'}>
@@ -711,7 +710,7 @@ export function AccountsPanel({ toast, close, initialTab }: {
     <SettingsTabPanel id="display" idBase="app-settings" active={tab === 'display'}>
       <ThemeSetting />
       <SetGroup title="Desk"><DeskTextSize /><CrowdStackToggle /><HideRetiredToggle /><AgentShortcutsToggle /><ModalOverlapSettings /><CanvasAnchorSettings /></SetGroup>
-      <SetGroup title="Startup"><StartupView /></SetGroup>
+      <SetGroup title="Startup"><StartupWindowsSetting /><StartupView /></SetGroup>
     </SettingsTabPanel>
     <SettingsTabPanel id="import" idBase="app-settings" active={tab === 'import'}><ImportSettings active={tab === 'import'} /></SettingsTabPanel>
     <SettingsTabPanel id="defaults" idBase="app-settings" active={tab === 'defaults'}>

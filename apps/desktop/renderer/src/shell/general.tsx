@@ -1,10 +1,11 @@
-// shell/general.tsx — the App settings "General" tab: what happens at
-// startup, and what this actually is.
+// shell/general.tsx — the App settings "About" tab (what this actually is)
+// and the startup choice, which sits in the Display tab's Startup group.
+// Until 2026-09-29 both made up a "General" tab; the user ruled that one
+// setting did not need a tab or custom cards of its own.
 //
 // Both halves used to live somewhere the v3 shell removes. The running app
 // version was a badge beside the sidebar's Orgtree title and the GitHub link
-// sat next to it; the sidebar is gone, so the settled layout gives the version
-// to the compact menu's About entry and this tab keeps the fuller detail —
+// sat next to it; the sidebar is gone, so this tab keeps the fuller detail —
 // the engine build and its start time, which is how a person confirms which
 // deploy is actually serving.
 //
@@ -18,7 +19,7 @@ import type { NativePreferences, OrgStartupMode } from '../desktop'
 import { getHost } from '../api'
 import type { HostPayload } from '../types'
 import { fmtFull } from '../timefmt'
-import { SetGroup } from '../canvas/settingskit'
+import { SetGroup, SetRow } from '../canvas/settingskit'
 
 /** The app-wide native preferences, live in every window.
  *
@@ -80,14 +81,18 @@ export function useAppVersion(): string | null {
 }
 
 const STARTUP_CHOICES: { id: OrgStartupMode; label: string; hint: string }[] = [
-  { id: 'restore', label: 'Restore previous windows',
-    hint: 'Reopen your previous organization windows in their saved positions.' },
-  { id: 'homepage', label: 'Start at homepage',
-    hint: 'Open a fresh homepage window when you launch Orgtree.' },
+  { id: 'restore', label: 'restore previous windows (default)',
+    hint: 'reopen your previous organization windows in their saved positions' },
+  { id: 'homepage', label: 'start at homepage',
+    hint: 'open a fresh homepage window when you launch Orgtree' },
 ]
 
 /** On startup: restore the previous organization windows, or open one fresh
  *  Homepage. Restoring is the default.
+ *
+ *  An ordinary settings row with a dropdown, in App settings → Display →
+ *  Startup beside "open an org at" (user 2026-09-29: the General tab held only
+ *  this, drawn as custom radio cards, which it did not need).
  *
  *  ⚠ ABSENT, NOT DISABLED, IN A SHELL THAT CANNOT HONOUR IT. A plain browser
  *  and the pre-v3 desktop shell have no multi-window startup to choose
@@ -98,27 +103,18 @@ export function StartupWindowsSetting() {
   if (!nativeWindows()) return null
   const mode = startupMode(prefs)
   return (
-    <SetGroup title="On startup">
-      <div className="shell-startup" role="radiogroup" aria-label="On startup">
-        {STARTUP_CHOICES.map((choice) => (
-          <label key={choice.id}
-            className={'shell-startup-choice' + (mode === choice.id ? ' current' : '')}>
-            <input type="radio" name="orgtree-startup" value={choice.id}
-              checked={mode === choice.id}
-              onChange={() => { void save({ startupMode: choice.id }) }} />
-            <span className="shell-startup-label">
-              {choice.label}
-              {choice.id === 'restore' && <span className="dim"> Default</span>}
-            </span>
-            <span className="dim shell-startup-hint">{choice.hint}</span>
-          </label>
-        ))}
-      </div>
-    </SetGroup>
+    <SetRow label="on startup"
+      hint={STARTUP_CHOICES.find((c) => c.id === mode)?.hint}>
+      <select aria-label="On startup" value={mode}
+        onChange={(e) => { void save({ startupMode: e.target.value as OrgStartupMode }) }}>
+        {STARTUP_CHOICES.map((choice) =>
+          <option key={choice.id} value={choice.id}>{choice.label}</option>)}
+      </select>
+    </SetRow>
   )
 }
 
-/** What is running, in words rather than a badge. The app version is the
+/** What is running, as ordinary settings rows. The app version is the
  *  packaged one from the native shell; the engine line is the backend's own
  *  git state and start time. A plain browser has no app version and is not
  *  given an invented one. */
@@ -133,20 +129,15 @@ export function AboutSection({ appVersion }: { appVersion: string | null }) {
     ? (build.branch ? `${build.branch}@${build.commit}` : build.commit) : null
   return (
     <SetGroup title="About">
-      <div className="shell-about">
-        {appVersion && <div className="shell-about-row">
-          <span className="dim">Orgtree</span> <b>{appVersion}</b></div>}
-        {engine && <div className="shell-about-row">
-          <span className="dim">engine</span> <span className="mono">{engine}</span>
-          <span className="dim"> — started {fmtFull(build!.started_at)}</span>
-        </div>}
-        {!appVersion && !engine &&
-          <div className="dim shell-about-row">version unknown</div>}
-        <div className="shell-about-row">
-          <a className="gh-link" href="https://github.com/Maurdekye/orgtree"
-            target="_blank" rel="noreferrer">Orgtree on GitHub</a>
-        </div>
-      </div>
+      {appVersion && <SetRow label="Orgtree">{appVersion}</SetRow>}
+      {engine && <SetRow label="engine"
+        hint={`started ${fmtFull(build!.started_at)}`}>
+        <span className="mono">{engine}</span></SetRow>}
+      {!appVersion && !engine && <SetRow label="version unknown" />}
+      <SetRow label="source">
+        <a className="gh-link" href="https://github.com/Maurdekye/orgtree"
+          target="_blank" rel="noreferrer">Orgtree on GitHub</a>
+      </SetRow>
     </SetGroup>
   )
 }

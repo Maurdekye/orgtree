@@ -543,6 +543,13 @@ main {
 /* the desk fills what is left, and scrolls inside itself as it always does */
 .tempdesk-panel > .desk-slot { flex: 1; min-height: 0; }
 
+/* THE ORG SLOT (OrgCanvas's `renderOrgSlot`) lies over the viewport — its box
+   is the viewport's own, set inline by OrgCanvas — so a presented view COVERS
+   the hidden canvas instead of taking height from it. Empty space in it never
+   eats a press meant for the canvas: only what the view actually renders takes
+   pointer events. */
+.org-slot { position: absolute; pointer-events: none; }
+.org-slot > * { pointer-events: auto; }
 .canvas-world { display: contents; }
 .canvas-world-hidden, .canvas-world-hidden * { visibility: hidden !important; }
 .canvas-world-hidden { pointer-events: none; }
@@ -6594,30 +6601,37 @@ html.mobile .md table { display: block; overflow-x: auto; max-width: 100%; }
 /* ------------------------------------------------ D-203: App settings ----
    Machine-wide provider admission and browser-local display preferences live
    in one stable tab shell. The short scope badge is a label, not a blurb. */
+/* EVERY TAB TITLE ON ONE LINE (user 2026-09-29, image-18: "Mail hub" and
+   "Default org settings" wrapped to two). The tabs never shrink or wrap; the
+   spacing is tight enough that the App settings strip fits its panel, and a
+   strip that still overflows (a narrow window, a pinned panel resized small)
+   scrolls sideways instead. */
 .app-settings-tabs {
-  display: flex; align-items: flex-end; gap: 4px;
-  border-bottom: 1px solid var(--line);
+  display: flex; align-items: flex-end; gap: 2px;
+  /* the rule under the strip is an INSET SHADOW, not a border: a scrolling
+     strip clips at its padding box, so the old `margin-bottom: -1px` overlap
+     of a border would cut the active tab's underline to 1px. A tab's own
+     border paints over the shadow instead. */
+  box-shadow: inset 0 -1px 0 var(--line);
+  flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+  /* ⚠ `flex: none` IS LOAD-BEARING: a scrolling box has no automatic minimum
+     height, so in the panel's column a long tab (Display) squeezed the whole
+     strip to 0px (measured, attentionlayout_probe.py) */
+  flex: none;
 }
+.app-settings-tabs::-webkit-scrollbar { height: 0; }
 .settings .app-settings-tab {
   display: inline-flex; align-items: center; gap: 7px;
   border: 0; border-bottom: 2px solid transparent; border-radius: 0;
-  background: none; color: var(--dim); margin-bottom: -1px;
-  padding: 5px 10px 7px;
+  background: none; color: var(--dim);
+  padding: 5px 7px 7px; flex: none; white-space: nowrap;
 }
 .settings .app-settings-tab:hover { color: var(--ink); background: var(--panel-2); }
 .settings .app-settings-tab.on {
   color: var(--ink-strong); border-bottom-color: var(--accent);
 }
-/* the tab strip scrolls rather than wrapping (D-222): a wrapped strip put
-   one lone tab on a second line with its own full-width rule, which read as
-   a section divider rather than as the rest of the same control. */
-@media (max-width: 460px) {
-  .app-settings-tabs {
-    flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
-  }
-  .app-settings-tabs::-webkit-scrollbar { height: 0; }
-  .settings .app-settings-tab { flex: none; padding: 5px 8px 7px; }
-}
+/* the tab strip scrolls rather than wrapping (D-222) — at every width now,
+   see `.app-settings-tabs` above */
 .app-settings-scope {
   color: var(--dim); border: 1px solid var(--line); border-radius: 8px;
   padding: 0 6px; font-size: 9.5px; font-weight: 400;

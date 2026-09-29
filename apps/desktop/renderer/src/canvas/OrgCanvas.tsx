@@ -983,12 +983,23 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     world.setAttribute('inert', '')
   }, [worldHidden])
   const [viewportSize, setViewportSize] = useState({ w: 0, h: 0 })
+  // THE ORG SLOT LIES EXACTLY OVER THE VIEWPORT (user report 2026-09-29,
+  // image-17). In the stage's flex column it used to sit BELOW the viewport,
+  // so presenting the Attention view squeezed the canvas to a strip instead of
+  // hiding it. Offsets, not a client rect: the slot is the viewport's sibling,
+  // so both are placed against the same containing block, and whatever padding
+  // or drag margin the shell puts around the canvas is followed rather than
+  // restated here.
+  const [slotBox, setSlotBox] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   useEffect(() => {
     const el = viewportRef.current
     if (!el) return
     const measure = () => {
       const rect = el.getBoundingClientRect()
       setViewportSize(prev => prev.w === rect.width && prev.h === rect.height ? prev : { w: rect.width, h: rect.height })
+      const box = { x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight }
+      setSlotBox(prev => prev && prev.x === box.x && prev.y === box.y && prev.w === box.w
+        && prev.h === box.h ? prev : box)
     }
     measure()
     const observer = new ResizeObserver(measure)
@@ -4122,7 +4133,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         `DeskHosts` so a desk it mounts registers in the ONE registry and
         cannot become a second live composer. It is focusable (tabIndex -1)
         because the world hands it focus when the canvas goes away. */}
-    {renderOrgSlot && <div className="org-slot" ref={slotRef} tabIndex={-1}>
+    {renderOrgSlot && <div className="org-slot" ref={slotRef} tabIndex={-1}
+      style={slotBox ? { left: slotBox.x, top: slotBox.y, width: slotBox.w, height: slotBox.h } : undefined}>
       {renderOrgSlot({
         slug, tree, op, toast, map, posOf,
         onOpenItem: onWorkItem,
