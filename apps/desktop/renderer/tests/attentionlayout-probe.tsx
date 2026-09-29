@@ -16,7 +16,9 @@
 //     the slot share the stage the way they do on screen.
 //
 // Scenes, picked by the URL hash: #canvas, #attention, #pinned,
-// #settings-<tab>.
+// #settings-<tab>, and #canvas-restored / #attention-restored: a desk that was
+// popped out last session, restored as a full-window panel (review finding on
+// 39d0581 — it must stay with the canvas, not cover the Attention view).
 // No backend: `fetch` answers every feed with an empty document.
 import { createRoot } from 'react-dom/client'
 import '../src/App'
@@ -28,6 +30,7 @@ import { AttentionView } from '../src/attention/AttentionView'
 import { setAttentionLayout, setOrgView } from '../src/attention/mode'
 import { addPin, pinsKey } from '../src/canvas/pins'
 import { CurrentOrg } from '../src/popout'
+import { WINDOW_LAYOUT_KEY } from '../src/windowlayout'
 import type { TreePayload } from '../src/types'
 
 const SLUG = 'probe'
@@ -109,8 +112,18 @@ if (scene.startsWith('settings')) {
   // Attention view's desk panel is meant to share (docket
   // v3-agents-list-desk-panel-reuse-the-pinned-agent)
   localStorage.removeItem(pinsKey(SLUG))
+  if (scene.endsWith('-restored')) {
+    // restored windows exist only in the desktop shell
+    ;(window as unknown as { orgtreeDesktop: unknown }).orgtreeDesktop = {
+      onEvent: () => () => {}, getPreferences: () => Promise.resolve({}),
+    }
+    localStorage.setItem(WINDOW_LAYOUT_KEY, JSON.stringify([{
+      key: 'restored-reviewer', kind: `desk:${JSON.stringify([SLUG, 'reviewer', 0])}`, org: SLUG,
+      open: true, rect: { x: 0, y: 0, width: 800, height: 700 } }]))
+  }
   if (scene === 'pinned') addPin(SLUG, 'coordinator', { x: 40, y: 40, w: 640, h: 760 })
-  setOrgView(SLUG, scene === 'attention' ? 'attention' : 'canvas')
+  const attention = scene.startsWith('attention')
+  setOrgView(SLUG, attention ? 'attention' : 'canvas')
   setAttentionLayout(SLUG, { split: 0.38, agent: 'coordinator', listOpen: false })
   createRoot(host).render(
     <CurrentOrg.Provider value={SLUG}>
@@ -119,7 +132,7 @@ if (scene.startsWith('settings')) {
           <div className="canvas-stage">
             <OrgCanvas tree={tree} op={() => Promise.resolve({} as never)}
               slug={SLUG} toast={() => {}} mailEvt={null}
-              canvasContent={scene === 'attention' ? 'hidden' : 'shown'}
+              canvasContent={attention ? 'hidden' : 'shown'}
               renderOrgSlot={(ctx) => (
                 <AttentionView slug={ctx.slug} tree={ctx.tree} op={ctx.op}
                   toast={ctx.toast} map={ctx.map} posOf={ctx.posOf}

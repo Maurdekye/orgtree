@@ -3907,6 +3907,21 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         </button>
       </div>
       </MaybePortal>
+      {/* restored desks from the last session STAY in the world: each is a
+          fixed full-window panel (`.popout-recovery.restored-desk`) with a
+          "Return to canvas" action, so it belongs to the canvas and is put
+          away with it rather than covering a presented Attention view */}
+      {restoreDesks.filter(([, id, generation]) => map.get(id)?.generation === generation).map(([, id, generation]) => {
+        const n = map.get(id)!
+        return <div className="popout-recovery restored-desk" key={JSON.stringify([id, generation])}>
+          <div className="row"><b data-copy-agent-name={id}>{id} restored desk</b><button onClick={() => {
+            centerOn(id); setRestoreDesks(old => old.filter(([, other]) => other !== id))
+          }}>Return to canvas</button></div>
+          <DeskChat bare node={n} map={map} op={op} slug={slug} toast={toast} pub={false}
+            compactAt={tree.compact_at} maxTop={tree.max_top_grant ?? 1000} pxc={pxPerCredit}
+            onMailLink={openMail} onWorkLink={openWork} onOpenDoc={openDocView} onJump={centerOn} />
+        </div>
+      })}
       </div>{/* .canvas-world */}
       {/* THE OVERLAYS ARE OUTSIDE `.canvas-world` (2026-09-29). They used to
           sit inside it, so while the Attention view was presented every
@@ -4109,17 +4124,6 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
             }} />
         </MaybePortal>
       )}
-      {restoreDesks.filter(([, id, generation]) => map.get(id)?.generation === generation).map(([, id, generation]) => {
-        const n = map.get(id)!
-        return <div className="popout-recovery restored-desk" key={JSON.stringify([id, generation])}>
-          <div className="row"><b data-copy-agent-name={id}>{id} restored desk</b><button onClick={() => {
-            centerOn(id); setRestoreDesks(old => old.filter(([, other]) => other !== id))
-          }}>Return to canvas</button></div>
-          <DeskChat bare node={n} map={map} op={op} slug={slug} toast={toast} pub={false}
-            compactAt={tree.compact_at} maxTop={tree.max_top_grant ?? 1000} pxc={pxPerCredit}
-            onMailLink={openMail} onWorkLink={openWork} onOpenDoc={openDocView} onJump={centerOn} />
-        </div>
-      })}
     </div>
     {/* THE TEMPORARY DESK — inside `DeskHosts`, because its `borrow` slot has
         to register in the ONE desk registry; that is what lets it take the

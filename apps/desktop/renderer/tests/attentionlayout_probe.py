@@ -16,6 +16,8 @@ unit test: every claim below is a pixel or a computed style.
      metrics (same font size and padding for the same buttons).
   F. The desk shows one jump card per watchdog of ITS agent, and a card opens
      that watchdog's detail modal.
+  G. A desk restored from the last session shows on the canvas but not over
+     the Attention view.
 
     cd apps/desktop/renderer
     python tests/attentionlayout_probe.py <outdir>      # JSON + screenshots
@@ -167,6 +169,22 @@ def main() -> int:
         m = res.get("dog_modal") or {}
         checks["F_card_opens_the_watchdog_modal"] = bool(m) and m.get("visibility") == "visible"             and m.get("onTop") is True
         p.close()
+
+        # ---- G: a desk restored from last session belongs to the CANVAS: it
+        # shows there (the control) and is put away under the Attention view
+        seen = {}
+        for scene in ("canvas-restored", "attention-restored"):
+            p = open_scene(scene)
+            seen[scene] = p.evaluate("""() => { const e = document.querySelector('.restored-desk');
+              if (!e) return 'absent'; const r = e.getBoundingClientRect();
+              const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+              return getComputedStyle(e).visibility === 'visible' && !!top && e.contains(top)
+                ? 'visible' : 'hidden' }""")
+            p.screenshot(path=str(out / f"{scene}.png"))
+            p.close()
+        res["restored_desk"] = seen
+        checks["G_restored_desk_shows_on_canvas"] = seen["canvas-restored"] == "visible"
+        checks["G_restored_desk_not_over_attention"] = seen["attention-restored"] in ("hidden", "absent")             and seen["canvas-restored"] == "visible"
 
         # ---- pinned: E's reference
         p = open_scene("pinned")
