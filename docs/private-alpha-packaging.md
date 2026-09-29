@@ -102,7 +102,7 @@ GUID, which would mean a second app beside 2.1.12 instead of an upgrade.
 | Backend data root | `%APPDATA%\Orgtree v2\data` | `%APPDATA%\Orgtree v3 Alpha\data` | `%APPDATA%\Orgtree v2\data` |
 | AppUserModelID / display name | `com.maurdekye.orgtree` / `Orgtree` | the private ones | `com.maurdekye.orgtree` / `Orgtree` |
 | Updater | on (stable channel) | off | **off** |
-| Launch at the Finish page | on | off | off |
+| Launch after install | on (upgrade: starts by itself; fresh: Run box ticked) | off | **on**, same as 2.1.12 |
 | Version | 2.1.12 | 3.0.0-alpha.0 | 3.0.0-alpha.0 |
 | Installer file | `Orgtree-Setup-2.1.12.exe` | `Orgtree-Private-Setup-3.0.0-alpha.0.exe` | `Orgtree-Setup-3.0.0-alpha.0.exe` |
 
@@ -112,9 +112,18 @@ damaged. It also keeps every public release path refusing this build.
 Because the installer uses the stable `build/installer.nsh`, an all-users
 2.1.12 is upgraded the way a stable update would upgrade it. That includes
 its boot-engine task, which the installer re-registers and starts at the end
-of the install (see "First launch" below). With `runAfterFinish: false`,
-electron-builder defines `HIDE_RUN_AFTER_FINISH`, and `installer.nsh`
-compiles out the Run control and the upgrade relaunch.
+of the install (see "First launch" below).
+
+It also launches Orgtree the way 2.1.12 does (user request 2026-09-29; the
+first v3 build had `runAfterFinish: false` and stopped on a Finish page
+without starting anything). When the user accepts **Upgrade**, Setup skips the
+Finish page and Orgtree starts by itself once Setup closes. A fresh or Advanced
+install shows the normal Finish page with **Run Orgtree** ticked. Both paths
+start Orgtree through `StdUtils.ExecShellAsUser`, as the signed-in user and
+not with the installer's elevation, because PostgreSQL refuses to run as an
+administrator. A build that does set `runAfterFinish: false` still gets
+`HIDE_RUN_AFTER_FINISH`, and `installer.nsh` then compiles out the Run
+control and the upgrade relaunch.
 
 `ORGTREE_V2_DATA` (a development override) is accepted by this build only when
 it is unset or names `%APPDATA%\Orgtree v2\data` itself (any spelling of it,

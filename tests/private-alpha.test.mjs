@@ -112,18 +112,28 @@ SectionEnd
 
 function assertNoInstallerLaunch(output) {
   assert.doesNotMatch(output, /(?:Function|Call) orgtree(?:FinishPageRun|UpgradeFinishPagePre|PrepareUpgradeRelaunch|ScheduleUpgradeRelaunch|DispatchUpgradeRelaunch)\b/,
-    'private installer must contain neither the Run callback nor any upgrade relaunch path')
+    'no-launch installer must contain neither the Run callback nor any upgrade relaunch path')
   assert.doesNotMatch(output, /FIXTURE_DISPATCH|OrgUpgradeRelaunch|OrgUpgradeLaunchOwned/,
     'no launch plugin calls, launch claims, preparation, or unused launch variables')
 }
 
-test('actual NSIS composition removes private Run and upgrade relaunch while retaining stable/dev paths',
+// A build that sets runAfterFinish: false. The private build did until
+// 2026-09-29; installer.nsh still honours the flag for any build that sets it.
+const noLaunchConfig = () => {
+  const config = privateAlphaConfig(pkg.build)
+  config.nsis = { ...config.nsis, runAfterFinish: false }
+  return config
+}
+
+test('actual NSIS composition keeps Run and upgrade relaunch in private/stable/dev and removes them only for runAfterFinish:false',
   { skip: process.platform !== 'win32' }, async t => {
     const source = fs.readFileSync('build/installer.nsh', 'utf8')
+    // The private build launches exactly like 2.1.12 (user request 2026-09-29:
+    // an upgrade must start Orgtree by itself instead of stopping on Finish).
     for (const [name, config] of [['private', privateAlphaConfig(pkg.build)], ['stable', pkg.build],
-      ['dev', devPackagingConfig(pkg.build, '2.1.10-dev.gabcdef1234')]]) {
+      ['dev', devPackagingConfig(pkg.build, '2.1.10-dev.gabcdef1234')], ['no-launch', noLaunchConfig()]]) {
       const { output, hidden } = await preprocessInstaller(t, source, config, name)
-      assert.equal(hidden, name === 'private')
+      assert.equal(hidden, name === 'no-launch', `${name}: HIDE_RUN_AFTER_FINISH`)
       if (hidden) assertNoInstallerLaunch(output)
       else {
         for (const callback of ['orgtreeFinishPageRun', 'orgtreePrepareUpgradeRelaunch',
@@ -139,15 +149,15 @@ test('actual NSIS composition removes private Run and upgrade relaunch while ret
 test('NSIS no-launch discriminator catches the reviewed unguarded composition',
   { skip: process.platform !== 'win32' }, async t => {
     const source = fs.readFileSync('build/installer.nsh', 'utf8')
-    // Disable only the new guards: this restores f1's generated behavior while
+    // Disable only the guards: this restores f1's generated behavior while
     // keeping runAfterFinish:false and the same real builder + MUI composition.
     const unguarded = source.replaceAll('!ifndef HIDE_RUN_AFTER_FINISH', '!ifndef FIXTURE_DISABLED_NO_LAUNCH_GUARD')
     assert.notEqual(unguarded, source, 'negative control must actually remove the protection')
-    const { output, hidden } = await preprocessInstaller(t, unguarded, privateAlphaConfig(pkg.build), 'unguarded')
+    const { output, hidden } = await preprocessInstaller(t, unguarded, noLaunchConfig(), 'unguarded')
     assert.equal(hidden, true)
     assert.ok(/Call ["']?orgtreeFinishPageRun\b/.test(output), 'negative control must expose the real MUI Run callback')
     assert.match(output, /Call orgtreeScheduleUpgradeRelaunch\b/)
-    assert.throws(() => assertNoInstallerLaunch(output), /private installer/)
+    assert.throws(() => assertNoInstallerLaunch(output), /no-launch installer/)
   })
 
 test('default command only describes the exact private plan and rejects publication flags', () => {
@@ -181,7 +191,8 @@ test('real electron-builder validation and provider resolution disable every pub
   assert.equal(config.appId, RELEASE_IDENTITY.appId)
   assert.equal(config.extraMetadata.version, VERSION)
   assert.equal(config.artifactName, INSTALLER)
-  assert.equal(config.nsis.runAfterFinish, false)
+  assert.equal(config.nsis.runAfterFinish, pkg.build.nsis.runAfterFinish)
+  assert.notEqual(config.nsis.runAfterFinish, false)
   assert.equal(config.nsis.include, 'build/installer.nsh')
   const prior = process.env.GH_TOKEN
   process.env.GH_TOKEN = 'fixture-only-no-network'

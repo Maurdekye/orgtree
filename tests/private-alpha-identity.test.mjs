@@ -73,9 +73,12 @@ test("the 3.0.0-alpha.0 installer IS 2.1.12's installation: it upgrades it in pl
   for (const [k, v] of Object.entries(V2112.nsis)) assert.equal(config.nsis[k], v, `nsis.${k}`)
   assert.deepEqual({ appId: RELEASE_IDENTITY.appId, productName: RELEASE_IDENTITY.productName,
     nsis: { ...RELEASE_IDENTITY.nsis } }, V2112)
-  // What differs from a stable release: no launch at the finish page, no
-  // publication, its own output folder and installer name, its version.
-  assert.equal(config.nsis.runAfterFinish, false)
+  // Launch behaviour is 2.1.12's too: an upgrade starts Orgtree by itself and
+  // a fresh install keeps the Run box (user request 2026-09-29).
+  assert.equal(config.nsis.runAfterFinish, V2112.nsis.runAfterFinish)
+  assert.notEqual(config.nsis.runAfterFinish, false)
+  // What differs from a stable release: no publication, its own output folder
+  // and installer name, its version.
   assert.equal(config.publish, null)
   assert.notEqual(config.directories.output, pkg.build.directories.output)
 })

@@ -38,10 +38,17 @@ export function privateAlphaConfig(build) {
   config.publish = null
   config.win = { ...config.win, target: ['nsis'], publish: null }
   // 2.1.12's NSIS settings as they are (stable installer.nsh: the in-place
-  // upgrade, the all-users boot-engine task, shortcuts), with no launch at the
-  // finish page (electron-builder then defines HIDE_RUN_AFTER_FINISH, which
-  // installer.nsh honours).
-  config.nsis = { ...config.nsis, publish: null, artifactName: PRIVATE_ALPHA_INSTALLER, runAfterFinish: false }
+  // upgrade, the all-users boot-engine task, shortcuts), INCLUDING its launch:
+  // an accepted Upgrade starts Orgtree by itself once Setup closes, and a fresh
+  // install keeps the ticked "Run Orgtree" box on the Finish page. Both launch
+  // through StdUtils.ExecShellAsUser, which starts Orgtree as the signed-in
+  // user rather than with the installer's elevation (PostgreSQL refuses to run
+  // as an administrator). The user asked for this on 2026-09-29, after the
+  // first v3 build (built with runAfterFinish: false) stopped on a Finish page
+  // without starting Orgtree.
+  // runAfterFinish is left as package.json has it (unset, like 2.1.12: the
+  // default true), so HIDE_RUN_AFTER_FINISH is not defined.
+  config.nsis = { ...config.nsis, publish: null, artifactName: PRIVATE_ALPHA_INSTALLER }
   config.extraMetadata = { ...config.extraMetadata, version: PRIVATE_ALPHA_VERSION }
   config.generateUpdatesFilesForAllChannels = false
   config.npmRebuild = false
