@@ -488,6 +488,9 @@ class NoticesRuntimeView(unittest.TestCase):
             if slug != self.slug:
                 raise RuntimeError('corrupt org')
             return real(slug, *a, **k)
+        # every org must really be read on this poll: orgs left cached (and
+        # unchanged) by earlier cases would be answered without a load
+        dn._cache.clear()
         with patch.object(dn, '_RUNTIME_VIEWS', True), \
                 patch.object(store, 'load_runtime_org', flaky):
             out = dn.notices(limit=10_000)

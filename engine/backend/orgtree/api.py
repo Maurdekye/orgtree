@@ -5118,6 +5118,11 @@ async def providers_info(force: bool = False,
     providers and reporting a successful login as failed."""
     from fastapi.concurrency import run_in_threadpool
 
+    if not force:
+        cached = _providers_cached()
+        if cached is not None:
+            return cached
+    key = _providers_cache_key()      # read BEFORE composing (see _providers_keep)
     payload = await run_in_threadpool(_providers_payload, force, force_provider)
     if force:
         # ⚠ HOOKED ON THE ROUTE, NOT INSIDE `_providers_payload`. A forced read
@@ -5127,7 +5132,60 @@ async def providers_info(force: bool = False,
         # cache's OWN read invalidate the cache it was filling, so one forced
         # login check ran discovery twice.
         registry.availability_changed("provider sign-in state re-read")
+        # this document IS the re-read sign-in state, so it may carry the
+        # generation it just moved -- but NOT a preference write that landed
+        # while it was composing: that counter stays the one read before
+        from . import staffcache
+        key = (key[0], staffcache.generation())
+    _providers_keep(key, payload)
     return payload
+
+
+#: GET /api/providers is answered from the last composed document for up to
+#: this long (N1000 read shortcuts: ~10 desk polls a second, each a trip
+#: through the shared 40-worker pool, p50 52 ms / p95 291 ms for a 2 ms
+#: compose). The document's own inputs already cache for 60 s (CLI install
+#: state, codex/antigravity status); this adds at most these seconds.
+#: Dropped at once by a preference write (`_providers_invalidate`) and by
+#: anything `registry.availability_changed` announces (staffcache generation);
+#: a forced read (the login flow's check) never reads it and refills it.
+PROVIDERS_CACHE_S = 2.0
+_providers_lock = threading.Lock()
+_providers_writes = 0
+_providers_doc: tuple[tuple[int, int], float, dict[str, Any]] | None = None
+
+
+def _providers_cache_key() -> tuple[int, int]:
+    from . import staffcache
+    with _providers_lock:
+        return (_providers_writes, staffcache.generation())
+
+
+def _providers_cached() -> dict[str, Any] | None:
+    key = _providers_cache_key()
+    with _providers_lock:
+        doc = _providers_doc
+    if doc is None or doc[0] != key or time.monotonic() - doc[1] >= PROVIDERS_CACHE_S:
+        return None
+    return doc[2]
+
+
+def _providers_keep(key: tuple[int, int], payload: dict[str, Any]) -> None:
+    """Keep `payload` only if nothing invalidated since `key` was read before
+    composing it: a document composed across a preference write is served
+    once, to its own caller, and never again."""
+    global _providers_doc
+    if key != _providers_cache_key():
+        return
+    with _providers_lock:
+        _providers_doc = (key, time.monotonic(), payload)
+
+
+def _providers_invalidate() -> None:
+    global _providers_writes, _providers_doc
+    with _providers_lock:
+        _providers_writes += 1
+        _providers_doc = None
 
 
 class ProviderPreference(Body):
@@ -5155,6 +5213,8 @@ async def provider_preference(
             appsettings.set_provider_enabled, provider_id, body.enabled)
     except (appsettings.AppSettingsUnreadable, OSError) as e:
         raise HTTPException(500, str(e)) from e
+    finally:
+        _providers_invalidate()
     return await run_in_threadpool(_providers_payload)
 
 
@@ -5173,6 +5233,8 @@ async def provider_apikey_fallback(provider_id: str,
         raise HTTPException(404, str(e))
     except (appsettings.AppSettingsUnreadable, OSError) as e:
         raise HTTPException(500, str(e)) from e
+    finally:
+        _providers_invalidate()
     return await run_in_threadpool(_providers_payload)
 
 
@@ -5192,6 +5254,8 @@ async def provider_subscription_inference(provider_id: str,
         raise HTTPException(404, str(e))
     except (appsettings.AppSettingsUnreadable, OSError) as e:
         raise HTTPException(500, str(e)) from e
+    finally:
+        _providers_invalidate()
     return await run_in_threadpool(_providers_payload)
 
 
@@ -7768,6 +7832,19 @@ def _bounded_work_response(slug: str, kind: str, backlogged: bool = False,
 async def _work_foreground_route(slug: str, backlogged: int = 0,
                                   request: Request = cast(Request, None), archive_limit: int = 0) -> Any:
     since = request.headers.get('if-none-match', '') if request else ''
+    if since and not archive_limit:
+        # An unchanged poll is answered by ONE statement on a small pool of
+        # its own, not behind the org tree's reads on the desk limiter (N1000:
+        # 82% of these polls were 304s, p95 365 ms). Any doubt runs the full
+        # path below, which decides exactly as before.
+        from . import worklist
+        loop = asyncio.get_running_loop()
+        limiter = _ui_check_limiters.setdefault(loop, anyio.CapacityLimiter(UI_CHECK_THREADS))
+        if await anyio.to_thread.run_sync(partial(
+                worklist.foreground_unchanged, slug, backlogged=bool(backlogged),
+                since=since), limiter=limiter):
+            return Response(status_code=304, headers={
+                'Cache-Control': 'private, no-cache', 'ETag': since.strip()})
     return await _run_ui_read(_bounded_work_response, slug, 'foreground',
                               bool(backlogged), 50, '', '', since, archive_limit)
 
@@ -12155,6 +12232,12 @@ _ui_read_limiters: Any = weakref.WeakKeyDictionary()
 
 #: Worker threads the desk's polled reads may hold at once (#5, scale gate).
 UI_READ_THREADS = 8
+
+_ui_check_limiters: Any = weakref.WeakKeyDictionary()
+#: Worker threads for one-statement "has it changed?" checks answered before
+#: a desk read (the docket list's 304): kept apart from UI_READ_THREADS so a
+#: burst of tree reads cannot queue them.
+UI_CHECK_THREADS = 4
 
 
 async def _run_ui_read(function: Any, *args: Any) -> Any:

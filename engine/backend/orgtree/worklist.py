@@ -188,8 +188,60 @@ def etag(ctx, org_slug, backlogged):
     passed = q.raw.execute(
         f"SELECT count(*) FROM {q.schema}.work_read_policy "
         "WHERE location='active' AND deadline < %s", (q.now,)).fetchone()[0]
-    return '"f' + work_ui._hash([_ETAG_EPOCH, FORMAT, org_slug, q.org_id, q.viewer,
-                                 bool(backlogged), q.catalog, int(passed)]) + '"'
+    return _etag(org_slug, q.org_id, q.viewer, backlogged, q.catalog, passed)
+
+
+def _etag(org_slug, org_id, viewer, backlogged, catalog, passed):
+    return '"f' + work_ui._hash([_ETAG_EPOCH, FORMAT, org_slug, int(org_id), viewer,
+                                 bool(backlogged), [int(c) for c in catalog],
+                                 int(passed)]) + '"'
+
+
+def foreground_unchanged(slug, *, backlogged=False, since='', now_ts=None):
+    """True only when `since` is the plain foreground's CURRENT validator, read
+    in ONE statement (one snapshot) instead of the ~17 of the full conditional
+    path: the same health gates Snapshot and Context check, the same three
+    catalog revisions and the same passed-deadline count, hashed by the same
+    `_etag`. Anything else -- a gate closed, a table missing, any error --
+    is False, and the caller runs the full path, which decides exactly as
+    before (N1000 read shortcuts: 82% of desk docket polls were 304s that
+    still paid the whole snapshot setup)."""
+    since = since.strip()
+    if not since.startswith('"f') or store.STORE_BACKEND != 'postgres':
+        return False
+    try:
+        slug = store._safe_slug(slug)
+        if not os.path.exists(store._db_path(slug)):
+            return False
+        now = time.time() if now_ts is None else now_ts
+        with store._POOL.acquire(slug) as conn:
+            if conn.in_transaction:
+                return False
+            conn.use()
+            s = f'org_{int(conn.org_id)}'
+            row = conn.raw.execute(
+                f"SELECT EXISTS(SELECT 1 FROM {s}.meta WHERE key='schema_version'), "
+                f"i.format='orgtree.work-index/v1' AND i.valid, i.revision, "
+                f"r.ready AND r.initialized AND NOT r.questions_dirty "
+                f"AND r.format='orgtree.work-access/v1' "
+                f"AND NOT EXISTS(SELECT 1 FROM {s}.work_read_dirty), r.revision, "
+                f"l.initialized AND l.ready AND l.format=%s "
+                f"AND NOT EXISTS(SELECT 1 FROM {s}.work_list_dirty), l.revision, "
+                # a scalar subquery, not EXISTS: EXISTS drops ORDER BY/LIMIT and
+                # with them the partial index (a seq scan of every summary)
+                f"(SELECT 1 FROM {s}.work_index WHERE {workquery._UNSUPPORTED_ROW}) IS NULL, "
+                f"NOT EXISTS(SELECT 1 FROM {s}.doc WHERE key IN ('nodes','work_scope_log') LIMIT 1), "
+                f"(SELECT count(*) FROM {s}.work_read_policy "
+                f"WHERE location='active' AND deadline < %s) "
+                f"FROM {s}.work_index_state i, {s}.work_read_state r, {s}.work_list_state l "
+                f"WHERE i.singleton AND r.singleton AND l.singleton",
+                (worklistmeta.FORMAT, now)).fetchone()
+            org_id = int(conn.org_id)
+    except Exception:                                            # noqa: BLE001
+        return False      # the full path reports it, exactly as before
+    if not row or not all(row[k] for k in (0, 1, 3, 5, 7, 8)):
+        return False
+    return since == _etag(slug, org_id, USER, backlogged, [row[2], row[4], row[6]], row[9])
 
 
 def foreground_conditional(slug, viewer=USER, *, backlogged=False, since='', now_ts=None):

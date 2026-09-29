@@ -25,6 +25,8 @@ _ORDER = "coalesce(nullif(i.summary->>'docket_at',''),i.summary->>'updated_at','
 _UNSUPPORTED = """summary->'_query'->>'format' IS DISTINCT FROM 'orgtree.work-query/v1'
  OR summary->'_query'->>'legacy_identity' IS DISTINCT FROM 'false'
  OR summary->'_query'->>'order_supported' IS DISTINCT FROM 'true'"""
+#: One unsupported row, if any, through the work_query_unsupported partial index.
+_UNSUPPORTED_ROW = f"({_UNSUPPORTED}) ORDER BY slug LIMIT 1"
 
 
 class CompatibilityRequired(RuntimeError):
@@ -94,7 +96,10 @@ class Snapshot:
         if not state:
             raise CompatibilityRequired('docket access metadata unavailable')
         # Partial index contains only unsupported rows, not all historical names.
-        if raw.execute(f'SELECT 1 FROM {self.schema}.work_index WHERE {_UNSUPPORTED} LIMIT 1').fetchone():
+        # ORDER BY slug is what makes the planner use it (work_query_unsupported
+        # is ON (slug)): without it the plan was a seq scan of every summary,
+        # 11 ms / 6634 buffers per docket read for 933 items (N1000 read shortcuts).
+        if raw.execute(f'SELECT 1 FROM {self.schema}.work_index WHERE {_UNSUPPORTED_ROW}').fetchone():
             raise CompatibilityRequired('docket identity/order metadata requires exact reader')
         revision = raw.execute(f'SELECT revision FROM {self.schema}.work_index_state WHERE singleton').fetchone()[0]
         self.catalog = [int(revision), int(state[0])]

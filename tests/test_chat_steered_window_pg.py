@@ -58,14 +58,22 @@ class SteeredWindow(unittest.TestCase):
                     for k in range(old_steers)]
                    + [(stamp(0, 2 * i + 1), f'steer {i}') for i in range(0, 30, 3)])
 
-    def reads(self, want=8):
-        """(bounded read, fetched steered rows, full read) from fresh Orgs."""
+    def errors(self, entries):
+        org = store.load_org(self.org.d['slug'])
+        log = org.d.setdefault('turn_error_log', {}).setdefault('agent', [])
+        for at, text in entries:
+            log.append({'at': at, 'text': text})
+        store.save_org(org)
+
+    def reads(self, want=8, sect='steered_log'):
+        """(bounded read, fetched `sect` rows, full read) from fresh Orgs."""
         fetched = []
         original = store.log_owner_tail
 
-        def counted(*a, **k):
-            result = original(*a, **k)
-            fetched.append(None if result is None else len(result[0]))
+        def counted(d, section, *a, **k):
+            result = original(d, section, *a, **k)
+            if section == sect:
+                fetched.append(None if result is None else len(result[0]))
             return result
         slug = self.org.d['slug']
         with patch.object(store, 'log_owner_tail', side_effect=counted), \
@@ -80,8 +88,8 @@ class SteeredWindow(unittest.TestCase):
 
     @staticmethod
     def forbid_steered_owner_load(self_map, owner):
-        if self_map._sect == 'steered_log':
-            raise AssertionError('the windowed read loaded the whole steered_log owner')
+        if self_map._sect in ('steered_log', 'turn_error_log'):
+            raise AssertionError(f'the windowed read loaded the whole {self_map._sect} owner')
         return SteeredWindow._load_owner(self_map, owner)
 
     def comparable(self, out):
@@ -175,7 +183,7 @@ class SteeredWindow(unittest.TestCase):
         bounded, fetched, full = self.reads()
         self.assertEqual(self.comparable(bounded), self.comparable(full))
         self.assertTrue(any('recent steer' in m['text'] for m in bounded['messages']), 'control')
-        self.assertEqual(fetched[:1], [8 + sup._STEERED_WINDOW_SLACK], 'bounded path really used')
+        self.assertEqual(fetched[:1], [8 + sup._STEERED_FIRST_SLACK], 'bounded path really used')
 
     def plan_nodes(self, limit):
         """The executed plan of log_owner_tail's OWN statement and parameters."""
@@ -233,6 +241,94 @@ class SteeredWindow(unittest.TestCase):
             scanned[old] = scans[0]['Actual Rows']
             self.assertLessEqual(scanned[old], limit + 1)
         self.assertEqual(scanned[300], scanned[3000], f'rows scanned must be flat 1x vs 10x: {scanned}')
+
+    def test_a_failed_small_slack_retries_with_the_full_slack_not_the_whole_log(self):
+        # the first (small) attempt's floor lands in the window; the second,
+        # with the full slack, clears it: two bounded reads, no whole-log read
+        self.write([self.rec(2 * i) for i in range(4)])
+        self.steer([(stamp(10, k), f'late steer {k}') for k in range(40)])
+        calls = []
+        original = sup._synthetic_chat_rows
+
+        def full_rows(*a, **k):
+            calls.append(1)
+            return original(*a, **k)
+        fetched = []
+        tail = store.log_owner_tail
+
+        def counted(d, section, *a, **k):
+            result = tail(d, section, *a, **k)
+            if section == 'steered_log':
+                fetched.append(None if result is None else len(result[0]))
+            return result
+        slug = self.org.d['slug']
+        with patch.object(sup, '_STEERED_FIRST_SLACK', 0), \
+             patch.object(sup, '_synthetic_chat_rows', side_effect=full_rows), \
+             patch.object(store, 'log_owner_tail', side_effect=counted):
+            bounded = chat_window.read_window(store.load_org(slug), 'agent', 8)
+        with patch.object(store, 'log_owner_tail', return_value=None):
+            full = chat_window.read_window(store.load_org(slug), 'agent', 8)
+        self.assertEqual(calls, [], 'no whole-log read')
+        self.assertEqual(fetched, [8, 8 + sup._STEERED_WINDOW_SLACK])
+        self.assertEqual(self.comparable(bounded), self.comparable(full))
+
+    # ---- turn errors (N1000 read shortcuts): the same bounded tail ----------
+    def test_turn_errors_are_a_bounded_tail_equal_to_the_full_read(self):
+        self.fixture_rows()
+        self.errors([(f'2026-09-10T10:{k // 60:02d}:{k % 60:02d}Z', f'old error {k}') for k in range(200)]
+                  + [(stamp(0, 2 * i + 1), f'recent error {i}') for i in range(1, 30, 5)])
+        bounded, fetched, full = self.reads(sect='turn_error_log')
+        self.assertEqual(self.comparable(bounded), self.comparable(full))
+        self.assertTrue(any('recent error' in m['text'] for m in bounded['messages']),
+                        'control: turn errors interleave inside the window')
+        self.assertEqual(len(fetched), 1)
+        self.assertLessEqual(fetched[0], 8 + sup._STEERED_WINDOW_SLACK,
+                             '206 turn errors exist; the read fetches a bounded tail')
+        self.assertTrue(bounded['has_older'])
+        self.assertFalse(any(sup._WINDOW_FLOOR in m for m in bounded['messages']))
+
+    def test_window_reaching_the_oldest_fetched_turn_error_falls_back_exactly(self):
+        self.write([self.rec(2 * i) for i in range(4)])
+        self.errors([(stamp(10, k), f'late error {k}') for k in range(20)])
+        with patch.object(sup, '_STEERED_WINDOW_SLACK', 0):
+            calls = []
+            original = sup._synthetic_chat_rows
+
+            def full_rows(*a, **k):
+                calls.append(1)
+                return original(*a, **k)
+            slug = self.org.d['slug']
+            with patch.object(sup, '_synthetic_chat_rows', side_effect=full_rows):
+                bounded = chat_window.read_window(store.load_org(slug), 'agent', 8)
+            with patch.object(store, 'log_owner_tail', return_value=None):
+                full = chat_window.read_window(store.load_org(slug), 'agent', 8)
+        self.assertEqual(calls, [1], 'control: the guard really fell back')
+        self.assertEqual(self.comparable(bounded), self.comparable(full))
+
+    def test_both_logs_truncated_need_both_floors_below_the_window(self):
+        # Old steers and old errors, newest rows alternating between the two
+        # logs: each truncated log's floor is checked on its own.
+        self.write([self.rec(2 * i) for i in range(30)])
+        self.steer([(f'2026-09-10T11:{k // 60:02d}:{k % 60:02d}Z', f'old steer {k}') for k in range(50)]
+                   + [(stamp(0, 4 * i + 1), f'steer {i}') for i in range(15)])
+        self.errors([(f'2026-09-10T10:{k // 60:02d}:{k % 60:02d}Z', f'old error {k}') for k in range(50)]
+                  + [(stamp(0, 4 * i + 3), f'error {i}') for i in range(15)])
+        for slack in (0, 2, sup._STEERED_WINDOW_SLACK):
+            with patch.object(sup, '_STEERED_WINDOW_SLACK', slack):
+                bounded, _, full = self.reads()
+            self.assertEqual(self.comparable(bounded), self.comparable(full), slack)
+            self.assertTrue(any('error' in m['text'] for m in bounded['messages']), 'control')
+            self.assertTrue(any('steer' in m['text'] for m in bounded['messages']), 'control')
+
+    def test_turn_error_tail_orders_by_at_then_append_like_the_merge(self):
+        self.write([self.rec(2 * i) for i in range(30)])
+        self.errors([(stamp(0, 2 * i + 1), f'recent error {i}') for i in range(15, 30)])
+        self.errors([(f'2026-09-10T11:{k // 60:02d}:{k % 60:02d}Z', f'late-appended old error {k}')
+                   for k in range(60)] + [(None, 'no timestamp')])
+        bounded, fetched, full = self.reads(sect='turn_error_log')
+        self.assertEqual(self.comparable(bounded), self.comparable(full))
+        self.assertTrue(any('recent error' in m['text'] for m in bounded['messages']), 'control')
+        self.assertEqual(fetched[:1], [8 + sup._STEERED_FIRST_SLACK], 'bounded path really used')
 
     def test_older_page_from_the_bounded_cursor_is_unchanged(self):
         self.fixture_rows(old_steers=40)

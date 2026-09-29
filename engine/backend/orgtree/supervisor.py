@@ -2928,24 +2928,32 @@ def _synthetic_chat_rows(org: Org, nid: str) -> list[dict[str, Any]]:
     return rows + _turn_error_chat_rows(org, nid)
 
 
-def _turn_error_chat_rows(org: Org, nid: str) -> list[dict[str, Any]]:
+def _turn_error_chat_rows(org: Org, nid: str,
+                          entries: list[Any] | None = None) -> list[dict[str, Any]]:
     return [{"role": "system", "text": "⚠ " + (e.get("text") or ""),
              "tools": [], "ts": e.get("at"), "turn_error": True}
-            for e in (org.d.get("turn_error_log") or {}).get(nid, [])]
+            for e in ((org.d.get("turn_error_log") or {}).get(nid, [])
+                      if entries is None else entries)]
 
 
 #: steered rows fetched beyond the visible window, so assistant reconciliation
 #: dropping a few rows cannot pull an unfetched older steer into the window
 _STEERED_WINDOW_SLACK = 16
+#: the slack tried FIRST (N1000 read shortcuts: a seeded agent's steered row is
+#: ~4.7 KB, so 16 spare rows were 75 KB of a 117 KB read); a window whose
+#: floor check fails with it is retried with _STEERED_WINDOW_SLACK before the
+#: whole-log read
+_STEERED_FIRST_SLACK = 4
 #: private marker on the oldest fetched steered row during a bounded assembly;
 #: removed before any row is identified or published
 _WINDOW_FLOOR = "_window_floor"
 
 
-def _synthetic_chat_tail(org: Org, nid: str,
-                         window: int) -> tuple[list[dict[str, Any]], bool] | None:
+def _synthetic_chat_tail(org: Org, nid: str, window: int,
+                         slack: int | None = None) -> tuple[list[dict[str, Any]], int] | None:
     """The synthetic rows that can reach the newest `window` rows of a
-    timestamp-ordered merge, and whether older steered rows were left out.
+    timestamp-ordered merge, and how many of the two logs (steered, turn
+    errors) had older rows left out (0-2).
 
     A node's steered_log keeps every mid-turn message it was ever sent, so the
     windowed desk read must not load all of it (desk-chat-read-loads-the-
@@ -2953,14 +2961,29 @@ def _synthetic_chat_tail(org: Org, nid: str,
     append order) can rank inside the window; the store returns those plus
     slack in one index-bounded statement (O(window) rows read on the server
     too, however long the log). turn_error rows are appended after, as in
-    `_synthetic_chat_rows`. None: use `_synthetic_chat_rows` (not the PG row
-    store, or the owner is resident/modified in this Org)."""
+    `_synthetic_chat_rows`, and are bounded the same way (an agent's turn
+    errors were read whole on every desk poll: N1000 read shortcuts); the
+    oldest fetched row of each truncated log is the floor the window must
+    clear. None: use `_synthetic_chat_rows` (not the PG row store, or an
+    owner is resident/modified in this Org)."""
     from . import store
-    tail = store.log_owner_tail(org.d, "steered_log", nid, window + _STEERED_WINDOW_SLACK)
+    limit = window + (_STEERED_WINDOW_SLACK if slack is None else slack)
+    tail = store.log_owner_tail(org.d, "steered_log", nid, limit)
     if tail is None:
         return None
-    entries, older = tail
-    return [_steered_chat_row(e) for e in entries] + _turn_error_chat_rows(org, nid), older
+    # No bounded turn-error tail (no such section yet, or held whole here):
+    # those rows are read whole, exactly as before, and nothing is omitted.
+    errors = store.log_owner_tail(org.d, "turn_error_log", nid, limit) or (None, False)
+    steered = [_steered_chat_row(e) for e in tail[0]]
+    failed = _turn_error_chat_rows(org, nid, errors[0])
+    for rows, older in ((steered, tail[1]), (failed, errors[1])):
+        if older and rows:
+            # The oldest-ranked fetched row of a log that left older rows out
+            # (reconciliation copies rows, so it is found again by this key,
+            # never by identity).
+            floor = min(range(len(rows)), key=lambda i: (str(rows[i].get("ts") or ""), i))
+            rows[floor] = {**rows[floor], _WINDOW_FLOOR: True}
+    return steered + failed, int(tail[1]) + int(errors[1])
 
 
 def _visible_unresolved(source: dict[str, Any], org: Org, nid: str,
@@ -3072,14 +3095,18 @@ def _assemble_chat(org: Org, nid: str, last: int | None,
     read_window's transcript_records.order assigns every row's final seq."""
     base = cast("list[dict[str, Any]]", source["messages"])
     withheld = _visible_unresolved(source, org, nid, hold_back)
-    tail = (_synthetic_chat_tail(org, nid, window)
-            if window and last is None and source.get("monotonic") and not withheld
-            else None)
-    if tail is not None:
-        out = _assemble_chat_rows(org, nid, last, hold_back, dynamic, source,
-                                  withheld, tail[0], int(tail[1]), window)
-        if out is not None:
-            return out
+    if window and last is None and source.get("monotonic") and not withheld:
+        # the small slack first, the full slack if its floor check fails, the
+        # whole logs only after both (a failed attempt changes nothing)
+        for slack in dict.fromkeys((min(_STEERED_FIRST_SLACK, _STEERED_WINDOW_SLACK),
+                                    _STEERED_WINDOW_SLACK)):
+            tail = _synthetic_chat_tail(org, nid, window, slack)
+            if tail is None:
+                break
+            out = _assemble_chat_rows(org, nid, last, hold_back, dynamic, source,
+                                      withheld, tail[0], int(tail[1]), window)
+            if out is not None:
+                return out
     return cast("dict[str, Any]", _assemble_chat_rows(
         org, nid, last, hold_back, dynamic, source, withheld,
         _synthetic_chat_rows(org, nid), 0, None))
@@ -3095,12 +3122,6 @@ def _assemble_chat_rows(org: Org, nid: str, last: int | None, hold_back: bool,
     stays below the window), so the caller can redo it with the full list."""
     base = cast("list[dict[str, Any]]", source["messages"])
     total = len(base) - len(withheld) + len(synthetic)
-    if omitted:
-        # Mark the oldest-ranked fetched steered row: reconciliation copies
-        # rows, so it is found again by this key, never by identity.
-        steered = [i for i, m in enumerate(synthetic) if m.get("steered") or m.get("steer_fold")]
-        floor = min(steered, key=lambda i: (str(synthetic[i].get("ts") or ""), i))
-        synthetic[floor] = {**synthetic[floor], _WINDOW_FLOOR: True}
 
     want = last if last is not None and last > 0 else None
     if source.get("monotonic"):
@@ -3144,12 +3165,15 @@ def _assemble_chat_rows(org: Org, nid: str, last: int | None, hold_back: bool,
     if want is not None:
         selected = selected[-want:]
     if omitted:
-        # The oldest-ranked fetched steered row must sit below the window: then
-        # every omitted (older) steered row does too, and the window is exact.
-        position = next((j for j, m in enumerate(selected) if m.get(_WINDOW_FLOOR)), None)
-        if position is None or position >= len(selected) - cast(int, window):
+        # Every log's oldest-ranked fetched row must sit below the window: then
+        # every omitted (older) row does too, and the window is exact.
+        marked = sum(1 for m in synthetic if m.get(_WINDOW_FLOOR))
+        positions = [j for j, m in enumerate(selected) if m.get(_WINDOW_FLOOR)]
+        if len(positions) != marked or any(
+                j >= len(selected) - cast(int, window) for j in positions):
             return None
-        selected[position] = {k: v for k, v in selected[position].items() if k != _WINDOW_FLOOR}
+        for j in positions:
+            selected[j] = {k: v for k, v in selected[j].items() if k != _WINDOW_FLOOR}
     seq0 = max(0, total - len(selected))
     messages = []
     for i, row in enumerate(selected):

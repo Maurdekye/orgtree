@@ -6870,14 +6870,23 @@ def mail_archive_append(d: dict[str, Any], owner: str, row: Any) -> bool:
     return True
 
 
-#: Sections whose owner tail has an index matching `_LOG_TAIL_SQL` (see
-#: pg_migrations/0016_steered_log_tail.sql); any other section answers None.
-LOG_TAIL_SECTIONS = frozenset({"steered_log"})
+#: Sections whose owner tail `log_owner_tail` serves; any other section
+#: answers None.
+LOG_TAIL_SECTIONS = frozenset({"steered_log", "turn_error_log"})
 #: Served by ix_log_d_steered_tail: an index scan that stops after LIMIT rows,
 #: however many rows the owner has. The literal section keeps the partial
 #: index usable; the ORDER BY expression is the index expression verbatim.
 _LOG_TAIL_SQL = ("SELECT seq, val FROM log_d WHERE sect='steered_log' AND owner=? "
                  "ORDER BY COALESCE(at, '') COLLATE \"C\" DESC, seq DESC LIMIT ?")
+#: The same order for one agent's turn errors, found by ix_log_d (sect, owner,
+#: seq) and top-N sorted on the server: an agent has far fewer turn errors than
+#: steered rows, and this saves shipping all of them to every desk chat poll
+#: (156 rows / 44 KB for one agent on the live org copy; N1000 read shortcuts).
+_LOG_TAIL_SQLS = {
+    "steered_log": _LOG_TAIL_SQL,
+    "turn_error_log": ("SELECT seq, val FROM log_d WHERE sect='turn_error_log' AND owner=? "
+                       "ORDER BY COALESCE(at, '') COLLATE \"C\" DESC, seq DESC LIMIT ?"),
+}
 
 
 def log_owner_tail(d: dict[str, Any], sect: str, owner: str,
@@ -6904,6 +6913,8 @@ def log_owner_tail(d: dict[str, Any], sect: str, owner: str,
     if sect in d._snap_doc or sect in d._dropped:
         return None
     section = d.get(sect)
+    if section is None and sect not in d:
+        return [], False                # no such section: no entries, exactly
     if (not isinstance(section, SectionMap) or dict.__contains__(section, owner)
             or owner in section._dropped or owner in section._replaced
             or section._appends.get(owner)):
@@ -6914,7 +6925,7 @@ def log_owner_tail(d: dict[str, Any], sect: str, owner: str,
 
     def body(conn: sqlite3.Connection) -> list[tuple[int, str]]:
         return [(int(seq), str(val)) for seq, val in conn.execute(
-            _LOG_TAIL_SQL, (owner, cap + 1)).fetchall()]
+            _LOG_TAIL_SQLS[sect], (owner, cap + 1)).fetchall()]
     rows = _bounded_read(d._slug, body)
     if rows is None:
         return None
