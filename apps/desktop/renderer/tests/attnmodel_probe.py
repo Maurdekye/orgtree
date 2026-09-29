@@ -9,7 +9,9 @@ delivers. The tier chip (`.tier.t-<tier>`) is read before and after in:
 
   D. the desk in the right panel (header chip)
   A. the agents list row
-  C. (control) the canvas card, on the canvas scene
+Each is first checked to read opus (the control: the selector found the chip).
+Measured 2026-09-29 at v3 6ce97dc: both switch at once. The Attention view is
+not the stale part; the tree READ after a save was (apptreestale.test.tsx).
 
     cd apps/desktop/renderer
     python tests/attnmodel_probe.py <outdir>
@@ -46,12 +48,11 @@ def main() -> int:
     where = {
         "desk": '.attn-desk .tier[data-copy-agent-name="coordinator"]',
         "list": '.attn-agents .tier[data-copy-agent-name="coordinator"]',
-        "card": '.canvas-world .tier[data-copy-agent-name="coordinator"]',
     }
     with sync_playwright() as pw:
         browser = pw.chromium.launch(channel="msedge")
         ctx = browser.new_context(viewport={"width": 1600, "height": 900})
-        for scene, parts in (("attention", ("desk", "list")), ("canvas", ("card",))):
+        for scene, parts in (("attention", ("desk", "list")),):
             p = ctx.new_page()
             p.on("pageerror", lambda e, s=scene: res.setdefault("pageerrors", []).append(f"{s}: {e}"))
             p.goto(page_url + "#" + scene)
@@ -71,7 +72,7 @@ def main() -> int:
     (out / "result.json").write_text(json.dumps(res, indent=2), encoding="utf-8")
     for k, v in checks.items():
         print(("PASS " if v else "FAIL ") + k)
-    print(json.dumps({k: res[k] for k in ("attention", "canvas")}))
+    print(json.dumps(res["attention"]))
     if res.get("pageerrors"):
         print("page errors:", res["pageerrors"][:3])
     return 0 if checks and all(checks.values()) else 1
