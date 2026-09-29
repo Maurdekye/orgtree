@@ -7237,74 +7237,111 @@ def read_mail_tails(slug: str, nid: str, keep: int, slack: int = 40
     ⚠ The same work-bound caveat as `read_node_history_rows`: the sent
     filter scans the whole `mail_log` section inside SQLite; LIMIT bounds
     output and decode, not the scan. None = fall back."""
+    return cast("tuple[list[Any], list[Any], list[Any], list[Any]] | None",
+                _bounded_read(slug, lambda conn: _mail_tails(conn, nid, keep, slack)))
+
+
+def read_node_inbox(slug: str, nid: str, keep: int, slack: int = 40
+                    ) -> tuple[bool, list[Any], list[Any], list[Any], list[Any]] | None:
+    """Everything GET /nodes/{nid}/inbox needs, from ONE read transaction:
+    (leased, box, delivering, delivered_tail, sent_tail) — `read_mail_tails`
+    plus the node's own row, which answers "does this node exist" and carries
+    the `drive_lease` the delivery stages read.
+
+    WHY (docket v3-agent-inboxes-take-about-a-second-to-open, measured on a
+    PG copy of the live org): the route used to load the whole eager org
+    beside the tails just for those two facts — 28.2 MB read (every `doc`
+    key and every node row) and 250-350 ms per open, against 0.5 MB for the
+    mail itself. One primary-key row replaces it.
+
+    Raises LedgerError("no such node") for a missing node, as `Org.node`
+    does. None = no cheap answer (JSON backend, a `nodes` blob, or a legacy
+    mail blob); the caller loads instead."""
     def body(conn: sqlite3.Connection
-             ) -> tuple[list[Any], list[Any], list[Any], list[Any]] | None:
-        if conn.execute("SELECT 1 FROM doc WHERE key IN "
-                        "('mail_log','user_mail_log') LIMIT 1").fetchone():
+             ) -> tuple[bool, list[Any], list[Any], list[Any], list[Any]] | None:
+        if conn.execute("SELECT 1 FROM doc WHERE key='nodes'").fetchone():
+            return None          # nodes stored as a blob: rows cannot answer
+        row = conn.execute("SELECT val FROM nodes WHERE id=?", (nid,)).fetchone()
+        if row is None:
+            raise LedgerError(f"no such node: {nid!r}")
+        node = json.loads(cast(str, row[0]))
+        tails = _mail_tails(conn, nid, keep, slack)
+        if tails is None:
             return None
-        def owner_list(key: str) -> list[Any]:
-            # PG-3d: the owner's own row, else a pre-split whole-section blob
-            row = conn.execute("SELECT val FROM doc WHERE key=?",
-                               (key + SPLIT_SEP + nid,)).fetchone()
-            if row is not None:
-                v = json.loads(cast(str, row[0]))
-                return list(v) if isinstance(v, list) else []
-            row = conn.execute("SELECT val FROM doc WHERE key=?",
-                               (key,)).fetchone()
-            v = json.loads(cast(str, row[0])) if row is not None else {}
-            return list((v if isinstance(v, dict) else {}).get(nid) or [])
-        box = owner_list("mail")
-        delivering = owner_list("delivering")
-        pending_est = len(box) + sum(len(b.get("mail") or [])
-                                     for b in delivering if isinstance(b, dict))
-        cap = keep + slack + pending_est
-        delivered = [json.loads(cast(str, r[0])) for r in reversed(conn.execute(
-            "SELECT val FROM log_d WHERE sect='mail_log' AND owner=? "
-            "ORDER BY seq DESC LIMIT ?", (nid, cap)).fetchall())]
-        sent: list[Any] = []
-        # tie order is part of the contract: the legacy path walks owners in
-        # DICT ORDER (== MIN(seq) per owner, see `_load_sect_owners`) and each
-        # owner's list in order, then stable-sorts by `at` — so equal-`at`
-        # rows keep (owner position, list position), NOT global insertion seq
-        # (perf-review round 3, equal-time fixture: the wrong last-50). The
-        # join reproduces that composite key inside the capped query.
-        if STORE_BACKEND == "postgres":
-            # Materialize only the indexed capped keys before fetching bodies.
-            # The projection preserves owner/list ties without a global owner
-            # aggregate or sorting all historical rows from this sender.
-            sent_rows = conn.execute(
-                "WITH tail AS MATERIALIZED (SELECT seq,sent_at,owner_pos FROM mail_sent "
-                "WHERE sender=? ORDER BY sent_at DESC,owner_pos DESC,seq DESC LIMIT ?) "
-                "SELECT l.owner,l.val FROM tail CROSS JOIN LATERAL "
-                "(SELECT owner,val FROM log_d WHERE seq=tail.seq LIMIT 1) l "
-                "ORDER BY tail.sent_at DESC,tail.owner_pos DESC,tail.seq DESC",
-                (nid, cap)).fetchall()
-        else:
-            sent_rows = conn.execute(
-                "SELECT l.owner, l.val FROM log_d l JOIN "
-                "(SELECT owner, MIN(seq) AS pos FROM log_d "
-                " WHERE sect='mail_log' GROUP BY owner) o ON o.owner=l.owner "
-                "WHERE l.sect='mail_log' AND json_extract(l.val,'$.from')=? "
-                "ORDER BY COALESCE(json_extract(l.val,'$.at'),'') DESC, "
-                "o.pos DESC, l.seq DESC "
-                "LIMIT ?", (nid, cap)).fetchall()
-        for owner, raw in reversed(sent_rows):
-            sent.append({**json.loads(cast(str, raw)), "to": cast(str, owner)})
-        row = conn.execute("SELECT val FROM doc WHERE key='user_inbox'"
-                           ).fetchone()
+        leased = bool(node.get("drive_lease")) if isinstance(node, dict) else False
+        return (leased, *tails)
+    return cast("tuple[bool, list[Any], list[Any], list[Any], list[Any]] | None",
+                _bounded_read(slug, body))
+
+
+def _mail_tails(conn: sqlite3.Connection, nid: str, keep: int, slack: int
+                ) -> tuple[list[Any], list[Any], list[Any], list[Any]] | None:
+    """The body of `read_mail_tails`, run inside the caller's transaction."""
+    if conn.execute("SELECT 1 FROM doc WHERE key IN "
+                    "('mail_log','user_mail_log') LIMIT 1").fetchone():
+        return None
+    def owner_list(key: str) -> list[Any]:
+        # PG-3d: the owner's own row, else a pre-split whole-section blob
+        row = conn.execute("SELECT val FROM doc WHERE key=?",
+                           (key + SPLIT_SEP + nid,)).fetchone()
         if row is not None:
-            for m in json.loads(cast(str, row[0])) or []:
-                if isinstance(m, dict) and m.get("from") == nid:
-                    sent.append({**m, "to": "@user"})   # ledger.USER
-        for raw, in reversed(conn.execute(
-                "SELECT val FROM log_l WHERE sect='user_mail_log' AND "
-                "json_extract(val,'$.from')=? "
-                "ORDER BY COALESCE(json_extract(val,'$.at'),'') DESC, seq DESC "
-                "LIMIT ?", (nid, cap)).fetchall()):
-            sent.append({**json.loads(cast(str, raw)), "to": "@user"})
-        sent.sort(key=lambda m: m.get("at") or "")
-        return box, delivering, delivered, sent[-cap:]
-    return _bounded_read(slug, body)
+            v = json.loads(cast(str, row[0]))
+            return list(v) if isinstance(v, list) else []
+        row = conn.execute("SELECT val FROM doc WHERE key=?",
+                           (key,)).fetchone()
+        v = json.loads(cast(str, row[0])) if row is not None else {}
+        return list((v if isinstance(v, dict) else {}).get(nid) or [])
+    box = owner_list("mail")
+    delivering = owner_list("delivering")
+    pending_est = len(box) + sum(len(b.get("mail") or [])
+                                 for b in delivering if isinstance(b, dict))
+    cap = keep + slack + pending_est
+    delivered = [json.loads(cast(str, r[0])) for r in reversed(conn.execute(
+        "SELECT val FROM log_d WHERE sect='mail_log' AND owner=? "
+        "ORDER BY seq DESC LIMIT ?", (nid, cap)).fetchall())]
+    sent: list[Any] = []
+    # tie order is part of the contract: the legacy path walks owners in
+    # DICT ORDER (== MIN(seq) per owner, see `_load_sect_owners`) and each
+    # owner's list in order, then stable-sorts by `at` — so equal-`at`
+    # rows keep (owner position, list position), NOT global insertion seq
+    # (perf-review round 3, equal-time fixture: the wrong last-50). The
+    # join reproduces that composite key inside the capped query.
+    if STORE_BACKEND == "postgres":
+        # Materialize only the indexed capped keys before fetching bodies.
+        # The projection preserves owner/list ties without a global owner
+        # aggregate or sorting all historical rows from this sender.
+        sent_rows = conn.execute(
+            "WITH tail AS MATERIALIZED (SELECT seq,sent_at,owner_pos FROM mail_sent "
+            "WHERE sender=? ORDER BY sent_at DESC,owner_pos DESC,seq DESC LIMIT ?) "
+            "SELECT l.owner,l.val FROM tail CROSS JOIN LATERAL "
+            "(SELECT owner,val FROM log_d WHERE seq=tail.seq LIMIT 1) l "
+            "ORDER BY tail.sent_at DESC,tail.owner_pos DESC,tail.seq DESC",
+            (nid, cap)).fetchall()
+    else:
+        sent_rows = conn.execute(
+            "SELECT l.owner, l.val FROM log_d l JOIN "
+            "(SELECT owner, MIN(seq) AS pos FROM log_d "
+            " WHERE sect='mail_log' GROUP BY owner) o ON o.owner=l.owner "
+            "WHERE l.sect='mail_log' AND json_extract(l.val,'$.from')=? "
+            "ORDER BY COALESCE(json_extract(l.val,'$.at'),'') DESC, "
+            "o.pos DESC, l.seq DESC "
+            "LIMIT ?", (nid, cap)).fetchall()
+    for owner, raw in reversed(sent_rows):
+        sent.append({**json.loads(cast(str, raw)), "to": cast(str, owner)})
+    row = conn.execute("SELECT val FROM doc WHERE key='user_inbox'"
+                       ).fetchone()
+    if row is not None:
+        for m in json.loads(cast(str, row[0])) or []:
+            if isinstance(m, dict) and m.get("from") == nid:
+                sent.append({**m, "to": "@user"})   # ledger.USER
+    for raw, in reversed(conn.execute(
+            "SELECT val FROM log_l WHERE sect='user_mail_log' AND "
+            "json_extract(val,'$.from')=? "
+            "ORDER BY COALESCE(json_extract(val,'$.at'),'') DESC, seq DESC "
+            "LIMIT ?", (nid, cap)).fetchall()):
+        sent.append({**json.loads(cast(str, raw)), "to": "@user"})
+    sent.sort(key=lambda m: m.get("at") or "")
+    return box, delivering, delivered, sent[-cap:]
 
 
 def eager_sections(d: dict[str, Any]) -> dict[str, Any]:

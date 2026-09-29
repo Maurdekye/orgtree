@@ -15695,27 +15695,40 @@ def node_inbox(slug: str, nid: str, request: Request = cast(Request, None)) -> d
     # the Org — loaded eager-only for node resolution and the in-memory
     # journal annotations — is OVERLAID with that snapshot's box/journal
     # before anything is derived from it.
+    #
+    # ⚠ NO ORG LOAD ON A ROW BACKEND (docket v3-agent-inboxes-take-about-a-
+    # second-to-open). The Org was loaded only to prove the node exists and
+    # to read its `drive_lease`; on a PG copy of the live org that was 28.2 MB
+    # read and 250-350 ms per open, against 0.5 MB for the mail. The node's
+    # own row now answers both, inside the SAME transaction as the box,
+    # journal and tails. The Org load stays as the fallback for backends and
+    # document shapes the bounded read cannot answer.
     try:
-        tails = (store.read_mail_tails(slug, nid, keep=50)
-                 if store.row_store() else None)
-        org = (store.load_org_snapshot(slug, ())
-               if tails is not None
+        got = (store.read_node_inbox(slug, nid, keep=50)
+               if store.row_store() else None)
+        org = (None if got is not None
                else store.load_org_snapshot(slug, ("mail_log", "user_mail_log")))
-        org.node(nid)
+        if org is not None:
+            org.node(nid)
     except LedgerError as e:
         raise HTTPException(404, str(e))
-    if tails is not None:
-        snap_box, snap_delivering, delivered_src, sent = tails
-        org.d.setdefault("mail", {})[nid] = snap_box
-        org.d.setdefault("delivering", {})[nid] = snap_delivering
-    waiting = sorted(supervisor.delivering_mail(org, nid)
-                     + list((org.d.get("mail") or {}).get(nid, [])),
-                     key=lambda m: m.get("at") or "")
+    if got is not None:
+        leased, snap_box, snap_delivering, delivered_src, sent = got
+        waiting = sorted(supervisor.delivering_rows(slug, nid, snap_delivering,
+                                                    leased=leased)
+                         + list(snap_box),
+                         key=lambda m: m.get("at") or "")
+    else:
+        assert org is not None
+        waiting = sorted(supervisor.delivering_mail(org, nid)
+                         + list((org.d.get("mail") or {}).get(nid, [])),
+                         key=lambda m: m.get("at") or "")
     keys = {(m["at"], m["from"], m["body"]) for m in waiting}
-    if tails is not None:
+    if got is not None:
         delivered = [m for m in delivered_src
                      if (m["at"], m["from"], m["body"]) not in keys]
     else:
+        assert org is not None
         delivered = [m for m in (org.d.get("mail_log") or {}).get(nid, [])
                      if (m["at"], m["from"], m["body"]) not in keys]
         # the node's Sent folder, mirrored from the recipients' archives

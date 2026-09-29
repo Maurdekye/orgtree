@@ -10092,7 +10092,18 @@ def delivering_mail(org: Org, nid: str,
     # admission machinery writes one) OWNS the node's next turn even while
     # nothing is in memory yet — it is the opposite of stranded
     leased = bool((org.nodes.get(nid) or {}).get("drive_lease"))
-    stages = _delivery_stages(org.d["slug"], nid, batches, leased=leased)
+    return delivering_rows(org.d["slug"], nid, batches, leased=leased, shown=shown)
+
+
+def delivering_rows(slug: str, nid: str, batches: list[dict[str, Any]], *,
+                    leased: bool,
+                    shown: Callable[[Mapping[str, Any]], bool] | None = None
+                    ) -> list[dict[str, Any]]:
+    """`delivering_mail` for a caller that already holds the node's journal
+    batches and its `drive_lease` flag, without an Org — the agent inbox route
+    reads both in one bounded transaction (store.read_node_inbox) instead of
+    loading the whole org for them."""
+    stages = _delivery_stages(slug, nid, batches, leased=leased)
     out = []
     for b in batches:
         turn = b.get("via", "steer") == "turn"

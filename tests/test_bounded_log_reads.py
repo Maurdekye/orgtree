@@ -221,6 +221,49 @@ class BoundedLogReads(unittest.TestCase):
         self.assertEqual(delivered[-50:], want)
         self.assertGreaterEqual(len(delivered), 50)
 
+    def test_node_inbox_route_answers_without_loading_the_org(self):
+        """docket v3-agent-inboxes-take-about-a-second-to-open: the route used
+        to load the whole eager org (28 MB on the live-org copy) only to prove
+        the node exists and read its drive_lease. On a row backend it must now
+        answer from the bounded read alone — and answer EXACTLY what the
+        org-loading fallback answers."""
+        if store.STORE_BACKEND != 'sqlite':
+            self.skipTest('sqlite reader only')
+        from unittest import mock
+        from fastapi import HTTPException
+        from orgtree import api
+        for nid in ('alpha', 'beta'):
+            with mock.patch.object(store, 'read_node_inbox', return_value=None):
+                slow = api.node_inbox('bounded', nid)          # the fallback
+            with mock.patch.object(store, 'load_org_snapshot',
+                                   side_effect=AssertionError('org loaded')):
+                fast = api.node_inbox('bounded', nid)
+            self.assertEqual(fast, slow, nid)
+            self.assertTrue(fast['delivered'] or fast['sent'], 'fixture has mail')
+        with mock.patch.object(store, 'load_org_snapshot',
+                               side_effect=AssertionError('org loaded')):
+            with self.assertRaises(HTTPException) as cm:
+                api.node_inbox('bounded', 'nobody')
+        self.assertEqual(cm.exception.status_code, 404)
+        self.assertIn('no such node', str(cm.exception.detail))
+
+    def test_read_node_inbox_carries_drive_lease(self):
+        if store.STORE_BACKEND != 'sqlite':
+            self.skipTest('sqlite reader only')
+        org = store.load_org('bounded')
+        org.nodes['beta']['drive_lease'] = {'tok': 'lease-probe'}
+        store.save_org(org)
+        try:
+            self.assertIs(store.read_node_inbox('bounded', 'beta', keep=50)[0], True)
+            self.assertIs(store.read_node_inbox('bounded', 'alpha', keep=50)[0], False)
+            # the rest of the tuple is read_mail_tails', from the same snapshot
+            self.assertEqual(store.read_node_inbox('bounded', 'alpha', keep=50)[1:],
+                             store.read_mail_tails('bounded', 'alpha', keep=50))
+        finally:
+            org = store.load_org('bounded')
+            org.nodes['beta'].pop('drive_lease', None)
+            store.save_org(org)
+
     def test_node_row_exists(self):
         if store.STORE_BACKEND != 'sqlite':
             self.skipTest('sqlite reader only')
