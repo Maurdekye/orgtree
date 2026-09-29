@@ -6,7 +6,7 @@
   "anchors": [
    {
     "path": "engine/backend/orgtree/ledger.py",
-    "sha256": "cf501e652f53c9f1951d67a304d3800fe0f3f80bc0d47d7b2c9628f1fb1e6664"
+    "sha256": "ee7c23c02ba3b8fe3e1c10314a8a4c262ae093bef7d4db33ef15ceae98e7bd0d"
    },
    {
     "path": "engine/backend/orgtree/openrouter.py",

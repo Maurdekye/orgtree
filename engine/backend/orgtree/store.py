@@ -3278,6 +3278,77 @@ def lazy_node_costs(doc: Any) -> list[Any] | None:
     return out
 
 
+def dry_run_copy(doc: Any) -> Any:
+    """An independent copy of an org document for a DRY RUN — the ledger
+    running a real operation on a copy only to see whether it refuses
+    (`switch_model`'s queued path). Nothing may save it.
+
+    A `LazyDoc` is copied WITHOUT the whole-document walk: its instance state
+    and the values it already holds are deep-copied (their lazy maps keep
+    undecoded rows undecoded, pointing at the copy), and a section it never
+    loaded stays unloaded and loads from the same table if the dry run reads
+    it. `copy.deepcopy`/`json.dumps` go through `items()`, which loads every
+    log first — measured on the live org: 190 MB and 9-12 s for one model
+    switch of a busy agent (agent-settings-save). Any other document is
+    copied by the JSON round trip, as before."""
+    if type(doc) is not LazyDoc:
+        return json.loads(json.dumps(doc))
+    new = LazyDoc.__new__(LazyDoc)
+    memo: dict[int, Any] = {id(doc): new}
+    for k, v in doc.__dict__.items():
+        object.__setattr__(new, k, copy.deepcopy(v, memo))
+    for k, v in dict.items(doc):
+        dict.__setitem__(new, k, copy.deepcopy(v, memo))
+    return new
+
+
+def lazy_children_index(org: Org, parents: Iterable[str]
+                        ) -> dict[str | None, list[str]] | None:
+    """The candidate children of each of `parents` (every state), in the
+    shape `Org.children(index=...)` takes — or None when the table is not on
+    on-demand rows (or is already whole), where the plain walk is the way.
+    One statement over the trigger-kept `node_index` names the rows whose
+    stored parent is one of `parents`; `_node_ids_where` decodes only those
+    and re-judges every row this copy already holds, so a parent changed in
+    this transaction counts as it is now (agent-settings-save: the scope
+    plan's `_taken_with` walked `children()`, which decoded all 1095 rows —
+    13 MB — on every save)."""
+    want = set(parents)
+    nodes = dict.get(cast("dict[str, Any]", org.d), "nodes")
+    if not want or not isinstance(nodes, LazyNodesMap) or nodes._complete:
+        return None
+    ids = _node_ids_where(
+        org, "id IN (SELECT id FROM node_index WHERE meta->>'parent' = ANY(?))",
+        (sorted(want),), lambda n: isinstance(n, dict) and n.get("parent") in want)
+    idx: dict[str | None, list[str]] = {p: [] for p in want}
+    for i in ids:
+        idx[dict.__getitem__(nodes, i)["parent"]].append(i)
+    return idx
+
+
+# How many single-parent child queries one on-demand node map answers before
+# `children()` falls back to its whole-table walk: a caller that walks many
+# parents without an index pays at most this many small statements and then
+# the one whole read it always paid, never one statement per node.
+LAZY_CHILD_QUERIES = 32
+
+
+def lazy_children_of(org: Org, nid: str | None) -> list[str] | None:
+    """`Org.children`'s candidates for ONE parent from one statement over
+    `node_index` — or None (the caller walks the table) when the nodes are
+    not on on-demand rows, already whole, `nid` is the top level, or this
+    map has already answered `LAZY_CHILD_QUERIES` such questions."""
+    nodes = dict.get(cast("dict[str, Any]", org.d), "nodes")
+    if nid is None or not isinstance(nodes, LazyNodesMap) or nodes._complete:
+        return None
+    asked = nodes.__dict__.get("_child_queries", 0)
+    if asked >= LAZY_CHILD_QUERIES:
+        return None
+    nodes.__dict__["_child_queries"] = asked + 1
+    index = lazy_children_index(org, [nid])
+    return None if index is None else index[nid]
+
+
 class LazySplitSection(_DocLink, dict[str, Any]):
     """A split section (`mail` / `delivering` / `notices`, PG-3d) whose
     owner rows load when touched (ORGTREE_LAZY_ROWS) — the same contract as

@@ -1745,8 +1745,17 @@ class Org:
         # `index` (see `children_index`) only supplies the candidates — the
         # same ones the scan would have found, partitioned by the same key.
         # Everything that DECIDES anything is below it and runs either way.
-        cand = (index.get(nid, ()) if index is not None
-                else [k for k, v in self.nodes.items() if v["parent"] == nid])
+        # Without an index on on-demand rows, the candidates come from one
+        # statement (`store.lazy_children_of`) rather than decoding the whole
+        # table — a settings save or model switch decoded every row through
+        # here (agent-settings-save); the same rule then filters and sorts.
+        if index is not None:
+            cand = index.get(nid, ())
+        else:
+            from . import store                          # noqa: PLC0415 — cycle
+            lazy = store.lazy_children_of(self, nid)
+            cand = (lazy if lazy is not None
+                    else [k for k, v in self.nodes.items() if v["parent"] == nid])
         kids = [k for k in cand
                 if self.nodes[k]["state"] != "archived" or not live_only]
         kids.sort(key=lambda k: (self.nodes[k].get("ui_order", 0), self.nodes[k]["created"]))
@@ -5881,16 +5890,32 @@ class Org:
         the stranded seats were then committed by nobody — the parent's free
         jumped by their holding); `delete` removed the bearer outright and left
         a DANGLING parent id, so `ancestors()` raised KeyError instead of a
-        LedgerError. Found 2026-08-04 by the authority suite's property test."""
+        LedgerError. Found 2026-08-04 by the authority suite's property test.
+
+        Walked one generation at a time so that on on-demand rows each
+        generation's children come from ONE statement
+        (`store.lazy_children_index`) instead of `children()` decoding the
+        whole table — the agent-settings save paid 13 MB for that per save.
+        On whole rows one `children_index` serves the walk: `children()`
+        without one scans every node per call, which made a large subtree
+        quadratic (0.4 s per plan for a 1095-node org)."""
+        from . import store                              # noqa: PLC0415 — cycle
         out: set[str] = set()
         frontier = [nid]
+        whole: dict[str | None, list[str]] | None = None
         while frontier:
-            k = frontier.pop()
-            if k in out or k not in self.nodes:
-                continue
-            out.add(k)
-            frontier.extend(self.children(k, live_only=False))
-            frontier.extend(self.lineage_stack(k))
+            gen = [k for k in dict.fromkeys(frontier)
+                   if k not in out and k in self.nodes]
+            if not gen:
+                break
+            out.update(gen)
+            index = store.lazy_children_index(self, gen)
+            if index is None:
+                whole = index = self.children_index() if whole is None else whole
+            frontier = []
+            for k in gen:
+                frontier.extend(self.children(k, live_only=False, index=index))
+                frontier.extend(self.lineage_stack(k))
         return out
 
     # --------------------------------------------------------------- dissolve
@@ -6157,8 +6182,11 @@ class Org:
             # is listening. Run the real switch on a COPY of the doc: the
             # same code path, so the queue cannot drift from the immediate
             # switch (D-182), and no reservation machinery — a queue rarely
-            # outlives one turn, and the boundary re-checks anyway.
-            Org(json.loads(json.dumps(self.d))).switch_model(
+            # outlives one turn, and the boundary re-checks anyway. The copy
+            # leaves unread sections unread (`store.dry_run_copy`): a JSON
+            # round trip of a row-backed document loaded every log first.
+            from . import store                          # noqa: PLC0415 — cycle
+            Org(store.dry_run_copy(self.d)).switch_model(
                 actor, nid, tier, _queued={"at": now(), "by": actor})
             replaced = pend["tier"] if pend else None
             # R1a-upgrade (round 3): a pre-seq queued rebind was ACCEPTED
@@ -7728,6 +7756,22 @@ class Org:
                 f"the org's top-level grant cap of {cap} — raise the cap in "
                 f"the org settings, or lower the ask")
 
+    def _lazy_subtree_index(self, nid: str
+                            ) -> dict[str | None, list[str]] | None:
+        """`children_index` for nid's org subtree, fetched one generation per
+        statement (`store.lazy_children_index`) — or the whole-org
+        `children_index` when the nodes are not on on-demand rows."""
+        from . import store                              # noqa: PLC0415 — cycle
+        out: dict[str | None, list[str]] = {}
+        gen = [nid]
+        while gen:
+            index = store.lazy_children_index(self, gen)
+            if index is None:
+                return self.children_index()
+            out.update(index)
+            gen = [c for p in gen for c in index.get(p, ()) if c not in out]
+        return out
+
     def _sweep_dirs(self, nid: str, clamp_root: bool = True,
                     sweep_pm: bool = True) -> list[str]:
         """After a move or scope shrink: clamp the subtree's dirs, tools,
@@ -7749,6 +7793,10 @@ class Org:
         the mode ITSELF is lowered (that is what revoking means) and on a
         move (relocation is not an exception, it is a new chain)."""
         dropped: list[str] = []
+        # on on-demand rows: the subtree's children from one statement per
+        # generation, not `children()` decoding the whole table (the sweep
+        # only rewrites scopes, so the index stays true for the whole walk)
+        index = self._lazy_subtree_index(nid)
 
         def clamp(k: str, allowed: dict[str, str] | None,
                   ptools: ToolGrant | None, pvis: str | None,
@@ -7781,7 +7829,7 @@ class Org:
                 sc["permission_mode"] = ppm
                 dropped.append(f"permission_mode:{k}→{ppm}")
             own: dict[str, str] = {d["path"]: d["mode"] for d in kept}
-            for ch in self.children(k, live_only=False):
+            for ch in self.children(k, live_only=False, index=index):
                 clamp(ch, own, tkept, sc.get("org_visibility", "full"),
                       sc.get("permission_mode", "acceptEdits"))
 
@@ -7796,7 +7844,7 @@ class Org:
                                                       "acceptEdits"))
         else:
             own = self.node(nid)["scope"]
-            for ch in self.children(nid, live_only=False):
+            for ch in self.children(nid, live_only=False, index=index):
                 clamp(ch, self.effective_dirs(nid), own["tools"],
                       own.get("org_visibility", "full"),
                       own.get("permission_mode", "acceptEdits"))

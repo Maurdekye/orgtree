@@ -1095,6 +1095,22 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   // cannot drift from the unconfirmed one — and so CANCEL is simply "never
   // call this", which is what makes cancelling total rather than partial.
   const acctChanged = acct !== (node.account ?? '')
+  // the capability fields ride only when EDITED: omitted means unchanged on
+  // the wire, and any capability field makes the save lock and re-clamp the
+  // node's whole subtree — re-sending untouched folders and tools made an
+  // effort-only save on a large manager take about 2 s (agent-settings-save)
+  const scopeBody = {
+    ...('dirs' in edit ? { add_dirs: dirs } : {}),
+    ...('tools' in edit ? { tools } : {}),
+    ...('vis' in edit ? { org_visibility: vis } : {}),
+    ...('pm' in edit ? { permission_mode: pm } : {}),
+    charter, team_charter: teamCharter, effort,
+    auto_cheap_compact: accMode === '' ? {}
+      : { enabled: accMode === 'on',
+          occ: (+accOcc || 50) / 100 },
+    model_version: versions.includes(modelVersion)
+      ? modelVersion : '',
+    ...reservePayload, ...fallbackPayload }
   const doSave = () =>
     (model !== node.tier
       ? op({ op: 'switch_model', node: node.id, tier: model,
@@ -1116,15 +1132,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
           })
         : Promise.resolve())
       .then(() => saveScope(slug, node.id,
-        { add_dirs: dirs, tools, org_visibility: vis,
-          permission_mode: pm,
-          charter, team_charter: teamCharter, effort,
-          auto_cheap_compact: accMode === '' ? {}
-            : { enabled: accMode === 'on',
-                occ: (+accOcc || 50) / 100 },
-          model_version: versions.includes(modelVersion)
-            ? modelVersion : '',
-          ...reservePayload, ...fallbackPayload }))
+        scopeBody))
       .then((r) => {
         const lines = savePopups(r)
         if (r?.bridge?.raise_ceiling) {
@@ -1133,16 +1141,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
             : ['clamped to the kiosk permission ceiling'],
           { label: 'raise ceiling & apply',
             fn: () => saveScope(slug, node.id,
-              { add_dirs: dirs, tools, org_visibility: vis,
-                permission_mode: pm,
-                charter, team_charter: teamCharter, effort,
-                auto_cheap_compact: accMode === '' ? {}
-                  : { enabled: accMode === 'on',
-                      occ: (+accOcc || 50) / 100 },
-                model_version: versions.includes(modelVersion)
-                  ? modelVersion : '',
-                ...reservePayload, ...fallbackPayload,
-                raise_ceiling: true })
+              { ...scopeBody, raise_ceiling: true })
               .then((r2) => {
                 const lines2 = savePopups(r2)
                 toast(lines2.length ? lines2 : ['ceiling raised — applied'])
