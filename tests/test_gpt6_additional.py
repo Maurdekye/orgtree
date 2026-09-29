@@ -22,10 +22,12 @@ class ModelVersions(unittest.TestCase):
     def test_one_tier_per_price_band_and_default_first(self):
         rows = {r["tier"]: r for r in providers.codex_tiers(set())}
         self.assertFalse({"gpt-6-sol", "gpt-6-luna"} & rows.keys())
-        for tier, seat in (("sol", 2), ("luna", 0.1)):
-            self.assertEqual(rows[tier]["model"], f"gpt-6-{tier}")
+        for tier, seat, model, versions in (
+                ("sol", 2, "gpt-6.1-sol", ["6.1", "6", "5.6"]),
+                ("luna", 0.1, "gpt-6-luna", ["6", "5.6"])):
+            self.assertEqual(rows[tier]["model"], model)
             self.assertEqual(rows[tier]["seat"], seat)
-            self.assertEqual(list(ledger.MODEL_VERSIONS[tier]), ["6", "5.6"])
+            self.assertEqual(list(ledger.MODEL_VERSIONS[tier]), versions)
 
     def test_saved_tiers_fold_and_versions_survive(self):
         org = ledger.Org.create("gpt6-migrate")
@@ -53,7 +55,9 @@ class ModelVersions(unittest.TestCase):
         usage = {"total": {"inputTokens": 1_000_000,
                            "cachedInputTokens": 500_000,
                            "outputTokens": 100_000}}
-        self.assertAlmostEqual(providers.codex_cost("sol", usage), 2.1)
+        # the tier key carries the GPT-6.1 Sol default's rates
+        self.assertAlmostEqual(providers.codex_cost("sol", usage), 2.05)
+        self.assertAlmostEqual(providers.codex_cost("sol", usage, "gpt-6-sol"), 2.1)
         self.assertAlmostEqual(providers.codex_cost("luna", usage), 0.115)
         self.assertAlmostEqual(providers.codex_cost("sol", usage, "gpt-5.6-sol"), 4.2)
         self.assertAlmostEqual(providers.codex_cost("luna", usage, "gpt-5.6-luna"), 0.23)

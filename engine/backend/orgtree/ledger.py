@@ -177,8 +177,12 @@ MODELS: Final[dict[str, str]] = {
     "sonnet": "claude-sonnet-5-5",
     "haiku": "claude-haiku-4-5",
     # the codex family — exact IDs from the installed CLI's model inventory;
-    # Sol and Luna default to GPT-6, with 5.6 available below as versions.
-    "sol": "gpt-6-sol",
+    # Luna defaults to GPT-6, with 5.6 available below as a version.
+    # GPT-6.1 Sol (2026-09-29): `model/list` through Codex CLI 0.159.0 names
+    # `gpt-6.1-sol` ("GPT-6.1-Sol", the CLI's default model); 0.155.1 did not
+    # list it (codexpin.PIN moved with it). Existing Sol agents are pinned to
+    # their current version by the migration below; 6 and 5.6 stay VERSIONS.
+    "sol": "gpt-6.1-sol",
     "terra": "gpt-5.6-terra",
     "gpt-reserve": "gpt-reserve",
     "luna": "gpt-6-luna",
@@ -216,7 +220,7 @@ MODELS: Final[dict[str, str]] = {
 # ⚠ ids verified against the pinned CLI with a real call (2026-08-04):
 # `claude-opus-4-8` answers; `claude-opus-4.8` and `opus-4-8` are refused.
 MODEL_VERSIONS: Final[dict[str, dict[str, str]]] = {
-    "sol": {"6": "gpt-6-sol", "5.6": "gpt-5.6-sol"},
+    "sol": {"6.1": "gpt-6.1-sol", "6": "gpt-6-sol", "5.6": "gpt-5.6-sol"},
     "luna": {"6": "gpt-6-luna", "5.6": "gpt-5.6-luna"},
     "opus": {"5.5": "claude-opus-5-5", "5": "claude-opus-5",
              "4.8": "claude-opus-4-8"},
@@ -1602,10 +1606,28 @@ class Org:
                 for _node in self.nodes.values():
                     _fold_gpt6_node(_node, _tier, _six)
             if _m.get(_tier) == _old:
-                _m[_tier] = MODELS[_tier]
+                # to GPT-6 itself, not today's default: a Sol org this old
+                # then takes the GPT-6.1 step below like every other
+                _m[_tier] = _six
             # The alias is no longer a tier, including in old saved orgs.
             _m.pop(_six, None)
             _t.pop(_six, None)
+        # GPT-6.1 Sol becomes the default for NEW hires and switches, while
+        # every existing Sol agent keeps the model it runs now: one pin, when
+        # the shipped GPT-6 default is upgraded (the trigger cannot fire
+        # twice). A node already on a Sol version keeps it; any other value is
+        # a leftover from an earlier tier that resolves to the old default
+        # today, so it is pinned to "6" too. A custom organization id is
+        # never overwritten and its agents are not pinned. Lazy rows: the
+        # same rule and reasoning as the Sonnet 5.5 step above — both halves
+        # happen in one whole load, or neither does.
+        if _m.get("sol") == "gpt-6-sol" and not _lazy:
+            for _node in self.nodes.values():
+                if (_node.get("model") == "sol"
+                        and (_node.get("scope") or {}).get("model_version")
+                        not in ("6", "5.6")):
+                    _node.setdefault("scope", {})["model_version"] = "6"
+            _m["sol"] = MODELS["sol"]
         # ☞ the flash/pro rows moved with the provider lane (2026-09-02: the
         # Antigravity CLI replaced the previous Google lane, and the ids its
         # registry knows are not the ones the old lane pinned). Same rule:

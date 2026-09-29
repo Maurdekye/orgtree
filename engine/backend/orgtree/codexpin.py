@@ -59,7 +59,12 @@ PACKAGE = "@openai/codex"
 #: PATCH updates only — so `^0.150.1` could never reach 0.153.x and a re-run
 #: reported "up to date" while doing nothing. That is how the pin sat still
 #: for a week while looking maintained.
-PIN = "0.155.1"
+#:
+#: 0.159.0 (2026-09-29): the first pin that is offered ``gpt-6.1-sol``, the
+#: Sol default. MEASURED on one signed-in account through `model/list`,
+#: changing only the executable: 0.155.1 → no ``gpt-6.1-sol``; 0.159.0 → it is
+#: listed first and marked default. Versions between are untested.
+PIN = "0.159.0"
 
 #: The oldest CLI observed to be offered the ``gpt-6-astra`` rollout model.
 #:

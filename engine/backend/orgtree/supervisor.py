@@ -312,9 +312,12 @@ def tier_context(tier: str,
     cw = TIER_CONTEXT.get(tier)
     if cw:
         return cw
-    if tier in {"sol", "luna"} and models is not None and str(
-            models.get(tier) or "").startswith("gpt-5.6-"):
-        return providers.CODEX_CONTEXT
+    if tier in {"sol", "luna"} and models is not None:
+        mid = str(models.get(tier) or "")
+        if mid in providers.CODEX_MODEL_CONTEXT:
+            return providers.CODEX_MODEL_CONTEXT[mid]
+        if mid.startswith("gpt-5.6-"):
+            return providers.CODEX_CONTEXT
     if openrouter.is_tier(tier):
         return openrouter.context_for(tier, models)
     return None

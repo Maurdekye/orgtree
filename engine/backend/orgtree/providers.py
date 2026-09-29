@@ -123,14 +123,19 @@ CODEX_MODELS: Final[dict[str, str]] = {
 #: thread hundreds of thousands of tokens early.  As with Claude's 1M tiers,
 #: the pinned model capability wins over a CLI-side observation.
 CODEX_CONTEXT: Final[int] = 1_050_000
+#: Published context windows of individual Codex models, where the tier's
+#: GPT-6 default has none (see CODEX_UNPINNED_CONTEXT_TIERS). GPT-6.1 Sol:
+#: 1,050,000 (OpenAI model page, relayed by coordinator-opus 2026-09-29).
+CODEX_MODEL_CONTEXT: Final[dict[str, int]] = {"gpt-6.1-sol": 1_050_000}
 
 #: API prices per M tokens — (input, cached input, output) — for turn-cost
-#: accounting. The Sol/Luna tier keys carry GPT-6 default rates; explicit
-#: GPT-5.6 model keys retain their own rates. Seat costs are independent of
-#: a node's selected model version by the user's 2026-09-22 ruling.
+#: accounting. The Sol/Luna tier keys carry their default model's rates
+#: (GPT-6.1 Sol, GPT-6 Luna); explicit model keys keep their own rates. Seat
+#: costs are independent of a node's selected model version by the user's
+#: 2026-09-22 ruling.
 CODEX_PRICES: Final[dict[str, tuple[float, float, float]]] = {
     "astra": (10.00, 1.00, 50.00),
-    "sol": (2.00, 0.20, 10.00),
+    "sol": (2.00, 0.10, 10.00),
     "terra": (2.00, 0.20, 12.00),
     "gpt-reserve": (0.20, 0.02, 1.20),
     "luna": (0.10, 0.01, 0.60),
@@ -139,6 +144,11 @@ CODEX_PRICES: Final[dict[str, tuple[float, float, float]]] = {
     # User-confirmed release pricing, 2026-09-22; half each 5.6 rate.
     "gpt-6-sol": (2.00, 0.20, 10.00),
     "gpt-6-luna": (0.10, 0.01, 0.60),
+    # OpenAI's model page for gpt-6.1-sol (relayed by coordinator-opus,
+    # 2026-09-29): only the cached rate differs from GPT-6 Sol. The page's
+    # long-prompt surcharge (over 272K input tokens) is not modelled, as for
+    # every other row here.
+    "gpt-6.1-sol": (2.00, 0.10, 10.00),
 }
 
 
