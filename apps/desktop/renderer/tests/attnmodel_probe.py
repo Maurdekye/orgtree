@@ -28,10 +28,16 @@ import sys
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-from playwright.sync_api import sync_playwright  # noqa: E402
-
 HERE = pathlib.Path(__file__).resolve().parent
 FRONTEND = HERE.parent
+REPO = HERE.parents[3]
+# the repo-import guard (tools/assert_repo_import.py): proves this checkout is
+# the one on sys.path before anything else is imported, and stamps provenance
+sys.path.insert(0, str(REPO / "tools"))
+from assert_repo_import import assert_repo_import  # noqa: E402
+PROVENANCE = assert_repo_import(REPO)
+
+from playwright.sync_api import sync_playwright  # noqa: E402
 
 CHIPS = """(sel) => [...document.querySelectorAll(sel)].map(e =>
   [...e.classList].find(c => c.startsWith('t-')) || '?')"""
@@ -69,6 +75,7 @@ def main() -> int:
             p.close()
         browser.close()
     res["checks"] = checks
+    res["import_provenance"] = PROVENANCE.as_dict()
     (out / "result.json").write_text(json.dumps(res, indent=2), encoding="utf-8")
     for k, v in checks.items():
         print(("PASS " if v else "FAIL ") + k)
