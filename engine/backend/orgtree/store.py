@@ -4267,6 +4267,125 @@ def _meta_set(conn: sqlite3.Connection, key: str, val: str) -> None:
                  "ON CONFLICT(key) DO UPDATE SET val=excluded.val", (key, val))
 
 
+#: ROW-VERSION REUSE (N1000 #3, 2026-09-29). Agent tool calls ran 65-73
+#: statements and read ~1.1 MB each, most of it the same org-wide rows on
+#: every call: a lazy load's eager doc rows (three loads per message) and a
+#: dict log's owner list (every owner, N-sized) whenever a section loads.
+#: Those rows rarely change between calls, so a read now names the version
+#: it already holds and PostgreSQL sends the value only when the row is a
+#: different version. The check is IN THE SAME STATEMENT that reads the row,
+#: so no stale value can be served, whatever wrote the row (orgs.revision is
+#: not a usable key: the heal-epoch stamp and the receipt conversion write
+#: meta/doc without bumping it).
+#:
+#: A version is `xmin:ctid`. A tuple version is immutable, and a new one (any
+#: UPDATE, even twice in one transaction) gets a new ctid; a rolled-back
+#: write leaves the old tuple visible, with its old version. The slot is keyed
+#: by the server (postmaster start time + database, so a cluster swap or
+#: restart never matches an old entry), the org and the table. Only xid
+#: wraparound could repeat a version, after ~4 billion transactions in one
+#: process lifetime. PostgreSQL only; SQLite reads as before.
+_ROW_VERSION = "xmin::text || ':' || ctid::text"
+_ROW_REUSE: dict[tuple[str, str, str], dict[str, tuple[str, str]]] = {}
+_ROW_REUSE_LOCK = threading.Lock()
+#: rows served from a held version / rows whose value was read (tests, probes)
+ROW_REUSE_STATS: dict[str, int] = {"reused": 0, "read": 0}
+
+
+def _row_reuse_slot(conn: Any, table: str) -> tuple[str, str, str] | None:
+    """The reuse slot for ``table`` of the org `conn` reads, or None when
+    rows cannot be versioned (not PostgreSQL)."""
+    raw = getattr(conn, "raw", None)
+    if raw is None or STORE_BACKEND != "postgres":
+        return None
+    server = getattr(raw, "_orgtree_row_reuse_server", None)
+    if server is None:
+        # once per pooled connection: it never changes server or database
+        row = conn.execute("SELECT pg_postmaster_start_time()::text || ' ' || "
+                           "current_database()").fetchone()
+        server = str(row[0])
+        raw._orgtree_row_reuse_server = server
+    return (server, str(getattr(conn, "org_id", "")), table)
+
+
+def _row_reuse_held(slot: tuple[str, str, str]) -> dict[str, tuple[str, str]]:
+    with _ROW_REUSE_LOCK:
+        return dict(_ROW_REUSE.get(slot) or {})
+
+
+def _row_reuse_keep(slot: tuple[str, str, str], seen: dict[str, tuple[str, str]],
+                    *, only: Iterable[str] | None = None) -> None:
+    """Store the versions just read. With ``only``, the read covered exactly
+    those keys (one row), so other held keys stay; otherwise it covered the
+    whole slot and a key it did not return is gone."""
+    with _ROW_REUSE_LOCK:
+        held = _ROW_REUSE.setdefault(slot, {})
+        if only is None:
+            held.clear()
+        else:
+            for k in only:
+                held.pop(k, None)
+        held.update(seen)
+
+
+def _meta_owners_raw(conn: sqlite3.Connection, key: str) -> str | None:
+    """`_meta_get` for an owner-list row, reusing a held version (see
+    _ROW_VERSION)."""
+    slot = _row_reuse_slot(conn, "meta")
+    if slot is None:
+        return _meta_get(conn, key)
+    held = _row_reuse_held(slot).get(key)
+    row = conn.execute(
+        f"SELECT {_ROW_VERSION}, CASE WHEN {_ROW_VERSION} = ? THEN NULL ELSE val END "
+        "FROM meta WHERE key=?", (held[0] if held else "", key)).fetchone()
+    if row is None:
+        _row_reuse_keep(slot, {}, only=(key,))
+        return None
+    version, val = cast(str, row[0]), cast("str | None", row[1])
+    if val is None and held is not None and held[0] == version:
+        ROW_REUSE_STATS["reused"] += 1
+        return held[1]
+    ROW_REUSE_STATS["read"] += 1
+    _row_reuse_keep(slot, {} if val is None else {key: (version, val)}, only=(key,))
+    return val
+
+
+def _eager_doc_rows(conn: sqlite3.Connection) -> dict[str, str | None]:
+    """A lazy load's eager doc rows (every key outside split sections; a
+    DEFERRED_DOC_KEYS row listed with NULL for its value), reusing held
+    versions (see _ROW_VERSION)."""
+    slot = _row_reuse_slot(conn, "doc")
+    if slot is None:
+        return dict(conn.execute(
+            "SELECT key, CASE WHEN key = ANY(?) THEN NULL ELSE val END "
+            "FROM doc WHERE strpos(key, ?) = 0",
+            (list(DEFERRED_DOC_KEYS), SPLIT_SEP)).fetchall())
+    held = _row_reuse_held(slot)
+    # `key|version` never matches another row's: a version has no '|'
+    names = [f"{k}|{v}" for k, (v, _) in held.items()] or [""]
+    rows = conn.execute(
+        f"SELECT key, {_ROW_VERSION}, CASE WHEN key = ANY(?) OR "
+        f"key || '|' || {_ROW_VERSION} = ANY(?) THEN NULL ELSE val END "
+        "FROM doc WHERE strpos(key, ?) = 0",
+        (list(DEFERRED_DOC_KEYS), names, SPLIT_SEP)).fetchall()
+    out: dict[str, str | None] = {}
+    seen: dict[str, tuple[str, str]] = {}
+    for key, version, val in rows:
+        key, version = cast(str, key), cast(str, version)
+        if val is None and key not in DEFERRED_DOC_KEYS:
+            got = held.get(key)
+            if got is not None and got[0] == version:
+                val = got[1]
+                ROW_REUSE_STATS["reused"] += 1
+        elif val is not None:
+            ROW_REUSE_STATS["read"] += 1
+        if val is not None:
+            seen[key] = (version, cast(str, val))
+        out[key] = cast("str | None", val)
+    _row_reuse_keep(slot, seen)
+    return out
+
+
 def _owners_of(conn: sqlite3.Connection, sect: str, *,
                include_orphans: bool = True) -> list[str]:
     """Owner order for a dict log.
@@ -4276,7 +4395,7 @@ def _owners_of(conn: sqlite3.Connection, sect: str, *,
     enumerate them. Eager export/migration reconstruction also appends any
     orphaned owner rows defensively.
     """
-    raw = _meta_get(conn, _META_OWNERS + sect)
+    raw = _meta_owners_raw(conn, _META_OWNERS + sect)
     owners: list[str] = cast("list[str]", json.loads(raw)) if raw else []
     if raw is not None and not include_orphans:
         return owners
@@ -4486,10 +4605,7 @@ def _load_lazy(conn: sqlite3.Connection, slug: str,
                 # (work rows are read by _load_work_refs as before)
                 if LAZY_DOC_KEYS:
                     # a deferred key's row is listed with no value: it exists
-                    raw_doc = dict(conn.execute(
-                        "SELECT key, CASE WHEN key = ANY(?) THEN NULL ELSE val END "
-                        "FROM doc WHERE strpos(key, ?) = 0",
-                        (list(DEFERRED_DOC_KEYS), SPLIT_SEP)).fetchall())
+                    raw_doc = _eager_doc_rows(conn)
                     for k in [k for k, v in raw_doc.items() if v is None]:
                         if k in DEFERRED_DOC_KEYS:
                             del raw_doc[k]
@@ -4956,12 +5072,15 @@ def _write_dict_log(conn: sqlite3.Connection, sect: str, cur: dict[str, Any],
         # stale merge). Serialize the merge per section.
         conn.execute("SELECT pg_advisory_xact_lock(hashtext(?),hashtext(?))",
                      (f"org_{conn.org_id}", _META_OWNERS + sect))
-    raw_old_owners = _meta_get(conn, _META_OWNERS + sect)
     # Owner names are a separate journal from loaded row snapshots. Merge
     # only this proxy's structural changes into the currently committed
     # order, so a stale document cannot erase a concurrently added owner or
     # resurrect one concurrently deleted but never touched here.
+    # N1000 #3: the committed list (every owner the section has, N-sized) is
+    # read ONLY when this save adds or drops an owner; an ordinary append to
+    # an existing owner's log leaves it untouched and has no use for it.
     if cur._dropped or cur._added:
+        raw_old_owners = _meta_get(conn, _META_OWNERS + sect)
         committed_order = cast(
             "list[str]", json.loads(raw_old_owners)) if raw_old_owners else []
         merged_order = [owner for owner in committed_order
