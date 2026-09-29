@@ -148,6 +148,54 @@ class RowVersionReuse(unittest.TestCase):
         # the rolled-back versions are not kept
         self.assertEqual(json.loads(self.rows()['settings_x']), {'v': 0})
 
+    def test_a_reused_line_pointer_is_still_a_new_version(self):
+        # pg-supervisor-a's review of landing 1 (R4): VACUUM frees a deleted
+        # tuple's line pointer and the next insert of the key can land at the
+        # SAME ctid. Only xmin tells that tuple apart from the held one.
+        held = self.rows()['settings_x']
+        with store._POOL.acquire(self.slug) as conn:
+            conn.execute("SET statement_timeout = '20s'")
+            try:
+                ctid = lambda: conn.execute('SELECT ctid::text FROM doc WHERE key=?',
+                                            ('settings_x',)).fetchone()[0]
+                start = ctid()
+                for i in range(1, 6):
+                    conn.execute('DELETE FROM doc WHERE key=?', ('settings_x',))
+                    conn.execute('VACUUM doc')
+                    conn.execute('INSERT INTO doc(key,val) VALUES(?,?)',
+                                 ('settings_x', store._dumps({'v': 100 + i})))
+                    if ctid() == start:
+                        break
+                self.assertEqual(ctid(), start, 'control: the key came back at its old ctid')
+            finally:
+                conn.execute('RESET statement_timeout')
+        got = self.rows()['settings_x']
+        self.assertNotEqual(got, held)
+        self.assertEqual(json.loads(got), {'v': 100 + i})
+
+    def test_the_slot_names_the_server_database_and_org(self):
+        # R2: a version is only unique within one cluster; another server or
+        # database (a swapped or restored cluster, a test fixture) must never
+        # share a slot, nor two orgs of one database
+        class Raw:
+            pass
+
+        class Conn:
+            def __init__(self, server, org_id):
+                self.raw, self.org_id, self.server = Raw(), org_id, server
+
+            def execute(self, sql, params=()):
+                server = self.server
+
+                class Cursor:
+                    def fetchone(_):
+                        return (server,)
+                return Cursor()
+        with patch.object(store, 'STORE_BACKEND', 'postgres'):
+            slots = {store._row_reuse_slot(Conn(server, org), 'doc')
+                     for server, org in (('t1 db', 1), ('t2 db', 1), ('t1 other', 1), ('t1 db', 2))}
+        self.assertEqual(len(slots), 4, slots)
+
     def test_deleted_and_added_rows(self):
         self.rows()
         self.write('DELETE FROM doc WHERE key=?', ('settings_x',))
