@@ -14,6 +14,8 @@ unit test: every claim below is a pixel or a computed style.
      first, and the startup choice is a plain dropdown under Display.
   E. The Attention view's desk panel uses the pinned desk's type and button
      metrics (same font size and padding for the same buttons).
+  F. The desk shows one jump card per watchdog of ITS agent, and a card opens
+     that watchdog's detail modal.
 
     cd apps/desktop/renderer
     python tests/attentionlayout_probe.py <outdir>      # JSON + screenshots
@@ -142,6 +144,28 @@ def main() -> int:
             "() => { const e = document.querySelector('.attn-desk .desk-body') || document.querySelector('.attn-desk');"
             " return e && getComputedStyle(e).fontSize }")
         res["attention_desk_inset"] = _inset(p, ".attn-panel-desk", ".attn-desk .desk-body")
+        # F: the desk's watchdog cards (docket v3-desk-jump-cards-add-a-card-per-watchdog-that)
+        res["dog_cards"] = p.eval_on_selector_all(
+            ".attn-desk .desk-dog-chip", "els => els.map(e => e.textContent.trim())")
+        checks["F_desk_has_a_card_per_own_watchdog"] = res["dog_cards"] == ["◉build-done", "◫1×ci-red"]
+        card = p.query_selector(".attn-desk .desk-dog-chip")
+        if card:
+            card.scroll_into_view_if_needed()
+            p.screenshot(path=str(out / "dog-cards.png"), clip=_grow(card.bounding_box(), 240, 60))
+            card.click()
+            p.wait_for_timeout(300)
+            # SEEN, not merely mounted: the dialog must paint and be the thing
+            # under the pointer — the canvas's dialogs used to open inside its
+            # hidden layer, invisible over the Attention view
+            res["dog_modal"] = p.evaluate(
+                "() => { const h = [...document.querySelectorAll('h3')].find(e => e.textContent.includes('build-done'));"
+                " if (!h) return null; const r = h.getBoundingClientRect();"
+                " const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);"
+                " return {text: h.textContent.trim(), visibility: getComputedStyle(h).visibility,"
+                "         onTop: !!top && (top === h || h.contains(top))} }")
+            p.screenshot(path=str(out / "dog-modal.png"))
+        m = res.get("dog_modal") or {}
+        checks["F_card_opens_the_watchdog_modal"] = bool(m) and m.get("visibility") == "visible"             and m.get("onTop") is True
         p.close()
 
         # ---- pinned: E's reference

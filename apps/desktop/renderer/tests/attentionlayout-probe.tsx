@@ -75,6 +75,16 @@ const tree = {
   cascade_hire: false, cascade_alloc: true, sandboxed: false,
   audience_requests: [], org_inbox: null, net: null,
   work_items_summary: { attention: 0, active: 0 }, asks: [], asks_open: 0,
+  // two of coordinator's own watchdogs and one of reviewer's: the desk's
+  // watchdog cards must show exactly the first two
+  watchdogs: [
+    { id: 'w1', owner: 'coordinator', name: 'build-done', kind: 'file', target: 'build.log',
+      interval_s: 30, state: 'armed', at: '2026-09-29T00:00:00Z', fired: 0, once: false, spent: false },
+    { id: 'w2', owner: 'coordinator', name: 'ci-red', kind: 'command', target: 'gh run list',
+      interval_s: 60, state: 'paused', at: '2026-09-29T00:00:00Z', fired: 0, once: true, spent: false },
+    { id: 'w3', owner: 'reviewer', name: 'not-mine', kind: 'file', target: 'x',
+      interval_s: 30, state: 'armed', at: '2026-09-29T00:00:00Z', fired: 0, once: false, spent: false },
+  ],
 } as unknown as TreePayload
 
 const scene = location.hash.replace(/^#/, '') || 'canvas'

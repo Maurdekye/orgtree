@@ -1707,6 +1707,13 @@ html.mobile .edge-jump { display: none; }
 .desk-nav-chip .tier { width: 15px; height: 15px; font-size: 9px; }
 .desk-nav-chip.dim { opacity: .55; }
 .desk-nav-entry { display: inline-flex; align-items: center; gap: 2px; }
+/* a watchdog's card in the same row (canvas/deskdogs.tsx): the desk chip,
+   told apart from an agent by the canvas satellite's state glyph (green while
+   armed) and a dashed border — a dog is not an agent */
+.desk-dog-chip { border-style: dashed; }
+.desk-dog-chip .wd-glyph { font-size: 9px; }
+.desk-dog-chip.armed .wd-glyph { color: var(--ok, #4a9); }
+.desk-dog-chip.paused, .desk-dog-chip.exited { opacity: .6; }
 .desk-body .tier {
   width: 16px; height: 16px; font-size: 9.5px; border-radius: 3px;
 }

@@ -74,6 +74,7 @@ import { useWorkItems } from './useworkitems'
 import { AgentDocketView, actionableAssignedCount, agentItems } from './docket'
 import { AgentGalleryView } from './gallery'
 import { PanelCorner } from './panelcorner'
+import { DogChip, useDeskDogs } from './deskdogs'
 import { PresentationCard } from './docs'
 import { buildNodeFacts } from './docket'
 import { AgentDirectoryProvider, AgentName, agentFactsSig, useAgentDirectory } from './identity'
@@ -2139,6 +2140,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage, onConf
   const [showRetired, setShowRetired] = useState(false)
   const hideRetired = useHideRetired()
   const [retiredMenuOpen, setRetiredMenuOpen] = useState(false)
+  // this agent's own watchdogs, as cards in the bottom jump row (deskdogs.tsx)
+  const deskDogs = useDeskDogs(node.id)
   // The process control is a server-side CAS. This local latch only prevents
   // a double-click while the request is in flight; the response/WS tree state
   // remains authoritative if another desk wins the race.
@@ -3783,16 +3786,20 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage, onConf
           are not agents yet; bearer pseudo-cards are consultable stack layers,
           not reports. Retired reports collapse behind one expandable chip
           (user ruling 2026-08-04) — a long-lived team's footer is otherwise
-          mostly graves. */}
+          mostly graves.
+          Then one card per watchdog THIS agent owns (user 2026-09-29), after
+          its reports; clicking one opens that watchdog's detail modal. */}
       {(() => {
-        if (!onJump) return null
-        const reports = node.children.filter((c) => c.state !== 'draft' && !c.isBearerOf)
+        // reports need somewhere to jump to; without `onJump` only the dogs show
+        const jump = onJump ?? (() => {})
+        const reports = onJump
+          ? node.children.filter((c) => c.state !== 'draft' && !c.isBearerOf) : []
         const alive = reports.filter((c) => c.state === 'live')
         const retired = reports.filter((c) => c.state !== 'live')
-        if (!reports.length) return null
+        if (!reports.length && !deskDogs) return null
         return (
           <div className="desk-nav">
-            {alive.map((c) => <NavChip key={c.id} n={c} dir="down" onJump={onJump} />)}
+            {alive.map((c) => <NavChip key={c.id} n={c} dir="down" onJump={jump} />)}
             {hideRetired && retired.length > 0 && <>
               <button className="desk-nav-chip desk-retired-token" onClick={() => setRetiredMenuOpen(true)}>
                 {retired.length} retired
@@ -3800,7 +3807,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage, onConf
               {retiredMenuOpen && <ModalOverPins><PilePicker
                 pile={{ key: `desk-retired:${node.id}`, parent: node.id, kind: 'a', list: retired.map(c => c.id), front: retired[0]!.id }}
                 map={map} close={() => setRetiredMenuOpen(false)}
-                onPick={id => { setRetiredMenuOpen(false); onJump(id) }} /></ModalOverPins>}
+                onPick={id => { setRetiredMenuOpen(false); jump(id) }} /></ModalOverPins>}
             </>}
             {!hideRetired && retired.length > 0 && (
               <button className="desk-nav-chip dim"
@@ -3812,7 +3819,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage, onConf
               </button>
             )}
             {!hideRetired && showRetired && retired.map((c) =>
-                <NavChip key={c.id} n={c} dir="down" onJump={onJump} />)}
+                <NavChip key={c.id} n={c} dir="down" onJump={jump} />)}
+            {deskDogs?.dogs.map((w) => <DogChip key={'dog:' + w.id} dog={w} onOpen={deskDogs.open} />)}
           </div>
         )
       })()}

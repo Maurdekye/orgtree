@@ -44,6 +44,8 @@ import type { TypedRef } from './workrefs'
 import { NodeInboxModal, OrgInboxModal } from './mail'
 import { AgentDocketModal } from './agentdocket'
 import { AgentSurfaceRoutesProvider } from './panelcorner'
+import { DeskDogsProvider } from './deskdogs'
+import type { DeskDogs } from './deskdogs'
 import type { AgentSurfaceRoutes } from './panelcorner'
 import { TeamDocketModal } from './teamdocket'
 import { NodeConfig, PilePicker, WatchdogPanel } from './modals'
@@ -3098,6 +3100,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         kind === 'agent-docket' ? setAgentDocketId : setInboxId)
     },
   }), [onOpenAgentGallery, toggleNodeSurface, showNodeSurface])
+  // every desk's watchdog cards open the SAME modal the satellite chip does
+  // (canvas/deskdogs.tsx)
+  const deskDogs = useMemo((): DeskDogs => ({ dogs: tree.watchdogs ?? [], open: toggleDog }),
+    [tree.watchdogs, toggleDog])
 
   // ------------------------------------------------------ wires, one list
   // Every wire the org view draws, in paint order, built from exactly the
@@ -3260,6 +3266,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     <OrgDefaultEffort.Provider
       value={resolveOrgDefault(tree.default_effort, tree.effort_default)}>
     <AgentSurfaceRoutesProvider value={agentSurfaceRoutes}>
+    <DeskDogsProvider value={deskDogs}>
     <DeskHosts map={map} slug={slug} treeSlug={tree.slug}><AgentNavHost
       map={map} op={op} slug={slug} toast={toast} goTo={goToAgent} build={trayRowMenu} /><div style={freeAnchor ?? undefined} className={'viewport' + (tree.sandboxed ? ' sandboxed' : '')
       + (tree.headless ? ' headless' : '')
@@ -3900,6 +3907,15 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         </button>
       </div>
       </MaybePortal>
+      </div>{/* .canvas-world */}
+      {/* THE OVERLAYS ARE OUTSIDE `.canvas-world` (2026-09-29). They used to
+          sit inside it, so while the Attention view was presented every
+          dialog the canvas owns — a watchdog's detail, an agent's inbox or
+          docket, a document — opened INVISIBLE: `.canvas-world-hidden` hides
+          every descendant (measured: the watchdog dialog's heading computed
+          `visibility: hidden` under the Attention stage). The world wrapper is
+          `display: contents`, so moving its end changes no layout at all; it
+          only stops these dialogs being put away with the canvas. */}
       {/* every overlay rides MaybePortal (mobile wave §2-②): `.viewport`
           carries touch-action:none, and a scroller nested inside it can
           never scroll by touch — the portal moves the overlay out of that
@@ -4104,7 +4120,6 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
             onMailLink={openMail} onWorkLink={openWork} onOpenDoc={openDocView} onJump={centerOn} />
         </div>
       })}
-      </div>{/* .canvas-world */}
     </div>
     {/* THE TEMPORARY DESK — inside `DeskHosts`, because its `borrow` slot has
         to register in the ONE desk registry; that is what lets it take the
@@ -4155,6 +4170,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       })}
     </div>}
     </DeskHosts>
+    </DeskDogsProvider>
     </AgentSurfaceRoutesProvider>
     </OrgDefaultEffort.Provider>
     </ForegroundViewContext.Provider>
