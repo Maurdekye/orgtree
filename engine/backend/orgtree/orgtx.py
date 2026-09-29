@@ -529,10 +529,13 @@ class _HealNeeded(Exception):
     """Internal: the load itself changed rows (a ledger load-heal). The
     attempt releases its locks, the heal is committed, and it re-runs."""
 
-    def __init__(self, slug: str, rows: list[str]) -> None:
+    def __init__(self, slug: str, rows: list[str], stale_epoch: bool = False) -> None:
         super().__init__(f"{slug}: load-heal pending on {rows}")
         self.slug = slug
         self.rows = rows
+        # the attempt's load was the stale-epoch proof (store._load_lazy):
+        # node table whole, split sections on demand
+        self.stale_epoch = stale_epoch
 
 
 MAX_HEALS = 3
@@ -567,17 +570,27 @@ def _refuse_mixed_replay(order: list[OrgTx]) -> None:
 def _check_heal(tx: OrgTx) -> None:
     rows = _heal_pending(tx)
     if rows:
-        raise _HealNeeded(tx.slug, rows)
+        raise _HealNeeded(tx.slug, rows,
+                          bool(getattr(tx.org.d, "_stamp_heal_epoch", False)))
     if store.ORGTX_RESCOPE:
         # (E): nothing to heal, so every touched row equals its baseline;
         # the save need not re-serialize what the body never touches
         store._rescope_clean(tx.org.d)          # pyright: ignore[reportPrivateUsage]
 
 
-def _heal(slug: str) -> None:
+def _heal(slug: str, stale_epoch: bool = False) -> None:
     """Commit a load-heal in its own save, through store's internal save —
     not the public `store.save_org`, which tests patch for fault injection
     (pg-supervisor-a, 18:50Z).
+
+    `stale_epoch`: the failed attempt loaded as a new build's first
+    transaction does (its heal epoch not stamped yet). The heal then loads
+    the same way — every node row, but split-section owner rows only as
+    Org.__init__ touches them, exactly as that attempt did — instead of the
+    whole document: at N1000 with 10x retired history the retired agents'
+    notices alone were gigabytes (engine-startup-cost-must-not-grow-with-
+    retired-h). Rows the attempt never decoded are not healed here either;
+    they heal as they are decoded, as on every on-demand load.
 
     S9 (p01, WRITER-LEDGER-e9007a8): inside `org_exclusive(slug)`, which
     excludes every org_tx on the org whether or not the transition fence is
@@ -589,7 +602,7 @@ def _heal(slug: str) -> None:
     behind another's heal finds nothing to do. The DOC_LOCK tripwire does
     not count this save (store._save_org: a save under an exclusive hold)."""
     with org_exclusive(slug):
-        org = store._load_sqlite_org(slug)          # pyright: ignore[reportPrivateUsage]
+        org = store._load_sqlite_org(slug, lazy_work=stale_epoch)   # pyright: ignore[reportPrivateUsage]
         if _heal_rows(org):
             store._save_org(org)                    # pyright: ignore[reportPrivateUsage]
 
@@ -1380,11 +1393,12 @@ def _attempts(b: Backend, txs: list[OrgTx], make: Callable[[], list[OrgTx]],
     attempt = 0
     heals = 0
     heal_next: str | None = None
+    heal_stale = False
     while True:
         if heal_next is not None:
             # after the failed attempt's `finally`, so this thread no longer
             # counts as inside an org_tx on the slug (org_exclusive's NestedTx)
-            _heal(heal_next)
+            _heal(heal_next, heal_stale)
             heal_next = None
             txs = make()
         body_ran = False
@@ -1406,7 +1420,7 @@ def _attempts(b: Backend, txs: list[OrgTx], make: Callable[[], list[OrgTx]],
             if heals > MAX_HEALS:
                 raise OrgTxError(f"org_tx on {h.slug!r}: the load keeps healing "
                                  f"{h.rows} (a writer keeps restoring a pre-heal shape)") from h
-            heal_next = h.slug
+            heal_next, heal_stale = h.slug, h.stale_epoch
             continue
         except Retryable:
             if body_ran or attempt >= retries:
