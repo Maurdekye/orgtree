@@ -209,6 +209,18 @@ is. The usual reasons:
   `product.not_engine_root`: the engine was started in an unexpected way (for
   example from inside an agent session); `root.reparse_point`: the data folder
   is a link or junction. Send the message.
+- *"Orgtree was started as administrator, and PostgreSQL refuses to run with
+  administrator rights"* (code `elevated.refused`), or, from the first v3
+  build (56ecb80), *"init.bootstrap: exit exit code: 1"* with a
+  `bootstrap.log` saying *"Execution of PostgreSQL by a user with
+  administrative permissions is not permitted"*: Orgtree was started with
+  "Run as administrator" (or by an installer running as administrator).
+  Nothing was switched and the old files are untouched. Close Orgtree and
+  start it normally; the conversion runs again. Builds after 56ecb80 start
+  PostgreSQL without administrator rights (as PostgreSQL's own `pg_ctl`
+  does), so they should not stop here at all. The failed attempt leaves a
+  `data\pg\staging-...` folder behind; it is never used again, is counted as
+  "quarantined" and can be deleted once v3 works.
 - *"the bundled importer is missing"* or *"packaged PostgreSQL executable is
   missing"*: the install is incomplete. Reinstall v3; if it repeats, send the
   message.
