@@ -542,8 +542,10 @@ class ContactFacets(unittest.TestCase):
         for variant in ("refusal:inbox-no-token", "json:refusal:inbox-no-token"):
             r = self.exact("mail.user-inbox", variant, "warm")
             self.assertEqual((r["http_status"], r["census"]["records"], r["census"]["statements"]), (401, 0, 0))
+        # the bounded read (25a8539) answers an unknown node from its own row
+        # lookup: no mail-log read, and no whole-org load
         r = self.exact("mail.node-inbox", "refusal:node-inbox-unknown-node", "warm")
-        self.assertEqual((r["http_status"], self.read(r), self.written(r)), (404, self.FULL, []))
+        self.assertEqual((r["http_status"], self.read(r), self.written(r)), (404, ["doc", "meta", "nodes"], []))
         self.assertEqual(self.exact("mail.node-inbox", "json:refusal:node-inbox-unknown-node", "warm")["http_status"], 404)
 
     # -- S2f: funding ----------------------------------------------------------------

@@ -7270,22 +7270,30 @@ def read_node_inbox(slug: str, nid: str, keep: int, slack: int = 40
 
     Raises LedgerError("no such node") for a missing node, as `Org.node`
     does. None = no cheap answer (JSON backend, a `nodes` blob, or a legacy
-    mail blob); the caller loads instead."""
-    def body(conn: sqlite3.Connection
-             ) -> tuple[bool, list[Any], list[Any], list[Any], list[Any]] | None:
+    mail blob); the caller loads instead.
+
+    ⚠ The "no such node" error is raised AFTER the read, never inside it: an
+    exception leaving `_POOL.acquire` closes the connection instead of
+    pooling it, so raising in the body cost every unknown-node 404 the org's
+    pooled connection (and the next reader a fresh connect)."""
+    missing = object()
+
+    def body(conn: sqlite3.Connection) -> Any:
         if conn.execute("SELECT 1 FROM doc WHERE key='nodes'").fetchone():
             return None          # nodes stored as a blob: rows cannot answer
         row = conn.execute("SELECT val FROM nodes WHERE id=?", (nid,)).fetchone()
         if row is None:
-            raise LedgerError(f"no such node: {nid!r}")
+            return missing
         node = json.loads(cast(str, row[0]))
         tails = _mail_tails(conn, nid, keep, slack)
         if tails is None:
             return None
         leased = bool(node.get("drive_lease")) if isinstance(node, dict) else False
         return (leased, *tails)
-    return cast("tuple[bool, list[Any], list[Any], list[Any], list[Any]] | None",
-                _bounded_read(slug, body))
+    got = _bounded_read(slug, body)
+    if got is missing:
+        raise LedgerError(f"no such node: {nid!r}")
+    return cast("tuple[bool, list[Any], list[Any], list[Any], list[Any]] | None", got)
 
 
 def _mail_tails(conn: sqlite3.Connection, nid: str, keep: int, slack: int

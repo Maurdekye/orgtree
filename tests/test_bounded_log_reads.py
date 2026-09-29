@@ -264,6 +264,19 @@ class BoundedLogReads(unittest.TestCase):
             org.nodes['beta'].pop('drive_lease', None)
             store.save_org(org)
 
+    def test_read_node_inbox_unknown_node_keeps_the_pooled_connection(self):
+        # "no such node" is raised after the read: an exception leaving
+        # _POOL.acquire closes the connection instead of pooling it
+        if store.STORE_BACKEND != 'sqlite':
+            self.skipTest('sqlite pool only')
+        store._POOL.close_all('bounded')
+        store.read_node_inbox('bounded', 'alpha', keep=50)
+        idle = len(store._POOL._idle.get('bounded') or [])
+        self.assertGreater(idle, 0)
+        with self.assertRaises(ledger.LedgerError):
+            store.read_node_inbox('bounded', 'nobody', keep=50)
+        self.assertEqual(len(store._POOL._idle.get('bounded') or []), idle)
+
     def test_node_row_exists(self):
         if store.STORE_BACKEND != 'sqlite':
             self.skipTest('sqlite reader only')
