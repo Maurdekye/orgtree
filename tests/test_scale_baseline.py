@@ -62,6 +62,22 @@ class ControllerControls(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "exact source"):
                 baseline.require_go(args, "abc")
 
+    def test_go_may_lower_the_disk_admission_but_not_below_the_guard_floor(self):
+        args = argparse.Namespace(small_control=False, go_file=None)
+        with tempfile.TemporaryDirectory() as folder:
+            args.go_file = Path(folder) / "go.json"
+            base = dict(go=True, source="abc", coordinator_message="mail-id")
+            baseline.write(args.go_file, base)
+            c = baseline.require_go(args, "abc")
+            self.assertEqual((c["disk_gib"], c["disk_override"]), (80, False))
+            baseline.write(args.go_file, dict(base, disk_gib=60))
+            c = baseline.require_go(args, "abc")
+            self.assertEqual((c["disk_gib"], c["disk_override"]), (60, True))
+            for bad in (19, "60", "x"):
+                baseline.write(args.go_file, dict(base, disk_gib=bad))
+                with self.assertRaisesRegex(ValueError, "disk_gib"):
+                    baseline.require_go(args, "abc")
+
     def test_guard_survives_an_engine_pid_that_vanished(self):
         # The descriptor's engine pid can exit between reads (seen live in the
         # rows preflight's startup, 2026-09-28); that alone must not trip the guard.
