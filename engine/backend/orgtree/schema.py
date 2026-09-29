@@ -575,6 +575,10 @@ class NodeDoc(TypedDict):
     # retains it. A normal compaction (whose successor carries its own
     # summary) clears it as before.
     cheap_compacted: NotRequired[bool]
+    # when the CURRENT session began: stamped by every in-place split
+    # (cheap/CLI compaction, model switch, reseed). `Org.node_ask` drops an
+    # answered card resolved before it (user report 2026-09-29).
+    session_began_at: NotRequired[str]
     # user bug 2026-08-18: the CURRENT session id was MINTED (cheap_compact,
     # reseed) and has never been handed to the CLI — so no transcript for it
     # exists yet, and that is normal, not damage. №31's startup reconcile

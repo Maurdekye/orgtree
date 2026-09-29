@@ -5406,6 +5406,7 @@ class Org:
         self.nodes[pred_id] = pred
         n["session_id"] = str(uuid.uuid4())
         n["generation"] = gen + 1
+        n["session_began_at"] = now()   # node_ask's per-session linger bound
         n["predecessor"] = pred_id
         # Evidence belongs to the archived predecessor generation. The fresh
         # successor starts unobserved and cannot inherit a positive receipt.
@@ -11011,25 +11012,18 @@ class Org:
         # and the new session's rows cannot contain the answer mail that was
         # handed to the old one. An answer resolved before this session
         # began was handed off to its predecessor; one still queued then
-        # renders as its own bubble (see above). Every in-place session
-        # split (cheap compaction, CLI compaction, model switch, reseed)
-        # records the predecessor with its `archived_at`. Read LAST, only for
-        # a card that would otherwise show: the bearer is an archived node,
-        # and this runs for every node on every tree payload.
-        resolved = best.get("resolved_at") or best["at"]
-        if resolved < cutoff or resolved < self._session_began(nid):
+        # renders as its own bubble (see above). Every in-place split
+        # (cheap compaction, CLI compaction, model switch, reseed) stamps
+        # `session_began_at` on the LIVE node, so this reads the row both
+        # the whole Org and the foreground context already hold. No stamp
+        # (a node never split, or split before the stamp existed) means no
+        # bound, as before.
+        began = str((self.nodes.get(nid) or {}).get("session_began_at") or "")
+        if began > cutoff:
+            cutoff = began
+        if (best.get("resolved_at") or best["at"]) < cutoff:
             return None
         return best
-
-    def _session_began(self, nid: str) -> str:
-        """When this node's CURRENT session began: its predecessor bearer's
-        `archived_at`, in `now()` format. Empty for a node that has never
-        had its session replaced — no bound, rather than a guess."""
-        pred_id = str((self.nodes.get(nid) or {}).get("predecessor") or "")
-        pred = self.nodes.get(pred_id) if pred_id else None
-        if not pred or pred.get("successor") != nid:
-            return ""
-        return str(pred.get("archived_at") or "")
 
     @staticmethod
     def _boot_at() -> str:
@@ -11429,6 +11423,7 @@ class Org:
         self.nodes[pred_id] = pred
         n["session_id"] = new_session_id
         n["generation"] = gen + 1
+        n["session_began_at"] = now()   # node_ask's per-session linger bound
         n["predecessor"] = pred_id
         n.pop("session_unrun", None)
         # ⚠ The counter counts boundaries in ONE session file, so it is
@@ -11553,6 +11548,7 @@ class Org:
         self._strip_mailbox_authority(pred)
         self.nodes[pred_id] = pred
         n["generation"] = gen + 1
+        n["session_began_at"] = now()   # node_ask's per-session linger bound
         n["predecessor"] = pred_id
         imported = n.get("desktop_import") or {}
         native = imported.get("native_continuity") or {}
@@ -11795,6 +11791,7 @@ class Org:
         follow_session(n, new_session_id, generation=gen + 1)
         n["session_id"] = new_session_id
         n["generation"] = gen + 1
+        n["session_began_at"] = now()   # node_ask's per-session linger bound
         n["predecessor"] = pred_id
         n["cli_compactions"] = None      # new session, new count (see above)
         # same mint, same exemption as cheap_compact (user bug 2026-08-18):

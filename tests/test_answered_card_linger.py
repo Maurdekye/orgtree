@@ -254,11 +254,16 @@ class AnsweredCardAcrossSessionReplacementTests(unittest.TestCase):
     def tearDown(self) -> None:
         _boot('')
 
-    @staticmethod
-    def _split_at(org, seconds_ago: float) -> None:
-        """Place the node's latest session split in time (the real call stamps
-        `now()`, which is after every fixture answer)."""
-        org.nodes[org.nodes['agent']['predecessor']]['archived_at'] = _at(seconds_ago)
+    def _split_at(self, org, seconds_ago: float) -> None:
+        """Place the node's latest session split in time. The split itself
+        must have stamped `session_began_at` (checked first: back-dating a
+        stamp the split never wrote would test the fixture, not the code);
+        the real stamp is `now()`, after every fixture answer."""
+        node = org.nodes['agent']
+        self.assertRegex(node.get('session_began_at') or '',
+                         r'^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$',
+                         'the split stamps the session start in now() format')
+        node['session_began_at'] = _at(seconds_ago)
 
     def test_8_a_cheap_compaction_ends_the_linger(self):
         # THE REPORTED BUG: answered a minute before the compaction.
@@ -318,6 +323,28 @@ class AnsweredCardAcrossSessionReplacementTests(unittest.TestCase):
         self._split_at(org, 60)
         self.assertIsNone(org.node_ask('agent'))
         self.assertIn('mail-c', [m['id'] for m in org.d['mail']['agent']])
+
+    def test_8f_every_in_place_split_stamps_the_session_start(self):
+        # cheap compaction and compact_split are exercised above; these are
+        # the other two in-place splits (review of ed144be asked for them).
+        org = fixture_org('linger-stamps')
+        self.assertNotIn('session_began_at', org.nodes['agent'],
+                         'a node never split carries no stamp, so no bound')
+        org.record_cli_compaction('agent')
+        self._split_at(org, 60)
+        org.mark_unrecoverable('agent', 'fixture')
+        org.nodes['agent']['session_began_at'] = ''
+        org.reseed(USER, 'agent', 'sess-reseeded')
+        self._split_at(org, 30)
+
+    def test_8g_a_node_without_the_stamp_keeps_the_old_window(self):
+        # A node split before this stamp existed has no `session_began_at`:
+        # no bound, exactly the boot/15-minute behaviour it had before.
+        org = fixture_org('linger-no-stamp')
+        _answered(org, resolved_at=_at(120))
+        org.cheap_compact(USER, 'agent')
+        org.nodes['agent'].pop('session_began_at')
+        self.assertIsNotNone(org.node_ask('agent'))
 
 
 if __name__ == '__main__':
