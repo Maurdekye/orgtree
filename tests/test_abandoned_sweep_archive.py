@@ -87,6 +87,71 @@ class AbandonedSweepArchive(unittest.TestCase):
         live = store.load_org(slug)._work_active()[0]
         self.assertEqual(live['owner']['node'], 'a')
 
+    # -- abandoned-ticket-check-decodes-every-node-row-of -----------------
+    def test_the_pending_check_answers_as_the_reassignment_does(self):
+        cases = [(['done'], 'a'), (['done'], 'gone'), (['done', 'open'], 'a'),
+                 (['dropped'], 'b')]
+        for statuses, owner in cases:
+            with self.subTest(statuses=statuses, owner=owner):
+                slug = self._org(statuses, active_owner=owner)
+                want = bool(self._dry(slug)[1])
+                self.assertEqual(orgtx.org_read(slug).work_abandoned_pending(
+                    now_ts=time.time()), want)
+                self.assertEqual(store.load_runtime_org(slug).work_abandoned_pending(
+                    now_ts=time.time()), want)
+        # no live top-level node: nothing can move, whatever is stale
+        slug = self._org(['done'], active_owner='gone')
+        org = store.load_org(slug)
+        org.d['nodes']['a']['state'] = 'archived'
+        store.save_org(org)
+        self.assertEqual(self._dry(slug)[1], [])
+        self.assertFalse(orgtx.org_read(slug).work_abandoned_pending(now_ts=time.time()))
+
+    def _retired_org(self, active_owner):
+        slug = self._org(['done'], active_owner=active_owner)
+        org = store.load_org(slug)
+        for i in range(20):
+            org.d['nodes'][f'r{i}'] = {'id': f'r{i}', 'name': f'r{i}', 'parent': 'a',
+                                       'children': [], 'state': 'archived',
+                                       'generation': 1, 'charter': 'c' * 500}
+        store.save_org(org)
+        with orgtx.org_tx(slug, nodes=['a']):
+            pass                                  # stamps the heal epoch
+        return slug
+
+    def _pass(self, slug):
+        from orgtree import supervisor
+        decoded = []
+        real = store.LazyNodesMap._decode
+
+        def spy(nodes, nid, raw, index):
+            if nodes._slug == slug:
+                decoded.append(nid)
+            return real(nodes, nid, raw, index)
+        before = dict(store.LAZY_ROWS_STATS)
+        with mock.patch.object(store.LazyNodesMap, '_decode', spy), \
+                mock.patch.object(supervisor, 'send_message'), \
+                mock.patch.object(supervisor, 'mail_spark'), \
+                mock.patch.object(orgtx, 'org_read',
+                                  side_effect=AssertionError('whole snapshot on tick')):
+            supervisor._abandoned_docket_recovery_pass(now=time.time())
+        fell = store.LAZY_ROWS_STATS.get('fallbacks', 0) - before.get('fallbacks', 0)
+        return decoded, fell
+
+    def test_a_quiet_pass_decodes_only_the_stale_items_owner_rows(self):
+        with mock.patch.multiple(store, LAZY_ROWS=True, ORGTX_RESCOPE=True):
+            slug = self._retired_org(active_owner='a')      # stale, owner live
+            decoded, fell = self._pass(slug)
+        self.assertEqual(sorted(set(decoded)), ['a'], decoded)
+        self.assertEqual(fell, 0)
+        self.assertEqual(store.load_org(slug)._work_active()[0]['owner']['node'], 'a')
+
+    def test_a_pass_with_work_to_move_still_moves_it(self):
+        with mock.patch.multiple(store, LAZY_ROWS=True, ORGTX_RESCOPE=True):
+            slug = self._retired_org(active_owner='gone')
+            self._pass(slug)
+        self.assertEqual(store.load_org(slug)._work_active()[0]['owner']['node'], 'a')
+
 
 if __name__ == '__main__':
     unittest.main()
