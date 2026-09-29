@@ -36617,7 +36617,8 @@ def _block_str(block: dict[str, Any], key: str) -> str:
 
 def _json_key(v: Any) -> Any:
     """`v` if it can key a dict, else None: a list or object id from a
-    malformed block would raise TypeError on the lookup."""
+    malformed block would raise TypeError on the lookup here and wherever
+    the chip's id is used as a key later (live evidence, reply ids)."""
     return v if isinstance(v, Hashable) else None
 
 
@@ -37553,7 +37554,7 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
                         name = "tool"
                     entry = {"name": name,
                              "arg": _tool_arg(name, block.get("input")),
-                             "id": block.get("id")}
+                             "id": _json_key(block.get("id"))}
                     if name == "TodoWrite":
                         todos = _todo_items(block.get("input")) or []
                         entry["result"] = _todo_glyphs(todos)
@@ -37562,8 +37563,8 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
                         entry["result_lines"] = (len(_raw) if isinstance(_raw, list)
                                                  else len(todos))
                     tools.append(entry)
-                    if block.get("id") and _json_key(block.get("id")) is not None:
-                        by_tool_id[block["id"]] = entry
+                    if entry["id"]:
+                        by_tool_id[entry["id"]] = entry
                 elif bt == "tool_result":
                     # №1/№9: correlate back to the chip — error bit, collapsed
                     # body, image count
