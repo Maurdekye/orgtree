@@ -501,7 +501,8 @@ def child(args):
     elif args.child == "bundle":
         frozen = root / "frozen"
         manifest = build_pair(read(frozen / "base.json"), root / "bundle", Recipe(**config["recipe"]),
-                             {k: str(frozen / "home" / k) for k in read(frozen / "controller.json")["files"]["home"]})
+                             {k: str(frozen / "home" / k) for k in read(frozen / "controller.json")["files"]["home"]},
+                             reserve_bytes=config["disk_gib"] * 2**30 if config.get("disk_override") else None)
         provenance.write_result(root / "receipts/bundle.json", manifest)
     elif args.child == "restore":
         desc = read(root / "frozen/descriptor.json")
