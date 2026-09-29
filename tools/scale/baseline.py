@@ -18,6 +18,7 @@ import time
 import uuid
 
 REPO = Path(__file__).resolve().parents[2]
+RESTORE_TIMEOUT_S = 5400  # run-only, attempt 8: see the restore call in execute()
 sys.path.insert(0, str(REPO / "tools" / "scale"))
 from history_fixture import Recipe, asdict, sha_file, safe_root, regular_file
 from seed import child_env
@@ -352,8 +353,15 @@ class Controller:
                     (self.run_root / name).mkdir(parents=True, exist_ok=True)
                 write(self.run_root / "controller-owner.json", dict(root=str(self.root), token=self.token))
                 env = child_env(self.run_root, url)
+                # Run-only (attempt 8): the 900 s step default stopped the large
+                # restore in attempt 7b. The small restore took 385.6 s for ~1.79 GB
+                # of SQL input; the large one is ~8.66 GB (linear ~1870 s, inferred),
+                # so allow 5400 s (~2.9x). The guard's floors still apply throughout.
+                restore_t0 = time.monotonic()
                 self.script("baseline.py", arm + "-restore", "--child", "restore", "--root", self.root,
-                            "--arm", arm, env=env)
+                            "--arm", arm, env=env, timeout=RESTORE_TIMEOUT_S)
+                outcome.setdefault("restore_s", {})[arm] = round(time.monotonic() - restore_t0, 1)
+                print(f"{arm} restore {outcome['restore_s'][arm]} s", flush=True)
                 self.script("history_pg.py", arm + "-fresh-verify", "verify", "--bundle", self.root / "bundle",
                     "--root", self.run_root, "--arm", arm, "--result", self.root / f"receipts/{arm}-verify.json", env=env)
                 self.script("baseline.py", arm + "-files", "--child", "files", "--root", self.root,
@@ -424,6 +432,11 @@ class Controller:
                     self.kill(server)
                     self.engine_pid = None
                     shutil.copytree(self.run_root / "metrics", self.root / "receipts" / arm, dirs_exist_ok=True)
+                    # Run-only (attempt 8): keep the engine's slow-request log;
+                    # clear_run() deletes run/data before the next arm.
+                    diag = self.run_root / "data" / "diagnostics"
+                    if diag.is_dir():
+                        shutil.copytree(diag, self.root / "receipts" / arm / "diagnostics", dirs_exist_ok=True)
                 self.check()
                 self.drop_database(admin, database_name(url))
             if outcome["small"]["config"]["plans"] != outcome["large"]["config"]["plans"]:
