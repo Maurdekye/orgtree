@@ -1169,7 +1169,7 @@ class HealExclusiveOnPostgres(unittest.TestCase):
         heals: list[str] = []
         real = orgtx._heal
         from unittest.mock import patch
-        with patch.object(orgtx, '_heal', lambda s: (heals.append(s), real(s))[1]):
+        with patch.object(orgtx, '_heal', lambda s, *a: (heals.append(s), real(s, *a))[1]):
             with orgtx.org_tx(self.slug, nodes=['a'], lock_timeout=10) as tx:
                 tx.d['nodes']['a']['name'] = 'after-heal'
         self.assertEqual(heals, [self.slug], 'the heal path really ran')

@@ -729,7 +729,7 @@ class PG0bFake(unittest.TestCase):
         self.assertIn('mail' + store.SPLIT_SEP + 'a', keys)
         heals: list[str] = []
         real = orgtx._heal
-        with patch.object(orgtx, '_heal', lambda s: (heals.append(s), real(s))[1]):
+        with patch.object(orgtx, '_heal', lambda s, *a: (heals.append(s), real(s, *a))[1]):
             for _ in range(3):
                 with orgtx.org_tx(self.slug, sections=[('mail', 'a')]) as tx:
                     self.assertEqual(orgtx._heal_pending(tx), [])

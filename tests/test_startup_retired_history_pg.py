@@ -411,5 +411,133 @@ class RetiredRowsStillReached(StartupReadsLiveRows):
                 raise self.Abort()
 
 
+@unittest.skipUnless(f.ADMIN, 'disposable PostgreSQL required: NOT RUN')
+class StaleEpochProofSkipsSplitRows(StartupReadsLiveRows):
+    """A new build's first transaction on an org (its heal epoch not stamped)
+    loads the node table whole to prove the org heal-clean, and so does the
+    heal it may commit first; neither decodes the split sections' owner rows
+    (attempt 11: the retired agents' notices made this load ~5 GB)."""
+
+    locals().update({n: None for n in dir(StartupReadsLiveRows) if n.startswith('test_')})
+
+    class Abort(Exception):
+        pass
+
+    def setUp(self):
+        super().setUp()
+
+        def boxes(org):
+            for i, nid in enumerate(LIVE + RETIRED):
+                org.d.setdefault('notices', {})[nid] = [
+                    {'id': f'n{i}', 'body': f'notice for {nid}', 'at': 1}]
+            org.d.setdefault('mail', {})['r0'] = [{'id': 'm1', 'body': 'x', 'from': 'coord'}]
+        self.edit(boxes)
+        self.notices = {k: list(v) for k, v in self.whole().d['notices'].items()}
+        self.assertEqual(len(self.notices), len(LIVE) + len(RETIRED))
+
+    def unstamp(self):
+        with self.raw() as raw:
+            raw.execute("DELETE FROM meta WHERE key='heal_epoch'")
+
+    def epoch(self):
+        with self.raw() as raw:
+            row = raw.execute("SELECT val FROM meta WHERE key='heal_epoch'").fetchone()
+        return row[0] if row else None
+
+    @contextlib.contextmanager
+    def watch_loads(self):
+        """Every lazy_work load's doc, and every split owner row decoded."""
+        loads, owners = [], []
+        real_load, real_decode = store._load_lazy, store.LazySplitSection._decode
+
+        def load(conn, slug, *a, **k):
+            d = real_load(conn, slug, *a, **k)
+            if slug == self.slug:
+                loads.append((k.get('lazy_work', False), type(dict.get(d, 'notices')),
+                              type(dict.get(d, 'nodes'))))
+            return d
+
+        def decode(sec, owner, raw):
+            owners.append((sec._sect, owner))
+            return real_decode(sec, owner, raw)
+        with patch.object(store, '_load_lazy', load), \
+                patch.object(store.LazySplitSection, '_decode', decode):
+            yield loads, owners
+
+    def test_the_proof_loads_nodes_whole_and_no_split_owner_row(self):
+        self.unstamp()
+        before = self.stats()
+        with self.watch_loads() as (loads, owners):
+            with orgtx.org_tx(self.slug, nodes=['coord']) as tx:
+                self.assertNotIsInstance(dict.get(tx.org.d, 'nodes'), store.LazyNodesMap)
+                self.assertEqual(set(dict.keys(dict.get(tx.org.d, 'nodes'))),
+                                 set(LIVE + RETIRED), 'the proof must decode every node')
+        self.assertEqual(owners, [], 'a split owner row was decoded')
+        self.assertEqual(loads, [(True, store.LazySplitSection, store.NodesMap)])
+        self.assertEqual(self.delta(before)['epoch_fallbacks'], 1)
+        self.assertEqual(self.epoch(), store.heal_epoch(), 'the proof did not stamp')
+        self.assertEqual(self.whole().d['notices'], self.notices)
+
+    def test_a_heal_found_by_the_proof_is_saved_without_the_split_rows(self):
+        with self.raw() as raw:
+            for nid in ('r3', 'w1'):
+                val = json.loads(raw.execute('SELECT val FROM nodes WHERE id=%s',
+                                             (nid,)).fetchone()[0])
+                val['queued_msgs'] = ['legacy']          # the load heal pops it
+                raw.execute('UPDATE nodes SET val=%s WHERE id=%s', (json.dumps(val), nid))
+            xmins = dict(raw.execute(
+                "SELECT key, xmin::text FROM doc WHERE starts_with(key, 'notices')").fetchall())
+        self.unstamp()
+        heals = []
+        real_heal = orgtx._heal
+
+        def heal(slug, *a):
+            heals.append(a)
+            return real_heal(slug, *a)
+        with self.watch_loads() as (loads, owners), patch.object(orgtx, '_heal', heal):
+            with orgtx.org_tx(self.slug, nodes=['coord']):
+                pass
+        self.assertEqual(heals, [(True,)], 'the heal did not run as a stale-epoch heal')
+        self.assertEqual(owners, [])
+        self.assertEqual(len(loads), 3, loads)          # attempt, heal, retry
+        for got in loads:
+            self.assertEqual(got, (True, store.LazySplitSection, store.NodesMap))
+        with self.raw() as raw:
+            for nid in ('r3', 'w1'):
+                val = json.loads(raw.execute('SELECT val FROM nodes WHERE id=%s',
+                                             (nid,)).fetchone()[0])
+                self.assertNotIn('queued_msgs', val, f'{nid}: heal not saved')
+            after = dict(raw.execute(
+                "SELECT key, xmin::text FROM doc WHERE starts_with(key, 'notices')").fetchall())
+        self.assertEqual(after, xmins, 'the heal rewrote split owner rows')
+        self.assertEqual(self.epoch(), store.heal_epoch())
+        self.assertEqual(self.whole().d['notices'], self.notices)
+
+    def test_a_split_row_written_in_the_proof_transaction_is_saved(self):
+        self.unstamp()
+        with orgtx.org_tx(self.slug, whole=True) as tx:
+            self.assertIsInstance(dict.get(tx.org.d, 'notices'), store.LazySplitSection)
+            tx.org.d['notices']['r2'].append({'id': 'new', 'body': 'b', 'at': 2})
+            tx.org.d['notices']['fresh'] = [{'id': 'f', 'body': 'f', 'at': 3}]
+            del tx.org.d['notices']['r5']
+        want = dict(self.notices)
+        want['r2'] = want['r2'] + [{'id': 'new', 'body': 'b', 'at': 2}]
+        want['fresh'] = [{'id': 'f', 'body': 'f', 'at': 3}]
+        del want['r5']
+        self.assertEqual(self.whole().d['notices'], want)
+        self.assertEqual(self.epoch(), store.heal_epoch())
+
+    def test_an_id_less_mail_box_still_heals_when_decoded_after_the_proof(self):
+        with self.raw() as raw:
+            raw.execute('UPDATE doc SET val=%s WHERE key=%s',
+                        (json.dumps([{'body': 'x', 'from': 'coord'}]), 'mail\x1fr0'))
+        self.unstamp()
+        with orgtx.org_tx(self.slug, nodes=['coord']):
+            pass
+        self.assertEqual(self.epoch(), store.heal_epoch())
+        view = store.load_runtime_org(self.slug)
+        self.assertIn('id', view.d['mail']['r0'][0])
+
+
 if __name__ == '__main__':
     unittest.main()

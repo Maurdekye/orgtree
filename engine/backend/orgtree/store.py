@@ -4817,6 +4817,20 @@ def _load_lazy(conn: sqlite3.Connection, slug: str,
                         "SELECT key, val FROM doc WHERE strpos(key, ?) = 0",
                         (SPLIT_SEP,)).fetchall())
                 lazy_sections = True
+            elif lazy_rows_ok:
+                # A stale epoch (a new build's first transaction) loads the
+                # node table whole to prove the org heal-clean, but NOT the
+                # split sections' owner rows: those heal per row as they are
+                # decoded (ledger.heal_decoded_box) whatever the epoch says,
+                # and no whole-document heal in Org.__init__ walks them. At
+                # N1000 with 10x retired history the notices of retired
+                # agents alone made this load ~5 GB (engine-startup-cost-
+                # must-not-grow-with-retired-h, attempt 11). No doc key is
+                # deferred here: the proof decodes every other key.
+                raw_doc = dict(conn.execute(
+                    "SELECT key, val FROM doc WHERE strpos(key, ?) = 0",
+                    (SPLIT_SEP,)).fetchall())
+                lazy_sections = True
             else:
                 raw_doc = dict(conn.execute(
                     "SELECT key, val FROM doc WHERE NOT starts_with(key, ?)",
