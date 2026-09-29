@@ -1,6 +1,8 @@
-"""Startup archive retention must not repeatedly rewrite every Sent tie key."""
+"""The restart notice keeps the whole mail archive and never loads it; archive
+deletes keep the derived Sent keys and bounds exact."""
 import json
 import unittest
+from unittest.mock import patch
 
 import test_mail_archive_bounds_pg as fixture
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
@@ -26,9 +28,18 @@ class RestartArchiveTrim(unittest.TestCase):
                          'FOR EACH ROW EXECUTE FUNCTION count_trim_updates()')
             conn.execute('COMMIT')
 
-    def test_restart_deposit_retains_exact_tail_with_one_owner_repair(self):
+    def test_restart_deposit_keeps_every_archive_row_and_repairs_no_owner(self):
+        # 2026-09-29: the notice no longer trims the archive to 100 rows (user
+        # ruling 2026-09-07: mail is kept until manual removal), and it appends
+        # without loading the agent's archive (engine-startup-cost-must-not-
+        # grow-with-retired-h: 1.5 GB at N1000 with 10x history)
         self.install_counter()
-        # The growth assertion counts real derived-row writes, not elapsed time.
+        loaded = []
+        real = store.SectionMap._load_owner
+
+        def spy(sec, owner):
+            loaded.append((sec._sect, owner))
+            return real(sec, owner)
         for extra in (130, 300):
             with self.subTest(extra=extra):
                 with store._POOL.acquire(self.slug) as conn:
@@ -39,19 +50,21 @@ class RestartArchiveTrim(unittest.TestCase):
                     conn.execute('TRUNCATE trim_updates')
                     conn.execute('COMMIT')
                 old = self.query("SELECT seq,val FROM log_d WHERE sect='mail_log' AND owner='worker' ORDER BY seq")
-                with orgtx.org_tx(self.slug, **restart_wake._notice_rows(['worker'])) as tx:
-                    row = dict(tx.org.deposit_mail('worker', {'id': 'restart-'+str(extra), 'from': 'orgtree',
-                        'kind': 'notice', 'body': 'restart'}, archive_keep=100,
-                        supersede=lambda m: m.get('kind') == 'notice'))
+                with patch.object(store.SectionMap, '_load_owner', spy):
+                    with orgtx.org_tx(self.slug, **restart_wake._notice_rows(['worker'])) as tx:
+                        row = dict(tx.org.deposit_mail('worker', {'id': 'restart-'+str(extra), 'from': 'orgtree',
+                            'kind': 'notice', 'body': 'restart'},
+                            supersede=lambda m: m.get('kind') == 'notice'))
+                self.assertNotIn(('mail_log', 'worker'), loaded, 'the archive was loaded')
                 after = self.query("SELECT seq,val FROM log_d WHERE sect='mail_log' AND owner='worker' ORDER BY seq")
-                self.assertEqual(after[:-1], old[-99:])
+                self.assertEqual(after[:-1], old)
                 self.assertEqual(json.loads(after[-1][1]), row)
                 self.assertGreater(row['recv_seq'], 9)
-                self.assertEqual(self.query('SELECT count(*) FROM trim_updates')[0][0], 99)
+                self.assertEqual(self.query('SELECT count(*) FROM trim_updates')[0][0], 0)
                 self.assertEqual(self.query('SELECT seq,owner_pos FROM mail_sent ORDER BY seq'),
                                  [(seq, after[0][0]) for seq, _ in after])
                 self.assertEqual(self.query("SELECT nrows,assigned_max,unknown_rows FROM mail_archive_bounds "
-                                            "WHERE owner='worker'")[0], (100, row['recv_seq'], 0))
+                                            "WHERE owner='worker'")[0], (len(after), row['recv_seq'], 0))
                 pending = store.load_org(self.slug).d['mail']['worker']
                 self.assertEqual([m['id'] for m in pending], [row['id']])
 

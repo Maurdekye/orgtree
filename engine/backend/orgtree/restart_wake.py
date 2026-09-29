@@ -370,12 +370,12 @@ def on_backend_startup(*, dry_run: bool = False) -> dict[str, Any]:
                             # unread predecessor it is still a new message with
                             # a new id: it takes a NEW ordinal and merely
                             # occupies the old row's position. No other row's
-                            # identity or ordinal is touched, the mail_log
-                            # mirror is unchanged, and this path's own
-                            # 100-entry archive tail is now stated here rather
-                            # than trimmed by hand beside the append.
-                            org.deposit_mail(nid, entry, archive_keep=100,
-                                             supersede=supersedes)
+                            # identity or ordinal is touched, and the mail_log
+                            # archive gains the notice and loses nothing: the
+                            # former 100-row tail trim deleted every older
+                            # mail of the agent on each restart, against the
+                            # 2026-09-07 retention ruling (removed 2026-09-29).
+                            org.deposit_mail(nid, entry, supersede=supersedes)
                             done.append({"org": slug, "node": nid})
                     notified.extend(done)
             except Exception as e:                               # noqa: BLE001

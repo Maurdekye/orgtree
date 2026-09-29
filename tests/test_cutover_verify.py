@@ -169,54 +169,37 @@ class OrgRows(unittest.TestCase):
             change(broken)
             self.assertTrue(cv.compare_org("acme", src, broken, 2, after_launch=True)["problems"], label)
 
-    def test_after_launch_allows_only_the_restart_notice_trim(self) -> None:
-        # Rehearsal 2 (a copy of live data): each start's restart notice keeps
-        # an agent's newest 100 mail_log rows (archive_keep=100), so agents
-        # already at 100 lost their oldest rows. That is listed, not failed.
+    def test_after_launch_a_trimmed_mail_archive_is_a_problem(self) -> None:
+        # Rehearsal 2 (a copy of live data) lost each agent's oldest mail_log
+        # rows to the restart notice's 100-row trim, which the verifier then
+        # allowed. The engine no longer trims (user ruling 2026-09-07: mail is
+        # kept until manual removal; trim removed 2026-09-29), so that exact
+        # shape -- the oldest rows gone, a new notice added -- is now a loss.
         keep = 100
-        self.assertEqual(cv.MAIL_ARCHIVE_KEEP, keep)
         src = sqlite_side(self.ITEMS)
-        steer = (0, "steered_log", "n1", None, "{}")  # older than every mail row
+        steer = (0, "steered_log", "n1", None, "{}")
         mail = [(seq, "mail_log", "n1", None, json.dumps({"n": seq})) for seq in range(1, keep + 1)]
         other = (keep + 2, "mail_log", "n2", None, "{}")
         src["log_d"] = [steer] + mail + [other]
         notices = [(1000 + i, "mail_log", "n1", None, '{"from":"orgtree"}') for i in range(2)]
         dst = pg_side(src, self.ITEMS)
-        dst["log_d"] = [steer] + mail[2:] + [other] + notices  # n1: rows 1-2 trimmed, two notices, 100 left
+        dst["log_d"] = [steer] + mail[2:] + [other] + notices
+        out = cv.compare_org("acme", src, dst, 2, after_launch=True)
+        self.assertTrue(any("missing or changed" in p for p in out["problems"]), out["problems"])
+        # rows only ADDED after launch (the notices) are a listed change, not a problem
+        dst["log_d"] = [steer] + mail + [other] + notices
         out = cv.compare_org("acme", src, dst, 2, after_launch=True)
         self.assertEqual(out["problems"], [])
-        self.assertTrue(any("restart notice" in c and "2 oldest" in c for c in out["changed_since_backup"]),
+        self.assertTrue(any("2 row(s) added" in c for c in out["changed_since_backup"]),
                         out["changed_since_backup"])
-        for label, rows in {
-                "fewer than the kept number remain": [steer] + mail[2:] + [other] + notices[:1],
-                "a row lost from the middle": [steer] + mail[:5] + mail[7:] + [other] + notices,
-                "a trimmed-age row changed, not removed": [steer, (1, "steered_log", "n1", None, "{}")] + mail[2:]
-                + [other] + notices,
-                "a lost row that is not mail_log": mail[2:] + [other] + notices,
-                "another agent's row under the kept number": [steer] + mail[2:] + notices,
-        }.items():
-            broken = {**dst, "log_d": rows}
-            self.assertTrue(cv.compare_org("acme", src, broken, 2, after_launch=True)["problems"], label)
-        # Review of 610cce4: a trim keeps 100 rows INCLUDING the new notice, so
-        # more than 99 surviving backup rows, or no new row at all, is not a trim.
-        for label, total, lost_n, new_n in (
-                ("oldest 100 of 300 gone, 200 backup rows survive", 300, 100, 1),
-                ("oldest 390 of 500 gone, 110 backup rows survive", 500, 390, 1),
-                ("oldest 5 of 105 gone, exactly 100 backup rows survive", 105, 5, 1),
-                ("oldest 20 of 130 gone and no notice arrived", 130, 20, 0)):
-            rows = [(seq, "mail_log", "n1", None, "{}") for seq in range(1, total + 1)]
-            new = [(10_000 + i, "mail_log", "n1", None, '{"from":"orgtree"}') for i in range(new_n)]
-            s = {**src, "log_d": rows}
-            d = {**pg_side(s, self.ITEMS), "log_d": rows[lost_n:] + new}
-            self.assertTrue(cv.compare_org("acme", s, d, 2, after_launch=True)["problems"], label)
-        # the exact mode never allows it
-        self.assertTrue(cv.compare_org("acme", src, dst, 2)["problems"])
+        self.assertFalse(hasattr(cv, "restart_notice_trim"))
+        self.assertFalse(hasattr(cv, "MAIL_ARCHIVE_KEEP"))
 
-    def test_the_kept_number_matches_the_engines_restart_notice(self) -> None:
-        # the verifier may not import the engine, so pin its constant to the source
-        source = (Path(__file__).resolve().parents[1] / "engine" / "backend" / "orgtree" / "restart_wake.py") \
-            .read_text(encoding="utf-8")
-        self.assertEqual(re.findall(r"archive_keep=(\d+)", source), [str(cv.MAIL_ARCHIVE_KEEP)])
+    def test_the_engines_restart_notice_trims_no_archive(self) -> None:
+        # the verifier may not import the engine, so pin the engine's source
+        engine = Path(__file__).resolve().parents[1] / "engine" / "backend" / "orgtree"
+        source = (engine / "restart_wake.py").read_text(encoding="utf-8")
+        self.assertEqual(re.findall(r"archive_keep", source), [])
 
 
 class Independence(unittest.TestCase):

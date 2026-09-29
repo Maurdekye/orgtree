@@ -1193,9 +1193,9 @@ class OrgDoc(TypedDict):
     mail: NotRequired[dict[str, list[MailEntry]]]
     mail_drain_version: NotRequired[int]  # queued-mail upgrade completed
     tool_result_receipts: NotRequired[dict[str, str]]  # atomic tool-result mail outbox receipts
-    # full-body archive. NOT globally capped: `post_mail` and the other deposit
-    # doors retain until manual removal, and the only tail trim in the backend
-    # is the restart notice's own `archive_keep=100`.
+    # full-body archive. NOT capped: every deposit door retains until manual
+    # removal (user ruling 2026-09-07; the restart notice's former 100-row
+    # tail trim was removed 2026-09-29).
     mail_log: NotRequired[dict[str, list[MailEntry]]]
     # Bounded identity/state transitions for mail, child tasks, watchdogs and
     # delivery warnings. Bodies remain in their owning records.

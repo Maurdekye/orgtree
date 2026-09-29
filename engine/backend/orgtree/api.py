@@ -5961,9 +5961,14 @@ def _send_receipt(org: Org, slug: str, nid: str, r: Mapping[str, Any], *,
     out: dict[str, Any] = {"id": mid, "ref": refs.mail(slug, nid, mid) or ""}
     if r.get("operation_id"):
         out["operation_id"] = str(r["operation_id"])
-    rows = [*((org.d.get("mail") or {}).get(nid) or []),
-            *((org.d.get("mail_log") or {}).get(nid) or [])]
-    row = next((m for m in rows if str(m.get("id")) == mid), None)
+    # the pending box first: a message just sent is there, and the archive --
+    # the recipient's whole mail history, never trimmed -- is read only for
+    # one already delivered (engine-startup-cost-must-not-grow-with-retired-h)
+    row = next((m for m in ((org.d.get("mail") or {}).get(nid) or [])
+                if str(m.get("id")) == mid), None)
+    if row is None:
+        row = next((m for m in ((org.d.get("mail_log") or {}).get(nid) or [])
+                    if str(m.get("id")) == mid), None)
     if row is not None:
         if row.get("operation_id") and "operation_id" not in out:
             out["operation_id"] = str(row["operation_id"])

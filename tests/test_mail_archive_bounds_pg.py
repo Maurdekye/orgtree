@@ -176,13 +176,46 @@ class MailArchiveBounds(unittest.TestCase):
         self.assertEqual(self.bound(), before)
         self.assertEqual(self.send()['recv_seq'], 10)
 
-    def test_retention_and_superseding_keep_full_edit_path(self):
+    def test_the_send_receipt_finds_a_pending_message_without_loading_the_archive(self):
+        from orgtree import api
+        original = store.SectionMap._load_owner
+        def guarded(log, owner):
+            if log._sect == 'mail_log':
+                raise AssertionError('send receipt loaded retained mail')
+            return original(log, owner)
         with self.tx() as tx:
-            tx.org.deposit_mail('worker', {'id': 'trim'}, archive_keep=2)
-        self.assertEqual(tuple(map(int, self.bound())), (2, 10, 0))
-        with self.tx() as tx:
-            tx.org.deposit_mail('worker', {'id': 'replace'}, supersede=lambda row: row.get('id') == 'trim')
-        self.assertEqual(tuple(map(int, self.bound())), (3, 11, 0))
+            row = dict(tx.org.deposit_mail('worker', {'id': 'fresh', 'from': 'user', 'body': 'b'}))
+            with patch.object(store.SectionMap, '_load_owner', guarded):
+                got = api._send_receipt(tx.org, self.slug, 'worker', {'id': 'fresh'}, public=None)
+        self.assertEqual(got['id'], 'fresh')
+        self.assertTrue(got['ref'])
+        self.assertEqual(row['id'], 'fresh')
+        # a message already moved to the archive is still found there
+        with store._POOL.acquire(self.slug) as conn:
+            conn.execute('BEGIN')
+            conn.execute("INSERT INTO log_d(sect,owner,val) VALUES('mail_log','worker',?)",
+                         (json.dumps({'id': 'done', 'from': 'user', 'body': 'b',
+                                      'operation_id': 'op-archived'}),))
+            conn.execute('COMMIT')
+        org = store.load_org(self.slug)
+        got = api._send_receipt(org, self.slug, 'worker', {'id': 'done'}, public=None)
+        self.assertEqual(got.get('operation_id'), 'op-archived')
+
+    def test_superseding_edits_the_box_and_appends_without_loading_the_archive(self):
+        # a superseding deposit (the restart notice) replaces the pending row
+        # only; the archive keeps both rows and is never loaded
+        original = store.SectionMap._load_owner
+        def guarded(log, owner):
+            if log._sect == 'mail_log':
+                raise AssertionError('superseding deposit loaded retained mail')
+            return original(log, owner)
+        with patch.object(store.SectionMap, '_load_owner', guarded):
+            with self.tx() as tx:
+                tx.org.deposit_mail('worker', {'id': 'trim'})
+            self.assertEqual(tuple(map(int, self.bound())), (10, 10, 0))
+            with self.tx() as tx:
+                tx.org.deposit_mail('worker', {'id': 'replace'}, supersede=lambda row: row.get('id') == 'trim')
+        self.assertEqual(tuple(map(int, self.bound())), (11, 11, 0))
         org = store.load_org(self.slug)
         self.assertEqual([r['id'] for r in org.d['mail']['worker']], ['replace'])
 

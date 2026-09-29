@@ -276,7 +276,10 @@ class RestartNoticeDoor(Base):
         self.assertIn(first, archived)
         self.assertEqual(len(archived), 2)
 
-    def test_the_100_entry_archive_tail_is_still_enforced(self):
+    def test_the_archive_is_never_trimmed(self):
+        # the former 100-entry tail trim deleted the agent's older mail on
+        # every restart; removed 2026-09-29 (user ruling 2026-09-07: mail is
+        # kept until manual removal)
         org = store.load_org(self.slug)
         log = org.d.setdefault('mail_log', {}).setdefault('worker', [])
         log.extend({'id': f'old{i}', 'from': 'x', 'kind': 'notice',
@@ -284,8 +287,10 @@ class RestartNoticeDoor(Base):
                    for i in range(150))
         store.save_org(org)
         org = self.sweep()
-        self.assertEqual(len(self.archive('worker', org)), 100)
-        self.assertTrue(self.archive('worker', org)[-1].get('restart_notice'))
+        archived = self.archive('worker', org)
+        self.assertEqual(len(archived), 151)
+        self.assertEqual([m['id'] for m in archived[:150]], [f'old{i}' for i in range(150)])
+        self.assertTrue(archived[-1].get('restart_notice'))
 
 
 class TheDoorIsTheOnlyDoor(unittest.TestCase):
@@ -382,9 +387,9 @@ class TheDoorIsTheOnlyDoor(unittest.TestCase):
         src = (BACKEND / 'supervisor.py').read_text(encoding='utf-8')
         self.assertIn('archive=False)', src)
 
-    def test_the_restart_notice_site_still_declares_its_own_retention(self):
+    def test_the_restart_notice_site_trims_no_archive(self):
         src = (BACKEND / 'restart_wake.py').read_text(encoding='utf-8')
-        self.assertIn('archive_keep=100', src)
+        self.assertNotIn('archive_keep', src)
         self.assertIn('supersede=supersedes', src)
 
 
