@@ -183,6 +183,74 @@ class PlannedCatchUp(unittest.IsolatedAsyncioTestCase):
             asyncio.run(drive_planned({}, None, started=0, duration=1, stop=threading.Event(), max_batch=0))
 
 
+class InEngineThreads(unittest.TestCase):
+    """Attempt 9: the in-engine producer replays the same plan on threads."""
+
+    def run_plan(self, *, hz, seconds, duration, latency, max_batch):
+        jobs = PlannedCatchUp.plan(None, ['a', 'b'], hz, seconds)
+        sent, lock, stop = [], threading.Lock(), threading.Event()
+        started = time.time()
+        def submit(rows):
+            with lock:
+                sent.append((time.time() - started, rows[0]['node'], [r['m'] for r in rows]))
+            time.sleep(latency)
+        threads = streaming.run_planned_threads(jobs, submit, started=started, duration=duration,
+                                                stop=stop, max_batch=max_batch)
+        for t in threads:
+            t.join(timeout=10)
+        self.assertFalse(any(t.is_alive() for t in threads))
+        return jobs, sent
+
+    def test_every_agent_sends_its_plan_in_order_on_its_own_thread(self):
+        jobs, sent = self.run_plan(hz=20, seconds=1, duration=5, latency=0, max_batch=8)
+        for node in jobs:
+            ids = [m for _, n, batch in sent if n == node for m in batch]
+            self.assertEqual(ids, [r['m'] for r in jobs[node]])
+
+    def test_a_slow_call_catches_up_within_the_bound(self):
+        jobs, sent = self.run_plan(hz=20, seconds=1, duration=5, latency=.2, max_batch=3)
+        self.assertGreater(max(len(b) for _, _, b in sent), 1)
+        self.assertLessEqual(max(len(b) for _, _, b in sent), 3)
+
+    def test_nothing_is_sent_at_or_after_the_duration(self):
+        _, sent = self.run_plan(hz=20, seconds=5, duration=.5, latency=0, max_batch=8)
+        self.assertTrue(sent)
+        self.assertTrue(all(at < .5 + .05 for at, _, _ in sent))
+
+    def test_invalid_bound_is_refused(self):
+        with self.assertRaises(ValueError):
+            streaming.run_planned_threads({}, None, started=0, duration=1, stop=threading.Event(), max_batch=0)
+
+
+class FeedEarlyReceipts(unittest.TestCase):
+    """The engine's emit row reaches load.py through a file, so a window may
+    see a marker first; with ``early`` it still counts, without it is lost."""
+
+    def test_a_receipt_before_its_emit_is_counted(self):
+        feed = Feed(1, early=True)
+        self.assertIsNone(feed.receive(0, 7, 100.2))
+        self.assertEqual(feed.emit(7, 100.0), [{'w': 0, 'm': 7, 'emit': 100.0, 'receive': 100.2}])
+        feed.acknowledge([7], True)
+        feed.retire(106)
+        self.assertEqual(feed.counts[0], dict(due=1, missing=0, over_1s=0))
+        self.assertAlmostEqual(feed.latencies[0][0], 200, places=3)
+
+    def test_without_early_the_same_order_is_a_drop(self):
+        # Control: the old tracker ignores a receipt for an unknown marker.
+        feed = Feed(1)
+        self.assertIsNone(feed.receive(0, 7, 100.2))
+        self.assertEqual(feed.emit(7, 100.0), [])
+        feed.acknowledge([7], True)
+        feed.retire(106)
+        self.assertEqual(feed.counts[0]['missing'], 1)
+
+    def test_unclaimed_early_receipts_expire(self):
+        feed = Feed(1, early=True)
+        feed.receive(0, 9, 100.0)
+        feed.retire(111)
+        self.assertEqual(feed.early, {})
+
+
 class FeedMeasurementSplit(unittest.TestCase):
     """Unsent planned markers are a demand failure, reported apart from drops."""
 

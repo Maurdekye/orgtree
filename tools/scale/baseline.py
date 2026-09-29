@@ -399,6 +399,8 @@ class Controller:
                         args = ["--root", self.run_root, "--duration", duration, "--rate", c["tool_rate"],
                                 "--steer-rate", c["steer_rate"], "--workers", 64, "--windows", 4,
                                 "--stream-nodes", 5, "--stream-hz", 4, "--renderer-hooks", "--write-oracle",
+                                # Run-only (attempt 9): in-engine feed producer, no HTTP hop per frame.
+                                "--stream-inproc",
                                 "--warmup", c["warmup"]]
                         if arm == "small":
                             self.script("load.py", "plan", *args, "--label", "plan", "--plan-only")

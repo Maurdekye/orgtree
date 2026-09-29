@@ -381,6 +381,77 @@ def child(args) -> int:
                             "assistant_reset": bool(f.get("reset"))})
         return {"ok": True, "frames": len(frames)}
 
+    _inproc: dict = {}
+
+    @api.app.post("/scale/stream-plan")
+    def _scale_stream_plan(payload: dict = Body(...)) -> dict:
+        """In-engine producer (coordinator approval 2026-09-29 04:03Z): one thread
+        per streaming agent replays load.py's stream plan and calls
+        `supervisor.stream` at the planned times, as the CLI reader threads do.
+        {"plan": <path under root>, "receipts": <new path under root>,
+         "started": epoch, "duration": s, "max_batch": n}. Receipts are JSON
+        lines: {"kind": "marker", ...} before each call and {"kind": "stream", ...}
+        after it, one frame per row."""
+        from streaming import run_planned_threads
+        fn = supervisor.stream
+        if fn is None:
+            return {"ok": False, "why": "supervisor.stream not wired (lifespan did not run)"}
+        if _inproc:
+            return {"ok": False, "why": "an in-engine producer already ran in this process"}
+        plan, receipts = (Path(payload[k]).resolve() for k in ("plan", "receipts"))
+        for p in (plan, receipts):
+            if root not in p.parents:
+                return {"ok": False, "why": "plan and receipts must be under the run root"}
+        if receipts.exists():
+            return {"ok": False, "why": "receipts file already exists"}
+        started, duration = float(payload["started"]), float(payload["duration"])
+        jobs: dict = {}
+        for line in plan.read_text(encoding="utf-8").splitlines():
+            row = json.loads(line)
+            jobs.setdefault(row["node"], []).append(row)
+        out = receipts.open("a", encoding="utf-8")
+        out_lock = threading.Lock()
+        stop = threading.Event()
+
+        def emit(row):
+            with out_lock:
+                out.write(json.dumps(row) + "\n")
+                out.flush()
+
+        def submit(rows):
+            for row in rows:
+                m, node = row["m"], str(row["node"])
+                now = time.time()
+                emit({"kind": "marker", "m": m, "emit": now, "node": node, "due": started + row["t"]})
+                err = None
+                try:
+                    fn(slug, node, {"kind": "delta", "text": str(row["text"]),
+                                    "assistant_id": f"scale-{node}", "assistant_reset": bool(row.get("reset"))})
+                except Exception as exc:                                  # noqa: BLE001
+                    err = f"{type(exc).__name__}: {exc}"[:200]
+                emit({"kind": "stream", "t": round(now - started, 3), "frames": 1, "err": err,
+                      "ms": round((time.time() - now) * 1000, 1), "first_seq": m, "ids": [m],
+                      "emit": now, "late_ms": round((now - started - rows[0]["t"]) * 1000, 1)})
+
+        threads = run_planned_threads(jobs, submit, started=started, duration=duration, stop=stop,
+                                      max_batch=int(payload.get("max_batch") or 8))
+
+        def closer():
+            for t in threads:
+                t.join()
+            with out_lock:
+                out.write(json.dumps({"kind": "done", "at": time.time()}) + "\n")
+                out.close()
+        threading.Thread(target=closer, daemon=True, name="scale-stream-closer").start()
+        _inproc.update(stop=stop, threads=threads)
+        return {"ok": True, "agents": len(jobs), "frames": sum(len(r) for r in jobs.values())}
+
+    @api.app.post("/scale/stream-stop")
+    def _scale_stream_stop() -> dict:
+        if _inproc:
+            _inproc["stop"].set()
+        return {"ok": True}
+
     _tok: dict = {}
 
     @api.app.get("/scale/tokens")
