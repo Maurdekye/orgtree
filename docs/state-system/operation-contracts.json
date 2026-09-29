@@ -1414,7 +1414,7 @@
         "Self wins first; strict descendant ancestry wins second, even for an archived target. Otherwise the shared-item route checks the active work_items collection, current holder/reviewer/participant standing, and the target node name in the holder roster except its last row. Creator, org visibility and unrelated-item membership do not independently grant material access.",
         "The item access disclosure includes via,item,title,standing,held_from,derived,note. Stored holder rows survive history folding. An absent roster is derived from surviving assign history/current owner without persisting it.",
         "Once a route authorizes the target, the adapter exposes that target scratch namespace or bounded transcript; it does not filter returned content by work-item tags. The item is an authorization witness, not a content selector. Any finer native content policy requires an explicit design/product ruling.",
-        "Legacy limits must remain visible: work_items is a storage-placement test, not status!=done; a done item still in that collection can grant until archive. A returning current holder also appearing earlier in its roster can match. _work_actor_node extracts the node string without checking born or generation, despite roster rows carrying born. These are source observations, not approved native permissions.",
+        "Legacy limits must remain visible: work_items is a storage-placement test, not status!=done; a done item still in that collection can grant until archive. The current holder is excluded by identity, so a returning holder's earlier roster row no longer matches (changed on purpose 2026-09-29, docket an-item-s-current-holder-can-be-read-through-the; before, that earlier row granted a listed agent read of the current holder). _work_actor_node extracts the node string without checking born or generation, despite roster rows carrying born. These are source observations, not approved native permissions.",
         "Membership is recomputed for the next call after a saved removal/archive. The legacy implementation does not revalidate while file/transcript content is being produced, and does not acquire an output claim. A successful initial check therefore is not proof that a later restriction became Effective safely."
       ],
       "source_refs": [
@@ -1463,7 +1463,7 @@
       "facts": [
         "Read predicates are authenticated caller liveness/generation and runtime halt state; self identity or the target parent chain; otherwise active item membership, current role, and previous roster membership. Content is reached only after _agent_read_access returns.",
         "Legacy item matching searches active items in stored order and takes the latest matching target in each prior roster. The first granting item supplies the disclosure; full-org active-item scans are existing cost, not a native query plan.",
-        "The native contract must close authorization with the disclosed output and immutable identity using the approved affected-consumer fence. No source-bound assertion here authorizes a global read lock or repeats legacy name-only/returning-holder holes."
+        "The native contract must close authorization with the disclosed output and immutable identity using the approved affected-consumer fence. No source-bound assertion here authorizes a global read lock or repeats the legacy name-only hole (the returning-holder hole is closed in legacy too, 2026-09-29)."
       ],
       "source_refs": [
         {

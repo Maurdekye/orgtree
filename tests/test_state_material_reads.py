@@ -261,13 +261,15 @@ class MaterialReads(MaterialFixture,unittest.TestCase):
             for tool in TOOLS:
                 self.refused(self.call(tool),'DOWNWARD')
 
-    def test_legacy_returning_current_holder_gap_is_explicit(self):
+    def test_returning_current_holder_is_refused(self):
         self.mutate(lambda o:o.work_assign(ledger.USER,self.item,'first'))
         with patch.object(supervisor,'read_chat',return_value=self.chat()):
-            # first -> reader -> first: the earlier first still matches. Native
-            # exclusion of the CURRENT holder must not copy this legacy hole.
+            # first -> reader -> first: first's earlier row no longer matches, because
+            # the CURRENT holder is excluded by identity (a legacy hole until 2026-09-29).
             for tool in TOOLS:
-                self.assertEqual(self.okay(self.call(tool,actor='peer'))['access']['via'],'item')
+                self.refused(self.call(tool,actor='peer'),'DOWNWARD')
+                # reader's own earlier stretch stays readable
+                self.assertEqual(self.okay(self.call(tool,actor='peer',target='reader'))['access']['via'],'item')
         self.assertIn('exclude_returning_current_holder',self.spec['native_obligations'])
 
     def test_item_is_authority_witness_not_content_filter(self):
