@@ -436,6 +436,35 @@ async function mosaicRig(mount: Mount) {
   return { ...rig, title, size }
 }
 
+uiTest('resize snap preview and release keep the opposite desk edge fixed; Shift bypasses', async ({ mount }) => {
+  const { el } = await mosaicRig(mount)
+  const start = { x: 430, y: 100, w: 500, h: 300 }
+  await inAct(() => { commitRect('mine', 'cto', start, { w: 1300, h: 850 }) })
+  const handle = pinWin(el, 'cto')!.nextElementSibling!.querySelector('.pinwin-rs.w')!
+  assert.ok(handle)
+  await inAct(() => { handle.dispatchEvent(pointer('pointerdown', 430, 150)) })
+  await inAct(() => { handle.dispatchEvent(pointer('pointermove', 425, 150)) })
+  const preview = el.querySelector('.pin-snap-preview') as HTMLElement
+  assert.ok(preview, 'resizing previews the same neighbour snap as dragging')
+  assert.equal(preview.style.left, '420px')
+  assert.equal(preview.style.width, '510px', 'east edge remains at 930px')
+  assert.deepEqual(readPins('mine').find(p => p.id === 'cto')!.rect, start, 'preview never persists')
+  await inAct(() => { handle.dispatchEvent(pointer('pointerup', 425, 150)) })
+  const snapped = { x: 420, y: 100, w: 510, h: 300 }
+  assert.deepEqual(readPins('mine').find(p => p.id === 'cto')!.rect, snapped)
+  assert.equal(readPins('mine').find(p => p.id === 'cto')!.snap?.target, 'ceo')
+  assert.deepEqual(readPins('mine').find(p => p.id === 'ceo')!.rect, { x: 100, y: 100, w: 320, h: 240 })
+  await inAct(() => { forgetPins('mine') })
+  assert.deepEqual(readPins('mine').find(p => p.id === 'cto')!.rect, snapped, 'snapped size is remembered')
+  await inAct(() => { commitRect('mine', 'cto', start, { w: 1300, h: 850 }) })
+  await inAct(() => { handle.dispatchEvent(pointer('pointerdown', 430, 150)) })
+  await inAct(() => { handle.dispatchEvent(new window.PointerEvent('pointerup', {
+    bubbles: true, pointerId: 1, clientX: 425, clientY: 150, shiftKey: true,
+  })) })
+  assert.deepEqual(readPins('mine').find(p => p.id === 'cto')!.rect,
+    { x: 425, y: 100, w: 505, h: 300 }, 'Shift retains free resizing')
+})
+
 uiTest('mosaic preview and commit: two windows align, neighbours stay still, reload preserves it', async ({ mount }) => {
   const { el, title } = await mosaicRig(mount)
   const before = readPins('mine').find((p) => p.id === 'ceo')!.rect

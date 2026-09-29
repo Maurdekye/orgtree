@@ -629,8 +629,10 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
     if (pinned) raisePinnedModal(kind, orgScope)
   }, [pinned, kind, orgScope])
 
-  const candidate = (r: PinRect, disabled: boolean) => disabled ? null : findPinSnap(layout.key, clampRect(r, bounds, modalMin),
-    readPinSurfaces().filter(p => p.org === orgScope).map(p => ({id:pinSnapId(p), rect:p.rect})), bounds)
+  const candidate = (r: PinRect, disabled: boolean, g: GestureShape | null = gesture.current) => disabled ? null : findPinSnap(layout.key, clampRect(r, bounds, modalMin),
+    readPinSurfaces().filter(p => p.org === orgScope).map(p => ({id:pinSnapId(p), rect:p.rect})), bounds,
+    g?.kind === 'size' ? { edge: g.edge, minWidth: modalMin?.width ?? PIN_MIN_W,
+      minHeight: modalMin?.height ?? PIN_MIN_H } : undefined)
 
   const begin = (e: ReactPointerEvent<HTMLElement>, g: GestureShape) => {
     if (e.button !== 0 || gesture.current || !rect) return
@@ -687,7 +689,7 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
     // repositions and never dismisses
     if (moved) {
       const final = clampRect(gestureRect(g, e), bounds, modalMin)
-      const snap = g.kind === 'move' ? candidate(final, e.shiftKey) : null
+      const snap = candidate(final, e.shiftKey, g)
       commitModalRect(kind, snap?.rect ?? final, orgScope)
     }
   }
@@ -753,7 +755,7 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
   const style: CSSProperties | undefined = rect
     ? { left: rect.x, top: rect.y, width: rect.w, height: rect.h }
     : undefined
-  const preview = live && rect && gesture.current?.kind === 'move' ? candidate(rect, freePlacement) : null
+  const preview = live && rect && gesture.current ? candidate(rect, freePlacement) : null
   return (
     <div className={(inPlace ? 'surface-inline' : 'overlay') + (overlayClass ? ' ' + overlayClass : '')
       + (pinned ? ' overlay-pinned' : '') + (detached ? ' overlay-detached' : '')}

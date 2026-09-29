@@ -559,6 +559,42 @@ test('§5b resizing from the west edge pins the east one', async () => {
   reset()
 })
 
+test('resizing a pinned modal snaps its corner to screen edges and Shift bypasses', async () => {
+  reset()
+  const restore = stubPointerCapture()
+  const v = await mount()
+  try {
+    const start = { x: 200, y: 200, w: 500, h: 300 }
+    await inAct(() => { pinModal('org-inbox', start) })
+    const handle = v.el.querySelector('.modalpin-rs.se')!
+    assert.ok(handle)
+    const to = { x: window.innerWidth - 8, y: window.innerHeight - 6 }
+    await inAct(() => { handle.dispatchEvent(pointer('pointerdown', 700, 500)) })
+    await inAct(() => { handle.dispatchEvent(pointer('pointermove', to.x, to.y)) })
+    const preview = v.el.querySelector('.pin-snap-preview') as HTMLElement
+    assert.ok(preview, 'modal resize has a snap preview')
+    assert.equal(preview.style.left, '200px', 'west edge stays anchored')
+    assert.equal(preview.style.top, '200px', 'north edge stays anchored')
+    assert.equal(preview.style.width, `${window.innerWidth - 200}px`)
+    assert.equal(preview.style.height, `${window.innerHeight - 200}px`)
+    assert.deepEqual(readModalPins()['org-inbox']!.rect, start, 'no mid-gesture write')
+    await inAct(() => { handle.dispatchEvent(pointer('pointerup', to.x, to.y)) })
+    assert.deepEqual(readModalPins()['org-inbox']!.rect,
+      { x: 200, y: 200, w: window.innerWidth - 200, h: window.innerHeight - 200 })
+    await inAct(() => { rawCommitModalRect('org-inbox', start, 'probe') })
+    await inAct(() => { handle.dispatchEvent(pointer('pointerdown', 700, 500)) })
+    await inAct(() => { handle.dispatchEvent(new window.PointerEvent('pointerup', {
+      bubbles: true, pointerId: 1, clientX: to.x, clientY: to.y, shiftKey: true,
+    })) })
+    assert.deepEqual(readModalPins()['org-inbox']!.rect,
+      { x: 200, y: 200, w: to.x - 200, h: to.y - 200 }, 'Shift retains free resizing')
+  } finally {
+    await v.unmount()
+    restore()
+    reset()
+  }
+})
+
 // ==================================================== §6 living beside others
 test('§6 two pinned surfaces coexist, and raising one puts it on top', async () => {
   reset()
