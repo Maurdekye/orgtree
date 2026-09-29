@@ -85,11 +85,12 @@ const options = (el: HTMLElement) =>
 const option = (el: HTMLElement, tier: string) =>
   options(el).find((o) => o.value === tier)!
 
-for (const [tier, seat] of [['sol', 2], ['luna', 0.1]] as const) {
-  configTest(`${tier} offers 6 by default and 5.6 inside one tier`, async (mount) => {
+for (const [tier, seat, latest, older] of [
+  ['sol', 2, '6.1', ['6', '5.6']], ['luna', 0.1, '6', ['5.6']]] as const) {
+  configTest(`${tier} offers ${latest} by default and older versions inside one tier`, async (mount) => {
     const { el, ops } = await mount({ node: { ...node(tier), seat },
       provider: provider({ tiers: [{ tier, provider: 'openai', seat,
-        model: `gpt-6-${tier}`, letter: tier === 'sol' ? 'S' : 'L' }] }),
+        model: `gpt-${latest}-${tier}`, letter: tier === 'sol' ? 'S' : 'L' }] }),
     })
     assert.equal(option(el, `gpt-6-${tier}`), undefined)
     assert.match(option(el, tier).textContent ?? '', new RegExp(`seat ${seat}`))
@@ -97,7 +98,8 @@ for (const [tier, seat] of [['sol', 2], ['luna', 0.1]] as const) {
     const versions = [...el.querySelectorAll<HTMLSelectElement>('select')]
       .find((s) => [...s.options].some((o) => o.textContent === `${tier} 5.6`))!
     assert.deepEqual([...versions.options].map((o) => [o.value, o.textContent]),
-      [['', 'latest (6)'], ['6', `${tier} 6`], ['5.6', `${tier} 5.6`]])
+      [['', `latest (${latest})`], [latest, `${tier} ${latest}`],
+        ...older.map((v) => [v, `${tier} ${v}`])])
     const { act } = await import('react')
     await act(async () => {
       versions.value = '5.6'
