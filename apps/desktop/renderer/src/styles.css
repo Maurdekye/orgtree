@@ -529,22 +529,33 @@ main {
   background: color-mix(in srgb, var(--bg) 55%, transparent);
   backdrop-filter: blur(2px);
 }
+/* THE PINNED DESK'S LOOK (user 2026-09-29): the same frame as `.pinwin` — a
+   provider-accent border with the heavier top edge, the panel background and
+   its shadow ring — and its title bar comes from `.pinwin-title` (tempdesk.tsx).
+   Only the size and the centring are this modal's own. */
 .tempdesk-panel {
   display: flex; flex-direction: column;
   width: min(1000px, 92vw); height: 88vh;
-  background: var(--bg); border: 1px solid var(--line);
-  border-radius: 10px; overflow: hidden;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, .45);
+  background: var(--panel); border: 1px solid var(--accent);
+  border-top-width: 2px; border-radius: 3px; overflow: hidden;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, .55),
+    0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent);
+  font-size: 13px;
 }
+.tempdesk-panel.prov-claude { --accent: var(--prov-claude); --accent-soft: color-mix(in srgb, var(--prov-claude) 16%, transparent); }
+.tempdesk-panel.prov-openai { --accent: var(--prov-openai); --accent-soft: color-mix(in srgb, var(--prov-openai) 16%, transparent); }
+.tempdesk-panel.prov-google { --accent: var(--prov-google); --accent-soft: color-mix(in srgb, var(--prov-google) 16%, transparent); }
+.tempdesk-panel.prov-openrouter { --accent: var(--prov-openrouter); --accent-soft: color-mix(in srgb, var(--prov-openrouter) 16%, transparent); }
 .tempdesk-panel:focus { outline: none; }
-.tempdesk-head {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 8px; border-bottom: 1px solid var(--line-soft);
-}
-.tempdesk-note { color: var(--dim); font-size: 11px; }
-.tempdesk-close { margin-left: auto; }
-/* the desk fills what is left, and scrolls inside itself as it always does */
+/* a title, not a drag handle: this modal does not move */
+.tempdesk-head.pinwin-title { cursor: default; }
+/* the desk fills what is left and scrolls inside itself as it always does.
+   The slot and the bare wrapper are `display: contents`, so the padding a
+   pinned window puts on `.pinwin-body` goes on the desk body itself here. */
 .tempdesk-panel > .desk-slot { flex: 1; min-height: 0; }
+.tempdesk-panel .desk-body { flex: 1; min-height: 0; padding: 6px 8px 8px; }
+/* as in a pinned window, the title bar already names the agent */
+.tempdesk-panel .cc-head-left > .tier, .tempdesk-panel .cc-head-left > .cc-name { display: none; }
 
 /* THE ORG SLOT (OrgCanvas's `renderOrgSlot`) lies over the viewport — its box
    is the viewport's own, set inline by OrgCanvas — so a presented view COVERS

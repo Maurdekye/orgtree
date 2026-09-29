@@ -26,8 +26,10 @@ import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { DeskChat } from './desk'
 import type { DeskChatProps } from './desk'
-import { useEsc } from './shared'
+import { providerOf, useEsc } from './shared'
 import type { CanvasNode } from './shared'
+import { AgentName } from './identity'
+import { CloseIcon } from '../icons'
 import { useOverlayRoot, useSurfaceDocument } from '../popout'
 
 export interface TempDeskProps {
@@ -117,14 +119,22 @@ export function TempDeskModal({ node, close, desk }: TempDeskProps) {
       if (e.target === e.currentTarget) { e.stopPropagation(); close() }
       else e.stopPropagation()
     }}>
-      <div className="tempdesk-panel" ref={panel} tabIndex={-1}
+      {/* THE PINNED DESK'S FRAME AND TITLE BAR (user 2026-09-29: reuse the
+          pinned-desk styling): the provider accent border, the tier + bold
+          name, a small state chip and the same close button, from the
+          `.pinwin-*` classes — and, as in a pin, the desk's own header does
+          not repeat the name (styles.css). */}
+      <div className={'tempdesk-panel prov-' + providerOf(node.tier ?? '')} ref={panel} tabIndex={-1}
         role="dialog" aria-modal="true"
         aria-label={`${node.id} · desk, opened temporarily`}>
-        <div className="tempdesk-head">
-          <b data-copy-agent-name={node.id}>{node.id}</b>
-          <span className="tempdesk-note">opened temporarily</span>
-          <button className="tempdesk-close" onClick={close}
-            aria-label="close">✕</button>
+        <div className="tempdesk-head pinwin-title" data-copy-agent-name={node.id}>
+          <AgentName id={node.id} tier={node.tier} nameClass="pinwin-name" />
+          <span className="tempdesk-note pinwin-state">opened temporarily</span>
+          <span className="spacer" />
+          <button className="tempdesk-close pinwin-unpin" onClick={close}
+            aria-label="close" title="close — nothing about the canvas changes">
+            <CloseIcon fontSize="inherit" />
+          </button>
         </div>
         {/* ⚠ `borrow` IS THE WHOLE MECHANISM. It takes the canonical desk for
             this modal's lifetime and the registry returns it on unmount — see
