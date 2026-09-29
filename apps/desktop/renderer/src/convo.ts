@@ -1057,7 +1057,10 @@ export function refreshConvo(slug: string, nid: string,
       && !olderPageProgress(e.s.chat, c)
     if (stalledGrowth) {
       stalledPage(slug, nid, 'viewport window returned no older rows')
-      c = { ...c, messages: e.s.chat!.messages, has_older: false, before: null }
+      // A larger window can bring a new live row without bringing history.
+      // Keep that usable tail (pending reconciliation already refers to it).
+      // An empty malformed page must not erase the last usable transcript.
+      if (!c.messages.length) c = { ...c, messages: e.s.chat!.messages }
     }
     patchEntry(e, { chat: c, paged: changedConversation ? false : e.s.paged, loaded: true, loadingOlder: Boolean(e.pageInFlight), pending, live, ...retire, ...(grew ? { olderError: stalledGrowth } : {}) }, ownerVersion)
     // the grow-path settle: a leave-history recorded while this (viewport
@@ -1171,8 +1174,7 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
       const ids = new Set(current.messages.map(row => row.row_id ?? row.event_id ?? row.seq))
       if (!olderPageProgress(current, page) || (page.has_older && (!page.before || page.before === before))) {
         stalledPage(slug, nid, 'history cursor or page did not advance')
-        patchEntry(e, { loadingOlder: false, olderError: true,
-          chat: { ...current, has_older: false, before: null } }, version)
+        patchEntry(e, { loadingOlder: false, olderError: true }, version)
         return
       }
       const added = page.messages.filter(row => row.assistant_id || !ids.has(row.row_id ?? row.event_id ?? row.seq))

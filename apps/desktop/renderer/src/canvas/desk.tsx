@@ -2585,7 +2585,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const fillViewportRef = useRef<() => void>(() => {})
   fillViewportRef.current = () => {
     const el = scroller.current
-    if (!el || !hasOlder || loadingOlder) return
+    if (!el || !hasOlder || loadingOlder || convo.olderError) return
     const { more } = transcriptViewport(el)
     if (more) loadOlder(more)
   }
@@ -3475,7 +3475,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               else { growAnchor.current = null; stopSettle() }
             }
             // within a screen of the top: page in the previous window
-            if (!stickRef.current && e.currentTarget.scrollTop < Math.min(240, e.currentTarget.clientHeight / 2) && hasOlder) loadOlder()
+            if (!stickRef.current && e.currentTarget.scrollTop < Math.min(240, e.currentTarget.clientHeight / 2) && hasOlder && !convo.olderError) loadOlder()
           }}>
           {/* paging is automatic (the onScroll above pages in within a screen
               of the top) — this is a status line, not a control. It still

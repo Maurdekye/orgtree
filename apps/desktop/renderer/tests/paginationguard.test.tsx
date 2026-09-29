@@ -32,9 +32,9 @@ for (const viewport of [false, true]) {
         // The real desk refills a short viewport after every installed page.
         // Cap this fixture at six requests so the old code fails without hanging.
         useEffect(() => {
-          if (fill && c.loaded && !c.loadingOlder && c.chat?.has_older && calls < 6)
+          if (fill && c.loaded && !c.loadingOlder && !c.olderError && c.chat?.has_older && calls < 6)
             loadOlder('pagination', 'agent', 8, viewport)
-        }, [c.chat, c.loaded, c.loadingOlder])
+        }, [c.chat, c.loaded, c.loadingOlder, c.olderError])
         return null
       }
       const warnings: unknown[][] = []
@@ -45,18 +45,52 @@ for (const viewport of [false, true]) {
       await inAct(() => flush(20))
       assert.equal(calls, 2, 'one initial read and one rejected page; no automatic retry loop')
       assert.equal(latest!.loadingOlder, false)
-      assert.equal(latest!.chat!.has_older, false)
+      assert.equal(latest!.chat!.has_older, true, 'stalled paging is not the start of history')
+      assert.equal(latest!.olderError, true, 'show the existing failed-page/retry state')
       assert.equal(latest!.chat!.messages[0]!.text, 'current transcript', 'last usable rows stay visible')
       assert.equal(warnings.length, 1, 'one diagnostic, with no transcript body')
-      assert.equal(loadOlder('pagination', 'agent', 8, viewport), false)
-      // A later valid poll may make history available again.
+      // The explicit retry control can resume with a valid terminal page.
       fill = false
-      server.chat = () => ({ ...tail, has_older: true, before: 'recovered' })
-      await inAct(() => refreshConvo('pagination', 'agent', { force: true }))
-      assert.equal(latest!.chat!.has_older, true)
+      server.chat = () => ({ ...tail, has_older: false, before: null,
+        messages: [{ role: 'assistant', text: 'oldest row', seq: -1, event_id: 'oldest' }] })
+      await inAct(async () => { assert.equal(loadOlder('pagination', 'agent', 8), true); await flush(8) })
+      assert.equal(latest!.olderError, false)
+      assert.equal(latest!.chat!.has_older, false, 'only a successful terminal page confirms the beginning')
+      assert.equal(latest!.chat!.messages[0]!.text, 'oldest row')
     })
   }
 }
+
+test('a stalled viewport growth keeps a concurrently delivered message visible exactly once', async t => {
+  resetConvos()
+  const server = new FakeServer()
+  const base = server.chat(8)
+  const current = { role: 'assistant', text: 'current row', seq: 100, event_id: 'row-100' }
+  server.chat = () => ({ ...base, has_older: true, before: 'older', messages: [current] })
+  installFetch(server)
+  let latest: Convo
+  function Desk() {
+    const c = useConvo('delivery', 'agent')
+    latest = c
+    useEffect(() => { if (!c.loaded) void refreshConvo('delivery', 'agent') }, [c.loaded])
+    return null
+  }
+  const warn = console.warn
+  console.warn = () => {}
+  const v = await mountView(<Desk />, () => null)
+  t.after(async () => { await v.unmount(); resetConvos(); console.warn = warn })
+  await inAct(() => flush(5))
+  await inAct(() => { addPending('delivery', 'agent', 'new delivered answer') })
+  server.chat = () => ({ ...base, has_older: true, before: 'older', messages: [current,
+    { role: 'user', text: 'new delivered answer', seq: 101, event_id: 'row-101' }] })
+  await inAct(async () => { loadOlder('delivery', 'agent', 8, true); await flush(8) })
+  assert.equal(latest!.olderError, true)
+  assert.equal(latest!.chat!.has_older, true)
+  const visible = [...latest!.chat!.messages.map(row => row.text), ...latest!.pending.map(row => row.text)]
+  assert.equal(visible.filter(text => text === 'new delivered answer').length, 1)
+  assert.ok(latest!.chat!.messages.some(row => row.event_id === 'row-101'), 'keep the newly delivered row')
+  assert.equal(latest!.pending.length, 0, 'retire its preview only with the durable row still visible')
+})
 
 for (const proof of [false, true]) for (const cycle of [true, false]) {
   test(`${proof ? 'mail proof' : 'burst'} reconciliation stops at ${cycle ? 'a cursor cycle' : 'the page limit'}`, async t => {
