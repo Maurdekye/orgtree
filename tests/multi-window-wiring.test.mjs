@@ -125,8 +125,14 @@ test('an unfinished creation form is confirmed on a deliberate close and on a qu
   assert.match(main, /const CREATION_DISCARD_DIALOG = \{/)
   assert.match(main, /defaultId: 1,\s*\r?\n\s*cancelId: 1,/,
     'Escape and the window X must mean KEEP; the destructive answer is never the dismissal')
-  assert.equal(main.split('CREATION_DISCARD_DIALOG').length - 1, 3,
-    'defined once, used by the close route and the quit route')
+  assert.equal(main.split('CREATION_DISCARD_DIALOG').length - 1, 4,
+    'defined once, used by the close route, the quit route and Cancel back to a Homepage')
+  // Cancel in a Create view started in a Homepage window (user 2026-09-29):
+  // the same duplicate-prompt guard, and a declined discard changes nothing
+  const cancel = main.slice(main.indexOf("handle('desktop:cancel-creation'"))
+  assert.match(cancel, /const gate = windows\.beginClose\(caller\.id\)/)
+  assert.match(cancel, /if \(gate === 'awaiting'\) return 'kept'/)
+  assert.match(cancel, /if \(!discard\) return 'kept'/)
 
   // the close route
   assert.match(main, /creation: quitting \? 'close' : windows\.beginClose\(id\)/)
