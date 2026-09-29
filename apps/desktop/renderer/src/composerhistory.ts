@@ -124,15 +124,65 @@ function dropDraft(textKey: string) {
   } catch { /* unavailable storage */ }
 }
 
+/** A COMPACTION KEEPS WHAT IS IN THE MESSAGE BOX (user request 2026-09-29,
+ *  item v3-keep-unsent-chat-text-in-the-message-box-when: "when an agent
+ *  compacts, if there's an unsent message in the box, don't save it as a
+ *  draft, just keep it there").
+ *
+ *  A compaction advances the generation, and the draft key is per generation,
+ *  so the new desk opens on an empty key while the typed text sits under the
+ *  old one. Before anything is absorbed into history, this MOVES the newest
+ *  older generation's text and attachments to the current key, so the box
+ *  shows them exactly as they were. Nothing is sent.
+ *
+ *  Only when the current box is empty: text already typed at the new
+ *  generation is never overwritten, and the older draft then goes to history
+ *  as before. Only the NEWEST older generation moves; anything older than it
+ *  was already stranded before this compaction and stays history's.
+ *
+ *  The reply target is dropped rather than carried: it names an event of the
+ *  old generation, and the server refuses such a reply as stale, so carrying
+ *  it would turn the kept message into one that cannot be sent.
+ *
+ *  Returns whether anything moved. Idempotent: once moved, the current key is
+ *  no longer empty. */
+export function carryDraftForward(slug: string, id: string, generation: number | undefined): boolean {
+  if (typeof generation !== 'number') return false
+  try {
+    const current = `${activePrefix}${JSON.stringify([slug, id, generation])}`
+    if (localStorage.getItem(current) || localStorage.getItem(`${current}-attachments`)) return false
+    let newest: { generation: number; textKey: string } | null = null
+    const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i))
+    for (const key of keys) {
+      if (!key?.startsWith(activePrefix)) continue
+      const identity = identityOf(key, activePrefix)
+      if (!identity || identity[0] !== slug || identity[1] !== id || typeof identity[2] !== 'number') continue
+      if (identity[2] >= generation || (newest && identity[2] <= newest.generation)) continue
+      const suffix = partSuffix(key)
+      const textKey = suffix ? key.slice(0, -suffix.length) : key
+      if (!localStorage.getItem(textKey) && !localStorage.getItem(`${textKey}-attachments`)) continue
+      newest = { generation: identity[2], textKey }
+    }
+    if (!newest) return false
+    const text = localStorage.getItem(newest.textKey)
+    const attachments = localStorage.getItem(`${newest.textKey}-attachments`)
+    if (text) localStorage.setItem(current, text)
+    if (attachments) localStorage.setItem(`${current}-attachments`, attachments)
+    dropDraft(newest.textKey)
+    return true
+  } catch { return false }
+}
+
 /** MIGRATION AND ONGOING RESCUE IN ONE PASS, run when a desk mounts.
  *
  *  Three surfaces used to hold a draft stranded by an identity change, and all
  *  three are retired into history here rather than into a panel:
  *
  *  1. `orgtree-draft-v2-[slug,id,oldGeneration]` — the live draft key of a
- *     generation this agent has moved past. This is the common case: a
- *     compaction or rehire advances the generation and the old draft is simply
- *     orphaned.
+ *     generation this agent has moved past. carryDraftForward runs first and
+ *     moves the newest one back into the box, so what reaches here is only
+ *     what could not go there: an older generation, or one whose successor
+ *     already had text of its own.
  *  2. `orgtree-draft-recovery-…` — written by the previous release when a node
  *     left the org. Consumed here so an existing installation's stored drafts
  *     are migrated rather than stranded invisibly.
@@ -164,6 +214,10 @@ export function absorbStrandedDrafts(slug: string, id: string, generation: numbe
       // The CURRENT generation's draft is the text sitting in the composer
       // right now. It is not stranded and must never be eaten.
       if (prefix === activePrefix && identity[2] === generation) continue
+      // Nor is a NEWER generation's: that is the box of a desk that has already
+      // moved on (carryDraftForward may just have put the text there), seen
+      // from a desk still showing an older generation.
+      if (prefix === activePrefix && typeof generation === 'number' && identity[2] > generation) continue
       const suffix = partSuffix(key)
       const textKey = suffix ? key.slice(0, -suffix.length) : key
       if (found.some(f => f.textKey === textKey)) continue

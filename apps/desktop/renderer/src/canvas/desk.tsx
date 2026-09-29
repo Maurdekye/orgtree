@@ -14,7 +14,7 @@ import { messageCopyText, toolCallCopyText, toolResultCopyText } from './copytex
 import { firstUseSent } from './firstuse'
 import type { MouseEvent as ReplyMouseEvent } from 'react'
 import { readAttachments, storeAttachments } from '../draftstore'
-import { absorbStrandedDrafts, readHistory, recordSent } from '../composerhistory'
+import { absorbStrandedDrafts, carryDraftForward, readHistory, recordSent } from '../composerhistory'
 import type { HistoryEntry } from '../composerhistory'
 import { DeskSlot } from './deskhosts'
 import { PopoutButton, PopoutWindowControls, useSurface, useSurfaceDocument } from '../popout'
@@ -1889,6 +1889,10 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage, onConf
   // (clicking a sibling card unmounts this whole component)
   const draftKey = `orgtree-draft-v2-${JSON.stringify([slug, node.id, node.generation])}`
   const [text, setTextRaw] = useState(() => {
+    // A compaction keeps what was in the box: bring the previous generation's
+    // unsent text (and attachments) under this generation's key before
+    // reading it. See carryDraftForward.
+    carryDraftForward(slug, node.id, node.generation)
     try { return localStorage.getItem(draftKey) || '' } catch { return '' }
   })
   const setText = useCallback((v: string | ((prev: string) => string)) => setTextRaw((prev) => {
@@ -1924,7 +1928,10 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage, onConf
   useEffect(() => {
     // Fold every stranded draft for this agent into the history: the previous
     // generation's orphaned draft, anything left in the old recovery keys by
-    // an earlier release, and the pre-generation legacy key.
+    // an earlier release, and the pre-generation legacy key. The newest older
+    // generation's draft moves into this box first (a desk that stays mounted
+    // across the change never re-runs the initializer above).
+    carryDraftForward(slug, node.id, node.generation)
     if (absorbStrandedDrafts(slug, node.id, node.generation)) setSentHistory(readHistory(slug, node.id))
   }, [slug, node.id, node.generation])
   /** Up: one step further back. Returns false when nothing moved, and the key
