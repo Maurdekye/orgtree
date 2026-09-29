@@ -128,6 +128,25 @@ class ControllerControls(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "stream_reset_s"):
                 baseline.require_go(args, "abc")
 
+    def test_go_mem_trace_runs_the_small_arm_only(self):
+        args = argparse.Namespace(small_control=False, go_file=None)
+        with tempfile.TemporaryDirectory() as folder:
+            args.go_file = Path(folder) / "go.json"
+            base = dict(go=True, source="abc", coordinator_message="mail-id")
+            baseline.write(args.go_file, base)
+            self.assertIsNone(baseline.require_go(args, "abc")["mem_trace"])
+            baseline.write(args.go_file, dict(base, mem_trace=dict(interval_s=300)))
+            c = baseline.require_go(args, "abc")
+            self.assertEqual((c["arms"], c["mem_trace"], c["engine_cap_gib"]),
+                             (("small",), dict(interval_s=300, frames=10, top=30), 5))
+            for bad in (dict(interval_s=1), dict(frames=0), dict(top=100), dict(interval_s="300")):
+                baseline.write(args.go_file, dict(base, mem_trace=bad))
+                with self.assertRaisesRegex(ValueError, "mem_trace"):
+                    baseline.require_go(args, "abc")
+            baseline.write(args.go_file, dict(base, mem_trace={}, startup_probe=dict(seconds=600)))
+            with self.assertRaisesRegex(ValueError, "separate runs"):
+                baseline.require_go(args, "abc")
+
     def test_guard_survives_an_engine_pid_that_vanished(self):
         # The descriptor's engine pid can exit between reads (seen live in the
         # rows preflight's startup, 2026-09-28); that alone must not trip the guard.

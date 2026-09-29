@@ -79,10 +79,25 @@ def paint_config(value):
     return dict(build=str(build), seconds=seconds, repeats=repeats)
 
 
+def mem_trace_config(value):
+    """Run-only (attempt 11 drift): tracemalloc growth attribution in the small
+    arm's measured window via serve.py GET /scale/mem. Tracing starts when the
+    window starts, so every diff is growth under load, not startup residue."""
+    if value is None:
+        return None
+    interval, frames, top = value.get("interval_s", 300), value.get("frames", 10), value.get("top", 30)
+    if not (isinstance(interval, (int, float)) and 5 <= interval <= 900
+            and isinstance(frames, int) and 1 <= frames <= 25 and isinstance(top, int) and 1 <= top <= 60):
+        raise ValueError("mem_trace: interval_s 5..900, frames 1..25, top 1..60")
+    return dict(interval_s=interval, frames=frames, top=top)
+
+
 def require_go(args, source):
     if args.small_control:
         probe_s = getattr(args, "startup_probe_s", None)
         probe = None if not probe_s else dict(seconds=probe_s, engine_cap_gib=5, trace_dump_s=2, trace_frames=6)
+        mem = mem_trace_config(None if not getattr(args, "mem_trace_s", None)
+                               else dict(interval_s=args.mem_trace_s, frames=6, top=20))
         paint = None if not getattr(args, "paint_build", None) else dict(
             build=str(args.paint_build), seconds=args.paint_seconds, repeats=args.paint_repeats)
         return dict(kind="small controller control", agents=10, active_items=8, transcript_kb=1,
@@ -90,7 +105,8 @@ def require_go(args, source):
                     paint=paint_config(paint),
                     stream_reset_s=getattr(args, "stream_reset_s", 0) or 0,
                     startup_probe=probe, engine_cap_gib=probe["engine_cap_gib"] if probe else 5,
-                    arms=("large",) if probe else ("small", "large"),
+                    mem_trace=mem,
+                    arms=("large",) if probe else ("small",) if mem else ("small", "large"),
                     recipe=asdict(Recipe(retired_agents=2, archived_items=2, read_mail=2,
                         old_transcripts=2, payload_profile="fixed", node_chars=128,
                         # Tiny 128-character mail needs ~89k generated rows
@@ -141,10 +157,15 @@ def require_go(args, source):
                 and isinstance(probe["trace_dump_s"], (int, float)) and 1 <= probe["trace_dump_s"] <= 60
                 and isinstance(probe["trace_frames"], int) and 0 <= probe["trace_frames"] <= 16):
             raise ValueError("GO startup_probe: seconds 60..1800, engine_cap_gib 5..16, trace_dump_s 1..60, trace_frames 0..16")
+    # Run-only (attempt 11 drift, coordinator 2026-09-29 18:29Z): the small arm
+    # only, with tracemalloc growth snapshots through the measured window.
+    mem = mem_trace_config(go.get("mem_trace"))
+    if mem and probe:
+        raise ValueError("GO mem_trace and startup_probe are separate runs")
     return dict(kind="first N1000 baseline; no final qualification", agents=1000, active_items=180,
-                stream_reset_s=reset, startup_probe=probe,
+                stream_reset_s=reset, startup_probe=probe, mem_trace=mem,
                 engine_cap_gib=probe["engine_cap_gib"] if probe else 5,
-                arms=("large",) if probe else ("small", "large"),
+                arms=("large",) if probe else ("small",) if mem else ("small", "large"),
                 transcript_kb=256, seconds=10, warmup=120, measured=measured, tool_rate=3.12,
                 paint=paint_config(go.get("paint")),
                 steer_rate=9.36, recipe=asdict(Recipe()), disk_gib=80 if disk is None else disk,
@@ -383,6 +404,56 @@ class Controller:
         except BaseException as exc:
             result["error"] = f"{type(exc).__name__}: {exc}"
 
+    def mem_side(self, arm, label, c, stop, result):
+        """Run-only (attempt 11 drift): once the measured window starts, start
+        tracemalloc in the engine (GET /scale/mem?action=start) and take a diff
+        snapshot every interval until the load ends. Each row goes to
+        receipts/<arm>/mem-trace.jsonl. A failure is recorded, never raised."""
+        import httpx
+        m = c["mem_trace"]
+        out = self.root / "receipts" / arm / "mem-trace.jsonl"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        result.update(output=str(out), snaps=0, errors=[])
+        try:
+            descriptor = self.run_root / "scale-descriptor.json"
+            waited = time.monotonic() + c["warmup"] + 60
+            while True:
+                try:
+                    desc = read(descriptor)
+                except (OSError, ValueError):
+                    desc = {}
+                load = desc.get("load") or {}
+                if load.get("running") and load.get("label") == label:
+                    break
+                if time.monotonic() > waited or stop.is_set():
+                    raise RuntimeError("load never reported its label running")
+                time.sleep(1)
+            t0 = load["since"] + c["warmup"]
+            if stop.wait(max(0, t0 - time.time())):
+                raise RuntimeError("load ended before the measured window")
+            with httpx.Client(base_url=desc["origin"], headers={"X-Orgtree-Desktop-Token": desc["token"]},
+                              timeout=600) as client, out.open("a", encoding="utf-8") as log:
+                def call(action):
+                    started = time.time()
+                    body = client.get("/scale/mem", params=dict(action=action, frames=m["frames"],
+                                                                top=m["top"])).raise_for_status().json()
+                    body.update(action=action, t=round(started - t0, 1), took_s=round(time.time() - started, 2))
+                    log.write(json.dumps(body) + "\n")
+                    log.flush()
+                    return body
+                call("start")
+                result["started"] = time.time()
+                while not stop.wait(m["interval_s"]):
+                    try:
+                        call("snap")
+                        result["snaps"] += 1
+                    except Exception as exc:                       # noqa: BLE001
+                        result["errors"].append(f"{type(exc).__name__}: {exc}"[:300])
+                        if len(result["errors"]) > 5:
+                            break
+        except BaseException as exc:
+            result["error"] = f"{type(exc).__name__}: {exc}"
+
     def paint_finish(self, arm, painter, result):
         """After the load has written summary.json: wait for the painter, then
         run renderer-paint report (no engine access) and keep its verdict."""
@@ -577,6 +648,11 @@ class Controller:
                             painter = threading.Thread(target=self.paint_side, name=arm + "-paint",
                                 args=(arm, label, c, paint), daemon=True)
                             painter.start()
+                        tracer, trace_stop, trace = None, threading.Event(), {}
+                        if c.get("mem_trace"):
+                            tracer = threading.Thread(target=self.mem_side, name=arm + "-mem",
+                                args=(arm, label, c, trace_stop, trace), daemon=True)
+                            tracer.start()
                         load_error = None
                         try:
                             self.script("load.py", arm + "-" + label, *args, "--label", label,
@@ -592,11 +668,19 @@ class Controller:
                                 raise
                             load_error = str(exc)
                             print(f"{arm} load not clean, recorded: {exc}", flush=True)
+                        finally:
+                            trace_stop.set()
+                        if tracer is not None:
+                            tracer.join(timeout=900)
+                            if tracer.is_alive():
+                                trace["error"] = "mem trace still running 900 s after the load ended"
                         if painter is not None:
                             self.paint_finish(arm, painter, paint)
                     outcome[arm] = read(self.run_root / "metrics/measured/summary.json")
                     if c.get("paint"):
                         outcome[arm]["paint"] = paint
+                    if c.get("mem_trace"):
+                        outcome[arm]["mem_trace"] = trace
                     outcome[arm]["load_exit_error"] = load_error
                     outcome[arm]["active_ready"] = dict(seconds=ready["seconds"], sources=ready["sources"],
                         bytes=ready["bytes"], events=ready["events"], startup_s=ready_m0 - (deadline - c["readiness_s"]))
@@ -628,7 +712,8 @@ class Controller:
                         shutil.copytree(diag, self.root / "receipts" / arm / "diagnostics", dirs_exist_ok=True)
                 self.check()
                 self.drop_database(admin, database_name(url))
-            if not c.get("startup_probe") and outcome["small"]["config"]["plans"] != outcome["large"]["config"]["plans"]:
+            if (tuple(c.get("arms", ("small", "large"))) == ("small", "large")
+                    and outcome["small"]["config"]["plans"] != outcome["large"]["config"]["plans"]):
                 raise RuntimeError("unequal demand between arms")
             outcome["complete"] = True
         except BaseException as exc:
@@ -745,6 +830,7 @@ def main():
     p.add_argument("--paint-seconds", type=int, default=15)
     p.add_argument("--stream-reset-s", type=float, default=0, help="small control only: stream message reset")
     p.add_argument("--startup-probe-s", type=int, help="small control only: large-arm startup probe seconds")
+    p.add_argument("--mem-trace-s", type=float, help="small control only: small-arm tracemalloc snapshot interval")
     p.add_argument("--paint-repeats", type=int, default=3)
     p.add_argument("--preflight-only", action="store_true", help="only the N=10/N=100 rows preflight")
     p.add_argument("--preflight-large", action="store_true",
