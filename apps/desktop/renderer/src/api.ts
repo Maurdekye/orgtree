@@ -382,8 +382,13 @@ export const getChat = (slug: string, nid: string, last?: number, before?: strin
  *  and asks for an URGENT read, which waits only for a read already in flight. */
 export const TREE_STALE_EVENT = 'orgtree:tree-stale'
 export function markTreeStale(slug: string): void {
-  if (typeof window === 'undefined') return
-  window.dispatchEvent(new CustomEvent(TREE_STALE_EVENT, { detail: { slug } }))
+  // a hint, never a failure: the save has already succeeded, so nothing here
+  // may turn it into a rejected promise (and not every host defines
+  // CustomEvent globally)
+  try {
+    if (typeof window === 'undefined' || typeof window.CustomEvent !== 'function') return
+    window.dispatchEvent(new window.CustomEvent(TREE_STALE_EVENT, { detail: { slug } }))
+  } catch { /* the next paced read still brings the change */ }
 }
 const staleAfter = <T,>(slug: string, done: Promise<T>): Promise<T> =>
   done.then((r) => { markTreeStale(slug); return r })
