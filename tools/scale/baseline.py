@@ -63,10 +63,29 @@ def copy_inventory(source, target, expected):
         raise ValueError("copied file inventory differs")
 
 
+def paint_config(value):
+    """Run-only (attempt 9): renderer-paint clicks as a side process in each
+    arm's measured window. The build is made before admission, outside the run."""
+    if value is None:
+        return None
+    build = Path(value.get("build", ""))
+    seconds, repeats = value.get("seconds", 15), value.get("repeats", 3)
+    if not (build.is_absolute() and (build / "build.json").is_file()):
+        raise ValueError("paint build must be an absolute renderer-paint build directory")
+    if not (isinstance(seconds, int) and 1 <= seconds <= 600 and isinstance(repeats, int) and 1 <= repeats <= 50):
+        raise ValueError("paint seconds 1..600 and repeats 1..50")
+    if not shutil.which("node"):
+        raise ValueError("paint needs node on PATH")
+    return dict(build=str(build), seconds=seconds, repeats=repeats)
+
+
 def require_go(args, source):
     if args.small_control:
+        paint = None if not getattr(args, "paint_build", None) else dict(
+            build=str(args.paint_build), seconds=args.paint_seconds, repeats=args.paint_repeats)
         return dict(kind="small controller control", agents=10, active_items=8, transcript_kb=1,
-                    seconds=.05, warmup=3, measured=8, tool_rate=2, steer_rate=3,
+                    seconds=.05, warmup=3, measured=getattr(args, "measured_s", None) or 8, tool_rate=2, steer_rate=3,
+                    paint=paint_config(paint),
                     recipe=asdict(Recipe(retired_agents=2, archived_items=2, read_mail=2,
                         old_transcripts=2, payload_profile="fixed", node_chars=128,
                         # Tiny 128-character mail needs ~89k generated rows
@@ -94,8 +113,15 @@ def require_go(args, source):
     disk = go.get("disk_gib")
     if disk is not None and not (isinstance(disk, (int, float)) and disk >= 20):
         raise ValueError("GO disk_gib must be a number >= 20 (the guard floor)")
+    # Run-only (attempt 9, coordinator 2026-09-29 06:49Z): a GO may lengthen the
+    # measured window (the memory target is judged over 60 minutes). Both arms
+    # use the same window, so the 5% pair comparison stays equal-work.
+    measured = go.get("measured_s", 600)
+    if not (isinstance(measured, int) and 600 <= measured <= 3600):
+        raise ValueError("GO measured_s must be an integer 600..3600")
     return dict(kind="first N1000 baseline; no final qualification", agents=1000, active_items=180,
-                transcript_kb=256, seconds=10, warmup=120, measured=600, tool_rate=3.12,
+                transcript_kb=256, seconds=10, warmup=120, measured=measured, tool_rate=3.12,
+                paint=paint_config(go.get("paint")),
                 steer_rate=9.36, recipe=asdict(Recipe()), disk_gib=80 if disk is None else disk,
                 disk_override=disk is not None, commit_gib=24, readiness_s=3600,
                 rows_preflight=True)
@@ -245,6 +271,86 @@ class Controller:
     def script(self, script, name, *args, env=None, timeout=900):
         self.command([sys.executable, "-I", "-B", str(REPO / "tools/scale" / script), *map(str, args)],
                      name, env, timeout)
+
+    def paint_side(self, arm, label, c, result):
+        """Run-only (attempt 9): start renderer-paint once the load reports its
+        label running, early enough that Electron starts during the warmup and
+        the clicks land in the measured window. Samples the painter's whole
+        process tree (node + Electron) every 5 s. A paint failure is recorded,
+        never raised: it must not cost the arm its load measurement."""
+        import psutil
+        try:
+            descriptor = self.run_root / "scale-descriptor.json"
+            waited = time.monotonic() + c["warmup"] + 60
+            while True:
+                try:
+                    load = read(descriptor).get("load") or {}
+                except (OSError, ValueError):
+                    load = {}
+                if load.get("running") and load.get("label") == label:
+                    break
+                if time.monotonic() > waited:
+                    raise RuntimeError("load never reported its label running")
+                time.sleep(1)
+            start_at = load["since"] + max(0, c["warmup"] - 90)
+            time.sleep(max(0, start_at - time.time()))
+            out = self.root / "paint" / arm
+            out.parent.mkdir(parents=True, exist_ok=True)
+            p = c["paint"]
+            result.update(output=str(out), started=time.time(), load_since=load["since"],
+                          measured_from=load["since"] + c["warmup"], seconds=p["seconds"], repeats=p["repeats"])
+            proc = self.spawn([shutil.which("node"), str(REPO / "tools/scale/renderer-paint.mjs"), "run",
+                "--build", p["build"], "--descriptor", str(descriptor), "--label", label, "--output", str(out),
+                "--seconds", str(p["seconds"]), "--repeats", str(p["repeats"])], arm + "-paint")
+            samples = self.root / "receipts" / arm / "paint-memory.jsonl"
+            samples.parent.mkdir(parents=True, exist_ok=True)
+            peak_rss = peak_private = 0
+            with samples.open("a", encoding="utf-8") as log:
+                while proc.poll() is None:
+                    rss = private = n = 0
+                    try:
+                        tree = [psutil.Process(proc.pid)] + psutil.Process(proc.pid).children(recursive=True)
+                    except psutil.NoSuchProcess:
+                        tree = []
+                    for q in tree:
+                        try:
+                            m = q.memory_info()
+                            rss += m.rss
+                            private += getattr(m, "private", 0)
+                            n += 1
+                        except psutil.NoSuchProcess:
+                            pass
+                    peak_rss, peak_private = max(peak_rss, rss), max(peak_private, private)
+                    log.write(json.dumps(dict(t=time.time(), processes=n, rss=rss, private=private)) + "\n")
+                    log.flush()
+                    time.sleep(5)
+            result.update(run_exit=proc.returncode, ended=time.time(),
+                          peak_rss_mb=round(peak_rss / 2**20, 1), peak_private_mb=round(peak_private / 2**20, 1))
+        except BaseException as exc:
+            result["error"] = f"{type(exc).__name__}: {exc}"
+
+    def paint_finish(self, arm, painter, result):
+        """After the load has written summary.json: wait for the painter, then
+        run renderer-paint report (no engine access) and keep its verdict."""
+        painter.join(timeout=1800)
+        if painter.is_alive():
+            result["error"] = "painter still running 1800 s after the load ended"
+            return
+        if "run_exit" not in result:
+            return
+        proc = None
+        try:
+            proc = self.spawn([shutil.which("node"), str(REPO / "tools/scale/renderer-paint.mjs"), "report",
+                               "--output", result["output"]], arm + "-paint-report")
+            result["report_exit"] = proc.wait(timeout=300)
+            report = Path(result["output"]) / "report.json"
+            if report.is_file():
+                result["report"] = read(report)
+        except BaseException as exc:
+            result["report_error"] = f"{type(exc).__name__}: {exc}"
+        finally:
+            if proc is not None:
+                self.kill(proc)
 
     def pg(self, action):
         path = self.root / ("pg-" + action + ".log")
@@ -408,9 +514,19 @@ class Controller:
                         # Exact history state as traffic starts (the 10 s cadence alone
                         # can miss history that finishes early in the window).
                         sampler.sample(arm + "-" + label)
+                        paint = {}
+                        painter = None
+                        if c.get("paint"):
+                            painter = threading.Thread(target=self.paint_side, name=arm + "-paint",
+                                args=(arm, label, c, paint), daemon=True)
+                            painter.start()
                         self.script("load.py", arm + "-" + label, *args, "--label", label,
                                     "--plans-dir", plans / label, timeout=duration+c["warmup"]+240)
+                        if painter is not None:
+                            self.paint_finish(arm, painter, paint)
                     outcome[arm] = read(self.run_root / "metrics/measured/summary.json")
+                    if c.get("paint"):
+                        outcome[arm]["paint"] = paint
                     outcome[arm]["active_ready"] = dict(seconds=ready["seconds"], sources=ready["sources"],
                         bytes=ready["bytes"], events=ready["events"], startup_s=ready_m0 - (deadline - c["readiness_s"]))
                     outcome[arm]["history_ingest"] = sampler.summary(arm + "-measured")
@@ -552,6 +668,11 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--root", required=True, type=Path)
     p.add_argument("--small-control", action="store_true")
+    # Run-only (attempt 9): small-control smoke of the paint side process.
+    p.add_argument("--measured-s", type=int, help="small control only: measured window seconds")
+    p.add_argument("--paint-build", type=Path, help="small control only: renderer-paint build dir")
+    p.add_argument("--paint-seconds", type=int, default=15)
+    p.add_argument("--paint-repeats", type=int, default=3)
     p.add_argument("--preflight-only", action="store_true", help="only the N=10/N=100 rows preflight")
     p.add_argument("--preflight-large", action="store_true",
                    help="also seed N=1000 and judge chat/message from N=100 to N=1000 (opt-in, heavy)")

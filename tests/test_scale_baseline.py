@@ -78,6 +78,33 @@ class ControllerControls(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "disk_gib"):
                     baseline.require_go(args, "abc")
 
+    def test_go_may_lengthen_the_measured_window_and_add_paint(self):
+        args = argparse.Namespace(small_control=False, go_file=None)
+        with tempfile.TemporaryDirectory() as folder:
+            args.go_file = Path(folder) / "go.json"
+            base = dict(go=True, source="abc", coordinator_message="mail-id")
+            baseline.write(args.go_file, base)
+            c = baseline.require_go(args, "abc")
+            self.assertEqual((c["measured"], c["paint"]), (600, None))
+            baseline.write(args.go_file, dict(base, measured_s=3600))
+            self.assertEqual(baseline.require_go(args, "abc")["measured"], 3600)
+            for bad in (599, 3601, "3600", 1800.5):
+                baseline.write(args.go_file, dict(base, measured_s=bad))
+                with self.assertRaisesRegex(ValueError, "measured_s"):
+                    baseline.require_go(args, "abc")
+            build = Path(folder) / "paint-build"
+            baseline.write(args.go_file, dict(base, paint=dict(build=str(build))))
+            with self.assertRaisesRegex(ValueError, "paint build"):
+                baseline.require_go(args, "abc")
+            baseline.write(build / "build.json", {})
+            baseline.write(args.go_file, dict(base, paint=dict(build=str(build), seconds=0)))
+            with self.assertRaisesRegex(ValueError, "paint seconds"):
+                baseline.require_go(args, "abc")
+            baseline.write(args.go_file, dict(base, paint=dict(build=str(build), seconds=60, repeats=10)))
+            with patch.object(baseline.shutil, "which", return_value="node.exe"):
+                paint = baseline.require_go(args, "abc")["paint"]
+            self.assertEqual(paint, dict(build=str(build), seconds=60, repeats=10))
+
     def test_guard_survives_an_engine_pid_that_vanished(self):
         # The descriptor's engine pid can exit between reads (seen live in the
         # rows preflight's startup, 2026-09-28); that alone must not trip the guard.
