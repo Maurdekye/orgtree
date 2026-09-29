@@ -28,7 +28,12 @@ export async function runAttentionScenarios(ctx: AppScenarioContext): Promise<vo
     if (req.method === 'GET' && p === '/api/orgs/studio') return json({...originalTree,
       rev:unanswered ? 10 : 11,
       roots:originalTree.roots.map((n: any) => n.id === 'agent' ? {...n,ask:unanswered ? ask : null} : n)})
-    if (req.method === 'GET' && p === '/api/orgs/studio/work-items') return json({items:flagged ? [item] : [],archived:[],backlogged:[],counts:{active:1,attention:flagged ? 1 : 0,archived:0,backlogged:0}})
+    const docket = () => ({items:flagged ? [item] : [],archived:[],backlogged:[],counts:{active:1,attention:flagged ? 1 : 0,archived:0,backlogged:0}})
+    if (req.method === 'GET' && p === '/api/orgs/studio/work-items') return json(docket())
+    // The shipping docket read (workforeground.ts, since 2111052). Answered in
+    // its own format: an unformatted body is an error there, not a fallback,
+    // so without this route the ticket row never appears.
+    if (req.method === 'GET' && p === '/api/orgs/studio/work-items-foreground') return json({format:'orgtree.work-foreground/v1',...docket(),references:[]})
     if (req.method === 'GET' && p === '/api/orgs/studio/inbox') return json({pending:unread ? [urgent,otherMail] : [otherMail],delivered:unread ? [] : [urgent],sent:[]})
     if (req.method !== 'POST' || ![
       '/api/orgs/studio/work-items/proof-ticket/dismiss-attention',

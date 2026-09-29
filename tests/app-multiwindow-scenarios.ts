@@ -23,7 +23,10 @@ export async function runMultiwindowScenarios(ctx: AppScenarioContext): Promise<
     res.end(JSON.stringify(trees.get(org))); return true
   })
   const stopUpgrade = ctx.routeUpgrade((req,socket) => {
-    const org = orgs.find(org=>req.url === '/api/orgs/' + org + '/ws')
+    // The App opens /api/orgs/<org>/ws?win=<window id> (since aa4f032), so
+    // match the PATH; comparing the whole URL accepted no socket at all.
+    const path = (req.url ?? '').split('?')[0]
+    const org = orgs.find(org=>path === '/api/orgs/' + org + '/ws')
     const key = req.headers['sec-websocket-key']
     if (!org || typeof key !== 'string') return false
     const accept = createHash('sha1').update(key+'258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64')
