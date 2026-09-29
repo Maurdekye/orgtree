@@ -373,15 +373,30 @@ export const getChat = (slug: string, nid: string, last?: number, before?: strin
 /** multi-account: reassign a node's account (operator surface). The result
  * is the full disclosure set — billing mode, standing with provenance, the
  * continuity record — shown at the point of action, never silent. */
+/** A USER'S OWN SAVE MOVED THE TREE: re-read it now, not after the pacer's gap
+ *  (docket v3-changing-an-agent-s-model-does-not-show-at-on). The settings
+ *  dialog saves scope (effort, tools, ...) and the account through these direct
+ *  routes rather than App's `op`, so without this the new values waited for the
+ *  server's `changed` frame, whose tree read is paced like background traffic:
+ *  at least TREE_MIN_GAP_MS and up to 2x the last read's duration. App listens
+ *  and asks for an URGENT read, which waits only for a read already in flight. */
+export const TREE_STALE_EVENT = 'orgtree:tree-stale'
+export function markTreeStale(slug: string): void {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent(TREE_STALE_EVENT, { detail: { slug } }))
+}
+const staleAfter = <T,>(slug: string, done: Promise<T>): Promise<T> =>
+  done.then((r) => { markTreeStale(slug); return r })
+
 export const assignAccount = (slug: string, nid: string, account: string):
   Promise<{ account: string; label: string; billing_mode: string
             standing: { state: string; until?: number; provenance?: string }
             session_boundary: boolean }> =>
-  req(`/api/orgs/${slug}/nodes/${nid}/account`, {
+  staleAfter(slug, req(`/api/orgs/${slug}/nodes/${nid}/account`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ account }),
-  })
+  }))
 export const getMcpServers = (): Promise<McpServersPayload> =>
   req('/api/mcp-servers')
 export const getCharters = (): Promise<ChartersPayload> =>
@@ -1015,11 +1030,11 @@ export const probeHub = (
 ): Promise<{ ok: boolean; name?: string | null }> =>
   req(`/api/net/probe${address ? `?address=${encodeURIComponent(address)}` : ''}`)
 export const saveScope = (slug: string, nid: string, scope: ScopeRequest): Promise<OpResult> =>
-  req(`/api/orgs/${slug}/nodes/${nid}/scope`, {
+  staleAfter(slug, req(`/api/orgs/${slug}/nodes/${nid}/scope`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(scope),
-  })
+  }))
 export const reorderNode = (
   slug: string, nid: string, body: ReorderRequest,
 ): Promise<OpResult> =>

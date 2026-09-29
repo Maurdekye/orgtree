@@ -26,6 +26,7 @@ import {
   markRead, openWs,
   probeHub, putOrgMd,
   resumeFrozen, runOp, saveDefaults, saveHireDefaults, saveSettings,
+  TREE_STALE_EVENT,
 } from './api'
 import { treeSelections } from './treeselection'
 import { savedTreeSelection } from './canvas/treeselection'
@@ -784,6 +785,16 @@ export default function App() {
       fetchErr(e)
     })
   }
+  // A user's own save through a direct route (scope, account) re-reads the
+  // tree urgently too -- see markTreeStale in api.ts.
+  useEffect(() => {
+    const onStale = (e: Event) => {
+      const org = (e as CustomEvent<{ slug?: string }>).detail?.slug
+      if (org && org === wantSlug.current) refreshTree(org, { urgent: true })
+    }
+    window.addEventListener(TREE_STALE_EVENT, onStale)
+    return () => window.removeEventListener(TREE_STALE_EVENT, onStale)
+  }, [refreshTree])
   // A mounted surface changing what it needs (a picker, a pin, a pending
   // jump) asks for the tree again. Debounced: camera focus moves publish
   // often, and the coalescing above already allows only one read in flight.
@@ -1026,7 +1037,9 @@ export default function App() {
               .then((r2) => { toast(r2.warnings); refreshTree(slug); refreshOrgs() })
               .catch((e: Error) => toast([`error: ${e.message}`])) })
         } else toast(r.warnings)
-        refreshTree(slug); refreshOrgs(); return r
+        // urgent: the user just changed something and is looking for it, so
+        // this read skips the pacer's gap (it still waits for one in flight)
+        refreshTree(slug, { urgent: true }); refreshOrgs(); return r
       })
       // `quiet`: the caller reports this failure itself (OpOptions)
       .catch((e: Error) => { if (!opts?.quiet) toast([`error: ${e.message}`]); throw e }),
