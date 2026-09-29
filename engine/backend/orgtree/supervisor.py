@@ -37,7 +37,7 @@ import sys
 import threading
 import time
 import uuid
-from collections.abc import (Callable, Iterable, Iterator, Mapping,
+from collections.abc import (Callable, Hashable, Iterable, Iterator, Mapping,
                              MutableMapping, Sequence)
 import contextlib
 from functools import wraps
@@ -36597,13 +36597,28 @@ def _todo_live_extra(slug: str, nid: str, block: dict[str, Any]) -> dict[str, An
 
 
 def _result_text(content: Any) -> str:
-    """Flatten a tool_result's content to text."""
+    """Flatten a tool_result's content to text. A text block whose `text` is
+    not a string contributes nothing rather than failing the join."""
     if isinstance(content, str):
         return content
     if isinstance(content, list):
-        return "\n".join(b.get("text", "") for b in content
+        return "\n".join(_block_str(b, "text") for b in content
                          if isinstance(b, dict) and b.get("type") == "text")
     return ""
+
+
+def _block_str(block: dict[str, Any], key: str) -> str:
+    """A content block's string field, or "" when it is absent or is not a
+    string — transcript lines are provider-written, and one odd field may not
+    fail the whole read."""
+    v = block.get(key, "")
+    return v if isinstance(v, str) else ""
+
+
+def _json_key(v: Any) -> Any:
+    """`v` if it can key a dict, else None: a list or object id from a
+    malformed block would raise TypeError on the lookup."""
+    return v if isinstance(v, Hashable) else None
 
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -37487,19 +37502,31 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
                                  or rec.get("isApiErrorMessage")):
             body = content if isinstance(content, str) else _result_text(content)
             if not body and isinstance(content, list):
-                body = "\n".join(b.get("text", "") for b in content
+                body = "\n".join(_block_str(b, "text") for b in content
                                  if isinstance(b, dict))
             append_row({"role": "system", "text": "⚠ " + body.strip()[:300],
                          "ts": rec.get("timestamp")})
             continue
         texts, tools, thinks = [], [], []
         sealed = 0        # thinking blocks that carry a signature but no text
+        if not isinstance(content, (str, list)):
+            content = ""      # projects exactly like a record with no content
         if isinstance(content, str):
             texts.append(content)
         else:
+            # ⚠ ONE MALFORMED BLOCK MAY NOT SINK THE WHOLE READ. A bare string
+            # (or any non-object) inside the list raised AttributeError here,
+            # and content that is neither a string nor a list (a number)
+            # raised TypeError — both 500'd the desk fetch and
+            # orgtree_read_transcript for the ENTIRE transcript. Skip the
+            # block, the way malformed records and messages are skipped above
+            # (non-string, non-list content was blanked just above). Every
+            # field read below is type-checked for the same reason.
             for block in content:
+                if not isinstance(block, dict):
+                    continue
                 bt = block.get("type")
-                if bt == "text" and block.get("text", "").strip():
+                if bt == "text" and _block_str(block, "text").strip():
                     texts.append(block["text"])
                 elif bt == "thinking":
                     # №18 evolved (user spec 2026-07-31): thinking IS in the
@@ -37515,29 +37542,32 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
                     # else, so the whole row vanished and the agent looked
                     # like it had stopped thinking. It didn't — so the line
                     # still renders, minus the body it was never given.
-                    if block.get("thinking", "").strip():
+                    if _block_str(block, "thinking").strip():
                         thinks.append(block["thinking"])
                     else:
                         sealed += 1
                     continue
                 elif bt == "tool_use":
-                    entry = {"name": block.get("name", "tool"),
-                             "arg": _tool_arg(block.get("name", ""),
-                                              block.get("input")),
+                    name = block.get("name", "tool")
+                    if not isinstance(name, str):
+                        name = "tool"
+                    entry = {"name": name,
+                             "arg": _tool_arg(name, block.get("input")),
                              "id": block.get("id")}
-                    if block.get("name") == "TodoWrite":
+                    if name == "TodoWrite":
                         todos = _todo_items(block.get("input")) or []
                         entry["result"] = _todo_glyphs(todos)
-                        _raw = (block.get("input") or {}).get("todos")
+                        _inp = block.get("input")
+                        _raw = _inp.get("todos") if isinstance(_inp, dict) else None
                         entry["result_lines"] = (len(_raw) if isinstance(_raw, list)
                                                  else len(todos))
                     tools.append(entry)
-                    if block.get("id"):
+                    if block.get("id") and _json_key(block.get("id")) is not None:
                         by_tool_id[block["id"]] = entry
                 elif bt == "tool_result":
                     # №1/№9: correlate back to the chip — error bit, collapsed
                     # body, image count
-                    entry = by_tool_id.get(block.get("tool_use_id"))
+                    entry = by_tool_id.get(_json_key(block.get("tool_use_id")))
                     if entry is not None:
                         body = _result_text(block.get("content"))
                         if block.get("is_error"):
@@ -37663,12 +37693,19 @@ def _read_chat_source(org: Org, nid: str, last: int | None = None, *,
         tur = rec.get("toolUseResult")
         if isinstance(tur, dict) and t == "user":
             # (tool_use_id may be absent → a None key simply misses the lookup)
-            entry = next((by_tool_id.get(b.get("tool_use_id"))   # pyright: ignore[reportArgumentType]
+            entry = next((by_tool_id.get(_json_key(b.get("tool_use_id")))
                           for b in (content if isinstance(content, list) else [])
                           if isinstance(b, dict) and b.get("type") == "tool_result"
-                          and by_tool_id.get(b.get("tool_use_id"))), None)   # pyright: ignore[reportArgumentType]
+                          and by_tool_id.get(_json_key(b.get("tool_use_id")))), None)
             if entry is not None:
                 patch = tur.get("structuredPatch")
+                # a hunk that is not an object, or a line that is not a
+                # string, is dropped rather than failing the whole read
+                patch = [{**h, "lines": [ln for ln in h["lines"]
+                                         if isinstance(ln, str)]
+                          if isinstance(h.get("lines"), list) else []}
+                         for h in (patch if isinstance(patch, list) else [])
+                         if isinstance(h, dict)]
                 if patch:
                     plus = sum(1 for h in patch for l in h.get("lines", [])
                                if l.startswith("+"))

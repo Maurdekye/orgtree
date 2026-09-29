@@ -680,9 +680,21 @@ PROJECTOR_CASES = {
     'tool_result_cut_to_2000_characters':([_a(1,[_use('Read',{'file_path':'/big'})]),_u(2,[_res('\n'.join('y'*299 for _ in range(10)))])],
                                           [('assistant','',[{'name':'Read','result_lines':10,'truncated':True,
                                                              'result':'\n'.join('y'*299 for _ in range(10))[:2000]}])]),
-    # recorded legacy defects: a malformed record fails the whole read
-    'non_mapping_content_block_is_a_500':([_a(1,['bare string block'])],('500','AttributeError')),
-    'non_iterable_content_is_a_500':([_a(1,42)],('500','TypeError')),
+    # malformed blocks and fields are skipped, never a 500 for the whole read
+    # (these two were recorded legacy defects: AttributeError and TypeError 500s)
+    'non_mapping_content_block_is_skipped':([_a(1,['bare string block',{'type':'text','text':'kept'}])],
+                                            [('assistant','kept',[])]),
+    'non_iterable_content_is_an_empty_row':([_a(1,42),_a(2,'kept')],[('assistant','',[]),('assistant','kept',[])]),
+    'non_string_text_and_thinking_are_skipped':([_a(1,[{'type':'text','text':7},{'type':'thinking','thinking':['x']},
+                                                       {'type':'text','text':'kept'}])],[('assistant','kept',[])]),
+    'malformed_tool_fields_are_skipped':([_a(1,[{'type':'tool_use','id':['x'],'name':5,'input':'s'},
+                                                _use('TodoWrite','not an object',tid='t2')]),
+                                          _u(2,[_res([{'type':'text','text':9},{'type':'text','text':'ok'}],tid='t2'),
+                                                {'type':'tool_result','tool_use_id':{'a':1},'content':'x'}],
+                                             toolUseResult={'structuredPatch':['bad',{'oldStart':1,'lines':['+a',3]}]})],
+                                         [('assistant','',[{'name':'tool','arg':''},
+                                                           {'name':'TodoWrite','result':'','result_lines':0,
+                                                            'diff':{'plus':1,'minus':0,'lines':['@@ 1','+a']}}])]),
 }
 
 

@@ -655,9 +655,10 @@ Recorded defects are kept as legacy behaviour, not approved. Examples: NaN
 for its native/Rust clause. `material.wire`'s legacy transcript projector is
 fixtured too (`p01-transcript-projector-legacy-fixtures`): every row type
 `supervisor._read_chat_source` handles, as an agent sees it through
-`orgtree_read_transcript`. Two findings are recorded: an envelope prompt with no
-prompt-view row reaches the reader raw, and a malformed content block fails
-the whole read with a 500.
+`orgtree_read_transcript`. One finding is recorded: an envelope prompt with no
+prompt-view row reaches the reader raw. A second, a malformed content block
+failing the whole read with a 500, was fixed on purpose (2026-09-29,
+`robustness-one-malformed-content-block-500s-the`): such blocks are skipped.
 This is not a runtime operation count or progress percentage. See the separate
 family documents for their measurements and remaining obligations.
 
