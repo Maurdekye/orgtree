@@ -14886,13 +14886,16 @@ def _abandoned_docket_recovery_pass(now: float | None = None) -> None:
         slug = str(row["slug"])
         moved: list[dict[str, Any]] = []
         try:
-            # PG-3e-B: a dry run on a lock-free snapshot first (never saved),
-            # so the common nothing-abandoned pass locks nothing; only an org
-            # with work to move takes the transaction, which then decides
-            # again under the locks. The reassignment deposits assignment
-            # mail into the new owners' mailboxes (their node rows) and can
-            # land on any top-level node, so it locks every node row.
-            if not orgtx.org_read(slug).work_reassign_abandoned(now_ts=stamp):
+            # PG-3e-B: a read-only check on a lock-free view first, so the
+            # common nothing-abandoned pass locks nothing; only an org with
+            # work to move takes the transaction, which then decides again
+            # under the locks. The reassignment deposits assignment mail into
+            # the new owners' mailboxes (their node rows) and can land on any
+            # top-level node, so it locks every node row. The view decodes
+            # only the stale items' owner rows, never the retired history
+            # (abandoned-ticket-check-decodes-every-node-row-of: the old
+            # snapshot decoded every node row of every org per 20 s tick).
+            if not store.load_runtime_org(slug).work_abandoned_pending(now_ts=stamp):
                 continue
             with orgtx.org_tx(slug, nodes=orgtx.ALL,
                               sections=_ABANDONED_SECTIONS,

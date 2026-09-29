@@ -17321,29 +17321,21 @@ class Org:
             self.post_mail(USER, want, "", "request", ev=_ev(True))
         return want
 
-    def work_reassign_abandoned(self, now_ts: float | None = None,
-                                threshold_s: float | None = None
-                                ) -> list[dict[str, Any]]:
-        """Reassign stale nonterminal work whose OWNER is gone — the node was
-        deleted, retired/dissolved, or its id was re-minted by a later hire.
-
-        ⚠ NOT work whose owner merely COMPACTED (user bug 2026-09-12). The
-        staleness question is `_work_identity_state`'s alone, and a generation
-        advance on the same live node is the same agent, so nothing here fires
-        for it: no reassignment, no assignment-history row, no status change
-        and no mail claiming the item moved."""
+    def _work_abandoned_candidates(self, now_ts: float | None,
+                                   threshold_s: float | None
+                                   ) -> Iterator[tuple[WorkItem, float, str]]:
+        """(item, age, owner state) for each stale nonterminal item whose
+        OWNER is gone, in docket order -- the selection both the dry check
+        and the reassignment make. Reads the active items, the archive only
+        when a non-closed row is there, and ONE node row per stale item: no
+        walk of the node table, whose retired history grows without bound
+        (abandoned-ticket-check-decodes-every-node-row-of)."""
         self._work_require_current_identity()
         now_ts = _time.time() if now_ts is None else now_ts
         threshold = (self.WORK_ABANDONED_AFTER_S
                      if threshold_s is None else float(threshold_s))
         if threshold < 0:
             raise LedgerError("abandoned-ticket threshold must be nonnegative")
-        tops = sorted(str(nid) for nid, node in self.nodes.items()
-                      if node.get("state") == "live"
-                      and not str(node.get("parent") or "").strip())
-        if not tops:
-            return []
-        moved: list[dict[str, Any]] = []
         # The archive is classified by STATUS ALONE, and read whole only when
         # a non-closed row is actually there (archiving requires a closed
         # status, so normally never). The 20 s keeper runs this dry pass on a
@@ -17362,6 +17354,43 @@ class Org:
             current, owner_state = self._work_owner_state(it)
             if current or owner_state is None:
                 continue
+            yield it, age, owner_state
+
+    def _work_live_tops(self) -> list[str]:
+        """The live top-level node ids, sorted: where abandoned work goes.
+        A walk of the node table, so it runs only once a candidate exists."""
+        return sorted(str(nid) for nid, node in self.nodes.items()
+                      if node.get("state") == "live"
+                      and not str(node.get("parent") or "").strip())
+
+    def work_abandoned_pending(self, now_ts: float | None = None,
+                               threshold_s: float | None = None) -> bool:
+        """Would `work_reassign_abandoned` move anything? Read-only: the 20 s
+        keeper asks this of a lock-free runtime view and takes the
+        transaction only on True. Stops at the first candidate."""
+        for _ in self._work_abandoned_candidates(now_ts, threshold_s):
+            return bool(self._work_live_tops())
+        return False
+
+    def work_reassign_abandoned(self, now_ts: float | None = None,
+                                threshold_s: float | None = None
+                                ) -> list[dict[str, Any]]:
+        """Reassign stale nonterminal work whose OWNER is gone — the node was
+        deleted, retired/dissolved, or its id was re-minted by a later hire.
+
+        ⚠ NOT work whose owner merely COMPACTED (user bug 2026-09-12). The
+        staleness question is `_work_identity_state`'s alone, and a generation
+        advance on the same live node is the same agent, so nothing here fires
+        for it: no reassignment, no assignment-history row, no status change
+        and no mail claiming the item moved."""
+        moved: list[dict[str, Any]] = []
+        tops: list[str] | None = None
+        # list() first: the reassignment edits the items being selected
+        for it, age, owner_state in list(self._work_abandoned_candidates(now_ts, threshold_s)):
+            if tops is None:
+                tops = self._work_live_tops()
+            if not tops:
+                return []
             result = self._work_assign_core(SYSTEM, it, tops[0], True,
                                             "abandoned-owner")
             result["previous_owner_state"] = owner_state
