@@ -134,10 +134,23 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   const canRetire = live && !node.isBearerOf && !node.bearer_state
   const canHire = canRetire && !s.piled
   const liveKids = node.children.some((c) => c.state === 'live')
-  const entries: MenuEntry[] = [
+  const entries: MenuEntry[] = []
+  // FIRST OF THIS AGENT'S OWN ENTRIES, so second in the menu as shown, right
+  // under "Copy agent name" (user 2026-09-29: "move that option to the top,
+  // second below the top"). It is the cheapest way to look at a desk: a glance
+  // that changes nothing, closing puts everything back. It is unconditional:
+  // it borrows whatever placement the desk currently has and gives it back.
+  const temporary = h.onOpenTemporary
+  if (temporary) entries.push({
+    label: 'Open desk temporarily',
+    title: `read ${node.id}'s desk in a modal without changing the focused `
+      + 'agent, pinning it, or opening a window — closing puts everything back',
+    onSelect: () => temporary(),
+  })
+  entries.push(
     { label: 'Open desk', onSelect: () => h.onOpenDesk?.(), disabled: !h.onOpenDesk },
     { label: 'Open inbox', onSelect: () => h.onInbox() },
-  ]
+  )
   const docket = h.onDocket
   if (docket) entries.push({ label: 'Open docket', onSelect: () => docket() })
   // …and the same docket widened to this agent's REPORTS. It sits next to
@@ -187,18 +200,6 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
     }
   }
   entries.push({ label: 'Settings', onSelect: () => h.onSettings() })
-  // BEFORE the pin and popout entries, because it is the cheapest of the three
-  // and the one that changes nothing: a glance, then gone. Unconditional —
-  // unlike pin and popout it has no "already in that state" variant to offer,
-  // since it borrows whatever placement the desk currently has and gives it
-  // back.
-  const temporary = h.onOpenTemporary
-  if (temporary) entries.push({
-    label: 'Open desk temporarily',
-    title: `read ${node.id}'s desk in a modal without changing the focused `
-      + 'agent, pinning it, or opening a window — closing puts everything back',
-    onSelect: () => temporary(),
-  })
   const pin = h.onPin, showPin = h.onShowPin
   if (pin && !s.pinned) entries.push({ label: 'Pin desk as a window', onSelect: () => pin() })
   if (s.pinned && showPin) entries.push({ label: 'Show pinned window', onSelect: () => showPin() })
