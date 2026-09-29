@@ -100,6 +100,7 @@ from . import orgtx
 from . import worktx
 from . import opreceipts
 from . import toolargs
+from . import inbox  # the manual inbox (orgtree_inbox)
 from . import pgdoor
 from . import workdoor
 from . import runtimedoor
@@ -12091,6 +12092,47 @@ def _op_absent(key: str, cls: str, at: str = "") -> dict[str, Any]:
                       "have happened — the outcome is unknown; do not reissue"}
 
 
+def _inbox_call(body: AgentCall, a: dict[str, Any],
+                caller: dict[str, Any]) -> dict[str, Any]:
+    """`orgtree_inbox`: the calling agent's OWN waiting mail (user ruling
+    2026-09-29, item let-agents-manually-check-their-unread-inbox).
+
+    The mailbox is the authenticated caller's, at the generation this call
+    authenticated as; no argument can name another one (`inbox.check_args`
+    refuses anything outside each action's own set with one fixed text).
+    `list` only looks. `fetch` and `chunk` run the supervisor's receipted
+    manual delivery, keyed by our own client's `op_key`/`op_epoch` when it
+    sent them. A refusal is an answer (`ok: false`), not an HTTP error, so
+    the agent reads why."""
+    if body.node == USER or not caller:
+        raise HTTPException(422, "the manual inbox belongs to agents")
+    rest = {k: v for k, v in a.items() if k != "action"}
+    action = str(a.get("action") or "")
+    refused = inbox.check_args(action, rest)
+    if refused is not None:
+        return refused
+    generation = int(caller.get("generation") or 0)
+    if action == "list":
+        return supervisor.manual_list(body.org, body.node, generation,
+                                      cursor=rest.get("cursor"),
+                                      limit=rest.get("limit"))
+    if action == "fetch":
+        return supervisor.manual_fetch(body.org, body.node, generation,
+                                       rest.get("message_ids"),
+                                       op_key=body.op_key, op_epoch=body.op_epoch)
+    if not body.op_key:
+        # the unkeyed chunk read stays internal (decision42 D1): through the
+        # door every chunk call is a receipted transaction, which is what
+        # the Codex confirmation matches its echo against
+        return inbox.refusal("op_key_required", "chunk needs this client's "
+                             "operation key; nothing was read")
+    return supervisor.manual_fetch_chunk(body.org, body.node, generation,
+                                         rest.get("delivery_id"),
+                                         rest.get("message_id"),
+                                         rest.get("chunk_index"),
+                                         op_key=body.op_key, op_epoch=body.op_epoch)
+
+
 def _op_lookup_call(body: AgentCall, a: dict[str, Any]) -> dict[str, Any]:
     """"Did the call carrying this key apply?" — five answers, and `unknown`
     whenever the truth is not provable.
@@ -12865,7 +12907,8 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             raise HTTPException(422, 'retryable file delivery requires delivery_id')
         body = body.model_copy(update={'tool': 'orgtree_send_file'})
     gate: dict[str, Any] = {}
-    _agent_identity(body, request, durable=body.tool == 'orgtree_send_file', gate=gate)
+    caller = _agent_identity(body, request, durable=body.tool == 'orgtree_send_file',
+                             gate=gate)
     seat = (body.org, body.node)
     # ⚠ BEFORE EVERY GATE BELOW, because unwrapping only substitutes the call
     # this request was always making: after it, `body.tool` is the real verb
@@ -12946,6 +12989,8 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
         # It runs before the gates below because a lookup performs none of
         # those operations.
         return _op_lookup_call(body, a)
+    if body.tool == inbox.TOOL:
+        return _inbox_call(body, a, caller)
     _desktop_managed = os.environ.get('ORGTREE_DESKTOP_MANAGED') == '1'
     if body.tool in ("orgtree_self_restart", "orgtree_self_update",
                      "orgtree_prime_restart", *_DESKTOP_RELAUNCH_TOOLS) \

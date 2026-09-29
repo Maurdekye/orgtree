@@ -360,6 +360,10 @@ _put("orgtree_prime_relaunch", "write", "self")
 #   the FIRING is somebody else's operation, not this one.
 _put("orgtree_watchdog", "read", "self", ("list",))
 _put("orgtree_watchdog", "write", "self")
+#   The manual inbox reads and moves only the caller's OWN mailbox: `list`
+#   inspects it; `fetch`/`chunk` journal its own mail into a delivery.
+_put("orgtree_inbox", "read", "self", ("list",))
+_put("orgtree_inbox", "write", "self")
 
 # --- two-party and upward writes: `other_agent`, never `self` --------------
 # ⚠ EVERY ONE OF THESE IS A→B, so end-to-end locality is two stores even

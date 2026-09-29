@@ -10620,10 +10620,10 @@ def _fold_back_undelivered(slug: str, nid: str,
         pass
 
 
-# ------------------------------------------------ manual inbox (door CLOSED)
-# M1+M2a: an agent's own list/fetch of its waiting mail, built and tested
-# with NO door: no tool card, agent_call selector or dispatcher reaches these
-# functions. Exposure is a later, separately reviewed P01 surface change.
+# ------------------------------------------------------------- manual inbox
+# M1+M2a: an agent's own list/fetch of its waiting mail. The ONE door is the
+# `orgtree_inbox` card and `api._inbox_call` (user ruling 2026-09-29); the
+# supervisor itself never calls these.
 # Identity is the authenticated (org, node, generation); there is no target.
 def _manual_identity_refusal(org: Org, nid: str, generation: Any) -> dict[str, Any] | None:
     node = org.nodes.get(nid)
@@ -11098,9 +11098,9 @@ def _chunk_keyed(org: Org, slug: str, nid: str, generation: int, delivery_id: An
 # under that key are a conflict; another call has another key. Every other
 # tool call is exactly what it was.
 #
-# Door: nothing answers the inbox verb at the backend yet, so today such a
-# call is refused there before anything runs. This stage makes the admission
-# the door will use reachable from Codex with a stable key; it opens nothing.
+# Door: `api._inbox_call` answers the inbox verb (user ruling 2026-09-29);
+# this is the admission it uses when the call comes from Codex, with a stable
+# key.
 #
 # ⚠ WHAT THE KEY DOES NOT COVER, said plainly:
 #   · Its mint time and bound epoch live in THIS PROCESS (`_CODEX_KEYS`). A
@@ -11351,7 +11351,7 @@ def _codex_lost_kind(exc: Exception) -> str:
     return "lost"
 
 
-# ------------------------- manual-inbox input evidence (P08b; door CLOSED)
+# ---------------------------------- manual-inbox input evidence (P08b)
 # A manual delivery is confirmed only from the runtime's own durable echo of
 # a keyed chunk call, matched per chunk by `inbox.codex_chunk_evidence`, for
 # EVERY chunk of EVERY message (`inbox.confirmation_complete`). Only the Codex

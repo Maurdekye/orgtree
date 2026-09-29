@@ -1073,6 +1073,33 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "orgtree_inbox",
+        "description": (
+            "Read YOUR OWN waiting mail now, without waiting for your next "
+            "turn to deliver it. Only your mailbox: it takes no agent or org "
+            "argument. list: what is waiting (ids, senders, previews, where "
+            "each message is); it changes nothing. fetch: the full text of up "
+            "to 20 listed ids. Nothing is cut: a body too big for one answer "
+            "comes in chunks (read the rest with chunk, using the fetch's "
+            "delivery_id). Mail you fetched is delivered again at your next "
+            "turn unless your session proves you received it; the answer's "
+            "will_redeliver says which."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["list", "fetch", "chunk"]},
+                "cursor": {"type": "string", "description": "list: next_cursor of the previous page"},
+                "limit": {"type": "integer", "description": "list: page size (default 50, max 200)"},
+                "message_ids": {"type": "array", "items": {"type": "string"},
+                                "description": "fetch: ids from list (max 20)"},
+                "delivery_id": {"type": "string", "description": "chunk: the fetch's delivery_id"},
+                "message_id": {"type": "string", "description": "chunk: the message"},
+                "chunk_index": {"type": "integer", "description": "chunk: 0-based"},
+            },
+            "required": ["action"],
+        },
+    },
+    {
         "name": "orgtree_watchdog",
         "description": (
             (

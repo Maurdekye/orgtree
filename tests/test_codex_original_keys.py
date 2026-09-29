@@ -626,20 +626,24 @@ class CodexOriginalKeyTests(unittest.TestCase):
         self.assertNotIn('op_key', rest)
         self.assertIn('"args": args}).encode()', rest)
 
-    def test_the_real_backend_still_refuses_the_inbox_verb(self):
-        """Door closed: the wrapped call reaches no inbox code at all."""
-        from fastapi import HTTPException
+    def test_the_real_backend_answers_the_keyed_inbox_verb(self):
+        """The door is open (user ruling 2026-09-29): the wrapped, keyed call
+        reaches the receipted fetch, and the same key replays it without a
+        second drain."""
         from starlette.requests import Request
         ids = self.deposit()
         self.begin()
-        before = self.canonical()
         body = api.AgentCall(org=self.slug, node=W, tool=opreceipts.OP_CALL, args={
             'tool': inbox.TOOL, 'args': {'action': 'fetch', 'message_ids': ids},
             'op_key': opreceipts.mint_key(), 'op_epoch': self.epoch()})
-        with self.assertRaises(HTTPException) as cm:
-            api.agent_call(body, Request({'type': 'http', 'headers': []}))
-        self.assertIn(f"unknown orgtree tool '{inbox.TOOL}'", str(cm.exception.detail))
-        self.assertEqual(self.canonical(), before)
+        out = api.agent_call(body, Request({'type': 'http', 'headers': []}))
+        self.assertTrue(out.get('ok'), out)
+        self.assertEqual([m.get('message_id') for m in out['fetched']], ids)
+        self.assertEqual(self.box_ids(), [], 'drained into the delivery')
+        after = self.canonical()
+        again = api.agent_call(body, Request({'type': 'http', 'headers': []}))
+        self.assertTrue(again.get('replayed'), again)
+        self.assertEqual(self.canonical(), after, 'a replay drains nothing')
 
 
 if __name__ == '__main__':

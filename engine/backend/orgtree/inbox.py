@@ -1,11 +1,11 @@
 """The manual inbox: an agent's own view of its waiting mail (M1+M2a).
 
-THE DOOR IS CLOSED: there is no door. No tool card, agent_call selector or
-dispatcher reaches this module or the supervisor's `manual_*` functions; only
-the tests do. A door may be added only after the all-provider identity (P04),
-original-key receipt and durable attempt (P06) and trusted input-evidence
-(P08) gates are met, as a separate, reviewed P01 surface change that must
-validate its arguments with `check_args` before calling anything here.
+THE DOOR (user ruling 2026-09-29, item let-agents-manually-check-their-
+unread-inbox: a SIMPLE version, Claude and Codex first; the P04/P06/P08
+gating no longer applies) is the `orgtree_inbox` tool card in mcptool and ONE
+branch, `api._inbox_call`, which validates its arguments with `check_args`
+before calling the supervisor's `manual_*` functions. Nothing else reaches
+them (tests/test_manual_inbox.py pins that).
 
 P06a (still no door) adds the original-key receipt of a keyed fetch, filed in
 the fetch's own single save, and a durable ATTEMPT record per delivery that

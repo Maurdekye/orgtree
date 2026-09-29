@@ -120,15 +120,31 @@ class ManualInboxTests(unittest.TestCase):
         return [m['id'] for m in (self.load().d.get('mail') or {}).get(W) or []]
 
     # ------------------------------------------------------------ the door
-    def test_there_is_no_agent_facing_door(self):
-        """Nothing outside the supervisor and this suite reaches the internals:
-        no tool card, no agent_call selector, no dispatcher. The one other
-        mention allowed is the receipt classification (P06a): opreceipts may
-        name `orgtree_inbox` as a key of its three tables and nowhere else."""
+    def test_the_door_is_the_one_agent_call_branch(self):
+        """The door is open (user ruling 2026-09-29) through exactly ONE path:
+        the `orgtree_inbox` tool card (mcptool) and `api._inbox_call`, which
+        checks the arguments with `inbox.check_args` before calling the
+        supervisor. The census classifies it. Nothing else reaches the
+        internals; opreceipts may name `orgtree_inbox` as a key of its three
+        tables and nowhere else."""
         root = Path(__file__).resolve().parents[1]
         backend = root / 'engine/backend/orgtree'
+        api_text = (backend / 'api.py').read_text(encoding='utf-8')
+        m = re.search(r'\ndef _inbox_call\(.*?(?=\n\S)', api_text, re.S)
+        self.assertIsNotNone(m, 'api._inbox_call exists')
+        door = m.group(0)
+        self.assertLess(door.index('inbox.check_args('), door.index('supervisor.manual_'),
+                        'arguments are checked before anything is called')
+        rest = api_text.replace(door, '')
+        for needle in ('manual_list(', 'manual_fetch(', 'manual_fetch_chunk('):
+            self.assertNotIn(needle, rest, f'api.py reaches {needle} outside the door')
+        self.assertEqual(rest.count('_inbox_call('), 1, 'one dispatch site')
         for path in sorted(backend.rglob('*.py')):
-            if path.name in ('supervisor.py', 'inbox.py'):
+            if path.name in ('supervisor.py', 'inbox.py', 'api.py'):
+                continue
+            if path.name in ('mcptool.py', 'census_classes.py'):
+                self.assertNotRegex(path.read_text(encoding='utf-8'),
+                                    r'manual_(?:list|fetch|fetch_chunk)\(')
                 continue
             text = path.read_text(encoding='utf-8', errors='replace')
             if path.name == 'opreceipts.py':

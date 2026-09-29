@@ -2222,8 +2222,8 @@
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2100,
-          "end": 2168,
+          "start": 2127,
+          "end": 2195,
           "sha256": "c4c39ba98ecbbc4f2db74121def36b83c10a4078c88cfe6def9fd922b84c87bd"
         },
         {
@@ -2483,8 +2483,8 @@
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2100,
-          "end": 2168,
+          "start": 2127,
+          "end": 2195,
           "sha256": "c4c39ba98ecbbc4f2db74121def36b83c10a4078c88cfe6def9fd922b84c87bd"
         },
         {
@@ -2813,8 +2813,8 @@
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2100,
-          "end": 2168,
+          "start": 2127,
+          "end": 2195,
           "sha256": "c4c39ba98ecbbc4f2db74121def36b83c10a4078c88cfe6def9fd922b84c87bd"
         },
         {
@@ -2931,8 +2931,8 @@
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2100,
-          "end": 2168,
+          "start": 2127,
+          "end": 2195,
           "sha256": "c4c39ba98ecbbc4f2db74121def36b83c10a4078c88cfe6def9fd922b84c87bd"
         },
         {
@@ -4039,8 +4039,8 @@
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1853,
-          "end": 1870,
+          "start": 1880,
+          "end": 1897,
           "sha256": "cab1501e2db1435d7e05d6e55042a3a4fa179118e8f3090b09c394b8e648861e"
         }
       ],
@@ -4176,8 +4176,8 @@
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1853,
-          "end": 1870,
+          "start": 1880,
+          "end": 1897,
           "sha256": "cab1501e2db1435d7e05d6e55042a3a4fa179118e8f3090b09c394b8e648861e"
         }
       ],
@@ -6360,14 +6360,14 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1153,
-          "end": 1312,
+          "start": 1180,
+          "end": 1339,
           "sha256": "b7c6537945906c9ec01bc85c3338cbc3a129fa35c72e8c614632a6ea15ff654c"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1505,
-          "end": 1626,
+          "start": 1532,
+          "end": 1653,
           "sha256": "c7c353204ec8dc0b5efd58e2014a911d42c8607fd2f9c7ffa67cac2a6117fe83"
         },
         {
@@ -6437,14 +6437,14 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1153,
-          "end": 1312,
+          "start": 1180,
+          "end": 1339,
           "sha256": "b7c6537945906c9ec01bc85c3338cbc3a129fa35c72e8c614632a6ea15ff654c"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1505,
-          "end": 1626,
+          "start": 1532,
+          "end": 1653,
           "sha256": "c7c353204ec8dc0b5efd58e2014a911d42c8607fd2f9c7ffa67cac2a6117fe83"
         },
         {
@@ -8057,8 +8057,8 @@
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2308,
-          "end": 2450,
+          "start": 2335,
+          "end": 2477,
           "sha256": "1fab36aeb30f5a888381f0766dab2bf73c8567339aec64f69cd83d331a7b6696"
         }
       ],
@@ -8107,8 +8107,8 @@
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2308,
-          "end": 2450,
+          "start": 2335,
+          "end": 2477,
           "sha256": "1fab36aeb30f5a888381f0766dab2bf73c8567339aec64f69cd83d331a7b6696"
         }
       ],
@@ -8207,8 +8207,8 @@
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2308,
-          "end": 2450,
+          "start": 2335,
+          "end": 2477,
           "sha256": "1fab36aeb30f5a888381f0766dab2bf73c8567339aec64f69cd83d331a7b6696"
         }
       ],
@@ -8791,8 +8791,8 @@
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2132,
-          "end": 2139,
+          "start": 2159,
+          "end": 2166,
           "sha256": "dadca1dc186a102feb2328090f4f3316e0e68f15cbc6318a83ef736006517266"
         },
         {
@@ -9328,20 +9328,20 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
@@ -9374,20 +9374,20 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
@@ -9420,20 +9420,20 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
@@ -9466,20 +9466,20 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
@@ -9515,20 +9515,20 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
@@ -9564,20 +9564,20 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
@@ -9610,20 +9610,20 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
@@ -9656,20 +9656,20 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
@@ -9706,20 +9706,20 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
@@ -9752,20 +9752,20 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
@@ -9798,20 +9798,20 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
@@ -9844,20 +9844,20 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
@@ -9890,20 +9890,20 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
@@ -9939,20 +9939,20 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
@@ -9988,20 +9988,20 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
@@ -10034,20 +10034,20 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
@@ -10080,20 +10080,20 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
@@ -10127,20 +10127,20 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
@@ -13369,8 +13369,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1956,
-          "end": 1969,
+          "start": 1983,
+          "end": 1996,
           "sha256": "171889c0c30ae59e041526883910f9e43e42cb32b1e2aa1e95017a32687bbb89"
         },
         {
@@ -13426,8 +13426,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1937,
-          "end": 1955,
+          "start": 1964,
+          "end": 1982,
           "sha256": "b6a4f151e299c507e95c88010806f0d8498da1ce1a451b25b0cf2d6622dea183"
         },
         {
@@ -13483,8 +13483,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1896,
-          "end": 1911,
+          "start": 1923,
+          "end": 1938,
           "sha256": "05e772d07e1746200d2d774f3036e54f5cb6aa939443fb8f5302714cd5335e61"
         },
         {
@@ -13540,8 +13540,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1912,
-          "end": 1919,
+          "start": 1939,
+          "end": 1946,
           "sha256": "c1ef972e5d5491d31c47db795accf4161e64b6cc20fe5509759a0098c4d83314"
         },
         {
@@ -13597,8 +13597,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1920,
-          "end": 1936,
+          "start": 1947,
+          "end": 1963,
           "sha256": "02828b971356a2545e5380397b1614ba048ff712c1e0eb9472c37f8d11484623"
         },
         {
@@ -13684,8 +13684,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1853,
-          "end": 1870,
+          "start": 1880,
+          "end": 1897,
           "sha256": "cab1501e2db1435d7e05d6e55042a3a4fa179118e8f3090b09c394b8e648861e"
         },
         {
@@ -13741,8 +13741,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1871,
-          "end": 1895,
+          "start": 1898,
+          "end": 1922,
           "sha256": "121c0247ed756abbd44e51c671b530cafe8491e916e4f9341643d805194044ca"
         },
         {
@@ -14330,8 +14330,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1845,
-          "end": 1852,
+          "start": 1872,
+          "end": 1879,
           "sha256": "9b1ad586486b7b8994a2f8a86c59c15d44f4fd11f093249759fb31756857a0eb"
         },
         {
@@ -14436,8 +14436,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1153,
-          "end": 1312,
+          "start": 1180,
+          "end": 1339,
           "sha256": "b7c6537945906c9ec01bc85c3338cbc3a129fa35c72e8c614632a6ea15ff654c"
         },
         {
@@ -14505,8 +14505,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1505,
-          "end": 1626,
+          "start": 1532,
+          "end": 1653,
           "sha256": "c7c353204ec8dc0b5efd58e2014a911d42c8607fd2f9c7ffa67cac2a6117fe83"
         },
         {
@@ -14568,8 +14568,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1505,
-          "end": 1626,
+          "start": 1532,
+          "end": 1653,
           "sha256": "c7c353204ec8dc0b5efd58e2014a911d42c8607fd2f9c7ffa67cac2a6117fe83"
         },
         {
@@ -15206,8 +15206,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1313,
-          "end": 1379,
+          "start": 1340,
+          "end": 1406,
           "sha256": "ce18d7192bcff984d7910ccaa67241a49ddd5b2ea2ca833a9d1a183a00577a74"
         },
         {
@@ -15269,8 +15269,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1380,
-          "end": 1393,
+          "start": 1407,
+          "end": 1420,
           "sha256": "01f536ed251a0b79c8310a35fe7ee4d0a44aaf9c5508c086054f6ff5baa28c86"
         },
         {
@@ -15338,8 +15338,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1706,
-          "end": 1714,
+          "start": 1733,
+          "end": 1741,
           "sha256": "b1a2aa37e24a79cfb0812d7ceacf7d3d7c24a28666e6059754a3f75639ec9eb5"
         },
         {
@@ -15407,8 +15407,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1394,
-          "end": 1407,
+          "start": 1421,
+          "end": 1434,
           "sha256": "c25651b94e778943606b7101d645c9199b2b592500f840878b44d393f9514ae1"
         },
         {
@@ -15470,8 +15470,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1408,
-          "end": 1504,
+          "start": 1435,
+          "end": 1531,
           "sha256": "d467efcb0088044e3fa02320a2ca57b816591611686f51b39fb1418ad71a2c06"
         },
         {
@@ -15539,8 +15539,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1646,
-          "end": 1670,
+          "start": 1673,
+          "end": 1697,
           "sha256": "52ce4e3f4b60ef246e34c3558b7ea33bd742ec7299ee8bace23541df942f2351"
         },
         {
@@ -15608,8 +15608,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1671,
-          "end": 1685,
+          "start": 1698,
+          "end": 1712,
           "sha256": "0e3e315ac26c6a2030d583153ee5e29749d54ad153e5fe58ef6d4e4ae86927d7"
         },
         {
@@ -15671,8 +15671,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1686,
-          "end": 1705,
+          "start": 1713,
+          "end": 1732,
           "sha256": "80547e28bdf6ffa632d42016c9b5bcc8bf14a564425df88bbecb5593b2dc1934"
         },
         {
@@ -15740,8 +15740,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1995,
-          "end": 2020,
+          "start": 2022,
+          "end": 2047,
           "sha256": "016519b2fb569fc68bb594db598e2cb7b6af82b5397860acb0c48311b2aa0ba4"
         },
         {
@@ -15803,8 +15803,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1627,
-          "end": 1636,
+          "start": 1654,
+          "end": 1663,
           "sha256": "698c3a1388480c795e72196e698be12f64abc7b17739e10c38bd9c23518ea2cd"
         },
         {
@@ -15866,8 +15866,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1637,
-          "end": 1645,
+          "start": 1664,
+          "end": 1672,
           "sha256": "9d28d97c5fee9e119ba4721b4b07d819df626d2454ccc184a1d5a1ab73e2f758"
         },
         {
@@ -17774,8 +17774,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
@@ -17843,8 +17843,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
@@ -17900,8 +17900,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
@@ -17963,8 +17963,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
@@ -18026,8 +18026,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
@@ -18089,8 +18089,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         },
         {
@@ -18152,8 +18152,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
@@ -18215,8 +18215,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
@@ -18278,8 +18278,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
@@ -18341,8 +18341,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
@@ -18404,8 +18404,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         },
         {
@@ -18809,8 +18809,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1715,
-          "end": 1727,
+          "start": 1742,
+          "end": 1754,
           "sha256": "577c207ddf8c9ec562bc897770d40600c3bcc6da8bdf98e9156d58a5edc19ee7"
         },
         {
@@ -18872,8 +18872,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1728,
-          "end": 1736,
+          "start": 1755,
+          "end": 1763,
           "sha256": "b62a7117883f345b463b8e343124e25b49aeb74e3f7f49160433f60b63054b71"
         },
         {
@@ -18941,8 +18941,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1737,
-          "end": 1766,
+          "start": 1764,
+          "end": 1793,
           "sha256": "3b8123e4ac442caef7892c13e553aed26ec5bc01a18a62dcafe74aafa0b146e5"
         },
         {
@@ -19004,8 +19004,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1810,
-          "end": 1828,
+          "start": 1837,
+          "end": 1855,
           "sha256": "87ec93125e22131e66280857cc9fd9e1b6c67ca68407025437d1150c5a9cc27e"
         },
         {
@@ -19067,8 +19067,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1829,
-          "end": 1844,
+          "start": 1856,
+          "end": 1871,
           "sha256": "eef08798b0e6c8a19b2a523f7f4e9518c5e8311c54a22f12e1168c29704aec40"
         },
         {
@@ -20401,8 +20401,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2055,
-          "end": 2076,
+          "start": 2082,
+          "end": 2103,
           "sha256": "3abd3911f090769c45881708ad23ecf94ddfde2e5a80dc0e6d8b833d3b001577"
         },
         {
@@ -20482,8 +20482,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2077,
-          "end": 2104,
+          "start": 2104,
+          "end": 2131,
           "sha256": "de797fd0cbc31c3034f0ff1260d21981680b5930710e48972e3056a59fad7679"
         },
         {
@@ -20569,8 +20569,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2077,
-          "end": 2104,
+          "start": 2104,
+          "end": 2131,
           "sha256": "de797fd0cbc31c3034f0ff1260d21981680b5930710e48972e3056a59fad7679"
         },
         {
@@ -20650,8 +20650,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2077,
-          "end": 2104,
+          "start": 2104,
+          "end": 2131,
           "sha256": "de797fd0cbc31c3034f0ff1260d21981680b5930710e48972e3056a59fad7679"
         },
         {
@@ -21455,8 +21455,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1970,
-          "end": 1994,
+          "start": 1997,
+          "end": 2021,
           "sha256": "144c65f66c24693fca10b27cb90305d34e60e4f70f100973ce696ba7de212485"
         },
         {
@@ -29658,8 +29658,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1075,
-          "end": 1152,
+          "start": 1102,
+          "end": 1179,
           "sha256": "4df5e33e47b1312e1dd7fe82ac4f3e223e6d759f930fa720eeee8d6f4b88793c"
         }
       ]
@@ -29674,8 +29674,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1153,
-          "end": 1312,
+          "start": 1180,
+          "end": 1339,
           "sha256": "b7c6537945906c9ec01bc85c3338cbc3a129fa35c72e8c614632a6ea15ff654c"
         }
       ]
@@ -29690,8 +29690,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1313,
-          "end": 1379,
+          "start": 1340,
+          "end": 1406,
           "sha256": "ce18d7192bcff984d7910ccaa67241a49ddd5b2ea2ca833a9d1a183a00577a74"
         }
       ]
@@ -29706,8 +29706,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1380,
-          "end": 1393,
+          "start": 1407,
+          "end": 1420,
           "sha256": "01f536ed251a0b79c8310a35fe7ee4d0a44aaf9c5508c086054f6ff5baa28c86"
         }
       ]
@@ -29722,8 +29722,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1394,
-          "end": 1407,
+          "start": 1421,
+          "end": 1434,
           "sha256": "c25651b94e778943606b7101d645c9199b2b592500f840878b44d393f9514ae1"
         }
       ]
@@ -29738,8 +29738,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1408,
-          "end": 1504,
+          "start": 1435,
+          "end": 1531,
           "sha256": "d467efcb0088044e3fa02320a2ca57b816591611686f51b39fb1418ad71a2c06"
         }
       ]
@@ -29755,8 +29755,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1505,
-          "end": 1626,
+          "start": 1532,
+          "end": 1653,
           "sha256": "c7c353204ec8dc0b5efd58e2014a911d42c8607fd2f9c7ffa67cac2a6117fe83"
         }
       ]
@@ -29771,8 +29771,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1627,
-          "end": 1636,
+          "start": 1654,
+          "end": 1663,
           "sha256": "698c3a1388480c795e72196e698be12f64abc7b17739e10c38bd9c23518ea2cd"
         }
       ]
@@ -29787,8 +29787,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1637,
-          "end": 1645,
+          "start": 1664,
+          "end": 1672,
           "sha256": "9d28d97c5fee9e119ba4721b4b07d819df626d2454ccc184a1d5a1ab73e2f758"
         }
       ]
@@ -29803,8 +29803,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1646,
-          "end": 1670,
+          "start": 1673,
+          "end": 1697,
           "sha256": "52ce4e3f4b60ef246e34c3558b7ea33bd742ec7299ee8bace23541df942f2351"
         }
       ]
@@ -29819,8 +29819,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1671,
-          "end": 1685,
+          "start": 1698,
+          "end": 1712,
           "sha256": "0e3e315ac26c6a2030d583153ee5e29749d54ad153e5fe58ef6d4e4ae86927d7"
         }
       ]
@@ -29835,8 +29835,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1686,
-          "end": 1705,
+          "start": 1713,
+          "end": 1732,
           "sha256": "80547e28bdf6ffa632d42016c9b5bcc8bf14a564425df88bbecb5593b2dc1934"
         }
       ]
@@ -29851,8 +29851,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1706,
-          "end": 1714,
+          "start": 1733,
+          "end": 1741,
           "sha256": "b1a2aa37e24a79cfb0812d7ceacf7d3d7c24a28666e6059754a3f75639ec9eb5"
         }
       ]
@@ -29867,8 +29867,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1715,
-          "end": 1727,
+          "start": 1742,
+          "end": 1754,
           "sha256": "577c207ddf8c9ec562bc897770d40600c3bcc6da8bdf98e9156d58a5edc19ee7"
         }
       ]
@@ -29883,8 +29883,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1728,
-          "end": 1736,
+          "start": 1755,
+          "end": 1763,
           "sha256": "b62a7117883f345b463b8e343124e25b49aeb74e3f7f49160433f60b63054b71"
         }
       ]
@@ -29899,8 +29899,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1737,
-          "end": 1766,
+          "start": 1764,
+          "end": 1793,
           "sha256": "3b8123e4ac442caef7892c13e553aed26ec5bc01a18a62dcafe74aafa0b146e5"
         }
       ]
@@ -29915,8 +29915,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1810,
-          "end": 1828,
+          "start": 1837,
+          "end": 1855,
           "sha256": "87ec93125e22131e66280857cc9fd9e1b6c67ca68407025437d1150c5a9cc27e"
         }
       ]
@@ -29931,8 +29931,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1829,
-          "end": 1844,
+          "start": 1856,
+          "end": 1871,
           "sha256": "eef08798b0e6c8a19b2a523f7f4e9518c5e8311c54a22f12e1168c29704aec40"
         }
       ]
@@ -29947,8 +29947,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1845,
-          "end": 1852,
+          "start": 1872,
+          "end": 1879,
           "sha256": "9b1ad586486b7b8994a2f8a86c59c15d44f4fd11f093249759fb31756857a0eb"
         }
       ]
@@ -29963,8 +29963,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1853,
-          "end": 1870,
+          "start": 1880,
+          "end": 1897,
           "sha256": "cab1501e2db1435d7e05d6e55042a3a4fa179118e8f3090b09c394b8e648861e"
         }
       ]
@@ -29979,8 +29979,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1871,
-          "end": 1895,
+          "start": 1898,
+          "end": 1922,
           "sha256": "121c0247ed756abbd44e51c671b530cafe8491e916e4f9341643d805194044ca"
         }
       ]
@@ -29995,8 +29995,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1896,
-          "end": 1911,
+          "start": 1923,
+          "end": 1938,
           "sha256": "05e772d07e1746200d2d774f3036e54f5cb6aa939443fb8f5302714cd5335e61"
         },
         {
@@ -30017,8 +30017,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1912,
-          "end": 1919,
+          "start": 1939,
+          "end": 1946,
           "sha256": "c1ef972e5d5491d31c47db795accf4161e64b6cc20fe5509759a0098c4d83314"
         },
         {
@@ -30039,8 +30039,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1920,
-          "end": 1936,
+          "start": 1947,
+          "end": 1963,
           "sha256": "02828b971356a2545e5380397b1614ba048ff712c1e0eb9472c37f8d11484623"
         },
         {
@@ -30091,8 +30091,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1937,
-          "end": 1955,
+          "start": 1964,
+          "end": 1982,
           "sha256": "b6a4f151e299c507e95c88010806f0d8498da1ce1a451b25b0cf2d6622dea183"
         },
         {
@@ -30113,8 +30113,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1956,
-          "end": 1969,
+          "start": 1983,
+          "end": 1996,
           "sha256": "171889c0c30ae59e041526883910f9e43e42cb32b1e2aa1e95017a32687bbb89"
         },
         {
@@ -30135,8 +30135,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1970,
-          "end": 1994,
+          "start": 1997,
+          "end": 2021,
           "sha256": "144c65f66c24693fca10b27cb90305d34e60e4f70f100973ce696ba7de212485"
         }
       ]
@@ -30151,8 +30151,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 1995,
-          "end": 2020,
+          "start": 2022,
+          "end": 2047,
           "sha256": "016519b2fb569fc68bb594db598e2cb7b6af82b5397860acb0c48311b2aa0ba4"
         }
       ]
@@ -30171,8 +30171,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2021,
-          "end": 2046,
+          "start": 2048,
+          "end": 2073,
           "sha256": "44ccc3f26998a8cb82b254709f2ea4351b74d12b97660958f462b4bf124a6b1e"
         }
       ]
@@ -30751,8 +30751,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2055,
-          "end": 2076,
+          "start": 2082,
+          "end": 2103,
           "sha256": "3abd3911f090769c45881708ad23ecf94ddfde2e5a80dc0e6d8b833d3b001577"
         }
       ]
@@ -30769,8 +30769,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2077,
-          "end": 2104,
+          "start": 2104,
+          "end": 2131,
           "sha256": "de797fd0cbc31c3034f0ff1260d21981680b5930710e48972e3056a59fad7679"
         }
       ]
@@ -33312,15 +33312,15 @@
       "source_refs": []
     },
     {
-      "id": "e3858e340ed94d030c1567d29ebe647e532896b142c988a08871398b42a1f371",
+      "id": "393fce645999a18f6c5ee05ef82058108ecd302087af8219693338f01fe4fd7b",
       "disposition": "excluded",
       "contracts": [],
       "reason": "Not an operation: _desktop_relaunch_catalogue only swaps the tool card an agent is shown in the agent-side MCP server's catalogue (orgtree_self_restart becomes orgtree_self_relaunch); it calls nothing. P01 W8.",
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2119,
-          "end": 2119,
+          "start": 2146,
+          "end": 2146,
           "sha256": "a0def51548c304e90d0b13313831bb48f73fd0216fbbf66521818f9d4cd407c9"
         },
         {
@@ -33331,22 +33331,22 @@
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2112,
-          "end": 2125,
+          "start": 2139,
+          "end": 2152,
           "sha256": "520513551db069b15b01199b4b54fe5bbfdc3754212d7cb4e62c666d0b7911cf"
         }
       ]
     },
     {
-      "id": "ea351e09a98904f8d6390397b97c04f67f23c3672b13f3fc9c7983c19c5e2958",
+      "id": "4c2c333bd2dd75d285180914691205e9a29f97a321670be75941529c14a87db0",
       "disposition": "excluded",
       "contracts": [],
       "reason": "Not an operation: _desktop_relaunch_catalogue only swaps the tool card an agent is shown in the agent-side MCP server's catalogue (orgtree_prime_restart becomes orgtree_prime_relaunch); it calls nothing. P01 W8.",
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2121,
-          "end": 2121,
+          "start": 2148,
+          "end": 2148,
           "sha256": "5d1dccdad2eea494c3b44ef61a1426ea87b61d6b549cc8eeadb98799685dd88c"
         },
         {
@@ -33357,29 +33357,29 @@
         },
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2112,
-          "end": 2125,
+          "start": 2139,
+          "end": 2152,
           "sha256": "520513551db069b15b01199b4b54fe5bbfdc3754212d7cb4e62c666d0b7911cf"
         }
       ]
     },
     {
-      "id": "3de03c31cf748bb43fde5f7456fcdba8090ef9420549fabfdbde339eabc5a5e2",
+      "id": "404b8187eb1a7d14b999275f16df0d9cf3f919863b938d9abaa4a59d7ad578bd",
       "disposition": "pending",
       "contracts": [],
       "reason": "orgtree_work in mcptool.available_tools: pending with its card — the full orgtree_work card (36 actions) is the P05 work family and the action-coverage rule needs all 36 (S3 ruling 2); the prototype's item read is covered by work.item-list and work.item-get instead. Owner: P05 (the work family).",
       "source_refs": []
     },
     {
-      "id": "d6143580a43368adcdff68275b912235a336ddacabf99125ebbebfe45f1dac0e",
+      "id": "b7dc1f06fc23e70fb65e82811fdfb1f605b7e1eaab22a290c6c7fb67578de0fc",
       "disposition": "excluded",
       "contracts": [],
       "reason": "Not an org-state operation in this process (coordinator ruling, decision 2 on the W8 item): a branch of mcptool.py, the agent-side MCP client, a separate client process, that forwards orgtree_send_file (as orgtree_send_file_once) to POST /api/agent. That backend route IS inventoried (api._agent_call_route, line 11156), and its witness carries the obligation; the branch has no other path into org state. P01 W8.",
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2323,
-          "end": 2323,
+          "start": 2350,
+          "end": 2350,
           "sha256": "48011383406b15ae264d56765221f533085f19cab5f10ecce0251505c9df2e18"
         },
         {
@@ -33391,7 +33391,7 @@
       ]
     },
     {
-      "id": "1107f23b0ff4f0114ca25d1a7a8ba6a926dde4f97f7f4e6447bf2bf00c295e07",
+      "id": "afea82304a3e3936cd879f694f60abba68ddeda6b4c97872ca27da7440aa1c14",
       "disposition": "mapped",
       "contracts": [
         "receipt.lookup"
@@ -33400,8 +33400,8 @@
       "source_refs": [
         {
           "path": "engine/backend/orgtree/mcptool.py",
-          "start": 2308,
-          "end": 2450,
+          "start": 2335,
+          "end": 2477,
           "sha256": "1fab36aeb30f5a888381f0766dab2bf73c8567339aec64f69cd83d331a7b6696"
         }
       ]

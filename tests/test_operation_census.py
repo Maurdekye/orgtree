@@ -308,6 +308,7 @@ class ClassificationTests(CensusCase):
             'orgtree_restart_wake',
             'orgtree_watchdog',
             'orgtree_capabilities',    # a READ of the caller's own capability set
+            'orgtree_inbox',           # the caller's OWN mailbox; no target argument exists
         }, 'a verb gained or lost a self-only claim; every such claim needs a '
            'source-verified reason in census_classes.TABLE')
 
