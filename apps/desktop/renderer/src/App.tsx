@@ -30,6 +30,7 @@ import {
   TREE_STALE_EVENT,
 } from './api'
 import { settleFromTree, useSubmittedAsks } from './asksubmitted'
+import { afterBootGate, openBootGate } from './bootgate'
 import { treeSelections } from './treeselection'
 import { savedTreeSelection } from './canvas/treeselection'
 import { AdvancedOrgModal } from './shell/advancedorg'
@@ -372,6 +373,16 @@ interface Toast { id: number; lines: string[]; undo: ToastUndo | null }
  *  push is a blink rather than a wedge. */
 const TREE_POLL_MS = 6000
 
+// The window's side readouts, held behind its first tree read (bootgate.ts):
+// six of them used to take every connection the browser would open and
+// leave the tree queued behind /api/providers.
+const bootUsagePeek = afterBootGate(getUsagePeek)
+const bootCodexUsagePeek = afterBootGate(getCodexUsagePeek)
+const bootAntigravityUsagePeek = afterBootGate(getAntigravityUsagePeek)
+const bootOpenRouterUsagePeek = afterBootGate(getOpenRouterUsagePeek)
+const bootProviders = afterBootGate(getProviders)
+const bootHost = afterBootGate(getHost)
+
 const slugFromPath = () => {
   // BASE is the /k/<token> prefix when served from a public kiosk URL
   const m = location.pathname.slice(BASE.length).match(/^\/o\/([a-z0-9@-]+)/)
@@ -391,6 +402,8 @@ export default function App() {
   const [slug, commitSlug] = useState<string | null>(() => v3 ? identityOrg(identity)
     : slugFromPath() ?? (desktop() ? (() => { try { return localStorage.getItem('orgtree-desktop-last-org') } catch { return null } })() : null))   // browser/v2 /o/<slug> survives refresh
   const [tree, setTree] = useState<TreePayload | null>(null)
+  // no organization, no tree read to wait for (bootgate.ts)
+  useEffect(() => { if (!slug) openBootGate() }, [slug])
   // point 34: the tree on screen, for the new-question primer (askprime.ts)
   const treeRef = useRef<TreePayload | null>(null)
   treeRef.current = tree
@@ -528,15 +541,15 @@ export default function App() {
   // able to add an upstream request; the server's warm loop is what keeps
   // that cache worth reading. usePolled also wakes on the livebus, so the
   // interval is only the floor.
-  const usagePeek = usePolled(BASE ? noUsagePeek : getUsagePeek, [], 60000)
-  const codexUsagePeek = usePolled(BASE ? noUsagePeek : getCodexUsagePeek, [], 60000)
+  const usagePeek = usePolled(BASE ? noUsagePeek : bootUsagePeek, [], 60000)
+  const codexUsagePeek = usePolled(BASE ? noUsagePeek : bootCodexUsagePeek, [], 60000)
   // the Antigravity standing is observed from turns (a wall + its reset),
   // never fetched — the same cache-only contract, so it may ride the glow
-  const agyUsagePeek = usePolled(BASE ? noUsagePeek : getAntigravityUsagePeek, [], 60000)
+  const agyUsagePeek = usePolled(BASE ? noUsagePeek : bootAntigravityUsagePeek, [], 60000)
   // OpenRouter: a prepaid credit balance, cache-only here too — see
   // openrouter_limits's module docstring for why a plain key never earns a
   // percentage without a spend cap, which is also why this lane rarely glows
-  const orrUsagePeek = usePolled(BASE ? noUsagePeek : getOpenRouterUsagePeek, [], 60000)
+  const orrUsagePeek = usePolled(BASE ? noUsagePeek : bootOpenRouterUsagePeek, [], 60000)
   const usageAlert = useMemo(
     () => usagePeak(usagePeek, codexUsagePeek, agyUsagePeek, orrUsagePeek),
     [usagePeek, codexUsagePeek, agyUsagePeek, orrUsagePeek])
@@ -544,7 +557,7 @@ export default function App() {
   // label. Polled rather than fetched once so installing a CLI mid-session is
   // picked up; unresolved is ALL_PRESENT, i.e. exactly today's wording.
   const provPresence = presenceOfPayload(
-    usePolled(BASE ? noProviders : getProviders, [], 60000))
+    usePolled(BASE ? noProviders : bootProviders, [], 60000))
   // mobile compact orgbar (D-125 ruling 2026-08-14, 'one row, banner→chip'):
   // the detail chips + resume banner collapse behind a ⋯ toggle
   const [barMore, setBarMore] = useState(false)
@@ -644,7 +657,7 @@ export default function App() {
     else { setShowInbox(true); setInboxJump(jumpTo(notificationInboxTarget(nativeTarget))); raisePinnedModal('inbox', slug) }
     setNativeTarget(null)
   }, [nativeTarget, tree, slug])
-  useEffect(() => { getHost().then((h) => setBuild(h.build)).catch(() => {}) }, [])
+  useEffect(() => { bootHost().then((h) => setBuild(h.build)).catch(() => {}) }, [])
   // The running APP version, shown beside the sidebar title (user 2026-09-10,
   // e.g. "2.0.0-alpha.8"). It comes from the desktop shell's own bridge —
   // packaging is what has a version, not the backend's git state — via the
@@ -836,8 +849,10 @@ export default function App() {
         settleFromTree(want, shown)
         setTreeRead({ at: Date.now(), error: null })
       }
+      openBootGate()
       fetchOk()
     }).catch((e: Error) => {
+      openBootGate()
       // a LATE failure for an organization we have left says nothing about
       // the one we are looking at now
       if (wantSlug.current === want) {
