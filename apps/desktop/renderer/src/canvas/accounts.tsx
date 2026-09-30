@@ -26,7 +26,7 @@ import {
   SetToggle,
 } from './settingskit'
 import type { SettingsTab } from './settingskit'
-import { OpenRouterSection } from './openrouter'
+import { OpenRouterHarnessSetting, OpenRouterSection } from './openrouter'
 import { ModalOverlapSettings, PinFrame } from './modalpin'
 import { CanvasAnchorSettings } from './canvasanchor'
 import {
@@ -704,6 +704,7 @@ export function AccountsPanel({ toast, close, initialTab }: {
         <SetToggle label="keep agent processes warm" checked={runtime?.warming_enabled !== false}
           disabled={!runtime || busy} onChange={v => changeRuntime(setWarmingEnabled, v)}
           hint="Keep supported harness processes ready between turns." />
+        <OpenRouterHarnessSetting toast={toast} />
       </SetGroup>
       <SetGroup title="Turns">
         <TurnLimitSetting runtime={runtime} busy={busy} onSave={limit => {

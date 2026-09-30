@@ -1,4 +1,6 @@
-// THE OPENROUTER HARNESS ROW — which CLI drives OpenRouter agents.
+// THE OPENROUTER HARNESS ROW — which CLI drives OpenRouter agents. Since
+// 2026-09-30 it is an ordinary App settings > Runtime row (label, <select>,
+// hint), and the Providers > OpenRouter card no longer carries it.
 //
 // The row has three shapes and they look similar on screen while meaning very
 // different things, which is exactly why each one is pinned here:
@@ -17,7 +19,7 @@
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { HarnessRow, OpenRouterSection } from '../src/canvas/openrouter'
+import { HarnessChoice, OpenRouterHarnessSetting, OpenRouterSection } from '../src/canvas/openrouter'
 import type { OpenRouterDoc, OpenRouterHarness, ProviderInfo } from '../src/types'
 
 const g = globalThis as unknown as Record<string, unknown>
@@ -68,24 +70,48 @@ const NEITHER: OpenRouterHarness = {
 
 async function mountRow(h: OpenRouterHarness, onPick: (id: string) => void = () => {}) {
   const view = await mountView(
-    <HarnessRow h={h} busy={false} onPick={onPick} />, (el) => el)
+    <HarnessChoice h={h} busy={false} onPick={onPick} />, (el) => el)
   await inAct(async () => { await flush(2) })
   return view
 }
 
-const radios = (view: { el: HTMLElement }): HTMLInputElement[] =>
-  [...view.el.querySelectorAll('input[type=radio]')] as HTMLInputElement[]
+const selectOf = (el: Element): HTMLSelectElement | null => el.querySelector('select')
+const options = (el: Element): HTMLOptionElement[] =>
+  [...el.querySelectorAll('option')] as HTMLOptionElement[]
+async function choose(sel: HTMLSelectElement, value: string) {
+  const w = (globalThis as unknown as { window: Window }).window as unknown as {
+    HTMLSelectElement: typeof HTMLSelectElement
+    Event: typeof Event
+  }
+  const setter = Object.getOwnPropertyDescriptor(w.HTMLSelectElement.prototype, 'value')?.set
+  assert.ok(setter, 'no value setter on HTMLSelectElement')
+  await inAct(async () => {
+    setter.call(sel, value)
+    sel.dispatchEvent(new w.Event('change', { bubbles: true }))
+    await flush(10)
+  })
+}
+
+test('§0 it is a Runtime-style setting row: label, select, dim hint', async () => {
+  const view = await mountRow(BOTH)
+  const row = view.el.querySelector('.set-row')
+  assert.ok(row, 'rendered as the shared SetRow')
+  assert.equal(row!.querySelector('.set-label')?.textContent, 'OpenRouter harness')
+  assert.ok(row!.querySelector('.set-control select'), 'the control is a select')
+  assert.ok(row!.querySelector('.set-hint'), 'the help line is the dim hint')
+  assert.equal(view.el.querySelectorAll('input[type=radio]').length, 0,
+    'the old pill radios are gone')
+})
 
 test('§1 both available: the control is a live choice and Claude Code is '
   + 'selected by default', async () => {
   const view = await mountRow(BOTH)
-  const rs = radios(view)
-  assert.equal(rs.length, 2, 'both harnesses are offered')
-  assert.ok(rs.every((r) => !r.disabled), 'the control is enabled')
-  const on = rs.filter((r) => r.checked)
-  assert.equal(on.length, 1)
-  assert.equal(on[0].value, 'claude-code', 'Claude Code is the default')
-  assert.match(view.el.textContent ?? '', /new agents only/,
+  const sel = selectOf(view.el)!
+  assert.equal(options(view.el).length, 2, 'both harnesses are offered')
+  assert.equal(sel.disabled, false, 'the control is enabled')
+  assert.ok(options(view.el).every((o) => !o.disabled))
+  assert.equal(sel.value, 'claude-code', 'Claude Code is the default')
+  assert.match(view.el.textContent ?? '', /New agents only/,
     'the row says the choice applies to new hires, not to anyone running')
 })
 
@@ -93,17 +119,16 @@ test('§1b both available: picking Codex reports that exact choice upward',
   async () => {
     const picked: string[] = []
     const view = await mountRow(BOTH, (id) => picked.push(id))
-    const codex = radios(view).find((r) => r.value === 'codex-cli')!
-    await inAct(async () => { codex.click() })
+    await choose(selectOf(view.el)!, 'codex-cli')
     assert.deepEqual(picked, ['codex-cli'])
   })
 
 test('§2 exactly one available (Codex missing): Claude Code is shown selected '
   + 'and the control is greyed out, with the reason', async () => {
   const view = await mountRow(ONLY_CLAUDE)
-  const rs = radios(view)
-  assert.ok(rs.every((r) => r.disabled), 'no meaningless choice is offered')
-  assert.equal(rs.find((r) => r.checked)?.value, 'claude-code')
+  const sel = selectOf(view.el)!
+  assert.equal(sel.disabled, true, 'no meaningless choice is offered')
+  assert.equal(sel.value, 'claude-code')
   const text = view.el.textContent ?? ''
   assert.match(text, /only harness available/)
   assert.ok(text.includes(CODEX_GONE.why),
@@ -113,29 +138,26 @@ test('§2 exactly one available (Codex missing): Claude Code is shown selected '
 test('§2b exactly one available (Claude missing): CODEX is shown selected — '
   + 'the singular-harness rule outranks the default', async () => {
   const view = await mountRow(ONLY_CODEX)
-  const rs = radios(view)
-  assert.ok(rs.every((r) => r.disabled))
-  assert.equal(rs.find((r) => r.checked)?.value, 'codex-cli',
+  const sel = selectOf(view.el)!
+  assert.equal(sel.disabled, true)
+  assert.equal(sel.value, 'codex-cli',
     'showing the unusable default selected would be a lie about the machine')
   assert.ok((view.el.textContent ?? '').includes(CLAUDE_GONE.why))
 })
 
-test('§2c a disabled option cannot be picked', async () => {
-  const picked: string[] = []
-  const view = await mountRow(ONLY_CLAUDE, (id) => picked.push(id))
-  const codex = radios(view).find((r) => r.value === 'codex-cli')!
-  assert.equal(codex.disabled, true)
-  await inAct(async () => { codex.click() })
-  assert.deepEqual(picked, [], 'an unavailable harness must not be selectable')
+test('§2c an unavailable option cannot be picked', async () => {
+  const view = await mountRow(ONLY_CLAUDE)
+  const codex = options(view.el).find((o) => o.value === 'codex-cli')!
+  assert.equal(codex.disabled, true, 'an unavailable harness must not be selectable')
+  assert.match(codex.textContent ?? '', /not available/)
 })
 
 test('§3 neither available: NO choice is offered, and both reasons are shown',
   async () => {
     const view = await mountRow(NEITHER)
-    assert.equal(radios(view).length, 0,
-      'every option here would be a false choice')
+    assert.equal(selectOf(view.el), null, 'every option here would be a false choice')
     const text = view.el.textContent ?? ''
-    assert.match(text, /no OpenRouter harness available/)
+    assert.match(text, /none available/)
     assert.ok(text.includes(CLAUDE_GONE.why))
     assert.ok(text.includes(CODEX_GONE.why))
   })
@@ -146,15 +168,14 @@ test('§4 a stored choice that is not currently available: the row shows what '
     // the stored preference is Codex; only Claude Code works right now
     const stale: OpenRouterHarness = { ...ONLY_CLAUDE, stored: 'codex-cli' }
     const view = await mountRow(stale)
-    assert.equal(radios(view).find((r) => r.checked)?.value, 'claude-code',
-      'the row reflects reality')
-    const text = view.el.textContent ?? ''
-    assert.match(text, /your saved choice is Codex CLI/)
+    assert.equal(selectOf(view.el)!.value, 'claude-code', 'the row reflects reality')
+    const text = (view.el.textContent ?? '').replace(/\s+/g, ' ')
+    assert.match(text, /Your saved choice is Codex CLI/)
     assert.match(text, /refuse rather than switch/,
       'the user must be told the launch refuses — it does NOT fall back')
   })
 
-// ── the row inside the real section, over a scripted backend ─────────────
+// ── the row and the card together, over a scripted backend ───────────────
 
 function stubFetch(seen: { method: string; path: string; body: unknown }[],
   harness: OpenRouterHarness) {
@@ -190,30 +211,39 @@ const PROVIDER: ProviderInfo = {
   hire_enabled: true, user_enabled: true, reason: null,
 }
 
-test('§5 in the real section: choosing Codex PUTs that harness, and the head '
-  + 'stops claiming the lane runs on Claude Code', async () => {
+test('§5 the Runtime row PUTs the chosen harness; the Providers card no longer '
+  + 'carries the choice, and its head follows the new harness', async () => {
   const seen: { method: string; path: string; body: unknown }[] = []
   stubFetch(seen, BOTH)
   const picker = { open: false }
   const view = await mountView(
-    <OpenRouterSection provider={PROVIDER} toast={() => {}}
-      pickerOpen={picker.open}
-      setPickerOpen={(o) => { picker.open = o }} />, (el) => el)
+    <>
+      <div className="providers">
+        <OpenRouterSection provider={PROVIDER} toast={() => {}}
+          pickerOpen={picker.open}
+          setPickerOpen={(o) => { picker.open = o }} />
+      </div>
+      <div className="runtime"><OpenRouterHarnessSetting toast={() => {}} /></div>
+    </>, (el) => el)
   await inAct(async () => { await flush(10) })
 
-  assert.match(view.el.textContent ?? '', /runs on Claude Code/,
+  const card = view.el.querySelector('.providers')!
+  const runtime = view.el.querySelector('.runtime')!
+  assert.equal(card.querySelectorAll('select, input[type=radio]').length, 0,
+    'no harness control left in the OpenRouter card')
+  assert.doesNotMatch(card.textContent ?? '', /new agents only/i)
+  assert.match(card.textContent ?? '', /runs on Claude Code/,
     'the head names the harness actually in use')
 
-  const codex = [...view.el.querySelectorAll('input[type=radio]')]
-    .find((r) => (r as HTMLInputElement).value === 'codex-cli') as HTMLInputElement
-  await inAct(async () => { codex.click(); await flush(10) })
+  await choose(selectOf(runtime)!, 'codex-cli')
 
   const put = seen.find((s) => s.path === '/api/openrouter/harness')
   assert.ok(put, 'the choice reached the backend')
   assert.equal(put!.method, 'PUT')
   assert.deepEqual(put!.body, { harness: 'codex-cli' })
-  assert.match(view.el.textContent ?? '', /runs on Codex CLI/,
-    'the head follows the new harness')
+  assert.equal(selectOf(runtime)!.value, 'codex-cli')
+  assert.match(card.textContent ?? '', /runs on Codex CLI/,
+    'the card head follows a harness picked in Runtime')
 })
 
 test('§6 an older backend that serves no harness block renders no row at all '
@@ -235,10 +265,13 @@ test('§6 an older backend that serves no harness block renders no row at all '
     })
   const picker = { open: false }
   const view = await mountView(
-    <OpenRouterSection provider={PROVIDER} toast={() => {}}
-      pickerOpen={picker.open}
-      setPickerOpen={(o) => { picker.open = o }} />, (el) => el)
+    <>
+      <OpenRouterSection provider={PROVIDER} toast={() => {}}
+        pickerOpen={picker.open}
+        setPickerOpen={(o) => { picker.open = o }} />
+      <OpenRouterHarnessSetting toast={() => {}} />
+    </>, (el) => el)
   await inAct(async () => { await flush(10) })
-  assert.equal(view.el.querySelectorAll('.orr-harness').length, 0)
-  assert.doesNotMatch(view.el.textContent ?? '', /runs on/)
+  assert.equal(view.el.querySelectorAll('select').length, 0)
+  assert.doesNotMatch(view.el.textContent ?? '', /runs on|OpenRouter harness/)
 })
