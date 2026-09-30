@@ -57,7 +57,7 @@ import { projectEvent } from '../events/project'
 import { eventSurface } from '../events/card'
 import { BASE } from '../api'
 import {
-  attentionNodes, buildAttentionRows, isRetained, nextSelection, retainSelected,
+  attentionNodes, buildAttentionRows, isRetained, retainSelected,
 } from './feed'
 import type { AttentionRow } from './feed'
 
@@ -193,17 +193,6 @@ export function AttentionQueue({
   const rows = retainSelected(live, shown.current, selected)
   shown.current = rows
 
-  // A selected row that resolved (dismissed, answered — or a mail that was
-  // read and then deselected) takes the selection to its neighbour rather
-  // than leaving the pane empty.
-  const previous = useRef<AttentionRow[]>([])
-  useEffect(() => {
-    if (selected && !rows.some((r) => r.key === selected)) {
-      setSelected(nextSelection(previous.current, selected))
-    }
-    previous.current = rows
-  })
-
   const refs = useRefRoutes(slug, nodeMap, {
     onOpenItem, onFocusAgent, onOpenDoc,
     // ⚠ CONDITIONAL, because `useRefRoutes` reads the PRESENCE of this handler
@@ -266,6 +255,13 @@ export function AttentionQueue({
     // retained row must not post a second read for the same message
     if ((box?.pending ?? []).some((p) => p.id === row.mail!.id)) setToRead(row.mail)
   }
+  // New rows fill an empty reading pane, but never replace a live selection.
+  // Use the same read/retention path as a click, without moving focus or scroll.
+  useEffect(() => {
+    if (selected && rows.some((r) => r.key === selected)) return
+    if (rows[0]) openRow(rows[0])
+    else if (selected !== null) setSelected(null)
+  })
 
   // ---- keyboard: the list is a real listbox, so selection is reachable
   const listRef = useRef<HTMLDivElement>(null)

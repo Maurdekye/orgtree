@@ -162,6 +162,92 @@ const repoll = async () => {
   })
 }
 
+const selectedKey = (el: HTMLElement) =>
+  el.querySelector('[data-attn-row][aria-selected="true"]')?.getAttribute('data-attn-row') ?? null
+
+for (const kind of ['ticket', 'question', 'mail'] as const) {
+  test(`auto-selection opens an initial ${kind} entry through its existing detail and read path`, async () => {
+    localStorage.clear()
+    installServer({ items: kind === 'ticket' ? [flagged] : [], pending: kind === 'mail' ? [urgent] : [] })
+    const v = await mountView(panel(tree(kind === 'question' ? { ask: openAsk } : {})), titles)
+    try {
+      await settle()
+      assert.equal(selectedKey(v.el), kind === 'ticket' ? 'ticket:cutover' : kind === 'mail' ? 'mail:m1' : 'question:a1')
+      assert.ok(v.el.querySelector(`[data-attn-detail="${kind}"]`), 'the actual detail is displayed')
+      if (kind === 'mail') {
+        assert.equal(server.posts.filter(p => /\/inbox\/read$/.test(p.path)).length, 1)
+        server.pending = []
+        await repoll()
+        assert.equal(selectedKey(v.el), 'mail:m1', 'auto-read mail retains its selection')
+      }
+    } finally { await v.unmount() }
+  })
+}
+
+test('arrival in an empty queue selects its top row without moving composer focus or scroll', async () => {
+  localStorage.clear()
+  installServer()
+  const v = await mountView(<><textarea aria-label="Agent message" />{panel()}</>, titles)
+  const oldScroll = window.HTMLElement.prototype.scrollIntoView
+  let scrolled = 0
+  window.HTMLElement.prototype.scrollIntoView = () => { scrolled++ }
+  try {
+    await settle()
+    const composer = v.el.querySelector('textarea')!
+    composer.focus()
+    const list = v.el.querySelector<HTMLElement>('.attn-mlist')!
+    const detail = v.el.querySelector<HTMLElement>('.attn-mread')!
+    list.scrollTop = 87; detail.scrollTop = 123; v.el.scrollTop = 45
+    server.items = [flagged, { ...flagged, slug: 'newest', title: 'Newest', updated_at: '2026-09-30T12:00:00Z',
+      manual_attention: { ...flagged.manual_attention!, at: '2026-09-30T12:00:00Z' } }]
+    await repoll()
+    assert.equal(selectedKey(v.el), 'ticket:newest')
+    assert.equal(selectedKey(v.el), v.el.querySelector('[data-attn-row]')?.getAttribute('data-attn-row'))
+    assert.equal(document.activeElement, composer)
+    assert.equal(list.scrollTop, 87); assert.equal(detail.scrollTop, 123); assert.equal(v.el.scrollTop, 45)
+    assert.equal(scrolled, 0)
+  } finally { window.HTMLElement.prototype.scrollIntoView = oldScroll; await v.unmount() }
+})
+
+test('a newly arrived entry never replaces the reader\'s selected entry', async () => {
+  localStorage.clear()
+  installServer({ items: [flagged, { ...flagged, slug: 'other', title: 'Other' }] })
+  const v = await mountView(panel(), titles)
+  try {
+    await settle()
+    await inAct(() => rowEl(v.el, 'ticket:other')!.click())
+    server.items.push({ ...flagged, slug: 'new', title: 'New',
+      manual_attention: { ...flagged.manual_attention!, at: '2026-09-30T12:00:00Z' } })
+    await repoll()
+    assert.equal(selectedKey(v.el), 'ticket:other')
+  } finally { await v.unmount() }
+})
+
+test('when a selected entry resolves the top remaining entry opens, and later arrivals fill an empty queue', async () => {
+  localStorage.clear()
+  installServer({ items: [flagged, { ...flagged, slug: 'middle', title: 'Middle' },
+    { ...flagged, slug: 'last', title: 'Last' }] })
+  const v = await mountView(panel(), titles)
+  try {
+    await settle()
+    const initial = [...v.el.querySelectorAll('[data-attn-row]')].map(e => e.getAttribute('data-attn-row'))
+    await inAct(() => rowEl(v.el, initial[1]!)!.click())
+    server.items = server.items.filter(i => 'ticket:' + i.slug !== initial[1])
+    await repoll()
+    assert.equal(selectedKey(v.el), initial[0], 'select top, not the removed row\'s following neighbour')
+    server.items = []
+    await repoll()
+    assert.equal(selectedKey(v.el), null)
+    await v.render(panel(tree({ ask: openAsk })))
+    await settle()
+    assert.equal(selectedKey(v.el), 'question:a1')
+    await v.render(panel())
+    server.items = [flagged]
+    await repoll()
+    assert.equal(selectedKey(v.el), 'ticket:cutover', 'answered question releases selection too')
+  } finally { await v.unmount() }
+})
+
 // ------------------------------------------------------------------- §1
 test('§1 the three flavours render as one mixed list, newest first', async () => {
   localStorage.clear()
@@ -201,7 +287,7 @@ test('§1.1 with nothing waiting, the list says so rather than looking broken', 
 // ------------------------------------------------------------------- §2
 test('§2 dismissing a ticket goes through the docket\'s own endpoint, and the row leaves', async () => {
   localStorage.clear()
-  installServer({ items: [flagged], pending: [urgent] })
+  installServer({ items: [{ ...flagged, manual_attention: { ...flagged.manual_attention!, at: NOW } }], pending: [urgent] })
   const v = await mountView(panel(), titles)
   await settle()
 
@@ -348,10 +434,8 @@ test('§4 the list is a real listbox the keyboard can drive', async () => {
   const key = (k: string) => inAct(() => {
     list.dispatchEvent(new window.KeyboardEvent('keydown', { key: k, bubbles: true }))
   })
-  await key('ArrowDown')
-  await settle()
   assert.equal(rowFor(v.el, 'mail:m1')!.getAttribute('aria-selected'), 'true',
-    'ArrowDown into an unselected list takes the first row')
+    'the first row is selected automatically')
   await key('ArrowDown')
   await settle()
   assert.equal(rowFor(v.el, 'ticket:cutover')!.getAttribute('aria-selected'), 'true')

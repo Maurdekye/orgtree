@@ -162,10 +162,11 @@ for (const [notice, key, kind] of [
 for (const [target, panel] of [[3, 'inbox'], [4, 'docket']] as const) {
   test(`Attention keeps the existing ${panel} modal for an unlisted notification target`, async (t) => {
     const { el, click } = await setup(t)
+    const before = el.querySelector('[data-attn-row][aria-selected="true"]')?.getAttribute('data-attn-row')
     await click(notices[target]!)
     assert.equal(!!el.querySelector('.settings.wide'), true)
     assert.equal(!!el.querySelector('.settings.wide.docket-modal'), panel === 'docket')
-    assert.equal(!!el.querySelector('[data-attn-row][aria-selected="true"]'), false)
+    assert.equal(el.querySelector('[data-attn-row][aria-selected="true"]')?.getAttribute('data-attn-row'), before)
   })
 }
 
@@ -177,9 +178,10 @@ test('Canvas fallback remains active while a pinned Attention queue is still mou
   })
   assert.equal(el.querySelectorAll('[data-attn-row]').length, 3, 'the pinned queue still owns a handler')
   assert.equal(el.querySelector('[data-attention-active]')?.getAttribute('data-attention-active'), 'no')
+  const before = el.querySelector('[data-attn-row][aria-selected="true"]')?.getAttribute('data-attn-row')
   await click(notices[0]!)
   assert.equal(!!el.querySelector('.settings.wide.docket-modal'), true)
-  assert.equal(!!el.querySelector('[data-attn-row][aria-selected="true"]'), false)
+  assert.equal(el.querySelector('[data-attn-row][aria-selected="true"]')?.getAttribute('data-attn-row'), before)
 })
 
 for (const [target, panel] of [[0, 'docket'], [1, 'inbox'], [2, 'inbox']] as const) {
