@@ -240,8 +240,15 @@ interface Entry {
    * The viewport path (fillViewport -> loadOlder(n, viewport)) does not make
    * its own request: it widens `win` and forces a refresh, so that refresh's
    * outcome is the page's outcome, and it is the only place that can report
-   * one (desk-review, third pass). */
-  growingOlder?: boolean
+   * one (desk-review, third pass).
+   *
+   * It holds the WINDOW that growth asked for, and only a refresh requested
+   * with at least that window may answer it. An ordinary poll already in
+   * flight was asked with the old window: it settles first on a busy machine,
+   * carries no older rows, and was taken as the growth's empty answer, so
+   * every desk showed "couldn't load earlier messages" (docket
+   * v3-loading-earlier-agent-messages-fails-couldn-t). */
+  growingOlder?: number
   /** canonical map key owning this Entry; callbacks verify it before
    * publishing after a rename or removal. */
   ownerKey: string
@@ -362,7 +369,7 @@ function removeInactive(e: Entry): void {
 
 function protectedConvo(e: Entry): boolean {
   return Boolean(e.subs.size || e.requests || e.inflight || e.pageInFlight
-    || e.pendingCollapse || e.growingOlder || e.s.loadingOlder
+    || e.pendingCollapse || e.growingOlder !== undefined || e.s.loadingOlder
     || e.s.pending.length || e.s.draft || e.s.thinking || e.thinkT0
     || e.live || e.liveRaf !== null || e.liveTimer
     || e.assistantRows.size || e.committedRows.size
@@ -805,7 +812,19 @@ export function refreshConvo(slug: string, nid: string,
   // Issuing another fetch cannot invalidate a usable response: a busy stream
   // can issue faster than the backend answers, starving the view forever.
   const stillFreshest = (): boolean => ownsRequest() && requestSerial >= e.installed
-  return getChat(slug, nid, e.s.win).then(async (c) => {
+  const askedWin = e.s.win
+  // Is this response the answer to a pending viewport growth? Only if it was
+  // asked with the grown window (see Entry.growingOlder). Consumed on use.
+  const takeGrowth = (): boolean => {
+    // the window shrank under the growth (collapse, last view closed): no
+    // response can answer it any more, and a flag left standing would hold
+    // `loadingOlder` true and refuse every later page
+    if (e.growingOlder !== undefined && e.s.win < e.growingOlder) e.growingOlder = undefined
+    if (e.growingOlder === undefined || askedWin < e.growingOlder) return false
+    e.growingOlder = undefined
+    return true
+  }
+  return getChat(slug, nid, askedWin).then(async (c) => {
     if (!ownsRequest()) return
     if (!stillFreshest()) return
     const changedAssistantScope = !!c.assistant_scope && !!e.s.chat?.assistant_scope
@@ -1051,8 +1070,7 @@ export function refreshConvo(slug: string, nid: string,
     // LiveRow.text is not — a cast would silently re-open the type hole the
     // typing wave closed
     const live: LiveRow[] = (c.live ?? []).map((r) => ({ ...r, text: r.text ?? '' }))
-    const grew = e.growingOlder
-    e.growingOlder = false
+    const grew = takeGrowth()
     const stalledGrowth = grew && !changedConversation && !!c.has_older && !!e.s.chat
       && !olderPageProgress(e.s.chat, c)
     if (stalledGrowth) {
@@ -1062,11 +1080,11 @@ export function refreshConvo(slug: string, nid: string,
       // An empty malformed page must not erase the last usable transcript.
       if (!c.messages.length) c = { ...c, messages: e.s.chat!.messages }
     }
-    patchEntry(e, { chat: c, paged: changedConversation ? false : e.s.paged, loaded: true, loadingOlder: Boolean(e.pageInFlight), pending, live, ...retire, ...(grew ? { olderError: stalledGrowth } : {}) }, ownerVersion)
+    patchEntry(e, { chat: c, paged: changedConversation ? false : e.s.paged, loaded: true, loadingOlder: Boolean(e.pageInFlight || e.growingOlder !== undefined), pending, live, ...retire, ...(grew ? { olderError: stalledGrowth } : {}) }, ownerVersion)
     // the grow-path settle: a leave-history recorded while this (viewport
     // window growth) refresh was the in-flight work runs now, once no page
     // request remains to own it
-    if (e.pendingCollapse && !e.pageInFlight) { e.pendingCollapse = false; collapseWindow(slug, nid) }
+    if (e.pendingCollapse && !e.pageInFlight && e.growingOlder === undefined) { e.pendingCollapse = false; collapseWindow(slug, nid) }
   }).catch(() => {
     if (!stillFreshest()) return
     // …and if this refresh WAS the older-rows request (the viewport path
@@ -1076,10 +1094,9 @@ export function refreshConvo(slug: string, nid: string,
     // pass). It differs from the cursor path in one way worth keeping in
     // mind: fillViewport re-asks on the next render, so this is an honest
     // indication that also self-heals, not the only way back.
-    const grew = e.growingOlder
-    e.growingOlder = false
-    patchEntry(e, { loadingOlder: Boolean(e.pageInFlight), ...(grew ? { olderError: true } : {}) }, ownerVersion)
-    if (e.pendingCollapse && !e.pageInFlight) { e.pendingCollapse = false; collapseWindow(slug, nid) }
+    const grew = takeGrowth()
+    patchEntry(e, { loadingOlder: Boolean(e.pageInFlight || e.growingOlder !== undefined), ...(grew ? { olderError: true } : {}) }, ownerVersion)
+    if (e.pendingCollapse && !e.pageInFlight && e.growingOlder === undefined) { e.pendingCollapse = false; collapseWindow(slug, nid) }
   }).finally(() => {
     if (ownsRequest() && e.requestSerial === requestSerial) e.inflight = false
     e.requests--
@@ -1214,8 +1231,9 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
   // the VIEWPORT path: no request of its own — widen the window and let the
   // forced refresh carry it. Mark it so that refresh's outcome is reported as
   // this page's outcome.
-  e.growingOlder = true
-  patch(k, { loadingOlder: true, olderError: false, win: Math.min(MAX_WINDOW, e.s.win + Math.max(1, Math.ceil(rows))) })
+  const grown = Math.min(MAX_WINDOW, e.s.win + Math.max(1, Math.ceil(rows)))
+  e.growingOlder = grown
+  patch(k, { loadingOlder: true, olderError: false, win: grown })
   void refreshConvo(slug, nid, { force: true })
   return true
 }
