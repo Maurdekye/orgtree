@@ -11,6 +11,11 @@
 //      sits exactly where a tree with the move in it would put it
 //   §3 a refused op sends the card back to its old place
 //   §4 the toast's Undo is shown at once too
+//   §5 once the op succeeded, a tree that agrees ends the override, so a
+//      later tree that moves the card elsewhere wins at once
+//   §6 the first move's fallback timer cannot end the Undo's override
+//   §7 an old tree read that happens to agree with a pending Undo does not
+//      end it early (the card would flash back to the undone parent)
 //
 // Under jsdom every box is 0×0, so the viewport's rect sits at (0,0) and a
 // client point is world·z + view offset — read off `.space`'s transform.
@@ -61,6 +66,7 @@ function tree(roots: unknown[]): TreePayload {
 //       └─ b
 const before = () => tree([mkNode('boss', [mkNode('a', [mkNode('x', [mkNode('xk')])]), mkNode('b')])])
 const after = () => tree([mkNode('boss', [mkNode('a'), mkNode('b', [mkNode('x', [mkNode('xk')])])])])
+const elsewhere = () => tree([mkNode('boss', [mkNode('a'), mkNode('b'), mkNode('x', [mkNode('xk')])])])
 
 // ------------------------------------------------------------ §1 transform
 test('§1 withPendingMoves moves the whole subtree and leaves other branches alone', () => {
@@ -128,17 +134,19 @@ async function mountCanvas(t: TestContext, payload: TreePayload,
   t.after(() => { (globalThis as { fetch?: typeof fetch }).fetch = had })
   const ops: OpRequest[] = []
   const notices: { lines: string[]; undo?: () => unknown }[] = []
-  const v = await mountView(
-    <OrgCanvas tree={payload} slug="mine"
+  const view = (tree: TreePayload) => (
+    <OrgCanvas tree={tree} slug="mine"
       op={(b) => { ops.push(b); return run(b) as never }}
       toast={(lines, undo) => {
         if (lines) notices.push({ lines, undo: typeof undo === 'function' ? undo : undefined })
       }}
-      mailEvt={null} />,
-    (h) => h)
+      mailEvt={null} />)
+  const v = await mountView(view(payload), (h) => h)
   t.after(() => v.unmount())
   await flush(); await advance(3000, 50); await flush()
-  return { el: v.el, ops, notices, v }
+  /** a tree read landing: the same canvas, re-rendered with `tree` */
+  const show = async (tree: TreePayload) => { await v.render(view(tree)); await flush(2) }
+  return { el: v.el, ops, notices, v, show }
 }
 
 /** a real card drag: press on `id`, move onto `onto`, release */
@@ -203,4 +211,49 @@ test('§4 the toast Undo is shown at once as well', async (t) => {
   assert.deepEqual(m.ops.at(-1), { op: 'move', node: 'x', new_parent: 'a' })
   await advance(3000, 50)
   assertAt(at(m.el, 'x'), was, 'undo shows x back under a before the op answers')
+})
+
+/** drop x on b with the demote answering at once and every Undo left hanging */
+async function movedThenAnswered(t: TestContext) {
+  const m = await mountCanvas(t, before(),
+    (b) => b.op === 'move' ? new Promise(() => {}) : Promise.resolve({}))
+  await drag(m.el, 'x', 'b')
+  await advance(200, 50)
+  return m
+}
+const undo = async (m: Awaited<ReturnType<typeof movedThenAnswered>>) => {
+  const n = m.notices.find((x) => x.lines[0] === 'x now reports to b')
+  assert.ok(n?.undo, `the move toast carries an undo: ${JSON.stringify(m.notices)}`)
+  await inAct(() => { void n!.undo!() })
+}
+
+test('§5 after success, the agreeing tree ends the override; a later tree wins', async (t) => {
+  useFakeClock(); t.after(realClock)
+  const there = await settledAt(t, elsewhere(), 'x')
+  const m = await movedThenAnswered(t)
+  await m.show(after())              // the read after the move: agrees
+  await m.show(elsewhere())          // somebody moved x again, well inside 5 s
+  await advance(1000, 50)
+  assertAt(at(m.el, 'x'), there, 'x follows the newer tree, not the finished move')
+})
+
+test("§6 the first move's timer cannot end the Undo's override", async (t) => {
+  useFakeClock(); t.after(realClock)
+  const was = await settledAt(t, before(), 'x')
+  const m = await movedThenAnswered(t)
+  await undo(m)                      // the Undo's op never answers
+  await m.show(after())              // the first move has landed
+  await advance(6000, 50)            // past the first move's 5 s fallback
+  assertAt(at(m.el, 'x'), was, 'x stays under a while the Undo is in flight')
+})
+
+test('§7 an old read agreeing with a pending Undo does not end it', async (t) => {
+  useFakeClock(); t.after(realClock)
+  const was = await settledAt(t, before(), 'x')
+  const m = await movedThenAnswered(t)
+  await undo(m)
+  await m.show(before())             // a read taken before the move landed
+  await m.show(after())              // then the read showing the move itself
+  await advance(1000, 50)
+  assertAt(at(m.el, 'x'), was, 'no flash back to b before the Undo lands')
 })

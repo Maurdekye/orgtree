@@ -391,6 +391,8 @@ function AgentNavHost({ map, op, slug, toast, goTo, build }: {
 /** How long a CONFIRMED hand move may keep overriding the tree while the
  *  read that carries it is still on its way. */
 const PENDING_MOVE_MS = 5000
+/** one shown-but-unconfirmed hand move; `settled` once its op succeeded */
+type PendingMove = { to: string | null; settled: boolean }
 
 export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettings, onWorkItem,
   onAccounts, focusAgent, onFocusAgentHandled, openMailAt,
@@ -642,28 +644,45 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     return { ...n, children: [...before, ...arch, ...after] }
   }
   // hand re-parents shown before the server confirms them (see PendingMoves).
-  // An entry leaves when the tree agrees, when the op is refused (the card
-  // glides back), or — after the op succeeded — once a few seconds pass, so a
-  // move some later change overrode can never pin a stale layout.
-  const [pendingMoves, setPendingMoves] = useState<ReadonlyMap<string, string | null>>(() => new Map())
+  // An entry leaves when the op is refused (the card glides back), or once the
+  // op has SUCCEEDED and either the tree agrees or a few seconds pass — so a
+  // move some later change overrode can never pin a stale layout. Before the
+  // op answers, a tree that happens to agree clears nothing: it can be a read
+  // taken before an earlier move landed (review-astra n2 — after Undo, that
+  // read agreed with the Undo, cleared it, and the next read flashed the card
+  // back to the undone parent). Entries are compared by identity, so a
+  // replaced entry (the Undo's) is never cleared on behalf of the old one.
+  const [pendingMoves, setPendingMoves] = useState<ReadonlyMap<string, PendingMove>>(() => new Map())
   useEffect(() => { setPendingMoves(new Map()) }, [slug])
-  const dropPendingMove = useCallback((id: string, parent: string | null) => {
+  const treeRef = useRef(tree); treeRef.current = tree
+  const dropPendingMove = useCallback((id: string, entry: PendingMove) => {
     setPendingMoves((m) => {
-      if (!m.has(id) || m.get(id) !== parent) return m
+      if (m.get(id) !== entry) return m
       const next = new Map(m); next.delete(id); return next
     })
   }, [])
+  const settlePendingMove = useCallback((id: string, entry: PendingMove) => {
+    if (treeParents(treeRef.current).get(id) === entry.to) { dropPendingMove(id, entry); return }
+    setPendingMoves((m) => {
+      if (m.get(id) !== entry) return m
+      return new Map(m).set(id, Object.assign(entry, { settled: true }))
+    })
+    setTimeout(() => dropPendingMove(id, entry), PENDING_MOVE_MS)
+  }, [dropPendingMove])
   useEffect(() => {
     if (!pendingMoves.size) return
     const real = treeParents(tree)
-    const done = [...pendingMoves].filter(([id, p]) => !real.has(id) || real.get(id) === p)
+    const done = [...pendingMoves].filter(([id, e]) =>
+      e.settled && (!real.has(id) || real.get(id) === e.to))
     if (done.length) setPendingMoves((m) => {
       const next = new Map(m)
-      for (const [id, p] of done) if (next.get(id) === p) next.delete(id)
+      for (const [id, e] of done) if (next.get(id) === e) next.delete(id)
       return next
     })
   }, [tree])   // eslint-disable-line react-hooks/exhaustive-deps
-  const shownTree = useMemo(() => withPendingMoves(tree, pendingMoves), [tree, pendingMoves])
+  const pendingTargets = useMemo(
+    () => new Map([...pendingMoves].map(([id, e]) => [id, e.to] as const)), [pendingMoves])
+  const shownTree = useMemo(() => withPendingMoves(tree, pendingTargets), [tree, pendingTargets])
   const vrootFull = useMemo(() => canonPiles(withDraftTree(shownTree, draft)),
     [shownTree, draft])   // eslint-disable-line react-hooks/exhaustive-deps
   // hide-retired (user resumed 2026-09-10 13:25): a DISPLAY prune of the
@@ -2629,10 +2648,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       // shown at once; the op and the tree read after it confirm it later,
       // and a refusal (already toasted by `op`) sends the card back
       const moveShown = (b: Parameters<OpFn>[0], to: string | null) => {
-        setPendingMoves((m) => new Map(m).set(id, to))
+        const entry: PendingMove = { to, settled: false }
+        setPendingMoves((m) => new Map(m).set(id, entry))
         return op(b).then(
-          () => { setTimeout(() => dropPendingMove(id, to), PENDING_MOVE_MS) },
-          (e: unknown) => { dropPendingMove(id, to); throw e })
+          () => { settlePendingMove(id, entry) },
+          (e: unknown) => { dropPendingMove(id, entry); throw e })
       }
       // №17: a re-parent is one mis-drag away — the toast carries the reverse
       moveShown(body, drop === USER ? null : drop).then(() => toast(
