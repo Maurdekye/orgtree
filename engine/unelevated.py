@@ -39,6 +39,7 @@ subprocess.Popen is used.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -154,8 +155,8 @@ class UnelevatedSpawnError(OSError):
     """The restricted token or the process could not be created."""
 
 
-def _raise(what: str) -> None:
-    code = ctypes.get_last_error()
+def _raise(what: str, code: "int | None" = None) -> None:
+    code = ctypes.get_last_error() if code is None else code
     raise UnelevatedSpawnError(code, f"{what}: {ctypes.FormatError(code).strip()} (Windows error {code})")
 
 
@@ -239,13 +240,15 @@ def restricted_medium_token() -> Any:
     sids: list[ctypes.c_void_p] = []
     new = wintypes.HANDLE()
     try:
+        # Read before the restricted token exists, so a failure here has no
+        # new handle to leak.
+        user = _user_sid_string(own)
         # BUILTIN\Administrators and BUILTIN\Power Users, made deny-only.
         sids = [_string_sid("S-1-5-32-544"), _string_sid("S-1-5-32-547")]
         deny = (SID_AND_ATTRIBUTES * len(sids))(*[SID_AND_ATTRIBUTES(s.value, 0) for s in sids])
         if not _CreateRestrictedToken(own, DISABLE_MAX_PRIVILEGE, len(sids), deny,
                                       0, None, 0, None, ctypes.byref(new)):
             _raise("could not create a restricted token")
-        user = _user_sid_string(own)
     finally:
         for s in sids:
             _LocalFree(s)
@@ -285,6 +288,14 @@ def _environment_block(env: Any) -> "ctypes.Array[ctypes.c_wchar] | None":
         return None
     # Sorted case-insensitively, as CreateProcess expects and _winapi does.
     items = sorted(((str(k), str(v)) for k, v in env.items()), key=lambda kv: kv[0].upper())
+    for key, value in items:
+        # The same refusals as _winapi.CreateProcess: a name may start with
+        # "=" (drive-letter entries) but not contain one, and nothing may
+        # carry a NUL, which would end the block early.
+        if not key or "=" in key[1:]:
+            raise ValueError(f"illegal environment variable name: {key!r}")
+        if "\0" in key or "\0" in value:
+            raise ValueError("embedded null character in the environment")
     text = "".join(f"{k}={v}\0" for k, v in items) + "\0"
     return ctypes.create_unicode_buffer(text, len(text))
 
@@ -314,8 +325,9 @@ def _create_process_as_user(token: Any):  # noqa: ANN202 - mirrors _winapi.Creat
                     _raise("could not build the inherited-handle list")
                 if not _UpdateProcThreadAttribute(attr_buf, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
                                                   handles, ctypes.sizeof(handles), None, None):
+                    code = ctypes.get_last_error()
                     _DeleteProcThreadAttributeList(attr_buf)
-                    _raise("could not set the inherited-handle list")
+                    _raise("could not set the inherited-handle list", code)
                 si.lpAttributeList = ctypes.cast(attr_buf, ctypes.c_void_p)
                 flags |= EXTENDED_STARTUPINFO_PRESENT
         block = _environment_block(env_mapping)
@@ -332,6 +344,95 @@ def _create_process_as_user(token: Any):  # noqa: ANN202 - mirrors _winapi.Creat
                 _DeleteProcThreadAttributeList(attr_buf)
         return int(pi.hProcess), int(pi.hThread), int(pi.dwProcessId), int(pi.dwThreadId)
     return create
+
+
+# Run by the elevated host, once per start, BEFORE it drops its rights. Reads
+# a JSON list of folders on stdin; for each folder whose DACL is PROTECTED
+# (inherits nothing) and gives the token user no way in — no entry naming the
+# user, and not owned by the user under an OWNER RIGHTS entry — it adds one
+# inheritable FullControl entry for the user. Only the DACL is written, so the
+# owner is left as it is. Prints the repaired folders as a JSON list.
+_REPAIR_SCRIPT = r"""
+$ErrorActionPreference = 'Stop'
+$user = [Security.Principal.WindowsIdentity]::GetCurrent().User
+$repaired = @()
+# Assigned first: Windows PowerShell's ConvertFrom-Json passes a JSON array
+# down the pipeline as ONE object, so @(... | ConvertFrom-Json) would loop
+# once over the whole list.
+$paths = [Console]::In.ReadToEnd() | ConvertFrom-Json
+foreach ($path in $paths) {
+  try {
+    $dir = Get-Item -LiteralPath $path -Force
+    $acl = $dir.GetAccessControl('Access')
+    if (-not $acl.AreAccessRulesProtected) { continue }
+    $rules = @($acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]) |
+      Where-Object { $_.AccessControlType -eq 'Allow' })
+    if ($rules | Where-Object { $_.IdentityReference.Value -eq $user.Value }) { continue }
+    $owner = (Get-Acl -LiteralPath $path).GetOwner([Security.Principal.SecurityIdentifier]).Value
+    if ($owner -eq $user.Value -and ($rules | Where-Object { $_.IdentityReference.Value -eq 'S-1-3-4' })) { continue }
+    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+      $user, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
+    $dir.SetAccessControl($acl)
+    $repaired += $path
+  } catch {
+    [Console]::Error.WriteLine("could not repair ${path}: $($_.Exception.Message)")
+  }
+}
+ConvertTo-Json -InputObject @($repaired) -Compress
+"""
+
+
+def user_access_candidates(root: "os.PathLike[str] | str") -> list[str]:
+    """The folders an earlier ELEVATED engine may have left unreadable.
+
+    Python's Windows mkdir(mode=0o700) — mkdtemp, and managed profiles before
+    they named the user explicitly — gives a folder a protected DACL of
+    SYSTEM, Administrators and OWNER RIGHTS. Created under an elevated token
+    whose default owner is Administrators, that folder has no entry the
+    normal-user engine matches (measured 2026-09-30 on a live data root: one
+    profile folder, from 2026-09-10). Those folders live at the top of the
+    data root and under profiles/, so this is the root, its direct folders and
+    the profile folders — never a walk of the whole tree. Links and junctions
+    are not followed.
+    """
+    base = os.fspath(root)
+    found = [base]
+    for parent in (base, os.path.join(base, "profiles")):
+        try:
+            entries = list(os.scandir(parent))
+        except OSError:
+            continue
+        for entry in entries:
+            try:
+                if entry.is_dir(follow_symlinks=False) and not os.path.isjunction(entry.path):
+                    found.append(entry.path)
+            except OSError:
+                continue
+    return list(dict.fromkeys(found))
+
+
+def repair_user_access(root: "os.PathLike[str] | str") -> list[str]:
+    """Give the token user back its access to user_access_candidates(root).
+
+    For an elevated host only, before it starts the engine without its rights.
+    Returns the folders it changed. A folder it cannot repair is reported on
+    stderr and skipped; the engine then reports that folder itself.
+    """
+    if not IS_WINDOWS:
+        return []
+    candidates = user_access_candidates(root)
+    powershell = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"),
+                              "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+    result = subprocess.run(
+        [powershell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", _REPAIR_SCRIPT],
+        input=json.dumps(candidates), capture_output=True, text=True, timeout=120,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    if result.stderr.strip():
+        print(f"service host: {result.stderr.strip()}", file=sys.stderr, flush=True)
+    if result.returncode != 0:
+        raise OSError(f"the access repair failed (exit code {result.returncode})")
+    repaired = json.loads(result.stdout or "[]")
+    return [str(p) for p in (repaired if isinstance(repaired, list) else [repaired])]
 
 
 def popen_unelevated(args: Any, **kwargs: Any) -> "subprocess.Popen[Any]":

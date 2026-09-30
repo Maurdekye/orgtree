@@ -19,6 +19,7 @@ import threading
 import time
 import unittest
 from unittest import mock
+import uuid
 from unittest.mock import patch
 import urllib.error
 import urllib.request
@@ -32,6 +33,26 @@ from engine.service_host import (DESCRIPTOR, clear_stale_descriptor, parse_ready
                                  resolve_data_root, resolve_ui_dir, write_descriptor)
 
 READY = {"type": "ready", "protocol": 1, "port": 12345, "pid": 77, "dataRootId": ""}
+
+
+class user_accessible_temp:
+    """A throwaway folder the engine can use when this test runs ELEVATED.
+
+    An elevated service_host starts the engine as the normal user
+    (engine/unelevated.py). tempfile's folders are mkdir(mode=0o700), which on
+    Windows is a protected DACL of SYSTEM, Administrators and OWNER RIGHTS;
+    under a token whose default owner is Administrators that engine has no
+    access at all (review-astra, measured in a boot-task shell). A plain
+    mkdir inherits %TEMP%'s entry for the user instead.
+    """
+
+    def __enter__(self) -> str:
+        self.path = Path(tempfile.gettempdir()) / f"orgtree-host-{uuid.uuid4().hex}"
+        self.path.mkdir()
+        return str(self.path)
+
+    def __exit__(self, *_exc) -> None:
+        shutil.rmtree(self.path, ignore_errors=True)
 
 
 class ServiceHostUnitTests(unittest.TestCase):
@@ -527,7 +548,7 @@ class ServiceHostIntegrationTests(unittest.TestCase):
 
     def test_descriptor_identity_and_graceful_stop(self):
         repo = Path(__file__).resolve().parent.parent
-        with tempfile.TemporaryDirectory() as temp:
+        with user_accessible_temp() as temp:
             data = Path(temp) / "data"; data.mkdir()
             # HUB ISOLATION (tests/hub_isolation.py): the real chain hosts a hub
             # of its own on a free port, never the live one on 7370
@@ -590,7 +611,7 @@ class ServiceHostIntegrationTests(unittest.TestCase):
         repo = Path(__file__).resolve().parent.parent
         handle, set_event, close = _kernel_event(inheritable=True)
         self.addCleanup(close)
-        with tempfile.TemporaryDirectory() as temp:
+        with user_accessible_temp() as temp:
             data = Path(temp) / "data"; data.mkdir()
             # HUB ISOLATION (tests/hub_isolation.py): as in the integration test
             hub = hub_isolation.isolate_data_root(data)

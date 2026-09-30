@@ -36,7 +36,7 @@ import urllib.request
 
 try:
     from .startup_progress import parse_progress
-    from .unelevated import popen_unelevated
+    from .unelevated import popen_unelevated, process_is_elevated, repair_user_access
 except ImportError:  # script entrypoint
     # The packaged runtime's python313._pth never puts the script's own
     # folder on sys.path (it lists resources\ instead), so a bare
@@ -46,7 +46,7 @@ except ImportError:  # script entrypoint
     if _PACKAGE_ROOT not in sys.path:
         sys.path.insert(0, _PACKAGE_ROOT)
     from engine.startup_progress import parse_progress
-    from engine.unelevated import popen_unelevated
+    from engine.unelevated import popen_unelevated, process_is_elevated, repair_user_access
 
 READY_TIMEOUT = 120.0  # boot is contended; the desktop's 60s is too tight
 #: Between two checkpoints of the first-launch conversion (phases starting
@@ -466,6 +466,15 @@ def main() -> int:
     # even at RunLevel Limited, so an elevated host starts the engine as the
     # normal user: PostgreSQL refuses admin rights, and no agent the engine
     # spawns should inherit them. See engine/unelevated.py.
+    if process_is_elevated():
+        # An earlier engine ran elevated and may have left folders only an
+        # administrator can open; give the user back its access while this
+        # host still can.
+        try:
+            for path in repair_user_access(root):
+                print(f"service host: gave the user back its access to {path}", file=sys.stderr, flush=True)
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            print(f"service host: {exc}", file=sys.stderr, flush=True)
     try:
         child = popen_unelevated([sys.executable, str(launcher)], cwd=str(launcher.parent),
                                  env=env, stdout=subprocess.PIPE, stderr=sys.stderr,
