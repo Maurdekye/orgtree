@@ -1238,7 +1238,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
     // pointerdown must not reach the viewport: its pan pointer-CAPTURE retargets
     // the click, so backdrop-close and every button in here silently broke
     <PinFrame kind="node-config" restore={{ agent: node.id, generation: node.generation }} title={`${node.id} · configuration`}
-      panel="settings cfg" close={close}>
+      panel={'settings cfg prov-' + providerOf(node.tier ?? '')} close={close}>
         <h3 data-copy-agent-name={node.id}><SettingsIcon fontSize="inherit" /> {node.id}</h3>
         {/* ⚠ THE LIFECYCLE MARK IS LIVE STATE, NOT A TITLE — whether this
             agent's process is warm, relaunching or mid-turn is the reason to

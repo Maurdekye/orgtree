@@ -33,7 +33,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { ChevronLeftIcon, ViewListIcon } from '../icons'
 import type { ToastFn, TreePayload } from '../types'
-import { DRAFT, USER, useEsc } from '../canvas/shared'
+import { DRAFT, providerOf, USER, useEsc } from '../canvas/shared'
+import { setButtonAgent } from '../buttoncolours'
 import type { CanvasNode, OpFn, Pt } from '../canvas/shared'
 import { DeskSlot } from '../canvas/deskhosts'
 import type { DeskChatProps } from '../canvas/desk'
@@ -181,6 +182,9 @@ export function AgentDeskPanel({
   const stored = layout.agent
   const selectedId = stored && map.has(stored) ? stored : fallback
   const selected = selectedId ? map.get(selectedId) : undefined
+  useEffect(() => {
+    if (eligible) setButtonAgent(slug, selected?.tier ? selected.id : null)
+  }, [slug, eligible, selected?.id, selected?.tier])
 
   const select = useCallback((id: string) => {
     setAttentionLayout(slug, { agent: id })
@@ -267,7 +271,8 @@ export function AgentDeskPanel({
   }
 
   return (
-    <div className={'attn-agents-wrap' + (open ? ' list-open' : '')}>
+    <div className={'attn-agents-wrap' + (open ? ' list-open' : '')
+      + (selected?.tier ? ' prov-' + providerOf(selected.tier) : '')}>
       <div className="attn-agents-bar">
         <button type="button" className="iconbtn attn-agents-toggle" ref={toggleRef}
           aria-expanded={open} aria-controls={`attn-agents-${slug}`}

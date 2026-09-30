@@ -42,6 +42,7 @@ import { CreateOrgView, cancelCreationNatively } from './shell/createorg'
 import { OrgViewToggle } from './shell/modetoggle'
 import { onHeldEvent } from './events/heldbus'
 import { setOrgView, useOrgView } from './attention/mode'
+import { useButtonColours } from './buttoncolours'
 import type { OrgView } from './attention/mode'
 import { AttentionView } from './attention/AttentionView'
 import { openOrgEffect, requestOpenOrg } from './shell/openorg'
@@ -1099,6 +1100,8 @@ export default function App() {
   // `orgtree-org-view`. Same key, same contract, same "default stored as
   // absence" invariant — the swap was an import change and nothing else.
   const viewMode = useOrgView(v3 ? slug : null)
+  const buttonNodes = useMemo(() => tree ? flatNodes(tree) : null, [tree])
+  const buttonColours = useButtonColours(v3 ? slug : null, buttonNodes)
   const setViewMode = useCallback((m: OrgView) => setOrgView(v3 ? slug : null, m),
     [v3, slug])
   // The freshness of the tree Attention reads its question rows out of. Owned
@@ -1199,7 +1202,7 @@ export default function App() {
   )
 
   return (
-    <CurrentOrg.Provider value={slug}><AgentNavProvider><ObjectMenuBoundary className="app" toast={toast}>
+    <CurrentOrg.Provider value={slug}><AgentNavProvider><ObjectMenuBoundary className="app" style={buttonColours} toast={toast}>
       <RestartNotice />
       {/* Developer › engine debug view: off by default; while off nothing polls */}
       {!BASE && engineDebug && <EngineDebugPanel onClose={() => setEngineDebugOn(false)} />}

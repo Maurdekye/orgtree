@@ -5,6 +5,7 @@ import { intersectsViewport, ViewportPath, worldViewport } from './viewport'
 import { renameDrafts } from '../draftstore'
 import { treePresence, sweepAbsentDrafts, sweepAbsentPreferences } from '../treepresence'
 import { treeSelections } from '../treeselection'
+import { setButtonAgent } from '../buttoncolours'
 import { retiredFronts, savedTreeSelection } from './treeselection'
 import type { TreeBrowse } from '../treeview'
 import { DeskHosts, useDeskActionsNow } from './deskhosts'
@@ -2686,6 +2687,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   const pinnedFocusId = nearestId && pinnedIds.has(nearestId) ? nearestId : null
   const focusId = pinnedFocusId ? null : nearestId
   focusRef.current = focusId
+  useEffect(() => {
+    if (worldHidden) return // the Attention desk owns focus while it is shown
+    const id = pinnedFocusId ?? focusId
+    setButtonAgent(slug, id && map.get(id)?.tier ? id : null)
+  }, [slug, worldHidden, focusId, pinnedFocusId, map])
   // App reads the selected tree from this registration. Owners release
   // their contribution on unmount/org change, never on omission.
   const treeSelectionOwner = useRef({})

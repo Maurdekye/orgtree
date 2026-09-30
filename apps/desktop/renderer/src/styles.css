@@ -38,6 +38,7 @@
   --draft-stripe: #27272a;
   --danger-ink: #ffb59c;
   --accent: #d97757;        /* Claude default accent; explicit themes override it */
+  --button-accent: var(--line-hover); /* no focused agent: neutral chrome */
   --prov-claude: #d97757;   /* explicit destination theme inside other desks */
   --aud-user: var(--accent);      /* direct line to the user — relationship color,
                                independent of the agent provider theme */
@@ -231,6 +232,11 @@
 :root.agent-colors-organization .cc-send.stop { --agent-accent-ink: initial; }
 
 * { box-sizing: border-box; }
+/* Nested agent controls keep their provider even when another agent is focused. */
+.prov-claude { --button-accent: var(--prov-claude); }
+.prov-openai { --button-accent: var(--prov-openai); }
+.prov-google { --button-accent: var(--prov-google); }
+.prov-openrouter { --button-accent: var(--prov-openrouter); }
 html, body { height: 100%; }
 body {
   margin: 0; background: var(--bg); color: var(--ink);
@@ -3712,7 +3718,7 @@ button.stackbadge:hover { border-color: var(--accent); color: var(--agent-accent
   background: var(--input); border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
   color: var(--ink);
 }
-.preset-card:hover { border-color: var(--bad); color: var(--bad); background: var(--input); }
+.preset-card:hover { border-color: var(--button-accent); color: var(--button-accent); background: var(--input); }
 .df-preset-add {
   height: 18px; box-sizing: border-box;
   font-size: 9px; padding: 0 4px; color: var(--dim); width: auto;
@@ -4847,6 +4853,9 @@ input::placeholder, textarea::placeholder { color: #6e6e6e; }
 input:focus, select:focus, textarea:focus, button:focus-visible {
   outline: 1px solid var(--accent); outline-offset: -1px;
 }
+button:not(.danger):not(.stop):not(.kill-btn):not(.kill-release):focus-visible {
+  outline-color: var(--button-accent);
+}
 
 .dim { color: var(--dim); }
 .pad { padding: 6px 10px; }
@@ -4893,7 +4902,7 @@ input:focus, select:focus, textarea:focus, button:focus-visible {
 .dirrow { display: flex; gap: 6px; }
 .dirrow input { flex: 1; font-family: var(--mono); font-size: 11.5px; }
 .iconbtn { flex: none; padding: 4px 8px; color: var(--dim); }
-.iconbtn:hover { color: var(--bad); border-color: var(--bad); }
+.iconbtn:not(.danger):hover { color: var(--button-accent); border-color: var(--button-accent); }
 .addrow { align-self: flex-start; color: var(--dim); background: none; border-style: dashed; }
 .addrow:hover { color: var(--ink); }
 
@@ -4910,16 +4919,15 @@ input:focus, select:focus, textarea:focus, button:focus-visible {
    done. See D-155. Steady at warn,
    breathing at crit: the tier has to survive an eye that cannot separate gold
    from red, and motion is the channel left once hue is spent.
-   ⚠ this block sits AFTER `.iconbtn:hover` deliberately — that rule paints
-   every header icon button red on hover, which on a GOLD usage button would
-   read as "now critical". Equal specificity, so only source order decides. */
+   Usage severity keeps its status ink and glow. Its hover frame follows the
+   focused agent like other ordinary controls; viewing usage is not dangerous. */
 .h1-usage.u-warn, .iconbtn.u-warn { color: var(--tier-fable); }
 .h1-usage.u-crit, .iconbtn.u-crit { color: var(--bad); }
 .h1-usage.u-warn:hover, .iconbtn.u-warn:hover {
   color: var(--tier-fable); border-color: var(--tier-fable);
 }
 .h1-usage.u-crit:hover, .iconbtn.u-crit:hover {
-  color: var(--bad); border-color: var(--bad);
+  color: var(--bad); border-color: var(--button-accent);
 }
 /* the glow is a box-shadow, so it takes the BUTTON's shape — and the sidebar
    usage button is a 20px square around a circular ring icon (DataUsage).

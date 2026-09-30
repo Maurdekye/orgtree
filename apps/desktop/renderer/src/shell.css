@@ -144,7 +144,7 @@
 .shell-header .shell-menu-button:hover,
 .shell-header-actions > button:hover,
 .shell-header-actions > .iconbtn:hover {
-  border-color: var(--line-hover);
+  border-color: var(--button-accent);
   color: var(--ink-strong);
 }
 

@@ -235,6 +235,7 @@ export function nativeMenuPreferred(e: { target: EventTarget | null; currentTarg
 }
 
 interface MenuState {
+  buttonAccent: string
   opening: number
   x: number
   y: number
@@ -381,6 +382,8 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
       && e.clientY >= r.top && e.clientY <= r.bottom
     anchorRef.current = el
     setState({
+      // Portals leave the agent's DOM scope; retain its button colour.
+      buttonAccent: doc.defaultView?.getComputedStyle(el).getPropertyValue('--button-accent').trim() || 'var(--line-hover)',
       opening: ++opening.current,
       x: inside ? e.clientX : r.left,
       y: inside ? e.clientY : r.bottom,
@@ -538,7 +541,7 @@ function ContextMenu({ state, anchorRef, close }:
     if (next !== null) { e.preventDefault(); list[next]!.focus() }
   }
 
-  const style: CSSProperties = { left: pos.x, top: pos.y }
+  const style = { left: pos.x, top: pos.y, '--button-accent': state.buttonAccent } as CSSProperties
   return (
     <div ref={el => { ref.current = el; if (el) menuAnchors.set(el, anchorRef) }}
       className="ctxmenu" role="menu" tabIndex={-1} style={style}

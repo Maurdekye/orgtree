@@ -1,4 +1,5 @@
 import { transcriptViewport } from '../transcriptViewport'
+import { setButtonAgent } from '../buttoncolours'
 import { agentNavProps } from './agentnav'
 import { HaltControl, HaltStatus } from './haltcontrol'
 import { resolveRef } from './reflinks'
@@ -4035,9 +4036,10 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // recenter-on-click
   return (
     <fieldset ref={deskRef} disabled={staleIdentity} className="desk-control-scope"
-      onFocusCapture={() => setActiveChatKey(chatKey)}><div className={bare || surface?.detached ? "desk-bare" : "desk-over"} onWheel={(e) => e.stopPropagation()}
+      onFocusCapture={() => { setActiveChatKey(chatKey); setButtonAgent(slug, node.tier ? node.id : null) }}><div className={bare || surface?.detached ? "desk-bare" : "desk-over"} onWheel={(e) => e.stopPropagation()}
       onPointerDown={(e) => {
         setActiveChatKey(chatKey)
+        setButtonAgent(slug, node.tier ? node.id : null)
         // ROOT CAUSE (user bug 2026-09-03: "after the first drag finishes,
         // all subsequent drags immediately fail" / "focusing a node allows
         // it to work again once"). A focused desk fills most or all of the

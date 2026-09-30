@@ -9,13 +9,16 @@ import { createRoot } from 'react-dom/client'
 import App from '../src/App'
 import '../src/styles.css'
 import '../src/shell.css'
+import { setOrgView } from '../src/attention/mode'
 
 const SLUG = 'studio'
 const params = new URLSearchParams(location.search)
 const latched = params.get('killswitch') === '1'
 
 const agent = (id: string, docs = 0, children: unknown[] = []) => ({
-  id, state: 'live', tier: 'opus', model_id: 'opus', children, parent: null,
+  id, state: 'live', tier: params.has('providers')
+    ? ({'worker-a':'astra','worker-g':'pro','worker-r':'or-probe'} as Record<string,string>)[id] ?? 'opus'
+    : 'opus', model_id: 'opus', children, parent: null,
   seat: 1, grant: 10, free: 5, cost_usd: 0, occupancy: 0, context_window: 100000,
   documents_count: docs,
   scope: { tools: {}, add_dirs: [], permission_mode: 'default', org_visibility: 'team' },
@@ -26,7 +29,9 @@ const tree = {
   max_top_grant: 1000, default_top_grant: 50, compact_at: 0, default_tools: null,
   default_visibility: 'team', default_effort: '', prefer_reserve_default: false,
   credit_requests: [], tiers: { opus: 1 }, audiences: [],
-  roots: [agent('coordinator', 2, [agent('worker-a', 1)])],
+  roots: [agent('coordinator', 2, params.has('providers')
+    ? [agent('worker-a',1),agent('worker-g'),agent('worker-r')]
+    : [agent('worker-a', 1)])],
   cost_usd_total: 0, audit: { live_nodes: 2, top_level_holds: 0, no_overdraft: true, problems: [] },
   user_inbox_count: 4, user_inbox_newest: null, fable_lock: null, spend_frozen: false,
   storage_blocked: false, auto_resume: false, fable_limit_policy: 'freeze',
@@ -64,6 +69,7 @@ class QuietSocket {
 ;(window as unknown as { WebSocket: unknown }).WebSocket = QuietSocket
 
 const home = params.get('view') === 'home'
+if (params.get('view') === 'attention') setOrgView(SLUG, 'attention')
 const identity = home
   ? { windowId: 'w-fixture', kind: 'homepage', notificationOwner: false }
   : { windowId: 'w-fixture', kind: 'org', org: SLUG, notificationOwner: false }
