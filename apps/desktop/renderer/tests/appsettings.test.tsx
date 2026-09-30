@@ -8,6 +8,7 @@ import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { AccountsPanel } from '../src/canvas/accounts'
+import { OPEN_APP_SETTINGS_EVENT } from '../src/canvas/settingskit'
 import { AccountUsagePanel } from '../src/accountusage'
 import type { AccountsPayload, ProviderInfo, ProvidersPayload } from '../src/types'
 
@@ -133,6 +134,35 @@ test('Accounts omits Codex reserve usage but preserves regular usage', async () 
   } finally { await usage.unmount(); delete g.fetch }
 })
 
+test('§0 opens on Providers; a requested tab still opens; a fresh open starts on Providers again',
+  async () => {
+    localStorage.clear()
+    stubFetch([])
+    const selected = (el: HTMLElement) =>
+      el.querySelector('[role="tab"][aria-selected="true"]')?.textContent?.trim()
+    // the queued-for-a-turn-slot banner's "change in settings" link asks for Runtime
+    const deep = await mountView(
+      <AccountsPanel toast={() => {}} close={() => {}} initialTab="runtime" />, (el) => el)
+    try {
+      await inAct(async () => { await flush(10) })
+      assert.equal(selected(deep.el), 'Runtime', 'a requested tab opens')
+    } finally { await deep.unmount() }
+    const view = await mountSettings()
+    try {
+      assert.equal(selected(view.el), 'Providers', 'no tab requested: Providers')
+      // a later ask while the panel is open still moves it
+      await inAct(async () => {
+        window.dispatchEvent(new window.CustomEvent(OPEN_APP_SETTINGS_EVENT, { detail: { tab: 'runtime' } }))
+      })
+      assert.equal(selected(view.el), 'Runtime')
+    } finally { await view.unmount() }
+    // the last tab is not remembered across opens
+    const again = await mountSettings()
+    try {
+      assert.equal(selected(again.el), 'Providers', 'a fresh open starts on Providers')
+    } finally { await again.unmount() }
+  })
+
 test('§1 stable accessible tabs navigate by key without swapping identity',
   async () => {
     localStorage.clear()
@@ -140,22 +170,29 @@ test('§1 stable accessible tabs navigate by key without swapping identity',
     const view = await mountSettings()
     try {
       const tabs = view.el.querySelectorAll<HTMLButtonElement>('[role="tab"]')
-      // v3: the strip follows the user's own list (2026-09-29). About — the
-      // version and repository link the removed sidebar used to carry — is
-      // last but is still where the panel opens.
+      // v3: the strip follows the user's own list (2026-09-29), and the
+      // panel opens on its first tab, Providers (user 2026-09-30).
       assert.deepEqual([...tabs].map((b) => b.textContent?.trim()),
         ['Providers', 'Runtime', 'Display', 'Default org settings',
           'Mail hub', 'Developer', 'About'])
       assert.equal(tabs[2]!.querySelector('.app-settings-scope'), null,
         'Display has no device-label pill while retaining its tab identity')
-      assert.equal(tabs[6]!.getAttribute('aria-selected'), 'true')
-      assert.equal(tabs[0]!.getAttribute('aria-selected'), 'false')
+      assert.equal(tabs[0]!.getAttribute('aria-selected'), 'true',
+        'opens on Providers')
+      assert.equal(tabs[6]!.getAttribute('aria-selected'), 'false')
+      assert.equal(view.el.querySelector('#app-settings-panel-providers')!.hasAttribute('hidden'), false)
       await inAct(async () => {
-        tabs[6]!.dispatchEvent(new KeyboardEvent('keydown', {
+        tabs[0]!.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'ArrowRight', bubbles: true,
+        }))
+      })
+      assert.equal(tabs[1]!.getAttribute('aria-selected'), 'true')
+      await inAct(async () => {
+        tabs[1]!.dispatchEvent(new KeyboardEvent('keydown', {
           key: 'Home', bubbles: true,
         }))
       })
-      assert.equal(tabs[6]!.getAttribute('aria-selected'), 'false')
+      assert.equal(tabs[1]!.getAttribute('aria-selected'), 'false')
       assert.equal(tabs[0]!.getAttribute('aria-selected'), 'true')
       assert.equal(document.activeElement, tabs[0])
       await inAct(async () => {

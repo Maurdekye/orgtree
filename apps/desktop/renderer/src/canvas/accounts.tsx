@@ -214,8 +214,9 @@ export function UsageBars({ u }: { u: AccountUsage }) {
 type AppSettingsTab = 'about' | 'providers' | 'runtime' | 'mailhub'
   | 'display' | 'defaults' | 'developer'
 // Strip order is the user's own list (2026-09-29): Providers, Runtime,
-// Display, Default org settings, Mail hub, Developer, About. The panel still
-// OPENS on About (see useState below) — the order does not pick the default.
+// Display, Default org settings, Mail hub, Developer, About. The panel OPENS
+// on Providers, the first tab (user 2026-09-30), unless the caller asks for a
+// tab (the queued-turn banner's link to Runtime) — see useState below.
 const APP_TABS: SettingsTab<AppSettingsTab>[] = [
   { id: 'providers', label: 'Providers' },
   { id: 'runtime', label: 'Runtime' },
@@ -504,7 +505,7 @@ export function TurnLimitSetting({ runtime, busy, onSave }: {
 export function AccountsPanel({ toast, close, initialTab }: {
   toast: ToastFn; close: () => void; initialTab?: AppSettingsTab
 }) {
-  const [tab, setTab] = useState<AppSettingsTab>(initialTab ?? 'about')
+  const [tab, setTab] = useState<AppSettingsTab>(initialTab ?? 'providers')
   useEffect(() => {
     const open = (e: Event) => {
       const tab = (e as CustomEvent<{ tab?: string }>).detail?.tab
