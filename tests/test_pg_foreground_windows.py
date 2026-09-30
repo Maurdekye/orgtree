@@ -158,7 +158,11 @@ class ForegroundWindows(unittest.TestCase):
                 'question': 'earlier', 'questions': []} for i in range(keep + 20)])
         store.save_org(org)
         expected = store.load_org(self.slug)
-        result = self.windows()
+        # 'leaf' (the asker) is NOT selected: its per-node lateral query would
+        # return 'old' on its own, so the header query alone must carry it
+        # (review-astra n1 on 0d0b97f: with 'leaf' selected, reverting the
+        # header to ORDER BY ord DESC still passed)
+        result = self.windows(ids=('boss',))
         self.assertIn('old', [a['id'] for a in result['asks']['asks']])
         projected = ledger.Org(copy.deepcopy(expected.d))
         for section, rows in result['asks'].items():
