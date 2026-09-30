@@ -142,6 +142,23 @@ try:
             result['targetRenderedMessages'] = desk_page.locator('.attn-desk .msg').count()
             result['childFocus'] = desk_page.locator('.attn-desk .cc-head-left').inner_text()
             result['heartbeat'] = page.evaluate('1+1')
+            composer = desk_page.locator('.attn-desk .cc-composer textarea')
+            composer.click()
+            desk_page.keyboard.type('detached-focus-input-control')
+            result['composerInput'] = composer.input_value()
+            assert result['composerInput'] == 'detached-focus-input-control'
+            desk_page.locator('.attn-agents-toggle').click()
+            assert desk_page.locator('.attn-agents-toggle').get_attribute('aria-expanded') == 'true'
+            desk_page.locator('[data-attn-agent="alpha"]').click()
+            assert 'alpha' in desk_page.locator('.attn-desk .cc-head-left').inner_text()
+            desk_page.locator('.attn-agents-toggle').click()
+            desk_page.locator('[data-attn-agent="beta"]').click()
+            assert 'beta' in desk_page.locator('.attn-desk .cc-head-left').inner_text()
+            page.get_by_role('switch', name='Attention view', exact=True).click()
+            assert page.locator('[data-attention-active="no"]').count() == 1
+            page.get_by_role('switch', name='Attention view', exact=True).click()
+            assert page.locator('[data-attention-active="yes"]').count() == 1
+            result['afterFocusControls'] = 'composer, drawer selections and actual Canvas/Attention clicks pass'
             if electron:
                 result['nativePages'] = [p.url for p in browser.contexts[0].pages]
                 result['childBridge'] = desk_page.evaluate("typeof window.orgtreeDesktop")

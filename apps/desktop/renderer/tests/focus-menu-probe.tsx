@@ -45,7 +45,8 @@ const messages = copied ? copied.map((message, seq) => ({ ...message, seq })) : 
   at: '2026-09-30T00:00:00Z', ordinal: i, segments: [],
 }))
 window.fetch = async input => {
-  const path = new URL(String(input), location.href).pathname
+  const url = new URL(String(input), location.href)
+  const path = url.pathname
   if (path.endsWith('/foreground-tree')) {
     const nodes: Record<string, unknown> = {}
     const walk = (n: TreePayload['roots'][number], parent: string | null) => {
@@ -65,11 +66,15 @@ window.fetch = async input => {
   const findNode = (nodes: TreePayload['roots']): TreePayload['roots'][number] | undefined => {
     for (const n of nodes) { if (n.id === requested) return n; const found = findNode(n.children); if (found) return found }
   }
+  const chatRows = path.includes('/beta/') ? targetMessages ?? messages : messages
+  const chatEnd = Number(url.searchParams.get('before') ?? chatRows.length)
+  const chatStart = Math.max(0, chatEnd - Number(url.searchParams.get('last') ?? 300))
   const body = path === '/api/orgs' ? [{ slug, name: slug, live: 2, seats: 2 }]
     : path === `/api/orgs/${slug}` ? tree
     : /\/detail$/.test(path) ? { ...findNode(tree.roots), children: undefined, detail: true }
-    : /\/chat$/.test(path) ? { messages: path.includes('/beta/') ? targetMessages ?? messages : messages,
-      windowed: false, has_older: false, generation: 0 }
+    : /\/chat$/.test(path) ? { messages: chatRows.slice(chatStart, chatEnd),
+      windowed: true, has_older: chatStart > 0, before: String(chatStart),
+      conversation_id: requested, order_epoch: 1, generation: findNode(tree.roots)?.generation ?? 0 }
     : /\/work-items$/.test(path) ? { items: [], archived: [], backlogged: [] }
       : /\/inbox$/.test(path) ? { pending: [], delivered: [], sent: [] }
         : path === '/api/providers' ? { providers: [] }
