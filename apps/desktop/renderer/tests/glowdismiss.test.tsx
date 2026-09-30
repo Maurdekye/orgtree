@@ -10,7 +10,14 @@
 //   • a ticket still flagged by an open question keeps the glow (only the
 //     manual flag went), though its dot row goes;
 //   • the dot counts only the open organization's tickets;
-//   • every dismiss control goes through the one store (no direct API call).
+//   • every dismiss control goes through the one store (no direct API call);
+//   • every regression review-sol proved, kept here so none returns:
+//     §7 a new flag on another ticket with an unchanged count (round 1),
+//     §9 an empty list while the tree still counts the dismissed flag and
+//     §10 the same ticket flagged again under a new notice epoch (round 2),
+//     §12 dismissing that re-raised flag at once (round 3),
+//     §13 a new raise that arrives while the old dismissal is in flight
+//     (round 4).
 //
 // Run:  node apps/desktop/renderer/tests/run.mjs glowdismiss
 import './harness'
@@ -267,6 +274,49 @@ test('§12 the new flag on the same ticket can itself be dismissed at once (revi
     assert.ok(error)
     assert.equal(glows(v.el), true, 'refused: the third flag glows again')
     assert.equal(dotted(v.el), true)
+  } finally { await v.unmount() }
+})
+
+test('§13 a new flag on the same ticket arriving while the old dismissal is in flight glows at once (review-sol)', async () => {
+  reset()
+  const srv = manualServer()
+  await inAct(async () => { publishPending(summarizePending([flagRow('t1', ORG, 1)])) })
+  const v = await mountView(button(1), (el) => el)
+  try {
+    await inAct(async () => { void dismissAttention(ORG, item('t1')) })
+    assert.equal(glows(v.el), false)
+    // the server applied the dismissal and took a new raise before its answer
+    // reached us; the notification poll shows the new raise first
+    await inAct(async () => { publishPending(summarizePending([flagRow('t1', ORG, 2)])) })
+    await v.render(button(1))
+    await inAct(() => flush(4))
+    assert.equal(srv.count(), 1, 'the old dismissal is still in flight')
+    assert.equal(glows(v.el), true, 'the new raise glows')
+    assert.equal(dotted(v.el), true, 'and dots')
+    await srv.answer(true)
+    await v.render(button(1))
+    await inAct(() => flush(4))
+    assert.equal(glows(v.el), true, 'still, once the old dismissal succeeds')
+    assert.equal(badge(v.el), '1')
+  } finally { await v.unmount() }
+})
+
+test('§14 a raise the list had not shown at the click is never hidden later; the glow errs toward showing it', async () => {
+  reset()
+  const srv = manualServer()
+  const v = await mountView(button(1), (el) => el)
+  try {
+    // the tree saw the flag before the notification list did
+    await inAct(async () => { void dismissAttention(ORG, item('t1')) })
+    assert.equal(glows(v.el), false, 'the click still clears the glow')
+    await inAct(async () => { publishPending(summarizePending([flagRow('t1', ORG, 1)])) })
+    assert.equal(dotted(v.el), true, 'a row first seen after the click is not assumed to be the dismissed one')
+    await srv.answer(true)
+    await inAct(async () => { publishPending(summarizePending([])) })
+    await v.render(button(0))
+    await inAct(() => flush(4))
+    assert.equal(glows(v.el), false)
+    assert.equal(dotted(v.el), false)
   } finally { await v.unmount() }
 })
 

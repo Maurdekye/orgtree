@@ -139,8 +139,7 @@ export function waitingNow(p: PendingAttention): WaitingRow[] {
   return p.waiting.filter((w) => !(w.kind === 'question' && askHidden(w.org, w.source)))
 }
 
-/** Hear every changed aggregate (attndismiss.ts, outside React). */
-export function subscribe(listener: () => void): () => void {
+function subscribe(listener: () => void): () => void {
   listeners.add(listener)
   return () => { listeners.delete(listener) }
 }

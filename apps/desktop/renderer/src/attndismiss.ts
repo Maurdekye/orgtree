@@ -23,9 +23,11 @@
 //     The notification list dropping the ticket does NOT end it: a list can be
 //     newer than the tree, and the tree would still count the old flag.
 //   • The notification list names every manual flag BY INSTANCE (its notice
-//     id, `work:<slug>:<epoch>`). A record remembers the ids of the flag it
-//     took down, so the list's rows under any OTHER id — another ticket, or
-//     the same ticket flagged again — are flags the user has not dismissed.
+//     id, `work:<slug>:<epoch>`). A record remembers the ids the list showed
+//     for the ticket at the click — the raise the user dismissed — so the
+//     list's rows under any OTHER id — another ticket, or the same ticket
+//     flagged again, even while the request is in flight — are flags the user
+//     has not dismissed.
 //     While any record is outstanding, the glow never shows fewer than those:
 //     a count cannot tell "the old flag is still counted" from "the old flag
 //     went and a new one came", but the list can.
@@ -34,7 +36,7 @@
 //     newer dismissal takes over the older one's subtraction.
 import { useSyncExternalStore } from 'react'
 import { dismissWorkItemAttention } from './api'
-import { pendingAttention, subscribe as subscribePending, type FlaggedRow } from './pending-attention'
+import { pendingAttention, type FlaggedRow } from './pending-attention'
 import type { DismissAttentionResult } from './types'
 
 interface Entry {
@@ -78,19 +80,16 @@ export function useDismissedAttention(): number {
   return useSyncExternalStore(subscribe, () => version, () => version)
 }
 
-/** Take the list's current rows for this ticket as the flag being dismissed.
- *  Sound until the server has answered: the flag cannot be raised again
- *  before this dismissal takes it down. */
-function adopt(e: Entry) {
-  for (const f of pendingAttention().flagged) {
-    if (f.org === e.org && f.slug === e.slug) e.ids.add(f.id)
-  }
+/** The rows the list shows for this ticket AT THE CLICK — exactly the raise
+ *  the user dismissed, and nothing adopted later (review-sol: the server may
+ *  apply the dismissal and take a new raise before its answer arrives, so a
+ *  row first seen after the click can be a new flag). A dismissal the list had
+ *  not caught up with yet therefore hides no row; if the list then shows it,
+ *  the button errs toward showing it until the list drops it. */
+function listedAtClick(org: string, slug: string): Set<string> {
+  return new Set(pendingAttention().flagged
+    .filter((f) => f.org === org && f.slug === slug).map((f) => f.id))
 }
-// a list read while the request is in flight still shows the old flag, and
-// may be the first to show it at all (the tree saw it first)
-subscribePending(() => {
-  for (const e of entries.values()) if (e.state === 'sent') adopt(e)
-})
 
 const outstanding = (org: string, raw: number) =>
   [...entries.values()].filter((e) => e.org === org && e.glow && !e.reflected && raw > e.expect)
@@ -154,15 +153,14 @@ export function dismissAttention(org: string, item: {
     const expect = raw === undefined ? -1
       : raw - outstanding(org, raw).length - 1
     const glow = !(item.attention_sources ?? []).includes('question')
-    const e: Entry = { org, slug, expect, glow, state: 'sent', ids: new Set(), reflected: false }
-    adopt(e)
+    const e: Entry = { org, slug, expect, glow, state: 'sent',
+      ids: listedAtClick(org, slug), reflected: false }
     entries.set(k, e)
     emit()
   }
   return dismissWorkItemAttention(org, slug, item.manual_attention.set_rev).then((r) => {
     const e = entries.get(k)
     if (e && e.state === 'sent') {
-      adopt(e)
       e.state = 'done'
       // the tree normally reflects it well before this; the bound is for a
       // count that never comes down to `expect` (a new flag arrived meanwhile)
