@@ -34,6 +34,8 @@ if (detached) {
     ...Array.from({ length: 1100 }, (_, i) => ({ ...node(`retired-${i}`), parent: 'alpha', state: 'archived' })),
   ] }] as TreePayload['roots']
 }
+const copiedRoots = (window as unknown as { copiedRoots?: TreePayload['roots'] }).copiedRoots
+if (copiedRoots) tree.roots = copiedRoots
 
 const copied = (window as unknown as { copiedMessages?: Record<string, unknown>[] }).copiedMessages
 const targetCopied = (window as unknown as { targetCopiedMessages?: Record<string, unknown>[] }).targetCopiedMessages

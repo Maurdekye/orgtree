@@ -56,7 +56,7 @@ try:
                 "const identity={windowId:'focus-window',kind:'org',org:'focus-probe',notificationOwner:false};\n"
                 "ipcMain.on('desktop:window-identity-sync',(e)=>{console.log('IPC sync identity',e.sender.id);e.returnValue={identity,token:'probe-token'};});\n"
                 "ipcMain.on('desktop:events-listening',(e)=>console.log('IPC events-listening',e.sender.id));\n"
-                "const replies={'desktop:window-identity':identity,'desktop:app-version':'3.0.0-alpha.9','desktop:preferences':{},'desktop:request-org':{action:'focused',org:'focus-probe'},'desktop:popout-state':{maximized:false},'desktop:window-controls-state':{maximized:false},'desktop:status':{},'desktop:open-orgs':[]};\n"
+                "const replies={'desktop:window-identity':identity,'desktop:app-version':'3.0.0-alpha.9','desktop:preferences':{},'desktop:set-preferences':{},'desktop:update-status':{},'desktop:request-org':{action:'focused',org:'focus-probe'},'desktop:popout-state':{maximized:false},'desktop:window-state':{maximized:false},'desktop:window-controls-state':{maximized:false},'desktop:status':{},'desktop:open-orgs':[]};\n"
                 "for(const name of [...Object.keys(replies),'desktop:notify','desktop:sync-notifications','desktop:pending-attention','desktop:set-effective-theme','desktop:take-pending-events']) ipcMain.handle(name,(e,...args)=>{console.log('IPC',name,e.sender.id,JSON.stringify(args));return replies[name]??null;});\n"
                 "const {configureWindow}=require('./native-windows.cjs');\n"
                 "const register=(w,portal)=>{console.log('WINDOW',w.id,portal);const set=w.webContents.setWindowOpenHandler.bind(w.webContents);w.webContents.setWindowOpenHandler=(handle)=>set(details=>{const answer=handle(details);console.log('OPEN',details.frameName,answer.action);if(answer.action==='allow') answer.overrideBrowserWindowOptions={...answer.overrideBrowserWindowOptions,show:false};return answer;});};\n"
@@ -90,6 +90,11 @@ try:
                 target = json.loads(target_path.read_text(encoding='utf-8'))
                 page.add_init_script('window.targetCopiedMessages = ' + json.dumps(target))
                 result['targetCopiedMessages'] = len(target)
+            graph_path = copied_path.with_name('organization-roots.json')
+            if graph_path.exists():
+                graph = json.loads(graph_path.read_text(encoding='utf-8'))
+                page.add_init_script('window.copiedRoots = ' + json.dumps(graph))
+                result['copiedRoots'] = len(graph)
         popouts = len(sys.argv) > 2 and sys.argv[2] in ['popouts', 'electron']
         scene = '#detached' if popouts else '#' + sys.argv[2] if len(sys.argv) > 2 else ''
         page.goto(f'http://127.0.0.1:{server.server_port}' + ('/o/focus-probe' if electron else '/probe.html') + scene)
@@ -137,6 +142,10 @@ try:
             result['targetRenderedMessages'] = desk_page.locator('.attn-desk .msg').count()
             result['childFocus'] = desk_page.locator('.attn-desk .cc-head-left').inner_text()
             result['heartbeat'] = page.evaluate('1+1')
+            if electron:
+                result['nativePages'] = [p.url for p in browser.contexts[0].pages]
+                result['childBridge'] = desk_page.evaluate("typeof window.orgtreeDesktop")
+                assert result['childBridge'] == 'undefined', 'production preload must not boot a second bridge in the adopted portal'
             if not electron:
                 desk_page.screenshot(path=str(OUT / 'after-focus.png'))
             assert 'beta' in result['childFocus'], result
