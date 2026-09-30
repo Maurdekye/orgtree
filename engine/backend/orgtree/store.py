@@ -6853,13 +6853,21 @@ def _pg_document_gallery(slug: str) -> list[dict[str, Any]] | None:
         documents = [json.loads(row[0]) for row in conn.execute(
             f"SELECT (val::jsonb - 'body')::text FROM log_l WHERE {_SECT_RANGE} ORDER BY seq",
             ("documents", "documents"))]
+        # ⚠ THIS WHERE CLAUSE IS pg_migrations/0019's partial-index predicate,
+        # literally: a first open used to wait ~0.5-0.75 s here on a cold
+        # cache, text-searching every events row for a handful of legacy ones
         candidates = [(int(seq), json.loads(val)) for seq, val in conn.execute(
-            f"SELECT seq, val FROM log_l WHERE {_SECT_RANGE} "
-            "AND strpos(val, 'present_evicted') > 0 ORDER BY seq", ("events", "events"))]
+            "SELECT seq, val FROM log_l WHERE sect='events' "
+            "AND strpos(val, 'present_evicted') > 0 ORDER BY seq")]
         evicted = [(seq, e) for seq, e in candidates
                    if isinstance(e, dict) and e.get("op") == "present_evicted"]
-        evictions: list[tuple[int, Any]] = []
-        if evicted:
+        # the index is only a tiebreaker: gallery_metadata sorts on (at, index),
+        # and among evictions seq already orders like the position does. Only
+        # an eviction sharing its `at` with a document compares the two lists'
+        # indexes, and only then is the position worth a walk over the events.
+        doc_at = {d.get("at") or "" for d in documents if isinstance(d, dict)}
+        evictions: list[tuple[int, Any]] = evicted
+        if any((e.get("at") or "") in doc_at for _, e in evicted):
             # the index an eviction has in the Org's `events` list: its rank
             # by seq within the section, numbered from the (sect, seq) index
             # only as far as the last eviction

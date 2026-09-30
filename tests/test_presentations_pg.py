@@ -22,7 +22,7 @@ import test_pgstore as f
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 import test_pg_lazy_rows as lazy
 from fastapi import HTTPException
-from orgtree import api, orgtx, store
+from orgtree import api, orgtx, pgstore, store
 
 
 def tearDownModule():
@@ -160,6 +160,67 @@ class Presentations(unittest.TestCase):
         rows = self.bounded()
         self.assertEqual(rows, self.whole())
         self.assertIn('d10', {r['id'] for r in rows})
+
+    # -- the first open (v3-presentations-window-still-takes-0-5-s-to-ope) --
+    # A cold first open waited 748 ms on one statement: the text search for
+    # `present_evicted` over every events row. pg_migrations/0019 indexes
+    # exactly those rows, and the position walk runs only for a tie.
+
+    def statements(self, fn):
+        seen = []
+        real = pgstore.PgConn.execute
+
+        def spy(conn, sql, params=()):
+            seen.append(sql)
+            return real(conn, sql, params)
+        with patch.object(pgstore.PgConn, 'execute', spy):
+            out = fn()
+        return out, seen
+
+    def test_the_eviction_search_is_served_by_the_partial_index(self):
+        _, seen = self.statements(self.bounded)
+        search = [s for s in seen if 'present_evicted' in s]
+        self.assertEqual(len(search), 1, seen)
+        with self.raw() as raw:
+            indexdef = raw.execute(
+                "SELECT indexdef FROM pg_indexes WHERE schemaname=%s AND indexname="
+                "'ix_log_l_present_evicted'", (f'org_{self.oid}',)).fetchone()
+            self.assertIsNotNone(indexdef, 'a new org gets the index (create_org_schema)')
+            # a planner that may not scan the table must still answer: only
+            # possible when the query implies the index's WHERE clause
+            raw.execute('SET LOCAL enable_seqscan = off')
+            raw.execute('SET LOCAL enable_bitmapscan = off')
+            plan = '\n'.join(r[0] for r in raw.execute('EXPLAIN ' + search[0]).fetchall())
+        self.assertIn('ix_log_l_present_evicted', plan)
+
+    def test_the_migration_indexes_an_org_that_already_exists(self):
+        with self.raw() as raw:
+            raw.execute('DROP INDEX ix_log_l_present_evicted')
+        with pgstore.connect() as raw:
+            raw.execute('SELECT public.orgtree_install_present_evicted(%s)', (self.oid,))
+            self.assertIsNotNone(raw.execute(
+                "SELECT 1 FROM pg_indexes WHERE schemaname=%s AND indexname="
+                "'ix_log_l_present_evicted'", (f'org_{self.oid}',)).fetchone())
+
+    def test_no_tie_skips_the_walk_over_the_events(self):
+        org = store.load_org(self.slug)
+        # two evictions tied with EACH OTHER (seq orders them like position
+        # does), none tied with a card
+        org.d['events'] = [e for e in org.d['events'] if e.get('op') != 'present_evicted'] + [
+            evicted('d9', 'n2', '2026-09-04T00:00:00.000Z'),
+            evicted('d8', 'n1', '2026-09-04T00:00:00.000Z'),
+            evicted('d7', 'n1', '2026-09-06T12:00:00.000Z')]
+        store.save_org(org)
+        rows, seen = self.statements(self.bounded)
+        self.assertEqual(rows, self.whole())
+        self.assertEqual([r['id'] for r in rows if r['evicted']], ['d7', 'd8', 'd9'])
+        self.assertFalse([s for s in seen if 'row_number' in s], seen)
+
+    def test_a_tie_with_a_card_still_walks_for_the_position(self):
+        # the setUp fixture ties d8 with d4 and d7 with d5
+        rows, seen = self.statements(self.bounded)
+        self.assertEqual(rows, self.whole())
+        self.assertEqual(len([s for s in seen if 'row_number' in s]), 1, seen)
 
     def test_an_org_without_documents(self):
         org = store.load_org(self.slug)
