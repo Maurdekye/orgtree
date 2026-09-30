@@ -100,8 +100,16 @@ STUB_IMPORTER = textwrap.dedent('''
     orgs = root / "orgs"
     for db in orgs.glob("*.db"):
         (orgs / (db.stem + ".pg")).write_text("{}")
-    record = {"schema": "orgtree.store-backend/v1", "backend": "postgres", "orgs": {"acme": "x"},
-              "via": os.environ.get("STUB_VIA") or args[args.index("--via") + 1]}
+    # the real importer's set-aside (pgimport.write_cutover): org files in the
+    # trash are listed in the record, then moved to pre-postgres/deleted
+    trash = root / "deleted"
+    names = sorted(p.name for p in trash.iterdir() if p.is_file() and not p.name.endswith(".txt")) \\
+        if trash.is_dir() else []
+    record = {"schema": "orgtree.store-backend/v1", "backend": "postgres",
+              "orgs": {db.stem: "x" for db in orgs.glob("*.db")},
+              "via": os.environ.get("STUB_VIA") or args[args.index("--via") + 1],
+              "set_aside": {"to": "pre-postgres/deleted",
+                            "orgs": [{"slug": n.split("-")[0], "files": [{"name": n}]} for n in names]}}
     (root / "store-backend.json").write_text(json.dumps(record))
     if os.environ.get("STUB_CRASH_AFTER_RECORD"):
         sys.exit(1)
@@ -110,6 +118,10 @@ STUB_IMPORTER = textwrap.dedent('''
     for p in list(orgs.iterdir()):
         if not p.name.endswith(".pg"):
             os.rename(p, dest / p.name)
+    if names:
+        (root / "pre-postgres" / "deleted").mkdir(exist_ok=True)
+    for n in names:
+        os.rename(trash / n, root / "pre-postgres" / "deleted" / n)
     out.write_text("{}")
 ''')
 
@@ -650,26 +662,22 @@ class BracketTests(unittest.TestCase):
     def test_orgs_only_in_the_trash_are_an_existing_store(self) -> None:
         # coordinator ruling (a) on review finding f1: store.delete_org moves an
         # org flat into deleted/ and moving it back is the restore, so such a
-        # root is an existing store; the first-launch conversion does not carry
-        # the trash over, so it refuses before writing anything
+        # root is an existing store and goes to the first-launch conversion
         import shutil
         for name in ("acme-20260901T120000.db", "acme-20260901T120000.json",
                      "acme-20260901T120000.json.premigration", "acme-20260901T120000-1.db-wal"):
-            root, env = self.fresh(**{bracket.CUSTODIAN_ENV: str(self.custodian)})
+            root, env = self.fresh()
             for p in list(root.iterdir()):
                 shutil.rmtree(p) if p.is_dir() else p.unlink()
             (root / "orgs").mkdir()
             (root / "deleted").mkdir()
             (root / "deleted" / name).write_text("x")
-            before = self.tree(root)
             self.assertEqual(bracket.classify_for_bootstrap(root), ("existing", [f"deleted/{name}"]))
-            with self.assertRaisesRegex(bracket.ConversionFailed, "the trash holds 1 file"):
+            self.assertEqual(bracket.trash_sources(root), [name])
+            seen: list = []
+            with mock.patch.object(bracket, "convert_existing_root", side_effect=lambda r, e, p=None: seen.append(r)):
                 bracket.start_for_engine(root, env, self.migrator)
-            # only the status file for an attached desktop is written
-            status = root / bracket.CONVERT_DIR / bracket.CONVERT_STATUS
-            self.assertIn("the trash holds 1 file", json.loads(status.read_text(encoding="utf-8"))["reason"])
-            shutil.rmtree(root / bracket.CONVERT_DIR)
-            self.assertEqual(self.tree(root), before, name)
+            self.assertEqual(seen, [root], name)
         self.assertEqual(self.calls(), [])
         # an empty trash, or one holding no org file, does not stop a fresh root
         root, env = self.fresh()
@@ -784,6 +792,83 @@ class BracketTests(unittest.TestCase):
         self.assertEqual(status["log"], str(logs[0]))
         self.assertIn("pgimport-progress", (logs[0] / "import.progress.txt").read_text(encoding="utf-8"))
         owned.stop()
+
+    TRASH = {"old-20260901T120000.db": b"trashed old", "old-20260901T120000.db-wal": b"old wal",
+             "gone-20260902T080000.json": b'{"trashed": "gone"}'}
+
+    def with_trash(self, root: Path) -> None:
+        (root / "deleted").mkdir(exist_ok=True)
+        for name, data in self.TRASH.items():
+            (root / "deleted" / name).write_bytes(data)
+        (root / "deleted" / "notes.txt").write_bytes(b"not an org file")
+
+    def test_a_trash_no_longer_stops_the_first_launch(self) -> None:
+        # user decision 2026-09-30: trashed orgs are set aside, not converted,
+        # and the conversion of everything else goes on (this refused before)
+        root, env, _ = self.converting()
+        self.with_trash(root)
+        owned = bracket.start_for_engine(root, env, self.migrator)
+        self.assertEqual([c["args"][0] for c in self.importer_calls()], ["dry-run", "prepare", "import"])
+        self.assertEqual(env[bracket.STORE_ENV], "postgres")
+        self.assertEqual(sorted(p.name for p in (root / "orgs").iterdir()), ["acme.pg"])
+        aside = root / bracket.TRASH_ROLLBACK_DIR
+        self.assertEqual({p.name: p.read_bytes() for p in aside.iterdir()}, self.TRASH)
+        self.assertEqual(sorted(p.name for p in (root / "deleted").iterdir()), ["notes.txt"])
+        status = json.loads((root / bracket.CONVERT_DIR / bracket.CONVERT_STATUS).read_text(encoding="utf-8"))
+        self.assertEqual((status["state"], status["reason"]), ("done", None))
+        owned.stop()
+
+    def test_the_conversion_result_names_the_set_aside_orgs(self) -> None:
+        root, env, _ = self.converting()
+        self.with_trash(root)
+        result = bracket.convert_existing_root(root, env)
+        self.assertEqual(result["orgs"], ["acme"])
+        self.assertEqual(result["set_aside"], ["gone", "old", "old"])
+
+    def test_a_root_whose_only_orgs_are_in_the_trash_converts(self) -> None:
+        # store.delete_org leaves orgs/ in place, but a root may lack it: the
+        # importer needs it, so the conversion makes an empty one
+        root, env, _ = self.converting()
+        for p in list((root / "orgs").iterdir()):
+            p.unlink()
+        (root / "orgs").rmdir()
+        self.with_trash(root)
+        owned = bracket.start_for_engine(root, env, self.migrator)
+        self.assertEqual([c["args"][0] for c in self.importer_calls()], ["dry-run", "prepare", "import"])
+        self.assertEqual(list((root / "orgs").iterdir()), [])
+        self.assertEqual({p.name: p.read_bytes() for p in (root / bracket.TRASH_ROLLBACK_DIR).iterdir()}, self.TRASH)
+        owned.stop()
+
+    def test_an_interrupted_set_aside_is_finished_by_the_next_launch(self) -> None:
+        root, env, _ = self.converting(STUB_CRASH_AFTER_RECORD="1")
+        self.with_trash(root)
+        with self.assertRaisesRegex(bracket.ConversionFailed, "switch to the new database was recorded"):
+            bracket.start_for_engine(root, env, self.migrator)
+        # a trash file the record does not list stays where it is
+        (root / "deleted" / "late-20260903T000000.db").write_bytes(b"not listed")
+        env.pop("STUB_CRASH_AFTER_RECORD")
+        self.log.unlink()
+        owned = bracket.start_for_engine(root, env, self.migrator)
+        self.assertEqual(self.importer_calls(), [])
+        self.assertEqual({p.name: p.read_bytes() for p in (root / bracket.TRASH_ROLLBACK_DIR).iterdir()}, self.TRASH)
+        self.assertEqual(sorted(p.name for p in (root / "deleted").iterdir()),
+                         ["late-20260903T000000.db", "notes.txt"])
+        self.assertEqual((root / "pre-postgres" / "orgs" / "acme.db").read_bytes(), b"sqlite bytes")
+        owned.stop()
+
+    def test_finishing_never_overwrites_a_set_aside_copy(self) -> None:
+        root, env, _ = self.converting(STUB_CRASH_AFTER_RECORD="1")
+        self.with_trash(root)
+        with self.assertRaises(bracket.ConversionFailed):
+            bracket.start_for_engine(root, env, self.migrator)
+        env.pop("STUB_CRASH_AFTER_RECORD")
+        aside = root / bracket.TRASH_ROLLBACK_DIR
+        aside.mkdir(parents=True)
+        (aside / "old-20260901T120000.db").write_bytes(b"older copy")
+        with self.assertRaisesRegex(bracket.ConversionFailed, "a rollback copy is never overwritten"):
+            bracket.start_for_engine(root, env, self.migrator)
+        self.assertEqual((aside / "old-20260901T120000.db").read_bytes(), b"older copy")
+        self.assertEqual((root / "deleted" / "old-20260901T120000.db").read_bytes(), b"trashed old")
 
     def test_a_refused_dry_run_switches_nothing(self) -> None:
         root, env, _ = self.converting(STUB_DRY_REFUSE="1")

@@ -13,7 +13,9 @@ Two parts:
 
 1. Files. Every file in the backup must be in the data folder with the same
    SHA-256, except the org files in ``orgs/``, which must be in
-   ``pre-postgres/orgs/`` unchanged. The only files allowed to be new are the
+   ``pre-postgres/orgs/`` unchanged, and the org files in the trash
+   ``deleted/``, which are not converted and must be in
+   ``pre-postgres/deleted/`` unchanged. The only files allowed to be new are the
    ones the cutover writes (``orgs/<slug>.pg``, ``store-backend.json``,
    ``orgtree-product-root.json``, and the folders ``pg/``, ``conversion/``
    and ``host-logs/``). This covers everything the
@@ -67,6 +69,14 @@ WORK = "work_items"
 WORK_ROW = WORK + "\x1f"
 WORK_FORMAT = "orgtree.work-items/v1"
 ORG_SUFFIXES = (".db", ".db-wal", ".db-shm", ".json")
+#: The org files a 2.x delete leaves in the trash ``deleted/``, which the
+#: cutover sets aside unconverted in ``pre-postgres/deleted/`` (user decision
+#: 2026-09-30). The same shapes as engine/pg_process.py's ``_is_source``.
+TRASH_ORG_SUFFIXES = ORG_SUFFIXES + (".db.migrating",)
+
+
+def is_trash_org_file(name: str) -> bool:
+    return name.endswith(TRASH_ORG_SUFFIXES) or ".json.premigration" in name
 #: Files the cutover itself writes at the top of the data folder.
 NEW_TOP_FILES = {"store-backend.json", "orgtree-product-root.json"}
 #: Folders the cutover and the engine's database start write their logs to:
@@ -114,6 +124,7 @@ def compare_files(backup: Path, data: Path, after_launch: bool = False) -> dict[
     changed: list[str] = []
     checked = 0
     org_files: list[str] = []
+    trash_files: list[str] = []
     categories = {"transcripts": 0, "attachments": 0, "trash": 0, "other": 0}
     for rel, src in sorted(before.items()):
         if rel == LOCK_FILE:
@@ -124,6 +135,12 @@ def compare_files(backup: Path, data: Path, after_launch: bool = False) -> dict[
             if rel in after and not rel.endswith(".pg"):
                 problems.append(f"{rel}: still in orgs/ (the cutover should have moved it to pre-postgres/orgs/)")
             target_rel = "pre-postgres/orgs/" + rest
+        elif top == "deleted" and "/" not in rest and is_trash_org_file(rest):
+            trash_files.append(rest)
+            if rel in after:
+                problems.append(f"{rel}: still in deleted/ (the cutover should have set it aside in "
+                                "pre-postgres/deleted/)")
+            target_rel = "pre-postgres/deleted/" + rest
         else:
             target_rel = rel
         # after a launch, only the moved org files and attachments must be untouched
@@ -145,6 +162,7 @@ def compare_files(backup: Path, data: Path, after_launch: bool = False) -> dict[
         elif top != "orgs":
             categories["other"] += 1
     expected_targets = {("pre-postgres/orgs/" + n) for n in org_files}
+    expected_targets |= {("pre-postgres/deleted/" + n) for n in trash_files}
     unexpected: list[str] = []
     markers: list[str] = []
     for rel in sorted(after):
@@ -160,7 +178,7 @@ def compare_files(backup: Path, data: Path, after_launch: bool = False) -> dict[
     new = [f"{rel}: new file that the cutover does not write" for rel in unexpected]
     (changed if after_launch else problems).extend(new)
     return {"backup_files": len(before), "data_files": len(after), "compared": checked,
-            "org_files_moved": sorted(org_files), "markers": sorted(markers),
+            "org_files_moved": sorted(org_files), "trash_set_aside": sorted(trash_files), "markers": sorted(markers),
             "compared_by_kind": categories, "changed_since_backup_count": len(changed),
             "changed_since_backup": changed[:200], "problems": problems}
 
@@ -551,6 +569,7 @@ def main(argv: list[str] | None = None) -> int:
     a.out.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     f = report["files"]
     print(f"files: {f['backup_files']} in the backup, {len(f['org_files_moved'])} org file(s) moved, "
+          f"{len(f['trash_set_aside'])} trash file(s) set aside, "
           f"{len(f['markers'])} marker(s); compared by kind: {f['compared_by_kind']}; "
           f"changed since the backup (allowed only with --after-launch): {f['changed_since_backup_count']}")
     for slug, org in report["database"]["orgs"].items():

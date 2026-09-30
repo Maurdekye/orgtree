@@ -101,6 +101,49 @@ class FileWalk(unittest.TestCase):
         (self.data / "scratch/o/a/uploads/p.png").unlink()
         self.assertEqual(len(cv.compare_files(self.backup, self.data, True)["problems"]), 1)
 
+    def trash_set_aside(self) -> None:
+        """A backup whose trash holds a deleted org, and the cutover's set-aside
+        (user decision 2026-09-30): moved unchanged to pre-postgres/deleted/."""
+        (self.backup / "deleted").mkdir()
+        (self.data / "deleted").mkdir()
+        (self.data / "pre-postgres" / "deleted").mkdir()
+        for name, text in (("old-20260901T120000.db", "trashed"), ("old-20260901T120000.db-wal", "wal")):
+            (self.backup / "deleted" / name).write_text(text)
+            (self.data / "pre-postgres" / "deleted" / name).write_text(text)
+        for folder in (self.backup, self.data):
+            (folder / "deleted" / "notes.txt").write_text("not an org file, stays")
+
+    def test_a_trash_set_aside_unchanged_passes(self) -> None:
+        self.trash_set_aside()
+        for after in (False, True):
+            out = cv.compare_files(self.backup, self.data, after)
+            self.assertEqual(out["problems"], [], after)
+            self.assertEqual(out["trash_set_aside"], ["old-20260901T120000.db", "old-20260901T120000.db-wal"])
+            self.assertEqual(out["compared_by_kind"]["trash"], 3)
+
+    def test_a_changed_missing_or_unmoved_trash_file_fails_in_both_modes(self) -> None:
+        cases = {"changed": lambda: (self.data / "pre-postgres/deleted/old-20260901T120000.db").write_text("X"),
+                 "missing": lambda: (self.data / "pre-postgres/deleted/old-20260901T120000.db-wal").unlink(),
+                 "left in the trash": lambda: (self.data / "deleted/old-20260901T120000.db").write_text("trashed")}
+        for label, damage in cases.items():
+            self.tearDown()
+            self.setUp()
+            self.trash_set_aside()
+            damage()
+            for after in (False, True):
+                problems = cv.compare_files(self.backup, self.data, after)["problems"]
+                self.assertEqual(len(problems), 1, (label, after, problems))
+
+    def test_the_trash_shapes_are_the_engines(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "_pp_for_verify", Path(__file__).resolve().parents[1] / "engine" / "pg_process.py")
+        pp = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pp)
+        self.assertEqual(set(cv.TRASH_ORG_SUFFIXES), set(pp._SOURCE_SUFFIXES))
+        for name in ("a-1.db", "a-1.db-wal", "a-1.db-shm", "a-1.json", "a-1.db.migrating",
+                     "a-1.json.premigration", "a-1.json.premigration.2", "notes.txt", "a-1.pg", "a-1.dbx"):
+            self.assertEqual(cv.is_trash_org_file(name), pp._is_source(name), name)
+
 
 class OrgRows(unittest.TestCase):
     ITEMS = [item("b"), item("a"), item("c", "third")]

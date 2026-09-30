@@ -638,6 +638,109 @@ class Cutover(Base):
         self.assertEqual(pp.PRODUCT_FILE, pgimport.PRODUCT_BINDING)
 
 
+class TrashSetAside(Base):
+    """User decision 2026-09-30: orgs in the 2.x trash (``deleted/``) no
+    longer stop the switch. They are not converted; the cutover moves them,
+    bytes untouched, to ``pre-postgres/deleted`` and lists them in its record."""
+
+    sink, ready = Cutover.sink, Cutover.ready
+
+    TRASH = {"acme-20260901T120000.db": b"trashed acme", "acme-20260901T120000.db-wal": b"acme wal",
+             "gamma-20260902T080000-1.json": b'{"trashed": "gamma"}',
+             "gamma-20260902T080000-1.json.premigration": b"gamma premigration"}
+
+    def trash(self) -> Path:
+        folder = self.root / "deleted"
+        folder.mkdir(exist_ok=True)
+        for name, data in self.TRASH.items():
+            (folder / name).write_bytes(data)
+        (folder / "notes.txt").write_bytes(b"not an org file")
+        return folder
+
+    def test_the_trash_is_set_aside_unchanged_and_listed(self) -> None:
+        before, dry, full = self.ready()
+        trash = tree_digest(self.trash())
+        record = pgimport.write_cutover(self.root, dry, full)
+        # converted orgs: exactly as strict as before
+        self.assertEqual(sorted(record["orgs"]), ["acme", "beta"])
+        self.assertEqual(tree_digest(self.root / pgimport.ROLLBACK_DIR), before)
+        # every trashed org file moved byte for byte; anything else stays
+        aside = self.root / pgimport.TRASH_ROLLBACK_DIR
+        self.assertEqual(tree_digest(aside), {k: v for k, v in trash.items() if k != "notes.txt"})
+        self.assertEqual(sorted(p.name for p in (self.root / "deleted").iterdir()), ["notes.txt"])
+        for name, data in self.TRASH.items():
+            self.assertEqual((aside / name).read_bytes(), data)
+        # the record (also the importer's --out report) lists them, per org
+        on_disk = json.loads((self.root / pgimport.CUTOVER_FILE).read_text(encoding="utf-8"))
+        listed = on_disk["set_aside"]
+        self.assertEqual(listed["to"], "pre-postgres/deleted")
+        self.assertEqual(listed["files"], 4)
+        self.assertEqual([(o["slug"], o["deleted"]) for o in listed["orgs"]],
+                         [("acme", "20260901T120000"), ("gamma", "20260902T080000")])
+        files = {f["name"]: f for o in listed["orgs"] for f in o["files"]}
+        self.assertEqual(sorted(files), sorted(self.TRASH))
+        for name, data in self.TRASH.items():
+            self.assertEqual((files[name]["bytes"], files[name]["sha256"]),
+                             (len(data), hashlib.sha256(data).hexdigest()))
+        self.assertIn("pre-postgres/deleted back into deleted/", on_disk["rollback"])
+        self.assertEqual(sorted(m for m in record["moved"] if m.startswith("deleted/")),
+                         sorted("deleted/" + n for n in self.TRASH))
+        # the set-aside orgs are neither converted nor in the new trash
+        self.assertNotIn("gamma", record["orgs"])
+        self.assertEqual(pgimport._pg_process().trash_sources(self.root), [])
+
+    def test_no_trash_records_an_empty_list_and_the_old_rollback_text(self) -> None:
+        _, dry, full = self.ready()
+        record = pgimport.write_cutover(self.root, dry, full)
+        self.assertEqual((record["set_aside"]["orgs"], record["set_aside"]["files"]), ([], 0))
+        self.assertNotIn("deleted", record["rollback"])
+        self.assertFalse((self.root / pgimport.TRASH_ROLLBACK_DIR).exists())
+
+    def test_a_taken_rollback_name_refuses_before_the_record(self) -> None:
+        # e.g. a rerun after a rollback that copied the trash back instead of moving it
+        _, dry, full = self.ready()
+        trash = tree_digest(self.trash())
+        aside = self.root / pgimport.TRASH_ROLLBACK_DIR
+        aside.mkdir(parents=True)
+        (aside / "acme-20260901T120000.db").write_bytes(b"older copy")
+        with self.assertRaisesRegex(ImportRefused, "already holds \\['acme-20260901T120000.db'\\]"):
+            pgimport.write_cutover(self.root, dry, full)
+        self.assertFalse((self.root / pgimport.CUTOVER_FILE).exists(), "nothing is switched")
+        self.assertEqual(tree_digest(self.root / "deleted"), trash)
+        self.assertEqual((aside / "acme-20260901T120000.db").read_bytes(), b"older copy")
+        self.assertTrue((self.orgs() / "acme.db").exists())
+
+    def test_an_interrupted_set_aside_is_finished_only_for_listed_files(self) -> None:
+        _, dry, full = self.ready()
+        trash = tree_digest(self.trash())
+        pgimport.write_cutover(self.root, dry, full)
+        aside = self.root / pgimport.TRASH_ROLLBACK_DIR
+        # as if the moves had stopped after the record: one file back in the trash
+        os.rename(aside / "acme-20260901T120000.db-wal", self.root / "deleted" / "acme-20260901T120000.db-wal")
+        # and a trash file the record does not list (it was not there at the switch)
+        (self.root / "deleted" / "late-20260903T000000.db").write_bytes(b"not listed")
+        self.assertEqual(pgimport.complete_cutover(self.root), ["deleted/acme-20260901T120000.db-wal"])
+        self.assertEqual(tree_digest(aside), {k: v for k, v in trash.items() if k != "notes.txt"})
+        self.assertTrue((self.root / "deleted" / "late-20260903T000000.db").exists())
+        self.assertEqual(pgimport.complete_cutover(self.root), [], "idempotent")
+        # never overwrites a set-aside copy
+        (self.root / "deleted" / "acme-20260901T120000.db").write_bytes(b"different")
+        with self.assertRaisesRegex(ImportRefused, "refusing to overwrite a rollback copy"):
+            pgimport.complete_cutover(self.root)
+        self.assertEqual((aside / "acme-20260901T120000.db").read_bytes(), b"trashed acme")
+
+    def test_only_trash_orgs_still_switch(self) -> None:
+        # a root whose every org is in the trash: nothing to convert, the trash is set aside
+        (self.root / pgimport.PROTOTYPE_MARKER).write_text("{}")
+        trash = tree_digest(self.trash())
+        dry = pgimport.dry_run(self.root)
+        record = pgimport.write_cutover(self.root, dry, pgimport.import_root(self.root, self.sink()))
+        self.assertEqual(record["orgs"], {})
+        self.assertEqual(len(record["set_aside"]["orgs"]), 2)
+        self.assertEqual(tree_digest(self.root / pgimport.TRASH_ROLLBACK_DIR),
+                         {k: v for k, v in trash.items() if k != "notes.txt"})
+
+
 class ProgressSink(FakeSink):
     """A sink that accepts the copy-progress callback and reports every row."""
 

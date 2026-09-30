@@ -602,8 +602,17 @@ def write_convert_status(root: Path, state: str, phase: str, logdir: Path | None
         pass
 
 
-def _trash_sources(root: Path) -> list[str]:
-    folder = root / "deleted"
+#: The 2.x org trash (``store.delete_org`` renames an org's files flat into it).
+TRASH_DIR = "deleted"
+#: Where the cutover sets the trashed 2.x orgs aside, unconverted and with
+#: their bytes untouched, beside ``pre-postgres/orgs`` (user decision
+#: 2026-09-30: a non-empty trash no longer stops the first launch).
+TRASH_ROLLBACK_DIR = "pre-postgres/deleted"
+
+
+def trash_sources(root: Path) -> list[str]:
+    """The names of the old-format org files in the 2.x trash, sorted."""
+    folder = root / TRASH_DIR
     return sorted(p.name for p in folder.iterdir() if p.is_file() and _is_source(p.name)) \
         if folder.is_dir() else []
 
@@ -682,13 +691,10 @@ def convert_existing_root(root: Path, env: Mapping[str, str], progress: Progress
 
 
 def _convert(root: Path, env: Mapping[str, str], step: Progress, state: dict[str, Path | None]) -> dict[str, Any]:
-    trash = _trash_sources(root)
-    if trash:
-        # checked before anything is written: this refusal leaves the root as it was
-        raise ConversionFailed(_convert_message(
-            root, f"the trash holds {len(trash)} file(s) of deleted organizations in the old format "
-                  f"({', '.join(trash[:5])}), which the conversion does not carry over. Open Orgtree 2.1.12, "
-                  "restore or permanently delete them, then start this version again.", None))
+    # Orgs in the 2.x trash are not converted: the cutover moves them, bytes
+    # untouched, to pre-postgres/deleted with the other rollback files and
+    # lists them in its record (TRASH_ROLLBACK_DIR). A root whose only orgs
+    # are in the trash may have no orgs/ folder, which the importer needs.
     _refuse_overlap(root, product_deny_locations(env))
     custodian = _executable(env, CUSTODIAN_ENV)
     if not IMPORTER.is_file():
@@ -696,6 +702,7 @@ def _convert(root: Path, env: Mapping[str, str], step: Progress, state: dict[str
     logdir = root / CONVERT_DIR / f"{time.strftime('%Y%m%dT%H%M%S')}-{os.getpid()}"
     logdir.mkdir(parents=True, exist_ok=True)
     state["logdir"] = logdir
+    (root / "orgs").mkdir(exist_ok=True)
     child = {k: v for k, v in env.items() if k not in ("ORGTREE_V2_TOKEN", CONNINFO_ENV, STORE_ENV)}
     child.update({"ORGTREE_DATA": str(root), "PYTHONUNBUFFERED": "1"})
     step(f"{CONVERT_PHASE}: checking your data")
@@ -724,7 +731,9 @@ def _convert(root: Path, env: Mapping[str, str], step: Progress, state: dict[str
                                                 "the importer finished without switching to the new database.",
                                                 logdir))
     step(f"{CONVERT_PHASE}: switched to the new database")
-    return {"logdir": str(logdir), "orgs": sorted(record.get("orgs", {}))}
+    set_aside = record.get("set_aside") or {}
+    return {"logdir": str(logdir), "orgs": sorted(record.get("orgs", {})),
+            "set_aside": sorted(o.get("slug", "") for o in set_aside.get("orgs", []))}
 
 
 def finish_interrupted_conversion(root: Path, env: Mapping[str, str]) -> list[str]:
@@ -739,14 +748,17 @@ def finish_interrupted_conversion(root: Path, env: Mapping[str, str]) -> list[st
     record = read_cutover(root)
     if record is None or record.get("backend") != "postgres" or record.get("via") != CONVERT_VIA:
         return []
-    orgs, dest = root / "orgs", root / "pre-postgres" / "orgs"
-    left = [p for p in sorted(orgs.iterdir(), key=lambda p: p.name)
+    orgs = root / "orgs"
+    left = [(p, root / "pre-postgres" / "orgs") for p in sorted(orgs.iterdir(), key=lambda p: p.name)
             if p.is_file() and not p.name.endswith(".pg") and not _MARKER_TMP.fullmatch(p.name)] \
         if orgs.is_dir() else []
+    # the trashed orgs this record set aside (a record without the list,
+    # written before 2026-09-30, had refused a non-empty trash)
+    listed = {f.get("name") for o in (record.get("set_aside") or {}).get("orgs", []) for f in o.get("files", [])}
+    left += [(root / TRASH_DIR / name, root / TRASH_ROLLBACK_DIR) for name in trash_sources(root) if name in listed]
     moved: list[str] = []
-    if left:
+    for p, dest in left:
         dest.mkdir(parents=True, exist_ok=True)
-    for p in left:
         target = dest / p.name
         if target.exists():
             reason = (f"finishing the switch: {target} already exists, and a rollback copy is never "
@@ -758,7 +770,7 @@ def finish_interrupted_conversion(root: Path, env: Mapping[str, str]) -> list[st
         except OSError as exc:
             # e.g. an antivirus scan or a backup tool holding the file (review N1):
             # the user must see why, not an engine that silently did not start
-            reason = (f"finishing the switch: moving {p.name} to pre-postgres\\orgs failed ({exc}). Close any "
+            reason = (f"finishing the switch: moving {p.name} to {dest.relative_to(root)} failed ({exc}). Close any "
                       "program that may be holding it, such as a virus scan or a backup tool, then start "
                       "Orgtree again; it finishes the move by itself.")
             write_convert_status(root, "failed", f"{CONVERT_PHASE}: failed", None, _convert_message(root, reason, None))

@@ -767,6 +767,31 @@ PRODUCT_BINDING = "orgtree-product-root.json"
 #: Where the cutover moves the SQLite/JSON files (bytes untouched): PG-0's
 #: postgres backend refuses to start while orgs/ still holds any of them.
 ROLLBACK_DIR = Path("pre-postgres") / "orgs"
+#: Where the cutover sets the 2.x trash's org files aside, unconverted and
+#: bytes untouched (user decision 2026-09-30: a trashed org no longer stops
+#: the switch; it is kept for a rollback and is not in the new trash).
+TRASH_DIR = Path("deleted")
+TRASH_ROLLBACK_DIR = Path("pre-postgres") / "deleted"
+#: ``store.delete_org``'s trash stem: ``<slug>-<YYYYmmddTHHMMSS>[-<n>]``.
+_TRASH_STEM = re.compile(r"(?P<slug>.+)-(?P<deleted>\d{8}T\d{6})(?:-\d+)?")
+
+
+def trash_set_aside(root: Path) -> dict[str, Any]:
+    """What the cutover will set aside: every old-format org file in the 2.x
+    trash, grouped by trash stem (one deleted org: its database and any
+    sidecar or JSON copy), with size and SHA-256. Reads only."""
+    orgs: dict[str, dict[str, Any]] = {}
+    for name in _pg_process().trash_sources(root):
+        p = root / TRASH_DIR / name
+        stem = name.partition(".")[0]
+        m = _TRASH_STEM.fullmatch(stem)
+        org = orgs.setdefault(stem, {"slug": m["slug"] if m else stem, "deleted": m["deleted"] if m else None,
+                                     "files": []})
+        org["files"].append({"name": name, "bytes": p.stat().st_size, "sha256": _file_sha256(p)})
+    return {"to": TRASH_ROLLBACK_DIR.as_posix(), "orgs": [orgs[k] for k in sorted(orgs)],
+            "files": sum(len(o["files"]) for o in orgs.values()),
+            "why": "deleted organizations in the old format are not converted; they are kept here unchanged "
+                   "for a rollback and are not in the new version's trash"}
 
 
 def write_cutover(root: Path, dry: Mapping[str, Any], imported: Mapping[str, Any],
@@ -799,12 +824,22 @@ def write_cutover(root: Path, dry: Mapping[str, Any], imported: Mapping[str, Any
     if not ((root / PROTOTYPE_MARKER).is_file() or (root / PRODUCT_BINDING).is_file()):
         raise ImportRefused(f"cutover refused: {root} has neither a prototype marker nor the product binding "
                             f"({PRODUCT_BINDING}); run `pgimport prepare` first")
+    set_aside = trash_set_aside(root)
+    taken = [f["name"] for o in set_aside["orgs"] for f in o["files"]
+             if (root / TRASH_ROLLBACK_DIR / f["name"]).exists()]
+    if taken:
+        # before the record: nothing is switched, and a rollback copy is never overwritten
+        raise ImportRefused(f"cutover refused: {TRASH_ROLLBACK_DIR.as_posix()} already holds {taken[:5]}, "
+                            f"which are also in {TRASH_DIR.as_posix()}/; a rollback copy is never overwritten")
+    rollback = f"move the files in {ROLLBACK_DIR.as_posix()} back into orgs/"
+    if set_aside["orgs"]:
+        rollback += f" and those in {TRASH_ROLLBACK_DIR.as_posix()} back into {TRASH_DIR.as_posix()}/"
     record = {"schema": CUTOVER_SCHEMA, "backend": "postgres",
               "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
               "orgs": {s: v["manifest_sha256"] for s, v in sorted(imported["orgs"].items())},
               "moved_to": ROLLBACK_DIR.as_posix(),
-              "rollback": f"move the files in {ROLLBACK_DIR.as_posix()} back into orgs/ and delete this file; "
-                          "writes made after the switch are lost"}
+              "set_aside": set_aside,
+              "rollback": rollback + " and delete this file; writes made after the switch are lost"}
     if via:
         # who switched (the engine's first-launch conversion finishes an
         # interrupted file move by itself only for its own record)
@@ -819,21 +854,29 @@ def write_cutover(root: Path, dry: Mapping[str, Any], imported: Mapping[str, Any
 
 def complete_cutover(root: Path) -> list[str]:
     """Move every file in orgs/ except PG-0's markers into
-    ``pre-postgres/orgs`` (a rename: the bytes are not touched). Idempotent;
-    refuses to overwrite a file already there. Only after the record exists."""
+    ``pre-postgres/orgs``, and the trash files the record set aside into
+    ``pre-postgres/deleted`` (renames: the bytes are not touched).
+    Idempotent; refuses to overwrite a file already there. Only after the
+    record exists."""
     if not cut_over(root):
         raise ImportRefused(f"{root} has no cutover record choosing postgres; nothing is moved without one")
     orgs, dest = root / "orgs", root / ROLLBACK_DIR
     dest.mkdir(parents=True, exist_ok=True)
+    moves = [(p, dest) for p in (sorted(orgs.iterdir()) if orgs.is_dir() else [])
+             if not p.is_dir() and not p.name.endswith(MARKER_EXT)]
+    # only what the record lists: a trash file it does not name stays put
+    record = json.loads((root / CUTOVER_FILE).read_text(encoding="utf-8"))
+    listed = {f.get("name") for o in (record.get("set_aside") or {}).get("orgs", []) for f in o.get("files", [])}
+    moves += [(root / TRASH_DIR / n, root / TRASH_ROLLBACK_DIR)
+              for n in _pg_process().trash_sources(root) if n in listed]
     moved: list[str] = []
-    for p in sorted(orgs.iterdir()) if orgs.is_dir() else []:
-        if p.is_dir() or p.name.endswith(MARKER_EXT):
-            continue
-        target = dest / p.name
+    for p, to in moves:
+        to.mkdir(parents=True, exist_ok=True)
+        target = to / p.name
         if target.exists():
             raise ImportRefused(f"{target} already exists; refusing to overwrite a rollback copy with {p}")
         os.rename(p, target)
-        moved.append(p.name)
+        moved.append(p.relative_to(root).as_posix() if to != dest else p.name)
     return moved
 
 
