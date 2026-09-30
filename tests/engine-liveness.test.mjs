@@ -113,7 +113,7 @@ function hungEngine({ released = true, stopped = true, root = fs.mkdtempSync(pat
     const watch = new LivenessWatch(() => clock.now)
     for (let i = 0; i < 3; i++) watch.record('timeout')
     clock.now = LIVENESS.deadlineMs
-    target.liveness = { child: armed, timer: setInterval(() => {}, 1e9), watch }
+    target.liveness = { child: armed, timer: setInterval(() => {}, 1e9).unref(), watch }
     return watch
   }
   const watch = arm(engine, child)
