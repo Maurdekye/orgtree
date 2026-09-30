@@ -1,5 +1,5 @@
 // Shared by the private packager and every public release entry point.
-export const PRIVATE_ALPHA_VERSION = '3.0.0-alpha.7'
+export const PRIVATE_ALPHA_VERSION = '3.0.0-alpha.8'
 export const PRIVATE_ALPHA_CHANNEL = 'private-alpha'
 // The first v3 build REPLACES 2.1.12 (user decision 2026-09-28): it installs
 // over it as the normal app. These are 2.1.12's own values (tag v2.1.12,
