@@ -449,14 +449,14 @@ test('§8 the Pin button pins the desk and closes the modal; a pinned agent gets
       assert.ok(modal(), 'picking the entry did not open the temporary desk')
     }
     await openTemporarily()
-    assert.equal(v.el.querySelector('.pinwin'), null, 'pinned before the click')
+    assert.equal(Boolean(v.el.querySelector('.pinwin')), false, 'pinned before the click')
     const pin = modal()!.querySelector<HTMLButtonElement>('.tempdesk-head .tempdesk-pin')
     assert.ok(pin, 'the temporary desk has no Pin button')
     assert.ok(pin!.classList.contains('pinwin-unpin'),
       'the Pin button does not use the pinned-desk button style')
     await inAct(() => { pin!.click() })
     await flush(2); await advance(100, 20); await flush(2)
-    assert.equal(modal(), null, 'the temporary modal did not close')
+    assert.equal(Boolean(modal()), false, 'the temporary modal did not close')
     const win = document.querySelector('.pinwin') as HTMLElement | null
     assert.ok(win, 'no pinned desk window appeared')
     assert.equal(win!.querySelector('.pinwin-title .pinwin-name')?.textContent?.includes('worker'), true,
@@ -465,8 +465,10 @@ test('§8 the Pin button pins the desk and closes the modal; a pinned agent gets
       'the pinned window holds no desk')
     assert.ok(!/desk is open elsewhere/.test(win!.textContent ?? ''),
       'the pinned window shows the placeholder — the desk stayed borrowed')
+    // ⚠ BOOLEANS, NOT ELEMENTS, IN THESE ASSERTS: a failing assert.equal on
+    // a jsdom element makes node's reporter run out of memory.
     // opened temporarily again, an already-pinned agent is offered no Pin
     await openTemporarily()
-    assert.equal(modal()!.querySelector('.tempdesk-pin'), null,
+    assert.equal(Boolean(modal()!.querySelector('.tempdesk-pin')), false,
       'an already-pinned agent still shows a Pin button')
   })
