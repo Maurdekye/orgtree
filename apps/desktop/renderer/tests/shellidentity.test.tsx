@@ -276,6 +276,9 @@ test('a pass still in flight when the duty MOVES finishes without writing anythi
 
 test('the owner mirrors the aggregate and a follower adopts it without polling', async () => {
   localStorage.clear(); resetPending()
+  // the whole empty aggregate, including the rows the dot and the Attention
+  // badge read (waiting: 7d1f482, flagged) - not just the four counts it had
+  const EMPTY_AGGREGATE = { mail: 0, docket: 0, ids: [], items: [], waiting: [], flagged: [] }
   const stopOwner = startPendingMirror(true)
   publishPending({ mail: 2, docket: 1, ids: ['["a","1"]', '["b","2"]'],
     items: [{ org: 'a', id: '1' }, { org: 'b', id: '2' }] })
@@ -285,7 +288,7 @@ test('the owner mirrors the aggregate and a follower adopts it without polling',
 
   // a second window: nothing of its own, only what the owner left
   resetPending()
-  assert.deepEqual(pendingAttention(), { mail: 0, docket: 0, ids: [], items: [] })
+  assert.deepEqual(pendingAttention(), EMPTY_AGGREGATE)
   const stopFollower = startPendingMirror(false)
   assert.equal(pendingAttention().mail, 2, 'the follower seeds from the last write')
   assert.equal(pendingAttention().docket, 1)
@@ -293,12 +296,12 @@ test('the owner mirrors the aggregate and a follower adopts it without polling',
   localStorage.setItem('orgtree-pending-attention-v1',
     JSON.stringify({ mail: 0, docket: 0, ids: [], items: [] }))
   window.dispatchEvent(new (window as unknown as { StorageEvent: typeof StorageEvent }).StorageEvent('storage', { key: 'orgtree-pending-attention-v1' }))
-  assert.deepEqual(pendingAttention(), { mail: 0, docket: 0, ids: [], items: [] },
+  assert.deepEqual(pendingAttention(), EMPTY_AGGREGATE,
     'clearing in the owner clears the dot everywhere')
 
   localStorage.setItem('orgtree-pending-attention-v1', '{ not json')
   window.dispatchEvent(new (window as unknown as { StorageEvent: typeof StorageEvent }).StorageEvent('storage', { key: 'orgtree-pending-attention-v1' }))
-  assert.deepEqual(pendingAttention(), { mail: 0, docket: 0, ids: [], items: [] },
+  assert.deepEqual(pendingAttention(), EMPTY_AGGREGATE,
     'a corrupt mirror is empty, never a thrown listener')
   stopFollower()
   resetPending()

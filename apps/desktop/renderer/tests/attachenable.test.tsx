@@ -35,6 +35,7 @@
 import './harness'
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
+import { resetLocalReads } from '../src/mailread'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -42,6 +43,10 @@ import { InboxPanel } from '../src/App'
 import { MailReplyBox } from '../src/canvas/mail'
 import { resetConvos } from '../src/convo'
 import type { TreePayload } from '../src/types'
+
+// a read made in one test (closing the inbox reads the open mail) is not
+// still "read here" in the next: mailread.ts is one store per window
+test.beforeEach(() => resetLocalReads())
 
 declare const __SRC_DIR__: string
 
