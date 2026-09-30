@@ -5480,6 +5480,9 @@ svg.MuiSvgIcon-root {
   border: 1px solid var(--line); border-radius: 6px; background: var(--input);
   padding: 6px 8px;
 }
+/* the last send's outcome under the box: the box empties on the click */
+.mail-reply-state { font-size: 11px; margin-top: 3px; }
+.mail-reply-state.failed { color: var(--danger-ink); }
 .mail-reply:focus-within { border-color: var(--accent); }
 /* armed for a passive notice — the same edge the desk composer wears, and for
    the same reason: the notice flair's STYLE from the shared

@@ -868,7 +868,12 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   notice?: boolean
 }) {
   const [draft, setDraft] = useState('')
-  const [busy, setBusy] = useState(false)
+  // what happened to the last send, said in the box: `sending` from the click,
+  // `sent` once the server accepted it, `failed` (with the reason) when it
+  // refused — the text is back in the box by then
+  const [sendState, setSendState] = useState<
+    { state: 'sending' | 'sent' } | { state: 'failed'; error: string } | null>(null)
+  const sendSeq = useRef(0)
   const [attached, setAttached] = useState<{ name: string; path: string; bytes: number }[]>([])
   // PER-COMPOSER, never shared and never persisted (user 2026-09-17): opening
   // a ticket reply must not inherit whatever the mail composer was last set
@@ -876,7 +881,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   // singleton, which is global by design because the desk has one composer.
   const [noticeArmed, setNoticeArmed] = useState(false)
   const fileRef = useRef<HTMLInputElement | null>(null)
-  const attachable = Boolean(slug && target) && !busy && !sendDisabled
+  const attachable = Boolean(slug && target) && !sendDisabled
   const attach = (file: File) => {
     if (!slug || !target) return
     uploadFile(slug, target, file)
@@ -885,7 +890,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   }
   const send = () => {
     const t = draft.trim()
-    if ((!t && !attached.length) || busy || sendDisabled) return
+    if ((!t && !attached.length) || sendDisabled) return
     const paths = attached.map((a) => a.path)
     // DISARMS ON SEND ONLY — not on Escape, not on clearing the text, not on
     // switching recipient. Same rule as the desk composer (b38d9d9 §3), and
@@ -893,15 +898,29 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
     // not leave a live notice armed behind a toast the user already read.
     const armed = noticeArmed && notice
     if (noticeArmed) setNoticeArmed(false)
+    // THE BOX EMPTIES ON THE CLICK (docket v3-sending-a-reply-to-a-mail-
+    // takes-about-half-a, 2026-09-30): it used to stay locked on the typed
+    // text until the server answered, and the inbox's answer includes marking
+    // the replied-to mail read, so a reply took about half a second to
+    // register. Same principle as an answered card (point 31). A refused send
+    // puts the text and attachments back, so nothing typed is lost; if the
+    // user has typed more since, the refused text goes first.
+    const sentDraft = draft
+    const sentAttached = attached
+    setDraft(''); setAttached([])
     const res = onSend(t || '(file attached)', paths.length ? paths : undefined, armed)
     if (res && typeof (res as Promise<unknown>).then === 'function') {
-      setBusy(true)
+      const mine = ++sendSeq.current
+      setSendState({ state: 'sending' })
       Promise.resolve(res)
-        .then(() => { setDraft(''); setAttached([]) })
-        .catch(() => {})
-        .finally(() => setBusy(false))
-    } else {
-      setDraft(''); setAttached([])
+        .then(() => { if (sendSeq.current === mine) setSendState({ state: 'sent' }) })
+        .catch((e: unknown) => {
+          setDraft((cur) => (cur.trim() ? sentDraft + '\n\n' + cur : sentDraft))
+          setAttached((cur) => [...sentAttached, ...cur])
+          if (sendSeq.current === mine) {
+            setSendState({ state: 'failed', error: e instanceof Error ? e.message : String(e) })
+          }
+        })
     }
   }
   return (
@@ -936,10 +955,10 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
                (b38d9d9 §4): the server decides whether a notice is possible
                and silently sends ordinary mail when it is not, so greying the
                button would be this renderer guessing at a rule it does not
-               own. It follows `sendDisabled`/`busy` only, like the draft. */
+               own. It follows `sendDisabled` only, like the draft. */
             <button className={'cc-notice-toggle' + (noticeArmed ? ' armed' : '')}
               type="button"
-              disabled={busy || sendDisabled}
+              disabled={sendDisabled}
               aria-label={noticeArmed ? 'Notice-send armed: this reply arrives as a passive notice' : 'Notice-send: send this reply as a passive notice'}
               title={noticeArmed ? 'Notice-send armed: this reply will arrive as a passive notice without waking the recipient (Alt+N)' : 'Send this reply as a passive notice without waking the recipient (Alt+N)'}
               onClick={() => setNoticeArmed((v) => !v)}>
@@ -959,18 +978,17 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
         <textarea rows={2} value={draft}
           placeholder={placeholder ?? (target ? `reply to ${target}…` : 'reply…')}
           onChange={(e) => setDraft(e.target.value)}
-          disabled={busy}
           onKeyDown={(e) => {
             // Alt+N, the desk composer's own shortcut. Checked BEFORE Enter so
             // the two can never race, and it returns rather than falling
             // through — Alt+N is not a send.
             if (notice && e.altKey && (e.key === 'n' || e.key === 'N')) {
               e.preventDefault()
-              if (!busy && !sendDisabled) setNoticeArmed((v) => !v)
+              if (!sendDisabled) setNoticeArmed((v) => !v)
               return
             }
             if (e.key === 'Enter' && !e.shiftKey && (draft.trim() || attached.length)
-                && !isMobile && !busy && !sendDisabled) {
+                && !isMobile && !sendDisabled) {
               e.preventDefault()
               send()
             }
@@ -981,10 +999,19 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
             positional match silently pick the wrong element instead of
             failing loudly, which is worse */}
         <button className="mail-reply-send"
-          disabled={(!draft.trim() && !attached.length) || busy || sendDisabled} onClick={send}>
+          disabled={(!draft.trim() && !attached.length) || sendDisabled} onClick={send}>
           reply
         </button>
       </div>
+      {sendState && (
+        <div className={'mail-reply-state dim' + (sendState.state === 'failed' ? ' failed' : '')}
+          role={sendState.state === 'failed' ? 'alert' : 'status'}>
+          {sendState.state === 'failed'
+            ? `not sent: ${sendState.error} — your text is back in the box`
+            : `${sendState.state === 'sending' ? 'sending' : 'sent'}${target ? ` to ${target}` : ''}`
+              + (sendState.state === 'sending' ? '…' : '')}
+        </div>
+      )}
     </>
   )
 }

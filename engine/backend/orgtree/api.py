@@ -10062,14 +10062,10 @@ def user_inbox_read(slug: str, body: InboxRead) -> dict[str, Any]:
             (read if m.get("id") in ids else keep).append(m)
         if read:
             org.d["user_inbox"] = keep
-            log = org.d.setdefault("user_mail_log", [])
-            log.extend(read)
-            # the archive is CHRONOLOGICAL, never read-order. extend() appends
-            # in whatever order the user happened to CLICK, and the reader
-            # renders by list position — so without this sort a mail read
-            # second outranks one sent later (user bug 2026-08-02). `at` is
-            # ISO-8601 Z, so a string sort is a time sort.
-            log.sort(key=lambda m: m.get("at") or "")
+            # the archive is CHRONOLOGICAL, never read-order (user bug
+            # 2026-08-02), and filed WITHOUT a sort: sorting rewrote every row
+            # of the archive on each read (ledger.file_read_mail)
+            ledger_mod.file_read_mail(org.d.setdefault("user_mail_log", []), read)
     hub_changed(slug)
     return {"read": len(read)}
 
@@ -10354,8 +10350,8 @@ def user_inbox_clear(slug: str) -> dict[str, Any]:
     rather than deleting."""
     # PG-3d: the user inbox and its read archive only, not DOC_LOCK
     with _entry_ledger_422(mailtx.org_of(slug, **mailtx.READ_MARK_ROWS), 404) as org:
-        log = org.d.setdefault("user_mail_log", [])
-        log.extend(org.d.get("user_inbox", []))
+        ledger_mod.file_read_mail(org.d.setdefault("user_mail_log", []),
+                                  org.d.get("user_inbox", []))
 
         org.d["user_inbox"] = []
     hub_changed(slug)

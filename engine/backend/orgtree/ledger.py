@@ -253,6 +253,32 @@ EXTERN: Final = "@extern"  # the ORG INBOX: the org's single face to the outside
 ATTACHMENT_MAX: Final = 10
 
 
+def file_read_mail(log: list[Any], entries: Iterable[Mapping[str, Any]]) -> None:
+    """File `entries` into the user's read archive (`user_mail_log`), keeping
+    it CHRONOLOGICAL: the reader renders by list position, so a mail read
+    second must not outrank one sent later (user bug 2026-08-02). `at` is
+    ISO-8601 Z, so a string compare is a time compare.
+
+    ⚠ NOT `log.extend(...)` + `log.sort(...)`. On the row store the archive is
+    an `AppendLog`, and `sort()` gives up row identity: the save then DELETEs
+    and re-INSERTs EVERY row of the archive. Measured on a copy of the orgtree
+    org (PostgreSQL, 488 read mails): one mark-read cost ~990 statements and
+    125-175 ms of SQL, and it grew by one row per mail ever read (docket
+    v3-marking-a-mail-as-read-takes-about-half-a-sec). Here only the entries
+    NEWER than the one being filed are lifted off and put back (pop and
+    append are tracked incrementally), so the cost is the number of mails
+    read after it, not the size of the archive. On an archive that is already
+    in order the result is exactly what the stable sort gave: an entry lands
+    after every existing entry with the same `at`."""
+    for entry in sorted(entries, key=lambda m: m.get("at") or ""):
+        at = entry.get("at") or ""
+        later: list[Any] = []
+        while log and (log[-1].get("at") or "") > at:
+            later.append(log.pop())
+        log.append(entry)
+        log.extend(reversed(later))
+
+
 def undeliverable_note(raw: str) -> str:
     """Sanitise one not-delivered attachment note for the [MAIL] block.
 
@@ -2820,12 +2846,9 @@ class Org:
                 e["body"] = events.render_agent(ev)
             e["ev"] = events.encode_row_ev(ev, e)
         if entry.get("kind") == "notice":
-            log = self.d.setdefault("user_mail_log", [])
-            log.append(entry)
-            # the archive's own invariants, mirrored from the read endpoint:
-            # CHRONOLOGICAL (the reader renders by list position).
-            # `at` is ISO-8601 Z, so a string sort is a time sort.
-            log.sort(key=lambda m: m.get("at") or "")
+            # the archive's own invariant, shared with the read endpoint:
+            # CHRONOLOGICAL, filed without rewriting the archive
+            file_read_mail(self.d.setdefault("user_mail_log", []), [entry])
 
         else:
             self.d.setdefault("user_inbox", []).append(entry)
