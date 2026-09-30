@@ -71,6 +71,35 @@ def measure_primary(page, token):
     page.locator(selector).evaluate('b => b.remove()')
     return {'frame':value, 'fill':fill}
 
+def measure_states(page, token):
+    states = ['acct-secondary-btn acct-refresh-btn', 'acct-secondary-btn',
+      'cc-eff set', 'cc-eff inherited', 'cc-notice-toggle armed', 'badge queued',
+      'badge frozen', 'badge serving-account', 'badge retired-fold', 'badge audience-fold',
+      'ask-submit', 'cmp-chip on', 'adv-tab on', 'ask-tabbtn on', 'eye-tab on',
+      'eye-tab pinned', 'eye-auto on', 'onboard-theme selected', 'doc-badge',
+      'doc-chip', 'cc-attach', 'pin-placeholder-btn', 'maillink worklink']
+    values = []
+    for cls, scope, expected_token in [(s, '', token) for s in states] + [
+      ('cc-eff set', 'prov-openai', '--prov-openai'),
+      ('cc-notice-toggle armed', 'prov-google', '--prov-google')]:
+        page.mouse.move(0, 0)
+        page.evaluate('''arg => {
+          const wrap = document.createElement('div'); wrap.dataset.statesProbe = '';
+          wrap.className = arg.scope; wrap.style.cssText = 'position:fixed;bottom:8px;right:8px;z-index:999999';
+          const b = document.createElement('button'); b.className = arg.cls; b.textContent = arg.cls;
+          wrap.append(b); document.querySelector('.app').append(wrap);
+        }''', {'scope':scope, 'cls':cls})
+        selector = '[data-states-probe] > button'
+        idle = page.locator(selector).evaluate('b => getComputedStyle(b).borderTopColor')
+        page.locator(selector).hover()
+        frame = measure_border(page, selector, expected_token)
+        page.mouse.move(0, 0)
+        page.wait_for_function('''arg => getComputedStyle(document.querySelector(arg.selector)).borderTopColor === arg.idle''',
+          arg={'selector':selector, 'idle':idle})
+        page.locator('[data-states-probe]').evaluate('b => b.remove()')
+        values.append({'class':cls, 'scope':scope, 'idleBorder':idle, 'hover':frame})
+    return values
+
 try:
     with sync_playwright() as pw:
         browser = pw.chromium.launch(channel='msedge')
@@ -85,7 +114,8 @@ try:
         neutral = measure_border(page, header, '--line-hover')
         assert neutral['border'] == neutral['expected'], neutral
         neutral_primary = measure_primary(page, '--line-hover')
-        result['cases'].append({'agent':None,'header':neutral,'primary':neutral_primary})
+        neutral_states = measure_states(page, '--line-hover')
+        result['cases'].append({'agent':None,'header':neutral,'primary':neutral_primary,'states':neutral_states})
         page.goto(base + '?providers=1&view=attention')
         page.locator('.attn-agents-toggle').wait_for()
         for agent, provider in [('coordinator','claude'),('worker-a','openai'),('worker-g','google'),('worker-r','openrouter')]:
@@ -105,6 +135,7 @@ try:
             global_control = measure_border(page, header, f'--prov-{provider}')
             assert global_control['border'] == global_control['expected'], global_control
             primary = measure_primary(page, f'--prov-{provider}')
+            states = measure_states(page, f'--prov-{provider}')
             # Another agent's row retains its own provider in a body portal.
             other, other_provider = ('worker-a','openai') if agent != 'worker-a' else ('worker-g','google')
             if toggle.get_attribute('aria-expanded') != 'true':
@@ -120,7 +151,7 @@ try:
             }''', f'--prov-{other_provider}')
             assert menu['actual'] == menu['expected'], menu
             page.keyboard.press('Escape')
-            result['cases'].append({'agent':agent,'drawer':drawer,'focus':focus,'header':global_control,'primary':primary,'otherAgentMenu':menu})
+            result['cases'].append({'agent':agent,'drawer':drawer,'focus':focus,'header':global_control,'primary':primary,'states':states,'otherAgentMenu':menu})
 
         # Verify the same production danger selectors, without calling actions.
         page.evaluate('''() => { for (const cls of ['danger','cc-send stop','disk-del']) {

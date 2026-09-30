@@ -35,7 +35,7 @@ test('global button colour follows current agent, provider changes and neutral f
 test('ordinary icon/preset hover and focus use provider tokens, while deliberate danger rules remain red', () => {
   assert.match(css,/\.iconbtn:not\(\.danger\):hover\s*\{[^}]*border-color:\s*var\(--button-accent\)/)
   assert.match(css,/\.preset-card:hover\s*\{[^}]*border-color:\s*var\(--button-accent\)/)
-  assert.match(css,/button:not\(\.danger\):not\(\.stop\):not\(\.kill-btn\):not\(\.kill-release\):not\(\.disk-del\):not\(\.org-del\):not\(\.retirebtn\):not\(\.dismissbtn\):not\(\.chip-x\):not\(\.eye-tab-x\):focus-visible\s*\{[^}]*outline-color:\s*var\(--button-accent\)/)
+  assert.match(css,/button:not\(\.danger\)[^{]*:focus-visible\s*\{[^}]*outline-color:\s*var\(--button-accent\)/)
   for (const provider of ['claude','openai','google','openrouter']) {
     assert.ok(css.includes(`.prov-${provider} { --button-accent: var(--prov-${provider}); }`))
   }
@@ -57,4 +57,17 @@ test('primary and other ordinary accent hover frames follow provider or neutral 
     const rule = css.slice(start, css.indexOf('}', start))
     assert.ok(start >= 0 && rule.includes('var(--button-accent)'), selector)
   }
+})
+
+test('ordinary state and provider-settings hover frames outrank idle accent borders', () => {
+  const match = css.match(/(button:not\(\.danger\)[^{]*:not\(\.disk-alert button\):hover)\s*\{([^}]*)\}/)
+  assert.ok(match, 'ordinary hover rule excludes danger and native controls')
+  assert.ok(match[2]!.includes('border-color: var(--button-accent)'))
+  assert.ok(!/background:|(?:^|;)\s*color:/.test(match[2]!), 'override changes the frame only')
+  const specificity = (match[1]!.match(/\.[\w-]+/g) ?? []).length + 1
+  assert.ok(specificity > 3, 'hover wins against idle .cc-eff.set and Providers hover state')
+  assert.ok(css.includes('.cc-eff.set { color: var(--agent-accent-text, var(--accent)); border-color: var(--accent); }'),
+    'explicit effort idle frame remains unchanged')
+  const refresh = css.match(/\.acct-secondary-btn:hover:not\(:disabled\)\s*\{([^}]*)\}/)?.[1] ?? ''
+  assert.ok(refresh.includes('border-color: var(--button-accent)'), 'provider refresh uses focused agent colour')
 })

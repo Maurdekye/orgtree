@@ -4826,6 +4826,13 @@ button {
   cursor: pointer; transition: background .12s, border-color .12s;
 }
 button:hover { background: var(--panel-2); border-color: var(--line-hover); }
+/* Idle/state rules may appear later (set effort, armed notice, selected tabs).
+   Ordinary hover frames always follow the button's provider scope; leave their
+   idle frames, fills and text alone. Danger and native window controls retain
+   their existing feedback. Keep the same exclusions as the focus rule. */
+button:not(.danger):not(.stop):not(.kill-btn):not(.kill-release):not(.disk-del):not(.org-del):not(.retirebtn):not(.dismissbtn):not(.chip-x):not(.eye-tab-x):not(.window-control):not(.resume-all):not(.disk-alert button):hover {
+  border-color: var(--button-accent);
+}
 button.primary {
   background: var(--accent); border-color: var(--accent); color: var(--accent-ink);
   font-weight: 600;
@@ -4853,7 +4860,7 @@ input::placeholder, textarea::placeholder { color: #6e6e6e; }
 input:focus, select:focus, textarea:focus, button:focus-visible {
   outline: 1px solid var(--accent); outline-offset: -1px;
 }
-button:not(.danger):not(.stop):not(.kill-btn):not(.kill-release):not(.disk-del):not(.org-del):not(.retirebtn):not(.dismissbtn):not(.chip-x):not(.eye-tab-x):focus-visible {
+button:not(.danger):not(.stop):not(.kill-btn):not(.kill-release):not(.disk-del):not(.org-del):not(.retirebtn):not(.dismissbtn):not(.chip-x):not(.eye-tab-x):not(.window-control):not(.resume-all):not(.disk-alert button):focus-visible {
   outline-color: var(--button-accent);
 }
 
@@ -6699,7 +6706,7 @@ html.mobile .md table { display: block; overflow-x: auto; max-width: 100%; }
   font-weight: 500; }
 .acct-secondary-btn:hover:not(:disabled) {
   background: var(--hover-bg, rgba(0, 0, 0, 0.05));
-  border-color: var(--accent); }
+  border-color: var(--button-accent); }
 .acct-secondary-btn:disabled {
   opacity: 0.6; cursor: not-allowed; }
 
