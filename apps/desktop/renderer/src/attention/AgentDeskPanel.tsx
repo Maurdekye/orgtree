@@ -20,8 +20,10 @@
 // It used to roll out on hover and retract when the pointer left it — and the
 // desk's own "↑ you: …" jump chip, drawn ABOVE it, counted as leaving, so
 // reaching for a row made the list vanish. Now the list button opens it, and
-// only the button again, the dark scrim over the desk, or Escape close it.
-// Choosing an agent leaves it open, as a click-opened list always did. The
+// only the button again, the dark scrim over the desk, or Escape close it —
+// or the pointer moving well away from it (user 2026-09-30; see `inCloseZone`).
+// Choosing an agent leaves it open, as a click-opened list always did. Its
+// contents are the canvas's own Agents List (canvas/agenttray.tsx). The
 // desk is its own stacking context (attention.css), so nothing inside the desk
 // can draw over the drawer or the scrim. It is NEVER remembered (coordinator
 // ruling 2026-09-29): it starts shut on every load and whenever the panel comes
@@ -31,12 +33,14 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { ChevronLeftIcon, ViewListIcon } from '../icons'
 import type { ToastFn, TreePayload } from '../types'
-import { DRAFT, queuedSwitchTitle, TIER_LETTER, USER, useEsc } from '../canvas/shared'
+import { DRAFT, USER, useEsc } from '../canvas/shared'
 import type { CanvasNode, OpFn, Pt } from '../canvas/shared'
 import { DeskSlot } from '../canvas/deskhosts'
 import type { DeskChatProps } from '../canvas/desk'
 import { agentNavProps } from '../canvas/agentnav'
-import { AgentName } from '../canvas/identity'
+import { AgentTray } from '../canvas/agenttray'
+import type { TrayRow } from '../canvas/agenttray'
+import { useRefRoutes } from '../canvas/reflinks'
 import { focusByAttr } from './dom'
 import { setAttentionLayout, useAttentionLayout } from './mode'
 
@@ -84,7 +88,7 @@ export interface AgentDeskPanelProps {
   claim?: 'automatic'
 }
 
-interface ListRow { node: CanvasNode; depth: number }
+type ListRow = TrayRow
 
 export function agentRows(
   map: Map<string, CanvasNode>, posOf?: (id: string) => Pt | undefined,
@@ -118,7 +122,7 @@ export function agentRows(
   const walk = (id: string, depth: number) => {
     for (const c of [...(kids.get(id) ?? [])].sort(byPos)) {
       if (!anyMatch(c)) continue
-      rows.push({ node: c, depth })
+      rows.push({ node: c, depth, ghost: !match(c) })
       walk(c.id, depth + 1)
     }
   }
@@ -137,6 +141,21 @@ export function defaultAgent(
 ): string | null {
   const rows = agentRows(map, posOf)
   return rows.find((r) => r.depth === 0)?.node.id ?? rows[0]?.node.id ?? null
+}
+
+/** How far past the drawer the pointer may go before it closes: this much of
+ *  the drawer's own width beyond its left and right edges, and of its height
+ *  above and below. */
+export const CLOSE_ZONE = 0.5
+
+/** Is the point inside the drawer's close zone? */
+export function inCloseZone(
+  r: { left: number; right: number; top: number; bottom: number },
+  x: number, y: number,
+): boolean {
+  const dx = (r.right - r.left) * CLOSE_ZONE
+  const dy = (r.bottom - r.top) * CLOSE_ZONE
+  return x >= r.left - dx && x <= r.right + dx && y >= r.top - dy && y <= r.bottom + dy
 }
 
 export function AgentDeskPanel({
@@ -166,6 +185,13 @@ export function AgentDeskPanel({
   const select = useCallback((id: string) => {
     setAttentionLayout(slug, { agent: id })
   }, [slug])
+  // a name in a row's status summary opens that agent's desk here, like a
+  // press on its row
+  const refs = useRefRoutes(slug, map, {
+    onFocusAgent: select,
+    tierOf: (id: string) => map.get(id)?.tier,
+    view: tree.foreground,
+  })
 
   const listRef = useRef<HTMLDivElement>(null)
   const toggleRef = useRef<HTMLButtonElement>(null)
@@ -187,6 +213,33 @@ export function AgentDeskPanel({
   // Escape stack, so the open drawer is the one thing this Escape closes (the
   // panel around it is also on that stack, and used to take the key first).
   useEsc(close, open)
+  // AND IT CLOSES BY ITSELF WHEN THE POINTER GOES WELL AWAY (user 2026-09-30:
+  // "only after it goes some distance out, say 50% further"). Not on leaving
+  // its surface — the desk's "↑ you" chip and the scrim sit right beside it —
+  // but on leaving a zone half the drawer's size again past each edge
+  // (`inCloseZone`). The zone ARMS only once the pointer has been inside it,
+  // so a drawer opened from the keyboard, with the mouse resting somewhere
+  // far away, is not shut by the first nudge of that mouse. Touch is left
+  // out: a finger only moves while it drags, and a tap outside is the
+  // scrim's. Listened for on the drawer's own document, which is a different
+  // one when this panel is popped out.
+  useEffect(() => {
+    if (!open) return
+    const doc = listRef.current?.ownerDocument ?? document
+    let armed = false
+    const onMove = (e: PointerEvent) => {
+      if (e.pointerType === 'touch') return
+      const r = listRef.current?.getBoundingClientRect()
+      if (!r || !r.width || !r.height) return
+      if (inCloseZone(r, e.clientX, e.clientY)) armed = true
+      else if (armed) close()
+    }
+    doc.addEventListener('pointermove', onMove)
+    return () => doc.removeEventListener('pointermove', onMove)
+    // `close` touches only refs and a state setter, so the first one is as
+    // good as the last
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   const onListKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (!rows.length) return
@@ -223,41 +276,23 @@ export function AgentDeskPanel({
       <div className="attn-agents" role="listbox" aria-label="Agents" ref={listRef}
         id={`attn-agents-${slug}`}
         onKeyDown={onListKey}>
-        <input className="mail-filter tray-filter" placeholder="filter agents…"
-          aria-label="Filter agents" value={query}
-          onChange={(e) => setQuery(e.target.value)} />
-        {(() => {
-          const n = [...map.values()].filter((x) =>
-            x.id !== USER && x.id !== DRAFT && !x.isBearerOf && x.state !== 'live').length
-          return n > 0 && <button type="button" className="tray-arch"
-            onClick={() => setArchived((v) => !v)}>
-            {archived ? '▾ hide' : '▸ show'} {n} archived
-          </button>
-        })()}
-        {rows.map(({ node, depth }) => (
-          <button type="button" key={node.id} data-attn-agent={node.id}
-            {...agentNavProps(node.id)}
-            role="option" aria-selected={node.id === selectedId}
-            tabIndex={node.id === selectedId ? 0 : -1}
-            className={'attn-agent-row'
-              + (node.id === selectedId ? ' sel' : '')
-              + (node.state !== 'live' ? ' dim' : '')}
-            style={{ paddingLeft: 8 + depth * 12 }}
-            onClick={() => select(node.id)}>
-            <AgentName id={node.id} tier={node.tier} />
-            {/* a busy agent's model switch is QUEUED (D-234): the tier stays the
-                old one until the turn ends, so without this mark the row reads as
-                if the switch never happened. Same mark and wording as the canvas
-                card and the desk header. */}
-            {node.pending_switch &&
-              <span className="queued-mark" title={queuedSwitchTitle(node)}>
-                →{TIER_LETTER[node.pending_switch.tier] ?? '?'}</span>}
-            {node.busy && <span className="attn-agent-busy" title="working" aria-label="working" />}
-            {(node.mail_pending ?? 0) > 0 &&
-              <b className="eye-count">{node.mail_pending}</b>}
-          </button>
-        ))}
-        {!rows.length && <div className="dim pad">no agents match</div>}
+        {/* THE CANVAS'S OWN AGENTS LIST (user 2026-09-30: "identical to the
+            canvas agents list") — same component, same rows, same filter box.
+            What is this drawer's: a press SELECTS the agent for the desk
+            beside it, the selected row is marked, and the row's main line is
+            the listbox option the keyboard moves between. The right-click
+            menu is the canonical agent menu, reached through the registry
+            (`data-agent-nav`), because this host builds no menu of its own. */}
+        <AgentTray map={map} rows={rows} query={query} onQuery={setQuery}
+          archived={archived} onArchived={setArchived} onPick={select}
+          compactAt={tree.compact_at} refs={refs} selected={selectedId}
+          filterLabel="Filter agents"
+          rowProps={(n) => agentNavProps(n.id)}
+          mainProps={(n) => ({
+            'data-attn-agent': n.id, role: 'option',
+            'aria-selected': n.id === selectedId,
+            tabIndex: n.id === selectedId ? 0 : -1,
+          })} />
       </div>
       {/* `data-attn-desk-eligible` is this panel's own answer to the registry's
           question, written where it can be read — in a test, and in the real

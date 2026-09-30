@@ -17,7 +17,7 @@ import { DeskHosts, useDeskActionsNow } from './deskhosts'
 import { Fragment, useCallback, useLayoutEffect, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ReactNode } from 'react'
-import type { AudienceGrant, NodeStatus, ProviderInfo, ToastFn, TreeNode, TreePayload } from '../types'
+import type { AudienceGrant, ProviderInfo, ToastFn, TreeNode, TreePayload } from '../types'
 import { audienceAction, getProviders, orgInboxRead, reorderNode } from '../api'
 import {
   AddIcon, ChevronLeftIcon, ChevronRightIcon, FrozenIcon,
@@ -32,13 +32,13 @@ import type {
   CanvasNode, DraftScope, DraftState, FamilyOffer, MailEvent, MailLinkFn,
   HireState, OpFn, Pile, Pt, Seg, Spring, StreamEvent, View, WorkLinkFn,
 } from './shared'
-import { ContextWheel, DeskChat, DestinationBusy, LineagePanel, OrgKillswitchContext, TrayStatus } from './desk'
+import { DeskChat, DestinationBusy, LineagePanel, OrgKillswitchContext, TrayStatus } from './desk'
 import type { DeskChatProps } from './desk'
 import { OrgDefaultEffort, resolveOrgDefault } from './effort'
 import { TempDeskModal } from './tempdesk'
 import { FirstUseGuide, firstUseToken, firstUseCancel, firstUseHired } from './firstuse'
 import { DocReader } from './docs'
-import { ForegroundViewContext, mailRefTarget, useRefRoutes, Written } from './reflinks'
+import { ForegroundViewContext, mailRefTarget, useRefRoutes } from './reflinks'
 import type { ResolvedRef } from './reflinks'
 import type { TypedRef } from './workrefs'
 import { NodeInboxModal, OrgInboxModal } from './mail'
@@ -60,7 +60,8 @@ import { isModalPinned, ModalOverPins, PinFrame, pinnedModalBehind, raisePinnedM
 import { freeInsets, useCanvasAnchor } from './canvasanchor'
 import { glWiresAllowed, readWireStyles, sparkPoint, useGlWires } from './glwires'
 import type { WireStyles, Wire } from './glwires'
-import { charterLine } from '../archived'
+import { AgentTray } from './agenttray'
+import type { TrayRow } from './agenttray'
 import { NodeDetailGate } from './nodedetailgate'
 import { contextMenuBelongsTo, ObjectMenuBoundary, useContextMenu } from './contextmenu'
 import type { ContextMenuHandle, MenuEntry } from './contextmenu'
@@ -3781,148 +3782,64 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         {trayOpen && (
           <PinFrame inline kind="agent-list" title="Agents" panel="tray-panel"
             close={() => setTrayOpen(false)} dialogLabel="Agents">
-          <div className="tray">
-            <input className="mail-filter tray-filter" placeholder="filter agents…"
-              value={trayQ} onChange={(e) => setTrayQ(e.target.value)} />
-            {/* archived rows are HIDDEN by default (user spec 2026-07-31) —
-                the count row folds them in and out */}
-            {(() => {
-              const archN = [...map.values()].filter((n) =>
-                n.id !== USER && n.id !== DRAFT && !n.isBearerOf
-                && n.state !== 'live').length
-              return archN > 0 && (
-                <button className="tray-arch"
-                  onClick={() => setTrayArch((v) => !v)}>
-                  {trayArch ? '▾ hide' : '▸ show'} {archN} archived
-                </button>
-              )
-            })()}
-            <AgentListMenuHost map={map} op={op} slug={slug} toast={toast}
-              render={(menu, ask, deskNow) => {
-              // FR-16 (user request 2026-08-06): the tray lists by HIERARCHY —
-              // every direct report immediately after its superior, indented a
-              // step — replacing the old canvas-position sort, which put a
-              // child hired far from its parent nowhere near it in the list.
-              // Sibling order keeps the position sort, so the tray still
-              // tracks the canvas arrangement locally.
-              const all = [...map.values()]
-                .filter((n) => n.id !== USER && n.id !== DRAFT && !n.isBearerOf)
-              const q = trayQ.trim().toLowerCase()
-              const match = (n: CanvasNode) =>
-                (trayArch || n.state === 'live')
-                && (!q || n.id.toLowerCase().includes(q))
-              const kids = new Map<string, CanvasNode[]>()
-              for (const n of all) {
-                const p = n.parent && map.has(n.parent) && n.parent !== USER
-                  ? n.parent : USER
-                kids.set(p, [...(kids.get(p) ?? []), n])
+          <AgentListMenuHost map={map} op={op} slug={slug} toast={toast}
+            render={(menu, ask, deskNow) => {
+            // FR-16 (user request 2026-08-06): the tray lists by HIERARCHY —
+            // every direct report immediately after its superior, indented a
+            // step — replacing the old canvas-position sort, which put a
+            // child hired far from its parent nowhere near it in the list.
+            // Sibling order keeps the position sort, so the tray still
+            // tracks the canvas arrangement locally.
+            const all = [...map.values()]
+              .filter((n) => n.id !== USER && n.id !== DRAFT && !n.isBearerOf)
+            const q = trayQ.trim().toLowerCase()
+            const match = (n: CanvasNode) =>
+              (trayArch || n.state === 'live')
+              && (!q || n.id.toLowerCase().includes(q))
+            const kids = new Map<string, CanvasNode[]>()
+            for (const n of all) {
+              const p = n.parent && map.has(n.parent) && n.parent !== USER
+                ? n.parent : USER
+              kids.set(p, [...(kids.get(p) ?? []), n])
+            }
+            const byPos = (a: CanvasNode, b: CanvasNode) => {
+              const pa = posOf(a.id) ?? { x: 0, y: 0 }
+              const pb = posOf(b.id) ?? { x: 0, y: 0 }
+              return pa.y - pb.y || pa.x - pb.x
+            }
+            // a filtered-out ANCESTOR of a matching row still renders, as a
+            // dim ghost: with indentation carrying meaning, dropping it
+            // would leave the descendant indented under a gap with no
+            // visible parent (the docket's own open question — resolved
+            // toward keeping the indent readable)
+            const anyMatch = (n: CanvasNode): boolean =>
+              match(n) || (kids.get(n.id) ?? []).some(anyMatch)
+            const rows: TrayRow[] = []
+            const walk = (id: string, depth: number) => {
+              for (const c of (kids.get(id) ?? []).sort(byPos)) {
+                if (!anyMatch(c)) continue
+                rows.push({ node: c, depth, ghost: !match(c) })
+                walk(c.id, depth + 1)
               }
-              const byPos = (a: CanvasNode, b: CanvasNode) => {
-                const pa = posOf(a.id) ?? { x: 0, y: 0 }
-                const pb = posOf(b.id) ?? { x: 0, y: 0 }
-                return pa.y - pb.y || pa.x - pb.x
-              }
-              // a filtered-out ANCESTOR of a matching row still renders, as a
-              // dim ghost: with indentation carrying meaning, dropping it
-              // would leave the descendant indented under a gap with no
-              // visible parent (the docket's own open question — resolved
-              // toward keeping the indent readable)
-              const anyMatch = (n: CanvasNode): boolean =>
-                match(n) || (kids.get(n.id) ?? []).some(anyMatch)
-              const rows: { n: CanvasNode; depth: number; ghost: boolean }[] = []
-              const walk = (id: string, depth: number) => {
-                for (const c of (kids.get(id) ?? []).sort(byPos)) {
-                  if (!anyMatch(c)) continue
-                  rows.push({ n: c, depth, ghost: !match(c) })
-                  walk(c.id, depth + 1)
-                }
-              }
-              walk(USER, 0)
-              return rows.map(({ n, depth, ghost }) => {
-                // a piled-away agent comes to the FRONT of its pile when
-                // picked from the tray, then the glide lands on it — the key
-                // names the pile KIND (retired |a vs live crowd |c)
-                // the canvas's one navigation, shared with the registry
-                // that serves every other surface's menu
-                const go = () => goToAgent(n.id)
-                // №13: the status summary is TEXT here, not a tooltip — and a
-                // finished status survives the next turn as prev_status (dim)
-                const stat: (NodeStatus & { _stale?: boolean }) | null = n.last_status
-                  ?? (n.prev_status ? { ...n.prev_status, _stale: true } : null)
-                const lastTurn = n.turns?.[n.turns.length - 1]
-                return (
-                /* ⚠ THE ROW IS NOT ITSELF A BUTTON, which is what lets its
-                   summary carry reference controls: a button inside a
-                   `role="button"` is invalid nesting. The row navigates on
-                   click, the MAIN LINE is the focusable button (Enter/Space
-                   arrive as a click and bubble to the row's one handler, so
-                   activation cannot fire twice), and the summary is a sibling
-                   of that button. Nothing in the main line is interactive:
-                   ContextWheel is only a button when given `onCompact`, which
-                   the tray does not pass. */
-                <div key={n.id} data-copy-agent-name={n.id}
-                  className={'tray-row' + (n.state !== 'live' ? ' off' : '')
-                    + (ghost ? ' ghost' : '')
-                    + ' prov-' + providerOf(n.tier ?? '')}
-                  style={{ paddingLeft: 8 + depth * 14 }}
-                  title={ghost
-                    ? 'shown for context — this row does not match the '
-                      + 'current filter, but a report under it does'
-                    : undefined}
-                  onClick={go}
-                  /* the row's menu is the agent's own (canvas/agentmenu.tsx),
-                     opened from the ROW — not from the main-line button —
-                     because the summary line and the pin/popout controls are
-                     part of the same object. NOT at compact, exactly where the
-                     card itself has no menu either: there the card is a map
-                     marker with no desk, no chips and no handlers (mapMode in
-                     cards.tsx), so there would be nothing to be at parity
-                     with. A right-click never navigates: `contextmenu` is not
-                     `click`, and `go` is on the click. */
-                  onContextMenu={(e) => {
-                    if (!compact) menu.open(e, () => trayRowMenu(n, go, ask, deskNow))
-                  }}>
-                  <div className="tray-primary">
-                    <button type="button" className="tray-main"
-                    title={`go to ${n.id}`}>
-                    <span className={'tier t-' + n.tier}>{TIER_LETTER[n.tier!] ?? '?'}</span>
-                    {n.pending_switch &&
-                      <span className="queued-mark" title={queuedSwitchTitle(n)}>
-                        →{TIER_LETTER[n.pending_switch.tier] ?? '?'}</span>}
-                    <span className="tray-name"
-                      title={charterLine(n) || n.id}>{n.id}</span>
-                    <ContextWheel occ={n.occupancy} cw={n.context_window}
-                      est={n.occupancy_est} compactAt={tree.compact_at} />
-                    <TrayStatus node={n} turn={lastTurn} live={n.state === 'live'} />
-                    </button>
-                  {/* ⚠ NO PER-AGENT CONTROLS HERE ANY MORE (user ruling
-                      2026-09-12): the row's ⌖ pin and ↗ popout buttons are
-                      gone, and both actions live in the row's context menu
-                      with everything else the agent can do. The row is one
-                      object again — a name you press to go there — rather
-                      than a name with two tiny controls competing for the
-                      same press. */}
-                  </div>
-                  {/* ⚠ THE WHOLE SUMMARY, MATCHED BEFORE ANY TRUNCATION: a
-                      slice here cuts tokens in half, and the clipping is the
-                      stylesheet's job (`.tray-sum-text` is ellipsis-clipped).
-                      The AGE is its own element so the ellipsis eats the
-                      summary's tail rather than the one fact beside it that
-                      the summary does not contain. */}
-                  {stat?.summary && (
-                    <div className={'tray-sum' + (stat._stale ? ' stale' : '')}
-                      title={stat.summary}>
-                      <span className="tray-sum-text">
-                        {stat.status}: <Written text={stat.summary} refs={canvasRefs} />
-                      </span>
-                      {stat.at && <span className="tray-sum-at"> · {ago(stat.at)} ago</span>}
-                    </div>
-                  )}
-                </div>
-                )
-              })
-            }} />
-          </div>
+            }
+            walk(USER, 0)
+            // the rows themselves are canvas/agenttray.tsx, shared with the
+            // Attention view's agents drawer (user 2026-09-30). A press goes
+            // to the agent — a piled-away agent comes to the FRONT of its
+            // pile first — through the canvas's one navigation, shared with
+            // the registry that serves every other surface's menu.
+            return <AgentTray map={map} rows={rows} query={trayQ} onQuery={setTrayQ}
+              archived={trayArch} onArchived={setTrayArch} onPick={goToAgent}
+              compactAt={tree.compact_at} refs={canvasRefs}
+              /* the row's menu is the agent's own (canvas/agentmenu.tsx),
+                 opened from the ROW. NOT at compact, exactly where the card
+                 itself has no menu either: there the card is a map marker
+                 with no desk, no chips and no handlers (mapMode in cards.tsx),
+                 so there would be nothing to be at parity with. */
+              onRowMenu={(e, n, go) => {
+                if (!compact) menu.open(e, () => trayRowMenu(n, go, ask, deskNow))
+              }} />
+          }} />
           </PinFrame>
         )}
         <button className="tray-toggle" title="every agent, by hierarchy"

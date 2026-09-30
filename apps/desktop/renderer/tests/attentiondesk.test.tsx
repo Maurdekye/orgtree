@@ -6,6 +6,10 @@
 //
 //   • hover opens nothing, anywhere — not the list, not the button;
 //   • the button opens it and closes it; the scrim and Escape close it;
+//   • the pointer going well away closes it (user 2026-09-30): past a zone
+//     half the drawer's size again beyond each edge, and only once the
+//     pointer has been inside that zone;
+//   • its contents are the canvas's own Agents List (canvas/agenttray.tsx);
 //   • opening it must not change the DESK's layout (it is drawn over the
 //     desk, under a scrim) and closing it must not disturb the SELECTION;
 //   • shut, it is `inert`, so the keyboard reaches it through the button.
@@ -20,7 +24,7 @@ import type { CanvasNode } from '../src/canvas/shared'
 import { USER } from '../src/canvas/shared'
 import type { OpFn, TreePayload } from '../src/types'
 import { attentionLayout, forgetAttentionMode, setAttentionLayout } from '../src/attention/mode'
-import { AgentDeskPanel } from '../src/attention/AgentDeskPanel'
+import { AgentDeskPanel, CLOSE_ZONE, inCloseZone } from '../src/attention/AgentDeskPanel'
 
 const SLUG = 'org1'
 
@@ -65,7 +69,7 @@ const list = (el: HTMLElement) => el.querySelector('.attn-agents') as HTMLElemen
 const rowFor = (el: HTMLElement, id: string) =>
   el.querySelector(`[data-attn-agent="${id}"]`) as HTMLElement | null
 const selectedRow = (el: HTMLElement) =>
-  (el.querySelector('.attn-agent-row[aria-selected="true"]') as HTMLElement | null)
+  (el.querySelector('[data-attn-agent][aria-selected="true"]') as HTMLElement | null)
     ?.getAttribute('data-attn-agent') ?? null
 
 const settle = async () => { await inAct(() => flush(8)) }
@@ -265,4 +269,84 @@ test('§6 a stored selection survives a remount; a stale one falls back', async 
   assert.equal(attentionLayout(SLUG).agent, 'a-retired-agent',
     'without overwriting a choice that may simply belong to data still loading')
   await v2.unmount()
+})
+
+// the drawer as jsdom cannot lay it out: 232 wide at x=23, 600 tall
+const RECT = { left: 23, right: 255, top: 0, bottom: 600, width: 232, height: 600, x: 23, y: 0 }
+const giveRect = (el: HTMLElement) => {
+  list(el).getBoundingClientRect = () => ({ ...RECT, toJSON: () => RECT }) as DOMRect
+}
+const moveTo = (x: number, y: number) => inAct(() => {
+  document.dispatchEvent(new window.MouseEvent('pointermove', { clientX: x, clientY: y, bubbles: true }))
+})
+
+test('§7 the close zone is half the drawer again past each edge', () => {
+  assert.equal(CLOSE_ZONE, 0.5)
+  const r = RECT
+  assert.equal(inCloseZone(r, 255 + 116, 300), true, 'exactly half the width past the right edge')
+  assert.equal(inCloseZone(r, 255 + 117, 300), false, 'one pixel further is out')
+  assert.equal(inCloseZone(r, 23 - 116, 300), true, 'the same to the left')
+  assert.equal(inCloseZone(r, 23 - 117, 300), false)
+  assert.equal(inCloseZone(r, 100, 600 + 300), true, 'half the height below')
+  assert.equal(inCloseZone(r, 100, 600 + 301), false)
+  assert.equal(inCloseZone(r, 100, -301), false, 'and above')
+})
+
+test('§8 the pointer going well away closes the open drawer; coming back first keeps it', async () => {
+  reset()
+  const v = await mountView(panel(), () => '')
+  await settle()
+  const el = v.el
+  giveRect(el)
+  await inAct(() => { toggle(el).click() })
+  await moveTo(100, 300)                  // over the drawer: arms the zone
+  await moveTo(255 + 100, 300)            // over the desk, inside the zone
+  await settle()
+  assert.equal(isOpen(el), true, 'off the drawer but inside the zone: still open')
+  await moveTo(200, 300)                  // back in
+  await moveTo(255 + 200, 300)            // out of the zone
+  await settle()
+  assert.equal(isOpen(el), false, 'past the zone: closed')
+  // shut, moving about does nothing and reopening is still only the button
+  await moveTo(100, 300)
+  await settle()
+  assert.equal(isOpen(el), false)
+  await v.unmount()
+})
+
+test('§9 a drawer the pointer never reached is not closed by the far-away mouse', async () => {
+  reset()
+  const v = await mountView(panel(), () => '')
+  await settle()
+  const el = v.el
+  giveRect(el)
+  await inAct(() => { toggle(el).click() })   // e.g. from the keyboard
+  await moveTo(1500, 300)
+  await settle()
+  assert.equal(isOpen(el), true, 'not armed until the pointer has been inside the zone')
+  await moveTo(240, 300)
+  await moveTo(1500, 300)
+  await settle()
+  assert.equal(isOpen(el), false, 'once armed, leaving closes it')
+  await v.unmount()
+})
+
+test('§10 the drawer holds the canvas Agents List: same rows, filter and markup', async () => {
+  reset()
+  const v = await mountView(panel(), () => '')
+  await settle()
+  const el = v.el
+  const tray = list(el).querySelector(':scope > .tray')
+  assert.ok(tray, 'the canvas list component, embedded in the drawer')
+  assert.ok(tray!.querySelector('input.mail-filter.tray-filter'), 'its filter box')
+  const rows = [...tray!.querySelectorAll('.tray-row')]
+  assert.equal(rows.length, 2, 'one canvas row per agent')
+  for (const row of rows) {
+    assert.ok(row.querySelector('.tray-primary > button.tray-main .tier'), 'tier token')
+    assert.ok(row.querySelector('.tray-main .tray-name'), 'name')
+  }
+  assert.ok(!el.querySelector('.attn-agent-row'), 'the old drawer-only rows are gone')
+  const sel = el.querySelector('.tray-row.sel')
+  assert.equal(sel?.getAttribute('data-copy-agent-name'), 'alpha', 'the shown agent is marked')
+  await v.unmount()
 })

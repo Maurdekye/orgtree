@@ -225,31 +225,20 @@
   cursor: default;
 }
 
-.attn-agent-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  text-align: left;
-  padding: 5px 8px;
+/* the drawer's contents are the canvas's own Agents List (`.tray`, styles.css)
+ * embedded the way the canvas embeds it in its panel (`.tray-panel > .tray`):
+ * the drawer is the frame, so the list drops its own border and shadow. */
+.attn-agents > .tray {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  max-width: none;
+  max-height: none;
+  padding: 0;
   border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
+  box-shadow: none;
 }
-.attn-agent-row:hover { background: var(--panel-2); }
-.attn-agent-row.sel { background: var(--panel-2); box-shadow: inset 2px 0 0 var(--accent, var(--line-hover)); }
-.attn-agent-row:focus-visible { outline: 1px solid var(--line-hover); outline-offset: -1px; }
-.attn-agent-busy {
-  width: 6px; height: 6px; border-radius: 50%;
-  background: var(--accent, #7aa2f7);
-  animation: attn-pulse 1.4s ease-in-out infinite;
-}
-@keyframes attn-pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
-  .attn-agent-busy { animation: none; opacity: 0.8; }
   .attn-agents, .attn-agents-wrap.list-open .attn-agents,
   .attn-agents-scrim { transition: none; }
   .attn-divider-grip { transition: none; }

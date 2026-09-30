@@ -22,6 +22,10 @@ unit test: every claim below is a pixel or a computed style.
      desk behind is darkened, nothing inside the desk (whatever its z-index)
      draws over it, and the scrim, Escape and the button close it.
   I. Both Attention panels use compact padding.
+  J. The drawer closes by itself once the pointer goes past a zone half the
+     drawer's size again beyond it, and stays open inside that zone; its rows,
+     filter box and list look are the canvas Agents List's, measured side by
+     side (docket v3-attention-agents-drawer-closes-when-the-curso).
 
     cd apps/desktop/renderer
     python tests/attentionlayout_probe.py <outdir>      # JSON + screenshots
@@ -58,6 +62,27 @@ BUTTONS = """(sel) => { const root = document.querySelector(sel); if (!root) ret
     out[t] = {fontSize: s.fontSize, padding: s.padding, h: Math.round(b.getBoundingClientRect().height)};
   }
   return out }"""
+
+# the look of an Agents List, read off its first top-level row, its filter box
+# and the list itself. Row HEIGHT is left out on purpose: it depends on
+# whether that agent has a status summary line, which is data, not look.
+TRAY_LOOK = """(root) => { const r = document.querySelector(root); if (!r) return null;
+  const t = r.querySelector('.tray'), row = r.querySelector('.tray-row'),
+    name = r.querySelector('.tray-row .tray-name'), tier = r.querySelector('.tray-row .tier'),
+    f = r.querySelector('.tray-filter');
+  if (!t || !row || !name || !f) return {rows: 0};
+  const s = (e) => getComputedStyle(e);
+  const main = row.querySelector('.tray-primary').getBoundingClientRect();
+  return {rows: r.querySelectorAll('.tray-row').length,
+    rowFont: s(row).fontSize, rowPad: [s(row).paddingTop, s(row).paddingRight, s(row).paddingBottom].join(' '),
+    rowRadius: s(row).borderRadius, rowGap: s(row).gap,
+    mainLineHeight: Math.round(main.height),
+    nameFont: s(name).fontFamily + ' ' + s(name).fontSize, nameColor: s(name).color,
+    tierBox: tier ? Math.round(tier.getBoundingClientRect().width) + 'x' + Math.round(tier.getBoundingClientRect().height) : null,
+    tierPaint: tier ? [s(tier).backgroundColor, s(tier).color, s(tier).borderTopColor].join(' ') : null,
+    filterFont: s(f).fontSize, filterHeight: Math.round(f.getBoundingClientRect().height),
+    listGap: s(t).gap, listBg: s(t).backgroundColor, listPad: s(t).padding,
+    listBorder: s(t).borderTopWidth, listShadow: s(t).boxShadow} }"""
 
 TABS = """() => [...document.querySelectorAll('.app-settings-tab')].map(t => {
   const s = getComputedStyle(t); const r = t.getBoundingClientRect();
@@ -99,6 +124,14 @@ def main() -> int:
         if card:
             p.screenshot(path=str(out / "effort-card.png"),
                          clip=_grow(card.bounding_box(), 160, 40))
+        tt = p.query_selector(".tray-toggle")
+        if tt:
+            tt.click()
+            p.wait_for_timeout(300)
+        res["canvas_tray_look"] = p.evaluate(TRAY_LOOK, ".tray-wrap")
+        tray = p.query_selector(".tray-wrap .tray")
+        if tray:
+            p.screenshot(path=str(out / "canvas-tray.png"), clip=_grow(tray.bounding_box(), 8, 8))
         checks["C_effort_cards_present"] = bool(res["effort_cards"])
         checks["C_effort_is_just_the_level"] = bool(res["effort_cards"]) and all(
             t in ("low", "medium", "high", "xhigh", "max") for t in res["effort_cards"])
@@ -261,10 +294,24 @@ def main() -> int:
             res["hit_on_desk"] = p.evaluate(hit, on_desk)
             checks["H_nothing_in_the_desk_draws_over_the_drawer"] = res["hit_in_drawer"] == "drawer"
             checks["H_desk_is_darkened"] = res["hit_on_desk"] == "scrim" and o["scrimOpacity"] == "1"
-            p.mouse.move(*on_desk)
+            res["drawer_tray_look"] = p.evaluate(TRAY_LOOK, ".attn-agents")
+            # J: inside the close zone (60px past a ~232px drawer: zone is
+            # half its width) the drawer stays; past the zone it closes
+            near = [o["box"]["x"] + o["box"]["w"] + 60, desk["y"] + desk["h"] // 2]
+            p.mouse.move(*in_drawer)
+            p.mouse.move(*near, steps=4)
+            p.wait_for_timeout(300)
+            checks["J_pointer_inside_the_zone_keeps_it_open"] = p.evaluate(drawer_state)["open"]
+            p.mouse.move(o["box"]["x"] + o["box"]["w"] + int(o["box"]["w"] * 0.5) + 40,
+                         desk["y"] + desk["h"] // 2, steps=4)
             p.wait_for_timeout(400)
-            checks["H_pointer_on_the_desk_keeps_it_open"] = p.evaluate(drawer_state)["open"]
-            p.mouse.click(*on_desk)
+            checks["J_pointer_past_the_zone_closes_it"] = not p.evaluate(drawer_state)["open"]
+            # reopen for the scrim check, which clicks inside the zone
+            p.mouse.click(tb["x"] + tb["width"] / 2, tb["y"] + tb["height"] / 2)
+            p.wait_for_timeout(400)
+            p.mouse.move(*near, steps=4)
+            p.wait_for_timeout(200)
+            p.mouse.click(*near)
             p.wait_for_timeout(400)
             checks["H_scrim_click_closes"] = not p.evaluate(drawer_state)["open"]
             closed = p.evaluate(drawer_state)
@@ -284,6 +331,12 @@ def main() -> int:
         else:
             checks["H_drawer_measured"] = False
         p.close()
+
+        ct, dt = res.get("canvas_tray_look") or {}, res.get("drawer_tray_look") or {}
+        res["tray_look_diffs"] = {k: {"canvas": ct.get(k), "drawer": dt.get(k)}
+                                  for k in sorted(set(ct) | set(dt)) if ct.get(k) != dt.get(k)}
+        checks["J_both_lists_measured"] = bool(ct.get("rows")) and bool(dt.get("rows"))
+        checks["J_drawer_looks_like_the_canvas_list"] = bool(ct.get("rows")) and bool(dt.get("rows"))             and not res["tray_look_diffs"]
 
         # ---- settings: D
         for tab in ("about", "display"):

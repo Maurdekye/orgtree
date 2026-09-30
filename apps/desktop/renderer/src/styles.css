@@ -5399,6 +5399,9 @@ svg.MuiSvgIcon-root {
    indent still has a parent above it — dimmer than .off, and italic so it
    reads as context rather than a result */
 .tray-row.ghost { opacity: .35; font-style: italic; }
+/* the row a host is showing — the Attention view's drawer marks the agent
+   whose desk is beside it; the canvas tray has no selection */
+.tray-row.sel { background: var(--panel-2); box-shadow: inset 2px 0 0 var(--accent, var(--line-hover)); }
 .tray-row .tier { width: 18px; height: 18px; font-size: 10px; flex: none; }
 .tray-name {
   flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
