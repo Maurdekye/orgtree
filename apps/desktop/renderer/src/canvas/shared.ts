@@ -1389,6 +1389,64 @@ export function withDraftTree(tree: TreePayload, draft: DraftState | null): Canv
   }
 }
 
+/** A hand re-parent the server has not confirmed yet: node id → the parent it
+ *  was dropped on (`null` = a top-level root, under you). The canvas shows it
+ *  at once instead of waiting ~a second for the op and the tree read after it
+ *  (user 2026-09-30: "should be nearly instant"); a refused op deletes the
+ *  entry and the card glides back. */
+export type PendingMoves = ReadonlyMap<string, string | null>
+
+/** `tree` with every pending move applied, in order: the node leaves its
+ *  current parent and is appended, subtree and all, under the new one. A move
+ *  the tree cannot honour — an unknown node or parent, or a parent inside the
+ *  node's own subtree — is skipped, so no card is ever lost. The input tree is
+ *  never mutated; untouched branches keep their object identity. */
+export function withPendingMoves(tree: TreePayload, moves: PendingMoves): TreePayload {
+  if (!moves.size) return tree
+  let roots = tree.roots
+  for (const [id, parent] of moves) {
+    const find = (kids: TreeNode[], want: string): TreeNode | null => {
+      for (const k of kids) {
+        if (k.id === want) return k
+        const hit = find(k.children, want)
+        if (hit) return hit
+      }
+      return null
+    }
+    const node = find(roots, id)
+    if (!node || parent === id) continue
+    if (parent !== null && (!find(roots, parent) || find(node.children, parent))) continue
+    const without = (kids: TreeNode[]): TreeNode[] => {
+      if (kids.some((k) => k.id === id)) return kids.filter((k) => k.id !== id)
+      let changed = false
+      const out = kids.map((k) => {
+        const c = without(k.children)
+        if (c === k.children) return k
+        changed = true
+        return { ...k, children: c }
+      })
+      return changed ? out : kids
+    }
+    const into = (kids: TreeNode[]): TreeNode[] => kids.map((k) => k.id === parent
+      ? { ...k, children: [...k.children, node] }
+      : (find(k.children, parent!) ? { ...k, children: into(k.children) } : k))
+    roots = without(roots)
+    roots = parent === null ? [...roots, node] : into(roots)
+  }
+  return roots === tree.roots ? tree : { ...tree, roots }
+}
+
+/** Every node's parent as the tree states it (`null` for a root). */
+export function treeParents(tree: TreePayload): Map<string, string | null> {
+  const out = new Map<string, string | null>()
+  const walk = (n: TreeNode, parent: string | null) => {
+    out.set(n.id, parent)
+    n.children.forEach((c) => walk(c, n.id))
+  }
+  tree.roots.forEach((r) => walk(r, null))
+  return out
+}
+
 /** Print a credit quantity. Seats are FRACTIONAL below $1/M (user ruling
  *  2026-09-03 — a $0.20 model seats at 0.2, a `:free` one at the 0.1 floor),
  *  so a holding can be 5.2 and a sum of two of them can be

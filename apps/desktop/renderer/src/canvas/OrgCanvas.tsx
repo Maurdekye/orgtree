@@ -27,7 +27,7 @@ import {
 import {
   ago, ALL_TIER_SEAT, anyTierSeat, attentionPip, codexTierOffer, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, familyOffer, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, legacyMark, useShowLegacyModels, jumpTo, layout, NODE_H, NODE_W, noteTierModels, openrouterTierIds, orgPxc, presenceOf, segD, setOpenRouterTiers,
   providerOf, queuedSwitchTitle, savedView, saveView, segPoint, sizeOf, smooth, SPRING_C, SPRING_K, startView, startZoomOn, TIER_LETTER, TIER_SEAT, tierCapabilityNotes, tierLabel, TIERS, chartLayoutOf, useChartLayout, useCrowdPiles, useHideRetired, usePolled, USER, USER_H,
-  USER_W, withDraftTree, Z_DESK, Z_MAX, Z_MINI,
+  treeParents, USER_W, withDraftTree, withPendingMoves, Z_DESK, Z_MAX, Z_MINI,
 } from './shared'
 import type {
   CanvasNode, DraftScope, DraftState, FamilyOffer, MailEvent, MailLinkFn,
@@ -388,6 +388,10 @@ function AgentNavHost({ map, op, slug, toast, goTo, build }: {
     : null
 }
 
+/** How long a CONFIRMED hand move may keep overriding the tree while the
+ *  read that carries it is still on its way. */
+const PENDING_MOVE_MS = 5000
+
 export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettings, onWorkItem,
   onAccounts, focusAgent, onFocusAgentHandled, openMailAt,
   onOpenMailHandled, openDocAt, onOpenDocHandled, onOpenAgentGallery,
@@ -637,8 +641,31 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     const after = kids.slice(at).filter((c) => c.state !== 'archived')
     return { ...n, children: [...before, ...arch, ...after] }
   }
-  const vrootFull = useMemo(() => canonPiles(withDraftTree(tree, draft)),
-    [tree, draft])   // eslint-disable-line react-hooks/exhaustive-deps
+  // hand re-parents shown before the server confirms them (see PendingMoves).
+  // An entry leaves when the tree agrees, when the op is refused (the card
+  // glides back), or — after the op succeeded — once a few seconds pass, so a
+  // move some later change overrode can never pin a stale layout.
+  const [pendingMoves, setPendingMoves] = useState<ReadonlyMap<string, string | null>>(() => new Map())
+  useEffect(() => { setPendingMoves(new Map()) }, [slug])
+  const dropPendingMove = useCallback((id: string, parent: string | null) => {
+    setPendingMoves((m) => {
+      if (!m.has(id) || m.get(id) !== parent) return m
+      const next = new Map(m); next.delete(id); return next
+    })
+  }, [])
+  useEffect(() => {
+    if (!pendingMoves.size) return
+    const real = treeParents(tree)
+    const done = [...pendingMoves].filter(([id, p]) => !real.has(id) || real.get(id) === p)
+    if (done.length) setPendingMoves((m) => {
+      const next = new Map(m)
+      for (const [id, p] of done) if (next.get(id) === p) next.delete(id)
+      return next
+    })
+  }, [tree])   // eslint-disable-line react-hooks/exhaustive-deps
+  const shownTree = useMemo(() => withPendingMoves(tree, pendingMoves), [tree, pendingMoves])
+  const vrootFull = useMemo(() => canonPiles(withDraftTree(shownTree, draft)),
+    [shownTree, draft])   // eslint-disable-line react-hooks/exhaustive-deps
   // hide-retired (user resumed 2026-09-10 13:25): a DISPLAY prune of the
   // LAYOUT tree only. `map` stays FULL below, so desks, mail routing, the
   // agents tray's archived rows, lineage and window restoration keep every
@@ -2599,10 +2626,19 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         : ancestors.includes(drop)
           ? { op: 'promote', node: id, new_parent: drop }
           : { op: 'demote', node: id, new_parent: drop }
+      // shown at once; the op and the tree read after it confirm it later,
+      // and a refusal (already toasted by `op`) sends the card back
+      const moveShown = (b: Parameters<OpFn>[0], to: string | null) => {
+        setPendingMoves((m) => new Map(m).set(id, to))
+        return op(b).then(
+          () => { setTimeout(() => dropPendingMove(id, to), PENDING_MOVE_MS) },
+          (e: unknown) => { dropPendingMove(id, to); throw e })
+      }
       // №17: a re-parent is one mis-drag away — the toast carries the reverse
-      op(body).then(() => toast(
+      moveShown(body, drop === USER ? null : drop).then(() => toast(
         [`${id} now reports to ${drop === USER ? 'you' : drop}`],
-        () => op({ op: 'move', node: id, new_parent: parent ?? null })
+        () => moveShown({ op: 'move', node: id, new_parent: parent ?? null },
+          parent == null || parent === USER ? null : parent)
           .catch(() => {})))
         .catch(() => {}).finally(finish)
       return
