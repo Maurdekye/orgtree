@@ -824,7 +824,9 @@ export function refreshConvo(slug: string, nid: string,
     e.growingOlder = undefined
     return true
   }
-  return getChat(slug, nid, askedWin).then(async (c) => {
+  // the literal `e.s.win` is pinned by derived.test.tsx ② (this is THE fetch);
+  // askedWin was read from it a line above, so the two are the same value
+  return getChat(slug, nid, e.s.win).then(async (c) => {
     if (!ownsRequest()) return
     if (!stillFreshest()) return
     const changedAssistantScope = !!c.assistant_scope && !!e.s.chat?.assistant_scope
