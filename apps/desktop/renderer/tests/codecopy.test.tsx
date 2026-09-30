@@ -20,6 +20,14 @@
 //   §3  a one-line block — the shape in the user's screenshot — copies too.
 //   §4  a desk outside any frame (the canvas desk) still copies.
 //
+// WIDENED (coordinator 2026-09-30 21:16Z): the audit of document-level click
+// listeners found two more in the bubble phase with the same fault — local
+// file links (shared.ts revealFileFromEvent) and the image viewer
+// (lightbox.ts). Both now listen in capture, as popped-out windows did.
+//   §5  a local file link in the Attention desk reveals its file.
+//   §6  a picture in the Attention desk opens the viewer.
+//   (Measured against the pre-fix listeners: §5 and §6 fail.)
+//
 // jsdom has no layout and so no `innerText`; the handler reads innerText
 // because a diff <pre> renders each line as a <div>. For these plain blocks
 // innerText equals textContent, so the test supplies that one getter.
@@ -40,6 +48,7 @@ import { forgetAttentionMode, setAttentionLayout, setOrgView } from '../src/atte
 import { AttentionView } from '../src/attention/AttentionView'
 import { forgetModalPins } from '../src/canvas/modalpin'
 import { CurrentOrg } from '../src/popout'
+import { closeLightbox } from '../src/canvas/lightbox'
 
 const W = window as unknown as Window & typeof globalThis
 const SLUG = 'org1'
@@ -83,10 +92,10 @@ const op: OpFn = () => Promise.resolve({ ok: true } as never)
 /** the Attention view — its desk panel inside the real PinFrame, as App.tsx
  *  mounts it (CurrentOrg is what gives PinFrame its MovableSurface) — showing
  *  `alpha`'s chat with REPLY */
-async function attentionDesk() {
+async function attentionDesk(messages: ChatMessage[] = [REPLY]) {
   localStorage.clear(); forgetAttentionMode(); forgetModalPins(); resetConvos()
   const server = new FakeServer()
-  server.messages = [REPLY]
+  server.messages = messages
   installFetch(server)
   setOrgView(SLUG, 'attention')
   setAttentionLayout(SLUG, { agent: 'alpha', listOpen: false })
@@ -178,4 +187,36 @@ test('§4 a desk outside any frame still copies', async () => {
     await clickCopy(btns[0]!)
     assert.deepEqual(clip.writes, [MULTI])
   } finally { clip.restore(); await view.unmount(); resetConvos() }
+})
+
+const LINKS: ChatMessage = { role: 'assistant', seq: 0, event_id: 'r2',
+  text: 'Built [Setup.exe](<C:\\Users\\me\\out box\\Setup 1.exe>) and a plot:\n\n![plot](https://example.test/plot.png)' }
+
+test('§5 a local file link in the Attention desk reveals its file', async () => {
+  const revealed: string[] = []
+  const w = window as unknown as { orgtreeDesktop?: unknown }
+  w.orgtreeDesktop = { revealFile: (p: string) => { revealed.push(p); return Promise.resolve({ ok: true }) } }
+  const v = await attentionDesk([LINKS])
+  try {
+    const desk = document.querySelector('.attn-panel-desk')!
+    const a = desk.querySelector('a[data-local-path]') as HTMLAnchorElement
+    assert.ok(a, 'fixture: the link rendered as a local file link inside the desk panel')
+    await inAct(() => { a.click() })
+    await inAct(() => flush(3))
+    assert.deepEqual(revealed, ['C:\\Users\\me\\out box\\Setup 1.exe'])
+  } finally { delete w.orgtreeDesktop; await v.unmount(); resetConvos() }
+})
+
+test('§6 a picture in the Attention desk opens the viewer', async () => {
+  const v = await attentionDesk([LINKS])
+  try {
+    const desk = document.querySelector('.attn-panel-desk')!
+    const img = desk.querySelector('.md img') as HTMLImageElement
+    assert.ok(img, 'fixture: the picture rendered inside the desk panel')
+    // jsdom loads no images; give it the size a loaded picture has, so the
+    // "broken image stays put" rule does not decide this test
+    Object.defineProperty(img, 'naturalWidth', { configurable: true, value: 40 })
+    await inAct(() => { img.click() })
+    assert.ok(document.querySelector('.lb-overlay'), 'the viewer opened')
+  } finally { closeLightbox(document); await v.unmount(); resetConvos() }
 })

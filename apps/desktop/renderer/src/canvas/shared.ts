@@ -2310,8 +2310,9 @@ if (typeof document !== 'undefined') {
   // presentations — stops click propagation at its panel (modalpin.tsx), so a
   // bubbling listener never heard a copy click inside one and the button did
   // nothing. Popped-out windows already listen in capture (popout.tsx).
+  // Local file links had the same fault and take the same fix.
   document.addEventListener('click', copyCodeFromEvent, true)
-  document.addEventListener('click', revealFileFromEvent)
+  document.addEventListener('click', revealFileFromEvent, true)
 }
 /** `imgBase` (optional): the node-scoped /file URL prefix relative image
  *  srcs resolve against — pass `fileBase(slug, nid)` where the author's
