@@ -44,6 +44,27 @@ def measure_border(page, selector, token):
     page.wait_for_function(f'arg => {{ const r = ({MEASURE})(arg); return r.border === r.expected; }}', arg=arg)
     return page.evaluate(MEASURE, arg)
 
+def measure_primary(page, token):
+    # A representative production primary control, without invoking an action.
+    page.evaluate('''() => {
+      const b = document.createElement('button'); b.className = 'primary';
+      b.dataset.primaryProbe = ''; b.textContent = 'primary';
+      b.style.cssText = 'position:fixed;bottom:8px;right:8px;z-index:999999';
+      document.querySelector('.app').append(b);
+    }''')
+    selector = '[data-primary-probe]'
+    text_before = page.locator(selector).evaluate('b => getComputedStyle(b).color')
+    page.locator(selector).hover()
+    value = measure_border(page, selector, token)
+    fill = page.locator(selector).evaluate('''b => {
+      const p = document.createElement('span'); p.style.color = 'var(--accent-hover)';
+      b.append(p); const expected = getComputedStyle(p).color; p.remove();
+      return {expected, background:getComputedStyle(b).backgroundColor, text:getComputedStyle(b).color};
+    }''')
+    assert fill['background'] == fill['expected'] and fill['text'] == text_before, fill
+    page.locator(selector).evaluate('b => b.remove()')
+    return {'frame':value, 'fill':fill}
+
 try:
     with sync_playwright() as pw:
         browser = pw.chromium.launch(channel='msedge')
@@ -57,7 +78,8 @@ try:
         page.locator(header).hover()
         neutral = measure_border(page, header, '--line-hover')
         assert neutral['border'] == neutral['expected'], neutral
-        result['cases'].append({'agent':None,'header':neutral})
+        neutral_primary = measure_primary(page, '--line-hover')
+        result['cases'].append({'agent':None,'header':neutral,'primary':neutral_primary})
         page.goto(base + '?providers=1&view=attention')
         page.locator('.attn-agents-toggle').wait_for()
         for agent, provider in [('coordinator','claude'),('worker-a','openai'),('worker-g','google'),('worker-r','openrouter')]:
@@ -76,6 +98,7 @@ try:
             page.locator(header).hover()
             global_control = measure_border(page, header, f'--prov-{provider}')
             assert global_control['border'] == global_control['expected'], global_control
+            primary = measure_primary(page, f'--prov-{provider}')
             # Another agent's row retains its own provider in a body portal.
             other, other_provider = ('worker-a','openai') if agent != 'worker-a' else ('worker-g','google')
             if toggle.get_attribute('aria-expanded') != 'true':
@@ -91,7 +114,7 @@ try:
             }''', f'--prov-{other_provider}')
             assert menu['actual'] == menu['expected'], menu
             page.keyboard.press('Escape')
-            result['cases'].append({'agent':agent,'drawer':drawer,'focus':focus,'header':global_control,'otherAgentMenu':menu})
+            result['cases'].append({'agent':agent,'drawer':drawer,'focus':focus,'header':global_control,'primary':primary,'otherAgentMenu':menu})
 
         # Verify the same production danger selectors, without calling actions.
         page.evaluate('''() => { for (const cls of ['danger','cc-send stop','disk-del']) {

@@ -43,3 +43,18 @@ test('ordinary icon/preset hover and focus use provider tokens, while deliberate
   assert.match(css,/\.cc-send\.stop\s*\{[^}]*border-color:\s*var\(--bad\)/)
   assert.match(css,/\.disk-del\s*\{[^}]*border:\s*1px solid var\(--bad\)/)
 })
+
+test('primary and other ordinary accent hover frames follow provider or neutral without changing their fill', () => {
+  const primary = css.match(/button\.primary:hover\s*\{([^}]*)\}/)?.[1] ?? ''
+  assert.ok(primary.includes('border-color: var(--button-accent)'), 'primary frame follows provider/neutral token')
+  assert.ok(primary.includes('background: var(--accent-hover)'), 'primary hover fill remains unchanged')
+  for (const selector of ['button.badge.queued:hover', 'button.badge.frozen:hover',
+    'button.badge.retired-fold:hover', 'button.badge.audience-fold:hover', '.jumpbottom:hover',
+    '.pinuser:hover', '.doc-chip:hover', '.doc-badge:hover', 'button.stackbadge:hover',
+    '.cc-attach:hover', '.cc-notice-toggle:hover', '.maillink:hover', '.cc-eff:hover',
+    '.docket-detail-toggle:focus-visible', '.reply-preview-jump:focus-visible']) {
+    const start = css.indexOf(selector + ' {')
+    const rule = css.slice(start, css.indexOf('}', start))
+    assert.ok(start >= 0 && rule.includes('var(--button-accent)'), selector)
+  }
+})
