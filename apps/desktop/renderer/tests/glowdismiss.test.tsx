@@ -55,8 +55,8 @@ const button = (attention: number) =>
 const glows = (el: HTMLElement) => !!el.querySelector('.docket-bell.glow')
 const dotted = (el: HTMLElement) => !!el.querySelector('.docket-bell .attn-dot')
 const badge = (el: HTMLElement) => el.querySelector('.docket-bell .eye-count')?.textContent ?? ''
-const item = (slug: string, sources: ('manual' | 'question')[] = ['manual']) =>
-  ({ slug, manual_attention: { set_rev: 1 }, attention_sources: sources })
+const item = (slug: string, sources: ('manual' | 'question')[] = ['manual'], rev = 1) =>
+  ({ slug, manual_attention: { set_rev: rev }, attention_sources: sources })
 
 const reset = () => { resetDismissedAttention(); resetPending() }
 
@@ -229,6 +229,44 @@ test('§10 the same ticket flagged again (new notice epoch) glows and dots at on
     assert.equal(dotted(v.el), true, 'the new flag dots the button')
     assert.equal(glows(v.el), true, 'and glows — the old dismissal does not hide it')
     assert.equal(badge(v.el), '1')
+  } finally { await v.unmount() }
+})
+
+test('§12 the new flag on the same ticket can itself be dismissed at once (review-sol)', async () => {
+  reset()
+  const srv = manualServer()
+  await inAct(async () => { publishPending(summarizePending([flagRow('t1', ORG, 1)])) })
+  const v = await mountView(button(1), (el) => el)
+  try {
+    await inAct(async () => { void dismissAttention(ORG, item('t1')) })
+    await srv.answer(true)
+    await inAct(async () => { publishPending(summarizePending([flagRow('t1', ORG, 2)])) })
+    await v.render(button(1))
+    await inAct(() => flush(4))
+    assert.equal(glows(v.el), true, 'the new flag glows')
+    // dismissed again well within the old record's lifetime
+    await inAct(async () => { void dismissAttention(ORG, item('t1', ['manual'], 2)) })
+    assert.equal(srv.count(), 1, 'the second request is in flight')
+    assert.equal(glows(v.el), false, 'the glow is gone on the click')
+    assert.equal(dotted(v.el), false, 'and so is the dot')
+    await srv.answer(true)
+    await inAct(async () => { publishPending(summarizePending([])) })
+    await v.render(button(0))
+    await inAct(() => flush(4))
+    assert.equal(glows(v.el), false)
+    // a refusal of such a second dismissal brings only the new flag back
+    await inAct(async () => { publishPending(summarizePending([flagRow('t1', ORG, 3)])) })
+    await v.render(button(1))
+    await inAct(() => flush(4))
+    let error = ''
+    await inAct(async () => {
+      void dismissAttention(ORG, item('t1', ['manual'], 3)).catch((e: Error) => { error = e.message })
+    })
+    assert.equal(glows(v.el), false)
+    await srv.answer(false)
+    assert.ok(error)
+    assert.equal(glows(v.el), true, 'refused: the third flag glows again')
+    assert.equal(dotted(v.el), true)
   } finally { await v.unmount() }
 })
 

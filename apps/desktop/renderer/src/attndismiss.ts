@@ -29,6 +29,9 @@
 //     While any record is outstanding, the glow never shows fewer than those:
 //     a count cannot tell "the old flag is still counted" from "the old flag
 //     went and a new one came", but the list can.
+//   • A record is one flag INSTANCE (ticket + `set_rev`), so the new flag can
+//     itself be dismissed at once; since the tree counts a ticket once, the
+//     newer dismissal takes over the older one's subtraction.
 import { useSyncExternalStore } from 'react'
 import { dismissWorkItemAttention } from './api'
 import { pendingAttention, subscribe as subscribePending, type FlaggedRow } from './pending-attention'
@@ -58,7 +61,9 @@ const entries = new Map<string, Entry>()
 const seen = new Map<string, number>()
 const listeners = new Set<() => void>()
 let version = 0
-const key = (org: string, slug: string) => JSON.stringify([org, slug])
+/** one record per flag INSTANCE: a flag raised again on the same ticket has a
+ *  new `set_rev`, and dismissing it is a new dismissal (review-sol) */
+const key = (org: string, slug: string, rev: number) => JSON.stringify([org, slug, rev])
 function emit() {
   version += 1
   for (const l of [...listeners]) l()
@@ -92,7 +97,10 @@ const outstanding = (org: string, raw: number) =>
 
 /** Has the user dismissed THIS notice row (this flag instance)? */
 export function attentionDismissed(org: string, row: Pick<FlaggedRow, 'slug' | 'id'>): boolean {
-  return entries.get(key(org, row.slug))?.ids.has(row.id) ?? false
+  for (const e of entries.values()) {
+    if (e.org === org && e.slug === row.slug && e.ids.has(row.id)) return true
+  }
+  return false
 }
 
 /** The organization's flag rows the user has not dismissed — the dot's rows. */
@@ -131,8 +139,14 @@ export function dismissAttention(org: string, item: {
   attention_sources?: readonly string[]
 }): Promise<DismissAttentionResult> {
   const { slug } = item
-  const k = key(org, slug)
+  const k = key(org, slug, item.manual_attention.set_rev)
   if (!entries.has(k)) {
+    // an EARLIER flag on this ticket, dismissed before: the tree counts a
+    // ticket once, so this dismissal takes over its subtraction. The old
+    // record keeps hiding its own notice rows until it expires.
+    for (const e of entries.values()) {
+      if (e.org === org && e.slug === slug) e.reflected = true
+    }
     const raw = seen.get(org)
     // measured from the count the button shows, less the dismissals already
     // in flight; an organization the button has not rendered yet has no
