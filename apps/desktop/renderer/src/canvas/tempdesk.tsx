@@ -30,11 +30,15 @@ import { providerOf, useEsc } from './shared'
 import type { CanvasNode } from './shared'
 import { AgentName } from './identity'
 import { CloseIcon } from '../icons'
+import PushPinIcon from '@mui/icons-material/PushPin'
 import { useOverlayRoot, useSurfaceDocument } from '../popout'
 
 export interface TempDeskProps {
   node: CanvasNode
   close: () => void
+  /** pin this agent's desk as a window and close the modal — the host's own
+   *  pin action. Absent, there is no Pin button (already pinned, or mobile). */
+  onPin?: () => void
   /** the canonical desk's own props, from the host — the same ones the canvas's
    *  desks get. This panel adds none of its own and stubs nothing. */
   desk: Omit<DeskChatProps, 'node' | 'borrow' | 'bare'>
@@ -53,7 +57,7 @@ export interface TempDeskProps {
  *  · portaled to the overlay root, so it is above the pin layer and lands in
  *    the right document when the canvas itself is inside a popped-out window.
  */
-export function TempDeskModal({ node, close, desk }: TempDeskProps) {
+export function TempDeskModal({ node, close, onPin, desk }: TempDeskProps) {
   const doc = useSurfaceDocument()
   const overlayRoot = useOverlayRoot()
   const panel = useRef<HTMLDivElement | null>(null)
@@ -131,6 +135,12 @@ export function TempDeskModal({ node, close, desk }: TempDeskProps) {
           <AgentName id={node.id} tier={node.tier} nameClass="pinwin-name" />
           <span className="tempdesk-note pinwin-state">opened temporarily</span>
           <span className="spacer" />
+          {onPin && (
+            <button className="tempdesk-pin pinwin-unpin" onClick={onPin}
+              aria-label={`pin ${node.id}`} title={`pin ${node.id}'s desk as a window`}>
+              <PushPinIcon fontSize="inherit" />
+            </button>
+          )}
           <button className="tempdesk-close pinwin-unpin" onClick={close}
             aria-label="close" title="close — nothing about the canvas changes">
             <CloseIcon fontSize="inherit" />

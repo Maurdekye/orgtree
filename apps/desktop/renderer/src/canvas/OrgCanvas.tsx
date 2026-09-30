@@ -2731,11 +2731,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   /** the desk header's pin button: detach this desk into a window placed
    *  exactly over the card it came from — the camera does not move, and the
    *  card underneath turns into the placeholder on the same frame */
-  const pinDesk = (id: string) => {
+  const pinDesk = (id: string): boolean => {
     const at = cardRectOf(id)
-    if (!at) return
+    if (!at) return false
     const r = addPin(slug, id, clampRect(at, vpSizeNow()))
     if (!r.ok) toast([r.reason])
+    return r.ok
   }
 
   /** hide an explicitly revealed retired agent again (hide-retired setting) */
@@ -4155,6 +4156,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         transform, and it must survive the canvas being hidden. */}
     {tempDeskId && map.get(tempDeskId) && (
       <TempDeskModal node={map.get(tempDeskId)!} close={() => setTempDeskId(null)}
+        // PIN: the same `pinDesk` as the card's and the menu's pin, then the
+        // modal closes — its borrow ends, and the pinned window takes the desk.
+        // No button for an agent already pinned (the glance is then borrowing
+        // that very pin) or where there is no pinning at all (mobile).
+        onPin={!isMobile && !pinnedIds.has(tempDeskId)
+          ? () => { if (pinDesk(tempDeskId)) setTempDeskId(null) } : undefined}
         desk={{
           map, op, slug, toast, pub: false,
           compactAt: tree.compact_at,

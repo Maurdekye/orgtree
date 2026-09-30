@@ -21,6 +21,7 @@ import { DeskHosts, DeskSlot } from '../src/canvas/deskhosts'
 import { TempDeskModal } from '../src/canvas/tempdesk'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { openSurfaces } from '../src/windowlife'
+import { removePin } from '../src/canvas/pins'
 import type { CanvasNode, TreePayload } from '../src/canvas/shared'
 import type { OpResult } from '../src/types'
 
@@ -413,4 +414,59 @@ test('§7 picking the entry changes no focus, pins nothing and opens no window',
       'a native window was opened')
     assert.equal(v.el.querySelector('.pinwin'), null,
       'a pinned desk window appeared')
+  })
+
+test('§8 the Pin button pins the desk and closes the modal; a pinned agent gets none',
+  async (t: TestContext) => {
+    // docket `v3-a-temporarily-opened-desk-gets-a-pin-button`: the glance can
+    // be turned into a placement in one click, through the canvas's own pin
+    // action — and the borrowed desk lands in the pinned window, not left
+    // behind as the "open elsewhere" placeholder.
+    t.after(stubPointerCapture())
+    useFakeClock()
+    t.after(realClock)
+    setup()
+    t.after(() => removePin('mine', 'worker'))
+    const v = await mountView(
+      <OrgCanvas tree={tree([mkNode('worker')])} slug="mine"
+        op={() => Promise.resolve({})} toast={noop} mailEvt={null}
+        onOpenAgentGallery={noop} />, (h) => h)
+    t.after(() => v.unmount())
+    await flush(); await advance(400, 50); await flush()
+    const openTemporarily = async () => {
+      const card = v.el.querySelector('.space [data-copy-agent-name="worker"]')
+      assert.ok(card, 'no agent card to open the menu on')
+      await inAct(() => {
+        card!.dispatchEvent(new W.MouseEvent('contextmenu',
+          { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 30 }))
+      })
+      await flush(2)
+      const entry = [...document.querySelectorAll('button, [role="menuitem"]')]
+        .find((b) => /Open desk temporarily/.test(b.textContent ?? ''))
+      assert.ok(entry, 'the agent menu does not offer "Open desk temporarily"')
+      await inAct(() => { (entry as HTMLElement).click() })
+      await flush(2)
+      assert.ok(modal(), 'picking the entry did not open the temporary desk')
+    }
+    await openTemporarily()
+    assert.equal(v.el.querySelector('.pinwin'), null, 'pinned before the click')
+    const pin = modal()!.querySelector<HTMLButtonElement>('.tempdesk-head .tempdesk-pin')
+    assert.ok(pin, 'the temporary desk has no Pin button')
+    assert.ok(pin!.classList.contains('pinwin-unpin'),
+      'the Pin button does not use the pinned-desk button style')
+    await inAct(() => { pin!.click() })
+    await flush(2); await advance(100, 20); await flush(2)
+    assert.equal(modal(), null, 'the temporary modal did not close')
+    const win = document.querySelector('.pinwin') as HTMLElement | null
+    assert.ok(win, 'no pinned desk window appeared')
+    assert.equal(win!.querySelector('.pinwin-title .pinwin-name')?.textContent?.includes('worker'), true,
+      'the pinned window is not for this agent')
+    assert.ok(win!.querySelector('.pinwin-body .desk-slot, .pinwin-body .cc-head'),
+      'the pinned window holds no desk')
+    assert.ok(!/desk is open elsewhere/.test(win!.textContent ?? ''),
+      'the pinned window shows the placeholder — the desk stayed borrowed')
+    // opened temporarily again, an already-pinned agent is offered no Pin
+    await openTemporarily()
+    assert.equal(modal()!.querySelector('.tempdesk-pin'), null,
+      'an already-pinned agent still shows a Pin button')
   })
