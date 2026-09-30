@@ -33,7 +33,9 @@ after it, and the way back.
   last, and only after every check passed; it then also says
   `"via": "first-launch-conversion"`.
 - **Rollback folder**: `data\pre-postgres\orgs\`. After the switch, the old
-  SQLite files are moved here **unchanged**, so they can be put back.
+  SQLite files are moved here **unchanged**, so they can be put back. The
+  trashed organizations are set aside beside them, in
+  `data\pre-postgres\deleted\`, also unchanged.
 - **Marker file**: `data\orgs\<slug>.pg`, a small file saying that this org
   now lives in PostgreSQL.
 - **Conversion log folder**: `data\conversion\<date-time>-<number>\`. Each
@@ -97,7 +99,11 @@ else in the data folder stays exactly where it is and is used as before:
 transcripts (`transcript-records.sqlite3`, `turnlog\`), attachments and
 outbox files (`scratch\...\uploads\`, `scratch\...\outbox\`), workspaces,
 profiles, logs. Organizations in the trash (`data\deleted\`) are **not**
-converted: if the trash holds any, the conversion refuses (section 6).
+converted and are not in v3's trash. When the switch happens, their files are
+moved, unchanged, to `data\pre-postgres\deleted\`, and `store-backend.json`
+lists them under `"set_aside"` (per org: its name, when it was deleted, and
+each file's size and SHA-256). Going back to 2.1.12 (section 7) puts them in
+its trash again.
 
 ## 3. Before installing v3
 
@@ -165,7 +171,10 @@ Expected:
   `"via": "first-launch-conversion"`, and one entry per org under `"orgs"`;
 - `orgs` lists only `<slug>.pg` files, one per org;
 - `pre-postgres\orgs` lists every `.db` (and `-wal`, `-shm`) file that
-  2.1.12 had in `orgs`.
+  2.1.12 had in `orgs`;
+- if 2.1.12's trash held organizations, `pre-postgres\deleted` lists their
+  files, `deleted` no longer does, and `store-backend.json` names them under
+  `"set_aside"`.
 
 Then open Orgtree and look: every org is in the list, and a ticket and a
 recent mail you know well are there as before.
@@ -194,9 +203,12 @@ is. The usual reasons:
   cannot hold). It refuses rather than guess. Nothing was written. Do not
   edit or delete data to get past it: reinstall 2.1.12 and send the log
   folder (its `dry-run.json` lists every problem).
-- *"the trash holds N file(s) of deleted organizations"*: the conversion does
-  not carry trashed orgs over. Reinstall 2.1.12, restore those orgs or delete
-  them permanently from the trash, then install v3 again.
+- *"... pre-postgres/deleted already holds ..."*: a trashed org's file is
+  already in the rollback folder from an earlier conversion (for example, a
+  rollback that copied the trash back instead of moving it). Nothing was
+  switched, and no rollback copy is overwritten. Compare the two files; if
+  they are the same, delete the one in `pre-postgres\deleted`, then start v3
+  again. Otherwise send the log folder.
 - *"... is in use (its owner lock is held)"*: another Orgtree engine was
   running on the same data folder. Quit everything (section 3.1) and start v3
   again.
@@ -277,10 +289,12 @@ lost when you go back.** That is accepted for this upgrade.
      mkdir pre-postgres\markers
      move orgs\*.pg pre-postgres\markers\
      move pre-postgres\orgs\* orgs\
+     if exist pre-postgres\deleted\* move pre-postgres\deleted\* deleted\
      ```
 
      Check: `dir /b orgs` shows the `.db` files again and no `.pg`, and
-     `store-backend.json` is gone. Leave `pg\` alone.
+     `store-backend.json` is gone; the trashed orgs set aside by the
+     conversion are back in `deleted`. Leave `pg\` alone.
 4. Start Orgtree 2.1.12 and confirm the orgs look as before.
 
 If you later install v3 again after going back with C, v3 treats the data as

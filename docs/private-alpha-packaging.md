@@ -187,7 +187,7 @@ private output directory for inspection.
 
 ## Rollback
 
-Rollback is running 2.1.12's own installer (`Orgtree-Setup-2.1.12.exe`, from the GitHub release v2.1.12) over v3. `build/installer.nsh` has no version check that would refuse it. Nothing was verified by running an installer. After the first-launch conversion, the data has to be rolled back too (move `pre-postgres\orgs` back into `orgs` and remove `store-backend.json`); see the cutover runbook. Uninstall keeps `%APPDATA%\Orgtree v2` (`deleteAppDataOnUninstall: false`, as in 2.1.12).
+Rollback is running 2.1.12's own installer (`Orgtree-Setup-2.1.12.exe`, from the GitHub release v2.1.12) over v3. `build/installer.nsh` has no version check that would refuse it. Nothing was verified by running an installer. After the first-launch conversion, the data has to be rolled back too (move `pre-postgres\orgs` back into `orgs`, any `pre-postgres\deleted` back into `deleted`, and remove `store-backend.json`); see the cutover runbook. Uninstall keeps `%APPDATA%\Orgtree v2` (`deleteAppDataOnUninstall: false`, as in 2.1.12).
 
 ## Delivery evidence
 

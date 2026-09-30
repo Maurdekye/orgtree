@@ -946,8 +946,9 @@ def main(argv: list[str] | None = None) -> int:
     ``import --root R --custodian EXE [--cutover] [--out f]``: under the
     root's owner lock, bring the root's database up, import every org, read
     each back byte for byte, write the markers; with ``--cutover`` also write
-    ``store-backend.json`` and move the SQLite/JSON files to
-    ``pre-postgres/orgs``. Rerunning skips orgs already imported and finishes
+    ``store-backend.json``, move the SQLite/JSON files to
+    ``pre-postgres/orgs`` and set the trash's org files aside in
+    ``pre-postgres/deleted``. Rerunning skips orgs already imported and finishes
     an interrupted cutover. Exit 0 done, 3 refused."""
     import argparse  # noqa: PLC0415
 

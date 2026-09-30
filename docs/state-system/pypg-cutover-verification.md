@@ -85,7 +85,9 @@ few minutes on a large data folder (it reads every file of both folders).
 
 **What it checks.**
 1. **Files.** Every file in the backup must still exist. The org files from
-   `orgs\` must be in `pre-postgres\orgs\`, byte for byte (by SHA-256). No
+   `orgs\` must be in `pre-postgres\orgs\`, byte for byte (by SHA-256), and
+   the org files in the trash `deleted\` (not converted) in
+   `pre-postgres\deleted\`, byte for byte, and no longer in `deleted\`. No
    attachment (`...\uploads\`, `...\outbox\`) may be missing or changed.
    Other files that v3 changed or added since its first start (transcripts,
    logs, settings) are listed as `changed_since_backup`, not as problems.
