@@ -1615,7 +1615,15 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   // `nameHover` is kept at every lod, so a card hovered at mini and zoomed into
   // norm under a still pointer is measured on arrival without a fresh enter.
   const nameRef = useRef<HTMLSpanElement>(null)
+  const cardRef = useRef<HTMLDivElement>(null)
   const [nameHover, setNameHover] = useState(false)
+  // FAR-ZOOM NAME ABOVE EVERY CARD. At mini the hovered card is deliberately
+  // painted UNDER its neighbours (styles.css `.sq.mini:hover { z-index: 0 }`, so
+  // the hire token never steals a neighbour's press), and the name reveal lives
+  // inside that card's stacking context, so a neighbour covered it. The label
+  // is click-through, so a copy in the world layer, above every card, costs no
+  // hit-testing; the in-card copy is hidden while it shows.
+  const farGhost = lod === 'mini' && nameHover && !focused
   const [fullNameAt, setFullNameAt] = useState<{ left: number; top: number } | null>(null)
   useLayoutEffect(() => {
     const el = nameRef.current
@@ -1679,7 +1687,8 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
     )
   }
   return (
-    <div data-first-use-agent={node.id} data-copy-agent-name={focused ? undefined : node.id} className={cls.join(' ')} style={style}
+    <div ref={cardRef} data-first-use-agent={node.id} data-copy-agent-name={focused ? undefined : node.id}
+      className={cls.join(' ') + (farGhost ? ' far-ghosted' : '')} style={style}
       onPointerDown={(e) => {
         downAt.current = { x: e.clientX, y: e.clientY }
         if (!focused) onDragStart(e, node.id)
@@ -2060,6 +2069,12 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       {asking && createPortal(
         <AgentRetireConfirm kind={asking} node={node} op={op} toast={toast}
           close={() => setAsking(null)} />, document.body)}
+      {farGhost && cardRef.current?.parentElement && createPortal(
+        <span className="sq-far-ghost" aria-hidden="true"
+          style={{ left: pos.x + NODE_W / 2, top: pos.y - 26 }}>
+          <TierChip tier={node.tier} />
+          <span className="sq-far-ghost-name">{node.id}</span>
+        </span>, cardRef.current.parentElement)}
     </div>
   )
 }

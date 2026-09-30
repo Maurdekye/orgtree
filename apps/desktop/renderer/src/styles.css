@@ -3366,6 +3366,23 @@ button.stackbadge:hover { border-color: var(--button-accent); color: var(--agent
    tests/minihire_probe.py measures all of this in a real browser. */
 .space > .sq { z-index: 1; }
 .sq.mini:hover { z-index: 0; }
+/* The far-zoom name is drawn in the world layer above every card (z 7 clears
+   the hover raise 6, an open desk 5 and a drag 8 only while it is hovered) and
+   is click-through; the in-card copy hides while it shows. */
+.sq.mini.far-ghosted .sq-far-tier { visibility: hidden; }
+.sq-far-ghost {
+  position: absolute; z-index: 7; pointer-events: none;
+  display: inline-flex; align-items: center; gap: 5px;
+  transform: translateX(-50%) scale(max(1, var(--invzf, 1)));
+  transform-origin: bottom center;
+}
+.sq-far-ghost-name {
+  font: 600 11.5px/1.2 var(--mono); color: var(--ink-strong);
+  background: var(--tip-panel); border: 1px solid var(--line);
+  border-radius: 4px; padding: 3px 8px; white-space: nowrap;
+  max-width: 180px; overflow: hidden; text-overflow: ellipsis;
+  box-shadow: var(--shadow);
+}
 /* ...EXCEPT while the token's menu is open, which is a different intent. The
    compact token is one arrow; clicking it fans out the tier buttons, and those
    rows are taller than the gap they stand in — measured at z=.24, two of the
