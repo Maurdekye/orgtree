@@ -1,6 +1,7 @@
 import type { DesktopNotice } from './notifications'
 import { notificationInboxTarget, useNativeNotifications } from './notifications'
-import { startPendingMirror, usePendingAttention } from './pending-attention'
+import { startPendingMirror, usePendingAttention, waitingNow } from './pending-attention'
+import type { WaitingRow } from './pending-attention'
 import { ownsNotifications, useWindowIdentity } from './shell/identity'
 import { restoredAgent, restoredWindows, restoreWindowKind } from './windowlayout'
 import { desktop } from './desktop'
@@ -86,7 +87,7 @@ import { DirList } from './forms'
 import { FolderPickerHost } from './picker'
 import { activeDocCount, ago, ALL_TIERS, attentionPip, availableAutopsyModels, deskDpi, fmtCredits, formatCount, isOpenRouterTier, jumpKey, jumpTo, orgPxc, presenceOfPayload, primedRestartChip, setDeskDpi, TIER_LETTER, tierLabel, unicodeLength, usePolled } from './canvas/shared'
 import { InboxAskCard } from './canvas/asks'
-import { askMailRow, openAsks } from './canvas/openasks'
+import { askMailRow, openAsks, submittedOpenCount } from './canvas/openasks'
 import { SenderChip } from './canvas/senderchip'
 import { AgentName } from './canvas/identity'
 import { ObjectMenuBoundary } from './canvas/contextmenu'
@@ -261,14 +262,20 @@ export const usageTitle = (pres: ProviderPresence): string => {
  *  `glow` class over the `askbell` keyframes. Nothing else may start
  *  glowing without the user asking for it. */
 export function AskBell({ tree, onOpen, label }: {
-  tree: Parameters<typeof attentionPip>[0]
+  tree: Parameters<typeof attentionPip>[0] & Partial<Pick<TreePayload, 'roots' | 'asks'>>
   onOpen: () => void
   /** the v3 compact header's name for this icon-only button: its
    *  `aria-label`, never visible text (user 2026-09-29). Absent everywhere
    *  else, so every existing surface is unchanged. */
   label?: string
 }) {
-  const pip = attentionPip(tree)
+  // a card the user just submitted leaves the count and the glow on the click
+  // (user addendum 2026-09-30), not on the next tree read
+  useSubmittedAsks()
+  const answered = tree.roots
+    ? submittedOpenCount(tree, flatNodes(tree as TreePayload).values()) : 0
+  const pip = attentionPip(answered
+    ? { ...tree, asks_open: Math.max(0, (tree.asks_open ?? 0) - answered) } : tree)
   // The standing dot (user ruling 2026-09-12): an unanswered question or a
   // piece of urgent mail anywhere, in ANY organization. The badge and glow
   // above remain the open organization's own counts.
@@ -277,18 +284,58 @@ export function AskBell({ tree, onOpen, label }: {
   // is this icon-only button's accessible name. Otherwise the dot would be a
   // signal only sighted users get.
   const pending = usePendingAttention()
-  const waiting = pending.mail > 0
+  const rows = waitingNow(pending)
+  const waiting = rows.length > 0
   return (
     <button className={'iconbtn ask-bell' + (pip?.urgent ? ' glow' : '')}
       aria-label={label}
       title={(pip?.title ?? 'your inbox')
-        + (waiting ? ` — ${pending.mail} request(s) still waiting on you` : '')}
+        + (waiting ? ` — ${rows.length} request(s) still waiting on you` : '')}
       onClick={onOpen}>
       <MailIcon fontSize="inherit" />
       {waiting && <i className="attn-dot" aria-hidden="true" />}
       {pip && <b className={'eye-count' + (pip.urgent ? ' asks' : '')}>
         {pip.count}</b>}
     </button>
+  )
+}
+
+const WAITING_KIND: Record<WaitingRow['kind'], string> = {
+  'question': 'question',
+  'urgent-mail': 'urgent mail',
+  'terminal-failure': 'agent stopped',
+}
+
+/** WHAT THE DOT COUNTS IN OTHER ORGANIZATIONS, listed in the user inbox.
+ *
+ *  The header dot counts requests waiting in EVERY organization (user ruling
+ *  2026-09-12) while this inbox lists only the open one. So an unread
+ *  terminal failure in another organization lit the dot with nothing visible
+ *  behind it (docket v3-mail-icon-says-a-request-is-waiting-on-the-us,
+ *  2026-09-30). This section lists exactly the dot's rows from the other
+ *  organizations, out of the same aggregate, so whenever the dot is lit the
+ *  inbox shows why. The open organization's own rows are the inbox's ordinary
+ *  unread mail and question rows, so they are not repeated here. */
+export function OtherOrgWaiting({ slug, onOpenOrg }: {
+  slug: string
+  onOpenOrg?: (org: string) => void
+}) {
+  useSubmittedAsks()
+  const rows = waitingNow(usePendingAttention()).filter((w) => w.org !== slug)
+  if (!rows.length) return null
+  return (
+    <div className="other-org-waiting">
+      <div className="field-label">waiting in other organizations</div>
+      {rows.map((w) => (
+        <div className="hist-row" key={JSON.stringify([w.org, w.id])}>
+          <b>{w.org}</b>
+          <span className="badge">{WAITING_KIND[w.kind]}</span>
+          {w.agent && <span>{w.agent}</span>}
+          <span className="dim" title={w.body}>{w.body.split(/\r?\n/)[0] || w.title}</span>
+          {onOpenOrg && <button onClick={() => onOpenOrg(w.org)}>open {w.org}</button>}
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -1637,6 +1684,7 @@ export default function App() {
               {showInbox && (
                 <InboxPanel slug={slug} tree={tree} toast={toast}
                   refresh={() => refreshTree(slug)}
+                  onOpenOrg={openOrgFromShell}
                   jumpTo={inboxJump?.id ?? null} jumpSeq={inboxJump?.seq}
                   onFocusAgent={(id) => {
                     closeIfCentred('inbox', () => {
@@ -2428,7 +2476,7 @@ function useShellRefs(slug: string, tree: TreePayload | null, routes: {
 }
 
 export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
-  onFocusAgent, onOpenItem, onOpenDoc, onOpenMail }: {
+  onFocusAgent, onOpenItem, onOpenDoc, onOpenMail, onOpenOrg }: {
   slug: string
   tree: TreePayload
   toast: ToastFn
@@ -2445,6 +2493,8 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   onOpenItem?: (itemSlug: string) => void
   onOpenDoc?: (docId: string) => void
   onOpenMail?: (ref: TypedRef) => void
+  /** open another organization: the "waiting in other organizations" rows */
+  onOpenOrg?: (org: string) => void
 }) {
   const [folder, setFolder] = useState('inbox')
   // ⚠ A REFERENCE MUST OPEN THE FOLDER THE MESSAGE IS IN. The user's own sends
@@ -2588,6 +2638,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
     <PinFrame kind="inbox" title="Your inbox" panel="settings wide"
       close={close}>
         <h3><MailIcon fontSize="inherit" /> Your inbox</h3>
+        <OtherOrgWaiting slug={slug} onOpenOrg={onOpenOrg} />
         {userReqs.length > 0 && (
           <>
             <div className="field-label">audience requests</div>

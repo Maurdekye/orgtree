@@ -34,6 +34,27 @@ export const askIsOpen = (a: AskInfo | undefined | null): boolean =>
  *  that store with `useSubmittedAsks`. */
 export function openAsks(tree: Pick<TreePayload, 'asks'> | null | undefined,
   nodes: Iterable<TreeNode>): AskInfo[] {
+  return openCards(tree, nodes).filter(a => !askSubmitted(a.id))
+}
+
+/** How many of the tree's `asks_open` rows sit behind cards the user has
+ *  just submitted. `asks_open` counts one per open store row (question,
+ *  credit request, scope request), and a batch card resolves one row of each
+ *  store it carries, which is exactly its `revs` keys. The header bell takes
+ *  these off its count and glow, so an answer clears it on the click
+ *  (user addendum 2026-09-30) instead of on the next tree read. */
+export function submittedOpenCount(tree: Pick<TreePayload, 'asks'> | null | undefined,
+  nodes: Iterable<TreeNode>): number {
+  let n = 0
+  for (const a of openCards(tree, nodes)) {
+    if (!askSubmitted(a.id)) continue
+    n += a.kind === 'batch' ? Math.max(1, Object.keys(a.revs ?? {}).length) : 1
+  }
+  return n
+}
+
+function openCards(tree: Pick<TreePayload, 'asks'> | null | undefined,
+  nodes: Iterable<TreeNode>): AskInfo[] {
   const out: AskInfo[] = []
   const batched = new Set<string>()
   for (const n of nodes) {
@@ -56,7 +77,7 @@ export function openAsks(tree: Pick<TreePayload, 'asks'> | null | undefined,
     const batch = served ?? composeBatch(node, rows)
     if (batch) out.push(batch)
   }
-  return out.filter(a => !askSubmitted(a.id))
+  return out
 }
 
 /** The server's scope-item label (ledger `_scope_item_label`), for a scope tab

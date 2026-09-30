@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { askHidden } from './asksubmitted'
 import type { DesktopNotification } from '../../../../packages/contracts'
 
 /** WHAT IS STILL WAITING ON THE USER, across every organization.
@@ -44,9 +45,30 @@ export interface PendingAttention {
    *  may rely on. Same rows, same order, no extra fetch and no parallel
    *  state. */
   items: { org: string; id: string }[]
+  /** THE ROWS BEHIND `mail`, SAID IN FULL, so the user inbox can list them.
+   *
+   *  The dot counts every organization and the inbox lists only the open one,
+   *  so an unread terminal failure in another organization lit the dot with
+   *  nothing visible behind it (docket v3-mail-icon-says-a-request-is-waiting-
+   *  on-the-us, 2026-09-30). The inbox lists the other organizations' rows out
+   *  of THIS field, so the dot and the inbox read the same pass and cannot
+   *  disagree. Sorted like `items`; `work-attention` rows are the docket's and
+   *  are not here. */
+  waiting: WaitingRow[]
 }
 
-const EMPTY: PendingAttention = { mail: 0, docket: 0, ids: [], items: [] }
+export interface WaitingRow {
+  org: string
+  id: string
+  kind: Exclude<PendingKind, 'work-attention'>
+  title: string
+  body: string
+  agent: string | null
+  /** a question's ask id, so a card the user just submitted stops counting */
+  source: string | null
+}
+
+const EMPTY: PendingAttention = { mail: 0, docket: 0, ids: [], items: [], waiting: [] }
 let current: PendingAttention = EMPTY
 const listeners = new Set<() => void>()
 
@@ -57,17 +79,25 @@ export function pendingAttention(): PendingAttention { return current }
 export function summarizePending(rows: readonly DesktopNotification[]): PendingAttention {
   let mail = 0, docket = 0
   const items: { org: string; id: string }[] = []
+  const waiting: WaitingRow[] = []
   for (const row of rows) {
     if (!PENDING_KINDS.includes(row.kind as PendingKind)) continue
     items.push({ org: row.org, id: row.id })
     if (row.kind === 'work-attention') docket++
-    else mail++
+    else {
+      mail++
+      waiting.push({ org: row.org, id: row.id, kind: row.kind as WaitingRow['kind'],
+        title: row.title, body: row.body.slice(0, 400), agent: row.agent ?? null,
+        source: row.source_id ?? null })
+    }
   }
   // sorted on the SAME key both halves are built from, so `ids[i]` and
   // `items[i]` always describe the same row
-  items.sort((a, b) => (a.org === b.org ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
-    : a.org < b.org ? -1 : 1))
-  return { mail, docket, ids: items.map((i) => JSON.stringify([i.org, i.id])), items }
+  const byKey = (a: { org: string; id: string }, b: { org: string; id: string }) =>
+    (a.org === b.org ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : a.org < b.org ? -1 : 1)
+  items.sort(byKey)
+  waiting.sort(byKey)
+  return { mail, docket, ids: items.map((i) => JSON.stringify([i.org, i.id])), items, waiting }
 }
 
 function same(a: PendingAttention, b: PendingAttention): boolean {
@@ -86,6 +116,15 @@ export function publishPending(next: PendingAttention): boolean {
 }
 
 export function resetPending(): void { current = EMPTY }
+
+/** The rows still waiting as THIS window sees them. A question card the user
+ *  has just submitted stops counting on the click, not when the feed next
+ *  drops it (user addendum 2026-09-30: after answering, the icon still
+ *  glowed). A failed submit brings the card back, and the row with it.
+ *  Callers re-render on `useSubmittedAsks`. */
+export function waitingNow(p: PendingAttention): WaitingRow[] {
+  return p.waiting.filter((w) => !(w.kind === 'question' && askHidden(w.org, w.source)))
+}
 
 function subscribe(listener: () => void): () => void {
   listeners.add(listener)
@@ -118,7 +157,7 @@ const parsePending = (raw: string | null): PendingAttention | null => {
   try {
     const v: unknown = JSON.parse(raw)
     if (!v || typeof v !== 'object') return null
-    const { mail, docket, ids, items } = v as Partial<PendingAttention>
+    const { mail, docket, ids, items, waiting } = v as Partial<PendingAttention>
     if (typeof mail !== 'number' || typeof docket !== 'number') return null
     if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string')) return null
     const rows = Array.isArray(items)
@@ -127,7 +166,18 @@ const parsePending = (raw: string | null): PendingAttention | null => {
         && typeof (i as { org?: unknown }).org === 'string'
         && typeof (i as { id?: unknown }).id === 'string')
       : []
-    return { mail, docket, ids: ids as string[], items: rows }
+    // an owner from before `waiting` existed writes none; its rows are then
+    // not listed until the owner next publishes
+    const str = (x: unknown) => typeof x === 'string'
+    const waits = Array.isArray(waiting)
+      ? waiting.filter((w): w is WaitingRow => {
+        if (!w || typeof w !== 'object') return false
+        const r = w as unknown as Record<string, unknown>
+        return str(r.org) && str(r.id) && str(r.kind) && str(r.title) && str(r.body)
+          && (r.agent === null || str(r.agent)) && (r.source === null || str(r.source))
+      })
+      : []
+    return { mail, docket, ids: ids as string[], items: rows, waiting: waits }
   } catch { return null }
 }
 
