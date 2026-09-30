@@ -1623,7 +1623,8 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   // inside that card's stacking context, so a neighbour covered it. The label
   // is click-through, so a copy in the world layer, above every card, costs no
   // hit-testing; the in-card copy is hidden while it shows.
-  const farGhost = lod === 'mini' && nameHover && !focused
+  const [nameFocus, setNameFocus] = useState(false)
+  const farGhost = lod === 'mini' && (nameHover || nameFocus) && !focused
   const [fullNameAt, setFullNameAt] = useState<{ left: number; top: number } | null>(null)
   useLayoutEffect(() => {
     const el = nameRef.current
@@ -1693,6 +1694,8 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
         downAt.current = { x: e.clientX, y: e.clientY }
         if (!focused) onDragStart(e, node.id)
       }}
+      onFocus={() => setNameFocus(true)}
+      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setNameFocus(false) }}
       onPointerEnter={() => setNameHover(true)}
       onPointerMove={(e) => { trackEdge(e); onDragMove(e, node.id) }}
       onPointerUp={(e) => onDragEnd(e, node.id, node, focused)}

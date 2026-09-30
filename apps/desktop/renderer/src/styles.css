@@ -3366,12 +3366,13 @@ button.stackbadge:hover { border-color: var(--button-accent); color: var(--agent
    tests/minihire_probe.py measures all of this in a real browser. */
 .space > .sq { z-index: 1; }
 .sq.mini:hover { z-index: 0; }
-/* The far-zoom name is drawn in the world layer above every card (z 7 clears
-   the hover raise 6, an open desk 5 and a drag 8 only while it is hovered) and
+/* The far-zoom name is drawn in the world layer above every card (z 9 clears
+   the hover raise 6, an open desk 5 and a dragged card 8) while the card is
+   hovered or focused and
    is click-through; the in-card copy hides while it shows. */
 .sq.mini.far-ghosted .sq-far-tier { visibility: hidden; }
 .sq-far-ghost {
-  position: absolute; z-index: 7; pointer-events: none;
+  position: absolute; z-index: 9; pointer-events: none;
   display: inline-flex; align-items: center; gap: 5px;
   transform: translateX(-50%) scale(max(1, var(--invzf, 1)));
   transform-origin: bottom center;
