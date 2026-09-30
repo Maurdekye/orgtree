@@ -45,6 +45,7 @@ import { setOrgView, useOrgView } from './attention/mode'
 import { useButtonColours } from './buttoncolours'
 import type { OrgView } from './attention/mode'
 import { AttentionView } from './attention/AttentionView'
+import type { AttentionNotificationFocus } from './attention/AttentionQueue'
 import { openOrgEffect, requestOpenOrg } from './shell/openorg'
 import { identityOrg, identityView } from './shell/identity'
 import { useOpenOrgs } from './shell/openorgs'
@@ -354,6 +355,12 @@ export default function App() {
   const [slug, commitSlug] = useState<string | null>(() => v3 ? identityOrg(identity)
     : slugFromPath() ?? (desktop() ? (() => { try { return localStorage.getItem('orgtree-desktop-last-org') } catch { return null } })() : null))   // browser/v2 /o/<slug> survives refresh
   const [tree, setTree] = useState<TreePayload | null>(null)
+  // The view and click handler belong to this window's organization.
+  const viewMode = useOrgView(v3 ? slug : null)
+  const attentionNotification = useRef<AttentionNotificationFocus | null>(null)
+  const registerAttentionNotification = useCallback((focus: AttentionNotificationFocus | null) => {
+    attentionNotification.current = focus
+  }, [])
   // point 34: the tree on screen, for the new-question primer (askprime.ts)
   const treeRef = useRef<TreePayload | null>(null)
   treeRef.current = tree
@@ -598,6 +605,10 @@ export default function App() {
   }, [tree, slug])
   useEffect(() => {
     if (!nativeTarget || !tree || tree.slug !== nativeTarget.org || slug !== nativeTarget.org) return
+    if (v3 && viewMode === 'attention' && attentionNotification.current?.(nativeTarget)) {
+      setNativeTarget(null)
+      return
+    }
     if (nativeTarget.kind === 'document' && nativeTarget.source_id) {
       setGalleryJump(jumpTo(nativeTarget.source_id)); setShowGallery(true); raisePinnedModal('gallery', slug)
     } else if (nativeTarget.kind === 'agent-frozen') {
@@ -606,7 +617,7 @@ export default function App() {
     } else if (nativeTarget.item) { setDocketJump(jumpTo(nativeTarget.item)); setShowDocket(true); raisePinnedModal('docket', slug) }
     else { setShowInbox(true); setInboxJump(jumpTo(notificationInboxTarget(nativeTarget))); raisePinnedModal('inbox', slug) }
     setNativeTarget(null)
-  }, [nativeTarget, tree, slug])
+  }, [nativeTarget, tree, slug, v3, viewMode])
   useEffect(() => { getHost().then((h) => setBuild(h.build)).catch(() => {}) }, [])
   // The running APP version, shown beside the sidebar title (user 2026-09-10,
   // e.g. "2.0.0-alpha.8"). It comes from the desktop shell's own bridge —
@@ -1094,12 +1105,6 @@ export default function App() {
     const bound = identityOrg(identity)
     if (bound !== slug) commitSlug(bound)
   }, [v3, identity, slug])
-  // ⚠ ONE MODULE OWNS THE VIEW KEY. `shell/viewmode.ts` existed only so the
-  // compact header was not blocked on a module in another worktree; it is
-  // gone, and `attention/mode.ts` is now the single reader and writer of
-  // `orgtree-org-view`. Same key, same contract, same "default stored as
-  // absence" invariant — the swap was an import change and nothing else.
-  const viewMode = useOrgView(v3 ? slug : null)
   const buttonNodes = useMemo(() => tree ? flatNodes(tree) : null, [tree])
   const buttonColours = useButtonColours(v3 ? slug : null, buttonNodes)
   const setViewMode = useCallback((m: OrgView) => setOrgView(v3 ? slug : null, m),
@@ -1576,6 +1581,7 @@ export default function App() {
                     toast={ctx.toast} map={ctx.map} posOf={ctx.posOf}
                     onOpenItem={ctx.onOpenItem} onFocusAgent={ctx.onFocusAgent}
                     onOpenDoc={ctx.onOpenDoc} onOpenMail={ctx.onOpenMail}
+                    onNotificationFocus={registerAttentionNotification}
                     deskExtras={ctx.deskExtras}
                     /* the freshness of the ONE tree read this component
                        already makes — not a second poller and not a copy of

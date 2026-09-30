@@ -41,6 +41,7 @@ import {
 import { openSurfaces, subscribeWindows, windowRevision } from '../windowlife'
 import { LanIcon, NotificationsActiveIcon } from '../icons'
 import { AttentionQueue } from './AttentionQueue'
+import type { AttentionQueueProps } from './AttentionQueue'
 import { AgentDeskPanel } from './AgentDeskPanel'
 import {
   clampSplit, setAttentionLayout, setOrgView, SPLIT_MAX, SPLIT_MIN,
@@ -327,6 +328,7 @@ export interface AttentionViewProps {
   /** the canonical `MailLinkFn` the org host hands its slot — see
    *  `AttentionQueueProps.onOpenMail` for why this is not a TypedRef handler */
   onOpenMail?: MailLinkFn
+  onNotificationFocus?: AttentionQueueProps['onNotificationFocus']
   /** the Desk's own host routes, passed through untouched */
   deskExtras?: Partial<DeskChatProps>
   /**
@@ -507,6 +509,7 @@ export function AttentionView(props: AttentionViewProps) {
             <AttentionQueue slug={slug} tree={props.tree} toast={props.toast}
               onOpenItem={props.onOpenItem} onFocusAgent={props.onFocusAgent}
               onOpenDoc={props.onOpenDoc} onOpenMail={props.onOpenMail}
+              onNotificationFocus={props.onNotificationFocus}
               treeStatus={props.treeStatus} />
           </PinFrame>
         </div>

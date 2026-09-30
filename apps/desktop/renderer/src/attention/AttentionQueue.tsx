@@ -32,7 +32,9 @@
 // have just read stays on screen while it is still the selected row (ticket
 // rule), and `retainSelected` in feed.ts is the whole of it.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { notificationInboxTarget } from '../notifications'
+import type { DesktopNotice } from '../notifications'
 import { useSubmittedAsks } from '../asksubmitted'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useWorkItems } from '../canvas/useworkitems'
@@ -57,6 +59,8 @@ import {
 } from './feed'
 import type { AttentionRow } from './feed'
 
+export type AttentionNotificationFocus = (notice: DesktopNotice) => boolean
+
 export interface AttentionQueueProps {
   slug: string
   tree: TreePayload
@@ -75,6 +79,8 @@ export interface AttentionQueueProps {
    *  `mailRefTarget` (canvas/reflinks) is the app's own bridge between the two
    *  shapes. */
   onOpenMail?: MailLinkFn
+  /** The host offers notification clicks to the actual listed rows first. */
+  onNotificationFocus?: (focus: AttentionNotificationFocus | null) => void
   /**
    * THE FRESHNESS OF `tree`, WHICH IS THE LIST'S THIRD SOURCE.
    *
@@ -97,7 +103,7 @@ export interface AttentionQueueProps {
 }
 
 export function AttentionQueue({
-  slug, tree, toast, onOpenItem, onFocusAgent, onOpenDoc, onOpenMail, treeStatus,
+  slug, tree, toast, onOpenItem, onFocusAgent, onOpenDoc, onOpenMail, treeStatus, onNotificationFocus,
 }: AttentionQueueProps) {
   // read-only visitor: a public organization is served to someone who is not
   // the operator, so every resolution control is withheld. The rows still
@@ -246,6 +252,30 @@ export function AttentionQueue({
 
   // ---- keyboard: the list is a real listbox, so selection is reachable
   const listRef = useRef<HTMLDivElement>(null)
+  const detailRef = useRef<HTMLDivElement>(null)
+  // Membership belongs to this queue, including optimistic dismissal and
+  // selected read-mail retention. Do not infer it from notification kind alone.
+  useLayoutEffect(() => {
+    if (!onNotificationFocus) return
+    onNotificationFocus((notice) => {
+      if (notice.org !== slug) return false
+      const row = rows.find((r) => notice.kind === 'work-attention'
+        ? r.kind === 'ticket' && r.item?.slug === notice.item
+        : notice.kind === 'question'
+          ? r.kind === 'question' && 'ask:' + r.ask?.id === notificationInboxTarget(notice)
+          : notice.kind === 'urgent-mail'
+            && r.kind === 'mail' && r.mail?.id === notificationInboxTarget(notice))
+      if (!row) return false
+      openRow(row)
+      listRef.current?.focus({ preventScroll: true })
+      const cell = [...(listRef.current?.querySelectorAll<HTMLElement>('[data-attn-row]') ?? [])]
+        .find((c) => c.getAttribute('data-attn-row') === row.key)
+      cell?.firstElementChild?.scrollIntoView?.({ block: 'nearest' })
+      if (detailRef.current) detailRef.current.scrollTop = 0
+      return true
+    })
+    return () => onNotificationFocus(null)
+  })
   const onListKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (!rows.length || e.target !== e.currentTarget) return
     const i = rows.findIndex((r) => r.key === selected)
@@ -351,7 +381,7 @@ export function AttentionQueue({
             (`.mailer-read > .event-head`), and a wrapper silently broke them
             (measured, attnqueue_probe.py) */}
         <div className={'mailer-read attn-mread ' + surface.className}
-          data-attn-detail={current?.kind}>
+          ref={detailRef} data-attn-detail={current?.kind}>
           {!current
             ? <div className="dim pad mailer-none">{rows.length ? 'Select an entry to see it.' : ''}</div>
             : current.kind === 'ticket' && current.item
