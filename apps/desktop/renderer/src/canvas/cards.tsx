@@ -4,6 +4,7 @@
 // agent card itself (NodeSquare). Extracted verbatim from Canvas.tsx in the
 // phase-3 split.
 
+import { askHidden, useSubmittedAsks } from '../asksubmitted'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
@@ -1460,6 +1461,8 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   // retire from the CARD (user request 2026-08-17): the seat-freeing action
   // no longer requires zooming to the desk — same confirm + undo-toast flow,
   // same retire/dissolve split as the desk's cc-actions
+  // re-render when an ask is submitted, so the `asking` glow drops at once
+  useSubmittedAsks()
   const [asking, setAsking] = useState<RetireKind | null>(null)
   const liveKids = node.children.some((c) => c.state === 'live')
   // NEAREST-EDGE chip gating (user ruling 2026-08-04): only the set at the
@@ -1584,7 +1587,13 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   // glow now means ONE thing — this agent needs the user's attention (an open
   // ask). Holding a user audience is a capability, not an emergency: it wears
   // the same soft steel as any other audience.
-  if (node.ask && (node.ask.status === 'open' || node.ask.status === 'pending')) {
+  // …and it goes out ON THE CLICK that answers it (docket v3-agent-node-
+  // keeps-its-attention-glow-for-a-whi): the tree keeps the ask open until a
+  // paced tree read after the save, so the glow outlived the card by seconds.
+  // The card leaves on the submit (asksubmitted.ts, point 31); so does this.
+  // A NEW ask (another id) glows as usual, and a refused submit brings it back.
+  if (node.ask && (node.ask.status === 'open' || node.ask.status === 'pending')
+      && !askHidden(slug, node.ask.id)) {
     cls.push('asking')
   }
   if (node.audiences_held?.length) cls.push('aud')
