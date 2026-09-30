@@ -803,6 +803,49 @@ class BracketTests(unittest.TestCase):
         status = json.loads((root / bracket.CONVERT_DIR / bracket.CONVERT_STATUS).read_text(encoding="utf-8"))
         self.assertEqual((status["state"], status["reason"]), ("failed", text))
 
+    def assert_public_failure_text(self, text: str, root: Path, *kept: Path) -> None:
+        # a public 3.0.0 user arrives by auto-update from 2.1.14: the updater
+        # never downgrades and they have no repository, so the text itself
+        # names the release to go back to, links its public download, says the
+        # data is unchanged and names where the old files are
+        self.assertNotIn("2.1.12", text)
+        self.assertNotIn("docs/", text)
+        self.assertNotIn(".md", text)
+        self.assertIn(f"Orgtree {bracket.PREVIOUS_RELEASE}", text)
+        self.assertIn("https://github.com/Maurdekye/orgtree/releases/tag/v2.1.14", text)
+        self.assertIn("unchanged", text)
+        for folder in kept:
+            self.assertIn(str(folder), text)
+        self.assertLessEqual(len(text), 2000, "the desktop shows at most 2000 characters (parseConversionFailure)")
+
+    def test_every_failure_text_tells_a_public_user_how_to_go_back(self) -> None:
+        self.assertEqual(bracket.PREVIOUS_RELEASE_URL,
+                         f"https://github.com/Maurdekye/orgtree/releases/tag/v{bracket.PREVIOUS_RELEASE}")
+        # nothing switched: a refused dry run
+        root, env, _ = self.converting(STUB_DRY_REFUSE="1")
+        with self.assertRaises(bracket.ConversionFailed) as caught:
+            bracket.start_for_engine(root, env, self.migrator)
+        text = str(caught.exception)
+        self.assertIn("Nothing was switched", text)
+        self.assertIn("include that folder", text)
+        self.assert_public_failure_text(text, root, root / "orgs")
+        import shutil
+        shutil.rmtree(root)
+        root.mkdir()
+        # switched, but the old files could not all be moved aside
+        root, env, _ = self.converting()
+        (root / "orgs" / "acme.pg").write_text("{}")
+        (root / bracket.PRODUCT_FILE).write_text("{}")
+        (root / bracket.CUTOVER_FILE).write_text(json.dumps(
+            {"schema": bracket.CUTOVER_SCHEMA, "backend": "postgres", "via": bracket.CONVERT_VIA}), encoding="utf-8")
+        with mock.patch.object(bracket.os, "rename", side_effect=PermissionError(13, "in use by another process")):
+            with self.assertRaises(bracket.ConversionFailed) as caught:
+                bracket.start_for_engine(root, env, self.migrator)
+        text = str(caught.exception)
+        self.assertIn("switch to the new database was recorded", text)
+        self.assert_public_failure_text(text, root, root / "orgs", root / "pre-postgres" / "orgs",
+                                        root / bracket.CUTOVER_FILE)
+
     def test_a_failed_import_or_prepare_switches_nothing(self) -> None:
         for flag, expect in (("STUB_IMPORT_FAILS", "read-back does not match"),
                              ("STUB_PREPARE_FAILS", "product.refused"),

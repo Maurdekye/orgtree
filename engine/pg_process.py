@@ -559,22 +559,34 @@ class ConversionFailed(BracketError):
     for the user (launch.py prints it as a structured refusal)."""
 
 
+#: The release a user can go back to, and where they download it. A public
+#: 3.0.0 user arrives by auto-update and the updater never downgrades, so the
+#: message must carry the link itself (not a path inside the repository).
+PREVIOUS_RELEASE = "2.1.14"
+PREVIOUS_RELEASE_URL = f"https://github.com/Maurdekye/orgtree/releases/tag/v{PREVIOUS_RELEASE}"
+
+
 def _convert_message(root: Path, reason: str, logdir: Path | None) -> str:
     record = None
     try:
         record = read_cutover(root)
     except BracketError:
         pass
+    orgs, kept = root / "orgs", root / "pre-postgres" / "orgs"
+    download = f"Orgtree {PREVIOUS_RELEASE} can be downloaded from {PREVIOUS_RELEASE_URL}"
     if record is not None and record.get("backend") == "postgres":
-        state = ("The switch to the new database was recorded, but moving the old files aside did not "
-                 "finish; the old files are still there.")
+        state = (f"The switch to the new database was recorded, but moving the old files aside did not "
+                 f"finish. Your old data files are unchanged, in {orgs} and {kept}. Starting Orgtree again "
+                 f"finishes the move. To go back to Orgtree {PREVIOUS_RELEASE} instead, move the files in "
+                 f"{kept} back into {orgs}, rename {root / CUTOVER_FILE}, and install it: {download}.")
     else:
-        state = ("Nothing was switched: your data is still in the old format, unchanged, and Orgtree "
-                 "2.1.12 can open it.")
-    details = f" Details: {logdir}." if logdir is not None else ""
+        state = (f"Nothing was switched: your data is unchanged, still in its old format in {orgs}, and "
+                 f"Orgtree {PREVIOUS_RELEASE} can open it. To keep working now, install it again: "
+                 f"{download}.")
+    details = (f" Details: {logdir}. If you report this to the Orgtree team, include that folder."
+               if logdir is not None else "")
     return (f"Orgtree could not convert your data to its new database, so it has not started. {state} "
-            f"Reason: {reason}{details} To keep working now, reinstall Orgtree 2.1.12. "
-            f"The guide docs/state-system/pypg-cutover-runbook.md says what to send the Orgtree team.")
+            f"Reason: {reason}{details}")
 
 
 #: The conversion's latest state for a desktop that ATTACHED to an engine it
@@ -687,7 +699,7 @@ def _convert(root: Path, env: Mapping[str, str], step: Progress, state: dict[str
         # checked before anything is written: this refusal leaves the root as it was
         raise ConversionFailed(_convert_message(
             root, f"the trash holds {len(trash)} file(s) of deleted organizations in the old format "
-                  f"({', '.join(trash[:5])}), which the conversion does not carry over. Open Orgtree 2.1.12, "
+                  f"({', '.join(trash[:5])}), which the conversion does not carry over. Open Orgtree {PREVIOUS_RELEASE}, "
                   "restore or permanently delete them, then start this version again.", None))
     _refuse_overlap(root, product_deny_locations(env))
     custodian = _executable(env, CUSTODIAN_ENV)
