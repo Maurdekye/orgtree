@@ -159,12 +159,16 @@
 }
 .attn-agents-bar {
   grid-area: 1 / 1;
+  position: relative;
+  z-index: 4;
+  pointer-events: none;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 6px;
   padding: 0 3px 0 0;
 }
+.attn-agents-toggle { pointer-events: auto; }
 .attn-agents-rail-label {
   writing-mode: vertical-rl;
   font-size: 10px;
@@ -181,13 +185,13 @@
  * inside a desk (its "↑ you" jump chip, its menus) can climb over either. */
 .attn-agents {
   position: absolute;
-  /* Follow the measured rail column, including the toggle's full border. */
+  /* Reclaim the rail below the toggle, keeping the drawer's right edge. */
   grid-area: 1 / 2;
   top: 0;
-  left: 0;
+  left: calc(-1 * var(--attn-agent-rail, 0px));
   bottom: 0;
   z-index: 3;
-  width: 232px;
+  width: calc(232px + var(--attn-agent-rail, 0px));
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -237,6 +241,11 @@
   padding: 0;
   border: 0;
   box-shadow: none;
+}
+/* Only the filter needs clearance for the collapse button. */
+.attn-agents .tray-filter {
+  margin-left: calc(4px + var(--attn-agent-rail, 0px));
+  width: calc(100% - 8px - var(--attn-agent-rail, 0px));
 }
 @media (prefers-reduced-motion: reduce) {
   .attn-agents, .attn-agents-wrap.list-open .attn-agents,

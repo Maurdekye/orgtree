@@ -198,7 +198,20 @@ export function AgentDeskPanel({
   })
 
   const listRef = useRef<HTMLDivElement>(null)
+  const barRef = useRef<HTMLDivElement>(null)
   const toggleRef = useRef<HTMLButtonElement>(null)
+  // The filter stays beside the toggle, but rows can use the space below it.
+  // Measure the rail rather than assuming a fixed button width (font/zoom).
+  useLayoutEffect(() => {
+    const bar = barRef.current
+    const list = listRef.current
+    if (!bar || !list) return
+    const measure = () => list.style.setProperty('--attn-agent-rail', `${bar.getBoundingClientRect().width}px`)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(bar)
+    return () => observer.disconnect()
+  }, [])
   // where a real pointer press opened the drawer (see the close zone below);
   // null for a keyboard open, whose synthetic click has `detail` 0
   const openedAt = useRef<{ x: number; y: number } | null>(null)
@@ -273,7 +286,7 @@ export function AgentDeskPanel({
   return (
     <div className={'attn-agents-wrap' + (open ? ' list-open' : '')
       + (selected?.tier ? ' prov-' + providerOf(selected.tier) : '')}>
-      <div className="attn-agents-bar">
+      <div className="attn-agents-bar" ref={barRef}>
         <button type="button" className="iconbtn attn-agents-toggle" ref={toggleRef}
           aria-expanded={open} aria-controls={`attn-agents-${slug}`}
           title={open ? 'close the agents list' : 'open the agents list'}
