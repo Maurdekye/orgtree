@@ -195,6 +195,9 @@ export function AgentDeskPanel({
 
   const listRef = useRef<HTMLDivElement>(null)
   const toggleRef = useRef<HTMLButtonElement>(null)
+  // where a real pointer press opened the drawer (see the close zone below);
+  // null for a keyboard open, whose synthetic click has `detail` 0
+  const openedAt = useRef<{ x: number; y: number } | null>(null)
   // closing from inside the drawer hands focus back to the button that opened
   // it, or it would be left on a row that is no longer visible
   const close = () => {
@@ -217,16 +220,22 @@ export function AgentDeskPanel({
   // "only after it goes some distance out, say 50% further"). Not on leaving
   // its surface — the desk's "↑ you" chip and the scrim sit right beside it —
   // but on leaving a zone half the drawer's size again past each edge
-  // (`inCloseZone`). The zone ARMS only once the pointer has been inside it,
-  // so a drawer opened from the keyboard, with the mouse resting somewhere
-  // far away, is not shut by the first nudge of that mouse. Touch is left
+  // (`inCloseZone`). The zone ARMS once the pointer is known to be inside it:
+  // at once when a press inside the zone opened the drawer (the button sits
+  // in the zone, so a mouse open is armed from the start — review-sol), and
+  // otherwise on the first move inside it. So a drawer opened from the
+  // keyboard, with the mouse resting somewhere far away, is not shut by the
+  // first nudge of that mouse. Touch is left
   // out: a finger only moves while it drags, and a tap outside is the
   // scrim's. Listened for on the drawer's own document, which is a different
   // one when this panel is popped out.
   useEffect(() => {
     if (!open) return
     const doc = listRef.current?.ownerDocument ?? document
-    let armed = false
+    const at = openedAt.current
+    openedAt.current = null
+    const box = listRef.current?.getBoundingClientRect()
+    let armed = !!at && !!box && !!box.width && !!box.height && inCloseZone(box, at.x, at.y)
     const onMove = (e: PointerEvent) => {
       if (e.pointerType === 'touch') return
       const r = listRef.current?.getBoundingClientRect()
@@ -264,7 +273,11 @@ export function AgentDeskPanel({
           aria-expanded={open} aria-controls={`attn-agents-${slug}`}
           title={open ? 'close the agents list' : 'open the agents list'}
           aria-label={open ? 'Close the agents list' : 'Open the agents list'}
-          onClick={() => (open ? close() : setOpen(true))}>
+          onClick={(e) => {
+            if (open) { close(); return }
+            openedAt.current = e.detail > 0 ? { x: e.clientX, y: e.clientY } : null
+            setOpen(true)
+          }}>
           {open ? <ChevronLeftIcon fontSize="inherit" /> : <ViewListIcon fontSize="inherit" />}
         </button>
         {!open && <span className="dim attn-agents-rail-label" aria-hidden="true">agents</span>}

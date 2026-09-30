@@ -314,6 +314,34 @@ test('§8 the pointer going well away closes the open drawer; coming back first 
   await v.unmount()
 })
 
+test('§8b a mouse click that opens the drawer arms the zone at once (review-sol)', async () => {
+  reset()
+  const v = await mountView(panel(), () => '')
+  await settle()
+  const el = v.el
+  giveRect(el)
+  // a real press: `detail` 1 and a position — the button, left of the drawer
+  // and inside the zone (its left bound is 23 - 116 = -93)
+  await inAct(() => {
+    toggle(el).dispatchEvent(new window.MouseEvent('click',
+      { clientX: 10, clientY: 10, detail: 1, bubbles: true }))
+  })
+  assert.equal(isOpen(el), true)
+  await moveTo(1500, 300)                 // straight out, no move inside first
+  await settle()
+  assert.equal(isOpen(el), false, 'the opening click already put the pointer in the zone')
+  // and a press OUTSIDE the zone (not reachable with this button, but the
+  // rule is about where the pointer is) does not arm it
+  await inAct(() => {
+    toggle(el).dispatchEvent(new window.MouseEvent('click',
+      { clientX: 900, clientY: 10, detail: 1, bubbles: true }))
+  })
+  await moveTo(1500, 300)
+  await settle()
+  assert.equal(isOpen(el), true, 'a press outside the zone arms nothing')
+  await v.unmount()
+})
+
 test('§9 a drawer the pointer never reached is not closed by the far-away mouse', async () => {
   reset()
   const v = await mountView(panel(), () => '')
