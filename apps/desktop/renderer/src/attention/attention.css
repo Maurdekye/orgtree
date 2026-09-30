@@ -9,6 +9,7 @@
  * restating any of it. */
 
 .attn-stage {
+  position: relative;
   display: flex;
   align-items: stretch;
   width: 100%;
@@ -21,6 +22,20 @@
  * pinned or popped-out panel has already moved its own content into the pin
  * layer or a child window, which are not inside this box. */
 .attn-stage-off { display: none; }
+
+.attn-backdrop-message {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px;
+  pointer-events: none;
+}
+.attn-backdrop-message p { margin: 0; }
+.attn-backdrop-message .attn-backdrop-hint { margin-top: 8px; font-size: 12px; }
 
 .attn-slot {
   display: flex;

@@ -31,6 +31,7 @@ import { setAttentionLayout, setOrgView } from '../src/attention/mode'
 import { addPin, pinsKey } from '../src/canvas/pins'
 import { CurrentOrg } from '../src/popout'
 import { WINDOW_LAYOUT_KEY } from '../src/windowlayout'
+import { pinModal, unpinModal } from '../src/canvas/modalpin'
 import type { TreePayload } from '../src/types'
 
 const SLUG = 'probe'
@@ -125,6 +126,11 @@ if (scene.startsWith('settings')) {
   const attention = scene.startsWith('attention')
   setOrgView(SLUG, attention ? 'attention' : 'canvas')
   setAttentionLayout(SLUG, { split: 0.38, agent: 'coordinator', listOpen: false })
+  if (scene === 'attention-both-pinned') {
+    pinModal('attention-queue', { x: 20, y: 20, w: 400, h: 400 }, SLUG)
+    pinModal('attention-desk', { x: 1100, y: 20, w: 450, h: 500 }, SLUG)
+    Object.assign(window, { returnAttentionQueue: () => unpinModal('attention-queue', SLUG) })
+  }
   createRoot(host).render(
     <CurrentOrg.Provider value={SLUG}>
       <div className="app">

@@ -500,6 +500,12 @@ export function AttentionView(props: AttentionViewProps) {
         + (dragging ? ' attn-dragging' : '')}
       data-attention-active={active ? 'yes' : 'no'}
       aria-hidden={active ? undefined : true}>
+      {active && (queuePinned || queueOut) && (deskPinned || deskOut) && (
+        <div className="attn-backdrop-message dim">
+          <p>Both Attention panels are pinned or popped out.</p>
+          <p className="attn-backdrop-hint">Use Unpin or Return to main window on a panel to bring it back.</p>
+        </div>
+      )}
       {queueOn && (
         <div className="attn-slot attn-slot-queue" style={leftStyle}>
           <PinFrame inline kind={QUEUE_KIND} title="Needs attention"

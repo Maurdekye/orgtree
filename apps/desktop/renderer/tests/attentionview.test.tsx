@@ -99,6 +99,48 @@ const shape = () => ({
   divider: !!document.querySelector('.attn-divider'),
 })
 
+for (const queueAway of ['pin', 'popout'] as const) {
+  for (const deskAway of ['pin', 'popout'] as const) {
+    test(`backdrop explains both panels away: queue ${queueAway}, desk ${deskAway}`, async (t) => {
+      reset()
+      setOrgView(SLUG, 'attention')
+      const v = await mountView(view(), () => shape())
+      t.after(() => v.unmount())
+      const message = () => document.querySelector('.attn-backdrop-message')
+      const move = async (kind: string, away: 'pin' | 'popout') => {
+        if (away === 'pin') {
+          await inAct(() => pinModal(kind, { x: 20, y: 20, w: 400, h: 500 }, SLUG))
+          return () => unpinModal(kind, SLUG)
+        }
+        let stop = () => {}
+        await inAct(() => {
+          stop = registerWindow({ id: `backdrop-${kind}`, kind, org: SLUG,
+            editable: false, window: globalThis.window, redock: () => {} })
+        })
+        t.after(() => inAct(() => stop()))
+        return stop
+      }
+      assert.equal(message(), null, 'both panels docked: no message')
+      let returnQueue = await move(QUEUE_KIND, queueAway)
+      assert.equal(message(), null, 'desk still docked: no message')
+      const returnDesk = await move(DESK_KIND, deskAway)
+      assert.match(message()?.textContent ?? '', /Both Attention panels are pinned or popped out\./)
+      assert.match(message()?.textContent ?? '', /Unpin or Return to main window/)
+      assert.equal(shape().divider, false)
+      await inAct(() => returnQueue())
+      assert.equal(message(), null, 'queue returned: message disappears immediately')
+      returnQueue = await move(QUEUE_KIND, queueAway)
+      assert.ok(message(), 'both away again: message returns')
+      await inAct(() => returnDesk())
+      assert.equal(message(), null, 'desk returned: message disappears immediately')
+      const returnDeskAgain = await move(DESK_KIND, deskAway)
+      await inAct(() => setOrgView(SLUG, 'canvas'))
+      assert.equal(message(), null, 'Canvas does not show Attention backdrop text')
+      await inAct(() => { returnQueue(); returnDeskAgain() })
+    })
+  }
+}
+
 test('§1 the Attention view shows both panels and the divider between them', async () => {
   reset()
   setOrgView(SLUG, 'attention')
