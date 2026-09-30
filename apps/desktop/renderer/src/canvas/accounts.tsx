@@ -736,7 +736,6 @@ export function AccountsPanel({ toast, close, initialTab }: {
       <SetGroup title="Startup"><StartupWindowsSetting /><StartupView /></SetGroup>
     </SettingsTabPanel>
     <SettingsTabPanel id="defaults" idBase="app-settings" active={tab === 'defaults'}>
-      <div className="dim modalpin-subtitle">applied to every NEW organization</div>
       <DefaultsForm toast={toast} onDone={close} />
     </SettingsTabPanel>
     <SettingsTabPanel id="developer" idBase="app-settings" active={tab === 'developer'}>
