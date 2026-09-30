@@ -1223,8 +1223,10 @@ export const useShowLegacyModels = (): boolean =>
 /** Is this tier kept out of choosers as legacy? gpt-reserve always; the
  *  opt-in legacy tiers unless "show legacy models" is on. */
 export const tierHiddenAsLegacy = (tier: string): boolean =>
-  LEGACY_CODEX_TIERS.includes(tier)
-  || (OPT_IN_LEGACY_TIERS.includes(tier) && !showLegacyModelsOn())
+  LEGACY_CODEX_TIERS.includes(tier) || optInLegacyHidden(tier)
+/** only the opt-in half: an opt-in legacy tier while the toggle is off */
+export const optInLegacyHidden = (tier: string): boolean =>
+  OPT_IN_LEGACY_TIERS.includes(tier) && !showLegacyModelsOn()
 /** the " · legacy" mark a chooser appends to an opt-in legacy tier's label */
 export const legacyMark = (tier: string): string =>
   OPT_IN_LEGACY_TIERS.includes(tier) ? ' · legacy' : ''

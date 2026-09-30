@@ -99,7 +99,8 @@ panelTest('a claude bearer is offered every claude tier — fable included',
 panelTest('cross-provider tiers are SHOWN and disabled, each saying why',
   async (mount) => {
     const { el } = await mount(withBearer('opus'))
-    for (const t of ['gpt-reserve', 'luna', 'terra', 'sol', 'flash', 'pro']) {
+    // (terra is an opt-in legacy tier, hidden by default — legacytiers.test)
+    for (const t of ['gpt-reserve', 'luna', 'sol', 'flash', 'pro']) {
       const o = option(el, t)
       assert.ok(o, `${t} must be listed, not omitted — a gap explains nothing`)
       assert.equal(o.disabled, true, `${t} must be disabled`)
@@ -113,7 +114,7 @@ panelTest('cross-provider tiers are SHOWN and disabled, each saying why',
 panelTest('a codex bearer is offered ITS family, and claude is the disabled one',
   async (mount) => {
     const { el } = await mount(withBearer('sol'))
-    for (const t of ['gpt-reserve', 'luna', 'terra']) {
+    for (const t of ['gpt-reserve', 'luna', 'astra']) {
       assert.equal(option(el, t).disabled, false,
         `${t} shares sol's provider and must be selectable`)
     }
@@ -150,7 +151,7 @@ panelTest('every provider\'s seats render as numbers, never "undefined"',
     // Reserve stays 0.2; Luna is 0.1 after the September 22 repricing:
     // the panel prints the seat verbatim, so a fraction must survive the
     // round trip rather than being floored or rendered as `undefined`
-    for (const [t, seat] of [['gpt-reserve', 0.2], ['luna', 0.1], ['terra', 2], ['flash', 1],
+    for (const [t, seat] of [['gpt-reserve', 0.2], ['luna', 0.1], ['flash', 1],
                              ['pro', 2], ['fable', 10]] as const) {
       assert.match(option(el, t).textContent ?? '',
         new RegExp(`as ${t} · seat ${seat}\\b`))

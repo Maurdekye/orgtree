@@ -54,7 +54,7 @@ import {
   isChatActive, isNoticeArmed, registerChat, setActiveChatKey, setNoticeArmed,
   toggleNoticeArmed, unregisterChat, useNoticeArmed,
 } from '../noticestore'
-import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, CODEX_TIERS, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, ANTIGRAVITY_TIERS, isOpenRouterTier, legacyMark, md, openrouterTierIds, procHaloClass, PROVIDER_LABEL, providerOf, queuedSwitchTitle, reportedLabel, stateLabel, TIER_LETTER, tierCapabilityNotes, tierHiddenAsLegacy, tierLabel, tierShown, USER, useHideRetired, usePolled, useShowLegacyModels } from './shared'
+import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, CODEX_TIERS, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, ANTIGRAVITY_TIERS, isOpenRouterTier, legacyMark, md, openrouterTierIds, procHaloClass, PROVIDER_LABEL, providerOf, queuedSwitchTitle, reportedLabel, stateLabel, TIER_LETTER, tierCapabilityNotes, optInLegacyHidden, tierLabel, tierShown, USER, useHideRetired, usePolled, useShowLegacyModels } from './shared'
 import { closeIfCentred, ModalOverPins, PinFrame } from './modalpin'
 import type { ProviderPresence } from './shared'
 import {
@@ -4282,9 +4282,8 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
                     {[...ALL_TIERS, ...openrouterTierIds()]
                       .filter((t) => t !== b.tier
                         && tierShown(presence, t, b.tier)
-                        // gpt-reserve never, Terra only with "show legacy
-                        // models" on — the rule every other chooser uses
-                        && !tierHiddenAsLegacy(t))
+                        // Terra only with "show legacy models" on
+                        && !optInLegacyHidden(t))
                       .map((t) => {
                       const why = rehireWhy(t, b.tier)
                       // same one formatter as every other tier surface —

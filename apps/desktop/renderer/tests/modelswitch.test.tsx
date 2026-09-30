@@ -233,7 +233,7 @@ configTest('gpt-reserve is REMOVED from the switch whatever the grant says '
     assert.equal(option(el, 'gpt-reserve'), undefined,
       'the legacy token is not listed, not listed-disabled — even with a live grant')
     // the leg that must hold: its siblings are untouched
-    for (const t of ['luna', 'terra', 'sol']) {
+    for (const t of ['luna', 'sol']) {
       assert.equal(option(el, t)?.disabled, false, `${t} stays switchable`)
     }
   })
@@ -264,7 +264,8 @@ configTest('the switch lists every provider family with its ledger seats',
     assert.deepEqual(options(el).map((o) => [o.value, o.textContent?.trim()]), [
       ['haiku', 'haiku · seat 1'], ['sonnet', 'sonnet · seat 2'],
       ['opus', 'opus · seat 4'], ['fable', 'fable · seat 10'],
-      ['luna', 'luna · seat 0.1'], ['terra', 'terra · seat 2'],
+      // terra is an opt-in legacy tier, hidden by default (legacytiers.test)
+      ['luna', 'luna · seat 0.1'],
       ['sol', 'sol · seat 2'], ['astra', 'astra · seat 10'],
       ['flash', 'flash · seat 1'], ['pro', 'pro · seat 2'],
     ])
@@ -305,7 +306,7 @@ configTest('disconnected Codex tiers stay visible and explain why disabled',
       reason: 'not signed in — run `codex login` on this machine',
       status: { installed: true, connected: false, kind: null },
     }) })
-    for (const tier of ['luna', 'terra', 'sol', 'astra']) {
+    for (const tier of ['luna', 'sol', 'astra']) {
       assert.equal(option(el, tier).disabled, true)
       assert.match(option(el, tier).textContent ?? '', /not signed in/)
     }
@@ -319,8 +320,9 @@ configTest('kiosk policy and seat cap disable options instead of hiding them',
       kiosk: { max_tier: 'sonnet' } as TreePayload['kiosk'],
     }) })
     // Astra is always offered (user 2026-09-24, 9e640fb)
-    assert.equal(options(el).length, 10)   // 4 claude + 4 codex + 2 antigravity
-    for (const tier of ['luna', 'terra', 'sol', 'astra', 'flash', 'pro']) {
+    // 4 claude + 3 codex (terra is hidden legacy) + 2 antigravity
+    assert.equal(options(el).length, 9)
+    for (const tier of ['luna', 'sol', 'astra', 'flash', 'pro']) {
       assert.equal(option(el, tier).disabled, true)
       assert.match(option(el, tier).textContent ?? '', /unavailable in kiosk orgs/)
     }
@@ -352,5 +354,5 @@ configTest('a grandfathered current tier remains a truthful no-op',
         status: { installed: true, connected: false, kind: null } }),
     })
     assert.equal(option(el, 'sol').disabled, false)
-    assert.equal(option(el, 'terra').disabled, true)
+    assert.equal(option(el, 'luna').disabled, true)
   })

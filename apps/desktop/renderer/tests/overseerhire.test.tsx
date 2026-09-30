@@ -66,9 +66,10 @@ test('the eye’s own hire chips collapse once their rendered width stops '
     await inAct(() => { expand.click() })
     assert.equal(strip.classList.contains('is-expanded'), true,
       'the compact control must still open the full tier list on click')
-    assert.equal(strip.querySelectorAll('.hs-fam button').length, 10,
-      'opening renders the exact current provider/tier list (4 claude + 4 codex '
-      + '+ 2 antigravity — the legacy reserve token is not a tier, item 12)')
+    assert.equal(strip.querySelectorAll('.hs-fam button').length, 9,
+      'opening renders the exact current provider/tier list (4 claude + 3 codex '
+      + '+ 2 antigravity — the legacy reserve token is not a tier, item 12, and '
+      + 'Terra is a legacy tier hidden by default)')
   })
 
 test('the eye stays direct once the actual panel is wider than its longest row',
