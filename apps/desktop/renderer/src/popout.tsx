@@ -1,7 +1,7 @@
 import type { ModalDimensions, WindowRestore } from './windowlayout'
 import { captureWindow, closeSavedWindow, popupFeatures, restoredWindows, savedWindows, useRestoreWindows, windowLayoutKey } from './windowlayout'
 import { openLightboxIfEligibleImage } from './canvas/lightbox'
-import { copyCodeFromEvent } from './canvas/shared'
+import { copyCodeFromEvent, revealFileFromEvent } from './canvas/shared'
 import { ObjectMenuBoundary } from './canvas/contextmenu'
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode, SyntheticEvent } from 'react'
@@ -573,7 +573,10 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       const mount = d.createElement('div'); mount.className = 'popout-mount'; d.body.appendChild(mount)
       const note = () => noteActionDocument(d)
       const documentClick = (e: MouseEvent) => {
-        copyCodeFromEvent(e); openLightboxIfEligibleImage(e)
+        // the main document's delegated click actions, in the same capture
+        // phase: code copy, local file links (these were missing here, so a
+        // file link in a popped-out window did nothing) and the image viewer
+        copyCodeFromEvent(e); revealFileFromEvent(e); openLightboxIfEligibleImage(e)
       }
       d.addEventListener('pointerdown', note, true); d.addEventListener('keydown', note, true)
       d.addEventListener('click', documentClick, true)

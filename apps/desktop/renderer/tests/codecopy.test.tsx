@@ -27,6 +27,8 @@
 //   §5  a local file link in the Attention desk reveals its file.
 //   §6  a picture in the Attention desk opens the viewer.
 //   (Measured against the pre-fix listeners: §5 and §6 fail.)
+//   §7  in a popped-out window, code copy and a local file link both work
+//       (file links were missing from the popped-out document's listener).
 //
 // jsdom has no layout and so no `innerText`; the handler reads innerText
 // because a diff <pre> renders each line as a <div>. For these plain blocks
@@ -41,12 +43,12 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { DeskChat } from '../src/canvas/desk'
 import type { CanvasNode } from '../src/canvas/shared'
-import { USER } from '../src/canvas/shared'
+import { md, USER } from '../src/canvas/shared'
 import { refreshConvo, resetConvos } from '../src/convo'
 import type { ChatMessage, OpFn, TreePayload } from '../src/types'
 import { forgetAttentionMode, setAttentionLayout, setOrgView } from '../src/attention/mode'
 import { AttentionView } from '../src/attention/AttentionView'
-import { forgetModalPins } from '../src/canvas/modalpin'
+import { forgetModalPins, PinFrame } from '../src/canvas/modalpin'
 import { CurrentOrg } from '../src/popout'
 import { closeLightbox } from '../src/canvas/lightbox'
 
@@ -219,4 +221,82 @@ test('§6 a picture in the Attention desk opens the viewer', async () => {
     await inAct(() => { img.click() })
     assert.ok(document.querySelector('.lb-overlay'), 'the viewer opened')
   } finally { closeLightbox(document); await v.unmount(); resetConvos() }
+})
+
+// ─────────────────────────────── §7 a popped-out window (popout.tsx)
+// The popped-out document has its own capture listener. It already served
+// code copy and the viewer; local file links were missing from it, so a file
+// link in a popped-out window did nothing. The window rig is popoutdrag's:
+// `window.open` hands back a document from THIS jsdom realm, so the real
+// MovableSurface adopts the real PinFrame into it.
+
+const popoutDocs: Document[] = []
+function fakeWindow() {
+  const doc = document.implementation.createHTMLDocument('popout')
+  Object.assign(doc, { open: () => doc, write: () => {}, close: () => {} })
+  const own: Record<string, unknown> = {
+    document: doc, closed: false,
+    screenX: 40, screenY: 60, outerWidth: 900, outerHeight: 760, innerWidth: 900, innerHeight: 760,
+    addEventListener: () => {}, removeEventListener: () => {}, focus: () => {},
+    close() { own.closed = true },
+    requestAnimationFrame: (fn: FrameRequestCallback) => { fn(0); return 1 },
+    cancelAnimationFrame: () => {},
+  }
+  popoutDocs.push(doc)
+  const w = new Proxy(own, {
+    get(target, key) {
+      if (key in target) return target[key as string]
+      const value = (window as unknown as Record<string, unknown>)[key as string]
+      return typeof value === 'function' ? value.bind(window) : value
+    },
+    has: () => true,
+  })
+  try { Object.defineProperty(doc, 'defaultView', { value: w, configurable: true }) } catch { /* see popoutdrag */ }
+  return w as unknown as Window
+}
+
+test('§7 in a popped-out window, code copy and a local file link both work', async (t) => {
+  const realOpen = window.open
+  const g = globalThis as unknown as Record<string, unknown>
+  const hadObserver = g.MutationObserver
+  g.MutationObserver = (window as unknown as Record<string, unknown>).MutationObserver
+  window.open = (() => fakeWindow()) as typeof window.open
+  const clip = stubClipboard()
+  const revealed: string[] = []
+  const w = window as unknown as { orgtreeDesktop?: unknown }
+  w.orgtreeDesktop = { revealFile: (p: string) => { revealed.push(p); return Promise.resolve({ ok: true }) } }
+  const canvas = document.createElement('div')
+  canvas.dataset.pinOrg = SLUG
+  canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 1200, height: 800,
+    right: 1200, bottom: 800, toJSON() {} }) as DOMRect
+  document.body.appendChild(canvas)
+  const html = md('```\nline one\n  line two\n```\n\nsee [Setup.exe](<C:\\Users\\me\\Setup 1.exe>)')
+  const view = await mountView(
+    <CurrentOrg.Provider value={SLUG}>
+      <PinFrame kind="usage" title="Surface" panel="settings" close={() => {}}>
+        <div className="md" dangerouslySetInnerHTML={html} />
+      </PinFrame>
+    </CurrentOrg.Provider>, el => el)
+  t.after(async () => {
+    await view.unmount(); canvas.remove()
+    window.open = realOpen
+    if (hadObserver === undefined) delete g.MutationObserver
+    else g.MutationObserver = hadObserver
+    clip.restore(); delete w.orgtreeDesktop
+    popoutDocs.length = 0; localStorage.clear(); forgetModalPins()
+  })
+  await flush()
+  const pop = document.querySelector('[aria-label="Open in new window"]') as HTMLButtonElement
+  assert.ok(pop, 'fixture: the frame offers a pop-out')
+  await inAct(() => { pop.click() })
+  await flush()
+  const doc = popoutDocs[0]
+  assert.ok(doc?.querySelector('.popout-mount .md'), 'fixture: the body really moved into the popped-out document')
+  assert.equal(document.querySelector('.md button.code-copy'), null, 'and is no longer in the main document')
+  await clickCopy(doc!.querySelector('button.code-copy') as HTMLButtonElement)
+  assert.deepEqual(clip.writes, ['line one\n  line two'])
+  const a = doc!.querySelector('a[data-local-path]') as HTMLAnchorElement
+  await inAct(() => { a.click() })
+  await inAct(() => flush(3))
+  assert.deepEqual(revealed, ['C:\\Users\\me\\Setup 1.exe'])
 })
