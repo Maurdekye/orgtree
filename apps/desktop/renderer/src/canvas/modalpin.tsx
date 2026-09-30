@@ -35,7 +35,7 @@ import { clampRect, PIN_MIN_H, PIN_MIN_W } from './pins'
 import type { PinRect } from './pins'
 import { modalMinDimensions } from '../windowlayout'
 import type { WindowRestore } from '../windowlayout'
-import { useEsc } from './shared'
+import { pinSnapOn, useEsc } from './shared'
 import { contextMenuBelongsTo, useContextMenu } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
 
@@ -629,7 +629,8 @@ function PinFrameInner({ kind, title, panel, overlayClass, close, children,
     if (pinned) raisePinnedModal(kind, orgScope)
   }, [pinned, kind, orgScope])
 
-  const candidate = (r: PinRect, disabled: boolean, g: GestureShape | null = gesture.current) => disabled ? null : findPinSnap(layout.key, clampRect(r, bounds, modalMin),
+  // Display > "snap pinned panels to edges" off: no gesture ever snaps
+  const candidate = (r: PinRect, disabled: boolean, g: GestureShape | null = gesture.current) => disabled || !pinSnapOn() ? null : findPinSnap(layout.key, clampRect(r, bounds, modalMin),
     readPinSurfaces().filter(p => p.org === orgScope).map(p => ({id:pinSnapId(p), rect:p.rect})), bounds,
     g?.kind === 'size' ? { edge: g.edge, minWidth: modalMin?.width ?? PIN_MIN_W,
       minHeight: modalMin?.height ?? PIN_MIN_H } : undefined)

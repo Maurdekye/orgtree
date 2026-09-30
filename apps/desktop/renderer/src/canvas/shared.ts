@@ -1251,6 +1251,29 @@ const subscribeAgentShortcuts = (fn: () => void): (() => void) => {
 export const useAgentShortcuts = (): boolean =>
   useSyncExternalStore(subscribeAgentShortcuts, agentShortcutsOn)
 
+// Pinned-panel edge snapping (user 2026-09-30: "make pinned window snapping
+// an optional toggle in display"): on unless explicitly turned off. Read at
+// the moment of each drag/resize gesture (pins.tsx, modalpin.tsx), so a
+// change applies to the very next gesture in every window.
+export const PIN_SNAP_KEY = 'orgtree-pin-snap'
+export const pinSnapOn = (): boolean => {
+  try { return localStorage.getItem(PIN_SNAP_KEY) !== '0' } catch { return true }
+}
+const pinSnapSubs = new Set<() => void>()
+export const setPinSnapOn = (on: boolean): void => {
+  try {
+    localStorage.setItem(PIN_SNAP_KEY, on ? '1' : '0')
+  } catch { /* private mode */ }
+  for (const fn of [...pinSnapSubs]) fn()    // copy: a listener may detach
+}
+const subscribePinSnap = (fn: () => void): (() => void) => {
+  pinSnapSubs.add(fn)
+  window.addEventListener('storage', fn)
+  return () => { pinSnapSubs.delete(fn); window.removeEventListener('storage', fn) }
+}
+export const usePinSnap = (): boolean =>
+  useSyncExternalStore(subscribePinSnap, pinSnapOn)
+
 /* ------------------------------------------- the startup view (D-228)
    What the canvas shows the moment an org OPENS, and whether it glides there.
    Two settings, because they answer two different questions:

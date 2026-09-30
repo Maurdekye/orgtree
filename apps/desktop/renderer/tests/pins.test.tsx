@@ -32,7 +32,7 @@ import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { useState } from 'react'
-import { NODE_H, NODE_W, Z_DESK, Z_MINI, setHideRetiredOn } from '../src/canvas/shared'
+import { NODE_H, NODE_W, Z_DESK, Z_MINI, setHideRetiredOn, setPinSnapOn } from '../src/canvas/shared'
 import { treeSelections } from '../src/treeselection'
 import {
   addPin, clampRect, forgetPins, PIN_MAX, PIN_MIN_H, PIN_MIN_W,
@@ -482,6 +482,43 @@ uiTest('mosaic preview and commit: two windows align, neighbours stay still, rel
   const saved = JSON.parse(localStorage.getItem(pinsKey('mine'))!)
   await inAct(() => { forgetPins('mine') })
   assert.deepEqual(readPins('mine'), saved, 'durable rect and snap survive cache reset')
+})
+
+uiTest('Display "snap pinned panels to edges" off: drag and resize go exactly where released', async ({ mount }) => {
+  const { el, title } = await mosaicRig(mount)
+  try {
+    assert.match(title.getAttribute('title') ?? '', /release near an edge to snap/)
+    await inAct(() => { setPinSnapOn(false) })
+    assert.equal(title.getAttribute('title'), 'Drag to move. Escape cancels.',
+      'the title stops promising a snap')
+    // the same drag that snaps to (420,100) in the mosaic test above
+    await inAct(() => { title.dispatchEvent(pointer('pointerdown', 700, 412)) })
+    await inAct(() => { title.dispatchEvent(pointer('pointermove', 451, 117)) })
+    assert.equal(el.querySelector('.pin-snap-preview'), null, 'no snap preview')
+    await inAct(() => { title.dispatchEvent(pointer('pointerup', 451, 117)) })
+    assert.deepEqual(readPins('mine').find((p) => p.id === 'cto')!.rect,
+      { x: 431, y: 105, w: 320, h: 240 }, 'released exactly where dropped')
+    assert.equal(readPins('mine').find((p) => p.id === 'cto')!.snap, null)
+    // the same west-edge resize that snaps to x=420 in the resize test above
+    const start = { x: 430, y: 100, w: 500, h: 300 }
+    await inAct(() => { commitRect('mine', 'cto', start, { w: 1300, h: 850 }) })
+    const handle = pinWin(el, 'cto')!.nextElementSibling!.querySelector('.pinwin-rs.w')!
+    await inAct(() => { handle.dispatchEvent(pointer('pointerdown', 430, 150)) })
+    await inAct(() => { handle.dispatchEvent(pointer('pointermove', 425, 150)) })
+    assert.equal(el.querySelector('.pin-snap-preview'), null, 'no resize snap preview')
+    await inAct(() => { handle.dispatchEvent(pointer('pointerup', 425, 150)) })
+    assert.deepEqual(readPins('mine').find((p) => p.id === 'cto')!.rect,
+      { x: 425, y: 100, w: 505, h: 300 }, 'resize is free')
+    // turning it back on applies to the very next gesture
+    await inAct(() => { setPinSnapOn(true) })
+    await inAct(() => { commitRect('mine', 'cto', start, { w: 1300, h: 850 }) })
+    await inAct(() => { handle.dispatchEvent(pointer('pointerdown', 430, 150)) })
+    await inAct(() => { handle.dispatchEvent(pointer('pointerup', 425, 150)) })
+    assert.deepEqual(readPins('mine').find((p) => p.id === 'cto')!.rect,
+      { x: 420, y: 100, w: 510, h: 300 }, 'on again: snaps again')
+  } finally {
+    setPinSnapOn(true)
+  }
 })
 
 uiTest('mosaic release uses latest coordinates and target, including removal', async ({ mount }) => {

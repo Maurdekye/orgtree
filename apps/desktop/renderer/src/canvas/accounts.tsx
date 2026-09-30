@@ -30,7 +30,7 @@ import { OpenRouterHarnessSetting, OpenRouterSection } from './openrouter'
 import { ModalOverlapSettings, PinFrame } from './modalpin'
 import { CanvasAnchorSettings } from './canvasanchor'
 import {
-  setAgentShortcutsOn, useAgentShortcuts, setCrowdPilesOn, setDeskDpi, setHideRetiredOn, setOpenRouterTiers, setShowLegacyModelsOn, setStartView, setStartZoomOn,
+  setAgentShortcutsOn, useAgentShortcuts, setPinSnapOn, usePinSnap, setCrowdPilesOn, setDeskDpi, setHideRetiredOn, setOpenRouterTiers, setShowLegacyModelsOn, setStartView, setStartZoomOn,
   legacyMark, optInLegacyHidden, TIER_LETTER,
   useCrowdPiles, useDeskDpi, useHideRetired, useShowLegacyModels, useStartView, useStartZoom,
 } from './shared'
@@ -294,6 +294,17 @@ function ShowLegacyModelsToggle() {
           + 'Terra keep running and show their model either way.'} />
     </SetGroup>
   )
+}
+
+/* user 2026-09-30: "make pinned window snapping an optional toggle in
+   display". On by default; off, dragging and resizing a pinned panel never
+   snaps (pins.tsx and modalpin.tsx read it at each gesture). */
+function PinSnapToggle() {
+  const on = usePinSnap()
+  return <SetToggle label="snap pinned panels to edges" checked={on}
+    onChange={setPinSnapOn}
+    hint={'dragging or resizing a pinned panel snaps it to the window edges '
+      + 'and beside other pinned panels; off, it goes exactly where you put it'} />
 }
 
 function HideRetiredToggle() {
@@ -732,7 +743,7 @@ export function AccountsPanel({ toast, close, initialTab }: {
     </SettingsTabPanel>
     <SettingsTabPanel id="display" idBase="app-settings" active={tab === 'display'}>
       <ThemeSetting />
-      <SetGroup title="Desk"><DeskTextSize /><CrowdStackToggle /><HideRetiredToggle /><AgentShortcutsToggle /><ModalOverlapSettings /><CanvasAnchorSettings /></SetGroup>
+      <SetGroup title="Desk"><DeskTextSize /><CrowdStackToggle /><HideRetiredToggle /><AgentShortcutsToggle /><ModalOverlapSettings /><PinSnapToggle /><CanvasAnchorSettings /></SetGroup>
       <SetGroup title="Startup"><StartupWindowsSetting /><StartupView /></SetGroup>
     </SettingsTabPanel>
     <SettingsTabPanel id="defaults" idBase="app-settings" active={tab === 'defaults'}>

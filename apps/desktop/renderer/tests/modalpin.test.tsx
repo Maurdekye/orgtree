@@ -52,6 +52,7 @@ import {
   MODAL_OPEN_KEY, readModalOpen, rememberModalOpen, forgetModalOpen, forgetModalOpenCache, usePersistedModalOpen,
 } from '../src/canvas/modalpin'
 import { PIN_MIN_H, PIN_MIN_W } from '../src/canvas/pins'
+import { setPinSnapOn } from '../src/canvas/shared'
 import { DocReader } from '../src/canvas/docs'
 import { WatchdogPanel } from '../src/canvas/modals'
 import type { Watchdog } from '../src/types'
@@ -589,6 +590,30 @@ test('resizing a pinned modal snaps its corner to screen edges and Shift bypasse
     assert.deepEqual(readModalPins()['org-inbox']!.rect,
       { x: 200, y: 200, w: to.x - 200, h: to.y - 200 }, 'Shift retains free resizing')
   } finally {
+    await v.unmount()
+    restore()
+    reset()
+  }
+})
+
+test('Display "snap pinned panels to edges" off: a pinned modal resizes freely', async () => {
+  reset()
+  const restore = stubPointerCapture()
+  const v = await mount()
+  try {
+    setPinSnapOn(false)
+    const start = { x: 200, y: 200, w: 500, h: 300 }
+    await inAct(() => { pinModal('org-inbox', start) })
+    const handle = v.el.querySelector('.modalpin-rs.se')!
+    const to = { x: window.innerWidth - 8, y: window.innerHeight - 6 }
+    await inAct(() => { handle.dispatchEvent(pointer('pointerdown', 700, 500)) })
+    await inAct(() => { handle.dispatchEvent(pointer('pointermove', to.x, to.y)) })
+    assert.equal(v.el.querySelector('.pin-snap-preview'), null, 'no snap preview')
+    await inAct(() => { handle.dispatchEvent(pointer('pointerup', to.x, to.y)) })
+    assert.deepEqual(readModalPins()['org-inbox']!.rect,
+      { x: 200, y: 200, w: to.x - 200, h: to.y - 200 }, 'released exactly where dropped')
+  } finally {
+    setPinSnapOn(true)
     await v.unmount()
     restore()
     reset()

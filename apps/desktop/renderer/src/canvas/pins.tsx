@@ -47,7 +47,7 @@ import { agentNavProps } from './agentnav'
 import { contextMenuBelongsTo, useContextMenu } from './contextmenu'
 import { DeskChat } from './desk'
 import { AgentName } from './identity'
-import { providerOf, TIER_LETTER } from './shared'
+import { pinSnapOn, providerOf, TIER_LETTER, usePinSnap } from './shared'
 import type { CanvasNode, MailLinkFn, OpFn, WorkLinkFn } from './shared'
 import type { ToastFn } from '../types'
 import { createPortal } from 'react-dom'
@@ -452,6 +452,7 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast, pub,
   // pointer move); the store is written ONCE, at pointer-up, via commitRect
   const [live, setLive] = useState<PinRect | null>(null)
   const [freePlacement, setFreePlacement] = useState(false)
+  const snapOn = usePinSnap()
   const gesture = useRef<Gesture | null>(null)
   const pulse = usePulse(slug, pin.id)
   const [flash, setFlash] = useState(0)
@@ -533,7 +534,8 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast, pub,
   }
   const candidate = (r: PinRect, disabled: boolean, g: GestureShape | null = gesture.current) => {
     const size = vpSize(viewportRef)
-    return disabled ? null : findPinSnap(pin.id, r,
+    // Display > "snap pinned panels to edges" off: no gesture ever snaps
+    return disabled || !pinSnapOn() ? null : findPinSnap(pin.id, r,
       readPinSurfaces().filter(p => p.org === slug).map(p => ({id:pinSnapId(p), rect:clampRect(p.rect,size)})), size,
       g?.kind === 'size' ? { edge: g.edge, minWidth: PIN_MIN_W, minHeight: PIN_MIN_H } : undefined)
   }
@@ -606,7 +608,9 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast, pub,
          re-enable list there; KEEP THEM IN STEP) */
       onPointerDown={(e) => e.stopPropagation()}>
       <div className="pinwin-title" data-copy-agent-name={node.id}
-        title="Drag to move; release near an edge to snap. Hold Shift for free placement. Escape cancels."
+        title={snapOn
+          ? 'Drag to move; release near an edge to snap. Hold Shift for free placement. Escape cancels.'
+          : 'Drag to move. Escape cancels.'}
         onPointerDown={(e) => {
           nameDown.current = Boolean(
             (e.target as HTMLElement).closest?.('.pinwin-name'))

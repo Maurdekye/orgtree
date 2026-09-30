@@ -309,6 +309,37 @@ test('§3 Display owns both browser-local controls, with durable values and no '
   }
 })
 
+test('§3b Display: "snap pinned panels to edges" is on by default and stays '
+  + 'off across a reload once turned off', async () => {
+  localStorage.clear()
+  stubFetch([])
+  const open = async () => {
+    const view = await mountSettings()
+    const displayTab = [...view.el.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+      .find((b) => b.textContent?.includes('Display'))!
+    await inAct(async () => { displayTab.click() })
+    const panel = view.el.querySelector<HTMLElement>('#app-settings-panel-display')!
+    const sw = panel.querySelector<HTMLInputElement>(
+      'input[aria-label="snap pinned panels to edges"]')!
+    return { view, panel, sw }
+  }
+  let v = await open()
+  try {
+    assert.ok(v.sw, 'the toggle is an ordinary Display row')
+    assert.ok(v.sw.closest('.set-row'))
+    assert.equal(v.sw.checked, true, 'unset means on')
+    await inAct(async () => { v.sw.click() })
+    assert.equal(v.sw.checked, false)
+    assert.equal(localStorage.getItem('orgtree-pin-snap'), '0')
+  } finally { await v.view.unmount() }
+  v = await open()
+  try {
+    assert.equal(v.sw.checked, false, 'off survives a reload')
+  } finally {
+    await v.view.unmount(); delete g.fetch; localStorage.clear()
+  }
+})
+
 test('§4 Runtime reads and writes both machine-wide lifecycle controls', async () => {
   const seen: Seen[] = []
   stubFetch(seen)
