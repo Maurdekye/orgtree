@@ -56,6 +56,11 @@ export interface PendingAttention {
    *  Sorted like `items`; `work-attention` rows are the docket's and are not
    *  here. */
   waiting: WaitingRow[]
+  /** THE ROWS BEHIND `docket`: each flagged ticket's organization and slug.
+   *  The Work button's dot counts only its own organization's (user
+   *  2026-09-30, like the inbox dot), less any the user has just dismissed
+   *  (attndismiss.ts). Sorted like `items`. */
+  flagged: { org: string; slug: string }[]
 }
 
 export interface WaitingRow {
@@ -66,7 +71,7 @@ export interface WaitingRow {
   source: string | null
 }
 
-const EMPTY: PendingAttention = { mail: 0, docket: 0, ids: [], items: [], waiting: [] }
+const EMPTY: PendingAttention = { mail: 0, docket: 0, ids: [], items: [], waiting: [], flagged: [] }
 let current: PendingAttention = EMPTY
 const listeners = new Set<() => void>()
 
@@ -78,11 +83,15 @@ export function summarizePending(rows: readonly DesktopNotification[]): PendingA
   let mail = 0, docket = 0
   const items: { org: string; id: string }[] = []
   const waiting: WaitingRow[] = []
+  const flagged: { org: string; slug: string; id: string }[] = []
   for (const row of rows) {
     if (!PENDING_KINDS.includes(row.kind as PendingKind)) continue
     items.push({ org: row.org, id: row.id })
-    if (row.kind === 'work-attention') docket++
-    else {
+    if (row.kind === 'work-attention') {
+      docket++
+      // the ticket's slug rides as `item` (desktop_notifications.py)
+      if (row.item) flagged.push({ org: row.org, slug: row.item, id: row.id })
+    } else {
       mail++
       waiting.push({ org: row.org, id: row.id, kind: row.kind as WaitingRow['kind'],
         source: row.source_id ?? null })
@@ -94,7 +103,9 @@ export function summarizePending(rows: readonly DesktopNotification[]): PendingA
     (a.org === b.org ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : a.org < b.org ? -1 : 1)
   items.sort(byKey)
   waiting.sort(byKey)
-  return { mail, docket, ids: items.map((i) => JSON.stringify([i.org, i.id])), items, waiting }
+  flagged.sort(byKey)
+  return { mail, docket, ids: items.map((i) => JSON.stringify([i.org, i.id])), items, waiting,
+    flagged: flagged.map(({ org, slug }) => ({ org, slug })) }
 }
 
 function same(a: PendingAttention, b: PendingAttention): boolean {
@@ -154,7 +165,7 @@ const parsePending = (raw: string | null): PendingAttention | null => {
   try {
     const v: unknown = JSON.parse(raw)
     if (!v || typeof v !== 'object') return null
-    const { mail, docket, ids, items, waiting } = v as Partial<PendingAttention>
+    const { mail, docket, ids, items, waiting, flagged } = v as Partial<PendingAttention>
     if (typeof mail !== 'number' || typeof docket !== 'number') return null
     if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string')) return null
     const rows = Array.isArray(items)
@@ -173,7 +184,11 @@ const parsePending = (raw: string | null): PendingAttention | null => {
         return str(r.org) && str(r.id) && str(r.kind) && (r.source === null || str(r.source))
       })
       : []
-    return { mail, docket, ids: ids as string[], items: rows, waiting: waits }
+    const flags = Array.isArray(flagged)
+      ? flagged.filter((f): f is { org: string; slug: string } => !!f && typeof f === 'object'
+        && str((f as { org?: unknown }).org) && str((f as { slug?: unknown }).slug))
+      : []
+    return { mail, docket, ids: ids as string[], items: rows, waiting: waits, flagged: flags }
   } catch { return null }
 }
 

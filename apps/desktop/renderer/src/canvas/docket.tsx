@@ -25,6 +25,7 @@
 import { memo, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useDocketWindow } from './docketwindow'
 import { usePendingAttention } from '../pending-attention'
+import { attentionDismissed, attentionNow, dismissAttention, settleAttention, useDismissedAttention } from '../attndismiss'
 import type { ComponentProps, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
@@ -32,7 +33,7 @@ import type {
   AskInfo, ToastFn, TreeNode, TreePayload, WorkActor, WorkItem, WorkItemsPayload, WorkReceipt,
 } from '../types'
 import {
-  deleteWorkItemAttachment, dismissWorkItemAttention, getWorkReferences, getWorkItem,
+  deleteWorkItemAttachment, getWorkReferences, getWorkItem,
   replyWorkItem, uploadWorkItemAttachment, workItemArtifactUrl,
   workItemAttachmentUrl,
   req, agentReferences,
@@ -461,7 +462,7 @@ function SlugText({ item }: { item: WorkItem }) {
   )
 }
 
-export function DocketToolbarButton({ summary, onClick, label }: {
+export function DocketToolbarButton({ summary, onClick, label, org }: {
   summary?: { attention: number; active: number } | null
   onClick?: () => void
   /** the v3 compact header's name for this icon-only button: its
@@ -469,26 +470,38 @@ export function DocketToolbarButton({ summary, onClick, label }: {
    *  else, so the button is byte-identical in every surface that already
    *  renders it. */
   label?: string
+  /** the open organization. With it, a flag the user has just dismissed
+   *  leaves the glow and the dot on the click (user 2026-09-30, attndismiss.ts)
+   *  and the dot counts only this organization's tickets, like the inbox dot.
+   *  Without it (older surfaces), both read their sources as they come. */
+  org?: string
 }) {
-  const { attention, active } = summary ?? { attention: 0, active: 0 }
+  const { attention: raw, active } = summary ?? { attention: 0, active: 0 }
+  useDismissedAttention()
+  const attention = org ? attentionNow(org, raw) : raw
+  useEffect(() => { if (org) settleAttention(org, raw) }, [org, raw])
   const hasAttn = attention > 0
   // count > 0 is load-bearing: `{count && ...}` renders a literal `0` in React
   const count = hasAttn ? attention : active
-  // The standing dot (user ruling 2026-09-12) reads the cross-organization
-  // aggregate the taskbar pulse reads, so a ticket waiting in ANOTHER
-  // organization still shows here. The glow above stays what it always was:
-  // the OPEN organization's own attention count.
+  // The standing dot (user ruling 2026-09-12) reads the aggregate the taskbar
+  // pulse reads. ORG-SCOPED when the organization is known (user 2026-09-30,
+  // as for the inbox dot): a ticket in another organization cannot be seen
+  // from this window's docket, so it does not light this dot. The glow is the
+  // OPEN organization's own attention count, as it always was.
   // The dot is aria-hidden, so the title carries the same claim in words —
   // see AskBell for why an icon-only indicator has to say itself twice.
   const pending = usePendingAttention()
-  const waiting = pending.docket > 0
+  const flagged = org
+    ? pending.flagged.filter((f) => f.org === org && !attentionDismissed(org, f.slug)).length
+    : pending.docket
+  const waiting = flagged > 0
   return (
     <button className={'iconbtn docket-bell' + (hasAttn ? ' glow' : '')}
       aria-label={label}
       title={(hasAttn
         ? `work docket — ${attention} item(s) need attention`
         : 'work docket')
-        + (waiting ? ` — ${pending.docket} ticket(s) still waiting on you` : '')}
+        + (waiting ? ` — ${flagged} ticket(s) still waiting on you` : '')}
       onClick={onClick}>
       <DocketIcon fontSize="inherit" />
       {waiting && <i className="attn-dot" aria-hidden="true" />}
@@ -1194,7 +1207,8 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
 
   const onDismiss = useCallback((item: WorkItem) => {
     if (!item.manual_attention) return
-    dismissWorkItemAttention(slug, item.slug, item.manual_attention.set_rev)
+    dismissAttention(slug, { slug: item.slug, manual_attention: item.manual_attention,
+      attention_sources: item.attention_sources })
       .then(() => {
         toast([`dismissed the attention flag on “${item.title}”`])
         setBump((n) => n + 1)
@@ -1759,7 +1773,8 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
   }, [])
   const onDismiss = useCallback((item: WorkItem) => {
     if (!item.manual_attention) return
-    dismissWorkItemAttention(slug, item.slug, item.manual_attention.set_rev)
+    dismissAttention(slug, { slug: item.slug, manual_attention: item.manual_attention,
+      attention_sources: item.attention_sources })
       .then(() => {
         toast([`dismissed the attention flag on “${item.title}”`])
         onChanged?.()

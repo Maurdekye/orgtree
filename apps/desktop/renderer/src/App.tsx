@@ -1306,7 +1306,7 @@ export default function App() {
                   actions={<>
                     {/* the familiar action buttons, unchanged in behaviour,
                         badge and glow — icons only, named by aria-label */}
-                    <DocketToolbarButton label="Work"
+                    <DocketToolbarButton label="Work" org={tree.slug}
                       summary={tree.work_items_summary}
                       onClick={() => toggleSurface('docket', showDocket, setShowDocket)} />
                     <AskBell tree={tree} label="Inbox" onOpen={() => {
@@ -1493,7 +1493,7 @@ export default function App() {
                     per user ruling 2026-09-12, so required attention is adjacent to mail).
                     Badge counts ride the tree poll: glowing and pulsating when items need
                     attention, else muted active count (zero hidden). */}
-                <DocketToolbarButton
+                <DocketToolbarButton org={tree.slug}
                   summary={tree.work_items_summary}
                   onClick={() => toggleSurface('docket', showDocket, setShowDocket)} />
                 {/* the presented-document gallery sits beside the docket — same
