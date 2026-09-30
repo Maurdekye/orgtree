@@ -19,7 +19,7 @@ result = {'errors': [], 'sizes': []}
 try:
     with sync_playwright() as p:
         browser = p.chromium.launch(channel='msedge', headless=True)
-        page = browser.new_page()
+        page = browser.new_page(viewport={'width': 1600, 'height': 900})
         page.on('pageerror', lambda error: result['errors'].append(str(error)))
         page.goto((OUT / 'build' / 'probe.html').as_uri() + '#attention-both-pinned')
         page.locator('.attn-backdrop-message').wait_for()
