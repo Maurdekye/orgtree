@@ -267,7 +267,8 @@ configTest('the switch lists every provider family with its ledger seats',
       // terra is an opt-in legacy tier, hidden by default (legacytiers.test)
       ['luna', 'luna · seat 0.1'],
       ['sol', 'sol · seat 2'], ['astra', 'astra · seat 10'],
-      ['flash', 'flash · seat 1'], ['pro', 'pro · seat 2'],
+      // pro is an opt-in legacy tier, hidden by default (legacypro.test)
+      ['flash', 'flash · seat 1'],
     ])
   })
 
@@ -320,9 +321,9 @@ configTest('kiosk policy and seat cap disable options instead of hiding them',
       kiosk: { max_tier: 'sonnet' } as TreePayload['kiosk'],
     }) })
     // Astra is always offered (user 2026-09-24, 9e640fb)
-    // 4 claude + 3 codex (terra is hidden legacy) + 2 antigravity
-    assert.equal(options(el).length, 9)
-    for (const tier of ['luna', 'sol', 'astra', 'flash', 'pro']) {
+    // 4 claude + 3 codex (terra is hidden legacy) + 1 antigravity (pro is too)
+    assert.equal(options(el).length, 8)
+    for (const tier of ['luna', 'sol', 'astra', 'flash']) {
       assert.equal(option(el, tier).disabled, true)
       assert.match(option(el, tier).textContent ?? '', /unavailable in kiosk orgs/)
     }

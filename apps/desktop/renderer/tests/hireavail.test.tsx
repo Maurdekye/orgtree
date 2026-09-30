@@ -330,9 +330,11 @@ surfaceTest('while the payload is UNKNOWN the strip behaves as it always did',
                              codexHire: null as unknown as HireState,
                              antigravityHire: null as unknown as HireState })
     const got = tokens(el, '.hsof')
-    for (const t of [...CLAUDE, ...CODEX, ...ANTIGRAVITY]) {
+    // pro is an opt-in legacy tier, hidden by default (legacypro.test)
+    for (const t of [...CLAUDE, ...CODEX, ...ANTIGRAVITY.filter((x) => x !== 'pro')]) {
       assert.equal(got[t], false, `${t} must stay hireable while unknown`)
     }
+    assert.equal(got.pro, undefined, 'pro is legacy: hidden by default')
     assert.equal(el.querySelector('.hsof button.hs-none'), null,
       'unknown is not the no-harness state')
   })

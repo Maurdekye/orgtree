@@ -201,7 +201,8 @@ gateTest('a codex→codex switch is also one click', async (mount) => {
 gateTest('codex→antigravity asks: a crossing between two NON-claude providers',
   async (mount) => {
     const m = await mount('sol')
-    await m.pick('pro')
+    // flash: pro is an opt-in legacy tier, hidden by default (legacypro.test)
+    await m.pick('flash')
     await m.save()
     const txt = (m.dialog()?.textContent ?? '').toLowerCase()
     assert.ok(m.dialog(), 'codex→antigravity is a crossing and must ask')

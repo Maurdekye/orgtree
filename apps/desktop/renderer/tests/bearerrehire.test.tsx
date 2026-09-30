@@ -99,8 +99,9 @@ panelTest('a claude bearer is offered every claude tier — fable included',
 panelTest('cross-provider tiers are SHOWN and disabled, each saying why',
   async (mount) => {
     const { el } = await mount(withBearer('opus'))
-    // (terra is an opt-in legacy tier, hidden by default — legacytiers.test)
-    for (const t of ['gpt-reserve', 'luna', 'sol', 'flash', 'pro']) {
+    // (terra and pro are opt-in legacy tiers, hidden by default —
+    // legacytiers.test, legacypro.test)
+    for (const t of ['gpt-reserve', 'luna', 'sol', 'flash']) {
       const o = option(el, t)
       assert.ok(o, `${t} must be listed, not omitted — a gap explains nothing`)
       assert.equal(o.disabled, true, `${t} must be disabled`)
@@ -124,7 +125,8 @@ panelTest('a codex bearer is offered ITS family, and claude is the disabled one'
         /transcript is a codex session — claude cannot resume it/)
     }
     // the direction that does not crash is the one worth naming: antigravity too
-    for (const t of ['flash', 'pro']) {
+    // (pro is an opt-in legacy tier, hidden by default — legacypro.test)
+    for (const t of ['flash']) {
       assert.equal(option(el, t).disabled, true)
     }
   })
@@ -152,7 +154,7 @@ panelTest('every provider\'s seats render as numbers, never "undefined"',
     // the panel prints the seat verbatim, so a fraction must survive the
     // round trip rather than being floored or rendered as `undefined`
     for (const [t, seat] of [['gpt-reserve', 0.2], ['luna', 0.1], ['flash', 1],
-                             ['pro', 2], ['fable', 10]] as const) {
+                             ['fable', 10]] as const) {
       assert.match(option(el, t).textContent ?? '',
         new RegExp(`as ${t} · seat ${seat}\\b`))
     }

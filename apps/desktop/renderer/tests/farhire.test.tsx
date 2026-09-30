@@ -85,9 +85,10 @@ test('the full three-provider set collapses only after its rendered width stops 
     await inAct(() => { expand.click() })
     assert.equal(report.classList.contains('is-expanded'), true)
     const offered = [...report.querySelectorAll('.hs-fam button')]
-    // 9 = 4 claude + 3 codex + 2 antigravity. Astra is always offered (user
-    // 2026-09-24, 9e640fb); Terra is a legacy tier hidden by default (2026-09-30)
-    assert.equal(offered.length, 9,
+    // 8 = 4 claude + 3 codex + 1 antigravity. Astra is always offered (user
+    // 2026-09-24, 9e640fb); Terra and Gemini Pro are legacy tiers hidden by
+    // default (2026-09-30)
+    assert.equal(offered.length, 8,
       'opening renders the exact current provider/tier list, not a compact-only subset')
     assert.equal(new Set(offered.map((b) => b.className)).size, offered.length,
       'opening does not duplicate a tier while it reveals families')
