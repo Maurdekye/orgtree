@@ -38,6 +38,12 @@ MEASURE = """(arg) => {
   const s = getComputedStyle(target);
   return {expected, border:s.borderTopColor, outline:s.outlineColor, focusVisible:target.matches(':focus-visible')};
 }"""
+def measure_border(page, selector, token):
+    arg = {'selector': selector, 'token': token}
+    # Production buttons animate their border; measure the settled state.
+    page.wait_for_function(f'arg => {{ const r = ({MEASURE})(arg); return r.border === r.expected; }}', arg=arg)
+    return page.evaluate(MEASURE, arg)
+
 try:
     with sync_playwright() as pw:
         browser = pw.chromium.launch(channel='msedge')
@@ -49,7 +55,7 @@ try:
         header = '.shell-header-actions > button:last-child'
         page.locator(header).wait_for()
         page.locator(header).hover()
-        neutral = page.evaluate(MEASURE, {'selector':header,'token':'--line-hover'})
+        neutral = measure_border(page, header, '--line-hover')
         assert neutral['border'] == neutral['expected'], neutral
         result['cases'].append({'agent':None,'header':neutral})
         page.goto(base + '?providers=1&view=attention')
@@ -59,19 +65,21 @@ try:
             if toggle.get_attribute('aria-expanded') != 'true':
                 toggle.click()
             page.locator(f'[data-attn-agent="{agent}"]').click()
-            page.wait_for_function('(id) => document.querySelector(`.attn-agent-row[data-attn-agent="${id}"]`)?.getAttribute("aria-selected") === "true"', arg=agent)
+            page.wait_for_function('(id) => document.querySelector(`[data-attn-agent="${id}"]`)?.getAttribute("aria-selected") === "true"', arg=agent)
             toggle.hover()
-            drawer = page.evaluate(MEASURE, {'selector':'.attn-agents-toggle','token':f'--prov-{provider}'})
+            drawer = measure_border(page, '.attn-agents-toggle', f'--prov-{provider}')
             assert drawer['border'] == drawer['expected'], drawer
             page.keyboard.press('Tab')
             toggle.focus()
             focus = page.evaluate(MEASURE, {'selector':'.attn-agents-toggle','token':f'--prov-{provider}'})
             assert focus['focusVisible'] and focus['outline'] == focus['expected'], focus
             page.locator(header).hover()
-            global_control = page.evaluate(MEASURE, {'selector':header,'token':f'--prov-{provider}'})
+            global_control = measure_border(page, header, f'--prov-{provider}')
             assert global_control['border'] == global_control['expected'], global_control
             # Another agent's row retains its own provider in a body portal.
             other, other_provider = ('worker-a','openai') if agent != 'worker-a' else ('worker-g','google')
+            if toggle.get_attribute('aria-expanded') != 'true':
+                toggle.click()
             page.locator(f'[data-attn-agent="{other}"]').click(button='right')
             page.locator('.ctxmenu').wait_for()
             menu = page.evaluate('''token => {
@@ -93,7 +101,7 @@ try:
         for cls in ['danger','cc-send stop','disk-del']:
             selector = f'[data-danger-probe="{cls}"]'
             page.locator(selector).hover(force=True)
-            danger = page.evaluate(MEASURE, {'selector':selector,'token':'--bad'})
+            danger = measure_border(page, selector, '--bad')
             assert danger['border'] == danger['expected'], danger
             result['cases'].append({'danger':cls,'style':danger})
         assert not result['errors'], result['errors']

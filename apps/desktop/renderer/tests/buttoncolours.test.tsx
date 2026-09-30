@@ -35,7 +35,7 @@ test('global button colour follows current agent, provider changes and neutral f
 test('ordinary icon/preset hover and focus use provider tokens, while deliberate danger rules remain red', () => {
   assert.match(css,/\.iconbtn:not\(\.danger\):hover\s*\{[^}]*border-color:\s*var\(--button-accent\)/)
   assert.match(css,/\.preset-card:hover\s*\{[^}]*border-color:\s*var\(--button-accent\)/)
-  assert.match(css,/button:not\(\.danger\):not\(\.stop\):not\(\.kill-btn\):not\(\.kill-release\):focus-visible\s*\{[^}]*outline-color:\s*var\(--button-accent\)/)
+  assert.match(css,/button:not\(\.danger\):not\(\.stop\):not\(\.kill-btn\):not\(\.kill-release\):not\(\.disk-del\):not\(\.org-del\):not\(\.retirebtn\):not\(\.dismissbtn\):not\(\.chip-x\):not\(\.eye-tab-x\):focus-visible\s*\{[^}]*outline-color:\s*var\(--button-accent\)/)
   for (const provider of ['claude','openai','google','openrouter']) {
     assert.ok(css.includes(`.prov-${provider} { --button-accent: var(--prov-${provider}); }`))
   }

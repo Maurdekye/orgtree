@@ -4853,7 +4853,7 @@ input::placeholder, textarea::placeholder { color: #6e6e6e; }
 input:focus, select:focus, textarea:focus, button:focus-visible {
   outline: 1px solid var(--accent); outline-offset: -1px;
 }
-button:not(.danger):not(.stop):not(.kill-btn):not(.kill-release):focus-visible {
+button:not(.danger):not(.stop):not(.kill-btn):not(.kill-release):not(.disk-del):not(.org-del):not(.retirebtn):not(.dismissbtn):not(.chip-x):not(.eye-tab-x):focus-visible {
   outline-color: var(--button-accent);
 }
 
