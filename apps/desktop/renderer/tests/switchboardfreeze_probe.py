@@ -8,6 +8,7 @@ provenance = assert_repo_import(REPO)
 
 import json
 import subprocess
+import time
 from playwright.sync_api import sync_playwright
 
 HERE = Path(__file__).resolve().parent
@@ -22,21 +23,26 @@ try:
         ctx = browser.new_context(viewport={'width': 1400, 'height': 900})
         ctx.on('page', lambda page: page.on('pageerror', lambda error: result['errors'].append(str(error))))
         page = ctx.new_page()
-        page.set_default_timeout(5000)
-        page.goto((OUT / 'page' / 'probe.html').as_uri() + '#canvas')
+        page.set_default_timeout(30000)
+        page.goto((OUT / 'page' / 'probe.html').as_uri() + '?rows=3000#long-main')
         page.locator('.attn-panel-desk textarea').wait_for()
         page.locator('.attn-panel-desk textarea').fill('keep this unsent draft')
+        page.wait_for_timeout(1200)
+        started = time.monotonic()
+        assert page.evaluate('window.probe.load()'), 'history load refused'
+        page.wait_for_function('window.probe.historyRows() >= 3000')
+        result['history_load_seconds'] = time.monotonic() - started
+        result['loaded_rows'] = page.evaluate('window.probe.historyRows()')
         page.screenshot(path=str(OUT / 'before.png'))
-        with page.expect_popup() as popup:
-            page.locator('.switchboard-fixture .popout-button').first.click()
-        child = popup.value
-        child.set_default_timeout(5000)
+        child = page
         for agent in ['coordinator-opus', 'peer-a', 'peer-b']:
+            started = time.monotonic()
             child.locator('.eye-tab-main').filter(has_text=agent).click()
-            child.locator('.eye-panel textarea').wait_for()
+            child.locator('.eye-tab.on .eye-tab-main').filter(has_text=agent).wait_for()
             child.locator('[data-heartbeat]').click()
             page.wait_for_timeout(250)
-            result['tabs'].append({'agent': agent, **page.evaluate('window.probe')})
+            result['tabs'].append({'agent': agent, 'seconds': time.monotonic() - started,
+                **page.evaluate('({commits:window.probe.commits,heartbeat:window.probe.heartbeat,requests:window.probe.requests,rows:window.probe.historyRows(),composers:document.querySelectorAll("textarea").length})')})
             child.screenshot(path=str(OUT / (agent + '.png')))
             child.locator('.eye-tab-main').filter(has_text=agent).click()
         assert not result['errors'], result['errors']

@@ -10,6 +10,7 @@ import { setAttentionLayout, setOrgView } from '../src/attention/mode'
 import { PinFrame, pinModal } from '../src/canvas/modalpin'
 import { CurrentOrg } from '../src/popout'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
+import { loadOlder } from '../src/convo'
 import { USER } from '../src/canvas/shared'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { TreePayload, OpResult } from '../src/types'
@@ -32,12 +33,28 @@ const tree = { slug: 'probe', name: 'probe', epoch: 1, rev: 1,
   audit: { live_nodes: 3, top_level_holds: 12, no_overdraft: true, problems: [] },
   max_top_grant: 1000, default_top_grant: 50, compact_at: 0, cost_usd_total: 0,
   work_items_summary: { attention: 0, active: 0 }, user_inbox_count: 0 } as unknown as TreePayload
-const probe = { commits: 0, heartbeat: 0, requests: 0 }
+const count = Number(new URLSearchParams(location.search).get('rows') || 3000)
+const messages = Array.from({ length: count }, (_, seq) => ({
+  seq, event_id: `event-${seq}`, native_event_id: `event-${seq}`,
+  role: seq % 7 === 0 ? 'user' : seq % 31 === 0 ? 'system' : 'assistant',
+  text: `Transcript row ${seq}\n\n` + 'Measured renderer work with **markdown**, `code` and tool output. '.repeat(8),
+  ...(seq % 31 === 0 ? { summary: 'Earlier session compacted. '.repeat(20) } : {}),
+  ...(seq % 7 !== 0 ? { tools: [{ id: `tool-${seq}`, name: 'Read', input: { path: `file-${seq}.ts` }, result: 'tool output\n'.repeat(100) }] } : {}),
+}))
+const probe = { commits: 0, heartbeat: 0, requests: 0,
+  load: () => loadOlder('probe', agents[0]!.id, count),
+  historyRows: () => document.querySelectorAll('[data-native-event]').length }
 Object.assign(window, { probe })
 window.fetch = ((url: string) => {
   probe.requests++
-  const path = new URL(String(url), location.href).pathname
-  const body = /\/chat$/.test(path) ? { busy: false, queued: 0, messages: [], pending_mail: [], has_older: false }
+  const parsed = new URL(String(url), location.href)
+  const path = parsed.pathname
+  const end = Number(parsed.searchParams.get('before') || count)
+  const start = Math.max(0, end - Number(parsed.searchParams.get('last') || 8))
+  const body = /\/chat$/.test(path) ? { busy: false, queued: 0,
+    conversation_id: 'synthetic-long-session', order_epoch: 1,
+    messages: messages.slice(start, end), pending_mail: [], has_older: start > 0,
+    ...(start > 0 ? { before: String(start) } : {}) }
     : /\/work-items/.test(path) ? { items: [], archived: [], backlogged: [], counts: {} }
     : /\/inbox$/.test(path) ? { pending: [], delivered: [], sent: [] }
     : /\/providers$/.test(path) ? { providers: [] } : { ok: true }
@@ -48,9 +65,20 @@ localStorage.setItem('orgtree-eyemin-probe', JSON.stringify(agents.map(n => n.id
 localStorage.setItem('orgtree-start-view', 'switchboard')
 setAttentionLayout('probe', { agent: agents[0]!.id })
 setOrgView('probe', 'canvas')
-pinModal('attention-desk', { x: 10, y: 80, w: 480, h: 650 }, 'probe')
-createRoot(document.getElementById('root')!).render(location.hash === '#canvas' ?
-  <Profiler id="canvas" onRender={() => { if (++probe.commits > 200) throw new Error('Switchboard render loop') }}>
+pinModal('attention-desk', { x: 970, y: 90, w: 410, h: 720 }, 'probe')
+createRoot(document.getElementById('root')!).render(location.hash === '#long-main' ?
+  <Profiler id="long-main" onRender={() => { if (++probe.commits > 500) throw new Error('Switchboard render loop') }}>
+    <CurrentOrg.Provider value="probe">
+      <button data-heartbeat style={{position: 'fixed', bottom: 10, left: 10, zIndex: 500}} onClick={() => probe.heartbeat++}>Check interaction</button>
+      <div className="canvas-stage" style={{height:'100vh',width:'100vw'}}>
+        <OrgCanvas tree={tree} slug="probe" mailEvt={null} op={op} toast={noop}
+          focusAgent={USER} onFocusAgentHandled={noop}
+          renderOrgSlot={ctx => <AttentionView slug={ctx.slug} tree={ctx.tree} op={ctx.op}
+            toast={ctx.toast} map={ctx.map} posOf={ctx.posOf} deskExtras={ctx.deskExtras} />} />
+      </div>
+    </CurrentOrg.Provider>
+  </Profiler> : location.hash === '#canvas' ?
+  <Profiler id="canvas" onRender={() => { if (++probe.commits > 500) throw new Error('Switchboard render loop') }}>
     <CurrentOrg.Provider value="probe">
       <PinFrame inline kind="switchboard-fixture" title="Switchboard" panel="switchboard-fixture" close={noop}>
         <button data-heartbeat onClick={() => probe.heartbeat++}>Check interaction</button>
