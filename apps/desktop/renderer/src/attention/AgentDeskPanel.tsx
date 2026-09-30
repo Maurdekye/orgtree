@@ -22,8 +22,8 @@
 // reaching for a row made the list vanish. Now the list button opens it, and
 // only the button again, the dark scrim over the desk, or Escape close it —
 // or the pointer moving well away from it (user 2026-09-30; see `inCloseZone`).
-// Choosing an agent leaves it open, as a click-opened list always did. Its
-// contents are the canvas's own Agents List (canvas/agenttray.tsx). The
+// Clicking an agent selects its desk and closes the drawer (user 2026-09-30).
+// Its contents are the canvas's own Agents List (canvas/agenttray.tsx). The
 // desk is its own stacking context (attention.css), so nothing inside the desk
 // can draw over the drawer or the scrim. It is NEVER remembered (coordinator
 // ruling 2026-09-29): it starts shut on every load and whenever the panel comes
@@ -315,7 +315,8 @@ export function AgentDeskPanel({
             menu is the canonical agent menu, reached through the registry
             (`data-agent-nav`), because this host builds no menu of its own. */}
         <AgentTray map={map} rows={rows} query={query} onQuery={setQuery}
-          archived={archived} onArchived={setArchived} onPick={select}
+          archived={archived} onArchived={setArchived}
+          onPick={(id) => { select(id); close() }}
           compactAt={tree.compact_at} refs={refs} selected={selectedId}
           filterLabel="Filter agents"
           rowProps={(n) => agentNavProps(n.id)}

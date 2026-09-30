@@ -58,6 +58,9 @@ try:
         child = page.locator('[data-attn-agent="p03-ws1-pgservice"]')
         child.click(position={'x': 2, 'y': 8})
         result['childSelected'] = child.get_attribute('aria-selected')
+        result['closedAfterPick'] = page.locator('.attn-agents-wrap').get_attribute('class')
+        assert 'list-open' not in result['closedAfterPick'], 'picking an agent leaves the drawer open'
+        page.get_by_role('button', name='Open the agents list', exact=True).click()
         # Resize while open: the measured rail follows zoom/font changes.
         page.locator('.attn-agents-toggle').evaluate("e => e.style.width='50px'")
         page.wait_for_timeout(100)

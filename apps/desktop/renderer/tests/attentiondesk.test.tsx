@@ -166,23 +166,56 @@ test('§3 the button again, the scrim, and Escape each close it', async () => {
   await v.unmount()
 })
 
-test('§4 choosing an agent keeps the drawer open and the choice sticks', async () => {
+test('§4 clicking an agent closes the drawer and the choice sticks', async () => {
   reset()
   const v = await mountView(panel(), () => '')
   await settle()
   const el = v.el
   assert.equal(selectedRow(el), 'alpha', 'opens on the leftmost top-level agent')
   await inAct(() => { toggle(el).click() })
-  await inAct(() => { rowFor(el, 'beta')!.click() })
+  await inAct(() => { rowFor(el, 'beta')!.focus(); rowFor(el, 'beta')!.click() })
   await settle()
   assert.equal(selectedRow(el), 'beta', 'clicking an agent replaces the open Desk')
-  assert.equal(isOpen(el), true,
-    'a list the user deliberately opened is not closed by their next click in it')
+  assert.equal(isOpen(el), false, 'the selected desk is no longer covered by the drawer')
+  assert.ok(list(el).hasAttribute('inert'), 'closed rows leave the tab order')
+  assert.ok(document.activeElement === toggle(el), 'focus leaves the hidden row')
   assert.equal(attentionLayout(SLUG).agent, 'beta', 'and the choice is remembered')
   assert.equal(attentionLayout(SLUG).listOpen, false,
     'the drawer being out is NOT remembered (coordinator ruling 2026-09-29)')
   await inAct(() => { toggle(el).click() })
   assert.equal(selectedRow(el), 'beta', 'closing it does not reset the selection')
+  await v.unmount()
+})
+
+test('§4a clicking the already selected agent also closes the drawer', async () => {
+  reset()
+  const v = await mountView(panel(), () => '')
+  await settle()
+  await inAct(() => { toggle(v.el).click() })
+  await inAct(() => { rowFor(v.el, 'alpha')!.click() })
+  assert.equal(selectedRow(v.el), 'alpha')
+  assert.equal(isOpen(v.el), false, 'the row activation closes even without a selection change')
+  await v.unmount()
+})
+
+test('§4c filter, archived toggle and a row context menu keep the drawer open', async () => {
+  reset()
+  const nodes = map()
+  nodes.set('old', node('old', USER, { state: 'archived' }))
+  const v = await mountView(<AgentDeskPanel slug={SLUG} tree={tree()} op={op}
+    toast={() => {}} map={nodes} />, () => '')
+  await settle()
+  await inAct(() => { toggle(v.el).click() })
+  await inAct(() => { (list(v.el).querySelector('.tray-filter') as HTMLInputElement).click() })
+  assert.equal(isOpen(v.el), true, 'filter interaction is not an agent selection')
+  await inAct(() => { (list(v.el).querySelector('.tray-arch') as HTMLButtonElement).click() })
+  assert.ok(rowFor(v.el, 'old'), 'the archived toggle still expands the list')
+  assert.equal(isOpen(v.el), true)
+  await inAct(() => {
+    rowFor(v.el, 'beta')!.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true }))
+  })
+  assert.equal(isOpen(v.el), true, 'right-click is not row activation')
+  assert.equal(selectedRow(v.el), 'alpha', 'controls do not select an agent')
   await v.unmount()
 })
 
@@ -237,6 +270,7 @@ test('§5 the keyboard opens the drawer through the button and drives it', async
   await key('ArrowDown')
   await settle()
   assert.equal(selectedRow(el), 'beta', 'ArrowDown moves to the next agent')
+  assert.equal(isOpen(el), true, 'arrow navigation keeps the list available')
   await key('ArrowUp')
   await settle()
   assert.equal(selectedRow(el), 'alpha')
