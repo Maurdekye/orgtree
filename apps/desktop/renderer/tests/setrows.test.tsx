@@ -164,8 +164,9 @@ test('§7 a toggle names itself to a screen reader without reading out its own '
       '#app-settings-panel-runtime')!
     const rows = [...panel.querySelectorAll<HTMLElement>('.set-row')].filter(row => row.querySelector('input[role="switch"]'))
     // Quick Staffing account selection, warm processes, working checkups,
-    // MCP readiness wait, idle docket reminders, and blocked-docket reminders.
-    assert.equal(rows.length, 6)
+    // MCP readiness wait, idle docket reminders, blocked-docket reminders,
+    // and show legacy models (Terra).
+    assert.equal(rows.length, 7)
     assert.ok(panel.querySelector(
       'input[role="switch"][aria-label="Include account selection when requesting staffing"]'))
     for (const row of rows) {
