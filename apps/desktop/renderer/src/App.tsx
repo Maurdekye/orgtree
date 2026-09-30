@@ -84,7 +84,7 @@ import {
 } from './icons'
 import { DirList } from './forms'
 import { FolderPickerHost } from './picker'
-import { activeDocCount, ago, ALL_TIERS, attentionPip, availableAutopsyModels, deskDpi, fmtCredits, formatCount, isOpenRouterTier, jumpKey, jumpTo, orgPxc, presenceOfPayload, primedRestartChip, setDeskDpi, TIER_LETTER, tierLabel, unicodeLength, usePolled } from './canvas/shared'
+import { activeDocCount, ago, ALL_TIERS, attentionPip, availableAutopsyModels, deskDpi, fmtCredits, formatCount, isOpenRouterTier, jumpKey, jumpTo, orgPxc, presenceOfPayload, primedRestartChip, setDeskDpi, TIER_LETTER, tierLabel, unicodeLength, usePolled, useShowLegacyModels } from './canvas/shared'
 import { InboxAskCard } from './canvas/asks'
 import { askMailRow, openAsks, submittedOpenCount } from './canvas/openasks'
 import { SenderChip } from './canvas/senderchip'
@@ -2825,9 +2825,10 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
   const filterModel = val('filterModel', tree.fable_filter_model ?? 'opus')
   const setFilterModel = set('filterModel', filterModel)
   const provPayload = usePolled(getProviders, [], 60000)
+  const showLegacy = useShowLegacyModels()
   const autopsyGroups = useMemo(
     () => availableAutopsyModels(provPayload, filterModel),
-    [provPayload, filterModel])
+    [provPayload, filterModel, showLegacy])
   const defEffort = val('defEffort', tree.default_effort ?? '')
   const setDefEffort = set('defEffort', defEffort)
   const cascadeHire = val('cascadeHire', tree.cascade_hire !== false)

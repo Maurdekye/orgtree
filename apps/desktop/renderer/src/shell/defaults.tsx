@@ -13,7 +13,7 @@
 // a cycle: App.tsx already imports AccountsPanel.
 import { useEffect, useMemo, useState } from 'react'
 import { getDefaults, getProviders, saveDefaults } from '../api'
-import { availableAutopsyModels, fmtCredits, usePolled } from '../canvas/shared'
+import { availableAutopsyModels, fmtCredits, usePolled, useShowLegacyModels } from '../canvas/shared'
 import type { DefaultsPayload, ToastFn } from '../types'
 
 /** The default-org-settings FIELDS, with no window of their own.
@@ -31,9 +31,10 @@ export function DefaultsForm({ toast, onDone }: {
   const [d, setD] = useState<Partial<DefaultsPayload> | null>(null)
   useEffect(() => { getDefaults().then(setD).catch(() => setD({})) }, [])
   const provPayload = usePolled(getProviders, [], 60000)
+  const showLegacy = useShowLegacyModels()
   const autopsyGroups = useMemo(
     () => availableAutopsyModels(provPayload, d?.fable_filter_model ?? 'opus'),
-    [provPayload, d?.fable_filter_model])
+    [provPayload, d?.fable_filter_model, showLegacy])
   if (d == null) return <div className="dim pad">loading…</div>
   const close = onDone
   const set = (k: string, v: unknown) => setD({ ...d, [k]: v })

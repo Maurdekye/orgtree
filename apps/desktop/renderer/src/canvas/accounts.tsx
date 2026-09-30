@@ -30,9 +30,9 @@ import { OpenRouterSection } from './openrouter'
 import { ModalOverlapSettings, PinFrame } from './modalpin'
 import { CanvasAnchorSettings } from './canvasanchor'
 import {
-  setAgentShortcutsOn, useAgentShortcuts, setCrowdPilesOn, setDeskDpi, setHideRetiredOn, setOpenRouterTiers, setStartView, setStartZoomOn,
+  setAgentShortcutsOn, useAgentShortcuts, setCrowdPilesOn, setDeskDpi, setHideRetiredOn, setOpenRouterTiers, setShowLegacyModelsOn, setStartView, setStartZoomOn,
   TIER_LETTER,
-  useCrowdPiles, useDeskDpi, useHideRetired, useStartView, useStartZoom,
+  useCrowdPiles, useDeskDpi, useHideRetired, useShowLegacyModels, useStartView, useStartZoom,
 } from './shared'
 import { fmtWhen } from '../timefmt'
 import type { StartView } from './shared'
@@ -276,6 +276,21 @@ function AgentShortcutsToggle() {
   return <SetToggle label="show agent card shortcuts" checked={on}
     onChange={setAgentShortcutsOn}
     hint="show action buttons beneath agent names on canvas cards" />
+}
+
+/* user 2026-09-30: Terra is "a legacy option", hidden by default. Off, no hire
+   or tier chooser offers it; on, it comes back marked "legacy". Agents
+   already on Terra show it either way. */
+function ShowLegacyModelsToggle() {
+  const on = useShowLegacyModels()
+  return (
+    <SetGroup title="Legacy models">
+      <SetToggle label="show legacy models (Terra)" checked={on}
+        onChange={setShowLegacyModelsOn}
+        hint={'off: hire and model choices leave Terra out. Agents already on '
+          + 'Terra keep running and show their model either way.'} />
+    </SetGroup>
+  )
 }
 
 function HideRetiredToggle() {
@@ -676,6 +691,7 @@ export function AccountsPanel({ toast, close, initialTab }: {
       <OpenRouterSection provider={openrouter} toast={toast} pickerOpen={pickerOpen}
         setPickerOpen={setPickerOpen} onChanged={() => { void loadProviders() }}
         headRight={<ProviderSwitch provider={openrouter} busy={busy} onChange={toggleProvider} />} />
+      <ShowLegacyModelsToggle />
     </SettingsTabPanel>
     <SettingsTabPanel id="runtime" idBase="app-settings" active={tab === 'runtime'}>
       <DesktopSettings />

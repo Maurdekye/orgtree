@@ -25,7 +25,7 @@ import {
   CloseIcon, DeleteIcon, FolderIcon, LayersIcon, SettingsIcon,
 } from '../icons'
 import { agentNavProps } from './agentnav'
-import { ago, ALL_PRESENT, anyTierSeat, codexTierOffer, CODEX_TIERS, ANTIGRAVITY_TIERS, fmtCredits, hireOf, isOpenRouterTier, MODEL_VERSIONS, openrouterTierIds, pileOrder, PROVIDER_LABEL, providerOf, stateLabel, TIER_LETTER, tierCapabilityNotes, tierLabel, TIERS, tierShown, USER, useEsc } from './shared'
+import { ago, ALL_PRESENT, anyTierSeat, codexTierOffer, CODEX_TIERS, ANTIGRAVITY_TIERS, fmtCredits, hireOf, isOpenRouterTier, legacyMark, MODEL_VERSIONS, openrouterTierIds, pileOrder, PROVIDER_LABEL, providerOf, stateLabel, TIER_LETTER, tierCapabilityNotes, tierLabel, TIERS, tierShown, USER, useEsc, useShowLegacyModels } from './shared'
 import type { ProviderPresence } from './shared'
 import type { CanvasNode, DraftScope, DraftState, OpFn, Pile } from './shared'
 import { ProcessLifecycleMark } from './desk'
@@ -959,6 +959,8 @@ interface NodeConfigProps {
 
 export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   antigravityProvider, openrouterProvider, presence = ALL_PRESENT, close }: NodeConfigProps) {
+  // re-render on the "show legacy models" flip — `codexTierOffer` reads it
+  useShowLegacyModels()
   // Escape belongs to PinFrame now: a CENTRED surface still closes on it, a
   // PINNED window ignores it the way an agent window does.
   const [asking, setAsking] =
@@ -1230,7 +1232,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
     const tools = tierCapabilityNotes(t)
     return (
       <option key={t} value={t} disabled={!!why}>
-        {tierLabel(t)} · seat {fmtCredits(tierSeat(t))}{tools ? ` · ${tools}` : ''}{why ? ` — ${why}` : ''}
+        {tierLabel(t)} · seat {fmtCredits(tierSeat(t))}{legacyMark(t)}{tools ? ` · ${tools}` : ''}{why ? ` — ${why}` : ''}
       </option>
     )
   }

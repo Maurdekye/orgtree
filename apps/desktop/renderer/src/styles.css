@@ -3548,6 +3548,8 @@ button.stackbadge:hover { border-color: var(--accent); color: var(--agent-accent
 .hsof button.t-flash { color: var(--tier-flash); border-color: color-mix(in srgb, var(--tier-flash) 45%, var(--line)); }
 .hsof button.t-pro { color: var(--tier-pro); border-color: color-mix(in srgb, var(--tier-pro) 45%, var(--line)); }
 .hsof button.codex-preview:disabled { opacity: .45; border-style: dashed; }
+/* an opt-in LEGACY tier (Terra), shown only with "show legacy models" on */
+.hsof button.legacy { border-style: dashed; }
 /* D-199: the no-harness badge. Not a tier chip — it is WIDER than the square
    letter tokens because it carries a word, and it must not read as a model
    you could pick. Dashed like the previews (this is a "not yet" state), muted

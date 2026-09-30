@@ -21,7 +21,7 @@ import {
   LockIcon, MailIcon, PinIcon, RetireIcon, SettingsIcon, StopIcon, WarnIcon, DocIcon,
 } from '../icons'
 import {
-  ago, anyTierSeat, codexTierOffer, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DESK_SCALE, deskDpi, DRAFT, familyOffer, fmtCredits, formatCount, freezeKind, FREEZE_LABEL_SHORT, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, isOpenRouterTier, NODE_H, NODE_W, openrouterTierIds, procHaloClass, providerOf, queuedAccountTitle, queuedSwitchTitle, stateLabel, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, unicodeLength, USER,
+  ago, anyTierSeat, codexTierOffer, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DESK_SCALE, deskDpi, DRAFT, familyOffer, fmtCredits, formatCount, freezeKind, FREEZE_LABEL_SHORT, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, isOpenRouterTier, legacyMark, NODE_H, NODE_W, openrouterTierIds, procHaloClass, providerOf, queuedAccountTitle, queuedSwitchTitle, stateLabel, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, unicodeLength, USER, useShowLegacyModels,
   USER_H, USER_W, useAgentShortcuts, Z_MAX,
 } from './shared'
 import type {
@@ -609,6 +609,8 @@ interface SpawnChipsProps {
 function SpawnChips({ onSpawn, free, seats, maxTier, side, soleHire,
   codexHire, antigravityHire, claudeHire, openrouterHire, onNoHarness, zoom,
   expanded = false, onToggleExpanded }: SpawnChipsProps) {
+  // re-render on the "show legacy models" flip — `codexTierOffer` reads it
+  useShowLegacyModels()
   // kiosk tier cap (user spec): tokens above the cap DISAPPEAR entirely —
   // seat cost doubles as the tier rank, so the cap is a simple cost compare
   const shown = TIERS.filter((t) =>
@@ -621,7 +623,7 @@ function SpawnChips({ onSpawn, free, seats, maxTier, side, soleHire,
     // `or-…` tier id (user ask 2026-09-03)
     const name = tierLabel(t)
     return (
-      <button key={t} disabled={cant} className={'t-' + t} data-first-use={soleHire ? 'token' : undefined}
+      <button key={t} disabled={cant} className={'t-' + t + (legacyMark(t) ? ' legacy' : '')} data-first-use={soleHire ? 'token' : undefined}
         title={cant
           // user report: an exhausted kiosk cap read as an opaque dead
           // end — the tooltip now carries the REMEDY, not just the number
@@ -653,7 +655,7 @@ function SpawnChips({ onSpawn, free, seats, maxTier, side, soleHire,
           : `hire ${/^[aeiou]/.test(name) ? 'an' : 'a'} ${name}`
             + (soleHire ? ''
               : ` ${side === 'top' ? 'superior' : side ? 'coworker' : 'subordinate'}`)
-            + ` (-${fmtCredits(seat)})`}
+            + ` (-${fmtCredits(seat)})` + legacyMark(t)}
         onClick={(e) => { e.stopPropagation(); onSpawn(t) }}>
         {letter}
       </button>

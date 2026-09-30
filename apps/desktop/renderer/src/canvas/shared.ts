@@ -83,6 +83,13 @@ export const CODEX_ALWAYS_TIERS = ['luna', 'terra', 'sol', 'astra']
  *  (`TreeNode.codex_route`) says which one a turn actually ran on. Mirrors
  *  providers.LEGACY_CODEX_TIERS. */
 export const LEGACY_CODEX_TIERS = ['gpt-reserve']
+/** OPT-IN LEGACY tiers (user 2026-09-30: "keep it as a legacy option but
+ *  remove it by default"). Still real, hireable tiers — the backend accepts
+ *  them and a node wearing one keeps its letter, colour and seat — but no
+ *  hire or switch surface offers them unless App settings > Providers >
+ *  "show legacy models" is on, and then they carry a "legacy" mark. Unlike
+ *  LEGACY_CODEX_TIERS, which no surface ever offers. */
+export const OPT_IN_LEGACY_TIERS = ['terra']
 /** All KNOWN Codex tiers — legacy tokens (for the nodes wearing them) and
  *  the always-offered hireable family. A future rollout tier would be listed
  *  here but not in `CODEX_ALWAYS_TIERS`; `codexTierOffer` would then require
@@ -496,7 +503,7 @@ export const hireOf = (p: ProviderInfo | null | undefined): HireState | null =>
 export const codexTierOffer = (
   h: HireState | null | undefined, tier: string,
 ): FamilyOffer => {
-  if (LEGACY_CODEX_TIERS.includes(tier)) return 'hide'
+  if (tierHiddenAsLegacy(tier)) return 'hide'
   const base = familyOffer(h)
   return !CODEX_ALWAYS_TIERS.includes(tier)
     && !h?.offeredTiers?.includes(tier) ? 'hide' : base
@@ -617,11 +624,13 @@ export function availableAutopsyModels(
     const models: AutopsyModelOption[] = []
     for (const t of p.tiers || []) {
       if (t.tier === 'fable') continue // ⚠ FABLE NOT SELECTABLE (ruling 2026-09-03)
-      if (LEGACY_CODEX_TIERS.includes(t.tier)) continue   // not a tier any more
+      // not a tier any more (gpt-reserve), or an opt-in legacy tier with the
+      // toggle off — but a CONFIGURED value is kept, like every other list
+      if (tierHiddenAsLegacy(t.tier) && t.tier !== normCurrent) continue
       if (t.tier === normCurrent) foundCurrent = true
       models.push({
         tier: t.tier,
-        label: t.label ?? tierLabel(t.tier),
+        label: (t.label ?? tierLabel(t.tier)) + legacyMark(t.tier),
         seat: t.seat ?? anyTierSeat(t.tier),
       })
     }
@@ -1185,6 +1194,40 @@ const subscribeHideRetired = (fn: () => void): (() => void) => {
 }
 export const useHideRetired = (): boolean =>
   useSyncExternalStore(subscribeHideRetired, hideRetiredOn)
+
+/* --------------------------- show legacy models (user 2026-09-30)
+   OFF BY DEFAULT, same localStorage contract as the toggles above. Off, the
+   OPT_IN_LEGACY_TIERS (Terra) leave every hire and tier chooser; on, they
+   come back marked "legacy". A DISPLAY preference only: agents already on a
+   legacy tier show it either way, and the backend accepts it either way.
+   ⚠ Surfaces that read `tierHiddenAsLegacy` (through `codexTierOffer` or
+   directly) must call `useShowLegacyModels()` so a flip re-renders them. */
+export const SHOW_LEGACY_MODELS_KEY = 'orgtree-show-legacy-models'
+export const showLegacyModelsOn = (): boolean => {
+  try { return localStorage.getItem(SHOW_LEGACY_MODELS_KEY) === '1' } catch { return false }
+}
+const showLegacySubs = new Set<() => void>()
+export const setShowLegacyModelsOn = (on: boolean): void => {
+  try {
+    localStorage.setItem(SHOW_LEGACY_MODELS_KEY, on ? '1' : '0')
+  } catch { /* private mode */ }
+  for (const fn of [...showLegacySubs]) fn()
+}
+const subscribeShowLegacy = (fn: () => void): (() => void) => {
+  showLegacySubs.add(fn)
+  window.addEventListener('storage', fn)
+  return () => { showLegacySubs.delete(fn); window.removeEventListener('storage', fn) }
+}
+export const useShowLegacyModels = (): boolean =>
+  useSyncExternalStore(subscribeShowLegacy, showLegacyModelsOn)
+/** Is this tier kept out of choosers as legacy? gpt-reserve always; the
+ *  opt-in legacy tiers unless "show legacy models" is on. */
+export const tierHiddenAsLegacy = (tier: string): boolean =>
+  LEGACY_CODEX_TIERS.includes(tier)
+  || (OPT_IN_LEGACY_TIERS.includes(tier) && !showLegacyModelsOn())
+/** the " · legacy" mark a chooser appends to an opt-in legacy tier's label */
+export const legacyMark = (tier: string): string =>
+  OPT_IN_LEGACY_TIERS.includes(tier) ? ' · legacy' : ''
 
 // App-wide agent action buttons: off unless explicitly enabled.
 export const AGENT_SHORTCUTS_KEY = 'orgtree-agent-shortcuts'
