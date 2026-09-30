@@ -12,6 +12,8 @@
 //   §4 an agent already on Terra still shows its model: its card token, and
 //      its own tier stays the selected option in its settings
 //   §5 the toggle lives in App settings > Providers, off by default
+//   §6 the tier LISTS follow it too: App settings > Model tiers and the
+//      Usage window's per-account tier rows
 //
 // ⚠ Every test that turns the toggle on turns it off again in `t.after`, and
 // each starts from a cleared localStorage: the preference is module-global.
@@ -28,7 +30,8 @@ import { NodeSquare } from '../src/canvas/cards'
 import { HireSheet } from '../src/canvas/OrgCanvas'
 import { NodeConfig } from '../src/canvas/modals'
 import { LineagePanel } from '../src/canvas/desk'
-import { AccountsPanel } from '../src/canvas/accounts'
+import { AccountsPanel, TierStandings } from '../src/canvas/accounts'
+import { clearProviderDiscovery } from '../src/api'
 import type { LineageEntry, OpResult, ProviderInfo, TreePayload } from '../src/types'
 
 const noop = () => {}
@@ -274,4 +277,51 @@ test('§5 App settings > Providers carries the toggle, off by default, and it fl
     await inAct(() => { box!.click() })
     assert.equal(showLegacyModelsOn(), true, 'the toggle did not turn the preference on')
     assert.equal(box!.checked, true)
+  })
+
+/* ── §6 the tier LISTS: App settings > Model tiers, and Usage's per-account
+   tier rows (docket `v3-terra-still-listed-under-app-settings-provide`) ── */
+
+test('§6 App settings > Providers > Model tiers leaves Terra out, and the toggle brings it back marked legacy',
+  async (t: TestContext) => {
+    fresh(t)
+    clearProviderDiscovery()
+    t.after(() => clearProviderDiscovery())
+    const providers = { providers: [{ id: 'openai', label: 'Codex', cli: 'codex',
+      status: { installed: true, connected: true }, hire_enabled: true, reason: null,
+      tiers: ['luna', 'terra', 'sol', 'astra'].map((tier) => ({ tier, provider: 'openai',
+        seat: SEATS[tier as keyof typeof SEATS], model: 'gpt-' + tier,
+        letter: tier[0].toUpperCase(), name: tier })) }] }
+    const real = globalThis.fetch
+    t.after(() => { globalThis.fetch = real })
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      const path = new URL(String(url), 'http://localhost').pathname
+      if (path === '/api/providers') {
+        return { ok: true, status: 200, headers: new Headers(), json: async () => providers }
+      }
+      return real(url, init)
+    }) as typeof fetch
+    const v = await mountView(<AccountsPanel toast={noop} close={noop} />, (el) => el)
+    t.after(() => v.unmount())
+    await inAct(async () => { await flush(10) })
+    const rows = () => [...document.querySelectorAll('[aria-label="Codex model tiers"] .acct-provider-tier-name')]
+      .map((el) => el.textContent)
+    assert.deepEqual(rows(), ['luna', 'sol', 'astra'], 'the Model tiers list showed Terra with the toggle off')
+    await inAct(() => { setShowLegacyModelsOn(true) })
+    assert.deepEqual(rows(), ['luna', 'terra · legacy', 'sol', 'astra'],
+      'the open Model tiers list did not bring Terra back when the toggle flipped on')
+    await inAct(() => { setShowLegacyModelsOn(false) })
+    assert.deepEqual(rows(), ['luna', 'sol', 'astra'], 'Terra stayed after the toggle flipped off')
+  })
+
+test('§6 Usage per-account tier rows leave Terra out unless legacy models are shown',
+  async (t: TestContext) => {
+    fresh(t)
+    const standings = ['luna', 'terra', 'sol'].map((tier) => ({ tier, available: true, refresh_at: null }))
+    const v = await mountView(<TierStandings tiers={standings} />, (el) => el)
+    t.after(() => v.unmount())
+    const rows = () => [...v.el.querySelectorAll('.acct-tier-name')].map((el) => el.textContent)
+    assert.deepEqual(rows(), ['luna', 'sol'], 'the Usage tier rows showed Terra with the toggle off')
+    await inAct(() => { setShowLegacyModelsOn(true) })
+    assert.deepEqual(rows(), ['luna', 'terra · legacy', 'sol'])
   })

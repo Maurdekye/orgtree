@@ -31,7 +31,7 @@ import { ModalOverlapSettings, PinFrame } from './modalpin'
 import { CanvasAnchorSettings } from './canvasanchor'
 import {
   setAgentShortcutsOn, useAgentShortcuts, setCrowdPilesOn, setDeskDpi, setHideRetiredOn, setOpenRouterTiers, setShowLegacyModelsOn, setStartView, setStartZoomOn,
-  TIER_LETTER,
+  legacyMark, optInLegacyHidden, TIER_LETTER,
   useCrowdPiles, useDeskDpi, useHideRetired, useShowLegacyModels, useStartView, useStartZoom,
 } from './shared'
 import { fmtWhen } from '../timefmt'
@@ -83,14 +83,16 @@ const sevOf = (l: UsageLimit): '' | 'warn' | 'crit' => {
  *  and the two differ constantly — a fallback has capacity for opus the whole
  *  time opus is happily running on the primary above it. */
 export function TierStandings({ tiers }: { tiers: TierStanding[] }) {
+  // Terra only with "show legacy models" on, like every tier chooser
+  useShowLegacyModels()
   return (
     <div className="acct-tiers">
-      {tiers.map((t) => (
+      {tiers.filter((t) => !optInLegacyHidden(t.tier)).map((t) => (
         <div className="acct-tier-row" key={t.tier}>
           <span className={'tier t-' + t.tier
             + (t.available ? '' : ' acct-chip-dim')}>
             {TIER_LETTER[t.tier] ?? t.tier.slice(0, 1).toUpperCase()}</span>
-          <span className="acct-tier-name">{t.tier}</span>
+          <span className="acct-tier-name">{t.tier + legacyMark(t.tier)}</span>
           {t.available
             ? <span className="acct-tier-ok">has capacity</span>
             : <span className="acct-tier-wait">
@@ -288,7 +290,7 @@ function ShowLegacyModelsToggle() {
     <SetGroup title="Legacy models">
       <SetToggle label="show legacy models (Terra)" checked={on}
         onChange={setShowLegacyModelsOn}
-        hint={'off: hire and model choices leave Terra out. Agents already on '
+        hint={'off: hire and model choices, and the model tier lists, leave Terra out. Agents already on '
           + 'Terra keep running and show their model either way.'} />
     </SetGroup>
   )
@@ -521,6 +523,8 @@ export function AccountsPanel({ toast, close, initialTab }: {
   toast: ToastFn; close: () => void; initialTab?: AppSettingsTab
 }) {
   const [tab, setTab] = useState<AppSettingsTab>(initialTab ?? 'providers')
+  // the Model tiers list leaves Terra out unless "show legacy models" is on
+  useShowLegacyModels()
   useEffect(() => {
     const open = (e: Event) => {
       const tab = (e as CustomEvent<{ tab?: string }>).detail?.tab
@@ -659,9 +663,9 @@ export function AccountsPanel({ toast, close, initialTab }: {
         {p.reason && <p className='dim acct-provider-note'>{p.reason}</p>}
         {p.tiers.length ? <div className='acct-provider-tiers' aria-label={p.label + ' model tiers'}>
           <div className='acct-provider-tier-title'>Model tiers</div>
-          {p.tiers.map(t => <div className='acct-provider-tier' key={t.tier}>
+          {p.tiers.filter(t => !optInLegacyHidden(t.tier)).map(t => <div className='acct-provider-tier' key={t.tier}>
             <span className={'tier t-' + t.tier}>{t.letter}</span>
-            <span className='acct-provider-tier-name'>{t.name ?? t.tier}</span>
+            <span className='acct-provider-tier-name'>{(t.name ?? t.tier) + legacyMark(t.tier)}</span>
             <span className='acct-provider-tier-model'>{t.model}</span>
             <span className='acct-provider-tier-seat'>seat {t.seat}</span>
           </div>)}
