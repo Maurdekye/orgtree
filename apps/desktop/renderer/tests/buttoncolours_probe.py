@@ -56,6 +56,12 @@ def measure_primary(page, token):
     text_before = page.locator(selector).evaluate('b => getComputedStyle(b).color')
     page.locator(selector).hover()
     value = measure_border(page, selector, token)
+    page.wait_for_function('''() => {
+      const b = document.querySelector('[data-primary-probe]'), p = document.createElement('span');
+      p.style.color = 'var(--accent-hover)'; b.append(p);
+      const expected = getComputedStyle(p).color; p.remove();
+      return getComputedStyle(b).backgroundColor === expected;
+    }''')
     fill = page.locator(selector).evaluate('''b => {
       const p = document.createElement('span'); p.style.color = 'var(--accent-hover)';
       b.append(p); const expected = getComputedStyle(p).color; p.remove();
