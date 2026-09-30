@@ -610,6 +610,64 @@ function livingProcess(ms) {
   })
 }
 
+// A process whose state CANNOT be read. It gives itself an empty, protected
+// DACL, so OpenProcess(SYNCHRONIZE) is refused to everyone who lacks an enabled
+// SeDebugPrivilege — administrators included. PID 4 used to stand in for this,
+// but an elevated shell CAN open the System process for SYNCHRONIZE, and there
+// the helper waited out the 60 s timeout instead of refusing. Resolves to the
+// child once its DACL is in place; the caller kills it.
+function unreadableProcess() {
+  const lockdown = [
+    'import ctypes, sys, time',
+    'from ctypes import wintypes',
+    'a = ctypes.WinDLL("advapi32", use_last_error=True)',
+    'k = ctypes.WinDLL("kernel32", use_last_error=True)',
+    'a.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p)',
+    'a.SetKernelObjectSecurity.argtypes = (wintypes.HANDLE, wintypes.DWORD, ctypes.c_void_p)',
+    'k.GetCurrentProcess.restype = wintypes.HANDLE',
+    'sd = ctypes.c_void_p()',
+    'if not a.ConvertStringSecurityDescriptorToSecurityDescriptorW("D:P", 1, ctypes.byref(sd), None): sys.exit(10)',
+    'if not a.SetKernelObjectSecurity(k.GetCurrentProcess(), 4, sd): sys.exit(11)',
+    'sys.stdout.write("locked\\n"); sys.stdout.flush()',
+    'time.sleep(120)',
+  ].join('\n')
+  const child = spawn(path.join(engineRuntime, 'python.exe'), ['-c', lockdown], {
+    windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'],
+  })
+  return new Promise((resolve, reject) => {
+    child.stdout.once('data', () => resolve(child))
+    child.once('exit', code => reject(new Error(`the unreadable stand-in exited ${code} before locking itself`)))
+  })
+}
+
+// Run the helper the way the installer does: WITHOUT an enabled
+// SeDebugPrivilege. That privilege opens any process whatever its DACL, and a
+// test runner can inherit it enabled (measured: agent shells started by an
+// elevated engine hold it), which makes every process readable and turns the
+// unreadable cases into a 60 s wait. The host switches it off in its own token
+// and then runs the unchanged helper script as __main__.
+function runHelperWithoutDebug(script, args, options) {
+  const host = [
+    'import ctypes, runpy, sys',
+    'from ctypes import wintypes',
+    'class LUID(ctypes.Structure): _fields_ = [("Low", wintypes.DWORD), ("High", wintypes.LONG)]',
+    'class TP(ctypes.Structure): _fields_ = [("Count", wintypes.DWORD), ("Luid", LUID), ("Attr", wintypes.DWORD)]',
+    'a = ctypes.WinDLL("advapi32", use_last_error=True)',
+    'k = ctypes.WinDLL("kernel32", use_last_error=True)',
+    'k.GetCurrentProcess.restype = wintypes.HANDLE',
+    'a.OpenProcessToken.argtypes = (wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE))',
+    'a.AdjustTokenPrivileges.argtypes = (wintypes.HANDLE, wintypes.BOOL, ctypes.c_void_p, wintypes.DWORD, ctypes.c_void_p, ctypes.c_void_p)',
+    'token = wintypes.HANDLE()',
+    'if not a.OpenProcessToken(k.GetCurrentProcess(), 0x20 | 0x8, ctypes.byref(token)): sys.exit(12)',
+    'tp = TP(1, LUID(), 0)',
+    'if not a.LookupPrivilegeValueW(None, "SeDebugPrivilege", ctypes.byref(tp.Luid)): sys.exit(13)',
+    'if not a.AdjustTokenPrivileges(token, False, ctypes.byref(tp), 0, None, None): sys.exit(14)',
+    'sys.argv = sys.argv[1:]',
+    'runpy.run_path(sys.argv[0], run_name="__main__")',
+  ].join('\n')
+  return runHelper(path.join(engineRuntime, 'pythonw.exe'), ['-c', host, script, ...args], options)
+}
+
 function runHelper(host, args, options) {
   return spawnSync(host, args, { windowsHide: true, encoding: 'utf8', timeout: 60000, ...options })
 }
@@ -650,18 +708,19 @@ test('the relaunch helper starts the application exactly once, after the install
 })
 
 // THE REGRESSION FOR THE WMI DEFECT. An unreadable process state is not an
-// observed exit. PID 4 is the System process: it exists, and OpenProcess is
-// refused for it, which is exactly the shape of "I cannot tell".
-test('an unreadable installer state never becomes an observed exit', { skip: helperSkip, timeout: 60000 }, () => {
+// observed exit. unreadableProcess() exists, and OpenProcess is refused for it,
+// which is exactly the shape of "I cannot tell".
+test('an unreadable installer state never becomes an observed exit', { skip: helperSkip, timeout: 60000 }, async () => {
   const each = helperCase('unreadable')
+  const installer = await unreadableProcess()
   try {
-    const run = runHelper(path.join(engineRuntime, 'pythonw.exe'),
-      [each.script, '4', each.target, each.ready, each.claim], { env: each.env })
+    const run = runHelperWithoutDebug(each.script,
+      [String(installer.pid), each.target, each.ready, each.claim], { env: each.env })
     assert.equal(run.status, 3,
       `an unreadable state must report its own exit code, not success: ${each.logText()}`)
     assert.equal(each.launches(), 0,
       `nothing may be launched when the installer's state could not be read: ${each.logText()}`)
-    assert.match(each.logText(), /could not open installer process 4[\s\S]*not launching/)
+    assert.match(each.logText(), new RegExp(`could not open installer process ${installer.pid}[\\s\\S]*not launching`))
     // AND IT MUST NOT HAVE ACKNOWLEDGED. This is the ordering defect: the
     // marker used to be written first, so the installer could read it, skip its
     // Finish page, and only then have this helper refuse to launch — leaving no
@@ -670,6 +729,7 @@ test('an unreadable installer state never becomes an observed exit', { skip: hel
     assert.ok(!fs.existsSync(each.ready),
       'a helper that could not acquire the handle must NOT publish the acknowledgement that authorises closing Setup')
   } finally {
+    installer.kill()
     discard(each.base)
   }
 })
@@ -784,6 +844,7 @@ test('a launch that cannot be claimed is refused, not guessed at', { skip: helpe
 // this control stops reproducing, the section above proves nothing.
 test('the unreadable-state guard is measuring something', { skip: helperSkip, timeout: 60000 }, async () => {
   const each = helperCase('unreadable-control')
+  const installer = await unreadableProcess()
   try {
     // Line-ending agnostic on purpose: a literal '\n' anchor does not match a
     // normal CRLF checkout, so the mutation silently does nothing and the
@@ -796,12 +857,13 @@ test('the unreadable-state guard is measuring something', { skip: helperSkip, ti
       'the control could not restore the pre-fix answer; its anchor moved')
     fs.writeFileSync(each.script, defective)
 
-    const run = runHelper(path.join(engineRuntime, 'pythonw.exe'),
-      [each.script, '4', each.target, each.ready, each.claim], { env: each.env })
+    const run = runHelperWithoutDebug(each.script,
+      [String(installer.pid), each.target, each.ready, each.claim], { env: each.env })
     assert.equal(run.status, 0, 'CONTROL IS BROKEN: the pre-fix answer was expected to report success')
     assert.equal(await settledLaunches(each, 1), 1,
       'CONTROL IS BROKEN: the pre-fix answer was expected to launch over an unobserved installer')
   } finally {
+    installer.kill()
     discard(each.base)
   }
 })
