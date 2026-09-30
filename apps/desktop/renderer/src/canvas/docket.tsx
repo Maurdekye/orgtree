@@ -2172,13 +2172,20 @@ export const DocketRow = memo(function DocketRow({ item, selected, onClick, onDi
  * is deliberately local to the mounted pane: polling keeps a reader's
  * posture, while DocketPane's slug key resets it when a different ticket is
  * selected, matching the existing docket category-fold convention. */
-function DocketSection({ title, children }: { title: string; children: ReactNode }) {
+function DocketSection({ title, summary, children }: {
+  title: string
+  /** shown beside the title, so a collapsed section still says what it holds */
+  summary?: ReactNode
+  children: ReactNode
+}) {
   const id = useId()
-  // Acceptance and verification are audit context, not the reader's first
-  // answer.  They must start closed on every newly mounted ticket pane, even
-  // when another section remains open by default.  The state is still local
-  // so the reader can expand either section for the current visit.
+  // Acceptance, verification and the integration review are audit context,
+  // not the reader's first answer.  They must start closed on every newly
+  // mounted ticket pane, even when another section remains open by default.
+  // The state is still local so the reader can expand them for the current
+  // visit.  (Integration review: user 2026-09-30.)
   const startsCollapsed = title === 'ACCEPTANCE CONDITIONS' || title === 'VERIFICATION'
+    || title === 'INTEGRATION REVIEW'
   const [collapsed, setCollapsed] = useState(startsCollapsed)
   return (
     <section className={(title === 'DESCRIPTION' || title === 'BLOCKED BECAUSE'
@@ -2193,6 +2200,7 @@ function DocketSection({ title, children }: { title: string; children: ReactNode
             || title.startsWith('ENDED WITHOUT COMPLETING')
             || title === 'ATTACHMENTS')
             ? ' docket-list-heading' : '')}>{title}</h4>
+        {summary != null && <span className="docket-detail-section-summary dim">{summary}</span>}
         <button type="button" className="docket-detail-toggle"
           aria-expanded={!collapsed} aria-controls={`${id}-body`}
           aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${title}`}
@@ -2327,8 +2335,11 @@ function DocketReviewState({ item }: { item: WorkItem }) {
   const evidence = verdict?.evidence ?? packet?.evidence ?? []
   const note = verdict?.note ?? packet?.note
   return (
-    <DocketSection title="INTEGRATION REVIEW">
-      <div className="docket-review-box">
+    // plain like its neighbours and collapsed: nothing here needs the user
+    // (user 2026-09-30); the short sha says what the closed section holds
+    <DocketSection title="INTEGRATION REVIEW"
+      summary={candidate ? <code>{candidate.slice(0, 7)}</code> : undefined}>
+      <div className="docket-review-body">
       {verdict && (
         <div className="docket-review-verdict">
           <span className={'docket-status status-' + verdict.decision}>

@@ -4194,7 +4194,7 @@ main.solo { width: 100%; }
 }
 .docket-list-items.mark-done li::before { content: '✓'; color: var(--ok); }
 .docket-list-items.mark-next li::before { content: '→'; color: var(--work); }
-.docket-attention-box, .docket-question-box, .docket-review-box {
+.docket-attention-box, .docket-question-box {
   border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
   background: color-mix(in srgb, var(--accent) 8%, var(--panel));
   border-radius: 6px; padding: 8px 10px; margin: 0 0 10px;
@@ -4210,6 +4210,7 @@ main.solo { width: 100%; }
 .docket-detail-toggle:hover { color: var(--accent); }
 .docket-detail-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 3px; }
 .docket-detail-section-body { min-width: 0; }
+.docket-detail-section-summary code { font-family: var(--mono); font-size: 11px; }
 .docket-review-verdict { margin: 4px 0; }
 .docket-review-candidate code, .docket-review-evidence code {
   font-family: var(--mono); overflow-wrap: anywhere;

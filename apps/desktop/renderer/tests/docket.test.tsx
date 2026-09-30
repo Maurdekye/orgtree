@@ -1622,6 +1622,47 @@ uiTest('acceptance conditions and verification start closed on every ticket visi
   assert.equal(toggleState('VERIFICATION'), 'false')
 })
 
+uiTest('the integration review is a plain section that starts closed and opens on click', async (mount) => {
+  // user 2026-09-30: nothing in the review packet needs the user, so it is
+  // neither highlighted nor open by default; the short sha stays visible
+  const sha = '6d879714f76d6cdde1f41328ad78522c43212569'
+  mockWorkItems([mkItem({ title: 'Reviewed ticket', status: 'review',
+    review_packet: { candidate: sha, note: 'root cause: the guard never fired',
+      evidence: [{ kind: 'log', ref: 'bgre-tip.log' }] } })])
+  const { el } = await mount(docketModal())
+  await flush()
+  const row = rows(el)[0]!
+  await inAct(() => row.click())
+  await flush()
+
+  const section = [...(pane(el)?.querySelectorAll<HTMLElement>('.docket-detail-section') ?? [])]
+    .find((s) => s.querySelector('h4')?.textContent === 'INTEGRATION REVIEW')!
+  assert.ok(section, 'the section renders')
+  const toggle = section.querySelector<HTMLButtonElement>('.docket-detail-toggle')!
+  const body = section.querySelector<HTMLElement>('.docket-detail-section-body')!
+  assert.equal(toggle.getAttribute('aria-expanded'), 'false')
+  assert.equal(body.hidden, true, 'the packet starts collapsed')
+  assert.equal(section.querySelector('.docket-detail-section-summary')?.textContent, sha.slice(0, 7),
+    'the closed header still names the candidate')
+  // the highlighted box is kept only for what needs the user
+  assert.equal(section.querySelector('.docket-review-box, .docket-attention-box, .docket-question-box'), null)
+
+  await inAct(() => toggle.click())
+  await flush()
+  assert.equal(toggle.getAttribute('aria-expanded'), 'true')
+  assert.equal(body.hidden, false)
+  assert.match(body.textContent ?? '', /root cause: the guard never fired/)
+
+  // a fresh visit starts closed again
+  await inAct(() => row.click())
+  await flush()
+  await inAct(() => row.click())
+  await flush()
+  const again = [...(pane(el)?.querySelectorAll<HTMLElement>('.docket-detail-section') ?? [])]
+    .find((s) => s.querySelector('h4')?.textContent === 'INTEGRATION REVIEW')!
+  assert.equal(again.querySelector('.docket-detail-toggle')!.getAttribute('aria-expanded'), 'false')
+})
+
 uiTest('§29 the panel never re-sorts what the server ordered', async (mount) => {
   // deliberately NOT in recency order, and tied on docket_at: a component that
   // sorted for itself would disagree with the server, and two orderings of the
