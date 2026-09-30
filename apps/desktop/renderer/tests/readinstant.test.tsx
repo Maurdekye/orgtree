@@ -138,3 +138,34 @@ test('the bell count and glow and the header dot drop at the same moment', async
   await bell.render(<AskBell tree={settled} onOpen={() => {}} />)
   assert.equal(bell.el.querySelector('.eye-count')?.textContent, '1', 'counted once, not subtracted twice')
 })
+
+test('the inbox agreeing is not enough: the count waits for a tree read begun after the save', async (tc) => {
+  // review-astra n1 on 0fe1cc0: nothing pinned the tree half of the rule, so
+  // forgetting a read once the INBOX agreed passed every test. The tree's
+  // counts are what the bell shows; until a tree read that began after the
+  // save has counted the read, the local entry must keep subtracting it.
+  resetLocalReads()
+  resetPending()
+  // no urgent mail, so the bell shows the unread count itself
+  const plain = { ...TREE, urgent_unread: 0 } as TreePayload
+  const bell = await mountView(<AskBell tree={plain} onOpen={() => {}} />, el => el)
+  tc.after(async () => { await bell.unmount(); resetPending(); resetLocalReads() })
+  const count = () => bell.el.querySelector('.eye-count')?.textContent
+  assert.equal(count(), '2')
+  const before = Date.now() - 1000
+  await inAct(async () => { await markReadNow('mine', NEW, () => Promise.resolve()) })
+  assert.equal(count(), '1', 'read on the click')
+
+  await inAct(async () => {
+    settleReadsFromBox('mine', ['m1'])        // the inbox no longer lists m2
+    settleReadsFromTree('mine', before)       // a tree read begun BEFORE the save
+  })
+  // the stale tree still counts m2 as unread
+  await bell.render(<AskBell tree={plain} onOpen={() => {}} />)
+  assert.equal(count(), '1', 'still subtracted: no tree read has counted it yet')
+
+  await inAct(async () => { settleReadsFromTree('mine', Date.now() + 1) })
+  const settled = { ...plain, user_inbox_count: 1 } as TreePayload
+  await bell.render(<AskBell tree={settled} onOpen={() => {}} />)
+  assert.equal(count(), '1', 'the tree now counts it, and it is not subtracted twice')
+})
