@@ -32,10 +32,14 @@ CHILD = r"""
 import csv, ctypes, json, os, subprocess, sys
 from engine import unelevated
 k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-k32.GetHandleInformation.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
+k32.GetFinalPathNameByHandleW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_ulong]
+# The number alone proves nothing: the child's own pipes may sit at the same
+# value. The stray is a uniquely named file, so only that file counts.
 stray = int(os.environ.get("ORGTREE_UNELEVATED_STRAY", "0"))
-flags = ctypes.c_ulong(0)
-stray_open = bool(stray) and bool(k32.GetHandleInformation(stray, ctypes.byref(flags)))
+stray_name = os.environ.get("ORGTREE_UNELEVATED_STRAY_NAME", "")
+buf = ctypes.create_unicode_buffer(1024)
+stray_open = bool(stray and stray_name and k32.GetFinalPathNameByHandleW(stray, buf, 1024, 0)
+                  and stray_name in buf.value)
 privs = subprocess.run(["whoami", "/priv", "/fo", "csv", "/nh"], capture_output=True, text=True).stdout
 privileges = sorted(row[0] for row in csv.reader(privs.splitlines()) if row)
 admins = ctypes.create_string_buffer(68)
@@ -116,17 +120,19 @@ class ElevatedSpawnTests(unittest.TestCase):
         import msvcrt
         # An INHERITABLE handle the child is not given: only Popen's handle
         # list may cross, so the child must not find it open.
-        read_fd, write_fd = os.pipe()
-        self.addCleanup(os.close, read_fd)
-        self.addCleanup(os.close, write_fd)
-        os.set_inheritable(write_fd, True)
-        stray = msvcrt.get_osfhandle(write_fd)
+        stray_name = f"orgtree-stray-{uuid.uuid4().hex}.txt"
+        stray_file = open(Path(tempfile.gettempdir()) / stray_name, "w", encoding="utf-8")
+        self.addCleanup(os.remove, stray_file.name)
+        self.addCleanup(stray_file.close)
+        os.set_inheritable(stray_file.fileno(), True)
+        stray = msvcrt.get_osfhandle(stray_file.fileno())
         # A plain mkdir inherits %TEMP%'s user entry; mkdtemp's 0o700 folder
         # can be closed to the normal-user child (see AccessRepairTests).
         cwd = Path(tempfile.gettempdir()) / f"orgtree-unelevated-{uuid.uuid4().hex}"
         cwd.mkdir()
         self.addCleanup(shutil.rmtree, cwd, True)
-        env = {**os.environ, "ORGTREE_UNELEVATED_MARKER": "m-42", "ORGTREE_UNELEVATED_STRAY": str(stray)}
+        env = {**os.environ, "ORGTREE_UNELEVATED_MARKER": "m-42", "ORGTREE_UNELEVATED_STRAY": str(stray),
+               "ORGTREE_UNELEVATED_STRAY_NAME": stray_name}
         env.pop("PYTHONPATH", None)
         child = unelevated.popen_unelevated(
             child_python.argv("-c", CHILD), cwd=str(cwd), env=env,
