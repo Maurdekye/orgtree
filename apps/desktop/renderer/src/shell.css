@@ -112,7 +112,8 @@
 .shell-header-actions {
   display: flex;
   align-items: center;
-  gap: 2px;
+  /* Badges project 7px beyond the button; leave room before the next frame. */
+  gap: 10px;
   flex: none;
 }
 
