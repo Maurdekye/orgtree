@@ -14,11 +14,12 @@ import { setOrgView } from '../src/attention/mode'
 const SLUG = 'studio'
 const params = new URLSearchParams(location.search)
 const latched = params.get('killswitch') === '1'
+const fixtureTier = (id: string) => params.has('providers')
+  ? ({'worker-a':'astra','worker-g':'pro','worker-r':'or-probe'} as Record<string,string>)[id] ?? 'opus'
+  : 'opus'
 
 const agent = (id: string, docs = 0, children: unknown[] = []) => ({
-  id, state: 'live', tier: params.has('providers')
-    ? ({'worker-a':'astra','worker-g':'pro','worker-r':'or-probe'} as Record<string,string>)[id] ?? 'opus'
-    : 'opus', model_id: 'opus', children, parent: null,
+  id, state: 'live', tier: fixtureTier(id), model_id: fixtureTier(id), children, parent: null,
   seat: 1, grant: 10, free: 5, cost_usd: 0, occupancy: 0, context_window: 100000,
   documents_count: docs,
   scope: { tools: {}, add_dirs: [], permission_mode: 'default', org_visibility: 'team' },

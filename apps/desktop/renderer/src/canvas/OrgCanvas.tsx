@@ -2687,6 +2687,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   const pinnedFocusId = nearestId && pinnedIds.has(nearestId) ? nearestId : null
   const focusId = pinnedFocusId ? null : nearestId
   focusRef.current = focusId
+  useEffect(() => () => setButtonAgent(slug, null), [slug])
   useEffect(() => {
     if (worldHidden) return // the Attention desk owns focus while it is shown
     const id = pinnedFocusId ?? focusId
