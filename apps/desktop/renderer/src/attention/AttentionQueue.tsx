@@ -36,6 +36,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { notificationInboxTarget } from '../notifications'
 import type { DesktopNotice } from '../notifications'
 import { useSubmittedAsks } from '../asksubmitted'
+import { markReadNow, readLocally, useLocalReads } from '../mailread'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useWorkItems } from '../canvas/useworkitems'
 import { dismissWorkItemAttention, fileBase, fileUrl, getInbox, markRead } from '../api'
@@ -165,10 +166,13 @@ export function AttentionQueue({
   const [dismissing, setDismissing] = useState<ReadonlySet<string>>(() => new Set())
   // point 31: a submitted question leaves this list on the click
   const submitted = useSubmittedAsks()
+  // a mail read here (or in the inbox) is read on the click: an unselected
+  // urgent row leaves at once, not after the save and the next inbox read
+  const locallyRead = useLocalReads()
   const allLive = useMemo(() => buildAttentionRows({
     items: work?.attention ?? work?.items, archived: work?.archived, backlogged: work?.backlogged,
-    pending: box?.pending, nodes, asks: tree.asks,
-  }), [work, box, nodes, tree.asks, submitted])
+    pending: box?.pending?.filter((m) => !readLocally(slug, m.id)), nodes, asks: tree.asks,
+  }), [work, box, nodes, tree.asks, submitted, locallyRead, slug])
   const live = useMemo(() => dismissing.size
     ? allLive.filter((r) => !(r.kind === 'ticket' && r.item && dismissing.has(r.item.slug)))
     : allLive, [allLive, dismissing])
@@ -236,18 +240,29 @@ export function AttentionQueue({
   }, [readOnly, slug, toast, refetch])
 
   const read = (m: MailEntry) =>
-    markRead(slug, [m.id]).then(refetch).catch(() => { /* the poll still decides */ })
+    markReadNow(slug, m, () => markRead(slug, [m.id])).then(refetch)
+      .catch((e: Error) => toast([`could not mark read: ${e.message}`]))
 
   // ⚠ SELECTING AN URGENT MAIL MARKS IT READ, exactly as opening it in the
   // inbox does. That IS this row's resolution: the ticket says an urgent mail
   // leaves "once it has been read and is no longer selected", so reading on
   // open and retaining while selected are the two halves of one rule.
+  // The read runs AFTER the render that selects the row. A read shows at once
+  // (mailread.ts) and its store update renders synchronously, so reading in
+  // the same call let a notification click (outside a React event) drop the
+  // mail from the list before it was selected, and it was never retained.
+  const [toRead, setToRead] = useState<MailEntry | null>(null)
+  useEffect(() => {
+    if (!toRead) return
+    setToRead(null)
+    void read(toRead)
+  }, [toRead])
   const openRow = (row: AttentionRow) => {
     setSelected(row.key)
     if (readOnly || row.kind !== 'mail' || !row.mail) return
     // only a mail the server still calls unread is marked — re-selecting a
     // retained row must not post a second read for the same message
-    if ((box?.pending ?? []).some((p) => p.id === row.mail!.id)) void read(row.mail)
+    if ((box?.pending ?? []).some((p) => p.id === row.mail!.id)) setToRead(row.mail)
   }
 
   // ---- keyboard: the list is a real listbox, so selection is reachable

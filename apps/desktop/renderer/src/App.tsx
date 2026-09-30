@@ -29,6 +29,8 @@ import {
   TREE_STALE_EVENT,
 } from './api'
 import { settleFromTree, useSubmittedAsks } from './asksubmitted'
+import { markReadNow, readLocally, settleReadsFromBox, settleReadsFromTree, unconfirmedReads,
+  useLocalReads } from './mailread'
 import { treeSelections } from './treeselection'
 import { savedTreeSelection } from './canvas/treeselection'
 import { AdvancedOrgModal } from './shell/advancedorg'
@@ -273,10 +275,17 @@ export function AskBell({ tree, onOpen, label }: {
   // a card the user just submitted leaves the count and the glow on the click
   // (user addendum 2026-09-30), not on the next tree read
   useSubmittedAsks()
+  // a mail the user just read leaves the unread count on the click as well
+  // (docket v3-marking-a-mail-as-read-takes-about-half-a-sec): the tree's
+  // counts lag the read until a tree read that began after the save
+  useLocalReads()
   const answered = tree.roots
     ? submittedOpenCount(tree, flatNodes(tree as TreePayload).values()) : 0
-  const pip = attentionPip(answered
-    ? { ...tree, asks_open: Math.max(0, (tree.asks_open ?? 0) - answered) } : tree)
+  const reads = tree.slug ? unconfirmedReads(tree.slug) : { all: 0, urgent: 0 }
+  const pip = attentionPip(answered || reads.all
+    ? { ...tree, asks_open: Math.max(0, (tree.asks_open ?? 0) - answered),
+        user_inbox_count: Math.max(0, (tree.user_inbox_count ?? 0) - reads.all),
+        urgent_unread: Math.max(0, (tree.urgent_unread ?? 0) - reads.urgent) } : tree)
   // The standing dot (user ruling 2026-09-12): an unanswered question, urgent
   // mail or stopped agent still waiting on the user. ORG-SCOPED (user
   // 2026-09-30, superseding the 2026-09-12 "any organization" reading): a
@@ -808,6 +817,8 @@ export default function App() {
         setTree(shown)
         // point 31: forget submitted cards this tree has caught up with
         settleFromTree(want, shown)
+        // and mail reads it counts (a read saved before this read began)
+        settleReadsFromTree(want, readStartedAt)
         setTreeRead({ at: Date.now(), error: null })
       }
       fetchOk()
@@ -2493,6 +2504,17 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   // null (identity changed — §6.10), and blanking the inbox on every
   // mark-read would regress the instant-ack this bump exists to provide
   const box = usePolled(() => getInbox(slug), [slug], 5000, readBump)
+  // a mail read here shows read ON THE CLICK (docket v3-marking-a-mail-as-
+  // read-takes-about-half-a-sec): out of the unread group and the unread
+  // count at once, saved in the background, back to unread if refused
+  useLocalReads()
+  useEffect(() => {
+    if (box) settleReadsFromBox(slug, box.pending.map((m) => m.id))
+  }, [box, slug])
+  const readNow = (m: MailEntry) => markReadNow(slug, m, () => markRead(slug, [m.id]))
+    .then(() => { setReadBump((n) => n + 1); refresh?.() })
+  const unreadMail = (box?.pending ?? []).filter((m) => !readLocally(slug, m.id))
+  const readHere = (box?.pending ?? []).filter((m) => readLocally(slug, m.id))
   // the exact question for a reference that landed outside this window —
   // one id, asked once, never on the poll
   const userLookup = useCallback(
@@ -2637,7 +2659,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
         )}
         <MailFolders folder={folder} setFolder={setFolder}
           folders={['inbox', 'sent', 'record']}
-          unread={(box?.pending.length ?? 0) + askPending.length} />
+          unread={unreadMail.length + askPending.length} />
         <div className="mailpane">
           {folder === 'record'
             ? <OrgRecord events={events} query={recordQuery}
@@ -2645,9 +2667,9 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
             : box == null
             ? <div className="dim">loading…</div>
             : folder === 'inbox'
-              ? <MailList pending={[...box.pending, ...askPending]}
+              ? <MailList pending={[...unreadMail, ...askPending]}
                   collapsible
-                  delivered={[...box.delivered, ...askDone]}
+                  delivered={[...box.delivered, ...readHere, ...askDone]}
                   renderBody={renderAskBody}
                   // FR-21: this was the ONE MailList call site without
                   // fileHref, which is why the node inbox's attachments were
@@ -2662,9 +2684,8 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
                      request, not a mail, and gets none */
                   refOf={(m) => m.id && !m._ask
                     ? refToken({ kind: 'mail', org: slug, box: 'user', id: m.id }) : null}
-                  onRead={(m: MailEntry) => markRead(slug, [m.id])
-                    .then(() => { setReadBump((n) => n + 1); refresh?.() })
-                    .catch(() => {})}
+                  onRead={(m: MailEntry) => readNow(m)
+                    .catch((e: Error) => toast([`could not mark read: ${e.message}`]))}
                   onReply={(m: MailEntry, text: string, attachments?: string[], notice?: boolean) => {
                     return sendLinkedReply(slug, m.from, text, { kind: 'mail', org: slug, box: 'user', id: m.id },
                       attachments, notice)
@@ -2674,9 +2695,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
                         // durable reply, using the captured original identity.
                         if (!receipt.id) return
                         try {
-                          await markRead(slug, [m.id])
-                          setReadBump((n) => n + 1)
-                          refresh?.()
+                          await readNow(m)
                         } catch {
                           // The reply already exists: do not retain its draft
                           // as though sending failed and invite a duplicate.

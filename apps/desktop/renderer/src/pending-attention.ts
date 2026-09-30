@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { askHidden } from './asksubmitted'
+import { readLocally } from './mailread'
 import type { DesktopNotification } from '../../../../packages/contracts'
 
 /** WHAT IS STILL WAITING ON THE USER, across every organization.
@@ -120,7 +121,11 @@ export function resetPending(): void { current = EMPTY }
  *  glowed). A failed submit brings the card back, and the row with it.
  *  Callers re-render on `useSubmittedAsks`. */
 export function waitingNow(p: PendingAttention): WaitingRow[] {
-  return p.waiting.filter((w) => !(w.kind === 'question' && askHidden(w.org, w.source)))
+  return p.waiting.filter((w) => !(w.kind === 'question' && askHidden(w.org, w.source))
+    // an urgent or failure MAIL the user has just read leaves the dot on the
+    // click too (docket v3-marking-a-mail-as-read-takes-about-half-a-sec);
+    // its source is the mail id. Callers re-render on `useLocalReads`.
+    && !(w.kind !== 'question' && readLocally(w.org, w.source)))
 }
 
 function subscribe(listener: () => void): () => void {

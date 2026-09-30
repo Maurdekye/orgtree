@@ -8,6 +8,9 @@ import type { DesktopNotice } from '../src/notifications'
 import type { AskInfo, MailEntry, WorkItem } from '../src/types'
 import { forgetAttentionMode, setOrgView } from '../src/attention/mode'
 import { resetConvos } from '../src/convo'
+import { resetLocalReads } from '../src/mailread'
+// a read made in one test is not still "read here" in the next
+test.beforeEach(() => resetLocalReads())
 import { pinModal, unpinModal } from '../src/canvas/modalpin'
 import { QUEUE_KIND } from '../src/attention/AttentionView'
 import { eventFanout, startBus } from './heldevents'

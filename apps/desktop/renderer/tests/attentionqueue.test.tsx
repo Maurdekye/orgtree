@@ -22,6 +22,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { AskInfo, MailEntry, TreePayload, WorkItem } from '../src/types'
 import { AttentionQueue } from '../src/attention/AttentionQueue'
+import { resetLocalReads } from '../src/mailread'
+// a read made in one test is not still "read here" in the next
+test.beforeEach(() => resetLocalReads())
 import type { PolledStatus } from '../src/canvas/shared'
 
 const SLUG = 'org1'
@@ -333,7 +336,8 @@ test('§3.1 a mail the server still calls unread is not read twice', async () =>
 // ------------------------------------------------------------------- §4
 test('§4 the list is a real listbox the keyboard can drive', async () => {
   localStorage.clear()
-  installServer({ items: [flagged], pending: [urgent] })
+  const second = mkItem({ ...flagged, slug: 'reindex', title: 'Rebuild the index' })
+  installServer({ items: [flagged, second], pending: [urgent] })
   const v = await mountView(panel(), titles)
   await settle()
   const list = v.el.querySelector('.attn-mlist') as HTMLElement
@@ -351,9 +355,15 @@ test('§4 the list is a real listbox the keyboard can drive', async () => {
   await key('ArrowDown')
   await settle()
   assert.equal(rowFor(v.el, 'ticket:cutover')!.getAttribute('aria-selected'), 'true')
+  // the mail was read when it was selected: once deselected it leaves at
+  // once, whatever the server's next inbox read says
+  assert.equal(!!rowFor(v.el, 'mail:m1'), false, 'a read mail leaves once deselected')
+  await key('End')
+  await settle()
+  assert.equal(rowFor(v.el, 'ticket:reindex')!.getAttribute('aria-selected'), 'true')
   await key('Home')
   await settle()
-  assert.equal(rowFor(v.el, 'mail:m1')!.getAttribute('aria-selected'), 'true')
+  assert.equal(rowFor(v.el, 'ticket:cutover')!.getAttribute('aria-selected'), 'true')
   await v.unmount()
 })
 
