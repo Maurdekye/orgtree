@@ -25,7 +25,7 @@
 import { memo, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useDocketWindow } from './docketwindow'
 import { usePendingAttention } from '../pending-attention'
-import { attentionDismissed, attentionNow, dismissAttention, settleAttention, useDismissedAttention } from '../attndismiss'
+import { attentionNow, dismissAttention, flaggedNow, settleAttention, useDismissedAttention } from '../attndismiss'
 import type { ComponentProps, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
@@ -490,9 +490,7 @@ export function DocketToolbarButton({ summary, onClick, label, org }: {
   // The dot is aria-hidden, so the title carries the same claim in words —
   // see AskBell for why an icon-only indicator has to say itself twice.
   const pending = usePendingAttention()
-  const flagged = org
-    ? pending.flagged.filter((f) => f.org === org && !attentionDismissed(org, f.slug)).length
-    : pending.docket
+  const flagged = org ? flaggedNow(org).length : pending.docket
   // forget dismissals the sources now reflect, whichever of them moved
   useEffect(() => { if (org) settleAttention(org, raw) }, [org, raw, pending])
   const waiting = flagged > 0

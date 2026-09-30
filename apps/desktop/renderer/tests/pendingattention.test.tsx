@@ -31,8 +31,8 @@ test('the aggregate counts only what is waiting on the user, across organization
   assert.equal(all.docket, 1, 'a flagged ticket claims the docket button')
   assert.equal(all.ids.length, 3, 'documents, routine mail and frozen agents are not requests')
   assert.deepEqual(summarizePending(noise), { mail: 0, docket: 0, ids: [], items: [], waiting: [], flagged: [] })
-  assert.deepEqual(summarizePending([attention]).flagged, [{ org: 'unity', slug: 'a-ticket' }],
-    'a flagged ticket\'s organization and slug, for the Work button')
+  assert.deepEqual(summarizePending([attention]).flagged, [{ org: 'unity', slug: 'a-ticket', id: 'w-1' }],
+    'a flagged ticket\'s organization, slug and notice id (the flag instance), for the Work button')
   assert.deepEqual(all.ids, [...all.ids].sort(), 'identities are ordered, so an unchanged set compares equal')
   // the taskbar pulse flashes the affected item's OWN organization window
   // (user ruling 2026-09-21), so the aggregate says the organization out loud

@@ -59,9 +59,14 @@ export interface PendingAttention {
   /** THE ROWS BEHIND `docket`: each flagged ticket's organization and slug.
    *  The Work button's dot counts only its own organization's (user
    *  2026-09-30, like the inbox dot), less any the user has just dismissed
-   *  (attndismiss.ts). Sorted like `items`. */
-  flagged: { org: string; slug: string }[]
+   *  (attndismiss.ts). Sorted like `items`. `id` is the notice's own id,
+   *  which names the flag INSTANCE (`work:<slug>:<epoch>`, desktop_notifications
+   *  .py): a flag raised again on the same ticket arrives under a new id, so a
+   *  dismissal of the old one cannot hide it. */
+  flagged: FlaggedRow[]
 }
+
+export interface FlaggedRow { org: string; slug: string; id: string }
 
 export interface WaitingRow {
   org: string
@@ -83,7 +88,7 @@ export function summarizePending(rows: readonly DesktopNotification[]): PendingA
   let mail = 0, docket = 0
   const items: { org: string; id: string }[] = []
   const waiting: WaitingRow[] = []
-  const flagged: { org: string; slug: string; id: string }[] = []
+  const flagged: FlaggedRow[] = []
   for (const row of rows) {
     if (!PENDING_KINDS.includes(row.kind as PendingKind)) continue
     items.push({ org: row.org, id: row.id })
@@ -105,7 +110,7 @@ export function summarizePending(rows: readonly DesktopNotification[]): PendingA
   waiting.sort(byKey)
   flagged.sort(byKey)
   return { mail, docket, ids: items.map((i) => JSON.stringify([i.org, i.id])), items, waiting,
-    flagged: flagged.map(({ org, slug }) => ({ org, slug })) }
+    flagged }
 }
 
 function same(a: PendingAttention, b: PendingAttention): boolean {
@@ -119,15 +124,9 @@ function same(a: PendingAttention, b: PendingAttention): boolean {
 export function publishPending(next: PendingAttention): boolean {
   if (same(current, next)) return false
   current = next
-  published += 1
   for (const listener of [...listeners]) listener()
   return true
 }
-
-/** How many changed aggregates have been published. attndismiss.ts compares
- *  it to tell a list read AFTER a dismissal succeeded from one read before. */
-let published = 0
-export function pendingVersion(): number { return published }
 
 export function resetPending(): void { current = EMPTY }
 
@@ -140,7 +139,8 @@ export function waitingNow(p: PendingAttention): WaitingRow[] {
   return p.waiting.filter((w) => !(w.kind === 'question' && askHidden(w.org, w.source)))
 }
 
-function subscribe(listener: () => void): () => void {
+/** Hear every changed aggregate (attndismiss.ts, outside React). */
+export function subscribe(listener: () => void): () => void {
   listeners.add(listener)
   return () => { listeners.delete(listener) }
 }
@@ -190,9 +190,11 @@ const parsePending = (raw: string | null): PendingAttention | null => {
         return str(r.org) && str(r.id) && str(r.kind) && (r.source === null || str(r.source))
       })
       : []
+    // an owner from before `id` existed writes none: '' then stands for it
     const flags = Array.isArray(flagged)
-      ? flagged.filter((f): f is { org: string; slug: string } => !!f && typeof f === 'object'
+      ? flagged.filter((f): f is FlaggedRow => !!f && typeof f === 'object'
         && str((f as { org?: unknown }).org) && str((f as { slug?: unknown }).slug))
+        .map((f) => ({ org: f.org, slug: f.slug, id: str(f.id) ? f.id : '' }))
       : []
     return { mail, docket, ids: ids as string[], items: rows, waiting: waits, flagged: flags }
   } catch { return null }

@@ -28,8 +28,9 @@ import type { DesktopNotice } from '../src/notifications'
 declare const __SRC_DIR__: string
 
 const ORG = 'orgtree'
-const flagRow = (slug: string, org = ORG): DesktopNotice => ({
-  id: `w-${org}-${slug}`, org, kind: 'work-attention', item: slug, title: slug, body: 'look' })
+/** the backend's notice id names the flag instance: work:<slug>:<epoch> */
+const flagRow = (slug: string, org = ORG, epoch = 1): DesktopNotice => ({
+  id: `work:${slug}:${epoch}`, org, kind: 'work-attention', item: slug, title: slug, body: 'look' })
 
 /** a server we answer by hand: each dismissal waits until the test says */
 function manualServer() {
@@ -184,6 +185,66 @@ test('§8 a notification list read before the server applied the dismissal does 
     await v.render(button(1))
     await inAct(() => flush(4))
     assert.equal(badge(v.el), '1', 'the tree reflects it: 1 left, not 0')
+  } finally { await v.unmount() }
+})
+
+test('§9 the last flag dismissed: an empty list does not bring the glow back while the tree lags (review-sol)', async () => {
+  reset()
+  const srv = manualServer()
+  await inAct(async () => { publishPending(summarizePending([flagRow('t1')])) })
+  const v = await mountView(button(1), (el) => el)
+  try {
+    await inAct(async () => { void dismissAttention(ORG, item('t1')) })
+    await srv.answer(true)
+    // the list is read first and names nothing; the tree still says 1
+    await inAct(async () => { publishPending(summarizePending([])) })
+    await v.render(button(1))
+    await inAct(() => flush(4))
+    assert.equal(glows(v.el), false, 'the stale 1 is still the dismissed flag')
+    assert.equal(dotted(v.el), false)
+    await v.render(button(0))
+    await inAct(() => flush(4))
+    assert.equal(glows(v.el), false, 'the tree catches up: still off')
+    // and a new flag after that glows normally
+    await inAct(async () => { publishPending(summarizePending([flagRow('t2')])) })
+    await v.render(button(1))
+    await inAct(() => flush(4))
+    assert.equal(glows(v.el), true)
+  } finally { await v.unmount() }
+})
+
+test('§10 the same ticket flagged again (new notice epoch) glows and dots at once (review-sol)', async () => {
+  reset()
+  const srv = manualServer()
+  await inAct(async () => { publishPending(summarizePending([flagRow('t1', ORG, 1)])) })
+  const v = await mountView(button(1), (el) => el)
+  try {
+    await inAct(async () => { void dismissAttention(ORG, item('t1')) })
+    await srv.answer(true)
+    assert.equal(glows(v.el), false)
+    // raised again on the same ticket: the tree's count is 1 either way
+    await inAct(async () => { publishPending(summarizePending([flagRow('t1', ORG, 2)])) })
+    await v.render(button(1))
+    await inAct(() => flush(4))
+    assert.equal(dotted(v.el), true, 'the new flag dots the button')
+    assert.equal(glows(v.el), true, 'and glows — the old dismissal does not hide it')
+    assert.equal(badge(v.el), '1')
+  } finally { await v.unmount() }
+})
+
+test('§11 the tree reflects the dismissal first: a lagging list still naming the old flag does not dot', async () => {
+  reset()
+  const srv = manualServer()
+  await inAct(async () => { publishPending(summarizePending([flagRow('t1'), flagRow('t2')])) })
+  const v = await mountView(button(2), (el) => el)
+  try {
+    await inAct(async () => { void dismissAttention(ORG, item('t1')) })
+    await srv.answer(true)
+    await v.render(button(1))
+    await inAct(() => flush(4))
+    assert.equal(badge(v.el), '1')
+    assert.match(v.el.querySelector('.docket-bell')!.getAttribute('title') ?? '', /1 ticket\(s\) still waiting/,
+      'the list still names t1, but only t2 counts')
   } finally { await v.unmount() }
 })
 
