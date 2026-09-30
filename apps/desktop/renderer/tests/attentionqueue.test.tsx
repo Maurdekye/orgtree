@@ -274,13 +274,14 @@ test('§1 the three flavours render as one mixed list, newest first', async () =
   await v.unmount()
 })
 
-test('§1.1 with nothing waiting, the list says so rather than looking broken', async () => {
+test('§1.1 the empty list explains exactly what appears there', async () => {
   localStorage.clear()
   installServer()
   const v = await mountView(panel(), titles)
   await settle()
   assert.deepEqual(titles(v.el), [])
-  assert.match(v.el.querySelector('.attn-empty')?.textContent ?? '', /Nothing is waiting/)
+  assert.equal(v.el.querySelector('.attn-empty')?.textContent,
+    'Pending questions, tickets needing attention, and urgent mail show here.')
   await v.unmount()
 })
 
@@ -561,7 +562,7 @@ test('§7.1 success-empty then failure: the confident sentence is withdrawn', as
   const v = await mountView(panel(), titles)
   await settle()
   assert.ok(v.el.querySelector('.attn-empty'), 'both feeds read: the claim is earned')
-  assert.match(text(v.el), /Nothing is waiting on you here/)
+  assert.match(text(v.el), /Pending questions, tickets needing attention, and urgent mail show here\./)
 
   failAll()
   await repoll()

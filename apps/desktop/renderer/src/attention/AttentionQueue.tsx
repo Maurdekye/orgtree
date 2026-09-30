@@ -343,7 +343,7 @@ export function AttentionQueue({
               gets a statement about what could not be read, because an empty
               list the panel cannot vouch for must never be drawn as reassurance. */}
           {!rows.length && complete &&
-            <div className="dim pad attn-empty">Nothing is waiting on you here.</div>}
+            <div className="dim pad attn-empty">Pending questions, tickets needing attention, and urgent mail show here.</div>}
           {!rows.length && !complete && !!unavailable.length &&
             <div className="dim pad attn-unavailable" role="status">
               {listNames(unavailable)} could not be read, so this list is not
