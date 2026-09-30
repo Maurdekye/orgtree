@@ -479,7 +479,6 @@ export function DocketToolbarButton({ summary, onClick, label, org }: {
   const { attention: raw, active } = summary ?? { attention: 0, active: 0 }
   useDismissedAttention()
   const attention = org ? attentionNow(org, raw) : raw
-  useEffect(() => { if (org) settleAttention(org, raw) }, [org, raw])
   const hasAttn = attention > 0
   // count > 0 is load-bearing: `{count && ...}` renders a literal `0` in React
   const count = hasAttn ? attention : active
@@ -494,6 +493,8 @@ export function DocketToolbarButton({ summary, onClick, label, org }: {
   const flagged = org
     ? pending.flagged.filter((f) => f.org === org && !attentionDismissed(org, f.slug)).length
     : pending.docket
+  // forget dismissals the sources now reflect, whichever of them moved
+  useEffect(() => { if (org) settleAttention(org, raw) }, [org, raw, pending])
   const waiting = flagged > 0
   return (
     <button className={'iconbtn docket-bell' + (hasAttn ? ' glow' : '')}

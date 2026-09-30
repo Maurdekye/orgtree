@@ -119,9 +119,15 @@ function same(a: PendingAttention, b: PendingAttention): boolean {
 export function publishPending(next: PendingAttention): boolean {
   if (same(current, next)) return false
   current = next
+  published += 1
   for (const listener of [...listeners]) listener()
   return true
 }
+
+/** How many changed aggregates have been published. attndismiss.ts compares
+ *  it to tell a list read AFTER a dismissal succeeded from one read before. */
+let published = 0
+export function pendingVersion(): number { return published }
 
 export function resetPending(): void { current = EMPTY }
 

@@ -15,15 +15,23 @@
 // inbox dot on the click): one module-level store, in memory only, so every
 // view in this window agrees; after a reload the server is the truth again.
 //
-// ⚠ WHEN A RECORD STOPS COUNTING. The glow's source is a COUNT, not a list,
-// so "the tree now reflects this dismissal" is read off the count: each
-// record keeps the count it expects once the server has applied it and every
-// earlier outstanding dismissal (`expect`), and it stops counting as soon as
-// the tree's count is at or below that. A record whose dismissal succeeded
-// also stops counting after SETTLE_MS whatever the count says, so a new flag
-// raised in the meantime cannot keep a stale subtraction alive for long.
+// ⚠ WHEN A RECORD STOPS COUNTING — BY THE TICKET, NOT BY THE COUNT. The
+// glow's source is a count, and a count cannot tell "the old flag is still
+// counted" from "the old flag went and a new one came" (review-sol: a new
+// flag raised elsewhere kept the glow off). So a record stops counting when
+// EITHER
+//   • the notification list — which names every manually flagged ticket
+//     (pending-attention `flagged`) — in a copy published AFTER the dismissal
+//     succeeded no longer names this ticket: the server has taken it down,
+//     so any count the tree still shows is somebody else's flag; or
+//   • the tree's count has come down to what it would be with this and every
+//     earlier outstanding dismissal applied (`expect`) — the tree reflects it.
+// A ticket the notification list never named (so nothing can say by name
+// that it went) falls back to the count, and stops counting SETTLE_MS after
+// the dismissal succeeded at the latest.
 import { useSyncExternalStore } from 'react'
 import { dismissWorkItemAttention } from './api'
+import { pendingAttention, pendingVersion } from './pending-attention'
 import type { DismissAttentionResult } from './types'
 
 interface Entry {
@@ -35,6 +43,11 @@ interface Entry {
    *  question keeps the ticket flagged (ledger `_work_attention`) */
   glow: boolean
   state: 'sent' | 'done'
+  /** the notification list named this ticket when it was dismissed, so its
+   *  absence from a later list is proof the flag is down */
+  named: boolean
+  /** pendingVersion() when the dismissal succeeded */
+  doneAt?: number
 }
 
 export const SETTLE_MS = 30_000
@@ -59,8 +72,11 @@ export function useDismissedAttention(): number {
   return useSyncExternalStore(subscribe, () => version, () => version)
 }
 
+/** the flag is down by name: see the header */
+const gone = (e: Entry) => e.named && e.doneAt !== undefined && pendingVersion() > e.doneAt
+  && !listed(e.org, e.slug)
 const outstanding = (org: string, raw: number) =>
-  [...entries.values()].filter((e) => e.org === org && e.glow && raw > e.expect)
+  [...entries.values()].filter((e) => e.org === org && e.glow && raw > e.expect && !gone(e))
 
 /** The Work button's glow count: the tree's count less the dismissals it does
  *  not reflect yet. Also remembers `raw` as this organization's latest count,
@@ -70,12 +86,17 @@ export function attentionNow(org: string, raw: number): number {
   return Math.max(0, raw - outstanding(org, raw).length)
 }
 
-/** Forget the records the tree now reflects. Called by the Work button after
- *  it renders (never during render: this changes the store). */
+const listed = (org: string, slug: string) =>
+  pendingAttention().flagged.some((f) => f.org === org && f.slug === slug)
+
+/** Forget the records whose flag is known to be down and reflected (see the
+ *  header). Called by the Work button after it renders — never during
+ *  render, since this changes the store — and whenever either source moves. */
 export function settleAttention(org: string, raw: number): void {
   let changed = false
   for (const [k, e] of entries) {
-    if (e.org === org && e.glow && raw <= e.expect) { entries.delete(k); changed = true }
+    if (e.org !== org) continue
+    if (gone(e) || (e.glow && raw <= e.expect)) { entries.delete(k); changed = true }
   }
   if (changed) emit()
 }
@@ -104,14 +125,18 @@ export function dismissAttention(org: string, item: {
     const expect = raw === undefined ? -1
       : raw - outstanding(org, raw).length - 1
     const glow = !(item.attention_sources ?? []).includes('question')
-    entries.set(k, { org, slug, expect, glow, state: 'sent' })
+    entries.set(k, { org, slug, expect, glow, state: 'sent', named: listed(org, slug) })
     emit()
   }
   return dismissWorkItemAttention(org, slug, item.manual_attention.set_rev).then((r) => {
     const e = entries.get(k)
     if (e) {
       e.state = 'done'
-      setTimeout(() => { if (entries.get(k) === e) { entries.delete(k); emit() } }, SETTLE_MS)
+      e.doneAt = pendingVersion()
+      // only a ticket nothing can name needs the clock
+      if (!e.named) {
+        setTimeout(() => { if (entries.get(k) === e) { entries.delete(k); emit() } }, SETTLE_MS)
+      }
     }
     return r
   }, (err: unknown) => {

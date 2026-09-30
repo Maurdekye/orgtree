@@ -148,6 +148,45 @@ test('§5 the dot counts only the open organization\'s tickets', async () => {
   } finally { await v.unmount() }
 })
 
+test('§7 a new flag arriving after the dismissal glows at once, though the count is unchanged (review-sol)', async () => {
+  reset()
+  const srv = manualServer()
+  await inAct(async () => { publishPending(summarizePending([flagRow('old-ticket')])) })
+  const v = await mountView(button(1), (el) => el)
+  try {
+    await inAct(async () => { void dismissAttention(ORG, item('old-ticket')) })
+    assert.equal(glows(v.el), false)
+    await srv.answer(true)
+    // the next notification list names only a DIFFERENT ticket, and the tree
+    // says 1: that 1 is the new flag, not the old one
+    await inAct(async () => { publishPending(summarizePending([flagRow('new-ticket')])) })
+    await v.render(button(1))
+    await inAct(() => flush(4))
+    assert.equal(dotted(v.el), true, 'the new ticket dots the button')
+    assert.equal(glows(v.el), true, 'and glows — the old dismissal is not subtracted from it')
+    assert.equal(badge(v.el), '1')
+  } finally { await v.unmount() }
+})
+
+test('§8 a notification list read before the server applied the dismissal does not end it early', async () => {
+  reset()
+  const srv = manualServer()
+  await inAct(async () => { publishPending(summarizePending([flagRow('t1'), flagRow('t2')])) })
+  const v = await mountView(button(2), (el) => el)
+  try {
+    await inAct(async () => { void dismissAttention(ORG, item('t1')) })
+    // a list published while the request is in flight still names t1
+    await inAct(async () => { publishPending(summarizePending([flagRow('t1'), flagRow('t2'), flagRow('t3', 'x')])) })
+    assert.equal(badge(v.el), '1', 'still subtracted while in flight')
+    await srv.answer(true)
+    assert.equal(badge(v.el), '1', 'and after success, until a later list or the tree says it went')
+    await inAct(async () => { publishPending(summarizePending([flagRow('t2')])) })
+    await v.render(button(1))
+    await inAct(() => flush(4))
+    assert.equal(badge(v.el), '1', 'the tree reflects it: 1 left, not 0')
+  } finally { await v.unmount() }
+})
+
 test('§6 every dismiss control goes through dismissAttention, never the API directly', () => {
   const src = __SRC_DIR__
   const files: string[] = []
