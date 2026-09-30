@@ -106,6 +106,12 @@ function at(el: HTMLElement, id: string): { x: number; y: number } {
   const [x, y] = nums(c!.style.transform)
   return { x: x!, y: y! }
 }
+/** positions equal to within the springs' last sub-pixel of travel */
+const near = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+  Math.abs(a.x - b.x) < 2 && Math.abs(a.y - b.y) < 2
+function assertAt(actual: { x: number; y: number }, want: { x: number; y: number }, msg: string) {
+  assert.ok(near(actual, want), `${msg}: at ${JSON.stringify(actual)}, want ${JSON.stringify(want)}`)
+}
 /** world point → client point through `.space`'s translate + scale */
 function client(el: HTMLElement, w: { x: number; y: number }) {
   const space = el.querySelector('.space') as HTMLElement
@@ -163,12 +169,12 @@ test('§2 a dropped card sits under its new parent before the op answers', async
   useFakeClock(); t.after(realClock)
   const want = await settledAt(t, after(), 'x')
   const was = await settledAt(t, before(), 'x')
-  assert.notDeepEqual(want, was, 'fixture: the move changes where x sits')
+  assert.ok(!near(want, was), 'fixture: the move changes where x sits')
   const m = await mountCanvas(t, before(), () => new Promise(() => {}))  // never answers
   await drag(m.el, 'x', 'b')
   assert.deepEqual(m.ops, [{ op: 'demote', node: 'x', new_parent: 'b' }])
   await advance(3000, 50)
-  assert.deepEqual(at(m.el, 'x'), want, 'x is already where the moved tree puts it')
+  assertAt(at(m.el, 'x'), want, 'x is already where the moved tree puts it')
 })
 
 test('§3 a refused move sends the card back', async (t) => {
@@ -178,10 +184,10 @@ test('§3 a refused move sends the card back', async (t) => {
   const m = await mountCanvas(t, before(), () => new Promise((_, no) => { refuse = no }))
   await drag(m.el, 'x', 'b')
   await advance(3000, 50)
-  assert.notDeepEqual(at(m.el, 'x'), was, 'shown moved while in flight')
+  assert.ok(!near(at(m.el, 'x'), was), 'shown moved while in flight')
   await inAct(() => { refuse(new Error('scope')) })
   await advance(3000, 50)
-  assert.deepEqual(at(m.el, 'x'), was, 'back in its old place after the refusal')
+  assertAt(at(m.el, 'x'), was, 'back in its old place after the refusal')
 })
 
 test('§4 the toast Undo is shown at once as well', async (t) => {
@@ -196,5 +202,5 @@ test('§4 the toast Undo is shown at once as well', async (t) => {
   await inAct(() => { void n!.undo!() })
   assert.deepEqual(m.ops.at(-1), { op: 'move', node: 'x', new_parent: 'a' })
   await advance(3000, 50)
-  assert.deepEqual(at(m.el, 'x'), was, 'undo shows x back under a before the op answers')
+  assertAt(at(m.el, 'x'), was, 'undo shows x back under a before the op answers')
 })
