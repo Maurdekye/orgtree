@@ -984,10 +984,18 @@ export default function App() {
   // must not delay the org opening, and a failure leaves the surfaces to show
   // their own recoverable state rather than breaking the app. The previous org's
   // copy is dropped so a switch cannot render one org's availability for another.
+  // It starts once the window's first tree read settles (bootgate.ts): its
+  // first answer per engine loads the whole organization, which on a large org
+  // competed with the tree read for the engine. A surface opened earlier than
+  // that still starts the load itself, so nothing waits on the gate.
   useEffect(() => {
     if (!slug) return
     invalidateStaffingOptions()
-    void prefetchStaffingOptions(slug).catch(() => {})
+    let alive = true
+    void afterBootGate(async () => {
+      if (alive) await prefetchStaffingOptions(slug)
+    })().catch(() => {})
+    return () => { alive = false }
   }, [slug])
   // The v2 last-org key is neither native window identity nor the native
   // restore set. Homepage/Create must not overwrite another window's seed.

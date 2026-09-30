@@ -5,11 +5,13 @@
 // /api/providers, four /api/*/usage/peek readouts and /api/host — six
 // requests, the browser's per-origin connection limit — and the tree read
 // queued behind them until /api/providers answered (1.4 s typical live, up to
-// 25 s). bootgate.ts now holds those six until the first tree read settles.
+// 25 s). bootgate.ts now holds those six until the first tree read settles,
+// and the staffing-options preload too (its first answer per engine loads the
+// whole organization, 29 MB on that copy, beside the tree read).
 //
 //   §1 the gate alone: held until opened, then every call goes through
 //   §2 the gate's cap opens it even if no tree read ever settles
-//   §3 App: while the tree read is outstanding none of the six has been
+//   §3 App: while the tree read is outstanding none of those seven has been
 //      requested; once it answers, all six are
 //   §4 App: a failed tree read opens the gate too
 //
@@ -49,6 +51,7 @@ test('§2 the cap opens the gate when no tree read settles', async () => {
   resetBootGate()
 })
 
+const side = (org: string) => [`/api/orgs/${org}/staffing-options`, ...SIDE]
 const SIDE = ['/api/providers', '/api/usage/peek', '/api/codex/usage/peek',
   '/api/antigravity/usage/peek', '/api/openrouter/usage/peek', '/api/host']
 
@@ -117,11 +120,11 @@ test('§3 the tree read goes out first; the side readouts follow its answer', as
   try {
     await w.wait(300)
     assert.ok(w.asked.includes(`/api/orgs/${w.org}/foreground-tree`), 'the tree was read on mount')
-    const early = SIDE.filter(p => w.asked.includes(p))
+    const early = side(w.org).filter(p => w.asked.includes(p))
     assert.deepEqual(early, [], `requested while the tree read was outstanding: ${early.join(', ')}`)
     w.answer()
     await w.wait(300)
-    const missing = SIDE.filter(p => !w.asked.includes(p))
+    const missing = side(w.org).filter(p => !w.asked.includes(p))
     assert.deepEqual(missing, [], `never requested after the tree answered: ${missing.join(', ')}`)
   } finally { await w.restore() }
 })
@@ -130,10 +133,10 @@ test('§4 a failed tree read releases the side readouts too', async () => {
   const w = await openWindow('fail')
   try {
     await w.wait(300)
-    assert.deepEqual(SIDE.filter(p => w.asked.includes(p)), [])
+    assert.deepEqual(side(w.org).filter(p => w.asked.includes(p)), [])
     w.answer()
     await w.wait(300)
-    const missing = SIDE.filter(p => !w.asked.includes(p))
+    const missing = side(w.org).filter(p => !w.asked.includes(p))
     assert.deepEqual(missing, [], `never requested after the tree failed: ${missing.join(', ')}`)
   } finally { await w.restore() }
 })
