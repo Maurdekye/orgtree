@@ -9,25 +9,25 @@ than passing vacuously. An agent shell spawned by the boot-task engine is
 elevated, so on the machine the defect was measured on they run.
 """
 
+import inspect
 import json
 import os
 from pathlib import Path
 import subprocess
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+import child_python
 
-from engine import unelevated
+from engine import service_host, unelevated
 
 REPO = Path(__file__).resolve().parent.parent
 
 # Runs in the child: report its own token, cwd and one environment value.
 CHILD = r"""
 import ctypes, json, os, sys
-sys.path.insert(0, sys.argv[1])
 from engine import unelevated
 admins = ctypes.create_string_buffer(68)
 size = ctypes.c_ulong(68)
@@ -57,9 +57,9 @@ class PolicyTests(unittest.TestCase):
         token.assert_not_called()
 
     def test_service_host_starts_the_engine_through_popen_unelevated(self):
-        source = (REPO / "engine" / "service_host.py").read_text(encoding="utf-8")
+        source = inspect.getsource(service_host.main)
         launch = source[source.index('launcher = Path(__file__)'):source.index("ready: dict")]
-        self.assertIn("popen_unelevated([sys.executable, str(launcher)]", launch)
+        self.assertIn("child = popen_unelevated(", launch)
         self.assertNotIn("subprocess.Popen(", launch)
 
     def test_the_environment_block_is_sorted_and_double_terminated(self):
@@ -83,7 +83,7 @@ class ElevatedSpawnTests(unittest.TestCase):
             env = {**os.environ, "ORGTREE_UNELEVATED_MARKER": "m-42"}
             env.pop("PYTHONPATH", None)
             child = unelevated.popen_unelevated(
-                [sys.executable, "-c", CHILD, str(REPO)], cwd=cwd, env=env,
+                child_python.argv("-c", CHILD), cwd=cwd, env=env,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             out, err = child.communicate(timeout=60)
