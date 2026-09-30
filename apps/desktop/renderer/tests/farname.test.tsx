@@ -107,7 +107,20 @@ test('keyboard focus reveals the same overlay, and blur removes it', async (t) =
   await inAct(() => { sq.dispatchEvent(new MouseEvent('focusin', { bubbles: true })) })
   assert.ok(view.el.querySelector('.sq-far-ghost'), 'focus-within reveals the name in the world layer')
   await inAct(() => { sq.dispatchEvent(new MouseEvent('focusout', { bubbles: true })) })
-  assert.equal(view.el.querySelector('.sq-far-ghost'), null)
+  assert.equal(view.el.querySelector('.sq-far-ghost')!.classList.contains('on'), false, 'retracting')
+  await inAct(() => new Promise((r) => setTimeout(r, 350)))
+  assert.equal(view.el.querySelector('.sq-far-ghost'), null, 'removed once the reverse has played')
+})
+
+test('the overlay reuses the own reveal elements so the original motion plays', async (t) => {
+  const view = await card('mini')
+  t.after(() => view.unmount())
+  await hover(view.el)
+  const ghost = view.el.querySelector('.sq-far-ghost')!
+  for (const c of ['.sq-far-tier', '.sq-far-scaler', '.sq-far-name'])
+    assert.ok(ghost.querySelector(c), `uses the card's own ${c} (its transitions and reduced-motion rule)`)
+  assert.equal(ghost.classList.contains('on'), true, 'revealed look is a class switch on the same elements, so its transitions animate it')
+  assert.match(css(), /\.sq-far-ghost:not\(\.on\) \.sq-far-tier \{ left: 10px; \}/, 'and the resting look it starts from matches the card')
 })
 
 test('at normal zoom the existing in-card reveal is untouched', async (t) => {

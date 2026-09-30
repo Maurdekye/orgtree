@@ -3368,22 +3368,17 @@ button.stackbadge:hover { border-color: var(--button-accent); color: var(--agent
 .sq.mini:hover { z-index: 0; }
 /* The far-zoom name is drawn in the world layer above every card (z 9 clears
    the hover raise 6, an open desk 5 and a dragged card 8) while the card is
-   hovered or focused and
-   is click-through; the in-card copy hides while it shows. */
+   hovered or focused. It is a click-through copy of the card's own reveal
+   group (same classes, so the same 0.2s lift and 0.15s fade, and the same
+   reduced-motion rule); `.on` is the revealed look of the `.sq.mini:hover`
+   rules above. The in-card copy is hidden while it shows. */
 .sq.mini.far-ghosted .sq-far-tier { visibility: hidden; }
-.sq-far-ghost {
-  position: absolute; z-index: 9; pointer-events: none;
-  display: inline-flex; align-items: center; gap: 5px;
-  transform: translateX(-50%) scale(max(1, var(--invzf, 1)));
-  transform-origin: bottom center;
-}
-.sq-far-ghost-name {
-  font: 600 11.5px/1.2 var(--mono); color: var(--ink-strong);
-  background: var(--tip-panel); border: 1px solid var(--line);
-  border-radius: 4px; padding: 3px 8px; white-space: nowrap;
-  max-width: 180px; overflow: hidden; text-overflow: ellipsis;
-  box-shadow: var(--shadow);
-}
+.sq-far-ghost { position: absolute; z-index: 9; pointer-events: none; }
+.sq-far-ghost:not(.on) .sq-far-tier { left: 10px; }
+.sq-far-ghost:not(.on) .sq-far-tier .tier { width: 33px; height: 33px; font-size: 16.5px; }
+.sq-far-ghost.on .sq-far-tier { top: -26px; left: 50%; transform: translateX(-50%); z-index: 4; }
+.sq-far-ghost.on .sq-far-scaler { transform: scale(max(1, var(--invzf, 1))); gap: 5px; }
+.sq-far-ghost.on .sq-far-name { opacity: 1; max-width: 180px; padding: 3px 8px; border-color: var(--line); }
 /* ...EXCEPT while the token's menu is open, which is a different intent. The
    compact token is one arrow; clicking it fans out the tier buttons, and those
    rows are taller than the gap they stand in — measured at z=.24, two of the

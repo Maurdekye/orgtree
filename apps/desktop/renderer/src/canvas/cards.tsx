@@ -1624,7 +1624,25 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   // is click-through, so a copy in the world layer, above every card, costs no
   // hit-testing; the in-card copy is hidden while it shows.
   const [nameFocus, setNameFocus] = useState(false)
-  const farGhost = lod === 'mini' && (nameHover || nameFocus) && !focused
+  const farWant = lod === 'mini' && (nameHover || nameFocus) && !focused
+  // The copy starts in the card's resting look and is switched to the revealed
+  // look right after it is laid out, so the original lift/fade plays; on leaving it stays
+  // mounted until the reverse has played.
+  const [farMounted, setFarMounted] = useState(false)
+  const [farOn, setFarOn] = useState(false)
+  const ghostRef = useRef<HTMLSpanElement>(null)
+  useLayoutEffect(() => {
+    if (farWant) {
+      setFarMounted(true)
+      void ghostRef.current?.offsetWidth // commit the resting look so the change below animates
+      setFarOn(true)
+      return
+    }
+    setFarOn(false)
+    const t = setTimeout(() => setFarMounted(false), 260)
+    return () => clearTimeout(t)
+  }, [farWant])
+  const farGhost = farWant || farMounted
   const [fullNameAt, setFullNameAt] = useState<{ left: number; top: number } | null>(null)
   useLayoutEffect(() => {
     const el = nameRef.current
@@ -2073,10 +2091,14 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
         <AgentRetireConfirm kind={asking} node={node} op={op} toast={toast}
           close={() => setAsking(null)} />, document.body)}
       {farGhost && cardRef.current?.parentElement && createPortal(
-        <span className="sq-far-ghost" aria-hidden="true"
-          style={{ left: pos.x + NODE_W / 2, top: pos.y - 26 }}>
-          <TierChip tier={node.tier} />
-          <span className="sq-far-ghost-name">{node.id}</span>
+        <span ref={ghostRef} className={'sq-far-ghost' + (farOn && farWant ? ' on' : '')} aria-hidden="true"
+          style={{ left: pos.x, top: pos.y, width: NODE_W, height: NODE_H }}>
+          <span className="sq-far-tier">
+            <span className="sq-far-scaler">
+              <TierChip tier={node.tier} />
+              <span className="sq-far-name">{node.id}</span>
+            </span>
+          </span>
         </span>, cardRef.current.parentElement)}
     </div>
   )
