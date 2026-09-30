@@ -100,11 +100,15 @@ test('a growth orphaned by the desk closing does not leave the next desk loading
   // the desk closes while the growth is in the air: the last view leaving
   // resets the window to the tail, so no response can answer that growth now
   await v.unmount()
-  transport.holdAll = false
-  await inAct(async () => { transport.release(); await flush(8) })
+  // reopening it asks for the tail again; that newer answer lands first, so
+  // the growth's own response arrives stale and is discarded unread
   v = await mountView(<Desk />, () => null)
   t.after(async () => { await v.unmount() })
-  await inAct(async () => { void refreshConvo('orphan', 'agent', { force: true }); await flush(8) })
+  await inAct(async () => { void refreshConvo('orphan', 'agent', { force: true }); await flush(2) })
+  assert.ok(transport.held.length >= 2)
+  transport.holdAll = false
+  await inAct(async () => { transport.releaseLast(); await flush(8) })
+  await inAct(async () => { transport.release(); await flush(8) })
   assert.equal(latest!.loadingOlder, false, 'not stuck on "loading earlier messages…"')
   assert.equal(latest!.olderError, false)
   await inAct(async () => { assert.equal(loadOlder('orphan', 'agent', 8, true), true); await flush(8) })
