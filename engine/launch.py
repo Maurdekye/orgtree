@@ -310,8 +310,25 @@ def _install_desktop_routes(api_app: Any, data: Path, stop: Callable[[], None],
     # ── who may connect to THIS INSTALLATION's hub ───────────────────────
     # An installation hosts at most one hub, so its grants belong to App
 
+# ⚠ THE GIL HAND-BACK WAIT (measured 2026-09-30, window-open item). A thread
+# that releases the GIL for a syscall — every open, stat, socket read and
+# PostgreSQL round trip — must wait up to the switch interval to take it back
+# while any other thread is running Python. The engine keeps ~0.8 core busy
+# with agent work, so at CPython's default 5 ms a request that does ~1000 small
+# file operations (the foreground tree's per-agent annotation) took 3-5 s live
+# for ~90 ms of CPU. Under 2/4/8 busy threads the same annotation measured
+# 6.5/1.5/26 s at 5 ms and 0.09/0.11/0.15 s at 0.5 ms; CPU-bound threads lost
+# nothing measurable to the extra switching.
+GIL_SWITCH_INTERVAL_S = 0.0005
+
+
+def tune_gil() -> None:
+    sys.setswitchinterval(GIL_SWITCH_INTERVAL_S)
+
+
 def load_app() -> tuple[Any, str, Path, int, dict[str, bool]]:
     """Validate environment, strip token, then import the V1 API app."""
+    tune_gil()
     data = validate_data_root(_required_path("ORGTREE_DATA"))
     bundled_backend = Path(__file__).resolve().parent / "backend"
     backend = bundled_backend
