@@ -17,10 +17,10 @@
 // raise, keeps it on an amendment, and a dismissal must echo it. The tree
 // serves every open raise beside its count (`work_items_summary.raises`), and
 // each flag notice carries its raise's `rev`. So:
-//   • the glow is the tree's count less the dismissed raises THE TREE STILL
-//     LISTS — a stale tree keeps listing the dismissed raise and it stays off;
-//     a fresh tree no longer lists it and nothing is taken off; a new raise,
-//     on any ticket or on the same one, has another identity and counts;
+//   • the glow counts the raises THE TREE LISTS that were not dismissed — a
+//     stale tree keeps listing the dismissed raise and it stays off; a new
+//     raise, on any ticket or on the same one, has another identity and
+//     counts;
 //   • the dot hides exactly the notice rows of dismissed raises, whenever a
 //     read delivers them (before the click, in flight, late or stale).
 // No record expires on a clock. A dismissed raise never comes back, so its
@@ -35,11 +35,8 @@ import { dismissWorkItemAttention } from './api'
 import { pendingAttention, type FlaggedRow } from './pending-attention'
 import type { DismissAttentionResult } from './types'
 
-interface Entry {
-  /** does taking this raise down lower the glow's count? Not when an open
-   *  question keeps the ticket flagged (ledger `_work_attention`) */
-  glow: boolean
-}
+/** one dismissal in this window (its identity is the map key) */
+interface Entry { at: number }
 
 const entries = new Map<string, Entry>()
 const listeners = new Set<() => void>()
@@ -70,14 +67,12 @@ export function flaggedNow(org: string): FlaggedRow[] {
   return pendingAttention().flagged.filter((f) => f.org === org && !attentionDismissed(org, f))
 }
 
-/** The Work button's glow count: the tree's count less the dismissed raises
- *  the tree still lists. Without `raises` (an older engine) nothing can be
- *  matched and the count is shown as served. */
-export function attentionNow(org: string, served: number,
-  raises: readonly (readonly [string, number])[] | undefined): number {
-  if (!raises) return served
-  const off = raises.filter(([slug, rev]) => entries.get(key(org, slug, rev))?.glow).length
-  return Math.max(0, served - off)
+/** The Work button's glow count: the manual raises the tree lists that the
+ *  user has not dismissed. A question is answered in the Inbox and lights
+ *  only that (user 2026-09-30), so a raise dismissed on a ticket that also
+ *  holds a question leaves this count too. */
+export function manualNow(org: string, raises: readonly (readonly [string, number])[]): number {
+  return raises.filter(([slug, rev]) => !entries.has(key(org, slug, rev))).length
 }
 
 /** Dismiss a ticket's attention flag. Every dismiss control calls this rather
@@ -91,7 +86,7 @@ export function dismissAttention(org: string, item: {
   const { slug } = item
   const rev = item.manual_attention.set_rev
   const k = key(org, slug, rev)
-  const mine: Entry = { glow: !(item.attention_sources ?? []).includes('question') }
+  const mine: Entry = { at: Date.now() }
   if (!entries.has(k)) {
     entries.set(k, mine)
     emit()

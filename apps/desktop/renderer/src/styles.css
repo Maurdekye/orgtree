@@ -4127,6 +4127,9 @@ main.solo { width: 100%; }
 .docket-status.status-done { color: var(--ok); }
 .docket-status.status-superseded, .docket-status.status-dropped { color: var(--dim); }
 .docket-status.attention { color: var(--agent-accent-text, var(--accent)); }
+/* a question is answered in the Inbox, so its ticket says so quietly: no
+   attention colour, no glow (user 2026-09-30) */
+.docket-qwait { color: var(--warn); font-size: 0.9em; white-space: nowrap; }
 
 /* Left border indicators by status */
 .docket-modal .mailrow.status-in_progress { border-left: 3px solid var(--work); }

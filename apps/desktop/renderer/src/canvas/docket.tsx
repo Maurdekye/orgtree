@@ -25,7 +25,8 @@
 import { memo, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useDocketWindow } from './docketwindow'
 import { usePendingAttention } from '../pending-attention'
-import { attentionNow, dismissAttention, flaggedNow, useDismissedAttention } from '../attndismiss'
+import { askSubmitted, useSubmittedAsks } from '../asksubmitted'
+import { dismissAttention, flaggedNow, manualNow, useDismissedAttention } from '../attndismiss'
 import type { ComponentProps, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
@@ -476,17 +477,24 @@ export function DocketToolbarButton({ summary, onClick, label, org }: {
    *  Without it (older surfaces), both read their sources as they come. */
   org?: string
 }) {
-  const { attention: raw, active } = summary ?? { attention: 0, active: 0 }
+  const { attention: served, active } = summary ?? { attention: 0, active: 0 }
   useDismissedAttention()
-  const attention = org ? attentionNow(org, raw, summary?.raises) : raw
+  // ⚠ ONLY A MANUAL FLAG LIGHTS THIS BUTTON (user 2026-09-30: a question
+  // attached to a ticket lit both this and the Inbox, "two things" for one).
+  // The served count holds every ticket with a manual flag OR an open
+  // question (ledger `_work_attention`); the same payload lists the manual
+  // raises (`raises`), so the glow counts those the user has not dismissed.
+  // A ticket with both still glows here for its flag, and the Inbox lights
+  // for its question: two real things. An engine that lists no raises
+  // shows the served count.
+  const attention = org && summary?.raises ? manualNow(org, summary.raises) : served
   const hasAttn = attention > 0
   // count > 0 is load-bearing: `{count && ...}` renders a literal `0` in React
   const count = hasAttn ? attention : active
   // The standing dot (user ruling 2026-09-12) reads the aggregate the taskbar
   // pulse reads. ORG-SCOPED when the organization is known (user 2026-09-30,
   // as for the inbox dot): a ticket in another organization cannot be seen
-  // from this window's docket, so it does not light this dot. The glow is the
-  // OPEN organization's own attention count, as it always was.
+  // from this window's docket, so it does not light this dot.
   // The dot is aria-hidden, so the title carries the same claim in words —
   // see AskBell for why an icon-only indicator has to say itself twice.
   const pending = usePendingAttention()
@@ -727,6 +735,22 @@ export function makeHaystack(): (it: WorkItem) => string {
  *  searching render, it must not look like a new set each time. */
 const NO_FOLD: ReadonlySet<string> = new Set<string>()
 
+/** ⚠ ONLY A MANUAL FLAG MAKES A TICKET AN ATTENTION ROW (user 2026-09-30: a
+ *  question attached to a ticket lit both the Work button and the Inbox — "two
+ *  things" for one). The backend's `effective_attention` is also true for an
+ *  open question; that question is answered in the Inbox, so here the ticket
+ *  keeps its own status and says `question waiting` instead (`questionWaiting`).
+ *  The Attention view already reads `manual_attention` for the same reason
+ *  (attention/feed.ts). */
+export const flaggedForUser = (it: WorkItem): boolean =>
+  it.effective_attention && it.attention_sources.includes('manual')
+
+/** An attached question is still open and the user has not just answered it.
+ *  Answering hides it on the click (../asksubmitted); callers re-render on
+ *  `useSubmittedAsks`. */
+export const questionWaiting = (it: WorkItem): boolean =>
+  it.questions.some((q) => !askSubmitted(q.ask_id))
+
 /** The whole list, in order. The contract this function exists to keep: the
  *  backlog and the archive are ALWAYS the last two sections, in that order, in
  *  every grouping mode — so ticking a box can only ever add something to the
@@ -739,7 +763,7 @@ export function buildSections(mode: DocketGroupMode, active: WorkItem[],
 
   if (mode === 'status') {
     const bucket = (it: WorkItem): string => {
-      if (it.effective_attention) return 'attention'
+      if (flaggedForUser(it)) return 'attention'
       if (STATUS_GROUPS.some((g) => g.key === it.status)) return it.status
       return 'other'
     }
@@ -1928,7 +1952,9 @@ export const DocketRow = memo(function DocketRow({ item, selected, onClick, onDi
   rowRef?: (slug: string, el: HTMLDivElement | null) => void
 }) {
   const capture = useCallback((el: HTMLDivElement | null) => rowRef?.(item.slug, el), [rowRef, item.slug])
-  const attention = item.effective_attention
+  useSubmittedAsks()
+  const attention = flaggedForUser(item)
+  const asking = questionWaiting(item)
   // active (white) / attention (orange) / backlog (its own quiet colour) /
   // archived (grey, darker bg). Archived wins over backlog, and attention wins
   // over both — the backend never hands us an archived attention row, but the
@@ -2156,6 +2182,7 @@ export const DocketRow = memo(function DocketRow({ item, selected, onClick, onDi
           title={attention ? undefined : statusHelp(item.status)}>
           {label}
         </span>
+        {asking && <span className="docket-qwait" title="An open question on this ticket is waiting in your Inbox">question waiting</span>}
         {/* THE ASSIGNMENT, where the last updater used to be (user ruling
             2026-09-05: assignment is ownership, and it is what the docket
             names). An unowned item says so in words rather than leaving the
@@ -2625,7 +2652,7 @@ function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocus
   refresh: () => void
 }) {
   const refIndex = useProseAgentIndex(slug, item, panelIndex)
-  const attention = item.effective_attention
+  const attention = flaggedForUser(item)
   const label = attention ? 'Needs attention' : statusLabel(item.status)
   const canDismiss = item.attention_sources.includes('manual')
   const assignee = item.owner

@@ -571,7 +571,7 @@ uiTest('§11 dismiss manual attention button calls endpoint with set_rev and upd
   assert.equal(el.querySelector('.docket-dismiss'), null, 'dismiss button gone after clearing manual flag')
 })
 
-uiTest('§11b question+manual attention item stays in attention state after manual dismiss', async (mount) => {
+uiTest('§11b question+manual item: after the manual dismiss it shows "question waiting", not attention', async (mount) => {
   let toasted: string[] = []
   let itemState = mkItem({
     title: 'Multi-Attention Item',
@@ -632,10 +632,13 @@ uiTest('§11b question+manual attention item stays in attention state after manu
 
   assert.match(toasted[0] ?? '', /dismissed the attention flag/)
 
-  // Stays attention after dismiss because question is still attached
+  // The manual flag went; the question is still attached. A question is
+  // answered in the Inbox (user 2026-09-30), so the row keeps its own status
+  // and says the question is waiting rather than staying an attention row.
   row = el.querySelector('.mailrow') as HTMLElement
-  assert.ok(row.classList.contains('attention'), 'row still has attention class due to remaining question')
-  assert.match(row.querySelector('.l2')?.textContent ?? '', /Needs attention/)
+  assert.ok(!row.classList.contains('attention'), 'only a manual flag makes an attention row')
+  assert.match(row.querySelector('.l2')?.textContent ?? '', /Blocked/)
+  assert.equal(row.querySelector('.docket-qwait')?.textContent, 'question waiting')
   assert.equal(el.querySelector('.docket-dismiss'), null, 'dismiss button gone because manual flag was cleared')
 })
 

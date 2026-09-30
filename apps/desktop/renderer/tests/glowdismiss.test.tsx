@@ -10,8 +10,8 @@
 //     the server has not answered yet and the tree still says 1;
 //   • a refused dismissal brings both back;
 //   • once the tree reflects the dismissal, nothing is subtracted twice;
-//   • a ticket still flagged by an open question keeps the glow (only the
-//     manual flag went), though its dot row goes;
+//   • a ticket that also holds a question stops glowing too: a question
+//     lights only the Inbox (user 2026-09-30);
 //   • the dot counts only the open organization's tickets;
 //   • every dismiss control goes through the one store (no direct API call);
 //   • every regression review-sol proved, kept here so none returns:
@@ -141,14 +141,15 @@ test('§3 two flags, one dismissed: the count drops by one and is not subtracted
   } finally { await v.unmount() }
 })
 
-test('§4 a ticket still flagged by an open question keeps the glow; its dot row goes', async () => {
+test('§4 a ticket that also holds a question: dismissing its flag stops the glow; the question goes to the Inbox', async () => {
   reset()
   manualServer()
   await publish(flagRow('t1'))
+  // served counts the ticket once for flag or question; only the flag is a raise
   const v = await mountView(button(1, [['t1', 1]]), (el) => el)
   try {
     await inAct(async () => { void dismissAttention(ORG, item('t1', 1, ['manual', 'question'])) })
-    assert.equal(glows(v.el), true, 'the question still needs the user')
+    assert.equal(glows(v.el), false, 'a question lights only the Inbox (user 2026-09-30)')
     assert.equal(dotted(v.el), false, 'the manual flag\'s own notice row is gone')
   } finally { await v.unmount() }
 })
