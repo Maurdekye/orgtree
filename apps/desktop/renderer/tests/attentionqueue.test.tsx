@@ -704,7 +704,11 @@ test('point 31: a submitted question leaves the list on the click, before any re
   resetSubmittedAsks()
 })
 
-test("point 31: the user's inbox drops the submitted question's row on the click too", async () => {
+// Superseded 2026-09-30 (docket v3-an-answered-question-vanishes-from-the-
+// inbox): the CARD closes on the click (point 31) but the inbox ENTRY stays,
+// as answered and no longer waiting. The Attention view above is a to-do
+// queue and still lets a resolved request go.
+test("point 31: the user's inbox keeps the submitted question's row, answered, on the click", async () => {
   localStorage.clear()
   window.HTMLElement.prototype.scrollIntoView = () => {}
   installServer({ items: [] })
@@ -721,7 +725,8 @@ test("point 31: the user's inbox drops the submitted question's row on the click
       () => new Promise<void>(r => { finish = r }))
     await flush(4)
   })
-  assert.equal(rows().length, 0, 'gone on the click, before the server answers')
+  assert.equal(rows().length, 1, 'still listed on the click, before the server answers')
+  assert.equal(rows()[0]!.classList.contains('unread'), false, 'but no longer as waiting')
   finish()
   await v.unmount()
   resetSubmittedAsks()

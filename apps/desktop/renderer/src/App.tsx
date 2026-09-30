@@ -28,7 +28,7 @@ import {
   resumeFrozen, runOp, saveDefaults, saveHireDefaults, saveSettings,
   TREE_STALE_EVENT,
 } from './api'
-import { settleFromTree, useSubmittedAsks } from './asksubmitted'
+import { answeredAsk, settleFromTree, useSubmittedAsks } from './asksubmitted'
 import { markReadNow, readLocally, settleReadsFromBox, settleReadsFromTree, unconfirmedReads,
   useLocalReads } from './mailread'
 import { treeSelections } from './treeselection'
@@ -90,7 +90,7 @@ import { DirList } from './forms'
 import { FolderPickerHost } from './picker'
 import { activeDocCount, ago, ALL_TIERS, attentionPip, availableAutopsyModels, deskDpi, fmtCredits, formatCount, isOpenRouterTier, jumpKey, jumpTo, orgPxc, presenceOfPayload, primedRestartChip, setDeskDpi, TIER_LETTER, tierLabel, unicodeLength, usePolled, useShowLegacyModels } from './canvas/shared'
 import { InboxAskCard } from './canvas/asks'
-import { askMailRow, openAsks, submittedOpenCount } from './canvas/openasks'
+import { askMailRow, openAsks, submittedCards, submittedOpenCount } from './canvas/openasks'
 import { SenderChip } from './canvas/senderchip'
 import { AgentName } from './canvas/identity'
 import { ObjectMenuBoundary } from './canvas/contextmenu'
@@ -2619,6 +2619,14 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   useSubmittedAsks()
   const askPending = openAsks(tree, nodes.values()).map(askRow)
   const askDone = asks.filter((a) => !askOpen(a)).slice(-8).map(askRow)
+  // a card the user just submitted leaves the waiting group but NOT the list
+  // (user 2026-09-30: "the respective mail vanished completely"): it stays
+  // where it was, as the answered card with the user's answer, until the
+  // tree's own resolved row for it arrives in `askDone`
+  const doneIds = new Set(askDone.map((m) => m._ask?.id))
+  const askAnswered = submittedCards(tree, nodes.values())
+    .filter((a) => !doneIds.has(a.id))
+    .flatMap((a) => { const r = answeredAsk(slug, a); return r ? [askRow(r)] : [] })
   const renderAskBody = (m: MailRow) => {
     if (!m._ask) return null
     return <InboxAskCard ask={m._ask} slug={slug} tree={tree}
@@ -2669,7 +2677,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
             : folder === 'inbox'
               ? <MailList pending={[...unreadMail, ...askPending]}
                   collapsible
-                  delivered={[...box.delivered, ...readHere, ...askDone]}
+                  delivered={[...box.delivered, ...readHere, ...askDone, ...askAnswered]}
                   renderBody={renderAskBody}
                   // FR-21: this was the ONE MailList call site without
                   // fileHref, which is why the node inbox's attachments were

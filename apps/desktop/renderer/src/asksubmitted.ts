@@ -18,7 +18,7 @@
 import { useSyncExternalStore } from 'react'
 import type { AnswerAsk, AnswerBatch, AnsweredQ, PublicAnswerAsk, PublicAnswerBatch, Section,
   PublicSection } from './generated/events'
-import type { PendingMail } from './types'
+import type { AskInfo, AskQuestion, PendingMail } from './types'
 
 export interface SubmittedAsk {
   slug: string
@@ -160,6 +160,47 @@ export function settleFromTree(slug: string, tree: { roots?: unknown[]; asks?: u
   for (const r of tree.roots ?? []) walk(r)
   for (const a of tree.asks ?? []) if (live(a)) open.add(String(a.id))
   settleSubmitted((s, id) => s !== slug || open.has(id), now)
+}
+
+/** A submitted card AS THE RESOLVED CARD IT IS ABOUT TO BECOME, for a list
+ *  that keeps its entry (docket v3-an-answered-question-vanishes-from-the-
+ *  inbox, user 2026-09-30): point 31 closes the card on the click, but the
+ *  inbox ROW stays where it was, marked answered with the user's answer,
+ *  instead of vanishing until the tree lists the resolved ask. Built from
+ *  what the user chose (the same sections/answer the queued entry carries).
+ *  `null` unless this card's submit is in flight or accepted. */
+export function answeredAsk(slug: string, ask: AskInfo): AskInfo | null {
+  const e = entries.get(key(slug, String(ask.id)))
+  if (!e || e.state !== 'sent') return null
+  const qs: AskQuestion[] = []
+  for (const s of e.sections ?? []) {
+    if (s.kind === 'ask') {
+      for (const q of s.questions) {
+        qs.push({ question: q.question, ...(q.label ? { header: q.label } : {}),
+          ...(q.answer != null ? { answer: q.answer } : {}) })
+      }
+    } else if (s.kind === 'skipped') {
+      qs.push({ question: s.question, answer: 'skipped' })
+    }
+  }
+  for (const q of e.answer?.questions ?? []) {
+    qs.push({ question: q.question, ...(q.label ? { header: q.label } : {}),
+      ...(q.selected.length ? { answer: q.selected.join(' · ') } : {}) })
+  }
+  const text = e.answer?.text || ''
+  const status = e.answer?.dismissed ? 'dismissed' : 'answered'
+  // a resolved card is filed by what it asked, like the tree's own resolved
+  // rows: a composed batch with a question reads as that question, never as
+  // "N request(s) awaiting one submit"
+  const kind = qs.length ? 'question' : ask.kind
+  if (qs.length > 1) return { ...ask, kind, status, resolved_at: e.at, questions: qs, question: qs[0]!.question }
+  const one = qs[0]
+  const shown = [one?.answer, text].filter((x) => x && String(x).trim()).join(' · ')
+  return {
+    ...ask, kind, status, resolved_at: e.at,
+    ...(one ? { question: one.question, questions: qs } : {}),
+    ...(shown ? { answer: { text: shown } } : {}),
+  }
 }
 
 /** Test hook: empty the store. */

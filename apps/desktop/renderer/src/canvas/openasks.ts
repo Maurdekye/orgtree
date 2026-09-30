@@ -53,6 +53,14 @@ export function submittedOpenCount(tree: Pick<TreePayload, 'asks'> | null | unde
   return n
 }
 
+/** The open cards the user has just submitted: the ones `openAsks` drops.
+ *  A list that keeps a submitted entry visible as answered reads them here
+ *  (asksubmitted.answeredAsk). */
+export function submittedCards(tree: Pick<TreePayload, 'asks'> | null | undefined,
+  nodes: Iterable<TreeNode>): AskInfo[] {
+  return openCards(tree, nodes).filter(a => askSubmitted(a.id))
+}
+
 function openCards(tree: Pick<TreePayload, 'asks'> | null | undefined,
   nodes: Iterable<TreeNode>): AskInfo[] {
   const out: AskInfo[] = []
