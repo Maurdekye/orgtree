@@ -12152,7 +12152,14 @@ class Org:
                         if r["status"] != "withdrawn"])
         _keep = {i for i, a in enumerate(_asks_all)
                  if a.get("status") not in OPEN_ASK_STATUS}
-        _keep = set(sorted(_keep)[-ASK_HISTORY_KEEP:])
+        # the MOST RECENTLY RESOLVED, not the most recently created: an older
+        # question answered just now must stay in the inbox history however
+        # many later-created requests resolved first (docket v3-an-answered-
+        # question-vanishes-from-the-inbox). foreground_store and migration
+        # 0018 serve the same order on PostgreSQL.
+        _keep = set(sorted(_keep, key=lambda i: (
+            str(_asks_all[i].get("resolved_at") or _asks_all[i].get("at") or ""), i))
+            [-ASK_HISTORY_KEEP:])
         _asks = [a for i, a in enumerate(_asks_all)
                  if a.get("status") in OPEN_ASK_STATUS or i in _keep]
         return {

@@ -108,6 +108,27 @@ test('a resolved row already listed while the card still reads open: one entry, 
   assert.equal(askRows(view.el).length, 1, 'listed exactly once')
 })
 
+test('an OLD question answered now stays listed behind 8 later-created requests resolved before it', async (tc) => {
+  // review-astra F1 on bc8a04b: the resolved history was the last 8 by
+  // CREATION, so once the tree read ask-1 resolved it fell out of the list.
+  // It is now the 8 most recently RESOLVED (resolved_at, which every ledger
+  // resolution path stamps).
+  resetSubmittedAsks()
+  const later = Array.from({ length: 8 }, (_, i) => ({ id: `b-${i}`, node: 'beta', kind: 'question',
+    status: 'answered', at: `2026-09-30T09:1${i}:00Z`, resolved_at: `2026-09-30T09:2${i}:00Z`,
+    question: `Other ${i}?`, answer: { selected: ['x'] } } as AskInfo))
+  const view = await mount(tc, tree(ASK, later))
+  await submit()
+  assert.equal(askRows(view.el).length, 1, 'listed after the submit')
+  const resolved = { id: 'ask-1', node: 'alpha', kind: 'question', status: 'answered',
+    at: ASK.at, resolved_at: '2026-09-30T10:00:00Z', question: 'Which colour?',
+    answer: { selected: ['Neutral accent'] } } as AskInfo
+  // the tree's asks list is in creation order: ask-1 was created first
+  await view.render(panel(tree(undefined, [resolved, ...later])))
+  await inAct(async () => { await flush(3) })
+  assert.equal(askRows(view.el).length, 1, 'still listed after the tree catches up')
+})
+
 test('when the tree lists the resolved ask it replaces the stand-in: one entry, not two', async (tc) => {
   resetSubmittedAsks()
   const view = await mount(tc, tree(ASK))

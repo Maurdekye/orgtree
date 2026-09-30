@@ -122,7 +122,7 @@ class ForegroundWindows(unittest.TestCase):
             def __init__(self, raw):
                 self.raw = raw
             def execute(self, sql, params=()):
-                if 'status NOT IN' in sql and 'ORDER BY ord DESC LIMIT' in sql:
+                if 'status NOT IN' in sql and 'ord DESC LIMIT' in sql:
                     plans.append(self.raw.execute('EXPLAIN (ANALYZE, FORMAT JSON) ' + sql, params).fetchone()[0])
                 return self.raw.execute(sql, params)
         with fg._snapshot(self.slug) as (raw, stamp):
@@ -144,6 +144,27 @@ class ForegroundWindows(unittest.TestCase):
             self.assertLessEqual(scan['Actual Rows'], ledger.ASK_HISTORY_KEEP, plan)
             self.assertEqual(scan.get('Rows Removed by Filter', 0), 0, plan)
         self.assertTrue(all(row['status'] != 'withdrawn' for row in result['asks']['credit_requests']))
+
+    def test_header_history_is_the_most_recently_resolved(self):
+        # docket v3-an-answered-question-vanishes-from-the-inbox: an old
+        # question answered last must be in the history, on PostgreSQL too
+        org = store.load_org(self.slug)
+        keep = ledger.ASK_HISTORY_KEEP
+        org.d['asks'] = (
+            [{'id': 'old', 'node': 'leaf', 'status': 'answered', 'at': '2026-09-30T08:00:00Z',
+              'resolved_at': '2026-09-30T12:00:00Z', 'question': 'answered last', 'questions': []}]
+            + [{'id': f'n{i}', 'node': 'leaf', 'status': 'answered',
+                'at': f'2026-09-30T09:{i:02d}:00Z', 'resolved_at': f'2026-09-30T10:{i:02d}:00Z',
+                'question': 'earlier', 'questions': []} for i in range(keep + 20)])
+        store.save_org(org)
+        expected = store.load_org(self.slug)
+        result = self.windows()
+        self.assertIn('old', [a['id'] for a in result['asks']['asks']])
+        projected = ledger.Org(copy.deepcopy(expected.d))
+        for section, rows in result['asks'].items():
+            projected.d[section] = rows
+        self.assertEqual(projected.tree()['asks'], expected.tree()['asks'])
+        self.assertIn('old', [a['id'] for a in expected.tree()['asks']])
 
     def test_ask_batch_linger_and_header_match_shared_ledger_with_large_history(self):
         org = store.load_org(self.slug)

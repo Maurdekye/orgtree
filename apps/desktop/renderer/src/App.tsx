@@ -2618,7 +2618,15 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   // point 31: re-render when a card is submitted (openAsks drops it)
   useSubmittedAsks()
   const askPending = openAsks(tree, nodes.values()).map(askRow)
-  const askDone = asks.filter((a) => !askOpen(a)).slice(-8).map(askRow)
+  // the EIGHT MOST RECENTLY RESOLVED, not the eight most recently created:
+  // an older question answered now must not drop out of the list because
+  // later-created requests resolved before it (docket v3-an-answered-
+  // question-vanishes-from-the-inbox). ⚠ `.slice(-8)` is read by
+  // tests/test_tree_render_cost.py §9 against ledger.ASK_HISTORY_KEEP.
+  const resolvedAt = (a: AskInfo) => String(a.resolved_at ?? a.at ?? '')
+  const askDone = asks.filter((a) => !askOpen(a))
+    .sort((a, b) => (resolvedAt(a) < resolvedAt(b) ? -1 : resolvedAt(a) > resolvedAt(b) ? 1 : 0))
+    .slice(-8).map(askRow)
   // a card the user just submitted leaves the waiting group but NOT the list
   // (user 2026-09-30: "the respective mail vanished completely"): it stays
   // where it was, as the answered card with the user's answer, until the
