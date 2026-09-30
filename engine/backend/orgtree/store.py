@@ -8348,6 +8348,20 @@ def _assemble_snapshot(slug: str, prev: Org) -> tuple[Org, int] | None:
                              or (k in LAZY_SECTIONS and k in present2)
                              or (k == RECEIPT_KEY and d2._receipt_present)]
             d2._present = {k for k in present2 if k not in docish}
+            # CARRY `project()` READS OF UNCHANGED SECTIONS. The docket badge
+            # projects the whole archive on every tree read (`work_counts`),
+            # and a fresh snapshot started with no projections, so every
+            # commit — a hand re-parent included — re-paid that scan on the
+            # read right after it: MEASURED ~118 ms of a 184 ms view build at
+            # 100 agents (docket v3-moving-an-agent-to-a-new-parent-by-hand-
+            # takes). A section no save changed since `prev` holds the same
+            # rows (every log_l write goes through a publishing save — the
+            # invariant on `_changed_lock`), so its projection is still exact.
+            for pkey, prows in prev_d._proj.items():
+                k = pkey[0]
+                if (k not in keys and k in d2._present
+                        and k not in prev_d._pending and k not in prev_d._dropped):
+                    d2._proj[pkey] = prows
             d2._normalized_nodes = carried  # type: ignore[attr-defined]  # Org.__init__ honors it
             d2._eager_bytes = (sum(len(v) for v in d2._snap_doc.values())
                                + sum(len(v) for v in d2._snap_nodes.values()))
