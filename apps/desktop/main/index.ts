@@ -527,6 +527,9 @@ else {
    *  it. A restart offered during a quit, an update install or an installer
    *  upgrade would fight the very shutdown those paths are performing. */
   const engineRestartBlocked = () => !engineRestartOptions || quitting || updateApplying || installerUpgradeShutdown
+  // A hung engine THIS APP started is ended and replaced by the engine's own
+  // liveness watch (engine.ts), never while something else is taking it down.
+  engine.hungRestartAllowed = () => !engineRestartBlocked()
   const refreshTrayEngine = () => {
     if (trayMenu) refreshTrayEngineMenu(trayMenu, engine.status, engine.restartInProgress, engineRestartBlocked())
   }

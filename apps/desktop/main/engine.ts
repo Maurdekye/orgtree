@@ -78,6 +78,52 @@ export function mailhubStats(value: unknown): MailhubStats | undefined {
     ...(typeof raw.error === 'string' && raw.error ? { error: raw.error } : {}) }
 }
 
+/** HUNG-ENGINE RECOVERY for an engine THIS APP started (item
+ *  v3-hung-engine-recovery-also-for-an-engine-the-d). On 2026-09-30 the engine
+ *  stopped answering for ten minutes while its process lived on and kept the
+ *  root lock. The boot host (engine/service_host.py) now ends and replaces
+ *  such an engine; these are ITS rules, number for number, so an engine is
+ *  judged the same whoever started it. tests/engine-liveness.test.mjs reads
+ *  service_host.py and fails if the two ever differ.
+ *
+ *  ONE WATCHER PER ENGINE: only a managed child is watched here. An attached
+ *  engine belongs to its boot host, whose own watch acts on it. */
+export const LIVENESS = {
+  intervalMs: 30_000,
+  probeTimeoutMs: 60_000,
+  deadlineMs: 300_000,
+  minFailures: 3,
+  restartLimit: 3,
+  restartWindowMs: 3_600_000,
+}
+export const LIVENESS_LOG = path.join('diagnostics', 'engine-liveness.jsonl')
+
+/** HUNG needs BOTH a long silence since the last good answer and several
+ *  failed probes: one slow answer is contention, not a hang. */
+export class LivenessWatch {
+  lastOk: number
+  failures = 0
+  lastError: string | null = null
+  constructor(private readonly clock: () => number = Date.now, private readonly rules = LIVENESS) { this.lastOk = clock() }
+  record(error: string | null): void {
+    if (error === null) { this.lastOk = this.clock(); this.failures = 0; this.lastError = null }
+    else { this.failures += 1; this.lastError = error }
+  }
+  silentMs(): number { return this.clock() - this.lastOk }
+  hung(): boolean { return this.failures >= this.rules.minFailures && this.silentMs() >= this.rules.deadlineMs }
+}
+
+/** The engine keeps no log of its own death; this line is the record of a
+ *  hang that was ended. Same file and fields as the boot host writes, plus
+ *  `watcher: 'desktop'`. Best effort: a full disk must not stop the recovery. */
+export function recordLiveness(root: string, event: Record<string, unknown>): void {
+  try {
+    const file = path.join(root, LIVENESS_LOG)
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.appendFileSync(file, JSON.stringify({ at: new Date().toISOString().replace(/\.\d+Z$/, 'Z'), ...event, watcher: 'desktop' }) + '\n')
+  } catch { /* best effort */ }
+}
+
 /** One fresh managed child, or an authenticated attachment to the boot
  *  host's engine. Never discovers or attaches by a bare .port file: attaching
  *  requires the descriptor's token AND an /api/desktop/identity proof of
@@ -108,6 +154,15 @@ export class Engine extends EventEmitter {
   /** Injectable for tests; the default is the real NTFS owner + exclusive
    *  write-boundary query (file and parent directory). */
   trustCheck: (file: string) => Promise<DescriptorOwner> = verifyDescriptorTrust
+
+  /** Set by the app: false while it is quitting or installing, when the
+   *  engine is being taken down anyway and a hang must not start another. */
+  hungRestartAllowed: () => boolean = () => true
+  /** The live watch of the managed child; undefined when nothing is watched. */
+  private liveness?: { child: ChildProcessWithoutNullStreams; timer: ReturnType<typeof setInterval>; watch: LivenessWatch }
+  /** When each hung engine was ended, for the hourly restart limit. */
+  private hangs: number[] = []
+  private lastOptions?: EngineOptions
 
   /** Keep trying to attach for a bounded window. A missing descriptor only
    *  means no host has FINISHED starting — during the boot race the host may
@@ -161,6 +216,7 @@ export class Engine extends EventEmitter {
    *  clobber it (opus N3 — the guard was real but untestable inline). */
   childExited(child: ChildProcessWithoutNullStreams): void {
     if (this.child !== child) return
+    this.stopLiveness()
     this.endpoint = ''
     this.state({ state: 'stopped', message: this.stopping ? 'Engine stopped' : 'Engine exited. Restart Orgtree to recover.' })
   }
@@ -218,6 +274,7 @@ export class Engine extends EventEmitter {
 
   async start(options: EngineOptions): Promise<void> {
     if (this.child) throw new Error('Engine already started')
+    this.lastOptions = options
     const root = validateDataRoot(options.dataRoot, options.forbiddenRoot)
     if (!path.isAbsolute(options.python) || !fs.existsSync(options.python)) throw new Error('Python runtime is missing. Configure ORGTREE_V2_PYTHON for development.')
     if (!fs.existsSync(path.join(options.directory, 'launch.py'))) throw new Error('Python engine has not been packaged')
@@ -300,7 +357,11 @@ export class Engine extends EventEmitter {
           }
           try {
             const ready = parseReady(line, realRoot, child.pid ?? -1)
-            if (ready) { this.endpoint = `http://127.0.0.1:${ready.port}`; this.state({ state: 'ready' }); finish(); return }
+            if (ready) {
+              this.endpoint = `http://127.0.0.1:${ready.port}`
+              this.watchLiveness(child, realRoot)
+              this.state({ state: 'ready' }); finish(); return
+            }
           } catch (error) { finish(error as Error); return }
         }
       }
@@ -730,11 +791,97 @@ export class Engine extends EventEmitter {
     return (await this.awaitAttachedRelease('', '', lockFile, QUIT_DEADLINES.provenMs)).released
   }
 
+  /** The liveness rules in force; tests shorten them, the app never does. */
+  livenessRules = LIVENESS
+
+  /** Arm the watch on a managed child that has just announced readiness. */
+  private watchLiveness(child: ChildProcessWithoutNullStreams, root: string): void {
+    this.stopLiveness()
+    if (!this.managed) return
+    const watch = new LivenessWatch(Date.now, this.livenessRules)
+    let busy = false
+    const timer = setInterval(() => {
+      if (busy) return // a probe still waiting out its timeout is still the check in progress
+      busy = true
+      void this.checkLiveness(child, root, watch).finally(() => { busy = false })
+    }, this.livenessRules.intervalMs)
+    timer.unref?.()
+    this.liveness = { child, timer, watch }
+  }
+
+  private stopLiveness(): void {
+    if (!this.liveness) return
+    clearInterval(this.liveness.timer)
+    this.liveness = undefined
+  }
+
+  /** Did the engine answer its liveness route as ITSELF (pid and root)?
+   *  null when it did, else why not. The route is a plain `def`, so it needs
+   *  the engine's event loop AND a free worker thread. */
+  async probeAlive(pid: number, root: string): Promise<string | null> {
+    try {
+      const response = await fetch(this.endpoint + '/api/desktop/alive', { headers: { [TOKEN_HEADER]: this.credential },
+        signal: AbortSignal.timeout(this.livenessRules.probeTimeoutMs), redirect: 'error' })
+      if (!response.ok) return `status ${response.status}`
+      const identity = await response.json() as { pid?: unknown; dataRootId?: unknown }
+      if (identity.pid !== pid || typeof identity.dataRootId !== 'string'
+        || canonicalPath(identity.dataRootId) !== canonicalPath(root)) return 'the engine answered with another identity'
+      return null
+    } catch (error) {
+      return (error instanceof Error ? `${error.name}: ${error.message}` : 'the probe failed').slice(0, 300)
+    }
+  }
+
+  /** One probe of the watched child. Once it is HUNG, end it and start a
+   *  fresh one — through the SAME one-at-a-time slot as the tray's restart,
+   *  so a hang and a click can never start two engines between them. */
+  async checkLiveness(child: ChildProcessWithoutNullStreams, root: string, watch: LivenessWatch): Promise<void> {
+    if (this.liveness?.child !== child) return
+    watch.record(await this.probeAlive(child.pid ?? -1, root))
+    if (this.liveness?.child !== child || !watch.hung()) return
+    if (this.stopping || this.restarting || !this.managed || this.child !== child || !this.hungRestartAllowed()) return
+    const attempt = this.endHungEngine(child, root, watch)
+    this.restarting = attempt
+    try { await attempt } catch { /* the engine's status carries the reason */ } finally { this.restarting = undefined }
+  }
+
+  /** Record the hang, kill the tree, PROVE the root released, and only then
+   *  start a fresh engine — at most `restartLimit` times an hour. An unproven
+   *  release starts nothing: never two engines on one root. */
+  private async endHungEngine(child: ChildProcessWithoutNullStreams, root: string, watch: LivenessWatch): Promise<void> {
+    this.stopLiveness()
+    const pid = child.pid ?? -1
+    recordLiveness(root, { event: 'hung', enginePid: pid, silentSeconds: Math.round(watch.silentMs() / 100) / 10,
+      failedProbes: watch.failures, lastError: watch.lastError })
+    this.stopping = true // its exit is this recovery's doing, not a crash to report
+    this.endpoint = ''
+    this.state({ state: 'stopped', message: 'The engine stopped answering. Restarting it…' })
+    if (pid > 0 && child.exitCode === null && child.signalCode === null) await this.forceKillTree(pid)
+    const options = this.lastOptions
+    const released = !!options && await this.stoppedConfirmed(QUIT_DEADLINES.releaseMs) && await this.rootReleased(options)
+    recordLiveness(root, { event: 'killed', enginePid: pid, released })
+    if (!released || !options) {
+      this.state({ state: 'unavailable', message: 'The engine stopped answering and was ended, but it was not proven to have let go of its data, so Orgtree will not start a second engine. Quit and reopen Orgtree.' })
+      return
+    }
+    const now = Date.now()
+    this.hangs = [...this.hangs.filter(at => now - at < this.livenessRules.restartWindowMs), now]
+    if (this.hangs.length > this.livenessRules.restartLimit) {
+      recordLiveness(root, { event: 'not-restarted', hangsWithinWindow: this.hangs.length })
+      this.state({ state: 'unavailable', message: `The engine stopped answering ${this.hangs.length} times within an hour, so Orgtree stopped restarting it. Use Restart engine in the tray to try again.` })
+      return
+    }
+    this.child = undefined
+    this.stopping = false
+    await this.start(options)
+  }
+
   async stop(): Promise<void> {
     // An attached boot-host engine outlives this window by design; only the
     // host (or the operator's task controls) stops it.
     if (!this.managed) return
     this.stopping = true
+    this.stopLiveness()
     const child = this.child
     if (!child || child.exitCode !== null) return
     if (this.endpoint) {
