@@ -46,10 +46,11 @@ function node(): CanvasNode {
 
 // z .24 is the desktop wheel's zoom-out clamp (OrgCanvas), i.e. the "maximum
 // zoom" of the report; .8 is an ordinary one.
-function card(lod: 'mini' | 'norm', sink: Sink = { spawned: [], downs: [] }) {
+function cardElement(lod: 'mini' | 'norm', sink: Sink = { spawned: [], downs: [] },
+    focused = false, pinnedFocus = false) {
   const nd = node()
-  return mountView(
-    <NodeSquare node={nd} pos={{ x: 0, y: 0 }} lod={lod} focused={false}
+  return (
+    <NodeSquare node={nd} pos={{ x: 0, y: 0 }} lod={lod} focused={focused} pinnedFocus={pinnedFocus}
       dragging={false} isDrop={false} seats={seats} codexHire={hire}
       antigravityHire={hire} claudeHire={hire}
       map={new Map([[nd.id, nd]])} op={op} slug="org" toast={noop}
@@ -61,10 +62,12 @@ function card(lod: 'mini' | 'norm', sink: Sink = { spawned: [], downs: [] }) {
       onConfig={noop} onInbox={noop} onLineage={noop} onOpenDoc={noop}
       onRecenter={noop} onJump={noop} onMailLink={noop}
       onDragStart={(_e, id) => sink.downs.push(id)}
-      onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />,
-    (el) => el)
+      onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />)
 }
 
+function card(lod: 'mini' | 'norm') {
+  return mountView(cardElement(lod), (el) => el)
+}
 
 const hover = async (el: Element) => inAct(() => {
   el.querySelector('.sq')!.dispatchEvent(new MouseEvent('pointerover', { bubbles: true }))
@@ -128,4 +131,39 @@ test('at normal zoom the existing in-card reveal is untouched', async (t) => {
   t.after(() => view.unmount())
   await hover(view.el)
   assert.equal(view.el.querySelector('.sq-far-ghost'), null)
+})
+
+for (const target of ['normal zoom', 'open desk', 'pinned desk'] as const) {
+  test(`a revealed mini name disappears immediately on switching to ${target}`, async (t) => {
+    const view = await card('mini')
+    t.after(() => view.unmount())
+    await hover(view.el)
+    assert.equal(!!view.el.querySelector('.sq-far-ghost.on'), true, 'positive reveal control')
+    await view.render(cardElement(target === 'normal zoom' ? 'norm' : 'mini', undefined,
+      target === 'open desk', target === 'pinned desk'))
+    assert.equal(!!view.el.querySelector('.sq-far-ghost'), false, 'no mini overlay during the new presentation')
+    assert.equal(view.el.querySelector('.sq')!.classList.contains('far-ghosted'), false)
+    await view.render(cardElement('mini'))
+    assert.equal(!!view.el.querySelector('.sq-far-ghost.on'), true, 'still-hovered mini card reveals on return')
+  })
+}
+
+test('zooming during pointer-leave retraction removes the overlay without reviving it on return', async (t) => {
+  const view = await card('mini')
+  t.after(() => view.unmount())
+  await hover(view.el)
+  await inAct(() => {
+    view.el.querySelector('.sq')!.dispatchEvent(new MouseEvent('pointerout', {
+      bubbles: true, relatedTarget: document.body,
+    }))
+  })
+  assert.equal(!!view.el.querySelector('.sq-far-ghost'), true, 'eligible leave retains the reverse animation')
+  assert.equal(!!view.el.querySelector('.sq-far-ghost.on'), false)
+  await view.render(cardElement('norm'))
+  assert.equal(!!view.el.querySelector('.sq-far-ghost'), false, 'zoom cancels retraction immediately')
+  await view.render(cardElement('mini'))
+  assert.equal(!!view.el.querySelector('.sq-far-ghost'), false, 'no stale retained state on rapid return')
+  await hover(view.el)
+  await inAct(() => new Promise((r) => setTimeout(r, 350)))
+  assert.equal(!!view.el.querySelector('.sq-far-ghost.on'), true, 'cancelled leave timer cannot remove a new reveal')
 })

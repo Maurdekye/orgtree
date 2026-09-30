@@ -1624,7 +1624,8 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   // is click-through, so a copy in the world layer, above every card, costs no
   // hit-testing; the in-card copy is hidden while it shows.
   const [nameFocus, setNameFocus] = useState(false)
-  const farWant = lod === 'mini' && (nameHover || nameFocus) && !focused
+  const farEligible = lod === 'mini' && !focused && !mapMode
+  const farWant = farEligible && (nameHover || nameFocus)
   // The copy starts in the card's resting look and is switched to the revealed
   // look right after it is laid out, so the original lift/fade plays; on leaving it stays
   // mounted until the reverse has played.
@@ -1632,6 +1633,13 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   const [farOn, setFarOn] = useState(false)
   const ghostRef = useRef<HTMLSpanElement>(null)
   useLayoutEffect(() => {
+    // Only pointer/focus leave retracts the mini reveal. A zoom or desk change
+    // replaces that presentation immediately, including a rapid return to mini.
+    if (!farEligible) {
+      setFarMounted(false)
+      setFarOn(false)
+      return
+    }
     if (farWant) {
       setFarMounted(true)
       void ghostRef.current?.offsetWidth // commit the resting look so the change below animates
@@ -1641,8 +1649,8 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
     setFarOn(false)
     const t = setTimeout(() => setFarMounted(false), 260)
     return () => clearTimeout(t)
-  }, [farWant])
-  const farGhost = farWant || farMounted
+  }, [farWant, farEligible])
+  const farGhost = farEligible && (farWant || farMounted)
   const [fullNameAt, setFullNameAt] = useState<{ left: number; top: number } | null>(null)
   useLayoutEffect(() => {
     const el = nameRef.current
