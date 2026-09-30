@@ -33,8 +33,9 @@ const tree = { slug: 'probe', name: 'probe', epoch: 1, rev: 1,
   audit: { live_nodes: 3, top_level_holds: 12, no_overdraft: true, problems: [] },
   max_top_grant: 1000, default_top_grant: 50, compact_at: 0, cost_usd_total: 0,
   work_items_summary: { attention: 0, active: 0 }, user_inbox_count: 0 } as unknown as TreePayload
-const count = Number(new URLSearchParams(location.search).get('rows') || 3000)
-const messages = Array.from({ length: count }, (_, seq) => ({
+const copiedMessages = (window as unknown as { copiedMessages?: Record<string, unknown>[] }).copiedMessages
+const count = copiedMessages?.length ?? (Number(new URLSearchParams(location.search).get('rows')) || 3000)
+const messages = copiedMessages ? copiedMessages.map((message, seq) => ({ ...message, seq })) : Array.from({ length: count }, (_, seq) => ({
   seq, event_id: `event-${seq}`, native_event_id: `event-${seq}`,
   role: seq % 7 === 0 ? 'user' : seq % 31 === 0 ? 'system' : 'assistant',
   text: `Transcript row ${seq}\n\n` + 'Measured renderer work with **markdown**, `code` and tool output. '.repeat(8),
