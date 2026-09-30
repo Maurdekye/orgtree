@@ -252,7 +252,9 @@ test('§3 provider rows present status and model-tier detail', async () => {
   try {
     const panel = view.el.querySelector<HTMLElement>('#app-settings-panel-providers')!
     assert.equal(panel.querySelectorAll('.acct-provider-group').length, 3)
-    assert.equal(panel.querySelectorAll('.acct-provider-tier').length, 8)
+    // 8 in the fixture; Terra is left out while "show legacy models" is off
+    assert.equal(panel.querySelectorAll('.acct-provider-tier').length, 7)
+    assert.doesNotMatch(panel.textContent ?? '', /gpt-5\.6-terra/)
     assert.match(panel.textContent ?? '', /Installed · connected/)
     assert.match(panel.textContent ?? '', /Model tiers/)
     assert.match(panel.textContent ?? '', /Haiku/)
