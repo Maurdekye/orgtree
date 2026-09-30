@@ -2305,7 +2305,12 @@ export function revealFileFromEvent(e: {
   return true
 }
 if (typeof document !== 'undefined') {
-  document.addEventListener('click', copyCodeFromEvent)
+  // CAPTURE, not bubble (docket v3-copy-button-on-code-blocks-in-the-agent-chat):
+  // every PinFrame panel — the Attention view's desk, mail, the docket,
+  // presentations — stops click propagation at its panel (modalpin.tsx), so a
+  // bubbling listener never heard a copy click inside one and the button did
+  // nothing. Popped-out windows already listen in capture (popout.tsx).
+  document.addEventListener('click', copyCodeFromEvent, true)
   document.addEventListener('click', revealFileFromEvent)
 }
 /** `imgBase` (optional): the node-scoped /file URL prefix relative image
