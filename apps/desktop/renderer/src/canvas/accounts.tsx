@@ -83,7 +83,7 @@ const sevOf = (l: UsageLimit): '' | 'warn' | 'crit' => {
  *  and the two differ constantly — a fallback has capacity for opus the whole
  *  time opus is happily running on the primary above it. */
 export function TierStandings({ tiers }: { tiers: TierStanding[] }) {
-  // Terra only with "show legacy models" on, like every tier chooser
+  // Terra and Gemini Pro only with "show legacy models" on, like every tier chooser
   useShowLegacyModels()
   return (
     <div className="acct-tiers">
@@ -288,10 +288,10 @@ function ShowLegacyModelsToggle() {
   const on = useShowLegacyModels()
   return (
     <SetGroup title="Legacy models">
-      <SetToggle label="show legacy models (Terra)" checked={on}
+      <SetToggle label="show legacy models (Terra, Gemini Pro)" checked={on}
         onChange={setShowLegacyModelsOn}
-        hint={'off: hire and model choices, and the model tier lists, leave Terra out. Agents already on '
-          + 'Terra keep running and show their model either way.'} />
+        hint={'off: hire and model choices, and the model tier lists, leave Terra and Gemini Pro out. '
+          + 'Agents already on them keep running and show their model either way.'} />
     </SetGroup>
   )
 }
@@ -550,7 +550,7 @@ export function AccountsPanel({ toast, close, initialTab }: {
   toast: ToastFn; close: () => void; initialTab?: AppSettingsTab
 }) {
   const [tab, setTab] = useState<AppSettingsTab>(initialTab ?? 'providers')
-  // the Model tiers list leaves Terra out unless "show legacy models" is on
+  // the Model tiers list leaves Terra and Gemini Pro out unless "show legacy models" is on
   useShowLegacyModels()
   useEffect(() => {
     const open = (e: Event) => {

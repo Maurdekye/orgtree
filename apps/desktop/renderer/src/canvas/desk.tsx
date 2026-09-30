@@ -4284,7 +4284,7 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
                     {[...ALL_TIERS, ...openrouterTierIds()]
                       .filter((t) => t !== b.tier
                         && tierShown(presence, t, b.tier)
-                        // Terra only with "show legacy models" on
+                        // Terra and Gemini Pro only with "show legacy models" on
                         && !optInLegacyHidden(t))
                       .map((t) => {
                       const why = rehireWhy(t, b.tier)

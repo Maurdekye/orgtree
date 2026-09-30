@@ -65,7 +65,7 @@ const hasClass = (el: Element, c: string) => el.className.split(/\s+/).includes(
 test('§1 terra is hidden by default and follows the Codex family once shown',
   (t: TestContext) => {
     fresh(t)
-    assert.deepEqual(OPT_IN_LEGACY_TIERS, ['terra'])
+    assert.deepEqual(OPT_IN_LEGACY_TIERS, ['terra', 'pro'])
     assert.equal(showLegacyModelsOn(), false, 'off by default')
     const states: (HireState | null)[] = [null, ON,
       { ...ON, offeredTiers: ['luna', 'terra', 'sol'] },
@@ -264,12 +264,12 @@ test('§5 App settings > Runtime carries the toggle (and no other tab does), off
     t.after(() => v.unmount())
     await inAct(async () => { await flush(10) })
     const holders = [...document.querySelectorAll('[role="tabpanel"]')]
-      .filter((p) => /show legacy models \(Terra\)/.test(p.textContent ?? ''))
+      .filter((p) => /show legacy models \(Terra, Gemini Pro\)/.test(p.textContent ?? ''))
     assert.deepEqual(holders.map((p) => p.id), ['app-settings-panel-runtime'],
       'the toggle must be in the Runtime tab and in no other tab')
     const panel = holders[0]
     const row = [...panel!.querySelectorAll('label')]
-      .find((l) => /show legacy models \(Terra\)/.test(l.textContent ?? ''))
+      .find((l) => /show legacy models \(Terra, Gemini Pro\)/.test(l.textContent ?? ''))
     assert.ok(row, 'the Runtime tab has no "show legacy models (Terra)" toggle')
     assert.equal(document.getElementById('app-settings-panel-providers')?.textContent?.includes('Legacy models'),
       false, 'the old "Legacy models" section is still in the Providers tab')

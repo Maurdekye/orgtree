@@ -25,7 +25,7 @@ import {
   CloseIcon, DeleteIcon, FolderIcon, LayersIcon, SettingsIcon,
 } from '../icons'
 import { agentNavProps } from './agentnav'
-import { ago, ALL_PRESENT, anyTierSeat, codexTierOffer, CODEX_TIERS, ANTIGRAVITY_TIERS, fmtCredits, hireOf, isOpenRouterTier, legacyMark, MODEL_VERSIONS, openrouterTierIds, pileOrder, PROVIDER_LABEL, providerOf, stateLabel, TIER_LETTER, tierCapabilityNotes, tierLabel, TIERS, tierShown, USER, useEsc, useShowLegacyModels } from './shared'
+import { ago, ALL_PRESENT, anyTierSeat, codexTierOffer, CODEX_TIERS, ANTIGRAVITY_TIERS, fmtCredits, hireOf, isOpenRouterTier, legacyMark, MODEL_VERSIONS, optInLegacyHidden, openrouterTierIds, pileOrder, PROVIDER_LABEL, providerOf, stateLabel, TIER_LETTER, tierCapabilityNotes, tierLabel, TIERS, tierShown, USER, useEsc, useShowLegacyModels } from './shared'
 import type { ProviderPresence } from './shared'
 import type { CanvasNode, DraftScope, DraftState, OpFn, Pile } from './shared'
 import { ProcessLifecycleMark } from './desk'
@@ -1220,7 +1220,9 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   const shownTiers = (fam: readonly string[]) =>
     fam.filter((t) => tierShown(presence, t, node.tier)
       && !(CODEX_TIERS.includes(t) && codexTierOffer(codexHire, t) === 'hide'
-        && t !== node.tier))
+        && t !== node.tier)
+      // an opt-in legacy tier of another family (Gemini Pro), same keep rule
+      && !(optInLegacyHidden(t) && t !== node.tier))
   const modelOption = (t: string) => {
     const why = unavailable(t)
     // the OpenRouter catalog's declarations — tools, image input, the

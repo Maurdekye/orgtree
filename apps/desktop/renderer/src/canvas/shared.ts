@@ -88,8 +88,10 @@ export const LEGACY_CODEX_TIERS = ['gpt-reserve']
  *  them and a node wearing one keeps its letter, colour and seat — but no
  *  hire or switch surface offers them unless App settings > Providers >
  *  "show legacy models" is on, and then they carry a "legacy" mark. Unlike
- *  LEGACY_CODEX_TIERS, which no surface ever offers. */
-export const OPT_IN_LEGACY_TIERS = ['terra']
+ *  LEGACY_CODEX_TIERS, which no surface ever offers. Gemini Pro (the
+ *  antigravity `pro` tier) joined on 2026-09-30 (user: "deprecate and disable
+ *  gemini pro", then: same "show legacy models" checkbox as Terra). */
+export const OPT_IN_LEGACY_TIERS = ['terra', 'pro']
 /** All KNOWN Codex tiers — legacy tokens (for the nodes wearing them) and
  *  the always-offered hireable family. A future rollout tier would be listed
  *  here but not in `CODEX_ALWAYS_TIERS`; `codexTierOffer` would then require
@@ -1197,7 +1199,7 @@ export const useHideRetired = (): boolean =>
 
 /* --------------------------- show legacy models (user 2026-09-30)
    OFF BY DEFAULT, same localStorage contract as the toggles above. Off, the
-   OPT_IN_LEGACY_TIERS (Terra) leave every hire and tier chooser; on, they
+   OPT_IN_LEGACY_TIERS (Terra, Gemini Pro) leave every hire and tier chooser; on, they
    come back marked "legacy". A DISPLAY preference only: agents already on a
    legacy tier show it either way, and the backend accepts it either way.
    ⚠ Surfaces that read `tierHiddenAsLegacy` (through `codexTierOffer` or

@@ -25,7 +25,7 @@ import {
   FullscreenIcon, PublicIcon, RemoveIcon, ViewListIcon,
 } from '../icons'
 import {
-  ago, ALL_TIER_SEAT, anyTierSeat, attentionPip, codexTierOffer, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, familyOffer, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, legacyMark, useShowLegacyModels, jumpTo, layout, NODE_H, NODE_W, noteTierModels, openrouterTierIds, orgPxc, presenceOf, segD, setOpenRouterTiers,
+  ago, ALL_TIER_SEAT, anyTierSeat, attentionPip, codexTierOffer, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, familyOffer, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, legacyMark, optInLegacyHidden, useShowLegacyModels, jumpTo, layout, NODE_H, NODE_W, noteTierModels, openrouterTierIds, orgPxc, presenceOf, segD, setOpenRouterTiers,
   providerOf, queuedSwitchTitle, savedView, saveView, segPoint, sizeOf, smooth, SPRING_C, SPRING_K, startView, startZoomOn, TIER_LETTER, TIER_SEAT, tierCapabilityNotes, tierLabel, TIERS, chartLayoutOf, useChartLayout, useCrowdPiles, useHideRetired, usePolled, USER, USER_H,
   treeParents, USER_W, withDraftTree, withPendingMoves, Z_DESK, Z_MAX, Z_MINI,
 } from './shared'
@@ -4263,7 +4263,9 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
   // just be "the family's first tier" — it has to be the first tier that is
   // ITSELF offerable.
   const tierOffer = (f: (typeof famRows)[number], t: string): FamilyOffer =>
-    f.key === 'codex' ? codexTierOffer(f.hire, t) : f.offer
+    f.key === 'codex' ? codexTierOffer(f.hire, t)
+      // an opt-in legacy tier of another family (Gemini Pro), toggle off
+      : optInLegacyHidden(t) ? 'hide' : f.offer
   const firstOfferable = famRows
     .flatMap((f) => f.tiers.filter((t) => tierOffer(f, t) === 'offer'))[0] ?? ''
   const providersOff = [claudeHire, codexHire, antigravityHire, openrouterHire]
