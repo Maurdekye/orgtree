@@ -27,7 +27,7 @@
 // the control proving the eye-panel case still behaves as it did BEFORE this
 // change — not as the withdrawn design would have had it.
 import './harness'
-import { FakeServer, flush, installFetch, mountView } from './harness'
+import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
@@ -416,4 +416,75 @@ test('§6 NEVER HOMELESS: an all-ineligible registry still has exactly one owner
     await flush()
     // `owner` itself asserts exactly one; the point here is that it does not throw
     assert.ok(owner(view.el), 'an all-ineligible registry left the desk homeless')
+  })
+
+/* ─── hover ping-pong (user report 2026-09-30) ───────────────────────────── */
+
+/**
+ * An agent's desk pinned in the Attention view (B) and the same agent's node
+ * zoomed on the canvas (A). Hovering either one re-renders ONLY that slot, so
+ * each hover is a prop update from one side. The two boxes are built so that
+ * exactly one of them changes per render: an unchanged element reference makes
+ * React skip the other, which is what hovering does in the app.
+ */
+function hoverPair(node: CanvasNode) {
+  const map = new Map([[node.id, node]])
+  const box = (which: string, props: Record<string, unknown>) => (
+    <div data-which={which} key={which}>
+      <DeskSlot node={node} map={map} op={op} slug="org" toast={noop} pub={false}
+        bare {...props} />
+    </div>
+  )
+  const wrap = (...kids: React.ReactNode[]) =>
+    <DeskHosts map={map} slug="org">{kids}</DeskHosts>
+  return { box, wrap }
+}
+const W = window as unknown as Window & typeof globalThis
+
+test('§8 hovering between two places never moves the desk; unsent text stays',
+  async (t: TestContext) => {
+    setup()
+    const n = agent('kappa')
+    const { box, wrap } = hoverPair(n)
+    let a = box('A', {}), b = box('B', {})
+    const view = await mountView(wrap(a, b), (el) => el)
+    t.after(() => view.unmount())
+    await flush()
+    assert.equal(owner(view.el), 'B', 'B registered last, so it opened with the desk')
+    const typed = view.el.querySelector('textarea') as HTMLTextAreaElement
+    assert.ok(typed, 'the desk rendered a composer')
+    await inAct(() => {
+      Object.getOwnPropertyDescriptor(W.HTMLTextAreaElement.prototype, 'value')!
+        .set!.call(typed, 'half a sentence')
+      typed.dispatchEvent(new W.Event('input', { bubbles: true }))
+    })
+    await flush()
+    // hover A, hover B, hover A, hover B — each re-renders ONE slot
+    for (let i = 0; i < 4; i++) {
+      if (i % 2 === 0) a = box('A', { compactAt: 0.4 + i / 100 })
+      else b = box('B', { compactAt: 0.4 + i / 100 })
+      await view.render(wrap(a, b))
+      await flush()
+      assert.equal(owner(view.el), 'B',
+        `hover ${i + 1} (${i % 2 === 0 ? 'A' : 'B'} re-rendered) moved the desk`)
+    }
+    const still = view.el.querySelector('textarea') as HTMLTextAreaElement
+    assert.equal(still, typed, 'the composer was remounted')
+    assert.equal(still.value, 'half a sentence', 'the unsent text was lost')
+
+    // moving it is an explicit click on the placeholder, and it keeps the text
+    const move = [...view.el.querySelectorAll('[data-which="A"] button')]
+      .find((btn) => btn.textContent === 'Move desk here') as HTMLButtonElement
+    assert.ok(move, 'the placeholder offers "Move desk here"')
+    await inAct(() => { move.click() })
+    await flush()
+    assert.equal(owner(view.el), 'A', 'the click moved the desk')
+    const moved = view.el.querySelector('textarea') as HTMLTextAreaElement
+    assert.equal(moved, typed, 'moving remounted the composer')
+    assert.equal(moved.value, 'half a sentence', 'moving lost the unsent text')
+    // and hovering B afterwards does not take it back
+    b = box('B', { compactAt: 0.9 })
+    await view.render(wrap(a, b))
+    await flush()
+    assert.equal(owner(view.el), 'A', 'hovering B after the move took the desk back')
   })

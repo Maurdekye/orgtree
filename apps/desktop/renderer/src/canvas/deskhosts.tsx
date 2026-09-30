@@ -190,6 +190,7 @@ class Desks {
       if (this.pendingPopouts.delete(key)) e.pendingPopout = true
       this.entries.set(key, e)
     }
+    const prev = e.slots.get(slot.id)
     e.slots.set(slot.id, slot)
     // ⚠ CAPTURED ON THE TRANSITION IN, AND NOWHERE ELSE. This runs again on
     // every prop change — RegisteredSlot's registration effect depends on
@@ -213,7 +214,31 @@ class Desks {
       // the borrowing slot is mounted, and ended once in `endBorrow`.
       if (e.detached) e.borrowedHandle = deskSurface(key)?.borrow?.()
     }
-    e.last = pick(e, slot)
+    // ⚠ A RE-RENDER IS NOT A CLAIM (user report 2026-09-30). `put` also runs
+    // on every prop update, and this used to hand the desk to whichever slot
+    // re-rendered last — so with an agent's desk pinned in the Attention view
+    // AND its node zoomed on the canvas, merely hovering each (a re-render)
+    // moved the live desk back and forth. Only a NEW registration, or a slot
+    // whose claim actually changed (it became eligible, or stopped being an
+    // automatic claim), competes for the desk; any other update just refreshes
+    // its props and ownership stays where it is. Moving it otherwise is an
+    // explicit act: "Move desk here" on the placeholder (`moveHere`).
+    const claims = !prev
+      || (!eligible(prev) && eligible(slot))
+      || (automatic(prev) && !automatic(slot))
+    const won = pick(e, claims ? slot : undefined)
+    e.last = e.slots.get(won.id) ?? won
+    this.change()
+  }
+
+  /** the user asked for this desk HERE — the placeholder's "Move desk here".
+   *  Refused while a temporary surface borrows it or while it is a native
+   *  window (that has its own "Return here"). */
+  moveHere(key: string, id: object) {
+    const e = this.entries.get(key)
+    const target = e?.slots.get(id)
+    if (!e || !target || e.borrowedBy || e.detached) return
+    e.last = target
     this.change()
   }
 
@@ -492,6 +517,8 @@ function RegisteredSlot({ desks, props }: { desks: Desks; props: DeskChatProps }
       {/* `id` is THIS slot: the desk comes back where it was asked for, which
           need not be the host it was popped out of. */}
       {e.detached && <button onPointerDown={stopPress} onClick={() => e.redock?.(id)}>Return here</button>}
+      {!e.detached && !e.borrowedBy && props.eligible !== false &&
+        <button onPointerDown={stopPress} onClick={() => desks.moveHere(key, id)}>Move desk here</button>}
     </InDesksPlace>}
   </div>
 }
