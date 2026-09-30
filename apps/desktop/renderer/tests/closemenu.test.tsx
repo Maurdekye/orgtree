@@ -643,9 +643,16 @@ test('§9 both document galleries: Close closes the OPEN document only', async (
 
   // the org-wide gallery — the surface the user reported
   const org = await mountView(<DocGalleryModal slug="org" toast={noop} close={noop} />, (h) => h)
+  t.after(() => org.unmount())
   await flush(6)
   const orgRows = () => [...org.el.querySelectorAll('.doc-gallery-row')] as HTMLElement[]
   assert.equal(orgRows().length, 2, 'POSITIVE CONTROL: the org gallery listed both')
+  assert.ok(orgRows()[0]!.classList.contains('on'), 'the newest document opened automatically')
+  await rightClick(orgRows()[0]!)
+  assert.equal(labels()[0], 'Close', 'the automatically opened document offers Close')
+  await pick('Close')
+  assert.ok(!orgRows()[0]!.classList.contains('on'), 'the automatic selection stays closed')
+  assert.ok(!orgRows()[1]!.classList.contains('on'), 'closing does not select the next document')
   await rightClick(orgRows()[0]!)
   await pick('Open')
   assert.ok(orgRows()[0]!.classList.contains('on'), 'POSITIVE CONTROL: it opened')
