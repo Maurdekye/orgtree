@@ -343,6 +343,8 @@ class EveryRealEngineRigIsIsolated(unittest.TestCase):
         'tests/acceptance/relaunch.cjs': ELECTRON_ENTRY,
         'tests/acceptance/unstick.cjs': ELECTRON_ENTRY,
         'tests/attach.test.mjs': 'reads service_host.py source; its engines are stub launchers',
+        'tests/engine-liveness.test.mjs': 'reads service_host.py source to pin its liveness numbers; '
+                                          'its engines are stub launchers',
         'tests/dev-install.test.mjs': 'names engine/launch.py in a package manifest only',
         'tests/release-windows.test.mjs': 'names engine/launch.py in release manifests only',
         'tests/traylist-wiring.test.mjs': 'reads engine/launch.py source only',
