@@ -707,7 +707,6 @@ export function AccountsPanel({ toast, close, initialTab }: {
       <OpenRouterSection provider={openrouter} toast={toast} pickerOpen={pickerOpen}
         setPickerOpen={setPickerOpen} onChanged={() => { void loadProviders() }}
         headRight={<ProviderSwitch provider={openrouter} busy={busy} onChange={toggleProvider} />} />
-      <ShowLegacyModelsToggle />
     </SettingsTabPanel>
     <SettingsTabPanel id="runtime" idBase="app-settings" active={tab === 'runtime'}>
       <DesktopSettings />
@@ -737,6 +736,7 @@ export function AccountsPanel({ toast, close, initialTab }: {
         <SetToggle label="also remind about blocked items when every ticket is blocked" checked={runtime?.blocked_docket_reminders_enabled === true}
           disabled={!runtime || busy} onChange={v => changeRuntime(setBlockedDocketRemindersEnabled, v)} />
       </SetGroup>
+      <ShowLegacyModelsToggle />
     </SettingsTabPanel>
     <SettingsTabPanel id="mailhub" idBase="app-settings" active={tab === 'mailhub'}>
       <MailHubSettings active={tab === 'mailhub'} />

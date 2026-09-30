@@ -11,7 +11,8 @@
 //      and the flip reaches an ALREADY-MOUNTED surface, not just the next one
 //   §4 an agent already on Terra still shows its model: its card token, and
 //      its own tier stays the selected option in its settings
-//   §5 the toggle lives in App settings > Providers, off by default
+//   §5 the toggle lives in App settings > Runtime (user 2026-09-30 17:09Z),
+//      off by default, and nowhere else
 //   §6 the tier LISTS follow it too: App settings > Model tiers and the
 //      Usage window's per-account tier rows
 //
@@ -256,20 +257,22 @@ test('§2/§3 auto-autopsy model list: no Terra, then Terra labelled legacy; a c
 
 /* ── §5 the toggle ───────────────────────────────────────────────────────── */
 
-test('§5 App settings > Providers carries the toggle, off by default, and it flips the preference',
+test('§5 App settings > Runtime carries the toggle (and no other tab does), off by default, and it flips the preference',
   async (t: TestContext) => {
     fresh(t)
     const v = await mountView(<AccountsPanel toast={noop} close={noop} />, (el) => el)
     t.after(() => v.unmount())
     await inAct(async () => { await flush(10) })
-    const panel = document.getElementById('app-settings-panel-providers')
-      ?? [...document.querySelectorAll('[role="tabpanel"]')]
-        .find((p) => /legacy models/i.test(p.textContent ?? ''))
-    assert.ok(panel, 'no Providers panel')
-    assert.match(panel!.id, /providers/, 'the toggle is not in the Providers tab')
+    const holders = [...document.querySelectorAll('[role="tabpanel"]')]
+      .filter((p) => /show legacy models \(Terra\)/.test(p.textContent ?? ''))
+    assert.deepEqual(holders.map((p) => p.id), ['app-settings-panel-runtime'],
+      'the toggle must be in the Runtime tab and in no other tab')
+    const panel = holders[0]
     const row = [...panel!.querySelectorAll('label')]
       .find((l) => /show legacy models \(Terra\)/.test(l.textContent ?? ''))
-    assert.ok(row, 'the Providers tab has no "show legacy models (Terra)" toggle')
+    assert.ok(row, 'the Runtime tab has no "show legacy models (Terra)" toggle')
+    assert.equal(document.getElementById('app-settings-panel-providers')?.textContent?.includes('Legacy models'),
+      false, 'the old "Legacy models" section is still in the Providers tab')
     const box = row!.querySelector<HTMLInputElement>('input[type="checkbox"]')
       ?? row!.querySelector<HTMLInputElement>('input')
     assert.ok(box, 'the toggle has no checkbox')
