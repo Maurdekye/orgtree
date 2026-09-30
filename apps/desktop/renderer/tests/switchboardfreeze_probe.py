@@ -23,12 +23,12 @@ try:
         ctx.on('page', lambda page: page.on('pageerror', lambda error: result['errors'].append(str(error))))
         page = ctx.new_page()
         page.set_default_timeout(5000)
-        page.goto((OUT / 'page' / 'probe.html').as_uri())
+        page.goto((OUT / 'page' / 'probe.html').as_uri() + '#canvas')
         page.locator('.attn-panel-desk textarea').wait_for()
         page.locator('.attn-panel-desk textarea').fill('keep this unsent draft')
         page.screenshot(path=str(OUT / 'before.png'))
         with page.expect_popup() as popup:
-            page.locator('.switchboard-fixture .popout-button').click()
+            page.locator('.switchboard-fixture .popout-button').first.click()
         child = popup.value
         child.set_default_timeout(5000)
         for agent in ['coordinator-opus', 'peer-a', 'peer-b']:
