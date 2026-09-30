@@ -64,6 +64,8 @@ test('ordinary state and provider-settings hover frames outrank idle accent bord
   assert.ok(match, 'ordinary hover rule excludes danger and native controls')
   assert.ok(match[2]!.includes('border-color: var(--button-accent)'))
   assert.ok(!/background:|(?:^|;)\s*color:/.test(match[2]!), 'override changes the frame only')
+  assert.ok(match[1]!.includes(':not(.kill-latch)') && match[1]!.includes(':not(.resume-all.notyet)'),
+    'killswitch latch and premature resume warning retain deliberate red frames')
   const specificity = (match[1]!.match(/\.[\w-]+/g) ?? []).length + 1
   assert.ok(specificity > 3, 'hover wins against idle .cc-eff.set and Providers hover state')
   assert.ok(css.includes('.cc-eff.set { color: var(--agent-accent-text, var(--accent)); border-color: var(--accent); }'),

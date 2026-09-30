@@ -154,11 +154,11 @@ try:
             result['cases'].append({'agent':agent,'drawer':drawer,'focus':focus,'header':global_control,'primary':primary,'states':states,'otherAgentMenu':menu})
 
         # Verify the same production danger selectors, without calling actions.
-        page.evaluate('''() => { for (const cls of ['danger','cc-send stop','disk-del']) {
+        page.evaluate('''() => { for (const cls of ['danger','cc-send stop','disk-del','kill-latch open','resume-all notyet']) {
           const b = document.createElement('button'); b.className = cls; b.textContent = cls;
           b.dataset.dangerProbe = cls; document.querySelector('.app').append(b);
         } }''')
-        for cls in ['danger','cc-send stop','disk-del']:
+        for cls in ['danger','cc-send stop','disk-del','kill-latch open','resume-all notyet']:
             selector = f'[data-danger-probe="{cls}"]'
             page.locator(selector).hover(force=True)
             danger = measure_border(page, selector, '--bad')
