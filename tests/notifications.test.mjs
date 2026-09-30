@@ -184,6 +184,14 @@ test('new destinations require exact source and agent generation identity', () =
   assert.throws(() => notification({ ...question, kind: 'document', source_id: undefined }), /identity/)
 })
 
+test('a work-attention notice keeps its raise identity (rev), and a bad one is refused', () => {
+  const work = { ...question, kind: 'work-attention', item: 'ticket', rev: 3 }
+  assert.equal(notification(work).rev, 3, 'the Work button matches dismissed raises on it')
+  assert.equal(notification({ ...question }).rev, undefined)
+  assert.throws(() => notification({ ...work, rev: -1 }), /rev/)
+  assert.throws(() => notification({ ...work, rev: '3' }), /rev/)
+})
+
 test('turning a pending category off and on retries without reviving the cancelled native handle', async () => {
   const { manager, native, opened } = fixture()
   const first = manager.notify(question, defaults)

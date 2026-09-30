@@ -393,6 +393,23 @@ def counts_raw(raw, org_id: int, *, viewer: str, now_ts: float) -> dict[str,int]
     return result
 
 
+def attention_raises_raw(raw, org_id: int, *, viewer: str) -> list[list]:
+    """Every manually flagged ticket this viewer can read, as [slug, set_rev]:
+    ONE IDENTITY PER RAISE. `set_rev` changes on every raise and is kept by an
+    amendment, and a dismissal must echo it, so the Work button can take off
+    exactly the raises the user dismissed while the count has not caught up,
+    and still count a new raise on the same ticket (docket
+    v3-dismissing-a-ticket-s-attention-flag-must-sto). Read in the caller's
+    snapshot, beside `counts_raw` and only after it answered."""
+    schema=f'org_{int(org_id)}'
+    rows=raw.execute(f"""SELECT i.slug, i.summary->'manual_attention'->>'set_rev'
+      FROM {schema}.work_read_policy p
+      JOIN {schema}.work_read_access a ON a.slug=p.slug AND a.viewer=%s
+      JOIN {schema}.work_index i ON i.slug=p.slug
+      WHERE p.manual ORDER BY i.slug""",(viewer,)).fetchall()
+    return [[slug,int(rev or 0)] for slug,rev in rows]
+
+
 def _counts_compute(raw, org_id, schema, viewer, now_ts):
     total=raw.execute(f'SELECT total FROM {schema}.work_read_totals WHERE viewer=%s',(viewer,)).fetchone()
     total=int(total[0]) if total else 0

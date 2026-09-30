@@ -94,6 +94,25 @@ class Counts(unittest.TestCase):
         self.refresh()
         self.assertEqual(self.counts(),dict(active=0,attention=1,archived=1,backlogged=0))
 
+    def test_attention_raises_name_each_readable_manual_raise_like_the_exact_path(self):
+        # One identity per raise (slug, set_rev) beside the toolbar count, so a
+        # dismissed raise leaves the Work glow at once and a new one never hides
+        # behind it (docket v3-dismissing-a-ticket-s-attention-flag-must-sto).
+        self.node('a','b')
+        self.add(dict(self.item('one'),manual_attention={'reason':'look','set_rev':4}))
+        self.add(dict(self.item('theirs'),owner={'node':'c'},manual_attention={'reason':'x','set_rev':2}))
+        self.add(self.item('plain'))
+        self.refresh()
+        def raises(viewer):
+            with pgstore.connect() as c,c.transaction():
+                c.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+                return workread.attention_raises_raw(c,self.oid,viewer=viewer)
+        self.assertEqual(raises(USER),[['one',4],['theirs',2]])
+        self.assertEqual(raises(USER),store.load_org(self.slug).work_attention_raises())
+        self.assertEqual(raises('a'),[['one',4]],'only the tickets this viewer can read')
+        self.assertEqual(raises('stranger'),[])
+        self.assertEqual(self.counts()['attention'],len(raises(USER)))
+
     def test_deadline_strict_boundary_malformed_and_legacy_status(self):
         from datetime import datetime,timezone
         stamp=datetime.fromtimestamp(self.now-3600,tz=timezone.utc).isoformat()

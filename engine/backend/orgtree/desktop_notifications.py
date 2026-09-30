@@ -68,12 +68,14 @@ def _terminal_failure(mail):
 
 
 def _adder(rows, slug, created):
-    def add(key, kind, title, body, agent=None, item=None, source_id=None, generation=None):
+    def add(key, kind, title, body, agent=None, item=None, source_id=None, generation=None,
+            rev=None):
         identity = f"{slug}:{created}:{key}"
         rows.append({'id':hashlib.sha256(identity.encode()).hexdigest(), 'org':slug,
                      'kind':kind, 'title':str(title)[:200], 'body':str(body or '')[:500],
                      **({'source_id':str(source_id)} if source_id is not None else {}),
                      **({'generation':generation} if generation is not None else {}),
+                     **({'rev':int(rev)} if rev is not None else {}),
                      **({'agent':str(agent)} if agent else {}), **({'item':str(item)} if item else {})})
     return add
 
@@ -106,8 +108,11 @@ def _attention(org):
         if attention:
             owner = item.get('owner') or {}
             epoch = item.get('notification_attention_epoch', (attention or {}).get('set_rev') or 1)
+            # `rev`: the raise's own identity (manual_attention.set_rev), which
+            # the Work button matches against the raises the user dismissed
             add('work:'+str(item.get('slug'))+':'+str(epoch),
-                'work-attention',item.get('title'),(attention or {}).get('reason') or 'An attached question needs your answer.',owner.get('node'),item.get('slug'))
+                'work-attention',item.get('title'),(attention or {}).get('reason') or 'An attached question needs your answer.',owner.get('node'),item.get('slug'),
+                rev=int((attention or {}).get('set_rev') or 0))
     for doc in org.d.get('documents') or []:
         add('document:'+str(doc.get('id')), 'document', doc.get('title') or 'New presented document',
             'Presented by '+str(doc.get('node')), doc.get('node'), source_id=doc.get('id'))

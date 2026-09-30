@@ -12245,8 +12245,12 @@ class Org:
             # the docket toolbar badge (docket-final-spec.md): two counts over
             # the FULL item set, always present - the modal fetches the list
             # from GET /api/orgs/{slug}/work-items when it opens
-            "work_items_summary": {k: v for k, v in self.work_counts().items()
-                                   if k in ("attention", "active")},
+            "work_items_summary": {**{k: v for k, v in self.work_counts().items()
+                                      if k in ("attention", "active")},
+                                   # [slug, set_rev] per manual raise, so a
+                                   # dismissed raise leaves the glow at once
+                                   # and a new one never hides behind it
+                                   "raises": self.work_attention_raises()},
             # the org inbox panel (user spec): hidden until the org receives
             # its first outside mail OR an inbox audience is granted
             "org_inbox": {
@@ -14379,6 +14383,18 @@ class Org:
                 active += 1
         return {"attention": attention, "active": active,
                 "archived": archived, "backlogged": backlogged}
+
+    def work_attention_raises(self) -> list[list[Any]]:
+        """Every manually flagged ticket as [slug, set_rev] — one identity per
+        raise, served beside the toolbar counts (workread.attention_raises_raw
+        is the indexed reader; this is the exact path). The same item set as
+        `work_counts`: an item holding attention is never archived."""
+        out: list[list[Any]] = []
+        for it in list(self._work_active()) + list(self._work_archive_rows()):
+            flag = it.get("manual_attention")
+            if flag:
+                out.append([str(it.get("slug")), int(flag.get("set_rev") or 0)])
+        return sorted(out)
 
     def _work_deploy_recipient(self, it: WorkItem) -> str | None:
         """Return the live actor authorized to take a release-stage action.

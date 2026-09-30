@@ -87,7 +87,8 @@ class ForegroundContext:
         'children_index', 'model_for', 'versions_for', 'harness_for', 'prefer_reserve_for', 'effective_effort', 'node_ask', '_scope_item_label', '_tomb_expired',
         'seat_cost', 'free', 'is_kiosk', 'kiosk_ceiling', '_has_audience', 'multi_holder_enabled', '_boot_at', 'account_fallback_for'))
 
-    def __init__(self, *, settings, graph, funding, windows, inbox, work_counts, reuse=None):
+    def __init__(self, *, settings, graph, funding, windows, inbox, work_counts, reuse=None,
+                 work_raises=None):
         if work_counts is None:
             raise CompatibilityRequired('coherent work counts unavailable')
         # `reuse`: nodes an earlier context of THE SAME settings already
@@ -133,6 +134,7 @@ class ForegroundContext:
         self._inbox = copy.deepcopy(inbox)
         self._document_counts = dict(windows['document_counts'])
         self._work_counts = dict(work_counts)
+        self._work_raises = [list(r) for r in work_raises or ()]
         self._stamp = copy.deepcopy(graph['stamp'])
         self._funding = {r['id']: dict(r) for r in funding}
         self._committed = {}
@@ -173,6 +175,9 @@ class ForegroundContext:
 
     def work_counts(self):
         return dict(self._work_counts)
+
+    def work_attention_raises(self):
+        return [list(r) for r in self._work_raises]
 
     def extern_holders(self):
         from types import SimpleNamespace
@@ -250,13 +255,15 @@ def build(raw, slug: str, graph: dict, *, header: bool = True,
         raise CompatibilityRequired('indexed work count reader is not installed') from exc
     counts = workread.counts_raw(raw, graph['stamp']['org_id'], viewer=viewer,
                                 now_ts=time.time() if now_ts is None else now_ts)
+    raises = (None if counts is None else
+              workread.attention_raises_raw(raw, graph['stamp']['org_id'], viewer=viewer))
     # Node normalization reads these settings: a context whose nodes are
     # reused is only equivalent to a fresh one under the same settings.
     settings_key = tree_delta.encode({key: blobs.get(key) for key in SETTINGS})
     if reuse_settings != settings_key:
         reuse = None
     context = ForegroundContext(settings=blobs, graph=graph, funding=funding,
-        windows=windows, inbox=inbox, work_counts=counts, reuse=reuse)
+        windows=windows, inbox=inbox, work_counts=counts, work_raises=raises, reuse=reuse)
     # What was read, kept so a later advance with no doc change reuses it.
     context.inputs = {'blobs': blobs, 'funding': funding, 'windows': windows, 'inbox': inbox}
     context.settings_key = settings_key

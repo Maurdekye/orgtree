@@ -25,7 +25,7 @@
 import { memo, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useDocketWindow } from './docketwindow'
 import { usePendingAttention } from '../pending-attention'
-import { attentionNow, dismissAttention, flaggedNow, settleAttention, useDismissedAttention } from '../attndismiss'
+import { attentionNow, dismissAttention, flaggedNow, useDismissedAttention } from '../attndismiss'
 import type { ComponentProps, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
@@ -463,7 +463,7 @@ function SlugText({ item }: { item: WorkItem }) {
 }
 
 export function DocketToolbarButton({ summary, onClick, label, org }: {
-  summary?: { attention: number; active: number } | null
+  summary?: { attention: number; active: number; raises?: [string, number][] } | null
   onClick?: () => void
   /** the v3 compact header's name for this icon-only button: its
    *  `aria-label`, never visible text (user 2026-09-29). Absent everywhere
@@ -478,7 +478,7 @@ export function DocketToolbarButton({ summary, onClick, label, org }: {
 }) {
   const { attention: raw, active } = summary ?? { attention: 0, active: 0 }
   useDismissedAttention()
-  const attention = org ? attentionNow(org, raw) : raw
+  const attention = org ? attentionNow(org, raw, summary?.raises) : raw
   const hasAttn = attention > 0
   // count > 0 is load-bearing: `{count && ...}` renders a literal `0` in React
   const count = hasAttn ? attention : active
@@ -491,8 +491,6 @@ export function DocketToolbarButton({ summary, onClick, label, org }: {
   // see AskBell for why an icon-only indicator has to say itself twice.
   const pending = usePendingAttention()
   const flagged = org ? flaggedNow(org).length : pending.docket
-  // forget dismissals the sources now reflect, whichever of them moved
-  useEffect(() => { if (org) settleAttention(org, raw) }, [org, raw, pending])
   const waiting = flagged > 0
   return (
     <button className={'iconbtn docket-bell' + (hasAttn ? ' glow' : '')}

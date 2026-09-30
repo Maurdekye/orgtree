@@ -876,7 +876,13 @@ export interface TreePayload {
    *  archived done item with a pending question still counts). `active` =
    *  non-archived items whose status is not done/superseded/dropped, the
    *  muted fallback when attention is zero. */
-  work_items_summary: { attention: number; active: number }
+  work_items_summary: {
+    attention: number; active: number
+    /** every manually flagged ticket as [slug, set_rev] — one identity per
+     *  raise (ledger `work_attention_raises`), so a dismissed raise leaves the
+     *  Work glow at once and a new raise is never hidden behind it */
+    raises?: [string, number][]
+  }
   user_inbox_count: number
   /** D-169: how many of those unread mails were tagged urgent by their
    *  sender. Added to `asks_open` it makes the ATTENTION count, which

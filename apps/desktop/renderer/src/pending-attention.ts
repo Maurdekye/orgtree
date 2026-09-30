@@ -66,7 +66,12 @@ export interface PendingAttention {
   flagged: FlaggedRow[]
 }
 
-export interface FlaggedRow { org: string; slug: string; id: string }
+export interface FlaggedRow {
+  org: string; slug: string; id: string
+  /** the raise's `manual_attention.set_rev` (desktop_notifications.py); absent
+   *  from an older engine, when no row can be matched to a dismissal */
+  rev?: number
+}
 
 export interface WaitingRow {
   org: string
@@ -95,7 +100,8 @@ export function summarizePending(rows: readonly DesktopNotification[]): PendingA
     if (row.kind === 'work-attention') {
       docket++
       // the ticket's slug rides as `item` (desktop_notifications.py)
-      if (row.item) flagged.push({ org: row.org, slug: row.item, id: row.id })
+      if (row.item) flagged.push({ org: row.org, slug: row.item, id: row.id,
+        ...(typeof row.rev === 'number' ? { rev: row.rev } : {}) })
     } else {
       mail++
       waiting.push({ org: row.org, id: row.id, kind: row.kind as WaitingRow['kind'],
@@ -193,7 +199,8 @@ const parsePending = (raw: string | null): PendingAttention | null => {
     const flags = Array.isArray(flagged)
       ? flagged.filter((f): f is FlaggedRow => !!f && typeof f === 'object'
         && str((f as { org?: unknown }).org) && str((f as { slug?: unknown }).slug))
-        .map((f) => ({ org: f.org, slug: f.slug, id: str(f.id) ? f.id : '' }))
+        .map((f) => ({ org: f.org, slug: f.slug, id: str(f.id) ? f.id : '',
+          ...(typeof f.rev === 'number' ? { rev: f.rev } : {}) }))
       : []
     return { mail, docket, ids: ids as string[], items: rows, waiting: waits, flagged: flags }
   } catch { return null }

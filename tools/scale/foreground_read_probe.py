@@ -140,7 +140,7 @@ def arm(slug, history, ordinal):
         expected = decode(prime)
         if set(expected['nodes']) != {'boss', 'worker-0', 'worker-1', 'worker-2', 'worker-3'}:
             raise AssertionError('history leaked into foreground identities')
-        if expected['header']['work_items_summary'] != dict(active=1, attention=0):
+        if expected['header']['work_items_summary'] != dict(active=1, attention=0, raises=[]):
             raise AssertionError(('wrong real counts', expected['header']['work_items_summary']))
         if expected['header']['retired_total'] != history or expected['header']['org_inbox']['total'] != history:
             raise AssertionError('historical totals differ from fixture')

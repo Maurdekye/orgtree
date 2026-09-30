@@ -35,6 +35,9 @@ export interface DesktopNotification {
   /** The inbox row's source ID; the notification ID is an opaque dedup key. */
   source_id?: string
   generation?: number
+  /** work-attention only: the raise's `manual_attention.set_rev` — one
+   *  identity per raise, matched against the raises the user dismissed */
+  rev?: number
   kind: 'question' | 'urgent-mail' | 'terminal-failure' | 'work-attention' | 'routine' | 'document' | 'agent-frozen'
 }
 export interface NotificationIdentity { id: string; org: string }
