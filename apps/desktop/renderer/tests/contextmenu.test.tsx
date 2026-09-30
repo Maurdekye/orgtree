@@ -607,6 +607,12 @@ uiTest('ยงB3c org gallery row: Close closes the OPEN document and nothing else โ
   assert.equal(rows().length, 2, 'positive control: both rows rendered')
   const pane = () => v.el.querySelector('.mailer-read')!.textContent ?? ''
 
+  assert.ok(rows()[0]!.classList.contains('on'), 'the newest document opens automatically')
+  await rightClick(rows()[0]!)
+  assert.equal(labels()[0], 'Close', 'the automatic selection offers Close')
+  await pick('Close')
+  await flush(3)
+  assert.ok(!rows()[0]!.classList.contains('on'), 'the automatically opened row stays closed')
   await rightClick(rows()[0]!)
   assert.equal(labels()[0], 'Open', 'an unselected row offers Open')
   await pick('Open')
