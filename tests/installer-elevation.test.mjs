@@ -29,6 +29,54 @@ const root = path.resolve(import.meta.dirname, '..')
 const installer = fs.readFileSync(path.join(root, 'build/installer.nsh'), 'utf8')
 const helper = fs.readFileSync(path.join(root, 'tools/installer-upgrade.ps1'), 'utf8')
 
+// WHEN THE QUIET-TREE CASES CANNOT BE ANSWERED ON THIS MACHINE.
+//
+// The helper counts a process named in its TreeAmbiguousNames whose image path
+// it cannot read as possibly running from the installation, so it never
+// reports quiet while one exists. The installer runs the helper ELEVATED, where
+// every such path is readable. An UNELEVATED test runner cannot read an
+// elevated one — and Orgtree's own boot-task service host stays elevated by
+// design — so on a machine running Orgtree the cases that need "quiet" fail
+// for a reason that says nothing about the helper. Those cases skip, naming
+// the processes, only when the runner is not elevated AND such a process
+// exists. An elevated run always executes them in full. If this probe itself
+// fails, nothing is skipped.
+export function quietTreeSkipReason(probe) {
+  if (!probe || probe.elevated !== false) return false
+  const blind = [].concat(probe.blind || [])
+  if (blind.length === 0) return false
+  return 'UNEXECUTED here: this runner is not elevated and cannot read the image of ' + blind.join(', ') +
+    ', which the helper must count as possibly in the installation (the installer runs it elevated). Run elevated to exercise.'
+}
+
+function probeQuietTree() {
+  if (process.platform !== 'win32') return null
+  const names = /\$script:TreeAmbiguousNames = @\(([^)]*)\)/.exec(helper)
+  assert.ok(names, 'TreeAmbiguousNames not found in the helper')
+  const script = [
+    `$names = @(${names[1]})`,
+    '$id = [Security.Principal.WindowsIdentity]::GetCurrent()',
+    '$elevated = ([Security.Principal.WindowsPrincipal]$id).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)',
+    '$blind = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object { $_.Name -and ($names -contains $_.Name.ToUpperInvariant()) -and -not $_.ExecutablePath } | ForEach-Object { "$($_.Name)($($_.ProcessId))" })',
+    'ConvertTo-Json -Compress @{ elevated = $elevated; blind = $blind }',
+  ].join('\n')
+  const shellExe = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe')
+  const run = spawnSync(shellExe, ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', windowsHide: true, timeout: 60000 })
+  try { return JSON.parse(run.stdout) } catch { return null }
+}
+
+const quietTreeSkip = quietTreeSkipReason(probeQuietTree())
+
+test('the quiet-tree skip applies only to an unelevated runner that cannot read an ambiguous process', () => {
+  assert.equal(quietTreeSkipReason(null), false, 'a failed probe must not skip anything')
+  assert.equal(quietTreeSkipReason({ elevated: true, blind: ['python.exe(1)'] }), false, 'an elevated run always executes')
+  assert.equal(quietTreeSkipReason({ elevated: false, blind: [] }), false, 'nothing unreadable, nothing skipped')
+  assert.equal(quietTreeSkipReason({ elevated: undefined, blind: ['python.exe(1)'] }), false, 'an unknown elevation must not skip')
+  assert.match(quietTreeSkipReason({ elevated: false, blind: ['python.exe(49972)'] }), /python\.exe\(49972\)/)
+  // PowerShell 5.1 serialises a one-element array as a bare string.
+  assert.match(quietTreeSkipReason({ elevated: false, blind: 'pythonw.exe(7)' }), /pythonw\.exe\(7\)/)
+})
+
 function macro(name) {
   const found = installer.match(new RegExp(`!macro ${name}[\\s\\S]*?!macroend`))
   assert.ok(found, `${name} macro not found`)
@@ -226,7 +274,7 @@ test('the installation tree is captured before anything is asked to close', () =
 // the installation folder — which is the defect, exactly.
 test(
   'the helper refuses while anything still runs from the installation folder',
-  { skip: process.platform !== 'win32' ? 'Windows only' : false },
+  { skip: process.platform !== 'win32' ? 'Windows only' : quietTreeSkip },
   () => {
     const system32 = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32')
     const shell = path.join(system32, 'WindowsPowerShell/v1.0/powershell.exe')
@@ -341,7 +389,7 @@ const BREAK_WMI = "function Get-WmiObject { throw 'forced WMI failure' }"
 
 test(
   'when CIM cannot answer, WMI answers the descendant question rather than the process table',
-  { skip: !windows ? 'Windows only' : false },
+  { skip: !windows ? 'Windows only' : quietTreeSkip },
   () => {
     const dir = fixtureInstall()
     const engine = path.join(dir, 'resources/engine/runtime/python.exe')
@@ -495,7 +543,7 @@ async function withGrowingSettle(attempt) {
 
 test(
   'a child left behind by an exited in-tree process still blocks the upgrade',
-  { skip: !windows ? 'Windows only' : false },
+  { skip: !windows ? 'Windows only' : quietTreeSkip },
   async () => {
     // The engine starts helpers whose own images live outside the installation
     // — agent CLIs, node, uv. If such a child outlives the process that started
@@ -590,7 +638,7 @@ test(
 
 test(
   'a child created AFTER the snapshot by a parent that then exits still blocks the upgrade',
-  { skip: !windows ? 'Windows only' : false },
+  { skip: !windows ? 'Windows only' : quietTreeSkip },
   async () => {
     // The narrower race. Above, the child already existed when the snapshot was
     // taken, so the snapshot knew its id. Here it does not exist yet:

@@ -11,6 +11,7 @@ import tempfile
 import unittest
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+import child_python  # a child Python imports THIS checkout's engine (tests/child_python.py)
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -128,13 +129,13 @@ print('restart, overflow, old exact reads, tied pages and bounded graph verified
 '''
 
 class HistoryRetentionTests(unittest.TestCase):
-    def child(self, root: Path, code: str, backend: str = 'sqlite') -> None:
+    def child(self, root: Path, code: str, backend: str = 'sqlite', **extra: str) -> None:
         data, home = root / 'data', root / 'home'
         data.mkdir(exist_ok=True); home.mkdir(exist_ok=True)
         env = dict(os.environ, ORGTREE_DATA=str(data), HOME=str(home), USERPROFILE=str(home),
-                   ORGTREE_STORE=backend, PYTHONPATH=str(REPO / 'engine' / 'backend'),
-                   PYTHONIOENCODING='utf-8', ORGTREE_V2='1')
-        result = subprocess.run([sys.executable, '-c', code], cwd=REPO, env=env,
+                   ORGTREE_STORE=backend,
+                   PYTHONIOENCODING='utf-8', ORGTREE_V2='1', **extra)
+        result = subprocess.run(child_python.argv('-c', code, checkout=REPO), cwd=REPO, env=env,
                                 capture_output=True, text=True, encoding='utf-8', timeout=120)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
@@ -143,6 +144,15 @@ class HistoryRetentionTests(unittest.TestCase):
             root = Path(temp)
             self.child(root, SEED)
             self.child(root, CHECK)
+
+    def test_sqlite_turn_log_keeps_every_turn_behind_a_short_ring(self):
+        # ORGTREE_TURN_LOG: the node row keeps 8 turns, the history page all 25
+        ring = ("\nn = store.load_org('retention').node('agent')\n"
+                "assert len(n['turns']) == 8 and n['turn_seq'] == 25, (len(n['turns']), n.get('turn_seq'))\n")
+        with tempfile.TemporaryDirectory(prefix='v2-history-turnlog-') as temp:
+            root = Path(temp)
+            self.child(root, SEED, ORGTREE_TURN_LOG='1')
+            self.child(root, CHECK + ring, ORGTREE_TURN_LOG='1')
 
     def test_json_rollback_retains_same_history(self):
         with tempfile.TemporaryDirectory(prefix='v2-history-json-') as temp:

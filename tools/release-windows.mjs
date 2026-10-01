@@ -14,6 +14,8 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 import { REQUIRED_PACKAGE_INPUTS } from './preflight-lib.mjs'
 import { runVerification } from './release-verification.mjs'
+import { assertPublicReleaseAllowed } from './private-alpha-policy.mjs'
+import { assertPostgresRuntime } from './postgres-layout.mjs'
 import {
   assertRuntimeImports, assertRuntimeLayout, extractInstallerEngine,
   REPRESENTATIVE_RUNTIME_IMPORTS, RuntimeLayoutError, runtimeTreeDigest,
@@ -265,6 +267,7 @@ export function isPrereleaseVersion(version) {
  *  release build runs with `--publish never` and so resolves no channel — which
  *  is why staging renames it rather than expecting the right name to appear. */
 export function channelFileName(version) {
+  assertPublicReleaseAllowed(version)
   const channel = releaseChannelOf(version)
   return channel === null ? 'latest.yml' : `${channel}.yml`
 }
@@ -280,6 +283,7 @@ export function channelFileName(version) {
  *  not marked latest: still public and downloadable, simply not the release
  *  that `releases/latest` hands out. */
 export function releaseVisibility(version) {
+  assertPublicReleaseAllowed(version)
   const prerelease = isPrereleaseVersion(version)
   return {
     prerelease,
@@ -316,6 +320,7 @@ export function parseReleaseArgs(argv) {
   }
   if (!parsed.help && parsed.version === null) fail(`An explicit target version is required.\n\n${RELEASE_USAGE}`)
   if (!parsed.help && !validReleaseVersion(parsed.version)) fail(badVersionMessage(parsed.version))
+  if (!parsed.help) assertPublicReleaseAllowed(parsed.version)
   return parsed
 }
 
@@ -323,6 +328,7 @@ export function parseReleaseArgs(argv) {
  * useful to callers and fixture tests that need to prove the ordinary command
  * has no tag, push, or GitHub publication operation in its plan. */
 export function releasePlan(version, { publish = false } = {}) {
+  assertPublicReleaseAllowed(version)
   if (!validReleaseVersion(version)) fail(badVersionMessage(version))
   const tag = `v${version}`
   return {
@@ -472,6 +478,9 @@ function assertRuntimeLayoutOrFail(runtimeDir, label) {
  *    representative backend dependencies from inside the payload.
  */
 export function verifyPackagedRuntime({ root, resources, spawnSyncImpl = spawnSync }) {
+  const sourcePostgres = assertPostgresRuntime(path.join(root, 'engine'), { sourceRoot: root })
+  const packagedPostgres = assertPostgresRuntime(path.join(resources, 'engine'))
+  if (sourcePostgres.manifestSha256 !== packagedPostgres.manifestSha256) fail('Packaged PostgreSQL differs from source')
   const packagedRuntime = path.join(resources, 'engine', 'runtime')
   assertRuntimeLayoutOrFail(packagedRuntime, 'packaged engine/runtime')
   const sourceDigest = runtimeTreeDigest(nativeRelative(root, 'engine/runtime'))
@@ -488,7 +497,7 @@ export function verifyPackagedRuntime({ root, resources, spawnSyncImpl = spawnSy
     if (error instanceof RuntimeLayoutError) fail(error.message)
     throw error
   }
-  return { digest: packagedDigest, probe }
+  return { digest: packagedDigest, postgresManifestSha256: packagedPostgres.manifestSha256, probe }
 }
 
 /**
@@ -497,18 +506,22 @@ export function verifyPackagedRuntime({ root, resources, spawnSyncImpl = spawnSy
  * `app-64.7z` with the dependency tree's 7-Zip, require the identical tree
  * digest, and run the import probe against the extracted interpreter.
  */
-export function verifyInstallerPayloadRuntime({ root, installer, workDir, expectedDigest, spawnSyncImpl = spawnSync }) {
+export function verifyInstallerPayloadRuntime({ root, installer, workDir, expectedDigest, expectedPostgresManifestSha256, spawnSyncImpl = spawnSync }) {
   let extracted
   try {
     extracted = extractInstallerEngine({ root, installer, workDir, spawnSyncImpl })
     assertRuntimeLayoutOrFail(extracted.runtime, 'installer payload engine/runtime')
+    const postgres = assertPostgresRuntime(extracted.engine)
+    if (!expectedPostgresManifestSha256 || postgres.manifestSha256 !== expectedPostgresManifestSha256) {
+      fail('Installer payload PostgreSQL differs from the verified packaged PostgreSQL manifest')
+    }
     const digest = runtimeTreeDigest(extracted.runtime)
     if (expectedDigest && (digest.sha256 !== expectedDigest.sha256 || digest.files !== expectedDigest.files)) {
       fail(`Installer payload runtime differs from the verified packaged runtime `
         + `(payload ${digest.files} files ${digest.sha256}, expected ${expectedDigest.files} files ${expectedDigest.sha256})`)
     }
     const probe = assertRuntimeImports(extracted.runtime, { spawnSyncImpl })
-    return { digest, probe }
+    return { digest, postgresManifestSha256: postgres.manifestSha256, probe }
   } catch (error) {
     if (error instanceof RuntimeLayoutError) fail(error.message)
     throw error
@@ -525,6 +538,7 @@ function assertAllPackageInputs(root) {
 }
 
 export function assertBuildProvenance(info, { root, head, porcelain, version }) {
+  assertPublicReleaseAllowed(version, info)
   if (!info || typeof info !== 'object') fail('dist/build-info.json is not an object')
   if (info.channel !== 'release') fail(`Release packaging refuses build channel ${JSON.stringify(info.channel)}; rebuild the release channel`)
   if (info.version !== version) fail(`Build version ${info.version} does not match target version ${version}`)
@@ -634,6 +648,7 @@ function sameBytes(left, right, label) {
 }
 
 export function stageCanonicalAssets({ root, releaseDir, version, engineHashes, packagedHashes }) {
+  assertPublicReleaseAllowed(version)
   const resources = path.join(releaseDir, 'win-unpacked', 'resources')
   const sourceInstaller = path.join(releaseDir, installerSourceName(version))
   const sourceBlockmap = `${sourceInstaller}.blockmap`
@@ -1045,6 +1060,8 @@ function makeHandoff({ root, releaseDir, manifest, publishedUrl = null }) {
 }
 
 export async function publishRelease({ root, manifest, notes, repository, uploadDir, runExternal, runGit, fetchImpl, spawnSyncImpl }) {
+  assertPublicReleaseAllowed(manifest.version, manifest)
+  assertPublicReleaseAllowed(String(manifest.tag).replace(/^v/, ''))
   const { owner, repo } = repository
   // Recheck immediately before any mutation. The pre-build checks prevent
   // wasted work, while these checks close the race where another release lands
@@ -1090,6 +1107,7 @@ export async function publishRelease({ root, manifest, notes, repository, upload
 }
 
 export async function produceWindowsRelease(options, dependencies = {}) {
+  assertPublicReleaseAllowed(options.version)
   const root = realRoot(dependencies.root || process.cwd())
   const execFileSyncImpl = dependencies.execFileSync || execFileSync
   const spawnSyncImpl = dependencies.spawnSync || spawnSync
@@ -1153,6 +1171,7 @@ export async function produceWindowsRelease(options, dependencies = {}) {
     installer,
     workDir: path.join(releaseDir, 'payload-runtime-check'),
     expectedDigest: packagedRuntime.digest,
+    expectedPostgresManifestSha256: packagedRuntime.postgresManifestSha256,
     spawnSyncImpl,
   })
   const packagedHashes = derivePackagedHashes({

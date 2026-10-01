@@ -21,9 +21,23 @@ SCHEMA = "orgtree.state-operation-inventory/v1"
 METHODS = {"get", "post", "put", "patch", "delete", "head", "options", "trace"}
 HOOKS = {"on_event", "middleware", "exception_handler"}
 REGISTRATION_CALLS = {"add_api_route", "add_route", "add_websocket_route",
-                      "add_event_handler", "include_router", "mount"}
+                      "add_event_handler", "include_router", "mount",
+                      # middleware and handlers installed by a call rather than a decorator (P01 item
+                      # p01-inventory-misses-middleware-add-middleware-c)
+                      "add_middleware", "add_exception_handler"}
+# the route and hook decorator factories: `@app.get("/p")` and `app.get("/p")(f)` register the same thing
+ROUTE_FACTORIES = METHODS | {"api_route", "websocket"} | HOOKS
+# Matched on the CALL NAME, like every other name in this pass: the receiver
+# is recorded in `mechanism` rather than used to accept or reject a site.
+# `to_thread` is asyncio's worker hand-off. `anyio.to_thread.run_sync` is a
+# different call name and is NOT covered by this set.
 TASK_CALLS = {"create_task", "ensure_future", "run_in_executor", "submit",
-              "call_soon", "call_soon_threadsafe", "call_later", "call_at"}
+              "call_soon", "call_soon_threadsafe", "call_later", "call_at",
+              "to_thread"}
+# `to_thread(func, /, *args, **kwargs)` takes its callable POSITIONAL-ONLY, so a
+# `func=` keyword is forwarded TO that callable and is not the callable itself.
+# These names therefore read the position and never the keyword.
+POSITIONAL_ONLY_CALLS = {"to_thread"}
 CALLBACK_KEYS = {"callback", "on_exit", "on_result", "on_message", "on_event",
                  "on_input", "on_late", "on_error", "on_complete"}
 DATABASE_ROOTS = {"sqlite3", "apsw", "psycopg", "psycopg2", "duckdb", "sqlcipher3"}
@@ -57,6 +71,18 @@ def literal_strings(node: ast.AST | None) -> list[str] | None:
     return None
 
 
+def is_tool_card(node: ast.AST | None) -> bool:
+    """A literal agent tool card: a dict whose "name" is a literal orgtree_* string and that has an inputSchema."""
+    name = literal_strings(dictionary_value(node, "name"))
+    return (isinstance(node, ast.Dict) and bool(name) and name[0].startswith("orgtree_")
+            and any(isinstance(k, ast.Constant) and k.value == "inputSchema" for k in node.keys))
+
+
+def card_collection(node: ast.AST | None) -> bool:
+    """A module-level list or tuple literal made only of tool cards."""
+    return isinstance(node, (ast.List, ast.Tuple)) and bool(node.elts) and all(is_tool_card(e) for e in node.elts)
+
+
 def dictionary_value(node: ast.AST | None, key: str) -> ast.AST | None:
     if isinstance(node, ast.Dict):
         for left, right in zip(node.keys, node.values):
@@ -74,6 +100,19 @@ def argument(call: ast.Call, key: str, position: int | None = None) -> ast.AST |
     return None
 
 
+def positional(call: ast.Call, position: int) -> ast.AST | None:
+    """The argument at `position`, never a keyword of the same parameter name.
+
+    For a positional-only parameter a same-named keyword belongs to the CALLEE,
+    so reading it would name the wrong target. A `*expansion` at or before the
+    position makes the index undeterminable and stays unresolved rather than
+    reporting the expansion itself as a target.
+    """
+    if any(isinstance(value, ast.Starred) for value in call.args[:position + 1]):
+        return None
+    return call.args[position] if len(call.args) > position else None
+
+
 class ModuleInventory(ast.NodeVisitor):
     def __init__(self, path: str, source: str):
         self.path = path
@@ -85,6 +124,10 @@ class ModuleInventory(ast.NodeVisitor):
         self.storage: list[dict] = []
         self.lock_references: list[dict] = []
         self.ordinals: Counter = Counter()
+        # module-level constant assignments (name -> value expression) and the non-literal operands the agent door
+        # compares `body.tool` against; scan() resolves both across modules into the dispatchable tool names
+        self.constants: dict[str, ast.AST] = {}
+        self.tool_refs: list[tuple[dict, ast.AST]] = []
         # Imports are evidence for name resolution only. Local shadowing and
         # computed receiver types are not proven by this pass.
         for node in ast.walk(self.tree):
@@ -124,21 +167,26 @@ class ModuleInventory(ast.NodeVisitor):
     def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         self.scope.append(node.name)
         for decorator in node.decorator_list:
-            if not isinstance(decorator, ast.Call) or not isinstance(decorator.func, ast.Attribute):
-                continue
-            method = decorator.func.attr
-            if method in METHODS | {"api_route", "websocket"} | HOOKS:
-                selector = argument(decorator, "path", 0)
-                values = literal_strings(selector)
-                self.registration(
-                    "http" if method in METHODS | {"api_route"} else
-                    "websocket" if method == "websocket" else "hook",
-                    decorator, receiver=expression(decorator.func.value), method=method,
-                    selectors=values, selector_expression=expression(selector),
-                    methods_expression=expression(argument(decorator, "methods")),
-                    resolution="literal" if values is not None else "unresolved")
+            if (isinstance(decorator, ast.Call) and isinstance(decorator.func, ast.Attribute)
+                    and decorator.func.attr in ROUTE_FACTORIES):
+                self.route(decorator)
         self.generic_visit(node)
         self.scope.pop()
+
+    def route(self, factory: ast.Call, **direct) -> None:
+        """One route or hook registration from its decorator-factory call, e.g. `app.get("/p")` or
+        `app.middleware("http")`. `direct` carries the extra facts of the call form `app.middleware("http")(f)`;
+        the decorator form adds none, so its site ids do not depend on this form existing."""
+        method = factory.func.attr
+        selector = argument(factory, "path", 0)
+        values = literal_strings(selector)
+        self.registration(
+            "http" if method in METHODS | {"api_route"} else
+            "websocket" if method == "websocket" else "hook",
+            factory, receiver=expression(factory.func.value), method=method,
+            selectors=values, selector_expression=expression(selector),
+            methods_expression=expression(argument(factory, "methods")),
+            resolution="literal" if values is not None else "unresolved", **direct)
 
     visit_AsyncFunctionDef = visit_FunctionDef
 
@@ -160,13 +208,29 @@ class ModuleInventory(ast.NodeVisitor):
                               else "unresolved")
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
-        if isinstance(node.target, ast.Name) and node.target.id == "TOOLS":
+        if isinstance(node.target, ast.Name) and (node.target.id == "TOOLS" or
+                                                  (not self.scope and card_collection(node.value))):
             self.tools(node, node.value)
+        if not self.scope and isinstance(node.target, ast.Name) and node.value is not None:
+            self.constants[node.target.id] = node.value
         self.generic_visit(node)
 
     def visit_Assign(self, node: ast.Assign) -> None:
-        if any(isinstance(target, ast.Name) and target.id == "TOOLS" for target in node.targets):
+        # TOOLS is the standard catalogue; any OTHER module-level literal of tool cards (e.g. mcptool's
+        # _DESKTOP_RELAUNCH_CARDS, which a profile swaps in) is a catalogue too (P01 item
+        # p01-inventory-misses-the-desktop-relaunch-tool-c)
+        if any(isinstance(target, ast.Name) and target.id == "TOOLS" for target in node.targets) or \
+                (not self.scope and card_collection(node.value)):
             self.tools(node, node.value)
+        if not self.scope:
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    self.constants[target.id] = node.value
+                elif isinstance(target, ast.Tuple) and isinstance(node.value, ast.Tuple) \
+                        and len(target.elts) == len(node.value.elts):
+                    for name, value in zip(target.elts, node.value.elts):
+                        if isinstance(name, ast.Name):
+                            self.constants[name.id] = value
         self.generic_visit(node)
 
     def visit_Compare(self, node: ast.Compare) -> None:
@@ -174,6 +238,9 @@ class ModuleInventory(ast.NodeVisitor):
         for index, operator in enumerate(node.ops):
             left, right = operands[index:index + 2]
             for selector, values_node in ((left, right), (right, left)):
+                if expression(selector) == "body.tool":
+                    # every name the agent door dispatches on, literal or through a constant (resolved in scan())
+                    self.tool_refs.append((self.site(node), values_node))
                 values = literal_strings(values_node)
                 if not values:
                     continue
@@ -193,6 +260,10 @@ class ModuleInventory(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
+        if (isinstance(node.func, ast.Call) and isinstance(node.func.func, ast.Attribute)
+                and node.func.func.attr in ROUTE_FACTORIES):
+            # the decorator factory called directly: app.middleware("http")(handler)
+            self.route(node.func, form="direct_call", target=expression(positional(node, 0)))
         name = self.name(node.func)
         method = name.rsplit(".", 1)[-1]
         if name in {"threading.Thread", "threading.Timer"}:
@@ -204,12 +275,17 @@ class ModuleInventory(ast.NodeVisitor):
                 "add_api_route": ("endpoint", 1), "add_route": ("endpoint", 1),
                 "add_websocket_route": ("endpoint", 1), "add_event_handler": ("func", 1),
                 "include_router": ("router", 0), "mount": ("app", 1),
+                "add_middleware": ("middleware_class", 0), "add_exception_handler": ("handler", 1),
                 "create_task": ("coro", 0), "ensure_future": ("coro_or_future", 0),
                 "run_in_executor": ("func", 1), "submit": ("fn", 0),
                 "call_soon": ("callback", 0), "call_soon_threadsafe": ("callback", 0),
                 "call_later": ("callback", 1), "call_at": ("callback", 1),
+                # The key names the CPython parameter; for a positional-only one
+                # it is documentation, never a keyword this pass will match.
+                "to_thread": ("func", 0),
             }[method]
-            target = argument(node, key, position)
+            target = (positional(node, position) if method in POSITIONAL_ONLY_CALLS
+                      else argument(node, key, position))
             self.registration("registration_call" if method in REGISTRATION_CALLS else "task",
                               node, mechanism=name, target=expression(target),
                               call_expression=expression(node),
@@ -236,24 +312,104 @@ class ModuleInventory(ast.NodeVisitor):
             self.lock_references.append(self.site(node))
 
 
+# Outside engine/backend (coordinator ruling on p01-inventory-misses-the-production-routes-mount, 2026-09-24):
+# the engine's own top-level modules and engine/winservice run in production too. engine/launch.py mounts routes
+# and installs hooks that a backend-only scan could not see. NOT scanned: engine/native/**/oracle (offline
+# test-vector generators, never imported by the product) and engine/runtime (the gitignored packaged interpreter).
+ENGINE_EXTRA_TREES = ("engine/winservice",)
+SKIPPED_PARTS = {"__pycache__", ".venv", "node_modules"}
+
+
+def module_paths(repo: Path) -> list[Path]:
+    """Every module the inventory scans: engine/backend first (its order is unchanged), then the engine's own
+    top-level modules, then each extra tree."""
+    backend = repo / "engine/backend"
+    paths = [p for p in sorted(backend.rglob("*.py")) if not SKIPPED_PARTS & set(p.relative_to(backend).parts)]
+    paths += sorted((repo / "engine").glob("*.py"))
+    for tree in ENGINE_EXTRA_TREES:
+        root = repo / tree
+        if root.is_dir():
+            paths += [p for p in sorted(root.rglob("*.py")) if not SKIPPED_PARTS & set(p.relative_to(root).parts)]
+    return paths
+
+
+def resolve_strings(inventories: list[ModuleInventory], inventory: ModuleInventory, node: ast.AST | None,
+                    depth: int = 0) -> set[str] | None:
+    """The string values an expression denotes: literals, tuples/lists/sets of them (starred parts included),
+    frozenset/set/tuple(...) of them, a module-level constant of the same module, or `module.CONSTANT` of another
+    scanned module. None when anything is not provably a constant."""
+    if node is None or depth > 8:
+        return None
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return {node.value}
+    if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+        out: set[str] = set()
+        for element in node.elts:
+            part = resolve_strings(inventories, inventory,
+                                   element.value if isinstance(element, ast.Starred) else element, depth + 1)
+            if part is None:
+                return None
+            out |= part
+        return out
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in ("frozenset", "set", "tuple") \
+            and len(node.args) == 1 and not node.keywords:
+        return resolve_strings(inventories, inventory, node.args[0], depth + 1)
+    if isinstance(node, ast.Name) and node.id in inventory.constants:
+        return resolve_strings(inventories, inventory, inventory.constants[node.id], depth + 1)
+    if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+        owners = [m for m in inventories if m.path.rsplit("/", 1)[-1] == node.value.id + ".py"]
+        if len(owners) == 1 and node.attr in owners[0].constants:
+            return resolve_strings(inventories, owners[0], owners[0].constants[node.attr], depth + 1)
+    return None
+
+
+def tool_verbs(inventories: list[ModuleInventory], registrations: list[dict]) -> tuple[list[dict], int]:
+    """One `tool_verb` registration per tool name the agent door dispatches on (`body.tool`) that no scanned
+    catalogue carries as a card: deprecated aliases, internal transport verbs, the receipt protocol verbs and
+    unadvertised doors are entry points too (P01 item p01-inventory-misses-the-desktop-relaunch-tool-c). Returns the
+    registrations and the number of `body.tool` operands that could not be resolved to constants."""
+    cards = {n for r in registrations if r["kind"] == "tool" for n in (r.get("names") or [])}
+    first: dict[str, tuple[dict, str]] = {}
+    unresolved = 0
+    for inventory in inventories:
+        for site, operand in inventory.tool_refs:
+            values = resolve_strings(inventories, inventory, operand)
+            if values is None:
+                unresolved += 1
+                continue
+            literal = literal_strings(operand) is not None
+            for name in sorted(v for v in values if v.startswith("orgtree_")):
+                if name not in cards and name not in first:
+                    first[name] = (site, "literal" if literal else "constant")
+    out = []
+    for name in sorted(first):
+        site, resolution = first[name]
+        identity = json.dumps([site["path"], "tool_verb", site["symbol"], name], separators=(",", ":"))
+        out.append({"site_id": fingerprint(identity), "kind": "tool_verb", "source": site, "names": [name],
+                    "resolution": resolution})
+    return out, unresolved
+
+
 def scan(repo: Path) -> dict:
     backend = repo / "engine/backend"
     if not backend.is_dir():
         raise ValueError("repository has no engine/backend directory")
     modules, registrations, selectors, storage, locks = [], [], [], [], []
-    for path in sorted(backend.rglob("*.py")):
-        if any(part in {"__pycache__", ".venv", "node_modules"} for part in path.relative_to(backend).parts):
-            continue
+    inventories: list[ModuleInventory] = []
+    for path in module_paths(repo):
         # Universal newlines make a checkout's CRLF policy irrelevant.
         source = path.read_text(encoding="utf-8-sig")
         relative = path.relative_to(repo).as_posix()
         inventory = ModuleInventory(relative, source)
         inventory.visit(inventory.tree)
+        inventories.append(inventory)
         modules.append({"path": relative, "normalized_source_sha256": fingerprint(source)})
         registrations.extend(inventory.registrations)
         selectors.extend(inventory.selectors)
         storage.extend(inventory.storage)
         locks.extend(inventory.lock_references)
+    verbs, unresolved_tool_refs = tool_verbs(inventories, registrations)
+    registrations.extend(verbs)
     return {"schema": SCHEMA, "limits": LIMITS,
             "qualification": {"runtime_census": False, "conversion_authorized": False,
                               "exact_effect_contracts": "pending per-entry review"},
@@ -262,6 +418,7 @@ def scan(repo: Path) -> dict:
                         "unresolved_registrations": sum(r["resolution"] == "unresolved" for r in registrations),
                         "dispatch_selector_sites": len(selectors), "connection_sites": len(storage),
                         "unresolved_connect_calls": sum(r["classification"] == "unresolved_connect_call" for r in storage),
+                        "unresolved_tool_refs": unresolved_tool_refs,
                         "doc_lock_references": len(locks)},
             "modules": modules, "registrations": registrations, "dispatch_selectors": selectors,
             "connection_sites": storage, "doc_lock_references": locks}

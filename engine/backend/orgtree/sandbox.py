@@ -185,8 +185,16 @@ def migrate_to_disk(org: Org) -> None:
                            f"was flipped; old state is untouched: "
                            + (r.stderr or r.stdout)[-500:])
     new_ws = dsk.windows_sub(slug, "workspace")
-    with store.DOC_LOCK:
-        o2 = store.load_org(slug)
+    # PG-3r: the flip is one row transaction. It rewrites paths and freeze
+    # flags on EVERY node (nodes=ALL, so a node created meanwhile waits and
+    # is covered too), the disk/workspace/dirs sections, the retired
+    # storage_frozen flag, and the operator's inbox notice when the cap was
+    # floored (user_inbox for a decision, the read archive for a notice).
+    from . import orgtx
+    with orgtx.org_tx(slug, nodes=orgtx.ALL,
+                      sections=["disk", "storage_frozen", "dirs", "workspace", "user_inbox"],
+                      logs=["user_mail_log", "events"]) as tx:
+        o2 = tx.org
         o2.d["disk"] = {"size_mb": size_mb, "migrated_at": now()}
         # the legacy enforcement is RETIRED (user ruling 2026-08-01, D-063):
         # clear any pre-migration storage freeze the doc still carries —
@@ -218,7 +226,6 @@ def migrate_to_disk(org: Org) -> None:
             o2.to_user_inbox({
                 "id": uuid.uuid4().hex[:12], "from": SYSTEM, "kind": "notice",
                 "at": now(), "body": _events.render_agent(dev)}, dev)
-        store.save_org(o2)
     _disk_flag.pop(slug, None)
     print(f"[orgtree] org {slug!r} migrated to its disk "
           f"({size_mb} MB; legacy volumes kept for rollback)")
@@ -402,7 +409,12 @@ def on_disk(slug: str) -> bool:
     if hit and time.time() - hit[0] < 10:
         return hit[1]
     try:
-        val = bool(store.load_org(slug).d.get("disk"))
+        # the ONE doc row, not the document: this ran a whole private
+        # load_org every 10 s per org from read_scratch, usage walks and
+        # transcript reads — ~21 MB each at N1000 (N1000 #4)
+        sect = store.read_doc_sections(slug, ("disk",))
+        val = bool((sect if sect is not None
+                    else store.load_org(slug).d).get("disk"))
     except Exception:                                    # noqa: BLE001
         val = False
     _disk_flag[slug] = (time.time(), val)
@@ -1038,13 +1050,14 @@ def try_apply_pending_resize(org: Org) -> str | None:
                 f"{du[0] // 1048576} MB — free about {need} MB first")
     dsk.shrink_image(slug, pend)
     dsk.mount(slug)
-    with store.DOC_LOCK:
-        o2 = store.load_org(slug)
-        d2 = dict(o2.d.get("disk") or {})
+    # PG-3r: one row transaction on the `disk` section, the only row this
+    # write reads and changes.
+    from . import orgtx
+    with orgtx.org_tx(slug, sections=["disk"]) as tx:
+        d2 = dict(tx.d.get("disk") or {})
         d2["size_mb"] = pend
         d2.pop("pending_size_mb", None)
-        o2.d["disk"] = d2
-        store.save_org(o2)
+        tx.d["disk"] = d2
     print(f"[orgtree] org {slug!r}: pending shrink applied — disk is now "
           f"{pend} MB")
     return None

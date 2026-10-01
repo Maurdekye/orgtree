@@ -14,6 +14,7 @@
 // Run: cd frontend && node tests/run.mjs docketrefs
 
 import { flush, inAct, mountView, realClock, useFakeClock } from './harness'
+import { compatibilityWorkFixture } from './workcompat.fixture'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
@@ -170,7 +171,7 @@ function mockServer(s: Served) {
   const urls: string[] = []
   const docUrls: string[] = []
   ;(globalThis as unknown as { fetch: typeof fetch }).fetch =
-    ((url: string) => {
+    compatibilityWorkFixture(((url: string) => {
       const path = String(url)
       const ok = (payload: unknown) => Promise.resolve({
         ok: true, status: 200, headers: new Headers(),
@@ -191,10 +192,15 @@ function mockServer(s: Served) {
         }
         return ok({ id, ...reply })
       }
+      if (path.includes('/work-items/')) {
+        return ok({ item: [...s.items, ...s.archived, ...s.backlogged].find(it => path.endsWith('/' + it.slug)) })
+      }
       if (path.includes('/work-items')) {
         urls.push(path)
         return ok({
           items: s.items,
+          references: [...s.items, ...s.archived, ...s.backlogged].map(({ slug, title, parent, archived, status, rev }) =>
+            ({ slug, title, parent, archived, status, rev })),
           ...(path.includes('archived=1') ? { archived: s.archived } : {}),
           ...(path.includes('backlogged=1') ? { backlogged: s.backlogged } : {}),
           counts: {
@@ -205,7 +211,7 @@ function mockServer(s: Served) {
         })
       }
       return ok({})
-    }) as unknown as typeof fetch
+    }) as unknown as typeof fetch)
   return Object.assign(urls, { docUrls })
 }
 
@@ -352,11 +358,10 @@ uiTest('§10 a link to a HIDDEN BACKLOG item turns its group on and shows the ro
     // panel that showed the backlog all along.
     assert.equal(backlogBox(el).checked, false)
     assert.deepEqual(names(el), ['explain-unavailable-actions'])
-    // …and the group WAS fetched anyway — that is what makes the mention
-    // linkable at all while its row is filtered out
-    assert.ok(urls.every((u) => u.includes('backlogged=1')),
-      'the backlog must be fetched even while it is hidden, or a link to it '
-      + 'could never be offered')
+    // The light reference index links the hidden item without fetching its
+    // group. Following the link then loads and reveals that group.
+    assert.ok(urls.every((u) => !u.includes('backlogged=1')),
+      'closed backlog must not be fetched before its reference is followed')
 
     await openFirst(el)
     assert.equal(refs(el).length, 1, 'a hidden item was not linkable')
@@ -364,6 +369,8 @@ uiTest('§10 a link to a HIDDEN BACKLOG item turns its group on and shows the ro
     await flush()
 
     assert.equal(backlogBox(el).checked, true, 'the hidden group stayed hidden')
+    assert.ok(urls.some((u) => u.includes('backlogged=1')),
+      'following the reference must fetch the hidden group')
     assert.ok(names(el).includes('nested-docket-items'),
       'the revealed row never appeared in the list')
     assert.match(pane(el)?.textContent ?? '', /Expandable docket items/)

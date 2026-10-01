@@ -32,7 +32,8 @@ import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { useState } from 'react'
-import { NODE_H, NODE_W, Z_DESK, Z_MINI } from '../src/canvas/shared'
+import { NODE_H, NODE_W, Z_DESK, Z_MINI, setHideRetiredOn, setPinSnapOn } from '../src/canvas/shared'
+import { treeSelections } from '../src/treeselection'
 import {
   addPin, clampRect, forgetPins, PIN_MAX, PIN_MIN_H, PIN_MIN_W,
   PIN_Z_BASE, PIN_Z_TOP, pinsKey, planUnpin, prunePins, raisePin,
@@ -42,8 +43,145 @@ import {
 import type { PinRect } from '../src/canvas/pins'
 import type { TreePayload } from '../src/types'
 import { setModalOverlap } from '../src/canvas/pinoverlap'
+import { draftKey, storeAttachments } from '../src/draftstore'
+import { readHistory } from '../src/composerhistory'
 
 const noop = () => {}
+
+uiTest('foreground collapsed pile and hidden token count omitted siblings without constructing their cards', async ({ mount }) => {
+  setHideRetiredOn(false)
+  const { el, setTree, unmount } = await mountCanvas(mount, ['first', 'live', 'last'])
+  const selected = tree(['first', 'live', 'last'], { first: 'archived', last: 'archived' })
+  selected.foreground = { catalog_revision: 'c1', present: ['first', 'live', 'last'], missing: [],
+    hidden_retired_roots: 198, retired_total: 200 }
+  try {
+    await inAct(() => setTree(selected))
+    await flush()
+    assert.equal(el.querySelector('.pile-count')?.textContent, '200')
+    assert.equal(el.querySelectorAll('.pile-layer').length, 3)
+    assert.ok(el.querySelector('[data-copy-agent-name="last"]'), 'last selected sibling stays the front')
+    await inAct(() => setHideRetiredOn(true))
+    await flush()
+    assert.equal(el.querySelector('.pile-count'), null)
+    assert.equal(el.querySelector('.retired-token')?.textContent?.trim(), '200 retired')
+    const selectedState = treeSelections.read('mine', { include: [], hideRetired: false, fronts: {} })
+    assert.equal(selectedState.selection.hideRetired, true, 'mounted view publishes the preference')
+    await unmount()
+    assert.equal(treeSelections.version('mine'), 0, 'unmounted view releases selected identity ownership')
+  } finally { setHideRetiredOn(false) }
+})
+
+uiTest('mounted pile and hidden-retired picker offer no pick or delete all while siblings are omitted', async ({ mount }) => {
+  setHideRetiredOn(false)
+  const { el, setTree } = await mountCanvas(mount, ['first', 'live', 'last'])
+  const selected = (hidden: number) => {
+    const t = tree(['first', 'live', 'last'], { first: 'archived', last: 'archived' })
+    t.foreground = { catalog_revision: 'c1', present: ['first', 'live', 'last'], missing: [],
+      hidden_retired_roots: hidden, retired_total: hidden + 2 }
+    return t
+  }
+  const doc = el.ownerDocument
+  const picker = () => doc.querySelector('.pile-picker')
+  const deleteAll = () => [...doc.querySelectorAll('.pile-picker button')]
+    .find(b => /delete all/.test(b.textContent ?? ''))
+  const close = async () => { await inAct(async () => {
+    doc.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await flush() }) }
+  try {
+    for (const hidden of [198, 0]) {
+      await inAct(() => setTree(selected(hidden)))
+      await flush()
+      const layer = el.querySelector<HTMLElement>('.pile-count')
+      assert.ok(layer, `pile rendered (hidden=${hidden})`)
+      await inAct(async () => { layer!.click(); await flush() })
+      assert.ok(picker(), 'pile picker opened')
+      if (hidden) {
+        assert.match(picker()!.textContent ?? '', /Loading retired agents/)
+        assert.equal(picker()!.querySelectorAll('.pile-row').length, 0, 'no row can be picked')
+        assert.equal(deleteAll(), undefined, 'no delete all while siblings are omitted')
+      } else {
+        assert.doesNotMatch(picker()!.textContent ?? '', /Loading retired agents/)
+        assert.ok(deleteAll(), 'control: a complete pile offers delete all')
+      }
+      await close()
+      assert.equal(picker(), null, 'picker closed')
+    }
+    await inAct(() => setTree(selected(198)))
+    await inAct(() => setHideRetiredOn(true))
+    await flush()
+    const token = el.querySelector<HTMLElement>('.retired-token')
+    assert.ok(token, 'hidden-retired token rendered')
+    await inAct(async () => { token!.click(); await flush() })
+    assert.match(picker()?.textContent ?? '', /Loading retired agents/)
+    assert.equal(picker()!.querySelectorAll('.pile-row').length, 0)
+    assert.equal(deleteAll(), undefined, 'token picker offers no delete all while siblings are omitted')
+  } finally { setHideRetiredOn(false) }
+})
+
+uiTest('a jump to an omitted agent asks the selected tree for it and finishes when it arrives', async ({ mount }) => {
+  const { el, setTree, focus, toasts } = await mountCanvas(mount, ['ceo', 'cto'])
+  const selected = (ids: string[], missing: string[] = []) => {
+    const t = tree(ids, { old: 'archived' })
+    t.foreground = { catalog_revision: 'c1', present: ids, missing, hidden_retired_roots: 0, retired_total: 1 }
+    return t
+  }
+  const fallback = { include: [], hideRetired: false, fronts: {} }
+  await inAct(() => setTree(selected(['ceo', 'cto'])))
+  await flush()
+  const quiet = toasts.length
+  await inAct(() => focus('old'))
+  await flush()
+  assert.ok(treeSelections.read('mine', fallback).selection.include.includes('old'),
+    'the pending jump joins the canvas selection')
+  assert.equal(toasts.length, quiet, 'omission is not reported as absence')
+  await inAct(() => setTree(selected(['ceo', 'cto', 'old'])))
+  await flush()
+  await settle(1200)
+  await flush()
+  const at = centreOf(el, posAny(el, 'old'))
+  const other = centreOf(el, posAny(el, 'ceo'))
+  const vp = el.querySelector('.viewport')!.getBoundingClientRect()
+  const mid = { x: vp.width / 2, y: vp.height / 2 }
+  assert.ok(Math.hypot(at.x - mid.x, at.y - mid.y) < Math.hypot(other.x - mid.x, other.y - mid.y),
+    'the camera finished the jump onto the arrived agent')
+  await inAct(() => focus('ghost'))
+  await flush()
+  await inAct(() => setTree(selected(['ceo', 'cto', 'old'], ['ghost'])))
+  await flush()
+  assert.ok(toasts.some(lines => lines.join(' ').includes('ghost is not in this organization')),
+    'explicit absence is reported, never a silent no-op')
+  assert.ok(!treeSelections.read('mine', fallback).selection.include.includes('ghost'),
+    'the settled jump releases its selection')
+})
+
+uiTest('foreground omission preserves pinned identity and drafts until explicit absence', async ({ mount }) => {
+  const { setTree, toasts } = await mountCanvas(mount, ['ceo', 'cto'])
+  await inAct(() => addPin('mine', 'cto', { x: 10, y: 10, w: 400, h: 400 }))
+  const key = draftKey('mine', 'cto', 0)
+  localStorage.setItem(key, 'Unsent retired instruction')
+  storeAttachments(key, [{ name: 'note', path: 'note.txt', bytes: 42 }])
+  localStorage.setItem(`${key}-reply`, 'reply context')
+  localStorage.setItem('orgtree-eyemin-mine', JSON.stringify(['cto']))
+  localStorage.setItem('orgtree-eyeseen-mine', JSON.stringify(['cto']))
+  localStorage.setItem('orgtree-pile-mine', JSON.stringify({ ceo: 'cto' }))
+  const partial = (missing: string[]): TreePayload => ({ ...tree(['ceo']),
+    foreground: { catalog_revision: 'c1', present: ['ceo'], missing } })
+  await inAct(() => setTree(partial([])))
+  await flush()
+  assert.equal(readPins('mine').length, 1, 'omitted pin remains persisted')
+  assert.equal(localStorage.getItem(key), 'Unsent retired instruction')
+  assert.equal(localStorage.getItem(`${key}-reply`), 'reply context')
+  assert.ok(localStorage.getItem(`${key}-attachments`))
+  assert.deepEqual(JSON.parse(localStorage.getItem('orgtree-eyemin-mine')!), ['cto'])
+  assert.deepEqual(JSON.parse(localStorage.getItem('orgtree-eyeseen-mine')!), ['cto'])
+  assert.deepEqual(JSON.parse(localStorage.getItem('orgtree-pile-mine')!), { ceo: 'cto' })
+  assert.equal(toasts.length, 0)
+  await inAct(() => setTree(partial(['cto'])))
+  await flush()
+  assert.equal(readPins('mine').length, 0, 'confirmed absence still closes the pin')
+  assert.equal(localStorage.getItem(key), null)
+  assert.deepEqual(readHistory('mine', 'cto'), [{ text: 'Unsent retired instruction', delivered: false }])
+  assert.ok(toasts.some(t => /cto is gone/.test(t.join(' '))))
+})
 
 uiTest('pinned desks share the optional overlap fading treatment', async ({mount}) => {
   const rig = await mountCanvas(mount,['worker'])
@@ -192,13 +330,16 @@ async function drag(target: Element, from: Pos, to: Pos) {
 let canvasMod: typeof import('../src/canvas/OrgCanvas') | null = null
 
 function makeHost(toast: (lines: string[] | null | undefined) => void) {
-  const box: { set?: (t: TreePayload) => void } = {}
+  const box: { set?: (t: TreePayload) => void; focus?: (id: string | null) => void } = {}
   const Host = ({ initial }: { initial: TreePayload }) => {
     const [t, setT] = useState(initial)
+    const [focus, setFocus] = useState<string | null>(null)
     box.set = setT
+    box.focus = setFocus
     const { OrgCanvas } = canvasMod!
     return <OrgCanvas tree={t} op={() => Promise.resolve({} as never)}
-      slug="mine" toast={toast} mailEvt={null} />
+      slug="mine" toast={toast} mailEvt={null}
+      focusAgent={focus} onFocusAgentHandled={() => setFocus(null)} />
   }
   return { Host, box }
 }
@@ -238,7 +379,8 @@ async function mountCanvas(mount: Mount, ids: string[],
   await flush()
   const viewport = el.querySelector('.viewport') as HTMLElement | null
   assert.ok(viewport, 'the canvas viewport rendered')
-  return { el, viewport: viewport!, setTree: (t: TreePayload) => box.set!(t), unmount, toasts }
+  return { el, viewport: viewport!, setTree: (t: TreePayload) => box.set!(t),
+    focus: (id: string) => box.focus!(id), unmount, toasts }
 }
 
 /** put `id` under a desk-zoom camera, through the public gesture surface:
@@ -294,6 +436,35 @@ async function mosaicRig(mount: Mount) {
   return { ...rig, title, size }
 }
 
+uiTest('resize snap preview and release keep the opposite desk edge fixed; Shift bypasses', async ({ mount }) => {
+  const { el } = await mosaicRig(mount)
+  const start = { x: 430, y: 100, w: 500, h: 300 }
+  await inAct(() => { commitRect('mine', 'cto', start, { w: 1300, h: 850 }) })
+  const handle = pinWin(el, 'cto')!.nextElementSibling!.querySelector('.pinwin-rs.w')!
+  assert.ok(handle)
+  await inAct(() => { handle.dispatchEvent(pointer('pointerdown', 430, 150)) })
+  await inAct(() => { handle.dispatchEvent(pointer('pointermove', 425, 150)) })
+  const preview = el.querySelector('.pin-snap-preview') as HTMLElement
+  assert.ok(preview, 'resizing previews the same neighbour snap as dragging')
+  assert.equal(preview.style.left, '420px')
+  assert.equal(preview.style.width, '510px', 'east edge remains at 930px')
+  assert.deepEqual(readPins('mine').find(p => p.id === 'cto')!.rect, start, 'preview never persists')
+  await inAct(() => { handle.dispatchEvent(pointer('pointerup', 425, 150)) })
+  const snapped = { x: 420, y: 100, w: 510, h: 300 }
+  assert.deepEqual(readPins('mine').find(p => p.id === 'cto')!.rect, snapped)
+  assert.equal(readPins('mine').find(p => p.id === 'cto')!.snap?.target, 'ceo')
+  assert.deepEqual(readPins('mine').find(p => p.id === 'ceo')!.rect, { x: 100, y: 100, w: 320, h: 240 })
+  await inAct(() => { forgetPins('mine') })
+  assert.deepEqual(readPins('mine').find(p => p.id === 'cto')!.rect, snapped, 'snapped size is remembered')
+  await inAct(() => { commitRect('mine', 'cto', start, { w: 1300, h: 850 }) })
+  await inAct(() => { handle.dispatchEvent(pointer('pointerdown', 430, 150)) })
+  await inAct(() => { handle.dispatchEvent(new window.PointerEvent('pointerup', {
+    bubbles: true, pointerId: 1, clientX: 425, clientY: 150, shiftKey: true,
+  })) })
+  assert.deepEqual(readPins('mine').find(p => p.id === 'cto')!.rect,
+    { x: 425, y: 100, w: 505, h: 300 }, 'Shift retains free resizing')
+})
+
 uiTest('mosaic preview and commit: two windows align, neighbours stay still, reload preserves it', async ({ mount }) => {
   const { el, title } = await mosaicRig(mount)
   const before = readPins('mine').find((p) => p.id === 'ceo')!.rect
@@ -311,6 +482,43 @@ uiTest('mosaic preview and commit: two windows align, neighbours stay still, rel
   const saved = JSON.parse(localStorage.getItem(pinsKey('mine'))!)
   await inAct(() => { forgetPins('mine') })
   assert.deepEqual(readPins('mine'), saved, 'durable rect and snap survive cache reset')
+})
+
+uiTest('Display "snap pinned panels to edges" off: drag and resize go exactly where released', async ({ mount }) => {
+  const { el, title } = await mosaicRig(mount)
+  try {
+    assert.match(title.getAttribute('title') ?? '', /release near an edge to snap/)
+    await inAct(() => { setPinSnapOn(false) })
+    assert.equal(title.getAttribute('title'), 'Drag to move. Escape cancels.',
+      'the title stops promising a snap')
+    // the same drag that snaps to (420,100) in the mosaic test above
+    await inAct(() => { title.dispatchEvent(pointer('pointerdown', 700, 412)) })
+    await inAct(() => { title.dispatchEvent(pointer('pointermove', 451, 117)) })
+    assert.equal(el.querySelector('.pin-snap-preview'), null, 'no snap preview')
+    await inAct(() => { title.dispatchEvent(pointer('pointerup', 451, 117)) })
+    assert.deepEqual(readPins('mine').find((p) => p.id === 'cto')!.rect,
+      { x: 431, y: 105, w: 320, h: 240 }, 'released exactly where dropped')
+    assert.equal(readPins('mine').find((p) => p.id === 'cto')!.snap, null)
+    // the same west-edge resize that snaps to x=420 in the resize test above
+    const start = { x: 430, y: 100, w: 500, h: 300 }
+    await inAct(() => { commitRect('mine', 'cto', start, { w: 1300, h: 850 }) })
+    const handle = pinWin(el, 'cto')!.nextElementSibling!.querySelector('.pinwin-rs.w')!
+    await inAct(() => { handle.dispatchEvent(pointer('pointerdown', 430, 150)) })
+    await inAct(() => { handle.dispatchEvent(pointer('pointermove', 425, 150)) })
+    assert.equal(el.querySelector('.pin-snap-preview'), null, 'no resize snap preview')
+    await inAct(() => { handle.dispatchEvent(pointer('pointerup', 425, 150)) })
+    assert.deepEqual(readPins('mine').find((p) => p.id === 'cto')!.rect,
+      { x: 425, y: 100, w: 505, h: 300 }, 'resize is free')
+    // turning it back on applies to the very next gesture
+    await inAct(() => { setPinSnapOn(true) })
+    await inAct(() => { commitRect('mine', 'cto', start, { w: 1300, h: 850 }) })
+    await inAct(() => { handle.dispatchEvent(pointer('pointerdown', 430, 150)) })
+    await inAct(() => { handle.dispatchEvent(pointer('pointerup', 425, 150)) })
+    assert.deepEqual(readPins('mine').find((p) => p.id === 'cto')!.rect,
+      { x: 420, y: 100, w: 510, h: 300 }, 'on again: snaps again')
+  } finally {
+    setPinSnapOn(true)
+  }
 })
 
 uiTest('mosaic release uses latest coordinates and target, including removal', async ({ mount }) => {

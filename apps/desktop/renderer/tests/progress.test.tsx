@@ -970,7 +970,11 @@ test('§5d CONTROL: a desk with no doc or mail route renders those same '
     'the tab holds its own rows, so an item chip must still be live')
 })
 
-test('agent docket hides archived rows/count by default and reveals then hides selected detail',
+// Since b51adc7/2111052 ("keep hidden selections mounted", "preserve selected
+// hidden details") hiding the archived group removes its rows but keeps the
+// SELECTED archived item open, so its reply draft survives (the same rule
+// worklifecycle.test.tsx pins with a draft). Choosing another row releases it.
+test('agent docket hides archived rows/count by default, reveals selected detail, and keeps it open when the group is hidden again',
   async (t) => {
     resetConvos()
     useFakeClock()
@@ -1010,7 +1014,15 @@ test('agent docket hides archived rows/count by default and reveals then hides s
     })
     assert.equal(view.el.querySelectorAll('.docket-agent .docket-row').length, 1)
     assert.match(view.el.querySelector('.docket-agent .mailer-read')?.textContent ?? '',
-      /select an item to view it/)
+      /Archived work/, 'the selected archived item stays open after its group is hidden')
+    const active = view.el.querySelector<HTMLElement>('.docket-agent .docket-row')!
+    await act(async () => { active.click() })
+    const pane = view.el.querySelector('.docket-agent .mailer-read')?.textContent ?? ''
+    assert.match(pane, /Active work/)
+    assert.doesNotMatch(pane, /Archived work/, 'choosing another row releases the hidden one')
+    await act(async () => { active.click() })
+    assert.match(view.el.querySelector('.docket-agent .mailer-read')?.textContent ?? '',
+      /select an item to view it/, 'and the hidden row does not come back once deselected')
   })
 
 test('Presented desk tab lists the selected agent documents and opens markdown', async (t) => {

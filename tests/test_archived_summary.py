@@ -23,6 +23,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 _root = tempfile.TemporaryDirectory(prefix='v2-archived-summary-')
@@ -103,6 +104,15 @@ class ArchivedSummaryTests(unittest.TestCase):
         return out
 
     # -- the contract -----------------------------------------------------
+    def test_single_node_projection_does_not_walk_descendants_or_lineage(self):
+        org = store.load_org(self.slug)
+        index = org.children_index()
+        full = org.tree()['roots'][0]
+        with patch.object(org, 'org_children', side_effect=AssertionError('descendant traversal')):
+            with patch.object(org, 'lineage_stack', side_effect=AssertionError('lineage traversal')):
+                single = org.tree_node('boss', children_index=index, descend=False, lineage=False)
+        self.assertEqual(single, {**full, 'children': [], 'lineage': []})
+
     def test_summary_plus_detail_is_the_whole_node(self):
         ns = self.nodes(self.tree())
         live, arch = ns['boss'], ns['gone']
@@ -152,7 +162,8 @@ class ArchivedSummaryTests(unittest.TestCase):
         self.assertEqual(arch['charter_line'], 'retired seat')
         # the row reads turns[turns.length - 1]; one is all it can use
         self.assertEqual(len(arch['turns']), 1)
-        self.assertEqual(arch['turns'][0]['n'], 7)
+        # the newest one, by its time (ORGTREE_TURN_LOG renumbers `n`)
+        self.assertEqual(arch['turns'][0]['at'], '2026-01-08T00:00:00Z')
         for f in ('id', 'title', 'tier', 'state', 'seat', 'grant',
                   'occupancy', 'context_window', 'pending_switch', 'frozen'):
             self.assertIn(f, arch, f'the tray needs {f}')

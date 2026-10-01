@@ -25,7 +25,7 @@ import secrets
 import threading
 from typing import TYPE_CHECKING, Any
 
-from . import deployment, store
+from . import deployment, orgtx, store
 from .ledger import LedgerError, now
 
 if TYPE_CHECKING:
@@ -312,31 +312,33 @@ def rotate_org_credential(slug: str) -> dict[str, Any]:
     if legacy_credentials_allowed():
         raise deployment.DeploymentConfigError(
             "bridge credential rotation is available only in frozen mode")
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
+    # PG-3r: the rotation is one row transaction on the two credential
+    # sections it reads and writes; the verification below reads the
+    # committed state, exactly as the resolver does for every request.
+    with orgtx.org_tx(slug, sections=["bridge_credential_generation",
+                                      "bridge_credential_rotated_at"]) as tx:
+        org = tx.org
         old = org_credential(org)
         previous_generation = _generation(org)
         previous_fingerprint = _fingerprint(old)
         org.d["bridge_credential_generation"] = previous_generation + 1
         org.d["bridge_credential_rotated_at"] = now()
-        store.save_org(org)
-
-        # Plant the actual credential that was accepted immediately before
-        # this write and verify the live resolver now rejects it. Keep the
-        # bearer local; only its one-way fingerprint enters the receipt.
-        old_rejected = resolve_org_credential(old) is None
-        if not old_rejected:
-            raise BridgeCredentialError(
-                "bridge rotation verification failed: the previous credential "
-                "is still accepted")
-        receipt = credential_attestation(org)
-        if receipt["previous_generation_rejected"] is not True:
-            raise BridgeCredentialError(
-                "bridge rotation verification failed: planted previous "
-                "generation was not rejected")
-        return {
-            **receipt,
-            "previous_generation": previous_generation,
-            "previous_fingerprint": previous_fingerprint,
-            "old_credential_rejected": True,
-        }
+    # Plant the actual credential that was accepted immediately before
+    # this write and verify the live resolver now rejects it. Keep the
+    # bearer local; only its one-way fingerprint enters the receipt.
+    old_rejected = resolve_org_credential(old) is None
+    if not old_rejected:
+        raise BridgeCredentialError(
+            "bridge rotation verification failed: the previous credential "
+            "is still accepted")
+    receipt = credential_attestation(org)
+    if receipt["previous_generation_rejected"] is not True:
+        raise BridgeCredentialError(
+            "bridge rotation verification failed: planted previous "
+            "generation was not rejected")
+    return {
+        **receipt,
+        "previous_generation": previous_generation,
+        "previous_fingerprint": previous_fingerprint,
+        "old_credential_rejected": True,
+    }

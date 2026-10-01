@@ -18,6 +18,7 @@ os.environ['ORGTREE_DATA'] = fixture.name
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine/backend'))
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+import child_python  # a child Python imports THIS checkout's engine (tests/child_python.py)
 
 from orgtree import assistant_messages as identity, ledger, store, supervisor as sup
 
@@ -209,10 +210,10 @@ class AssistantIdentityTests(unittest.TestCase):
         self.assertEqual([r['text'] for r in self.prose()], ['retained partial'])
         self.assertEqual(self.prose()[0]['assistant_state'], 'partial')
         # A different interpreter has no supervisor/cache/stream state.
-        process = subprocess.run([sys.executable, '-c',
+        process = subprocess.run(child_python.argv('-c',
             'import json,sys; from orgtree import store,supervisor; '
             'print(json.dumps(supervisor.read_chat(store.load_org(sys.argv[1]), "agent")["messages"]))',
-            self.slug], env={**os.environ, 'PYTHONPATH':str(Path(sup.__file__).parents[1])},
+            self.slug), env=dict(os.environ),
             capture_output=True, text=True, check=True, timeout=20)
         self.assertEqual([r['text'] for r in json.loads(process.stdout)], ['retained partial'])
         self.complete(mid, 'retained complete', emit=False)

@@ -29,6 +29,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 're
 import { useSurfaceDocument } from '../popout'
 import { md } from './shared'
 import { RefMdBody } from './refmd'
+import { useHistoricalWorkReferences } from './workrefresolve'
 import { measureInto, NO_FOLD } from './foldlines'
 import type { RefWorld, ResolvedRef } from './reflinks'
 import type { MentionIndex } from './workrefs'
@@ -39,7 +40,7 @@ import type { MentionIndex } from './workrefs'
  *  four of these, and a blank line between paragraphs is none of them. */
 export const DESC_FOLD_LINES = 10
 
-export function DocketDescription({ text, slug, world, onOpen, index, onPick }: {
+export function DocketDescription({ text, slug, world: baseWorld, onOpen, index: baseIndex, onPick }: {
   text: string
   /** the item this description belongs to. Only used to decide when a fold
    *  reopens: switching items starts collapsed again, while an update to the
@@ -50,6 +51,7 @@ export function DocketDescription({ text, slug, world, onOpen, index, onPick }: 
   index?: MentionIndex
   onPick?: (name: string) => void
 }) {
+  const { world, index } = useHistoricalWorkReferences(text, baseWorld, baseIndex)
   const ownerDocument = useSurfaceDocument()
   const content = useRef<HTMLDivElement>(null)
   const id = useId()

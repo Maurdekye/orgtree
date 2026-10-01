@@ -25,6 +25,7 @@
 import {
   advance, flush, inAct, mountView, realClock, useFakeClock,
 } from './harness'
+import { compatibilityWorkFixture } from './workcompat.fixture'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
@@ -36,6 +37,7 @@ import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { resetConvos } from '../src/convo'
 import { forgetPins } from '../src/canvas/pins'
 import { setCrowdPilesOn } from '../src/canvas/shared'
+import { treeSelections } from '../src/treeselection'
 import type { TreeNode, TreePayload, WorkItem } from '../src/types'
 
 const noop = () => {}
@@ -288,17 +290,17 @@ test('§6 the viewer\'s own tree is the boundary — an invisible agent contribu
 
 // ============================================================ the surface
 async function mountPanel(t: TestContext, roots: TreeNode[], nid: string,
-  payload: Record<string, unknown>) {
+  payload: Record<string, unknown>, foreground?: TreePayload['foreground']) {
   const had = (globalThis as { fetch?: typeof fetch }).fetch;
-  (globalThis as unknown as { fetch: typeof fetch }).fetch = ((url: string) => {
+  (globalThis as unknown as { fetch: typeof fetch }).fetch = compatibilityWorkFixture(((url: string) => {
     const headers = new Headers()
     const body = String(url).includes('/work-items') ? payload : {}
     return Promise.resolve({ ok: true, status: 200, headers, json: () => Promise.resolve(body) })
-  }) as typeof fetch
+  }) as typeof fetch)
   t.after(() => { (globalThis as { fetch?: typeof fetch }).fetch = had })
   let closed = 0
   const v = await mountView(
-    <TeamDocketModal slug="mine" nid={nid} tree={tree(roots)} toast={noop}
+    <TeamDocketModal slug="mine" nid={nid} tree={{ ...tree(roots), ...(foreground ? { foreground } : {}) }} toast={noop}
       close={() => { closed++ }} refs={{ world: { org: 'mine' }, onOpen: noop }} />,
     (h) => h)
   t.after(() => v.unmount())
@@ -357,6 +359,55 @@ panelTest('§9 an EMPTY team says so, and never falls back to the full docket', 
     'and shows none of the work it filtered out')
 })
 
+panelTest('§9c a selected tree that omits a retired owner asks for it and never shows a shorter team as final', async (t) => {
+  const view = (present: string[], missing: string[] = []) => ({ catalog_revision: 'c1',
+    present, missing, hidden_retired_roots: 0, retired_total: 1 })
+  const all = ['lead', 'mid', 'deep', 'deeper', 'sib', 'outsider', 'outkid']
+  const work = { items: [owned('mid-task', 'mid'), owned('ghost-task', 'ghost')] }
+  const pending = await mountPanel(t, ORG, 'lead', work, view(all))
+  assert.deepEqual(rowNames(pending.el), ['mid-task'])
+  assert.match(pending.el.textContent ?? '', /Checking team membership for 1 retired owner/)
+  const fallback = { include: [], hideRetired: false, fronts: {} }
+  assert.deepEqual(treeSelections.read('mine', fallback).selection.include, ['ghost'],
+    'the mounted panel asks the selected tree for exactly the omitted owner')
+  const placed = ORG.map(root => root.id !== 'lead' ? root : { ...root, children: [...root.children,
+    mkNode('ghost', { parent: 'lead', state: 'archived' })] })
+  const found = await mountPanel(t, placed, 'lead', work, view([...all, 'ghost']))
+  assert.deepEqual(rowNames(found.el), ['ghost-task', 'mid-task'], 'once placed, the retired owner work belongs to the team')
+  assert.doesNotMatch(found.el.textContent ?? '', /Checking team membership/)
+  const absent = await mountPanel(t, ORG, 'sib', { items: [owned('ghost-task', 'ghost')] }, view(all, ['ghost']))
+  assert.deepEqual(rowNames(absent.el), [])
+  assert.match(absent.el.textContent ?? '', /no docket items are assigned to sib/,
+    'explicit absence is final: the ordinary empty state returns')
+})
+
+panelTest('§9d over 128 omitted owners stay requested through the legacy fallback, never flip-flop (review f4)', async (t) => {
+  const ghosts = Array.from({ length: 130 }, (_, i) => `ghost-${String(i).padStart(3, '0')}`)
+  const payload = { items: ghosts.map(g => owned('task-' + g, g)) }
+  const had = (globalThis as { fetch?: typeof fetch }).fetch;
+  (globalThis as unknown as { fetch: typeof fetch }).fetch = compatibilityWorkFixture(((url: string) => {
+    const body = String(url).includes('/work-items') ? payload : {}
+    return Promise.resolve({ ok: true, status: 200, headers: new Headers(), json: () => Promise.resolve(body) })
+  }) as typeof fetch)
+  t.after(() => { (globalThis as { fetch?: typeof fetch }).fetch = had })
+  const roots = [mkNode('lead')]
+  const selected = { ...tree(roots), foreground: { catalog_revision: 'c1', present: ['lead'], missing: [] } }
+  const panel = (tr: TreePayload) => <TeamDocketModal slug="mine" nid="lead" tree={tr} toast={noop}
+    close={noop} refs={{ world: { org: 'mine' }, onOpen: noop }} />
+  const fallback = { include: [], hideRetired: false, fronts: {} }
+  const v = await mountView(panel(selected), (h) => h)
+  t.after(() => v.unmount())
+  await flush(4)
+  const asked = treeSelections.read('mine', fallback)
+  assert.equal(asked.selection.include.length, 130, 'over 128: the next read is the complete legacy tree')
+  await v.render(panel(tree(roots)))   // the legacy fallback answer: no foreground
+  await flush(4)
+  const held = treeSelections.read('mine', fallback)
+  assert.equal(held.selection.include.length, 130, 'the fallback does not release the request')
+  assert.equal(held.version, asked.version, 'so no new selected read is scheduled: no flip-flop')
+  assert.doesNotMatch(v.el.textContent ?? '', /Checking team membership/, 'the complete tree settles membership')
+})
+
 panelTest('§9b a team of one with work still shows it', async (t) => {
   const p = await mountPanel(t, ORG, 'deeper', { items: [owned('deeper-task', 'deeper')] })
   assert.deepEqual(rowNames(p.el), ['deeper-task'])
@@ -404,12 +455,12 @@ async function mountCanvas(t: TestContext, roots: TreeNode[], items: WorkItem[])
   t.after(() => { (globalThis as { fetch?: typeof fetch }).fetch = had });
   // zoomdocket.test.tsx's shape: the canvas asks for very little, and the one
   // route this file cares about is the docket poll
-  (globalThis as unknown as { fetch: typeof fetch }).fetch = (async (url: string) => {
+  (globalThis as unknown as { fetch: typeof fetch }).fetch = compatibilityWorkFixture((async (url: string) => {
     const body = String(url).includes('/work-items')
       ? { items, archived: [], backlogged: [], counts: { active: items.length, archived: 0, attention: 0, backlogged: 0 }, now: '2026-09-07T06:45:00Z' }
       : {}
     return new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } })
-  }) as unknown as typeof fetch
+  }) as unknown as typeof fetch)
   const v = await mountView(
     <OrgCanvas tree={tree(roots)} slug="mine" op={async () => ({} as never)}
       toast={noop} mailEvt={null} />, (h) => h)
@@ -546,13 +597,13 @@ panelTest('§12 the FULL work docket still shows every item, whoever owns it', a
   const items = [owned('lead-task', 'lead'), owned('deep-task', 'deep'),
                  owned('outsider-task', 'outsider'), mkItem({ slug: 'orphan', title: 'orphan', owner: null })]
   const had = (globalThis as { fetch?: typeof fetch }).fetch;
-  (globalThis as unknown as { fetch: typeof fetch }).fetch = ((url: string) => {
+  (globalThis as unknown as { fetch: typeof fetch }).fetch = compatibilityWorkFixture(((url: string) => {
     const headers = new Headers()
     const body = String(url).includes('/work-items')
       ? { items, counts: { active: items.length, archived: 0, attention: 0, backlogged: 0 }, now: '2026-09-07T06:45:00Z' }
       : {}
     return Promise.resolve({ ok: true, status: 200, headers, json: () => Promise.resolve(body) })
-  }) as typeof fetch
+  }) as typeof fetch)
   t.after(() => { (globalThis as { fetch?: typeof fetch }).fetch = had })
   const v = await mountView(
     <DocketModal slug="mine" toast={noop} close={noop} tree={tree(ORG)} />, (h) => h)

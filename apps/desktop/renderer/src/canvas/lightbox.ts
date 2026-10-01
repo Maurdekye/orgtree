@@ -90,7 +90,13 @@ export function openLightboxIfEligibleImage(e: { target: EventTarget | null; def
 }
 
 // every image inside a markdown body (.md is innerHTML — no React handlers)
-// opens in the viewer, via the one check above.
+// opens in the viewer, via the one check above. CAPTURE, not bubble: every
+// PinFrame panel (the Attention view's desk, mail, the docket) stops click
+// propagation at the panel, so a bubbling listener never saw a click on a
+// picture inside one (docket v3-copy-button-on-code-blocks-in-the-agent-chat,
+// the same fault as the code-copy button). Popped-out windows already listen
+// in capture (popout.tsx); the explicit calls in gallery.tsx then
+// see `defaultPrevented` and do nothing twice.
 if (typeof document !== 'undefined') document.addEventListener('click', (e) => {
   openLightboxIfEligibleImage(e)
-})
+}, true)

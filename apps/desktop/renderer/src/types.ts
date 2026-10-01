@@ -338,6 +338,10 @@ export interface PendingAccount {
 }
 
 export interface TreeNode {
+  /** Foreground projection omits the lineage axis even for live agents. */
+  lineage_loaded?: boolean
+  lineage_revision?: string
+  consultable_predecessor?: { id: string; generation: number } | null
   /** §4.8 — `false` means this is an ARCHIVED seat's SUMMARY: its
    *  supervisor-derived runtime fields were refilled from the payload's
    *  `archived_defaults` (api.ts `getTree` → `hydrateTree`), and its per-seat
@@ -479,6 +483,12 @@ export interface TreeNode {
    *  2026-09-02 19:19Z). */
   cheap_compact_occ?: number | null
   waiting: boolean
+  /** Set while this node's turn waits behind the machine-wide concurrent-turn
+   *  limit (user ruling 2026-09-26): `since` is epoch seconds, `limit` the
+   *  limit in force when it queued, `waiting` how many turns were queued
+   *  then. null/absent otherwise. The desk shows a banner pointing at the
+   *  setting. */
+  queued_for_slot?: TurnSlotQueued | null
   responding: boolean
   phase: string | null
   /** WHICH account actually served this node's last turn, captured at spawn
@@ -802,6 +812,10 @@ export interface SweepResult {
 }
 
 export interface TreePayload {
+  /** Client projection boundary. Omission from roots is unknown, not deletion.
+   * Includes identities on the separate lineage axis as well as org rows. */
+  foreground?: { catalog_revision: string; present: string[]; missing: string[];
+    hidden_retired_roots?: number; retired_total?: number }
   /** §4.8 — what an archived seat's omitted runtime fields are worth, sent
    *  once per payload instead of 242 times inside it. `hydrateTree` refills
    *  from THIS rather than from a copy of the rule written in TypeScript.
@@ -812,6 +826,8 @@ export interface TreePayload {
    *  frames with rev > this replay on top of the payload; absent from an
    *  older engine, in which case nothing replays */
   sync_rev?: number
+  /** Conservative committed PG boundary carried alongside sync_rev. */
+  org_rev?: number
   slug: string
   name: string
   workspace: string | null
@@ -860,7 +876,13 @@ export interface TreePayload {
    *  archived done item with a pending question still counts). `active` =
    *  non-archived items whose status is not done/superseded/dropped, the
    *  muted fallback when attention is zero. */
-  work_items_summary: { attention: number; active: number }
+  work_items_summary: {
+    attention: number; active: number
+    /** every manually flagged ticket as [slug, set_rev] — one identity per
+     *  raise (ledger `work_attention_raises`), so a dismissed raise leaves the
+     *  Work glow at once and a new raise is never hidden behind it */
+    raises?: [string, number][]
+  }
   user_inbox_count: number
   /** D-169: how many of those unread mails were tagged urgent by their
    *  sender. Added to `asks_open` it makes the ATTENTION count, which
@@ -1008,6 +1030,10 @@ export interface ChatMessage {
   assistant_state?: 'partial' | 'complete'
   assistant_pending?: boolean
   assistant_materialized?: boolean
+  /** stream frames only (supervisor.wire_reply_frame): `text` is just what
+   *  was added since `assistant_base_revision` */
+  assistant_delta?: boolean
+  assistant_base_revision?: number
   row_id?: string
   /** THE SHARED DURABLE IDENTITY (user ruling 2026-09-11). The CLI/journal
    *  record uuid this row was projected from (supervisor read_chat:
@@ -1299,14 +1325,46 @@ export interface ChartersPayload {
   charters: {
     name: string; content: string; path: string
     chars?: number; truncated?: boolean
-    // where the document lives: a user file in ~/.orgtree/charters or a
+    // where the document lives: a user file in ~/.orgtree/charters, a
     // preset bundled with the installation (a user file shadows a bundled
-    // one with the same filename)
-    file?: string; source?: 'user' | 'bundled'
+    // one with the same filename), or a read-only template in one of the
+    // app-wide external template folders (`dir`). External templates never
+    // shadow and are never shadowed, so `name` can repeat — `path` is the
+    // unique identity of a choice.
+    file?: string; source?: 'user' | 'bundled' | 'external'
+    dir?: string
   }[]
   preset_max?: number
   user_dir?: string
   charter_long?: number
+  // each configured external folder's state, present when any is configured
+  template_dirs?: CharterTemplateDirState[]
+}
+
+// One configured external charter template folder, as scanned read-only.
+export interface CharterTemplateDirState {
+  path: string
+  status: 'ok' | 'missing' | 'not_directory' | 'link_refused' | 'invalid_path' | 'unreadable'
+  error?: string
+  count: number
+  skipped_links?: string[]
+  // `.md` entries that are not regular files (e.g. a folder named x.md)
+  not_files?: string[]
+  oversize?: string[]
+  unreadable_files?: string[]
+  listing_truncated?: boolean
+  // only on GET/PUT /api/app-settings/charter-template-dirs: names and
+  // paths, never bodies
+  templates?: { name: string; file: string; path: string }[]
+}
+
+// GET/PUT /api/app-settings/charter-template-dirs
+export interface CharterTemplateDirsPayload {
+  dirs: string[]
+  max_dirs?: number
+  directories: CharterTemplateDirState[]
+  // names found in more than one place (all are still offered as choices)
+  duplicates: { name: string; locations: { source: string; path: string }[] }[]
 }
 
 // GET /api/mcp-servers
@@ -1524,8 +1582,9 @@ export interface ProviderInfo {
   reserve_reason?: string | null
   /** "openai" only: how far the resolved Codex CLI has drifted from what is
    *  available. Nothing in this repo ever refreshes the pin, and OpenAI gates
-   *  rollout models on the CLI version — a stale pin HIDES a live tier and
-   *  the old refusal message blamed the account for it. OMITTED on an old
+   *  rollout models on the CLI version — a stale pin once HID Astra and the
+   *  old refusal message blamed the account for it (Astra is always offered
+   *  since 2026-09-24; the pin still limits what a turn can run). OMITTED on an old
    *  backend and on every other provider. */
   cli_version?: CodexCliVersion
 }
@@ -1677,7 +1736,14 @@ export interface RuntimeSettingsPayload {
   /** Default off: additionally remind agents about their own BLOCKED items,
    *  but only while every remaining ticket in the organization is blocked. */
   blocked_docket_reminders_enabled: boolean
+  /** The live machine-wide limit on concurrent agent turns (default 16) and
+   *  the fair queue behind it. Absent from an older engine. */
+  max_concurrent_turns?: number
+  turn_slots?: { limit: number; held: number; waiting: number
+    waiting_by_org: Record<string, number> }
 }
+
+export interface TurnSlotQueued { since: number; limit: number; waiting: number }
 
 /** one bar of the host subscription's rate-limit standing (GET /api/usage —
  *  the same readout Claude Code shows under /usage). `model` is the display
@@ -2036,6 +2102,10 @@ export interface OpRequest {
   new_parent?: string | null
   dir?: string | null
   raise_ceiling?: boolean
+  /** cheap_compact — refuse (409) instead of acting when the target is
+   *  mid-turn. Sent by the bulk actions only (canvas/bulkcompact.tsx); the
+   *  single action keeps its existing behaviour. */
+  if_idle?: boolean
 }
 
 // api.py Scope (POST .../nodes/{nid}/scope)
@@ -2665,6 +2735,12 @@ export interface WorkItem {
 
 // GET /api/orgs/{slug}/work-items[?archived=1][&backlogged=1]
 export interface WorkItemsPayload {
+  format?: string
+  /** Desktop list transport: heavy authored records are fetched on open. */
+  revision?: string
+  references?: Pick<WorkItem, 'slug' | 'title' | 'parent' | 'archived' | 'status' | 'rev' | 'view_revision'>[]
+  /** Manual flags across every group, including a closed backlog toggle. */
+  attention?: WorkItem[]
   items: WorkItem[]
   /** present only when asked for; each is APPENDED below `items`, never
    *  merged into it — revealing a group must not re-sort the main list */

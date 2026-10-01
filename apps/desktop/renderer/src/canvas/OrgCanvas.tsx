@@ -1,8 +1,13 @@
-import { adoptPinLayer, usePinSurfaces, pinSnapId } from './pinspace'
+import { adoptPinLayer, usePinSurfaces, pinSnapId, onViewportGeometry } from './pinspace'
 import { closeSavedWindow, restoredAgent, restoredWindows, savedDeskIdentities } from '../windowlayout'
 import { revealDetachedDocument } from '../windowlife'
 import { intersectsViewport, ViewportPath, worldViewport } from './viewport'
-import { preserveRemovedDrafts, renameDrafts } from '../draftstore'
+import { renameDrafts } from '../draftstore'
+import { treePresence, sweepAbsentDrafts, sweepAbsentPreferences } from '../treepresence'
+import { treeSelections } from '../treeselection'
+import { setButtonAgent } from '../buttoncolours'
+import { retiredFronts, savedTreeSelection } from './treeselection'
+import type { TreeBrowse } from '../treeview'
 import { DeskHosts, useDeskActionsNow } from './deskhosts'
 // canvas/OrgCanvas.tsx — the canvas core: the OrgCanvas component itself —
 // camera (pan/zoom/springs/follow), tree layout orchestration, wires and
@@ -13,29 +18,35 @@ import { DeskHosts, useDeskActionsNow } from './deskhosts'
 import { Fragment, useCallback, useLayoutEffect, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ReactNode } from 'react'
-import type { AudienceGrant, NodeStatus, ProviderInfo, ToastFn, TreeNode, TreePayload } from '../types'
+import type { AudienceGrant, ProviderInfo, ToastFn, TreeNode, TreePayload } from '../types'
 import { audienceAction, getProviders, orgInboxRead, reorderNode } from '../api'
 import {
   AddIcon, ChevronLeftIcon, ChevronRightIcon, FrozenIcon,
   FullscreenIcon, PublicIcon, RemoveIcon, ViewListIcon,
 } from '../icons'
 import {
-  ago, ALL_TIER_SEAT, anyTierSeat, attentionPip, codexTierOffer, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, familyOffer, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, jumpTo, layout, NODE_H, NODE_W, noteTierModels, openrouterTierIds, orgPxc, presenceOf, segD, setOpenRouterTiers,
-  providerOf, queuedSwitchTitle, savedView, saveView, segPoint, sizeOf, smooth, SPRING_C, SPRING_K, startView, startZoomOn, TIER_LETTER, TIER_SEAT, tierCapabilityNotes, tierLabel, TIERS, useCrowdPiles, useHideRetired, usePolled, USER, USER_H,
-  USER_W, withDraftTree, Z_DESK, Z_MAX, Z_MINI,
+  ago, ALL_TIER_SEAT, antigravityTierOffer, anyTierSeat, attentionPip, codexTierOffer, setOfferedConditionalTiers, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DOG_H, DOG_W, DRAFT, ease, edgeJumpPlacement, type EJForm, EXTERN, familyOffer, flatten, fmtCredits, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, hireOf, INBOX, INBOX_H, legacyMark, optInLegacyHidden, useShowLegacyModels, jumpTo, layout, NODE_H, NODE_W, noteTierModels, openrouterTierIds, orgPxc, presenceOf, segD, setOpenRouterTiers,
+  providerOf, queuedSwitchTitle, savedView, saveView, segPoint, sizeOf, smooth, SPRING_C, SPRING_K, startView, startZoomOn, TIER_LETTER, TIER_SEAT, tierCapabilityNotes, tierLabel, TIERS, chartLayoutOf, useChartLayout, useCrowdPiles, useHideRetired, usePolled, USER, USER_H,
+  peerOrder, ringInsertSide, treeParents, USER_W, withDraftTree, withPendingMoves, Z_DESK, Z_MAX, Z_MINI,
 } from './shared'
 import type {
   CanvasNode, DraftScope, DraftState, FamilyOffer, MailEvent, MailLinkFn,
   HireState, OpFn, Pile, Pt, Seg, Spring, StreamEvent, View, WorkLinkFn,
 } from './shared'
-import { ContextWheel, DeskChat, DestinationBusy, LineagePanel, OrgKillswitchContext, TrayStatus } from './desk'
+import { DeskChat, DestinationBusy, LineagePanel, OrgKillswitchContext, TrayStatus } from './desk'
+import type { DeskChatProps } from './desk'
+import { OrgDefaultEffort, resolveOrgDefault } from './effort'
+import { TempDeskModal } from './tempdesk'
+import { FirstUseGuide, firstUseToken, firstUseCancel, firstUseHired } from './firstuse'
 import { DocReader } from './docs'
-import { mailRefTarget, useRefRoutes, Written } from './reflinks'
+import { ForegroundViewContext, mailRefTarget, useRefRoutes } from './reflinks'
 import type { ResolvedRef } from './reflinks'
 import type { TypedRef } from './workrefs'
 import { NodeInboxModal, OrgInboxModal } from './mail'
 import { AgentDocketModal } from './agentdocket'
 import { AgentSurfaceRoutesProvider } from './panelcorner'
+import { DeskDogsProvider } from './deskdogs'
+import type { DeskDogs } from './deskdogs'
 import type { AgentSurfaceRoutes } from './panelcorner'
 import { TeamDocketModal } from './teamdocket'
 import { NodeConfig, PilePicker, WatchdogPanel } from './modals'
@@ -48,7 +59,10 @@ import { isCompact, isMobile, MaybePortal, sheetGate } from '../mobile'
 import { dropConvo, renameConvo } from '../convo'
 import { isModalPinned, ModalOverPins, PinFrame, pinnedModalBehind, raisePinnedModal, readModalOpen, usePersistedModalOpen } from './modalpin'
 import { freeInsets, useCanvasAnchor } from './canvasanchor'
-import { charterLine } from '../archived'
+import { glWiresAllowed, readWireStyles, sparkPoint, useGlWires } from './glwires'
+import type { WireStyles, Wire } from './glwires'
+import { AgentTray } from './agenttray'
+import type { TrayRow } from './agenttray'
 import { NodeDetailGate } from './nodedetailgate'
 import { contextMenuBelongsTo, ObjectMenuBoundary, useContextMenu } from './contextmenu'
 import type { ContextMenuHandle, MenuEntry } from './contextmenu'
@@ -56,6 +70,34 @@ import { AgentRetireConfirm, agentMenuEntries, continueFrozenOnAccount } from '.
 import { AgentNavProvider, agentNavProps, useProvideAgentNav } from './agentnav'
 import type { RetireKind } from './agentmenu'
 import { useSurfaceDocument } from '../popout'
+import { setAttentionLayout } from '../attention/mode'
+
+/** What the org host hands a view rendered in its slot. Every field is
+ *  something this component already holds, which is the point: a sibling view
+ *  gets the canvas's map, layout and routes WITHOUT the map or the handler
+ *  closures being hoisted into App. */
+export interface OrgSlotContext {
+  slug: string
+  tree: TreePayload
+  op: OpFn
+  toast: ToastFn
+  map: Map<string, CanvasNode>
+  /** the LIVE layout position — `springs` if the camera has settled there,
+   *  else the layout target, so it answers before the springs settle.
+   *  ⚠ FOR ORDER ONLY: a view uses it to read left-to-right exactly as the
+   *  canvas draws, and must not treat it as a place to put anything. */
+  posOf: (id: string) => Pt | undefined
+  onOpenItem?: (itemSlug: string) => void
+  onFocusAgent?: (agentId: string) => void
+  onOpenDoc?: (docId: string) => void
+  /** the canonical mail route — the SAME `MailLinkFn` the desks get, not a
+   *  narrowed copy, so a view cannot open mail by a shape the host does not
+   *  actually accept */
+  onOpenMail?: MailLinkFn
+  /** the canonical desk's own host routes, to pass straight through to a
+   *  `DeskSlot`. The view supplies no stubs and invents no handler. */
+  deskExtras: Partial<DeskChatProps>
+}
 
 export interface OrgCanvasProps {
   tree: TreePayload
@@ -63,6 +105,27 @@ export interface OrgCanvasProps {
   slug: string
   toast: ToastFn
   mailEvt: MailEvent | null
+  /** Render a view as a SIBLING of the canvas viewport, inside this host's own
+   *  providers — the desk registry, the killswitch and the surface routes.
+   *
+   *  ⚠ WHY A SLOT RATHER THAN A SECOND HOST. The Attention view mounts a
+   *  canonical desk, and a desk must register in the ONE registry or two live
+   *  composers become possible. It is a sibling of `.viewport` rather than a
+   *  child so it escapes the pan/zoom transform, and so hiding its own stage
+   *  can never hide the pin layer — which `adoptPinLayer` appends INSIDE the
+   *  viewport. */
+  renderOrgSlot?: (ctx: OrgSlotContext) => ReactNode
+  /** Whether the canvas world is the presented view. The SHELL sets this — it
+   *  owns the view toggle, so it is the only place that knows — and THIS
+   *  component does the hiding, because it is the only place that knows which
+   *  of its children are world and which is the adopted pin layer.
+   *
+   *  ⚠ THE SHELL MUST NOT HIDE OR UNMOUNT THE CANVAS ITSELF. `display: none`
+   *  on `.viewport` takes every pinned window with it. `'hidden'` here keeps
+   *  the viewport and the pin layer untouched and puts the world away by
+   *  inherited visibility, which also PRESERVES LAYOUT: the camera, the
+   *  springs and `posOf` survive the switch. */
+  canvasContent?: 'shown' | 'hidden'
   /** open the user's inbox, optionally jumped to a specific mail id */
   onInbox?: (jump?: string) => void
   /** open the work docket at ONE item — a tool chip's docket link */
@@ -108,6 +171,9 @@ export interface OrgCanvasProps {
 // so the effect stays a tiny "farther away" cue, not a distinct layer racing
 // past the cards.
 const PARALLAX_BG = 0.88
+// Until the viewport has a size, keep a small initial preview instead of
+// mounting the whole org only to cull it on the next render.
+const UNMEASURED_CARD_LIMIT = 32
 
 const atRest = (s: Spring, tgt: Pt): boolean =>
   Math.abs(tgt.x - s.x) <= 0.4 && Math.abs(tgt.y - s.y) <= 0.4
@@ -322,10 +388,28 @@ function AgentNavHost({ map, op, slug, toast, goTo, build }: {
     : null
 }
 
+/** How long a CONFIRMED hand move may keep overriding the tree while the
+ *  read that carries it is still on its way. */
+const PENDING_MOVE_MS = 5000
+/** one shown-but-unconfirmed hand move; `settled` once its op succeeded */
+type PendingMove = { to: string | null; settled: boolean }
+
 export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettings, onWorkItem,
   onAccounts, focusAgent, onFocusAgentHandled, openMailAt,
-  onOpenMailHandled, openDocAt, onOpenDocHandled, onOpenAgentGallery }: OrgCanvasProps) {
+  onOpenMailHandled, openDocAt, onOpenDocHandled, onOpenAgentGallery,
+  renderOrgSlot, canvasContent = 'shown' }: OrgCanvasProps) {
+  const worldHidden = canvasContent === 'hidden'
+  const worldHiddenRef = useRef(worldHidden)
+  worldHiddenRef.current = worldHidden
   const [draft, setDraft] = useState<DraftState | null>(null)
+  // Draft forms are intentionally not restored on reopening. Resume the
+  // incomplete tutorial at the real token instead of pointing to a lost form.
+  useEffect(() => { if (!draft) firstUseCancel(slug) }, [slug, draft])
+  // The agent whose desk is open TEMPORARILY (tempdesk.tsx). Plain local state
+  // and nothing else: no pin, no popout, no saved layout row, no change to the
+  // focused node — which is what makes "closing puts the view back" true by
+  // construction rather than by restoring anything.
+  const [tempDeskId, setTempDeskId] = useState<string | null>(null)
   const [configId, setConfigId] = useState<string | null>(null)
   // A pinned node-config remains mounted as a window; clicking its same
   // opener toggles visibility, while another agent's gear selects that agent.
@@ -514,6 +598,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     (v) => v.id === 'openrouter') ?? null
   useEffect(() => { setOpenRouterTiers(openrouterProvider?.tiers) },
     [openrouterProvider])
+  // the conditional Antigravity tiers (Argon) the same poll says agy lists —
+  // for the surfaces that carry no HireState of their own
+  useEffect(() => { setOfferedConditionalTiers(antigravityProvider?.tiers) },
+    [antigravityProvider])
   // …and the org doc's own tier→model table, so a node still running on a
   // favorite that was since deselected is named by its model, not its slug
   useEffect(() => { noteTierModels(tree.models) }, [tree.models])
@@ -559,8 +647,48 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     const after = kids.slice(at).filter((c) => c.state !== 'archived')
     return { ...n, children: [...before, ...arch, ...after] }
   }
-  const vrootFull = useMemo(() => canonPiles(withDraftTree(tree, draft)),
-    [tree, draft])   // eslint-disable-line react-hooks/exhaustive-deps
+  // hand re-parents shown before the server confirms them (see PendingMoves).
+  // An entry leaves when the op is refused (the card glides back), or once the
+  // op has SUCCEEDED and either the tree agrees or a few seconds pass — so a
+  // move some later change overrode can never pin a stale layout. Before the
+  // op answers, a tree that happens to agree clears nothing: it can be a read
+  // taken before an earlier move landed (review-astra n2 — after Undo, that
+  // read agreed with the Undo, cleared it, and the next read flashed the card
+  // back to the undone parent). Entries are compared by identity, so a
+  // replaced entry (the Undo's) is never cleared on behalf of the old one.
+  const [pendingMoves, setPendingMoves] = useState<ReadonlyMap<string, PendingMove>>(() => new Map())
+  useEffect(() => { setPendingMoves(new Map()) }, [slug])
+  const treeRef = useRef(tree); treeRef.current = tree
+  const dropPendingMove = useCallback((id: string, entry: PendingMove) => {
+    setPendingMoves((m) => {
+      if (m.get(id) !== entry) return m
+      const next = new Map(m); next.delete(id); return next
+    })
+  }, [])
+  const settlePendingMove = useCallback((id: string, entry: PendingMove) => {
+    if (treeParents(treeRef.current).get(id) === entry.to) { dropPendingMove(id, entry); return }
+    setPendingMoves((m) => {
+      if (m.get(id) !== entry) return m
+      return new Map(m).set(id, Object.assign(entry, { settled: true }))
+    })
+    setTimeout(() => dropPendingMove(id, entry), PENDING_MOVE_MS)
+  }, [dropPendingMove])
+  useEffect(() => {
+    if (!pendingMoves.size) return
+    const real = treeParents(tree)
+    const done = [...pendingMoves].filter(([id, e]) =>
+      e.settled && (!real.has(id) || real.get(id) === e.to))
+    if (done.length) setPendingMoves((m) => {
+      const next = new Map(m)
+      for (const [id, e] of done) if (next.get(id) === e) next.delete(id)
+      return next
+    })
+  }, [tree])   // eslint-disable-line react-hooks/exhaustive-deps
+  const pendingTargets = useMemo(
+    () => new Map([...pendingMoves].map(([id, e]) => [id, e.to] as const)), [pendingMoves])
+  const shownTree = useMemo(() => withPendingMoves(tree, pendingTargets), [tree, pendingTargets])
+  const vrootFull = useMemo(() => canonPiles(withDraftTree(shownTree, draft)),
+    [shownTree, draft])   // eslint-disable-line react-hooks/exhaustive-deps
   // hide-retired (user resumed 2026-09-10 13:25): a DISPLAY prune of the
   // LAYOUT tree only. `map` stays FULL below, so desks, mail routing, the
   // agents tray's archived rows, lineage and window restoration keep every
@@ -583,6 +711,14 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   // the retired-list token's open menu: the parent id whose list is showing
   const [retiredOpen, setRetiredOpen] = useState<string | null>(null)
   const map = useMemo(() => flatten(vrootFull, seats), [vrootFull])   // eslint-disable-line
+  const retiredCounts = useMemo(() => {
+    const counts = new Map([...prunedView.retiredByParent].map(([id, rows]) => [id, rows.length]))
+    if (hideRetired) for (const [id, node] of map) {
+      if (node.hidden_retired_children) counts.set(id, (counts.get(id) ?? 0) + node.hidden_retired_children)
+    }
+    return counts
+  }, [map, hideRetired, prunedView])
+  const nodeKnowledge = useMemo(() => treePresence(tree, slug, map), [tree, slug, map])
   usePersistedModalOpen('node-config', slug, configId !== null, configId ? { agent: configId, generation: map.get(configId)?.generation } : undefined)
   usePersistedModalOpen('lineage', slug, lineageId !== null, lineageId ? { agent: lineageId, generation: map.get(lineageId)?.generation } : undefined)
   usePersistedModalOpen('node-inbox', slug, inboxId !== null, inboxId ? { agent: inboxId, generation: map.get(inboxId)?.generation } : undefined)
@@ -594,9 +730,14 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   usePersistedModalOpen('agent-list', slug, trayOpen)
   useEffect(() => {
     if (restoredModalOrg.current === slug) return
-    restoredModalOrg.current = slug
+    if (tree.slug !== slug) return
     const rows = restoredWindows(slug)
     const pinned = readModalOpen(slug)
+    // Do not consume the one-shot restoration while protected identities are
+    // still omitted. Generation checks run only after exact resolution.
+    if ([...rows, ...pinned].some(row => row.restore?.agent
+      && !map.has(row.restore.agent) && !nodeKnowledge.absent(row.restore.agent))) return
+    restoredModalOrg.current = slug
     const pinnedKind = (kind: string) => pinned.some(r => r.kind === kind && isModalPinned(kind, slug))
     const agent = (kind: string) => restoredAgent(rows.find(r => r.kind === kind), map)
     const pinnedAgent = (kind: string) => {
@@ -623,7 +764,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     setRestoredDocs(rows.filter(r => r.kind !== 'doc' && r.restore?.document))
     const unavailable = rows.filter(r => r.restore?.agent && !restoredAgent(r, map))
     if (unavailable.length) toast(['Some saved windows refer to an agent generation that is no longer available.'])
-  }, [slug, map])
+  }, [slug, map, nodeKnowledge, tree.slug])
   // the mail-link router — STABLE identity (Msg is memoized on its props;
   // the ref carries the fresh closure). user_inbox → the eye's mailbox
   // (marking the glow seen, same as its ✉); @ext:/@org:/@mcp: → the org
@@ -695,12 +836,14 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       // make independent reveal/dismiss impossible.
       const arch = kids.filter((c) => c.state === 'archived'
         && !(hideRetired && shownRetired.has(c.id)))
-      if (arch.length >= 2) {
+      const retiredTotal = arch.length + (hideRetired ? 0 : n.hidden_retired_children ?? 0)
+      if (retiredTotal >= 2 && arch.length > 0) {
         const key = n.id + '|a'
         const want = pileFront[key]
         out.set(key, {
           key, parent: n.id, kind: 'a',
           list: arch.map((c) => c.id),
+          total: retiredTotal,
           front: arch.some((c) => c.id === want) ? want! : arch[arch.length - 1]!.id, // nUIA: some() hit ⇒ want defined; length>=2 checked
         })
       }
@@ -770,8 +913,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     return out
   }, [vroot, piles])
   const hidden = hiddenMemo
+  const chartLayout = useChartLayout()
   const target = useMemo(() => {
-    const t = layout(vroot, hidden)
+    const t = layout(vroot, hidden, chartLayout)
     for (const n of map.values()) {           // live bearers float ABOVE the successor
       // (clear of its card — overlap made both unclickable)
       if (n.isBearerOf && t.has(n.isBearerOf)) {
@@ -831,17 +975,33 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       if (fp) t.set(hid, { x: fp.x, y: fp.y })
     }
     return t
-  }, [vroot, map, tree.org_inbox?.visible, hidden])
+  }, [vroot, map, tree.org_inbox?.visible, hidden, chartLayout])
   const [view, setView] = useState<View>(() => {
     // fit-on-load: center the initial tree in a typical viewport (re-fit against
     // the REAL viewport once mounted — see the mount effect below)
-    const t = layout(withDraftTree(tree, null))
+    const t = layout(withDraftTree(tree, null), new Map(), chartLayoutOf())
     let maxX = 0, maxY = 0
     for (const p of t.values()) { maxX = Math.max(maxX, p.x + 300); maxY = Math.max(maxY, p.y + 260) }
     const z = Math.min(1.3, Math.max(0.35, Math.min(1300 / maxX, 780 / maxY)))
     return { x: Math.max(24, (1400 - maxX * z) / 2), y: 24, z }
   })
   const [, setFrame] = useState(0)
+  // WebGL2 wires and sparks (canvas/glwires.ts). `glWires.active` is the only
+  // switch between the GL layer and the SVG layer below; every failure mode
+  // leaves it false, and the SVG layer then draws exactly what it always did.
+  // Compact keeps SVG: its sparks are off anyway, and the phone GPU budget is
+  // the one this stage has not measured.
+  const [glAllowed] = useState(glWiresAllowed)
+  const glWires = useGlWires(glAllowed && !compact)
+  const glActiveRef = useRef(false); glActiveRef.current = glWires.active
+  const glDrawRef = useRef<(() => void) | null>(null)
+  const wiresRef = useRef<Wire[]>([])
+  // the camera the DOM last COMMITTED. The GL layer draws with this and never
+  // with `viewRef`, which a wheel or pinch writes ahead of the render: the
+  // wires must sit exactly under the cards the browser is about to paint.
+  const committedViewRef = useRef<View>(view)
+  const edgesSvgRef = useRef<SVGSVGElement | null>(null)
+  const glStylesRef = useRef<{ sig: string; styles: WireStyles } | null>(null)
   const [dropId, setDropId] = useState<string | null>(null)
   // FR-3: desks pinned to screenspace (pins.tsx). Desktop only — the mobile
   // sheet is the phone's window, and startNodeDrag bails on isMobile for
@@ -855,18 +1015,58 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     const host = viewportRef.current
     if (host) return adoptPinLayer(slug, host)
   }, [slug])
+  // ---------------------------------------------- putting the world away
+  const worldRef = useRef<HTMLDivElement | null>(null)
+  const slotRef = useRef<HTMLDivElement | null>(null)
+  // ⚠ `inert` IS SET HERE AND NOT AS A JSX PROP, and that is not a style
+  // preference. This app runs React 18, where `inert` is not a known boolean
+  // attribute: `inert={false}` renders `inert="false"`, and because `inert` is
+  // a boolean HTML attribute its mere PRESENCE activates it — so the shown
+  // canvas would be inert. React 19 omits it correctly; until then the
+  // attribute is added and removed explicitly, where the behaviour is visible.
+  //
+  // AND FOCUS MOVES FIRST. `inert` does not blur what is already focused, and
+  // a blurred `document.body` swallows the next keystroke — so anything
+  // focused inside the world is handed to the slot container (which is why
+  // that container is focusable at all) before the world stops accepting it.
+  useLayoutEffect(() => {
+    const world = worldRef.current
+    if (!world) return
+    if (!worldHidden) { world.removeAttribute('inert'); return }
+    const active = document.activeElement
+    if (active instanceof HTMLElement && world.contains(active)) {
+      (slotRef.current ?? viewportRef.current)?.focus?.()
+      if (document.activeElement === active) active.blur()
+    }
+    world.setAttribute('inert', '')
+  }, [worldHidden])
   const [viewportSize, setViewportSize] = useState({ w: 0, h: 0 })
+  // THE ORG SLOT LIES EXACTLY OVER THE VIEWPORT (user report 2026-09-29,
+  // image-17). In the stage's flex column it used to sit BELOW the viewport,
+  // so presenting the Attention view squeezed the canvas to a strip instead of
+  // hiding it. Offsets, not a client rect: the slot is the viewport's sibling,
+  // so both are placed against the same containing block, and whatever padding
+  // or drag margin the shell puts around the canvas is followed rather than
+  // restated here.
+  const [slotBox, setSlotBox] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   useEffect(() => {
     const el = viewportRef.current
     if (!el) return
     const measure = () => {
       const rect = el.getBoundingClientRect()
       setViewportSize(prev => prev.w === rect.width && prev.h === rect.height ? prev : { w: rect.width, h: rect.height })
+      const box = { x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight }
+      setSlotBox(prev => prev && prev.x === box.x && prev.y === box.y && prev.w === box.w
+        && prev.h === box.h ? prev : box)
     }
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(el)
-    return () => observer.disconnect()
+    // a display resolution or scale change is not guaranteed to resize the
+    // element's observed box, so the window-level geometry signals re-measure
+    // too; `measure` bails out when nothing actually changed
+    const unwatch = onViewportGeometry(el.ownerDocument.defaultView ?? window, measure)
+    return () => { observer.disconnect(); unwatch() }
   }, [])
   const visibleRect = worldViewport(view, viewportSize.w, viewportSize.h)
   const viewRef = useRef(view); viewRef.current = view
@@ -901,6 +1101,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   const hireDeskRef = useRef<{ id: string; at: number } | null>(null)
   const targetRef = useRef(target); targetRef.current = target
   const mapRef = useRef(map); mapRef.current = map
+  const foregroundRef = useRef(tree.foreground); foregroundRef.current = tree.foreground
+  // A jump to an agent a SELECTED tree omitted: the id joins this canvas's
+  // tree selection and the jump finishes once the tree carries it, or says so
+  // when the backend reports it missing. Never a silent no-op.
+  const [pendingJump, setPendingJump] = useState<{ id: string; z: number | null; onCanvas: boolean } | null>(null)
+  useEffect(() => { setPendingJump(null) }, [slug])
   // The tree payload replaces ids on a full rename. Keep the prior projection
   // just long enough to distinguish that identity transition from a genuine
   // removal followed by a new hire. Explicit websocket rename mappings are
@@ -947,7 +1153,20 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
 
   // ---------------------------------------------- wires: geometry + sparks
   // (the seg builders assert posOf: every caller pre-checks both endpoints)
+  // radial wire: centre to centre, trimmed to each card's edge
+  const radialSeg = (aId: string, bId: string): Seg => {
+    const a = posOf(aId)!, b = posOf(bId)!
+    const as = sizeOf(aId), bs = sizeOf(bId)
+    const ca = { x: a.x + as.w / 2, y: a.y + as.h / 2 }, cb = { x: b.x + bs.w / 2, y: b.y + bs.h / 2 }
+    const dx = cb.x - ca.x, dy = cb.y - ca.y
+    const edge = (hw: number, hh: number) =>
+      Math.min(hw / (Math.abs(dx) || 1e-9), hh / (Math.abs(dy) || 1e-9))
+    const ta = edge(as.w / 2, as.h / 2), tb = edge(bs.w / 2, bs.h / 2)
+    return { kind: 'l', pts: [
+      { x: ca.x + dx * ta, y: ca.y + dy * ta }, { x: cb.x - dx * tb, y: cb.y - dy * tb }] }
+  }
   const treeSeg = (parentId: string, childId: string): Seg => {
+    if (chartLayout === 'circular') return radialSeg(parentId, childId)
     const a = posOf(parentId)!, b = posOf(childId)!
     const ps = sizeOf(parentId)
     return { kind: 'c', pts: [
@@ -957,6 +1176,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       { x: b.x + NODE_W / 2, y: b.y }] }
   }
   const peerSeg = (lId: string, rId: string): Seg => {
+    // ring: neighbours are joined along the ring, nearest edge to nearest edge
+    if (chartLayout === 'circular') return radialSeg(lId, rId)
     const a = posOf(lId)!, b = posOf(rId)!
     return { kind: 'l', pts: [
       { x: a.x + sizeOf(lId).w, y: a.y + sizeOf(lId).h * 0.55 },
@@ -978,6 +1199,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       { x: x2 + bulge, y: y2 }, { x: x2, y: y2 }] }
   }
 
+  // launchSpark is memoised once; the wire builders depend on the chart layout,
+  // so it reaches the latest ones through this ref
+  const wireRef = useRef({ treeSeg, peerSeg, circular: chartLayout === 'circular' })
+  wireRef.current = { treeSeg, peerSeg, circular: chartLayout === 'circular' }
   const sparksRef = useRef<{
     id: number; segs: (Seg & { rev: boolean })[]; start: number; segDur: number
   }[]>([])
@@ -1056,7 +1281,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           { x: x2 + (left ? bulge : -bulge), y: y2 }, { x: x2, y: y2 }],
           rev: !isBox(from) }],
         start: performance.now(), segDur: 420 })
-      setFrame((f) => f + 1)
+      if (!glActiveRef.current) setFrame((f) => f + 1)   // GL: the frame loop draws it
       return
     }
     const a = norm(from), b = norm(to)
@@ -1092,7 +1317,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         { x: dp.x + DOG_W / 2, y: dp.y + 4 },
         { x: op.x + NODE_W / 2, y: op.y + NODE_H - 8 },
       ], rev: !aDog }], start: performance.now(), segDur: 420 })
-      setFrame((f) => f + 1)
+      if (!glActiveRef.current) setFrame((f) => f + 1)   // GL: the frame loop draws it
       return
     }
     if (!m.has(a) || !m.has(b)) return
@@ -1103,14 +1328,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       const [g, e] = aud.has(a + '→' + b) ? [a, b] : [b, a]
       segs.push({ ...audSeg(g, e), rev: g !== a })
     } else if (a !== USER && b !== USER && m.get(a)?.parent === m.get(b)?.parent) {
-      const sibs = (m.get(m.get(a)!.parent!)?.children ?? []).map((c) => c.id)
-        .filter((k) => m.has(k) && k !== DRAFT && placed(k))
-        .sort((p, q) => (targetRef.current.get(p)?.x ?? 0) - (targetRef.current.get(q)?.x ?? 0))
+      const sibs = peerOrder((m.get(m.get(a)!.parent!)?.children ?? []).map((c) => c.id)
+        .filter((k) => m.has(k) && k !== DRAFT && placed(k)), targetRef.current, wireRef.current.circular)
       const ia = sibs.indexOf(a), ib = sibs.indexOf(b)
       if (ia < 0 || ib < 0) return
       const step = ia < ib ? 1 : -1
       for (let i = ia; i !== ib; i += step) {
-        segs.push({ ...peerSeg(sibs[Math.min(i, i + step)]!, sibs[Math.max(i, i + step)]!), // nUIA: i walks ia..ib, both valid indices
+        segs.push({ ...wireRef.current.peerSeg(sibs[Math.min(i, i + step)]!, sibs[Math.max(i, i + step)]!), // nUIA: i walks ia..ib, both valid indices
           rev: step < 0 })
       }
     } else {
@@ -1124,17 +1348,17 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       if (!ca.every(placed) || !cb.every(placed)) return
       const inB = new Set(cb)
       const lca = ca.find((k) => inB.has(k))!   // both chains end at USER
-      for (let i = 0; ca[i] !== lca; i++) segs.push({ ...treeSeg(ca[i + 1]!, ca[i]!), rev: true }) // nUIA: lca ∈ ca ⇒ i+1 stays in range
+      for (let i = 0; ca[i] !== lca; i++) segs.push({ ...wireRef.current.treeSeg(ca[i + 1]!, ca[i]!), rev: true }) // nUIA: lca ∈ ca ⇒ i+1 stays in range
       let prev = lca
       for (const k of cb.slice(0, cb.indexOf(lca)).reverse()) {
-        segs.push({ ...treeSeg(prev, k), rev: false })
+        segs.push({ ...wireRef.current.treeSeg(prev, k), rev: false })
         prev = k
       }
     }
     if (!segs.length) return
     sparksRef.current.push({ id: ++sparkId.current, segs,
       start: performance.now(), segDur: 420 })
-    setFrame((f) => f + 1)
+    if (!glActiveRef.current) setFrame((f) => f + 1)   // GL: the frame loop draws it
   }, [])   // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { if (mailEvt) launchSpark(mailEvt.from, mailEvt.to) },
@@ -1180,7 +1404,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     }
     for (const [id, n] of previous) {
       const sid = sessionOf(n)
-      if (sid && !map.has(id)) oldBySession.set(sid, id)
+      if (sid && nodeKnowledge.absent(id)) oldBySession.set(sid, id)
     }
     for (const [id, n] of map) {
       const sid = sessionOf(n)
@@ -1189,7 +1413,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       migrateRename(from, id)
     }
     previousMapRef.current = map
-  }, [map, migrateRename, slug, tree.slug])
+  }, [map, migrateRename, slug, tree.slug, nodeKnowledge])
 
   // composer drafts are keyed per node id and freed slugs are re-minted by
   // later hires (review): sweep drafts whose node no longer exists at all,
@@ -1202,17 +1426,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     // sweep in that window prunes the NEW org's storage against the OLD org's
     // node set — nearly everything. Only sweep when the two agree.
     if (tree.slug !== slug) return
-    try {
-      preserveRemovedDrafts(slug, map)
-      const pre = `orgtree-draft-${slug}-`
-      for (let i = localStorage.length - 1; i >= 0; i--) {
-        const k = localStorage.key(i)
-        if (k && k.startsWith(pre) && !map.has(k.slice(pre.length))) {
-          localStorage.removeItem(k)
-        }
-      }
-    } catch { /* private mode */ }
-  }, [map, slug, tree.slug])
+    sweepAbsentDrafts(slug, nodeKnowledge.absent)
+  }, [map, slug, tree.slug, nodeKnowledge])
 
   // G6: the SAME sweep for every other id-keyed client store. `orgtree-eyemin-`
   // (which direct lines are collapsed), `-eyeseen-` (which ones have been seen,
@@ -1224,34 +1439,15 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   useEffect(() => {
     if (!map.size) return              // never prune against a not-yet-loaded tree
     if (tree.slug !== slug) return     // mismatched-props window — see the draft sweep
-    try {
-      for (const suffix of ['eyemin', 'eyeseen']) {
-        const k = `orgtree-${suffix}-${slug}`
-        const raw = localStorage.getItem(k)
-        if (!raw) continue
-        const ids = JSON.parse(raw) as string[]
-        const keep = ids.filter((id) => map.has(id))
-        if (keep.length !== ids.length) localStorage.setItem(k, JSON.stringify(keep))
-      }
-      const pk = `orgtree-pile-${slug}`
-      const rawP = localStorage.getItem(pk)
-      if (rawP) {
-        const pf = JSON.parse(rawP) as Record<string, string>
-        const keep = Object.fromEntries(Object.entries(pf)
-          .filter(([parent, front]) => map.has(parent) && map.has(front)))
-        if (Object.keys(keep).length !== Object.keys(pf).length) {
-          localStorage.setItem(pk, JSON.stringify(keep))
-        }
-      }
-    } catch { /* private mode, or a hand-edited value — never fatal */ }
+    sweepAbsentPreferences(slug, nodeKnowledge.absent)
     // `orgtree-pins-<slug>` (FR-3): a pinned window whose agent was DISSOLVED
     // (gone from the tree — a retired agent stays in `map` and keeps its
     // window). Same two guards above; a window vanishing deserves a word.
-    for (const id of prunePins(slug, (id) => map.has(id))) {
+    for (const id of prunePins(slug, (id) => !nodeKnowledge.absent(id))) {
       dropConvo(slug, id)
       toast([`${id} is gone from the org — its pinned window closed`])
     }
-  }, [map, slug, tree.slug, toast])
+  }, [map, slug, tree.slug, toast, nodeKnowledge])
 
   // ------------------------------------------------------- the spring engine
   useEffect(() => {
@@ -1393,13 +1589,19 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           }
         }
       }
-      if (sparksRef.current.length) {
+      // sparks: under WebGL they are drawn straight from `sparksRef` by
+      // `glDrawRef` below, WITHOUT a React commit — moving a 3px dot used to
+      // re-render the whole canvas every frame (G0: ~3.4 of 4.7 ms/frame).
+      // Under SVG they are React elements, so they still need the commit.
+      const hadSparks = sparksRef.current.length > 0
+      if (hadSparks) {
         const now = performance.now()
         sparksRef.current = sparksRef.current.filter(
           (sp) => now < sp.start + sp.segs.length * sp.segDur + 60)
-        active = true
+        if (!glActiveRef.current) active = true
       }
-      if (active || nodeDrag.current?.moved) setFrame((f) => f + 1)
+      if (active || nodeDrag.current?.moved) setFrame((f) => f + 1)   // the commit redraws GL too
+      else if (hadSparks && glActiveRef.current) glDrawRef.current?.()   // incl. the frame that clears the last one
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
@@ -1481,8 +1683,21 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   // callbacks every time a pin moved and re-fire that effect, snapping the
   // camera back to the focused agent mid-drag. Reading the latest pins through
   // a ref keeps the identities stable while still using current geometry.
-  const pinRectsRef = useRef<PinRect[]>([])
-  pinRectsRef.current = isMobile ? [] : [...pins.map((p) => p.rect), ...modalSurfaces.filter(p => p.org === slug && p.modal).map(p => p.rect)]
+  //
+  // ⚠ A STORED PIN RECT IS NOT WHERE THE WINDOW IS. PinWindow draws
+  // `clampRect(pin.rect, vp)` against the CURRENT viewport and keeps the
+  // stored rect, so the placement comes back when the window grows again. The
+  // region must therefore clamp the stored rects the same way: after a window
+  // or display shrink the unclamped rects describe where the windows USED to
+  // be, and the camera aimed at canvas a window now covers. Modal surfaces
+  // register the rect they draw, so they are already current.
+  const pinRectsRef = useRef<{ stored: PinRect[]; modal: PinRect[] }>({ stored: [], modal: [] })
+  pinRectsRef.current = isMobile ? { stored: [], modal: [] } : {
+    stored: pins.map((p) => p.rect),
+    modal: modalSurfaces.filter(p => p.org === slug && p.modal).map(p => p.rect),
+  }
+  const pinRectsKey = () => [pinRectsRef.current.stored, pinRectsRef.current.modal]
+    .map((l) => l.map((p) => `${p.x},${p.y},${p.w},${p.h}`).join(';')).join('|')
   // same reason as the rects above: `centerOn` is built with a stable identity
   // and must not be rebuilt every time a pin moves
   const pinnedIdsRef = useRef<Set<string>>(new Set())
@@ -1497,8 +1712,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   const regionCache = useRef<{ key: string; val: Region } | null>(null)
   const regionOf = useCallback((vp: { width: number; height: number }): Region => {
     const box = { x: 0, y: 0, w: vp.width, h: vp.height }
-    const key = `${vp.width}x${vp.height}|` + pinRectsRef.current
-      .map((p) => `${p.x},${p.y},${p.w},${p.h}`).join(';')
+    const key = `${vp.width}x${vp.height}|` + pinRectsKey()
     const hit = regionCache.current
     if (hit && hit.key === key) return hit.val
     // ⚠ AN UNMEASURED VIEWPORT IS NOT AN OBSTRUCTED ONE (regression caught by
@@ -1510,7 +1724,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     // move the camera. It reports the full box instead, which is exactly the
     // pre-w14aace89 behaviour for that case.
     if (box.w <= 0 || box.h <= 0) return { rect: box, status: 'full' }
-    const val = clearRegion(box, pinRectsRef.current)
+    // clamped into THIS box, the frame the region is computed in. PinLayer
+    // clamps into the padding box, 1px inside per side in the product CSS, so
+    // the two differ by at most the border — well inside PIN_GAP, which every
+    // obstacle is grown by anyway.
+    const size = { w: vp.width, h: vp.height }
+    const { stored, modal } = pinRectsRef.current
+    const val = clearRegion(box, [...stored.map((r) => clampRect(r, size)), ...modal])
     regionCache.current = { key, val }
     return val
   }, [])
@@ -1548,9 +1768,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     if (isMobile) return []
     const live = modalSurfaces.filter(p => p.org === slug)
     const registered = new Set(live.filter(p => !p.modal).map(p => pinSnapId(p)))
+    // the persisted fallback is clamped like the window PinLayer draws
+    const size = viewportSize.w > 0 && viewportSize.h > 0 ? viewportSize : null
     return [...live.map(p => p.rect),
-      ...pins.filter(p => !registered.has(p.id)).map(p => p.rect)]
-  }, [pins, modalSurfaces, slug])
+      ...pins.filter(p => !registered.has(p.id)).map(p => clampRect(p.rect, size))]
+  }, [pins, modalSurfaces, slug, viewportSize])
   const freeAnchor = useMemo(() => {
     if (!anchorPref.enabled || isMobile) return null
     if (!(viewportSize.w > 0 && viewportSize.h > 0)) return null
@@ -1562,10 +1784,26 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   // bound the usable canvas, anchor on the center of the available bounded
   // rectangle (clearRegion), falling back to the whole viewport center when
   // unobstructed or blocked
+  // Zoom floor. Row keeps 0.24. A circular chart grows with the org, so its
+  // floor follows the chart's size: always far enough out to fit all of it.
+  const minZoomRef = useRef<() => number>(() => 0.24)
+  minZoomRef.current = () => {
+    if (chartLayout !== 'circular' || compactRef.current) return 0.24
+    const vp = viewportRef.current?.getBoundingClientRect()
+    if (!vp || !vp.width || !vp.height) return 0.24
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const p of targetRef.current.values()) {
+      minX = Math.min(minX, p.x); minY = Math.min(minY, p.y)
+      maxX = Math.max(maxX, p.x + NODE_W + 40); maxY = Math.max(maxY, p.y + NODE_H + 40)
+    }
+    if (!isFinite(minX)) return 0.24
+    const fit = Math.min(vp.width / (maxX - minX + 120), vp.height / (maxY - minY + 170))
+    return Math.max(1e-4, Math.min(0.24, fit * 0.7))
+  }
   const zoomStep = useCallback((factor: number) => {
     const vp = viewportRef.current?.getBoundingClientRect()
     const v = viewRef.current
-    const lim = compactRef.current ? { min: 0.3, max: 1.6 } : { min: 0.24, max: Z_MAX }
+    const lim = compactRef.current ? { min: 0.3, max: 1.6 } : { min: minZoomRef.current(), max: Z_MAX }
     const z = Math.min(lim.max, Math.max(lim.min, v.z * factor))
     if (!vp || z === v.z) return
     const reg = regionOf(vp)
@@ -1644,6 +1882,22 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
    *  jump stays generic and keeps preferring the open window. */
   const centerOn = useCallback((id: string, z: number | null = null,
     onCanvas = false) => {
+    // ⚠ THE ONE FOCUS PATH, WHILE THE ATTENTION VIEW IS PRESENTED (user
+    // 2026-09-29: "clicking any agent link or any action that focuses an agent
+    // while attention view is open should open that agent's desk in the right
+    // panel"). Every route that focuses an agent ends here — agent links, desk
+    // jump cards, the shell's `focusAgent`, "Open owner" — so this one branch
+    // is the whole rule: the agent becomes the Attention desk's selection
+    // (AgentDeskPanel reads it), and neither the hidden camera nor a pinned
+    // window moves. An agent this tree does not hold yet falls through to the
+    // foreground lookup below, whose retry lands back here once it loads.
+    // `onCanvas` is the explicit "Show on canvas" and is left alone.
+    if (!onCanvas && worldHiddenRef.current && mapRef.current.has(id)
+        && id !== USER && id !== DRAFT && id !== INBOX && id !== EXTERN
+        && !id.startsWith('dog:')) {
+      setAttentionLayout(slug, { agent: id })
+      return
+    }
     // ⚠ A PINNED AGENT'S DESTINATION IS ITS WINDOW, NOT ITS CARD. The card
     // renders a placeholder while the agent is pinned (`pinnedFocusId`), so
     // gliding there lands the reader on the placeholder while the real chat
@@ -1654,6 +1908,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     // sits in the org, and the window stays open and unraised behind it.
     if (!onCanvas && pinnedIdsRef.current.has(id)) {
       showPin(slug, id, vpSizeNow())
+      return
+    }
+    const view = foregroundRef.current
+    if (view && !mapRef.current.has(id) && id !== USER && id !== DRAFT && id !== INBOX
+        && id !== EXTERN && !id.startsWith('dog:')) {
+      if (view.missing.includes(id)) toast([`${id} is not in this organization`])
+      else setPendingJump({ id, z, onCanvas })
       return
     }
     // a HIDDEN retiree (hide-retired setting) is revealed by ANY jump to it —
@@ -1722,6 +1983,24 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
    *  window it was invoked from, which is where the reader already was). */
   const showOnCanvas = useCallback((id: string) => { centerOn(id, null, true) },
     [centerOn])
+  useEffect(() => {
+    if (!pendingJump) return
+    if (map.has(pendingJump.id)) {
+      const { id, z, onCanvas } = pendingJump
+      setPendingJump(null)
+      requestAnimationFrame(() => centerRef.current?.(id, z, onCanvas))
+    } else if (tree.foreground?.present.includes(pendingJump.id)) {
+      // carried only as a prior generation on the lineage axis
+      toast([`${pendingJump.id} has no card on the canvas`])
+      setPendingJump(null)
+    } else if (tree.foreground?.missing.includes(pendingJump.id)) {
+      toast([`${pendingJump.id} is not in this organization`])
+      setPendingJump(null)
+    } else if (!tree.foreground) {
+      // a complete tree without it is authoritative
+      setPendingJump(null)
+    }
+  }, [pendingJump, map, tree.foreground, toast])
 
   // Re-aim an ALREADY FOCUSED target after the canvas changed under it.
   // NOT `centerOn`: a refit is not a focus gesture, so it reveals no hidden
@@ -1770,6 +2049,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     // the canvas is not AT any agent, so every name here is somewhere to
     // go; it can say what each one is running
     tierOf: (id: string) => map.get(id)?.tier,
+    view: tree.foreground,
   })
   // the DOCUMENT READER's own copy: same world, same routes, plus the one
   // thing that belongs to the reader rather than to the canvas — a document
@@ -1794,7 +2074,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         setFront(par + (node.state === 'archived' ? '|a' : '|c'), focusAgent)
       }
     }
-    if (sheetGate()) {
+    // the phone-sized sheet is a canvas surface: with the Attention view
+    // presented, the focus goes through `centerOn`'s Attention branch instead
+    if (sheetGate() && !worldHiddenRef.current) {
       setSheetId(focusAgent)
     } else {
       centerOn(focusAgent)
@@ -1821,7 +2103,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     // negative (the eye is pinned at x=6000) and a clamp silently cut them
     // out of "fit all"
     minX -= 60; minY -= 130
-    const z = Math.min(1.3, Math.max(0.24,
+    const z = Math.min(1.3, Math.max(minZoomRef.current(),
       Math.min((r.w - 48) / (maxX - minX), (r.h - 48) / (maxY - minY))))
     return {
       x: r.x + (r.w - (maxX - minX) * z) / 2 - minX * z,
@@ -1850,7 +2132,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   // reaches desk zoom, so the camera-derived focusId never fires and the
   // sheet is the only desk. Desktop keeps [0.24, Z_MAX] untouched.
   const zLim = () => compactRef.current
-    ? { min: 0.3, max: 1.6 } : { min: 0.24, max: Z_MAX }
+    ? { min: 0.3, max: 1.6 } : { min: minZoomRef.current(), max: Z_MAX }
   // mobile spec §2-⑦: nothing re-ran on resize — on rotate the camera math
   // targeted the old rect forever. Mobile-only: re-render on any resize and
   // re-fit the camera once it settles (visualViewport covers the iOS soft
@@ -1960,8 +2242,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     // ELEMENT, so app layout changes count, not just window.resize) plus the
     // pinned windows and modals that eat into it. These are exactly
     // `regionOf`'s inputs, so this changes when the free region can have.
-    const canvas = `${viewportSize.w}:${viewportSize.h}|pins:` + pinRectsRef.current
-      .map(p => `${p.x}:${p.y}:${p.w}:${p.h}`).join('|')
+    // (the stored rects, unclamped: with the size in the key they still change
+    // whenever the clamped ones can)
+    const canvas = `${viewportSize.w}:${viewportSize.h}|pins:` + pinRectsKey()
     // ...plus the org's own extent, the other half of a whole-org fit
     const whole = canvas + '|nodes:' + [...target]
       .map(([id, p]) => `${id}:${p.x}:${p.y}`).join('|')
@@ -2074,7 +2357,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       animBusyRef.current = false
       const v = viewRef.current
       const factor = Math.exp(-e.deltaY * 0.0012)
-      const z = Math.min(Z_MAX, Math.max(0.24, v.z * factor))
+      const z = Math.min(Z_MAX, Math.max(minZoomRef.current(), v.z * factor))
       const r = el.getBoundingClientRect()
       const mx = e.clientX - r.left, my = e.clientY - r.top
       const wx = (mx - v.x) / v.z, wy = (my - v.y) / v.z
@@ -2374,10 +2657,20 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         : ancestors.includes(drop)
           ? { op: 'promote', node: id, new_parent: drop }
           : { op: 'demote', node: id, new_parent: drop }
+      // shown at once; the op and the tree read after it confirm it later,
+      // and a refusal (already toasted by `op`) sends the card back
+      const moveShown = (b: Parameters<OpFn>[0], to: string | null) => {
+        const entry: PendingMove = { to, settled: false }
+        setPendingMoves((m) => new Map(m).set(id, entry))
+        return op(b).then(
+          () => { settlePendingMove(id, entry) },
+          (e: unknown) => { dropPendingMove(id, entry); throw e })
+      }
       // №17: a re-parent is one mis-drag away — the toast carries the reverse
-      op(body).then(() => toast(
+      moveShown(body, drop === USER ? null : drop).then(() => toast(
         [`${id} now reports to ${drop === USER ? 'you' : drop}`],
-        () => op({ op: 'move', node: id, new_parent: parent ?? null })
+        () => moveShown({ op: 'move', node: id, new_parent: parent ?? null },
+          parent == null || parent === USER ? null : parent)
           .catch(() => {})))
         .catch(() => {}).finally(finish)
       return
@@ -2489,6 +2782,38 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   const pinnedFocusId = nearestId && pinnedIds.has(nearestId) ? nearestId : null
   const focusId = pinnedFocusId ? null : nearestId
   focusRef.current = focusId
+  useEffect(() => () => setButtonAgent(slug, null), [slug])
+  useEffect(() => {
+    if (worldHidden) return // the Attention desk owns focus while it is shown
+    const id = pinnedFocusId ?? focusId
+    setButtonAgent(slug, id && map.get(id)?.tier ? id : null)
+  }, [slug, worldHidden, focusId, pinnedFocusId, map])
+  // App reads the selected tree from this registration. Owners release
+  // their contribution on unmount/org change, never on omission.
+  const treeSelectionOwner = useRef({})
+  const savedSelection = useMemo(() => savedTreeSelection(slug), [slug])
+  const browse: TreeBrowse | null = retiredOpen
+    ? { kind: 'children', parent: retiredOpen === USER ? '' : retiredOpen }
+    : pileOpen?.endsWith('|a')
+      ? { kind: 'children', parent: pileOpen.slice(0, -2) === USER ? '' : pileOpen.slice(0, -2) }
+      : trayOpen && trayArch
+        ? trayQ.trim() ? { kind: 'search', query: trayQ.trim() } : { kind: 'all' }
+        : null
+  const selectedTreeState = JSON.stringify({
+    include: [...new Set([...(restoredModalOrg.current === slug ? [] : savedSelection.include),
+      ...restoreDesks.map(([, id]) => id), ...pins.map(pin => pin.id), ...shownRetired,
+      configId, lineageId, inboxId, agentDocketId, teamDocketId, tempDeskId, sheetId,
+      focusId, draft?.parent, draft?.beside?.anchor, draft?.above?.anchor, pendingJump?.id,
+    ].filter((id): id is string => !!id && id !== USER && id !== DRAFT))].sort(),
+    hideRetired, fronts: retiredFronts(pileFront), browse,
+  })
+  useLayoutEffect(() => {
+    treeSelections.set(slug, treeSelectionOwner.current, JSON.parse(selectedTreeState))
+  }, [slug, selectedTreeState])
+  useLayoutEffect(() => {
+    const owner = treeSelectionOwner.current
+    return () => treeSelections.release(slug, owner)
+  }, [slug])
 
   // FR-3 — world → VIEWPORT px for one node's card, read NOW (the position is
   // derived from the tree and moves under a pin at any time; pins.tsx never
@@ -2509,11 +2834,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   /** the desk header's pin button: detach this desk into a window placed
    *  exactly over the card it came from — the camera does not move, and the
    *  card underneath turns into the placeholder on the same frame */
-  const pinDesk = (id: string) => {
+  const pinDesk = (id: string): boolean => {
     const at = cardRectOf(id)
-    if (!at) return
+    if (!at) return false
     const r = addPin(slug, id, clampRect(at, vpSizeNow()))
     if (!r.ok) toast([r.reason])
+    return r.ok
   }
 
   /** hide an explicitly revealed retired agent again (hide-retired setting) */
@@ -2615,11 +2941,19 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         ? () => { desk.requestPopout(); if (!desk.present) go() }
         : undefined,
       onShowWindow: desk.show,
+      // ⚠ NO `go()` HERE, DELIBERATELY, unlike every neighbour above. The whole
+      // value of this entry is that it does NOT walk the camera to the agent or
+      // change which node is focused — a glance, not a placement. It needs no
+      // `desk.valid` gate either: the modal renders the canonical desk, which
+      // handles an archived or unavailable seat with its own semantics rather
+      // than this menu second-guessing them.
+      onOpenTemporary: !isMobile ? () => setTempDeskId(n.id) : undefined,
       // the hire chips live ON THE CARD, so this walks to the agent and asks
       // its card to open them — the same reveal the card's own entry runs
       onHire: () => { go(); setHireReveal((h) => ({ id: n.id, seq: (h?.seq ?? 0) + 1 })) },
       onRetireAsk: (kind) => ask({ id: n.id, kind }),
       canRetireAll: !tree.public,
+      canBulkCompact: !tree.public,
       onDismiss: hideRetired && n.state === 'archived' && shownRetired.has(n.id)
         ? () => dismissRetiredAgent(n.id) : undefined,
       // same executor, same words as the card's entry — the whole point of
@@ -2712,13 +3046,12 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     const links: [string, string][] = []
     for (const n of map.values()) {
       if (!n.children || n.children.length < 2 || n.isBearerOf) continue
-      const sibs = n.children.map((c) => c.id)
-        .filter((k) => map.get(k)?.state === 'live')
-        .sort((p, q) => (target.get(p)?.x ?? 0) - (target.get(q)?.x ?? 0))
+      const live = n.children.map((c) => c.id).filter((k) => map.get(k)?.state === 'live')
+      const sibs = peerOrder(live, target, chartLayout === 'circular')
       for (let i = 0; i + 1 < sibs.length; i++) links.push([sibs[i]!, sibs[i + 1]!])
     }
     return links
-  }, [map, target])
+  }, [map, target, chartLayout])
 
   // at most ONE audience line per DRAWN pair (user bug 2026-08-24): buried
   // pile members sit at exactly their front card's position, so every holder
@@ -2742,6 +3075,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   }, [tree.audiences, map, hidden])
 
   const spawn = (parentId: string, tier: string) => {
+    if (parentId === USER) firstUseToken(slug)
     setDraft({ parent: parentId === USER ? null : parentId, tier })
     // roughly OVERVIEW scale start to finish (user ruling): the form is
     // authored on a 200px virtual surface (scale .6 into the card), so
@@ -2753,9 +3087,15 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   }
   // F-03: hire a COWORKER — same superior, placed to the chosen side of the
   // anchor. Top-level agents side-hire more top-levels (parent is the user).
+  const ringSide = (n: CanvasNode, side: 'left' | 'right') => {
+    const up = !n.parent || n.parent === USER ? vroot : map.get(n.parent)
+    const sibs = (up?.children ?? []).map((c) => c.id).filter((k) => targetRef.current.has(k))
+    return ringInsertSide(side, n.id, sibs, targetRef.current, chartLayout === 'circular')
+  }
   const spawnBeside = (n: CanvasNode, tier: string, side: 'left' | 'right') => {
+    const pin = ringSide(n, side)
     setDraft({ parent: !n.parent || n.parent === USER ? null : n.parent, tier,
-               beside: { anchor: n.id, side } })
+               beside: { anchor: n.id, side: pin } })
     setTimeout(() => centerOn(
       DRAFT, Math.min(2.05, Math.max(1.7, viewRef.current.z))), 60)
   }
@@ -2800,6 +3140,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         const ds = springs.current.get(DRAFT)
         // (typeof-narrows the op result's open dict: hire returns {node: str})
         const born = r?.node
+        if (typeof born === 'string' && born) firstUseHired(slug, born)
         if (typeof born === 'string' && born && ds) {
           seedRef.current.set(born, { x: ds.x, y: ds.y, at: performance.now() })
         }
@@ -2888,17 +3229,189 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       else showNodeSurface(kind, id,
         kind === 'agent-docket' ? setAgentDocketId : setInboxId)
     },
-  }), [onOpenAgentGallery, toggleNodeSurface, showNodeSurface])
+    settings: toggleConfig,
+    lineage: (id) => toggleNodeSurface('lineage', id, setLineageId),
+  }), [onOpenAgentGallery, toggleNodeSurface, showNodeSurface, toggleConfig])
+  // every desk's watchdog cards open the SAME modal the satellite chip does
+  // (canvas/deskdogs.tsx)
+  const deskDogs = useMemo((): DeskDogs => ({ dogs: tree.watchdogs ?? [], open: toggleDog }),
+    [tree.watchdogs, toggleDog])
+
+  // ------------------------------------------------------ wires, one list
+  // Every wire the org view draws, in paint order, built from exactly the
+  // inputs the SVG layer always read. BOTH renderers draw this same list: the
+  // SVG layer (fallback) turns each entry back into the path it used to write
+  // inline, and the WebGL2 layer (canvas/glwires.ts) uploads it. Keys, classes
+  // and the audience draw-in/out bookkeeping are unchanged from the inline form.
+  const wires: Wire[] = []
+  for (const n of map.values()) {
+    if (!n.parent || n.isBearerOf || hidden.has(n.id)) continue
+    if (!posOf(n.parent) || !posOf(n.id)) continue
+    wires.push({ key: n.id, seg: treeSeg(n.parent, n.id),
+      cls: 'edge' + (n.state === 'archived' ? ' faded' : '')
+        // dashed on BOTH sides of a draft: its own parent edge, and — for an
+        // insert-superior draft, which wraps its anchor — the edge down to the
+        // anchor it would adopt
+        + (n.state === 'draft' || n.parent === DRAFT ? ' draftedge' : '') })
+  }
+  for (const [l, r] of peerLinks) {
+    if (posOf(l) && posOf(r)) wires.push({ key: 'p' + l + r, seg: peerSeg(l, r), cls: 'edge peer' })
+  }
+  {
+    const nowT = performance.now()
+    const anim = audAnimRef.current
+    const vpair = (g: string, e: string) =>
+      (hidden.get(g) ?? g) + '→' + (hidden.get(e) ?? e)
+    const drawn = new Set<string>()   // raw keys rendered this frame
+    const drawnV = new Set<string>()  // visual pairs occupied by them
+    for (const a of audLines) {
+      if (!posOf(a.grantor) || !posOf(a.grantee)) continue
+      const k = a.grantor + '→' + a.grantee
+      drawn.add(k)
+      drawnV.add(vpair(a.grantor, a.grantee))
+      const st = anim.get(k)
+      let frac: number | undefined
+      if (st?.phase === 'in') {
+        const t = (nowT - st.t0) / AUD_DUR
+        if (t >= 1) anim.delete(k)
+        else frac = smooth(Math.max(0, t))   // draw toward the grantee
+      }
+      wires.push({ key: 'a' + k, seg: audSeg(a.grantor, a.grantee), frac,
+        cls: 'edge aud-line' + (a.grantor === USER ? ' from-user' : '') })
+    }
+    for (const [k, st] of anim) {
+      if (st.phase !== 'out') {
+        // an 'in' whose line was collapsed into a pile's single stroke (or
+        // filtered out) never renders, so the loop above never reaches its
+        // delete — and one live entry keeps the rAF loop repainting the
+        // whole canvas forever
+        if (!drawn.has(k)) anim.delete(k)
+        continue
+      }
+      const t = (nowT - st.t0) / AUD_DUR
+      if (t >= 1 || !posOf(st.grantor) || !posOf(st.grantee)
+        // a revoked grant whose visual pair a surviving pile-mate still
+        // draws: retracting a stroke over the persistent line is exactly the
+        // double-draw this collapse exists to prevent
+        || drawnV.has(vpair(st.grantor, st.grantee))) {
+        anim.delete(k)
+        continue
+      }
+      wires.push({ key: 'a' + k, seg: audSeg(st.grantor, st.grantee), frac: 1 - smooth(t),
+        cls: 'edge aud-line' + (st.grantor === USER ? ' from-user' : '') })
+    }
+  }
+  for (const n of map.values()) {
+    if (!n.isBearerOf) continue
+    const a = posOf(n.isBearerOf), b = posOf(n.id)
+    if (!a || !b) continue
+    wires.push({ key: 't' + n.id, cls: 'edge tether', seg: { kind: 'l', pts: [
+      { x: a.x + NODE_W - 10, y: a.y + 8 }, { x: b.x + 10, y: b.y + NODE_H - 8 }] } })
+  }
+  // FR-18: the watchdog wire — the user's spec verbatim ("connected to their
+  // owner with a wire"); the spark rides it on each fire. Hidden at compact
+  // with the chips (D-125 ②). A SPENT wire fades on a CSS keyframe clock of
+  // its own, which a style probe cannot reproduce, so it stays in SVG.
+  if (!compact) for (const w of tree.watchdogs ?? []) {
+    const a = posOf('dog:' + w.id), b = posOf(w.owner)
+    if (!a || !b) continue
+    wires.push({ key: 'w' + w.id, svgOnly: !!w.spent, seg: { kind: 'l', pts: [
+      { x: a.x + DOG_W / 2, y: a.y + 4 }, { x: b.x + NODE_W / 2, y: b.y + NODE_H - 8 }] },
+      cls: 'edge tether wd'
+        + (w.state !== 'armed' && !w.spent ? ' off' : '')
+        + (w.once ? ' oneshot' : '')
+        + (w.spent ? ' spent' : '') })
+  }
+  if (tree.org_inbox?.visible && posOf(INBOX)) {
+    // no box↔eye tether (user revision) — the panel stands alone; only
+    // audience lines to its holders. Those connect FACING sides: an agent
+    // left of the box joins from its RIGHT side (user spec), an agent right
+    // of it from its left.
+    for (const h of tree.org_inbox.holders ?? []) {
+      if (!map.has(h) || !posOf(h)) continue
+      const a = posOf(INBOX)!, b = posOf(h)!
+      const ga = sizeOf(INBOX), gb = sizeOf(h)
+      const left = (b.x + gb.w / 2) < (a.x + ga.w / 2)
+      const x1 = left ? a.x : a.x + ga.w
+      const x2 = left ? b.x + gb.w : b.x
+      const y1 = a.y + ga.h / 2, y2 = b.y + gb.h / 2
+      const bulge = 64 + Math.abs(y2 - y1) * 0.12
+      wires.push({ key: 'oi' + h, cls: 'edge aud-line', seg: { kind: 'c', pts: [
+        { x: x1, y: y1 }, { x: x1 + (left ? -bulge : bulge), y: y1 },
+        { x: x2 + (left ? bulge : -bulge), y: y2 }, { x: x2, y: y2 }] } })
+    }
+  }
+  wiresRef.current = wires
+  // the classes the GL layer needs a style probe for (hidden `data-glprobe`
+  // elements inside the real svg.edges, so the real cascade answers)
+  const glProbeClasses = glWires.active
+    ? [...new Set(wires.filter(w => !w.svgOnly).map(w => w.cls))].sort() : []
+
+  // Draw the GL layer after EVERY commit, with the view this commit painted.
+  // Frames where only sparks move draw through `glDrawRef` from the tick loop
+  // instead, with no commit at all.
+  useLayoutEffect(() => {
+    committedViewRef.current = view
+    const layer = glWires.layerRef.current
+    if (!glWires.active || !layer) { glDrawRef.current = null; return }
+    const svg = edgesSvgRef.current
+    const root = document.documentElement
+    const sig = [glProbeClasses.join(','), root.className, root.getAttribute('style') ?? '',
+      document.body?.className ?? '', svg?.closest('.viewport')?.className ?? '', glWires.themeRev].join('|')
+    if (glStylesRef.current?.sig !== sig) {
+      const styles = readWireStyles(svg)
+      if (!styles) { glDrawRef.current = null; glWires.fail(); return }
+      glStylesRef.current = { sig, styles }
+    }
+    const styles = glStylesRef.current.styles
+    const size = glWires.size
+    const draw = () => {
+      const l = glWires.layerRef.current
+      if (!l) return
+      l.resize(size.w, size.h, window.devicePixelRatio || 1)
+      if (!l.setWires(wiresRef.current, styles)) { glDrawRef.current = null; glWires.fail(); return }
+      l.draw(committedViewRef.current, sparksRef.current, performance.now())
+    }
+    glDrawRef.current = draw
+    draw()
+  })
 
   return (
     <AgentNavProvider>
     <OrgKillswitchContext.Provider value={!!tree.killswitch}>
+    <ForegroundViewContext.Provider value={tree.foreground}>
+    {/* THE ORG'S ORDINARY THINKING EFFORT, for the non-default effort card on
+        the canvas cards and the desk headers. Provided once, here, because
+        this subtree contains every mount site of both surfaces — canvas
+        cards, the canvas desk, switchboard panels, the mobile sheet and
+        pinned desk windows — which is what makes "the two surfaces cannot
+        disagree" structural rather than a convention six call sites have to
+        keep. The fallback chain is `ledger.Org.effective_effort`'s own: the
+        org's override, else what "" resolves to, which the payload ships
+        precisely so no UI string hardcodes a level.
+        ⚠ RESOLVED BY `resolveOrgDefault`, NEVER BY `||` HERE. The two fields
+        are not interchangeable: `||` cannot tell an unset override from an
+        unsupported one, so a truthy junk value short-circuits it and takes the
+        authoritative fallback with it — which blanked the card for every agent
+        in the org rather than degrading (caught in review of the first
+        candidate). The resolver mirrors the backend's own clamp instead. */}
+    <OrgDefaultEffort.Provider
+      value={resolveOrgDefault(tree.default_effort, tree.effort_default)}>
     <AgentSurfaceRoutesProvider value={agentSurfaceRoutes}>
+    <DeskDogsProvider value={deskDogs}>
     <DeskHosts map={map} slug={slug} treeSlug={tree.slug}><AgentNavHost
       map={map} op={op} slug={slug} toast={toast} goTo={goToAgent} build={trayRowMenu} /><div style={freeAnchor ?? undefined} className={'viewport' + (tree.sandboxed ? ' sandboxed' : '')
       + (tree.headless ? ' headless' : '')
       + (tree.killswitch ? ' killswitched' : '') + (redAlert ? ' redalert' : '')} data-culling={visibleRect ? 'active' : 'unmeasured'} data-pin-org={slug} ref={viewportRef}
-      onPointerDown={onPointerDown} onPointerMove={onPointerMove}
+      /* ⚠ THE PAN HANDLERS IGNORE THE HIDDEN CANVAS. `visibility: hidden`
+         takes the world out of hit-testing, but `.viewport` ITSELF is never
+         hidden — it cannot be, the pin layer lives inside it — so a press that
+         lands on its background still reaches here. Without this guard a drag
+         on the presented view's own backdrop would pan a canvas nobody can
+         see, and the camera would have silently moved by the time they came
+         back. */
+      onPointerDown={worldHidden ? undefined : onPointerDown}
+      onPointerMove={worldHidden ? undefined : onPointerMove}
       /* onPointerCancel routes to onPointerUp, which nulls panRef — correct,
          but it means ANY pointercancel kills the gesture outright. The one
          that used to fire here came from the browser starting a native drag
@@ -2916,6 +3429,19 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         e.currentTarget.scrollLeft = 0
         e.currentTarget.scrollTop = 0
       }}>
+      {/* EVERY WORLD CHILD LIVES IN HERE, and the adopted pin layer does not.
+          `adoptPinLayer` appends that layer to `.viewport` outside React, so it
+          stays a sibling of this wrapper; and the pinned/popped panels written
+          below `createPortal` themselves out of this subtree, so `hidden` never
+          reaches a window the user placed. Measured, not assumed:
+          canvashide-probe.tsx.
+          ⚠ `display: contents` — see the `.canvas-world` rule. A wrapper with a
+          box would establish a containing block with no definite height and
+          collapse `.tray-wrap`, which derives its height from the viewport. */}
+      <FirstUseGuide slug={slug} root={viewportRef} hidden={worldHidden || !!tree.public || compact} />
+      <div ref={worldRef}
+        className={'canvas-world' + (worldHidden ? ' canvas-world-hidden' : '')}
+        aria-hidden={worldHidden || undefined}>
       {/* parallax backdrop (user feature 2026-09-03): the dot grid pans at a
           fraction of the foreground's rate — PARALLAX_BG below — so a drag
           reads as depth instead of a flat sheet sliding under the cards. Zoom
@@ -2925,6 +3451,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         backgroundSize: `${28 * view.z}px ${28 * view.z}px`,
         '--dot-r': `${Math.max(1, 1.1 * view.z).toFixed(2)}px`,
       }} />
+      {/* WebGL2 wires and sparks (canvas/glwires.ts): screen-space, under
+          `.space` exactly where the SVG layer painted, and never a hit target */}
+      {glWires.mount && <canvas ref={glWires.canvasRef} className="glwires" aria-hidden="true" />}
       <div className="space" style={{
         width: bounds.w, height: bounds.h,
         transform: `translate(${view.x}px, ${view.y}px) scale(${view.z})`,
@@ -2937,133 +3466,39 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         // badge on a distant card is noise, a screen-constant CONTROL is not.
         '--invzf': Math.max(1 / Z_MAX, 1 / view.z).toFixed(3),
       }}>
-        <svg className="edges" width={bounds.w} height={bounds.h}>
-          {[...map.values()].filter((n) => n.parent && !n.isBearerOf
-            && !hidden.has(n.id)).map((n) => {
-            if (!posOf(n.parent!) || !posOf(n.id)) return null
-            return <ViewportPath viewport={visibleRect} key={n.id} d={segD(treeSeg(n.parent!, n.id))}
-              className={'edge' + (n.state === 'archived' ? ' faded' : '')
-                // dashed on BOTH sides of a draft: its own parent edge, and —
-                // for an insert-superior draft, which wraps its anchor — the
-                // edge down to the anchor it would adopt
-                + (n.state === 'draft' || n.parent === DRAFT
-                  ? ' draftedge' : '')} />
-          })}
-          {peerLinks.map(([l, r]) => (
-            posOf(l) && posOf(r) &&
-            <ViewportPath viewport={visibleRect} key={'p' + l + r} d={segD(peerSeg(l, r))} className="edge peer" />
-          ))}
-          {(() => {
-            const nowT = performance.now()
-            const anim = audAnimRef.current
-            const out: ReactNode[] = []
-            const vpair = (g: string, e: string) =>
-              (hidden.get(g) ?? g) + '→' + (hidden.get(e) ?? e)
-            const drawn = new Set<string>()   // raw keys rendered this frame
-            const drawnV = new Set<string>()  // visual pairs occupied by them
-            for (const a of audLines) {
-              if (!posOf(a.grantor) || !posOf(a.grantee)) continue
-              const k = a.grantor + '→' + a.grantee
-              drawn.add(k)
-              drawnV.add(vpair(a.grantor, a.grantee))
-              const st = anim.get(k)
-              let dash: number | null = null
-              if (st?.phase === 'in') {
-                const t = (nowT - st.t0) / AUD_DUR
-                if (t >= 1) anim.delete(k)
-                else dash = 1 - smooth(Math.max(0, t))   // draw toward the grantee
-              }
-              out.push(<ViewportPath viewport={visibleRect} key={'a' + k} d={segD(audSeg(a.grantor, a.grantee))}
-                pathLength={dash != null ? 1 : undefined}
-                style={dash != null
-                  ? { strokeDasharray: 1, strokeDashoffset: dash } : undefined}
-                className={'edge aud-line' + (a.grantor === USER ? ' from-user' : '')} />)
-            }
-            for (const [k, st] of anim) {
-              if (st.phase !== 'out') {
-                // an 'in' whose line was collapsed into a pile's single
-                // stroke (or filtered out) never renders, so the loop above
-                // never reaches its delete — and one live entry keeps the
-                // rAF loop repainting the whole canvas forever
-                if (!drawn.has(k)) anim.delete(k)
-                continue
-              }
-              const t = (nowT - st.t0) / AUD_DUR
-              if (t >= 1 || !posOf(st.grantor) || !posOf(st.grantee)
-                // a revoked grant whose visual pair a surviving pile-mate
-                // still draws: retracting a stroke over the persistent line
-                // is exactly the double-draw this collapse exists to prevent
-                || drawnV.has(vpair(st.grantor, st.grantee))) {
-                anim.delete(k)
-                continue
-              }
-              out.push(<ViewportPath viewport={visibleRect} key={'a' + k} d={segD(audSeg(st.grantor, st.grantee))}
-                pathLength={1}
-                style={{ strokeDasharray: 1, strokeDashoffset: smooth(t) }}
-                className={'edge aud-line'
-                  + (st.grantor === USER ? ' from-user' : '')} />)
-            }
-            return out
-          })()}
-          {[...map.values()].filter((n) => n.isBearerOf).map((n) => {
-            const a = posOf(n.isBearerOf!), b = posOf(n.id)
-            if (!a || !b) return null
-            return <ViewportPath viewport={visibleRect} key={'t' + n.id}
-              d={`M ${a.x + NODE_W - 10} ${a.y + 8} L ${b.x + 10} ${b.y + NODE_H - 8}`}
-              className="edge tether" />
-          })}
-          {/* FR-18: the watchdog wire — the user's spec verbatim ("connected
-              to their owner with a wire"); the spark rides it on each fire.
-              Hidden at compact with the chips (D-125 ②). */}
-          {!compact && (tree.watchdogs ?? []).map((w) => {
-            const a = posOf('dog:' + w.id), b = posOf(w.owner)
-            if (!a || !b) return null
-            return <ViewportPath viewport={visibleRect} key={'w' + w.id}
-              d={`M ${a.x + DOG_W / 2} ${a.y + 4} L ${b.x + NODE_W / 2} ${b.y + NODE_H - 8}`}
-              className={'edge tether wd'
-                + (w.state !== 'armed' && !w.spent ? ' off' : '')
-                + (w.once ? ' oneshot' : '')
-                + (w.spent ? ' spent' : '')} />
-          })}
-          {tree.org_inbox?.visible && posOf(INBOX) && (() => {
-            // no box↔eye tether (user revision) — the panel stands alone;
-            // only audience lines to its holders. Those connect FACING sides:
-            // an agent left of the box joins from its RIGHT side (user spec),
-            // an agent right of it from its left.
-            const out: ReactNode[] = []
-            for (const h of tree.org_inbox.holders ?? []) {
-              if (!map.has(h) || !posOf(h)) continue
-              const a = posOf(INBOX)!, b = posOf(h)!
-              const ga = sizeOf(INBOX), gb = sizeOf(h)
-              const left = (b.x + gb.w / 2) < (a.x + ga.w / 2)
-              const x1 = left ? a.x : a.x + ga.w
-              const x2 = left ? b.x + gb.w : b.x
-              const y1 = a.y + ga.h / 2, y2 = b.y + gb.h / 2
-              const bulge = 64 + Math.abs(y2 - y1) * 0.12
-              out.push(<ViewportPath viewport={visibleRect} key={'oi' + h} d={segD({ kind: 'c', pts: [
-                { x: x1, y: y1 }, { x: x1 + (left ? -bulge : bulge), y: y1 },
-                { x: x2 + (left ? bulge : -bulge), y: y2 }, { x: x2, y: y2 }] })}
-                className="edge aud-line" />)
-            }
-            return out
-          })()}
-          {sparksRef.current.map((sp) => {
-            const el = (performance.now() - sp.start) / sp.segDur
-            const i = Math.max(0, Math.min(sp.segs.length - 1, Math.floor(el)))
-            const t = smooth(Math.max(0, Math.min(1, el - i)))
-            const seg = sp.segs[i]! // nUIA: i clamped to 0..len-1 and segs is never empty (guarded at push)
-            const p = segPoint(seg, seg.rev ? 1 - t : t)
-            if (!intersectsViewport({ x: p.x - 4, y: p.y - 4, w: 8, h: 8 }, visibleRect)) return null
-            return <circle key={sp.id} className="spark" cx={p.x} cy={p.y} r="3.4" />
-          })}
+        <svg className="edges" ref={edgesSvgRef} width={bounds.w} height={bounds.h}>
+          {/* the wire list (built above). Under WebGL2 only `svgOnly` wires
+              stay here; otherwise this is the whole layer, as it always was */}
+          {wires.map((w) => (glWires.active && !w.svgOnly) ? null
+            : <ViewportPath viewport={visibleRect} key={w.key} d={segD(w.seg)}
+              pathLength={w.frac !== undefined ? 1 : undefined}
+              style={w.frac !== undefined
+                ? { strokeDasharray: 1, strokeDashoffset: 1 - w.frac } : undefined}
+              className={w.cls} />)}
+          {glWires.active
+            // style probes: hidden, geometry-free elements with the REAL
+            // classes, read by canvas/glwires.ts so the cascade stays the
+            // single source of every wire's colour, width, dash and glow
+            ? <>
+              {glProbeClasses.map((cls) => <path key={'gp:' + cls} data-glprobe={cls}
+                className={cls} d="M 0 0" visibility="hidden" />)}
+              <circle data-glprobe="@spark" className="spark" r="0" visibility="hidden" />
+            </>
+            : sparksRef.current.map((sp) => {
+              const p = sparkPoint(sp, performance.now())
+              if (!intersectsViewport({ x: p.x - 4, y: p.y - 4, w: 8, h: 8 }, visibleRect)) return null
+              return <circle key={sp.id} className="spark" cx={p.x} cy={p.y} r="3.4" />
+            })}
         </svg>
-        {[...map.values()].map((n) => {
+        {[...map.values()].map((n, index) => {
           const p = posOf(n.id)
           if (!p) return null
           // Keep the single eye (its credit bar extends beyond its card), the draft,
           // focused composer and captured drag alive. Ordinary offscreen cards do not mount.
           if (n.id !== USER && n.id !== DRAFT && n.id !== focusId && n.id !== nodeDrag.current?.id
-            && !intersectsViewport({ ...p, ...sizeOf(n.id) }, visibleRect)) return null
+            && (visibleRect
+              ? !intersectsViewport({ ...p, ...sizeOf(n.id) }, visibleRect)
+              : index >= UNMEASURED_CARD_LIMIT)) return null
           if (n.id === USER) {
             if (compact) {
               // §5.1: the switchboard is desktop-idea-shaped (N-up parallel
@@ -3155,18 +3590,20 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
               maxTop={tree.max_top_grant ?? 1000} kioskRemaining={kioskRemaining}
               defaultTop={tree.default_top_grant ?? 50} tree={tree}
               zoom={view.z} pxc={pxPerCredit}
-              onConfirm={confirmDraft} onCancel={() => setDraft(null)} />
+              onConfirm={confirmDraft} onCancel={() => { firstUseCancel(slug); setDraft(null) }} />
           }
           if (hidden.has(n.id)) return null   // piled-away: no card, no space
           const pileHere = pileByFront.get(n.id)
           const square = (
             <NodeSquare key={n.id} node={n} pos={p} lod={lod} focused={n.id === focusId}
+              deskEligible={!worldHidden}
               /* FR-3: the camera is on this card but its desk is a pinned
                  window — placeholder instead of a (second) desk */
               pinnedFocus={n.id === pinnedFocusId}
               pinned={pinnedIds.has(n.id)}
               onPin={!isMobile ? () => pinDesk(n.id) : undefined}
               onShowPin={() => showPin(slug, n.id, vpSizeNow())}
+              onOpenTemporary={setTempDeskId}
               dragging={nodeDrag.current?.id === n.id && nodeDrag.current!.moved}
               isDrop={dropId === n.id}
               seats={seats} codexHire={codexHire} antigravityHire={antigravityHire}
@@ -3207,10 +3644,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           // the hit target that opens the picker, and the whole stack eases
           // outward slightly on hover (user spec). Retired piles and live
           // CROWD piles share the mechanics; the crowd wears a live tint.
-          const layers = Math.min(pileHere.list.length - 1, 3)
+          const pileTotal = pileHere.total ?? pileHere.list.length
+          const layers = Math.min(pileTotal - 1, 3)
           const pTitle = pileHere.kind === 'c'
-            ? `${pileHere.list.length} teammates stacked — click to choose who's in front`
-            : `${pileHere.list.length} retired here — click to choose who's in front`
+            ? `${pileTotal} teammates stacked — click to choose who's in front`
+            : `${pileTotal} retired here — click to choose who's in front`
           return (
             <span key={n.id}>
               <div className={'pile-stack' + (pileHere.kind === 'c' ? ' crowd' : '')}
@@ -3226,7 +3664,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
                   title={pTitle}
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => { e.stopPropagation(); setPileOpen(pileHere.key) }}>
-                  {pileHere.list.length}</button>
+                  {pileTotal}</button>
               </div>
               {square}
             </span>
@@ -3236,7 +3674,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
             retirees surface on the canvas. It sits under the parent card
             that has retired subordinates; clicking lists them (the same
             picker the retired pile uses) and picking one reveals it. */}
-        {[...prunedView.retiredByParent.entries()].map(([pid, gone]) => {
+        {[...retiredCounts.entries()].map(([pid, count]) => {
           const p = posOf(pid)
           if (!p) return null
           const size = sizeOf(pid)
@@ -3244,10 +3682,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           return (
             <button key={'rt' + pid} className="retired-token"
               style={{ transform: `translate(${p.x + 6}px, ${p.y + size.h + 4}px)` }}
-              title={`${gone.length} retired agent${gone.length === 1 ? '' : 's'} hidden here — click to list`}
+              title={`${count} retired agent${count === 1 ? '' : 's'} hidden here — click to list`}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => { e.stopPropagation(); setRetiredOpen(pid) }}>
-              {gone.length} retired
+              {count} retired
             </button>
           )
         })}
@@ -3452,148 +3890,64 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         {trayOpen && (
           <PinFrame inline kind="agent-list" title="Agents" panel="tray-panel"
             close={() => setTrayOpen(false)} dialogLabel="Agents">
-          <div className="tray">
-            <input className="mail-filter tray-filter" placeholder="filter agents…"
-              value={trayQ} onChange={(e) => setTrayQ(e.target.value)} />
-            {/* archived rows are HIDDEN by default (user spec 2026-07-31) —
-                the count row folds them in and out */}
-            {(() => {
-              const archN = [...map.values()].filter((n) =>
-                n.id !== USER && n.id !== DRAFT && !n.isBearerOf
-                && n.state !== 'live').length
-              return archN > 0 && (
-                <button className="tray-arch"
-                  onClick={() => setTrayArch((v) => !v)}>
-                  {trayArch ? '▾ hide' : '▸ show'} {archN} archived
-                </button>
-              )
-            })()}
-            <AgentListMenuHost map={map} op={op} slug={slug} toast={toast}
-              render={(menu, ask, deskNow) => {
-              // FR-16 (user request 2026-08-06): the tray lists by HIERARCHY —
-              // every direct report immediately after its superior, indented a
-              // step — replacing the old canvas-position sort, which put a
-              // child hired far from its parent nowhere near it in the list.
-              // Sibling order keeps the position sort, so the tray still
-              // tracks the canvas arrangement locally.
-              const all = [...map.values()]
-                .filter((n) => n.id !== USER && n.id !== DRAFT && !n.isBearerOf)
-              const q = trayQ.trim().toLowerCase()
-              const match = (n: CanvasNode) =>
-                (trayArch || n.state === 'live')
-                && (!q || n.id.toLowerCase().includes(q))
-              const kids = new Map<string, CanvasNode[]>()
-              for (const n of all) {
-                const p = n.parent && map.has(n.parent) && n.parent !== USER
-                  ? n.parent : USER
-                kids.set(p, [...(kids.get(p) ?? []), n])
+          <AgentListMenuHost map={map} op={op} slug={slug} toast={toast}
+            render={(menu, ask, deskNow) => {
+            // FR-16 (user request 2026-08-06): the tray lists by HIERARCHY —
+            // every direct report immediately after its superior, indented a
+            // step — replacing the old canvas-position sort, which put a
+            // child hired far from its parent nowhere near it in the list.
+            // Sibling order keeps the position sort, so the tray still
+            // tracks the canvas arrangement locally.
+            const all = [...map.values()]
+              .filter((n) => n.id !== USER && n.id !== DRAFT && !n.isBearerOf)
+            const q = trayQ.trim().toLowerCase()
+            const match = (n: CanvasNode) =>
+              (trayArch || n.state === 'live')
+              && (!q || n.id.toLowerCase().includes(q))
+            const kids = new Map<string, CanvasNode[]>()
+            for (const n of all) {
+              const p = n.parent && map.has(n.parent) && n.parent !== USER
+                ? n.parent : USER
+              kids.set(p, [...(kids.get(p) ?? []), n])
+            }
+            const byPos = (a: CanvasNode, b: CanvasNode) => {
+              const pa = posOf(a.id) ?? { x: 0, y: 0 }
+              const pb = posOf(b.id) ?? { x: 0, y: 0 }
+              return pa.y - pb.y || pa.x - pb.x
+            }
+            // a filtered-out ANCESTOR of a matching row still renders, as a
+            // dim ghost: with indentation carrying meaning, dropping it
+            // would leave the descendant indented under a gap with no
+            // visible parent (the docket's own open question — resolved
+            // toward keeping the indent readable)
+            const anyMatch = (n: CanvasNode): boolean =>
+              match(n) || (kids.get(n.id) ?? []).some(anyMatch)
+            const rows: TrayRow[] = []
+            const walk = (id: string, depth: number) => {
+              for (const c of (kids.get(id) ?? []).sort(byPos)) {
+                if (!anyMatch(c)) continue
+                rows.push({ node: c, depth, ghost: !match(c) })
+                walk(c.id, depth + 1)
               }
-              const byPos = (a: CanvasNode, b: CanvasNode) => {
-                const pa = posOf(a.id) ?? { x: 0, y: 0 }
-                const pb = posOf(b.id) ?? { x: 0, y: 0 }
-                return pa.y - pb.y || pa.x - pb.x
-              }
-              // a filtered-out ANCESTOR of a matching row still renders, as a
-              // dim ghost: with indentation carrying meaning, dropping it
-              // would leave the descendant indented under a gap with no
-              // visible parent (the docket's own open question — resolved
-              // toward keeping the indent readable)
-              const anyMatch = (n: CanvasNode): boolean =>
-                match(n) || (kids.get(n.id) ?? []).some(anyMatch)
-              const rows: { n: CanvasNode; depth: number; ghost: boolean }[] = []
-              const walk = (id: string, depth: number) => {
-                for (const c of (kids.get(id) ?? []).sort(byPos)) {
-                  if (!anyMatch(c)) continue
-                  rows.push({ n: c, depth, ghost: !match(c) })
-                  walk(c.id, depth + 1)
-                }
-              }
-              walk(USER, 0)
-              return rows.map(({ n, depth, ghost }) => {
-                // a piled-away agent comes to the FRONT of its pile when
-                // picked from the tray, then the glide lands on it — the key
-                // names the pile KIND (retired |a vs live crowd |c)
-                // the canvas's one navigation, shared with the registry
-                // that serves every other surface's menu
-                const go = () => goToAgent(n.id)
-                // №13: the status summary is TEXT here, not a tooltip — and a
-                // finished status survives the next turn as prev_status (dim)
-                const stat: (NodeStatus & { _stale?: boolean }) | null = n.last_status
-                  ?? (n.prev_status ? { ...n.prev_status, _stale: true } : null)
-                const lastTurn = n.turns?.[n.turns.length - 1]
-                return (
-                /* ⚠ THE ROW IS NOT ITSELF A BUTTON, which is what lets its
-                   summary carry reference controls: a button inside a
-                   `role="button"` is invalid nesting. The row navigates on
-                   click, the MAIN LINE is the focusable button (Enter/Space
-                   arrive as a click and bubble to the row's one handler, so
-                   activation cannot fire twice), and the summary is a sibling
-                   of that button. Nothing in the main line is interactive:
-                   ContextWheel is only a button when given `onCompact`, which
-                   the tray does not pass. */
-                <div key={n.id} data-copy-agent-name={n.id}
-                  className={'tray-row' + (n.state !== 'live' ? ' off' : '')
-                    + (ghost ? ' ghost' : '')
-                    + ' prov-' + providerOf(n.tier ?? '')}
-                  style={{ paddingLeft: 8 + depth * 14 }}
-                  title={ghost
-                    ? 'shown for context — this row does not match the '
-                      + 'current filter, but a report under it does'
-                    : undefined}
-                  onClick={go}
-                  /* the row's menu is the agent's own (canvas/agentmenu.tsx),
-                     opened from the ROW — not from the main-line button —
-                     because the summary line and the pin/popout controls are
-                     part of the same object. NOT at compact, exactly where the
-                     card itself has no menu either: there the card is a map
-                     marker with no desk, no chips and no handlers (mapMode in
-                     cards.tsx), so there would be nothing to be at parity
-                     with. A right-click never navigates: `contextmenu` is not
-                     `click`, and `go` is on the click. */
-                  onContextMenu={(e) => {
-                    if (!compact) menu.open(e, () => trayRowMenu(n, go, ask, deskNow))
-                  }}>
-                  <div className="tray-primary">
-                    <button type="button" className="tray-main"
-                    title={`go to ${n.id}`}>
-                    <span className={'tier t-' + n.tier}>{TIER_LETTER[n.tier!] ?? '?'}</span>
-                    {n.pending_switch &&
-                      <span className="queued-mark" title={queuedSwitchTitle(n)}>
-                        →{TIER_LETTER[n.pending_switch.tier] ?? '?'}</span>}
-                    <span className="tray-name"
-                      title={charterLine(n) || n.id}>{n.id}</span>
-                    <ContextWheel occ={n.occupancy} cw={n.context_window}
-                      est={n.occupancy_est} compactAt={tree.compact_at} />
-                    <TrayStatus node={n} turn={lastTurn} live={n.state === 'live'} />
-                    </button>
-                  {/* ⚠ NO PER-AGENT CONTROLS HERE ANY MORE (user ruling
-                      2026-09-12): the row's ⌖ pin and ↗ popout buttons are
-                      gone, and both actions live in the row's context menu
-                      with everything else the agent can do. The row is one
-                      object again — a name you press to go there — rather
-                      than a name with two tiny controls competing for the
-                      same press. */}
-                  </div>
-                  {/* ⚠ THE WHOLE SUMMARY, MATCHED BEFORE ANY TRUNCATION: a
-                      slice here cuts tokens in half, and the clipping is the
-                      stylesheet's job (`.tray-sum-text` is ellipsis-clipped).
-                      The AGE is its own element so the ellipsis eats the
-                      summary's tail rather than the one fact beside it that
-                      the summary does not contain. */}
-                  {stat?.summary && (
-                    <div className={'tray-sum' + (stat._stale ? ' stale' : '')}
-                      title={stat.summary}>
-                      <span className="tray-sum-text">
-                        {stat.status}: <Written text={stat.summary} refs={canvasRefs} />
-                      </span>
-                      {stat.at && <span className="tray-sum-at"> · {ago(stat.at)} ago</span>}
-                    </div>
-                  )}
-                </div>
-                )
-              })
-            }} />
-          </div>
+            }
+            walk(USER, 0)
+            // the rows themselves are canvas/agenttray.tsx, shared with the
+            // Attention view's agents drawer (user 2026-09-30). A press goes
+            // to the agent — a piled-away agent comes to the FRONT of its
+            // pile first — through the canvas's one navigation, shared with
+            // the registry that serves every other surface's menu.
+            return <AgentTray map={map} rows={rows} query={trayQ} onQuery={setTrayQ}
+              archived={trayArch} onArchived={setTrayArch} onPick={goToAgent}
+              compactAt={tree.compact_at} refs={canvasRefs}
+              /* the row's menu is the agent's own (canvas/agentmenu.tsx),
+                 opened from the ROW. NOT at compact, exactly where the card
+                 itself has no menu either: there the card is a map marker
+                 with no desk, no chips and no handlers (mapMode in cards.tsx),
+                 so there would be nothing to be at parity with. */
+              onRowMenu={(e, n, go) => {
+                if (!compact) menu.open(e, () => trayRowMenu(n, go, ask, deskNow))
+              }} />
+          }} />
           </PinFrame>
         )}
         <button className="tray-toggle" title="every agent, by hierarchy"
@@ -3602,6 +3956,30 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         </button>
       </div>
       </MaybePortal>
+      {/* restored desks from the last session STAY in the world: each is a
+          fixed full-window panel (`.popout-recovery.restored-desk`) with a
+          "Return to canvas" action, so it belongs to the canvas and is put
+          away with it rather than covering a presented Attention view */}
+      {restoreDesks.filter(([, id, generation]) => map.get(id)?.generation === generation).map(([, id, generation]) => {
+        const n = map.get(id)!
+        return <div className="popout-recovery restored-desk" key={JSON.stringify([id, generation])}>
+          <div className="row"><b data-copy-agent-name={id}>{id} restored desk</b><button onClick={() => {
+            centerOn(id); setRestoreDesks(old => old.filter(([, other]) => other !== id))
+          }}>Return to canvas</button></div>
+          <DeskChat bare node={n} map={map} op={op} slug={slug} toast={toast} pub={false}
+            compactAt={tree.compact_at} maxTop={tree.max_top_grant ?? 1000} pxc={pxPerCredit}
+            onMailLink={openMail} onWorkLink={openWork} onOpenDoc={openDocView} onJump={centerOn} />
+        </div>
+      })}
+      </div>{/* .canvas-world */}
+      {/* THE OVERLAYS ARE OUTSIDE `.canvas-world` (2026-09-29). They used to
+          sit inside it, so while the Attention view was presented every
+          dialog the canvas owns — a watchdog's detail, an agent's inbox or
+          docket, a document — opened INVISIBLE: `.canvas-world-hidden` hides
+          every descendant (measured: the watchdog dialog's heading computed
+          `visibility: hidden` under the Attention stage). The world wrapper is
+          `display: contents`, so moving its end changes no layout at all; it
+          only stops these dialogs being put away with the canvas. */}
       {/* every overlay rides MaybePortal (mobile wave §2-②): `.viewport`
           carries touch-action:none, and a scroller nested inside it can
           never scroll by touch — the portal moves the overlay out of that
@@ -3619,7 +3997,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
         </NodeDetailGate></MaybePortal>
       )}
       {lineageId && map.get(lineageId) && (
-        <MaybePortal><NodeDetailGate slug={slug} node={map.get(lineageId)!}>
+        <MaybePortal><NodeDetailGate slug={slug} node={map.get(lineageId)!} lineage>
           {(ln) => (
         <LineagePanel node={ln} op={op} slug={slug}
           presence={presence} userDisabled={userDisabled}
@@ -3667,6 +4045,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       )}
       {pileOpen && piles.get(pileOpen) && (
         <MaybePortal><PilePicker pile={piles.get(pileOpen)!} map={map} op={op} toast={toast}
+          ready={piles.get(pileOpen)!.kind !== 'a' || !(map.get(piles.get(pileOpen)!.parent)?.hidden_retired_children ?? 0)}
           onPick={(nid) => { setFront(pileOpen, nid); setPileOpen(null) }}
           close={() => setPileOpen(null)} /></MaybePortal>
       )}
@@ -3675,11 +4054,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
           synthesized pile of the HIDDEN retirees under this parent. Picking
           one routes through centerOn, whose reveal hook shows the card and
           glides to it. */}
-      {retiredOpen && prunedView.retiredByParent.has(retiredOpen) && (
+      {retiredOpen && retiredCounts.has(retiredOpen) && (
         <MaybePortal><PilePicker map={map} op={op} toast={toast}
+          ready={!(map.get(retiredOpen)?.hidden_retired_children ?? 0)}
           pile={{ key: retiredOpen + '|h', parent: retiredOpen, kind: 'a',
-            list: prunedView.retiredByParent.get(retiredOpen)!.map((c) => c.id),
-            front: prunedView.retiredByParent.get(retiredOpen)![0]!.id }}
+            list: (prunedView.retiredByParent.get(retiredOpen) ?? []).map((c) => c.id),
+            total: retiredCounts.get(retiredOpen),
+            front: prunedView.retiredByParent.get(retiredOpen)?.[0]?.id ?? '' }}
           onPick={(nid) => { setRetiredOpen(null); centerOn(nid) }}
           close={() => setRetiredOpen(null)} /></MaybePortal>
       )}
@@ -3768,6 +4149,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
               const a = map.get(sheetId)!
               const parentOf = !a.parent || a.parent === USER ? null : a.parent
               const parent = placement === 'below' ? a.id : parentOf
+              // judged on the ring as it is NOW, before the hire changes it
+              const pin = placement === 'left' || placement === 'right' ? ringSide(a, placement) : null
               op({ op: 'hire', parent, tier, grant, name })
                 .then((r) => {
                   const born = r?.node
@@ -3775,8 +4158,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
                     // same follow-ups as the desktop chips: side = pin the
                     // promised ordering (best-effort, cosmetic); above = the
                     // FR-25 splice (loud on failure — it IS the point)
-                    if (placement === 'left' || placement === 'right') {
-                      void reorderNode(slug, born, placement === 'left'
+                    if (pin) {
+                      void reorderNode(slug, born, pin === 'left'
                         ? { before: a.id } : { after: a.id }).catch(() => {})
                     }
                     if (placement === 'above') {
@@ -3792,19 +4175,66 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
             }} />
         </MaybePortal>
       )}
-      {restoreDesks.filter(([, id, generation]) => map.get(id)?.generation === generation).map(([, id, generation]) => {
-        const n = map.get(id)!
-        return <div className="popout-recovery restored-desk" key={JSON.stringify([id, generation])}>
-          <div className="row"><b data-copy-agent-name={id}>{id} restored desk</b><button onClick={() => {
-            centerOn(id); setRestoreDesks(old => old.filter(([, other]) => other !== id))
-          }}>Return to canvas</button></div>
-          <DeskChat bare node={n} map={map} op={op} slug={slug} toast={toast} pub={false}
-            compactAt={tree.compact_at} maxTop={tree.max_top_grant ?? 1000} pxc={pxPerCredit}
-            onMailLink={openMail} onWorkLink={openWork} onOpenDoc={openDocView} onJump={centerOn} />
-        </div>
+    </div>
+    {/* THE TEMPORARY DESK — inside `DeskHosts`, because its `borrow` slot has
+        to register in the ONE desk registry; that is what lets it take the
+        canonical desk and have the registry give it back. Outside the viewport
+        for the same reason as the org slot: it must not inherit the pan/zoom
+        transform, and it must survive the canvas being hidden. */}
+    {tempDeskId && map.get(tempDeskId) && (
+      <TempDeskModal node={map.get(tempDeskId)!} close={() => setTempDeskId(null)}
+        // PIN: the same `pinDesk` as the card's and the menu's pin, then the
+        // modal closes — its borrow ends, and the pinned window takes the desk.
+        // No button for an agent already pinned (the glance is then borrowing
+        // that very pin) or where there is no pinning at all (mobile).
+        onPin={!isMobile && !pinnedIds.has(tempDeskId)
+          ? () => { if (pinDesk(tempDeskId)) setTempDeskId(null) } : undefined}
+        desk={{
+          map, op, slug, toast, pub: false,
+          compactAt: tree.compact_at,
+          maxTop: tree.max_top_grant ?? 1000,
+          pxc: pxPerCredit,
+          onMailLink: openMail, onWorkLink: openWork, onOpenDoc: openDocView,
+          // ⚠ NO `onJump`/`onRecenter`. Those move the camera, and this surface
+          // exists precisely because a glance must not. The desk simply offers
+          // no such control here rather than being handed one that would
+          // contradict the feature.
+          onLineage: () => toggleNodeSurface('lineage', tempDeskId, setLineageId),
+          onConfig: () => toggleConfig(tempDeskId),
+        }} />
+    )}
+    {/* THE ORG SLOT — a sibling of the viewport, inside this host's providers.
+        Outside the viewport so it escapes the pan/zoom transform and so its
+        own stage can be hidden without touching the pin layer; inside
+        `DeskHosts` so a desk it mounts registers in the ONE registry and
+        cannot become a second live composer. It is focusable (tabIndex -1)
+        because the world hands it focus when the canvas goes away. */}
+    {renderOrgSlot && <div className="org-slot" ref={slotRef} tabIndex={-1}
+      style={slotBox ? { left: slotBox.x, top: slotBox.y, width: slotBox.w, height: slotBox.h } : undefined}>
+      {renderOrgSlot({
+        slug, tree, op, toast, map, posOf,
+        onOpenItem: onWorkItem,
+        onFocusAgent: centerOn,
+        onOpenDoc: openDocView,
+        onOpenMail: openMail,
+        // the same routes the canvas's own desks get — no stubs, and nothing
+        // the slot has to invent
+        deskExtras: {
+          compactAt: tree.compact_at,
+          maxTop: tree.max_top_grant ?? 1000,
+          pxc: pxPerCredit,
+          onMailLink: openMail,
+          onWorkLink: openWork,
+          onOpenDoc: openDocView,
+          onJump: centerOn,
+        },
       })}
-    </div></DeskHosts>
+    </div>}
+    </DeskHosts>
+    </DeskDogsProvider>
     </AgentSurfaceRoutesProvider>
+    </OrgDefaultEffort.Provider>
+    </ForegroundViewContext.Provider>
     </OrgKillswitchContext.Provider>
     </AgentNavProvider>
   )
@@ -3835,6 +4265,8 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
   onSettings?: () => void
   onClose: () => void
 }) {
+  // re-render on the "show legacy models" flip — `codexTierOffer` reads it
+  useShowLegacyModels()
   // D-199: which families this sheet may show, by the one shared rule.
   const famRows = useMemo(() => ([
     { key: 'claude', label: 'model tier — Claude', tiers: TIERS,
@@ -3871,7 +4303,11 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
   // just be "the family's first tier" — it has to be the first tier that is
   // ITSELF offerable.
   const tierOffer = (f: (typeof famRows)[number], t: string): FamilyOffer =>
-    f.key === 'codex' ? codexTierOffer(f.hire, t) : f.offer
+    f.key === 'codex' ? codexTierOffer(f.hire, t)
+      // Gemini Pro (legacy toggle) and Argon (only once agy lists it)
+      : f.key === 'antigravity' ? antigravityTierOffer(f.hire, t)
+      // an opt-in legacy tier of another family, toggle off
+      : optInLegacyHidden(t) ? 'hide' : f.offer
   const firstOfferable = famRows
     .flatMap((f) => f.tiers.filter((t) => tierOffer(f, t) === 'offer'))[0] ?? ''
   const providersOff = [claudeHire, codexHire, antigravityHire, openrouterHire]
@@ -3932,6 +4368,7 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
                     onClick={() => pickTier(t)}>
                     <span className={'tier t-' + t}>{f.letters[t]}</span>
                     {tierLabel(t)} · seat {fmtCredits(f.seatOf(t))}
+                    {legacyMark(t) ? <span className="dim hs-legacy">{legacyMark(t)}</span> : null}
                     {tools ? <span className="dim"> · {tools}</span> : null}
                   </button>
                 )

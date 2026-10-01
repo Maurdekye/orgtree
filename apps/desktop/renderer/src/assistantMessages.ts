@@ -58,6 +58,26 @@ export function mergeAssistantRows(rows: readonly ChatMessage[]): ChatMessage[] 
   return out.filter((row): row is ChatMessage => row !== null)
 }
 
+/** A streamed frame that carries only the text added since
+ *  `assistant_base_revision` (supervisor.wire_reply_frame), not the whole row. */
+export function isAssistantDelta(row: ChatMessage): boolean {
+  return row.assistant_delta === true && Number.isSafeInteger(row.assistant_base_revision)
+}
+
+/** Put a delta frame on top of the newest row this client holds for it.
+ *  'stale' = the client already has this revision or a later one;
+ *  'gap' = the revision it extends never arrived (refetch). */
+export function applyAssistantDelta(base: ChatMessage | undefined,
+                                    delta: ChatMessage): ChatMessage | 'stale' | 'gap' {
+  const want = delta.assistant_base_revision ?? 0
+  if (base && (!base.assistant_pending || base.assistant_state === 'complete'
+      || (base.assistant_revision ?? 0) > want)) return 'stale'
+  if (!base || base.assistant_revision !== want) return 'gap'
+  const { assistant_delta: _d, assistant_base_revision: _b, ...rest } = delta
+  return { ...rest, text: (base.text ?? '') + (delta.text ?? ''),
+           reply_quote: delta.reply_quote ?? base.reply_quote }
+}
+
 export function isAssistantSnapshot(value: unknown): value is ChatMessage {
   if (!value || typeof value !== 'object') return false
   const row = value as ChatMessage

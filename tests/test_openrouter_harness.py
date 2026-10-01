@@ -1145,12 +1145,27 @@ class DocLockTests(_Patched):
         import inspect
         import textwrap
         for fn in (self.api._hire_seat, self.api._staff_call,
-                   self.api._org_op_locked):
+                   self.api._org_op_locked, self.api._op_hire,
+                   self.api._quick_staff_locked):
             with self.subTest(fn=fn.__name__):
                 self.assertIn("harness", inspect.signature(fn).parameters,
                               f"{fn.__name__} cannot accept the door's answer")
+        # the operator hire was lifted WHOLE out of `_org_op_locked` into
+        # `_op_hire` (PYPG PG-3b, so the row door runs the same hire): the
+        # lock body must still hand it the door's answer
+        tree = ast.parse(textwrap.dedent(inspect.getsource(
+            self.api._org_op_locked)))
+        lifted = [n for n in ast.walk(tree)
+                  if isinstance(n, ast.Call)
+                  and getattr(n.func, "id", None) == "_op_hire"]
+        self.assertTrue(lifted, "_org_op_locked no longer reaches _op_hire")
+        for call in lifted:
+            self.assertIn("harness",
+                          [getattr(x, "id", None) for x in call.args]
+                          + [k.arg for k in call.keywords],
+                          "_org_op_locked calls _op_hire without the harness")
         # …and the two that actually hire pass it on
-        for fn in (self.api._hire_seat, self.api._org_op_locked):
+        for fn in (self.api._hire_seat, self.api._op_hire):
             tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
             hires = [n for n in ast.walk(tree)
                      if isinstance(n, ast.Call)

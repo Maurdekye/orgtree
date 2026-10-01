@@ -12,17 +12,23 @@
 // the drag bar as its body.
 //
 // The answer itself travels as ordinary user mail (it is what drives the
-// agent's next turn); this file never fabricates conversation state.
+// agent's next turn). The one thing shown before the server answers is the
+// submit itself (user point 31, 2026-09-29): the card leaves every view on the
+// click, and the agent's chat queues the "Request resolved" entry at once.
+// Both live in ../asksubmitted, and a failed submit brings the card back
+// with its error and the user's choices.
 
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
-import type { AskInfo, AskQuestion, AskTab, ToastFn } from '../types'
+import type { AskInfo, AskQuestion, AskTab, ToastFn, TreeNode, TreePayload } from '../types'
+import type { Section } from '../generated/events'
 import { answerAsk, creditDecide, fileBase, resolveBatch } from '../api'
+import { askFailure, askHidden, submitAsk, useSubmittedAsks } from '../asksubmitted'
 import { CreditBar } from './cards'
 import { CloseIcon, WarnIcon } from '../icons'
 import { isMobile } from '../mobile'
 import { useQuestionVisibility } from '../notification-visibility'
-import { md } from './shared'
+import { md, orgPxc } from './shared'
 
 /** Each card owns its inputs, so a deterministic id keeps the visible label
  * associated with the active tab without depending on payload text. */
@@ -85,9 +91,12 @@ export function AskCard({ ask, slug, toast, seat = 0, committed = 0, maxTop,
   /** the org's px-per-credit (orgPxc) — same scale as the canvas bars */
   pxc?: number
 }) {
+  useSubmittedAsks()
   const live = ask.status === 'open' || ask.status === 'pending'
   const credit = ask.kind === 'credit'
     || (ask.kind !== 'batch' && ask.old != null)
+  // point 31: a submitted card is gone on the click, in every view
+  if (live && askHidden(slug, ask.id)) return null
   if (!live) return <NulledAsk ask={ask} credit={credit} />
   // FR-14: the composed batch — mixed tabs, one submit. Legacy open cards
   // (a rolling deploy's pre-batch payload) fall through to the old forms.
@@ -116,10 +125,14 @@ function questionDraftKey(q: AskQuestion | AskTab): unknown[] {
  * changed question. Only the immediately previous inventory is retained, so
  * removing a question also removes its draft. Matching consumes each old slot
  * once, even for a malformed payload with duplicate questions. */
-function useRequestDrafts<D>(keys: string[], make: (i: number) => D) {
+function useRequestDrafts<D>(keys: string[], make: (i: number) => D,
+  restore?: { signature: string; drafts: unknown[] }) {
   const signature = JSON.stringify(keys)
+  // a failed submit hands back the drafts it sent, so the returning card
+  // shows what the user chose (only while the questions are unchanged)
   const [saved, setSaved] = useState(() => ({ signature, keys,
-    drafts: keys.map((_, i) => make(i)) }))
+    drafts: restore?.signature === signature && restore.drafts.length === keys.length
+      ? restore.drafts as D[] : keys.map((_, i) => make(i)) }))
   const [tab, setTab] = useState(0)
   let current = saved
   if (saved.signature !== signature) {
@@ -166,10 +179,11 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
       : t.kind === 'credits' ? [t.id, t.old, t.new, t.reason]
       : [t.id, t.item?.kind, t.item?.path, t.item?.mode, t.item?.tool,
           t.item?.server, t.label, t.reason]]))
+  const failure = askFailure(slug, ask.id)
   const { drafts, setDrafts, tab, setTab } = useRequestDrafts<BatchDraft>(keys,
     i => ({ q: { sel: [], text: '', skip: false },
       credits: { mode: null, g: tabs[i]?.kind === 'credits' ? (tabs[i]?.new ?? 0) : 0 },
-      scope: null }))
+      scope: null }), failure?.drafts)
   const cur = Math.min(tab, tabs.length - 1)
   const t = tabs[cur]!
   const fallback: BatchDraft = { q: { sel: [], text: '', skip: false },
@@ -218,14 +232,17 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
       .filter(({ x }) => x.kind === 'scope')
       .map(({ i }) => at(i).scope ?? 'skip')
     setBusy(true)
-    resolveBatch(slug, ask.node, {
+    submitAsk({ slug, nid: ask.node, askId: String(ask.id),
+      drafts: { signature: JSON.stringify(keys), drafts: ds },
+      sections: batchSections(ask, tabs, answers, cd, scope) },
+    () => resolveBatch(slug, ask.node, {
       revs: (ask.revs ?? {}) as Record<string, number>,
       ...(qIdx.length ? { answers } : {}),
       ...(cd ? { credits: cd.mode === 'grant' ? { granted: cd.g }
         : cd.mode === 'deny' ? { deny: true } : { skip: true } } : {}),
       ...(scope.length ? { scope } : {}),
-    })
-      // stays busy on success — the next payload nulls the card
+    }))
+      // the card is already gone (submitAsk hid it); a failure brings it back
       .then(() => toast([`resolved ${ask.node}'s batch`]))
       .catch((e: Error) => { toast([`error: ${e.message}`]); setBusy(false) })
   }
@@ -268,6 +285,7 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
           q: { sel: [], text: '', skip: true },
           credits: { mode: 'skip', g: 0 },
           scope: 'skip' })))} />
+      {failure && <SubmitFailed error={failure.error} />}
       {tabs.length > 1 && (
         <div className="ask-tabstrip">
           {tabs.map((x, i) => (
@@ -437,6 +455,76 @@ const tabAnswered = (q: AskQuestion, d: TabDraft): boolean => {
     || (!opts.length && d.text.trim().length > 0)
 }
 
+/** The card came back because its submit failed (point 31). */
+function SubmitFailed({ error }: { error?: string }) {
+  return <div className="ask-submit-failed warn" role="alert">
+    <WarnIcon fontSize="inherit" /> not sent{error ? `: ${error}` : ''}. Your answers are kept; submit again.
+  </div>
+}
+
+/** The answer.ask fields the server will mint for a single-question card's
+ *  submit: ledger.ask_dismiss for the ✕, the per-tab form of ask_answer for
+ *  a multi-question card, and its single form otherwise. */
+function askAnswer(ask: AskInfo, qs: AskQuestion[], body: { selected?: (string | string[])[]
+  text?: string; dismiss?: boolean }) {
+  const label = (q: AskQuestion | undefined) => (q?.header ? String(q.header) : null)
+  const clean = (v: string | string[]) => (Array.isArray(v) ? v : [v])
+    .map(x => String(x).trim()).filter(Boolean)
+  if (body.dismiss) {
+    return { questions: qs.map(q => ({ label: label(q), question: String(q.question ?? ''),
+      selected: [] })), text: null, dismissed: true, single: qs.length <= 1 }
+  }
+  if (qs.length > 1) {
+    return { questions: qs.map((q, i) => ({ label: label(q), question: String(q.question ?? ''),
+      selected: clean(body.selected?.[i] ?? '') })),
+      text: body.text?.trim() || null, dismissed: false, single: false }
+  }
+  return { questions: [{ label: label(qs[0]), question: String(ask.question ?? qs[0]?.question ?? ''),
+    selected: clean((body.selected ?? []) as string[]) }],
+    text: body.text?.trim() || null, dismissed: false, single: true }
+}
+
+/** The answer.batch sections the server will mint for this submit
+ *  (ledger.resolve_batch), for the queued "Request resolved" entry. The
+ *  question section is exact. The credit and scope sections are the user's
+ *  own decision: the server's final wording (a counter-offer's outcome, a
+ *  clamped scope) arrives with its row, which replaces this one. */
+function batchSections(ask: AskInfo, tabs: AskTab[], answers: (string | string[] | null)[],
+  cd: { mode: 'grant' | 'deny' | 'skip' | null; g: number } | null,
+  scope: string[]): Section[] {
+  const out: Section[] = []
+  const qTabs = tabs.filter(t => t.kind === 'question')
+  if (qTabs.length) {
+    out.push({ kind: 'ask', ask_id: String(ask.id), questions: qTabs.map((t, i) => {
+      const v = answers[i] ?? null
+      const parts = v == null ? [] : (Array.isArray(v) ? v : [v])
+        .map(x => String(x).trim()).filter(Boolean)
+      return { label: t.header ? String(t.header) : null, question: String(t.question ?? ''),
+        answer: parts.length ? parts.join(' · ') : null }
+    }) })
+  }
+  const ct = tabs.find(t => t.kind === 'credits')
+  if (ct && cd) {
+    const old = Number(ct.old ?? 0), asked = Number(ct.new ?? 0)
+    out.push(cd.mode === 'grant'
+      ? { kind: 'credit', outcome: cd.g === asked ? 'approved' : 'counter',
+          old, asked, granted: cd.g, now: cd.g }
+      : cd.mode === 'deny'
+        ? { kind: 'credit', outcome: 'denied', old, asked, granted: null, now: old }
+        : { kind: 'credit', outcome: 'skipped', old, asked, granted: null, now: null })
+  }
+  const sTabs = tabs.filter(t => t.kind === 'scope')
+  if (sTabs.length) {
+    const verdict: Record<string, string> = { approve: 'GRANTED — live from your next turn',
+      deny: 'denied', skip: 'skipped (undecided — you may re-ask)' }
+    const decisions = sTabs.map((t, i) => ({ label: String(t.label ?? ''),
+      decision: (scope[i] ?? 'skip') as 'approve' | 'deny' | 'skip' }))
+    out.push({ kind: 'scope', decisions, lines: ['[SCOPE REQUEST decided]',
+      ...decisions.map(d => `- ${d.label} → ${verdict[d.decision]}`)] })
+  }
+  return out
+}
+
 /** what one answered tab sends: a string, or a list for a multi tab */
 const tabValue = (q: AskQuestion, d: TabDraft): string | string[] => {
   const chosen = d.sel.filter((s) => s !== OTHER)
@@ -464,9 +552,10 @@ function QuestionAsk({ ask, slug, toast }: {
     .map((q) => ({ ...q, options: (q.options ?? []).map((o) =>
       typeof o === 'string' ? { label: o as string } : o) }))
   const batch = qs.length > 1
+  const qKeys = qs.map(q => JSON.stringify([slug, ask.node, ask.id, questionDraftKey(q)]))
+  const failure = askFailure(slug, ask.id)
   const { drafts, setDrafts, tab, setTab } = useRequestDrafts<TabDraft>(
-    qs.map(q => JSON.stringify([slug, ask.node, ask.id, questionDraftKey(q)])),
-    () => ({ sel: [], text: '' }))
+    qKeys, () => ({ sel: [], text: '' }), failure?.drafts)
   const [busy, setBusy] = useState(false)
   const dr = (i: number): TabDraft => drafts[i] ?? { sel: [], text: '' }
   const q = qs[Math.min(tab, qs.length - 1)]!
@@ -484,8 +573,10 @@ function QuestionAsk({ ask, slug, toast }: {
     dismiss?: boolean }) => {
     if (busy) return
     setBusy(true)
-    answerAsk(slug, ask.id, body)
-      // stays busy on success — the next payload nulls the card
+    submitAsk({ slug, nid: ask.node, askId: String(ask.id),
+      drafts: { signature: JSON.stringify(qKeys), drafts }, sections: null,
+      answer: askAnswer(ask, qs, body) },
+    () => answerAsk(slug, ask.id, body))
       .then(() => toast([body.dismiss ? `dismissed ${ask.node}'s question`
         : `answered ${ask.node}`]))
       .catch((e: Error) => { toast([`error: ${e.message}`]); setBusy(false) })
@@ -528,6 +619,7 @@ function QuestionAsk({ ask, slug, toast }: {
           ? 'dismiss the whole batch without answering (the agent is told)'
           : 'dismiss without answering (the agent is told)'}
         onClose={() => send({ dismiss: true })} />
+      {failure && <SubmitFailed error={failure.error} />}
       {batch && (
         <div className="ask-tabstrip">
           {qs.map((x, i) => (
@@ -796,5 +888,28 @@ function NulledAsk({ ask, credit }: { ask: AskInfo; credit: boolean }) {
         </div>
       )}
     </div>
+  )
+}
+
+/** THE INBOX'S ASK BODY: the canonical card with the asking agent's credit
+ *  bar read off its tree entry (seat, grant, live children). The user's inbox
+ *  and the Attention view both show an open request with this, so the two
+ *  cannot differ. `node` is absent for an agent the tree does not hold; the
+ *  card then draws an empty bar rather than a guessed one. */
+export function InboxAskCard({ ask, slug, tree, node, toast }: {
+  ask: AskInfo
+  slug: string
+  tree: TreePayload
+  node?: TreeNode
+  toast: ToastFn
+}) {
+  return (
+    <AskCard ask={ask} slug={slug} toast={toast}
+      seat={node?.seat ?? 0}
+      committed={(node?.grant ?? 0) - (node?.free ?? 0)}
+      segments={(node?.children ?? []).filter((c) => c.state === 'live')
+        .map((c) => ({ seat: c.seat, grant: c.grant }))}
+      pxc={orgPxc(tree)}
+      maxTop={tree.max_top_grant ?? 1000} />
   )
 }

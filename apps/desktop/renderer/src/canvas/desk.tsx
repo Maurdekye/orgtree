@@ -1,4 +1,5 @@
 import { transcriptViewport } from '../transcriptViewport'
+import { setButtonAgent } from '../buttoncolours'
 import { agentNavProps } from './agentnav'
 import { HaltControl, HaltStatus } from './haltcontrol'
 import { resolveRef } from './reflinks'
@@ -7,12 +8,14 @@ import type { ReplyContext } from '../eventReply'
 import { ReplyPreview, ReplySourceProvider } from './replypreview'
 import { indexReplySources, ReplySourceContent } from './replysource'
 import { copyToClipboard, useContextMenu } from './contextmenu'
+import { EFFORT_LEVELS, EffortLevelBadge, effortChangeToast } from './effort'
 import { foldKeysOf, FoldProvider, sysFoldKey, thoughtFoldKey, toolFoldKey, useFold, useFoldState } from './foldstate'
 import { useChangedState } from '../changedstate'
 import { messageCopyText, toolCallCopyText, toolResultCopyText } from './copytext'
+import { firstUseSent } from './firstuse'
 import type { MouseEvent as ReplyMouseEvent } from 'react'
 import { readAttachments, storeAttachments } from '../draftstore'
-import { absorbStrandedDrafts, readHistory, recordSent } from '../composerhistory'
+import { absorbStrandedDrafts, carryDraftForward, readHistory, recordSent } from '../composerhistory'
 import type { HistoryEntry } from '../composerhistory'
 import { DeskSlot } from './deskhosts'
 import { PopoutButton, PopoutWindowControls, useSurface, useSurfaceDocument } from '../popout'
@@ -24,15 +27,17 @@ import { PopoutButton, PopoutWindowControls, useSurface, useSurfaceDocument } fr
 // from Canvas.tsx in the phase-3 split.
 
 import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useNodeMetadata } from '../nodemetadata'
 import type { ReactNode } from 'react'
 import type {
   CacheForecast, ChatMessage, ChatPayload, CodexRouteInfo, HistoryItem, PendingMail,
   Denial, Readiness, ScratchPayload, ServingAccount, TreeFrozen, TreeNode, TurnStat,
-  ToolChip as ToolChipData, ToastFn,
+  ToolChip as ToolChipData, ToastFn, TurnSlotQueued,
 } from '../types'
+import { openAppSettings } from './settingskit'
 import {
   audienceAction, BASE, compactNode, fileBase, fileUrl, getChat, getHistory,
-  getScratch, getWorkItems, interruptNode, processControl, retractMail,
+  getScratch, interruptNode, processControl, retractMail,
   saveScope, sendMessage,
   unstickNode, uploadFile,
 } from '../api'
@@ -50,7 +55,7 @@ import {
   isChatActive, isNoticeArmed, registerChat, setActiveChatKey, setNoticeArmed,
   toggleNoticeArmed, unregisterChat, useNoticeArmed,
 } from '../noticestore'
-import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, CODEX_TIERS, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, ANTIGRAVITY_TIERS, isOpenRouterTier, md, openrouterTierIds, PROVIDER_LABEL, providerOf, queuedSwitchTitle, reportedLabel, stateLabel, TIER_LETTER, tierCapabilityNotes, tierLabel, tierShown, USER, useHideRetired, usePolled } from './shared'
+import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, CODEX_TIERS, conditionalTierHidden, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, ANTIGRAVITY_TIERS, isOpenRouterTier, legacyMark, md, openrouterTierIds, procHaloClass, PROVIDER_LABEL, providerOf, queuedSwitchTitle, reportedLabel, stateLabel, TIER_LETTER, tierCapabilityNotes, optInLegacyHidden, tierLabel, tierShown, USER, useHideRetired, usePolled, useShowLegacyModels, useOfferedConditionalTiers } from './shared'
 import { closeIfCentred, ModalOverPins, PinFrame } from './modalpin'
 import type { ProviderPresence } from './shared'
 import {
@@ -66,9 +71,11 @@ import type {
 import { ConfirmModal, PilePicker } from './modals'
 import { InboxView, RetiredFold } from './mail'
 import { AskCard } from './asks'
+import { useWorkItems } from './useworkitems'
 import { AgentDocketView, actionableAssignedCount, agentItems } from './docket'
 import { AgentGalleryView } from './gallery'
-import { PanelCorner } from './panelcorner'
+import { PanelCorner, useAgentSurfaceRoutes } from './panelcorner'
+import { DogChip, useDeskDogs } from './deskdogs'
 import { PresentationCard } from './docs'
 import { buildNodeFacts } from './docket'
 import { AgentDirectoryProvider, AgentName, agentFactsSig, useAgentDirectory } from './identity'
@@ -80,6 +87,7 @@ import { RefMdBody } from './refmd'
 import { EventCard, eventSurface } from '../events/card'
 import { MailMessage } from '../events/segments'
 import { decodeEventRow } from '../events/decode'
+import { askHidden, markAnswerSeen, queuedAnswerRow, queuedAnswers, useSubmittedAsks } from '../asksubmitted'
 import { eventDedup } from '../events/dedup'
 import { mergeAssistantRows } from '../assistantMessages'
 import { authoredUserLabel, isSegments, SegmentList } from '../events/segments'
@@ -1511,6 +1519,30 @@ export function HaltedBanner({ halt, killswitched, live }: {
   </div>
 }
 
+/** The turn-limit banner (user ruling 2026-09-26 11:04Z): when more agents
+ * want to run than the machine-wide limit allows, a selected QUEUED agent
+ * says why it is not running — the agent concurrency limit is reached — and
+ * that the limit can be changed in Settings, with a button that opens it.
+ * It disappears the moment the engine admits the turn (or it is abandoned). */
+export function TurnSlotQueuedBanner({ queued, live }: {
+  queued?: TurnSlotQueued | null
+  live: boolean
+}) {
+  if (!live || !queued) return null
+  const others = Math.max(0, queued.waiting - 1)
+  return <div className="slot-queued-warning" role="status">
+    <WarnIcon fontSize="inherit" />
+    <span>{`Waiting for a turn slot — the agent concurrency limit (${queued.limit}) `
+      + 'is reached, so this agent runs when a running turn finishes'
+      + (others ? ` (${others} other${others === 1 ? '' : 's'} were waiting when it queued)` : '')
+      + '. The limit may be too low for this many agents; you can change it in '
+      + 'Settings.'}</span>
+    <button type="button" className="slot-queued-open"
+      onClick={() => openAppSettings('runtime', 'max_concurrent_turns')}>
+      Open settings</button>
+  </div>
+}
+
 /* click-to-copy for the React-rendered pres (filepre/respre/diffpre) — same
    .codewrap/.code-copy contract as the md() pipeline, so the one delegated
    click listener in shared.ts serves both. The listener swaps the button's
@@ -1584,6 +1616,50 @@ export interface DeskChatProps {
   /** the org's px-per-credit (orgPxc) — the ask bar's scale */
   pxc?: number
   pub: boolean
+  /** IS THIS SLOT'S DESTINATION ON SCREEN AND REACHABLE RIGHT NOW? Default
+   *  true, so every existing call site is unaffected.
+   *
+   *  ⚠ IT IS ABOUT THIS DESTINATION, NEVER ABOUT WHICH ORG VIEW IS SELECTED.
+   *  A pinned window is eligible whatever view the org is in — it is
+   *  screen-space and survives the switch — while a canvas card behind a
+   *  presented Attention stage is not. The field was nearly named `active`,
+   *  which invited the wrong implementation: read the org mode, mark every
+   *  canvas slot inactive, and the still-visible pinned desk goes with it.
+   *
+   *  Only the desk REGISTRY reads it (deskhosts.tsx `pick`), to decide which
+   *  slot owns the one live desk. It draws nothing. */
+  eligible?: boolean
+  /** IS THIS REGISTRATION A VIEW MOUNTING, rather than the user asking for
+   *  this desk here? Absent means an ordinary claim, which competes exactly as
+   *  every claim does today.
+   *
+   *  ⚠ ONLY THE ATTENTION STAGE SETS THIS, and only while it IS the presented
+   *  stage: pinned or popped out, the user placed that panel, so it claims
+   *  normally. It exists so a view that merely mounted cannot take a desk away
+   *  from a destination the user can currently see, WITHOUT rewriting pin
+   *  ownership in general — the user ruled on the Attention view, not on that
+   *  (multi-window-design, 2026-09-21). An earlier design carried the fact on
+   *  the destination instead ("the user placed this") and changed behaviour for
+   *  an agent that is pinned and also open in an eye panel; the proposed patch
+   *  of labelling the eye panel placed was refused, correctly, for making the
+   *  field mean something false. */
+  claim?: 'automatic'
+  /** THIS SLOT IS A TEMPORARY SURFACE: it takes the canonical desk for as long
+   *  as it is mounted and gives it back, to the exact destination it came
+   *  from, when it unmounts. For the temporary-desk modal.
+   *
+   *  ⚠ BORROWING IS NOT A STRONGER `eligible`, it is a different mechanism.
+   *  Eligibility is a competition between destinations that are all legitimate;
+   *  a borrow is an explicit, momentary, user-initiated act with a guaranteed
+   *  return, which is why the user ruled it may take a desk even from a pinned
+   *  or popped-out window while the Attention view may not. There is still
+   *  exactly ONE `OwnedDeskChat`: only its anchor moves, so the composer, the
+   *  scroll position and the unsent draft survive the borrow and the return.
+   *
+   *  ⚠ AND IT IS TIED TO THIS SLOT'S MOUNT, deliberately. The desk goes back in
+   *  the registry's `remove` path, so a dismissal, an unmount, a route change
+   *  and an error teardown all return it without the caller remembering to. */
+  borrow?: boolean
   bare?: boolean
   compact?: boolean
   compactAt?: number
@@ -1598,6 +1674,11 @@ export interface DeskChatProps {
    *  CANVAS desk passes it; absent hides the button — a switchboard panel,
    *  the mobile sheet and a pinned window itself have no pin to offer. */
   onPin?: () => void
+  /** drop the desk's own pop-out (↗) while it is docked: the host panel draws
+   *  one already. The Attention view's desk panel passes it — its panel-header
+   *  pop-out sat beside this one (user 2026-09-30). A desk that is already in
+   *  its own window keeps its "return" (↙), which nothing else offers there. */
+  hidePopout?: boolean
   /** hide an explicitly revealed retired agent again (hide-retired setting) */
   onDismiss?: () => void
 }
@@ -1748,10 +1829,19 @@ function ctxTargetElement(root: Element | null,
     ?? matches[0] ?? null
 }
 
-function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
+function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineageProp, onConfig: configProp,
   onRecenter, onJump, maxTop, pxc, pub, bare = false, compact = false,
   compactAt, onMailLink, onWorkLink, onOpenDoc, onPin, openPresentedRequest,
-  staleIdentity = false, onDismiss }: DeskChatProps) {
+  staleIdentity = false, onDismiss, hidePopout = false }: DeskChatProps) {
+  const node = useNodeMetadata(slug, baseNode)
+  // A host that passes no settings/lineage handler (the Attention view's desk,
+  // a restored desk) gets the shell's own openers, so the gear and the
+  // `gen N` badge are never dead buttons. See AgentSurfaceRoutes.
+  const surfaceRoutes = useAgentSurfaceRoutes()
+  const onConfig = configProp
+    ?? (surfaceRoutes?.settings ? () => surfaceRoutes.settings?.(node.id) : undefined)
+  const onLineage = lineageProp
+    ?? (surfaceRoutes?.lineage ? () => surfaceRoutes.lineage?.(node.id) : undefined)
   // org killswitch latch — read here (context survives popout portals and
   // OwnedDeskChat's memo) for the halted banner above the composer
   const orgKillswitched = useContext(OrgKillswitchContext)
@@ -1806,8 +1896,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     return () => win.removeEventListener('keydown', onKey)
   }, [surfaceDocument, chatKey])
   const providerClass = node.tier ? ' prov-' + providerOf(node.tier) : ''
-  const processClass = node.state === 'live'
-    ? (node.proc_warm ? ' proc-warm' : ' proc-cold') : ''
+  const processClass = node.state === 'live' ? ' ' + procHaloClass(node) : ''
   const { chat, live_feed, draft, thinking, thinkSecs, pending } = {
     chat: convo.chat, live_feed: convo.live, draft: convo.draft,
     thinking: convo.thinking, thinkSecs: convo.thinkSecs, pending: convo.pending }
@@ -1815,6 +1904,10 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // (clicking a sibling card unmounts this whole component)
   const draftKey = `orgtree-draft-v2-${JSON.stringify([slug, node.id, node.generation])}`
   const [text, setTextRaw] = useState(() => {
+    // A compaction keeps what was in the box: bring the previous generation's
+    // unsent text (and attachments) under this generation's key before
+    // reading it. See carryDraftForward.
+    carryDraftForward(slug, node.id, node.generation)
     try { return localStorage.getItem(draftKey) || '' } catch { return '' }
   })
   const setText = useCallback((v: string | ((prev: string) => string)) => setTextRaw((prev) => {
@@ -1850,7 +1943,10 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   useEffect(() => {
     // Fold every stranded draft for this agent into the history: the previous
     // generation's orphaned draft, anything left in the old recovery keys by
-    // an earlier release, and the pre-generation legacy key.
+    // an earlier release, and the pre-generation legacy key. The newest older
+    // generation's draft moves into this box first (a desk that stays mounted
+    // across the change never re-runs the initializer above).
+    carryDraftForward(slug, node.id, node.generation)
     if (absorbStrandedDrafts(slug, node.id, node.generation)) setSentHistory(readHistory(slug, node.id))
   }, [slug, node.id, node.generation])
   /** Up: one step further back. Returns false when nothing moved, and the key
@@ -2066,6 +2162,8 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   const [showRetired, setShowRetired] = useState(false)
   const hideRetired = useHideRetired()
   const [retiredMenuOpen, setRetiredMenuOpen] = useState(false)
+  // this agent's own watchdogs, as cards in the bottom jump row (deskdogs.tsx)
+  const deskDogs = useDeskDogs(node.id)
   // The process control is a server-side CAS. This local latch only prevents
   // a double-click while the request is in flight; the response/WS tree state
   // remains authoritative if another desk wins the race.
@@ -2085,8 +2183,9 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // panel uses, at a slower interval — this is a summary, not the panel.
   const [workBump, setWorkBump] = useState(0)
   const [showArchivedDocket, setShowArchivedDocket] = useState(false)
-  const work = usePolled(() => getWorkItems(slug, true, true),
-                         [slug], 15000, `${workBump}`)
+  const [showBacklogDocket, setShowBacklogDocket] = useState(false)
+  const work = useWorkItems(slug, view === 'docket' && showArchivedDocket,
+    view === 'docket' && showBacklogDocket, 15000, workBump).value
   const myWork = useMemo(() => agentItems(work, node.id, showArchivedDocket),
     [work, node.id, showArchivedDocket])
   const docketCount = useMemo(() => actionableAssignedCount(work, node.id),
@@ -2493,7 +2592,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   const fillViewportRef = useRef<() => void>(() => {})
   fillViewportRef.current = () => {
     const el = scroller.current
-    if (!el || !hasOlder || loadingOlder) return
+    if (!el || !hasOlder || loadingOlder || convo.olderError) return
     const { more } = transcriptViewport(el)
     if (more) loadOlder(more)
   }
@@ -2519,52 +2618,64 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // the turn, so the live rows above it really did happen first.
   // ── MESSAGE-VISIBILITY INVARIANT (user ruling 2026-09-10 13:22Z, canonical
   // in message-visibility-invariant.md): every message is visible EXACTLY
-  // ONCE across pending → arriving → sent. For a submitted ask answer the
-  // QUESTION PANEL is the pending representation: it stays pinned — never
-  // also a pending bubble — until the answer mail actually RENDERS in the
-  // transcript, and the handoff is atomic because both facts (the transcript
-  // row and the pending row) come out of the SAME chat payload the desk is
-  // rendering. Server acceptance, the tree payload flipping ask.status, or a
-  // planned refresh are explicitly NOT enough to unpin.
+  // ONCE across pending → arriving → sent.
+  // Point 31 (user 2026-09-29: "id rather they disappear immediately and
+  // queue as the request resolved message immediately") changed WHICH form
+  // the pending step of an ask answer takes. The card is no longer pinned
+  // once answered; it leaves on the click. The answer is queued at once as
+  // its "Request resolved" entry: first this window's own queued entry
+  // (../asksubmitted), then the server's pending row, then the transcript
+  // row. Each form retires in the render that draws the next one, because
+  // the next one is found in the same chat payload this desk is rendering.
+  useSubmittedAsks()
   const ask = node.ask
   const askLive = !!ask && (ask.status === 'open' || ask.status === 'pending')
-  // the mail the answer travelled as (stamped by the backend at resolution)
-  const answerMail = !askLive ? ask?.answer_mail : undefined
+  // a submitted card is gone on the click (the store hides it until the tree
+  // payload no longer lists the ask as open)
+  const showAsk = askLive && !askHidden(slug, ask?.id)
   const rawPendMail = chat?.pending_mail ?? []
-  const answerInTranscript = useMemo(() => {
-    if (!answerMail || !chat) return false
+  // the server's own row for an answer: an answer-decision event naming the ask
+  const answersAsk = (row: unknown, askId: string): boolean => {
+    const d = decodeEventRow(row, BASE ? 'public' : 'operator')
+    if (d.kind !== 'known') return false
+    const ev = d.event as { variant: string; object?: { kind?: string; id?: string } | null }
+    return (ev.variant === 'answer.ask' || ev.variant === 'answer.batch')
+      && String(ev.object?.id ?? '') === askId
+  }
+  // While a LIVE card is on screen it is the ask's one form. An answer row
+  // for it (sent from another window before this tree payload caught up)
+  // waits behind the card instead of doubling as a bubble.
+  const askAnswerRow = (m: PendingMail): boolean =>
+    !!ask && showAsk && answersAsk(m, String(ask.id))
+  // the mail rows the transcript already shows (user rows and steered rows)
+  const transcriptMail = useMemo(() => {
+    const out: unknown[] = []
+    if (!chat) return out
     const rows = [...chat.messages.filter(row => row.role === 'user'),
       ...live_feed.filter(row => row.kind === 'steered')]
     for (const row of rows) {
       const segs = row.segments
       if (!isSegments(segs, BASE ? 'public' : 'operator')) continue
-      for (const seg of segs) {
-        if (seg.kind === 'mail' && seg.rows.some(r => r.id === answerMail)) return true
-      }
+      for (const seg of segs) if (seg.kind === 'mail') out.push(...seg.rows)
     }
-    return false
-  }, [answerMail, chat, live_feed])
-  // Queue removal is not evidence of display. Remember actual rendering so
-  // an answer later leaving the loaded window does not reopen its panel.
-  const answerSeenTranscript = useRef<string | null>(null)
-  if (answerMail && answerInTranscript) answerSeenTranscript.current = answerMail
-  const answerHandedOff = !answerMail || answerSeenTranscript.current === answerMail
-  // never a separate pending bubble for a message the panel represents: the
-  // resolved answer by its stamped id, and — race-proof, straight from the
-  // payload — any answer-decision event that references THIS card, which
-  // covers the window before the tree payload delivers the stamp
-  const askAnswerRow = (m: PendingMail): boolean => {
-    if (!ask) return false
-    if (answerMail && m.id === answerMail) return true
-    const d = decodeEventRow(m, BASE ? 'public' : 'operator')
-    if (d.kind !== 'known') return false
-    const ev = d.event as { variant: string; object?: { kind?: string; id?: string } | null }
-    return (ev.variant === 'answer.ask' || ev.variant === 'answer.batch')
-      && String(ev.object?.id ?? '') === String(ask.id)
-  }
+    return out
+  }, [chat, live_feed])
+  // this window's queued answers: shown until the server's own row for the
+  // same ask is in the payload (pending or transcript), then retired for good
+  const submittedHere = queuedAnswers(slug, node.id)
+  const answerShown = (askId: string) => rawPendMail.some(m => answersAsk(m, askId))
+    || transcriptMail.some(m => answersAsk(m, askId))
+  const shownAnswers = submittedHere.filter(e => answerShown(e.askId)).map(e => e.askId)
+  const shownKey = shownAnswers.join('\n')
+  useEffect(() => {
+    for (const id of shownKey ? shownKey.split('\n') : []) markAnswerSeen(slug, id)
+  }, [slug, shownKey])
+  const queuedAnswerRows = submittedHere.filter(e => !answerShown(e.askId))
+    .map(e => queuedAnswerRow(e, !!BASE))
   const pendMail = rawPendMail.filter((m) => !askAnswerRow(m))
   const pendNow = pendMail.filter((m) => m.delivering && m.via === 'turn')
-  const pendLater = pendMail.filter((m) => !(m.delivering && m.via === 'turn'))
+  const pendLater = [...pendMail.filter((m) => !(m.delivering && m.via === 'turn')),
+    ...queuedAnswerRows]
   // ONE renderer, two places (it is the same bubble; only its position says
   // something different) — the shared PendingMailRow, so the browser parity
   // probe measures exactly what this desk mounts.
@@ -2742,6 +2853,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
     sendMessage(slug, node.id, t, paths, sentReply ? replyWire(sentReply) : undefined, op, armedNotice)
       .then((r) => {
         bindPendingMail(slug, node.id, ghostId, r)
+        if (!r.command) firstUseSent(slug, node.id)
         // review C3: name every real outcome — "delivering" as the fallback
         // lied for frozen nodes (mail waits durably; nothing delivers now)
         flashMode(r.compacting ? 'compacting — the org way (§8)'
@@ -2836,6 +2948,30 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // already in the DOM when this reads scrollHeight — reading it inside the
   // handler would measure the outgoing text.
   useLayoutEffect(grow, [text, grow])
+  // Panel/divider changes rewrap a draft without changing `text`. Measure
+  // that width change too; otherwise a narrow panel's 160px height survives
+  // after widening, until another keystroke. Ignore height-only deliveries:
+  // our own height write must never become a resize feedback loop.
+  const composerRO = useRef<ResizeObserver | null>(null)
+  const attachComposer = useCallback((el: HTMLTextAreaElement | null) => {
+    composerRO.current?.disconnect()
+    composerRO.current = null
+    taRef.current = el
+    if (!el) return
+    if (!bare && !compact && !el.dataset.f) {
+      el.dataset.f = '1'
+      el.focus({ preventScroll: true })
+    }
+    if (typeof ResizeObserver === 'undefined') return
+    let width = -1
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth === width) return
+      width = el.clientWidth
+      grow()
+    })
+    composerRO.current = ro
+    ro.observe(el)
+  }, [bare, compact, grow])
   // Recall puts the caret at the END of the recalled message. Done as a layout
   // effect because the textarea only holds the new text once React has
   // committed it; setting selection inside the key handler would move it
@@ -2903,7 +3039,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   const canCompactContext = live && !node.bearer_state && !node.compacted_unrun
     && typeof contextOccupancy === 'number' && contextOccupancy > 0
     && typeof node.context_window === 'number' && node.context_window > 0
-  // The tree copy is patched directly by the node-stream event. Chat is a
+  // The metadata subscription is patched by the node-stream event. Chat is a
   // slower reconciliation payload and must not mask a newer gate transition.
   const mcpReadinessWaiting = Boolean(node.mcp_readiness_waiting)
   const mcpReadinessState = node.mcp_readiness_state
@@ -3092,7 +3228,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             ))}
           </span>
           {/* FR-3: pin this desk to screenspace as a draggable window */}
-          <PopoutButton />
+          {!(hidePopout && !surface?.detached) && <PopoutButton />}
           {onPin && !surface?.detached &&
             <button className="cc-icon cc-pin" aria-label={`pin ${node.id}'s desk as a window`}
               title="pin as a window — it stays put while the canvas moves"
@@ -3207,6 +3343,15 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             on a provider where more than one account is signed in. The desk
             is never far-zoom, so there is no exclusion to apply here. */}
         <ServingAccountBadge account={node.serving_account} />
+        {/* NON-DEFAULT THINKING EFFORT (docket
+            `show-non-default-effort-level-on-agent-headers`), in the same
+            metadata row as the MCP, cache-readiness, cost and account cards,
+            and mounted as the SAME component the canvas card mounts — one
+            source of truth for the level, the wording and the appear rule.
+            The composer's effort CONTROL below is untouched: this is a sign
+            saying the agent is not at the ordinary default, not a second
+            place to change it. */}
+        <EffortLevelBadge node={node} />
         </div>
       </div>
       {/* F-01: superior chip at the TOP. For a top-level agent the superior is
@@ -3373,7 +3518,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               else { growAnchor.current = null; stopSettle() }
             }
             // within a screen of the top: page in the previous window
-            if (!stickRef.current && e.currentTarget.scrollTop < Math.min(240, e.currentTarget.clientHeight / 2) && hasOlder) loadOlder()
+            if (!stickRef.current && e.currentTarget.scrollTop < Math.min(240, e.currentTarget.clientHeight / 2) && hasOlder && !convo.olderError) loadOlder()
           }}>
           {/* paging is automatic (the onScroll above pages in within a screen
               of the top) — this is a status line, not a control. It still
@@ -3415,7 +3560,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               empty state names the bearer either way). Same lineage the
               panel below reads; newest consultable generation first. */}
           {chat && !chat.messages.length && !live_feed.length && (() => {
-            const prior = [...(node.lineage ?? [])]
+            const prior = node.lineage_loaded === false ? node.consultable_predecessor : [...(node.lineage ?? [])]
               .filter((b) => b.state === 'archived' && b.bearer_state !== 'lost')
               .sort((a, b) => (b.generation ?? 0) - (a.generation ?? 0))[0]
             return prior ? (
@@ -3643,6 +3788,8 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
           mine={myWork} facts={workFacts} toast={toast} onFocusAgent={onJump}
           showArchived={showArchivedDocket}
           onShowArchived={setShowArchivedDocket}
+          onShowBacklog={setShowBacklogDocket}
+          references={work?.references} boundedReferences workRevision={work?.revision}
           refs={deskRefs}
           onChanged={() => setWorkBump((n) => n + 1)} />
       </div>}
@@ -3675,16 +3822,13 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             .catch((e: Error) => { toast([`error: ${e.message}`]); throw e })} />
       </div>}
       {/* F-04/F-05: the ask card — pinned above the composer while the ask is
-          open ("a question answering ui should appear on the agent"), AND —
-          message-visibility invariant, user 2026-09-10, superseding the
-          2026-08-04 "answered leaves the pin immediately" — while its
-          submitted answer has not yet RENDERED in the transcript: the
-          resolved panel is the answer's one representation for exactly that
-          window (the separate pending bubble is suppressed above), and it
-          unpins in the same render that shows the transcript row. Once handed
-          off it leaves the pin as before — the answer IS in the scroll now —
-          and nulled/interrupted states stay visible on the inbox rows. */}
-      {ask && (askLive || (!!answerMail && !answerHandedOff)) && (
+          open ("a question answering ui should appear on the agent"). Point
+          31 (user 2026-09-29) supersedes the 2026-09-10 rule that kept the
+          answered card pinned until its answer reached the transcript: the
+          card leaves on the click, and the answer is queued at once as its
+          "Request resolved" entry (see the invariant above pendMail).
+          Nulled/interrupted states stay visible on the inbox rows. */}
+      {ask && showAsk && (
         <AskCard ask={ask} slug={slug} toast={toast}
           seat={node.seat ?? 0}
           committed={(node.grant ?? 0) - (node.free ?? 0)}
@@ -3697,16 +3841,20 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
           are not agents yet; bearer pseudo-cards are consultable stack layers,
           not reports. Retired reports collapse behind one expandable chip
           (user ruling 2026-08-04) — a long-lived team's footer is otherwise
-          mostly graves. */}
+          mostly graves.
+          Then one card per watchdog THIS agent owns (user 2026-09-29), after
+          its reports; clicking one opens that watchdog's detail modal. */}
       {(() => {
-        if (!onJump) return null
-        const reports = node.children.filter((c) => c.state !== 'draft' && !c.isBearerOf)
+        // reports need somewhere to jump to; without `onJump` only the dogs show
+        const jump = onJump ?? (() => {})
+        const reports = onJump
+          ? node.children.filter((c) => c.state !== 'draft' && !c.isBearerOf) : []
         const alive = reports.filter((c) => c.state === 'live')
         const retired = reports.filter((c) => c.state !== 'live')
-        if (!reports.length) return null
+        if (!reports.length && !deskDogs) return null
         return (
           <div className="desk-nav">
-            {alive.map((c) => <NavChip key={c.id} n={c} dir="down" onJump={onJump} />)}
+            {alive.map((c) => <NavChip key={c.id} n={c} dir="down" onJump={jump} />)}
             {hideRetired && retired.length > 0 && <>
               <button className="desk-nav-chip desk-retired-token" onClick={() => setRetiredMenuOpen(true)}>
                 {retired.length} retired
@@ -3714,7 +3862,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               {retiredMenuOpen && <ModalOverPins><PilePicker
                 pile={{ key: `desk-retired:${node.id}`, parent: node.id, kind: 'a', list: retired.map(c => c.id), front: retired[0]!.id }}
                 map={map} close={() => setRetiredMenuOpen(false)}
-                onPick={id => { setRetiredMenuOpen(false); onJump(id) }} /></ModalOverPins>}
+                onPick={id => { setRetiredMenuOpen(false); jump(id) }} /></ModalOverPins>}
             </>}
             {!hideRetired && retired.length > 0 && (
               <button className="desk-nav-chip dim"
@@ -3726,7 +3874,8 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
               </button>
             )}
             {!hideRetired && showRetired && retired.map((c) =>
-                <NavChip key={c.id} n={c} dir="down" onJump={onJump} />)}
+                <NavChip key={c.id} n={c} dir="down" onJump={jump} />)}
+            {deskDogs?.dogs.map((w) => <DogChip key={'dog:' + w.id} dog={w} onOpen={deskDogs.open} />)}
           </div>
         )
       })()}
@@ -3761,6 +3910,8 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
       {text.trimStart().startsWith('/') && canMail && (
         <SlashHints text={text} setText={setText} />)}
       <HaltedBanner halt={node.halt} killswitched={orgKillswitched}
+        live={node.state === 'live'} />
+      <TurnSlotQueuedBanner queued={node.queued_for_slot}
         live={node.state === 'live'} />
       {/* `processActive`, not `turnActive`: the mid-turn banner is about a
           STEER WINDOW, which only exists while a turn is genuinely running.
@@ -3807,16 +3958,8 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             [...e.target.files!].forEach(attach)
             e.target.value = ''
           }} />
-        <textarea rows={2} value={text} disabled={!canMail}
-          ref={(el) => {
-            taRef.current = el
-            // autofocus single-desk only, and never let focus scroll the
-            // transform-panned viewport (same hazard as the draft input)
-            if (el && !bare && !compact && !el.dataset.f) {
-              el.dataset.f = '1'
-              el.focus({ preventScroll: true })
-            }
-          }}
+        <textarea rows={2} value={text} disabled={!canMail} data-first-use-chat={node.id}
+          ref={attachComposer}
           placeholder={live ? `message ${node.id}…`
             : node.state === 'archived'
               ? `message ${node.id} — queued until rehire…` : node.state}
@@ -3825,7 +3968,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
             setActiveChatKey(chatKey)
             setComposerFocused(true)
           }}
-          onBlur={() => setComposerFocused(false)}
+          onBlur={() => { setComposerFocused(false); grow() }}
           onPaste={(e) => {
             // №6: Ctrl+V of an image/file auto-bridges to a real upload
             if (e.clipboardData?.files?.length) {
@@ -3868,9 +4011,7 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
           <EffortButton value={node.scope?.effort ?? ''}
             effective={node.effort_effective ?? ''}
             onSet={(lvl) => saveScope(slug, node.id, { effort: lvl })
-              .then(() => toast([lvl
-                ? `${node.id} thinking effort: ${lvl}`
-                : `${node.id} thinking effort: back to the org default`]))
+              .then((r) => toast([effortChangeToast(node.id, lvl, r)]))
               .catch((e: Error) => toast([`error: ${e.message}`]))} />
         )}
         {/* №3: STOP renders only when an interrupt can actually land —
@@ -3895,9 +4036,10 @@ function DeskChatInner({ node, map, op, slug, toast, onLineage, onConfig,
   // recenter-on-click
   return (
     <fieldset ref={deskRef} disabled={staleIdentity} className="desk-control-scope"
-      onFocusCapture={() => setActiveChatKey(chatKey)}><div className={bare || surface?.detached ? "desk-bare" : "desk-over"} onWheel={(e) => e.stopPropagation()}
+      onFocusCapture={() => { setActiveChatKey(chatKey); setButtonAgent(slug, node.tier ? node.id : null) }}><div className={bare || surface?.detached ? "desk-bare" : "desk-over"} onWheel={(e) => e.stopPropagation()}
       onPointerDown={(e) => {
         setActiveChatKey(chatKey)
+        setButtonAgent(slug, node.tier ? node.id : null)
         // ROOT CAUSE (user bug 2026-09-03: "after the first drag finishes,
         // all subsequent drags immediately fail" / "focusing a node allows
         // it to work again once"). A focused desk fills most or all of the
@@ -4019,6 +4161,10 @@ interface LineagePanelProps {
 export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
   userDisabled = { claude: false, openai: false, google: false, openrouter: false },
   map, onFocusAgent, close }: LineagePanelProps) {
+  // re-render on the "show legacy models" flip — the tier list reads it
+  useShowLegacyModels()
+  // …and when agy starts (or stops) listing a conditional tier (Argon)
+  useOfferedConditionalTiers()
   // spitshined (user request): generation cards in the app's current visual
   // language — tier token, per-generation consult-tier picker (№16: a bearer
   // answers from context, so any tier serves), live bearers marked green
@@ -4139,7 +4285,11 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
                     <option value="">as {tierLabel(b.tier)} · seat {fmtCredits(SEAT(b.tier))}</option>
                     {[...ALL_TIERS, ...openrouterTierIds()]
                       .filter((t) => t !== b.tier
-                        && tierShown(presence, t, b.tier))
+                        && tierShown(presence, t, b.tier)
+                        // Terra and Gemini Pro only with "show legacy models" on
+                        && !optInLegacyHidden(t)
+                        // Argon only once agy lists it
+                        && !conditionalTierHidden(t))
                       .map((t) => {
                       const why = rehireWhy(t, b.tier)
                       // same one formatter as every other tier surface —
@@ -4147,7 +4297,7 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
                       const tools = tierCapabilityNotes(t)
                       return (
                         <option key={t} value={t} disabled={!!why}>
-                          as {tierLabel(t)} · seat {fmtCredits(SEAT(t))}{tools ? ` · ${tools}` : ''}{why ? ` — ${why}` : ''}
+                          as {tierLabel(t)} · seat {fmtCredits(SEAT(t))}{legacyMark(t)}{tools ? ` · ${tools}` : ''}{why ? ` — ${why}` : ''}
                         </option>
                       )
                     })}
@@ -4361,7 +4511,8 @@ export function PendingGhostRow({ p, slug, nid, world, onOpen, replyAvailable,
  *
  *  ⚠ ELIGIBILITY IS TWO FACTS, and neither is the name matching:
  *  NAMESPACE — every party from outside the org enters with an `@ns:` prefix
- *  (`@mcp:`/`@org:`/`@net:`, the three call sites of `post_external_mail`)
+ *  (`@org:`/`@net:`, plus `@mcp:` on rows from before its 2026-09-25
+ *  retirement)
  *  plus the `@user`/`@system` sentinels, so the '@' test excludes outsiders by
  *  ORIGIN; and EXISTENCE — the tree on screen must hold the node.
  *  `test_external_mail.py §5` is the check on the boundary half. */
@@ -4627,7 +4778,10 @@ function SysLine({ m }: { m: ChatMessage }) {
 // the active dot to clear back to the CLI default. The permission-mode half
 // of Claude Code's bar is deliberately absent: org permissions decide what
 // agents can do.
-const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max']
+//
+// The level list itself now lives in `./effort`, which is also what the
+// non-default effort header card reads — so the control and the card can
+// never offer or describe different levels.
 
 // `effective` is what the next turn WILL run at, resolved server-side by
 // Org.effective_effort — the same call that builds the --effort flag, so the

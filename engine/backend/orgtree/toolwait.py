@@ -15,7 +15,7 @@ import uuid
 from contextlib import closing
 from pathlib import Path
 
-from . import ledger, maildrain, profiling, store
+from . import census_contacts, ledger, maildrain, orgtx, profiling, store
 from .mcptool import MANAGED_WAIT_TOOLS as TOOLS
 
 WAIT_S = 10.0
@@ -35,7 +35,7 @@ _cursor = 0
 def _db():
     path = Path(store.DATA_ROOT) / 'tool-waits.db'
     path.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(path, timeout=2)
+    db = sqlite3.connect(path, timeout=2, factory=census_contacts.sidecar("tool_waits"))
     db.execute('PRAGMA synchronous=FULL')
     db.execute('CREATE TABLE IF NOT EXISTS operations '
                '(id TEXT PRIMARY KEY, record TEXT NOT NULL)')
@@ -89,12 +89,47 @@ def tool_name(body):
     return name if isinstance(name, str) else ''
 
 
+# The read-only actions of a managed tool. They spawn nothing and wait on
+# nothing, so they keep the ordinary agent-call path: a watchdog `list` used
+# to pay this journal (three fsync'd writes under `_lock`) and a MAX_RUNNING
+# slot for a read of a few rows. Matched exactly as the handlers read it,
+# `str(args.get('action') or '')`.
+READ_ACTIONS = {'orgtree_watchdog': frozenset({'list'})}
+
+
+def managed_call(body):
+    """Whether this call takes the managed-wait path: a managed tool, unless
+    the action is one of its reads (`READ_ACTIONS`). A keyed
+    `orgtree_op_call` is judged by the call it wraps."""
+    name = tool_name(body)
+    if name not in TOOLS:
+        return False
+    args = body.args if isinstance(body.args, dict) else {}
+    if body.tool == 'orgtree_op_call':
+        args = args.get('args') if isinstance(args.get('args'), dict) else {}
+    return str(args.get('action') or '') not in READ_ACTIONS.get(name, ())
+
+
 def _destination(org, row):
     # seat_id survives compaction/session replacement and rename. A later hire
     # with the same spelling must never inherit this caller's private result.
     candidates = [(nid, n) for nid, n in org.nodes.items()
                   if n.get('seat_id') == row['seat'] and not n.get('successor')]
     return max(candidates, key=lambda p: int(p[1].get('generation', 0)))[0] if candidates else None
+
+
+def _publish_rows(nid):
+    """PG-3r: the org_tx names for posting one tool result to `nid`: its
+    receipt marker plus a SYSTEM mail deposit with its drain demand. The mail
+    names are PG-3d's `mailtx.send_rows(nid)`, written out until that module
+    lands; use send_rows here once it does."""
+    return {"nodes": [nid],
+            "sections": ["tool_result_receipts", "mail", "notices", "audiences"],
+            "logs": ["events", "lifecycle", "notice_log", "user_mail_log", "user_outbox", "org_inbox",
+                     ("mail_log", nid)],
+            # the halt gate's own rows: the seat is already held FOR UPDATE,
+            # the killswitch FOR SHARE (halt._gate_blocked decides from both)
+            "share_sections": ["killswitch"]}
 
 
 def _publish(row):
@@ -106,13 +141,20 @@ def _publish(row):
         if row is None or row.get('retry_at', 0) > time.time():
             return
         try:
-            with store.DOC_LOCK:
-                org = store.load_org(row['org'])
-                nid = _destination(org, row)
-                if not nid:
-                    raise _DestinationGone('recipient seat no longer exists')
-                receipts = org.d.setdefault('tool_result_receipts', {})
-                if not row.get('published'):
+            # PG-3r: two short row transactions instead of one DOC_LOCK hold.
+            # The recipient is chosen from a lock-free read and re-checked
+            # under its row lock (a seat that moved meanwhile retries later).
+            # The org's receipt marker keeps the post exactly-once across the
+            # gap: a retry that finds it only finishes the cleanup.
+            nid = _destination(orgtx.org_read(row['org']), row)
+            if not nid:
+                raise _DestinationGone('recipient seat no longer exists')
+            if not row.get('published'):
+                with orgtx.org_tx(row['org'], **_publish_rows(nid)) as tx:
+                    org = tx.org
+                    if _destination(org, row) != nid:
+                        raise RuntimeError('recipient seat moved while publishing; retrying')
+                    receipts = org.d.setdefault('tool_result_receipts', {})
                     if row['id'] not in receipts:
                         body = (f"[ORGTREE TOOL RESULT {row['id']}]\n"
                                 f"Tool: {row['tool']}\nState: {row['state']}\n"
@@ -122,17 +164,16 @@ def _publish(row):
                         msg = org.post_mail(ledger.SYSTEM, nid, body)
                         receipts[row['id']] = msg['id']
                         maildrain.request(org, nid)
-                        if halt.blocked(row['org'], nid):
+                        if halt._gate_blocked(org, nid):
                             maildrain.suspend(org, nid)
-                        store.save_org(org)
-                    # Checkpoint before removing the org marker. Recovery can
-                    # now finish cleanup without recreating the message, even
-                    # if the marker was cleared and the final delete failed.
-                    row['published'] = True
-                    _save(row)
-                receipts.pop(row['id'], None)
-                store.save_org(org)
-                _delete(row['id'])
+                # Checkpoint before removing the org marker. Recovery can
+                # now finish cleanup without recreating the message, even
+                # if the marker was cleared and the final delete failed.
+                row['published'] = True
+                _save(row)
+            with orgtx.org_tx(row['org'], sections=['tool_result_receipts']) as tx:
+                tx.d.setdefault('tool_result_receipts', {}).pop(row['id'], None)
+            _delete(row['id'])
         except Exception as exc:
             gone = (isinstance(exc, _DestinationGone) or
                     isinstance(exc, ledger.LedgerError) and str(exc).startswith('no such org:'))
@@ -203,6 +244,11 @@ def invoke(body, caller, run, *, wait_s=WAIT_S):
     # record was already emitted with what had accrued by then, and `add`
     # and `snapshot` share a mutex so the emit can never catch a half-write.
     _profile = profiling.current()
+    # The census's primary-store contact tally, carried the same way and for
+    # the same reason. `None` unless census capture was on when the request
+    # began. Contacts after the request's record is built are not added to it
+    # — the tally is sealed then — and are counted as `db_late`.
+    _tally = census_contacts.current()
     try:
         with _lock:
             if len(records()) >= 64:
@@ -213,6 +259,7 @@ def invoke(body, caller, run, *, wait_s=WAIT_S):
         def worker():
             if _profile is not None:
                 profiling.bind(_profile)   # this thread's own context; no reset needed
+            census_contacts.adopt(_tally)
             try:
                 from fastapi.encoders import jsonable_encoder
                 result, state = jsonable_encoder(run()), 'completed'

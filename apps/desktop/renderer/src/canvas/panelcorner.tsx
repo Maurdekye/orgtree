@@ -50,6 +50,14 @@ export interface AgentSurfaceRoutes {
    *  need a surface to act on, so they may not use an opener that can close the
    *  very thing they are about to move. */
   show: (kind: AgentPanelKind, agentId: string) => void
+  /** the agent's settings and lineage panels — exactly what the canvas card's
+   *  gear and `gen N` badge invoke. A desk falls back to these when its host
+   *  passed no `onConfig`/`onLineage` of its own: the Attention view's desk and
+   *  a restored desk are handed no such prop, and their buttons used to do
+   *  nothing at all (user report 2026-09-29, item
+   *  v3-attention-view-agent-settings-button-on-the-d). */
+  settings?: (agentId: string) => void
+  lineage?: (agentId: string) => void
 }
 
 const Routes = createContext<AgentSurfaceRoutes | null>(null)

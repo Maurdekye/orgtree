@@ -207,8 +207,10 @@ class RestartResumeTests(unittest.TestCase):
     # --------------------------------------- §4 the queued mail comes back
     def test_mail_drained_for_a_killed_turn_returns_to_the_mailbox(self):
         org = self.seed('journal')
+        org.mailbox_identity('worker')
         org.d['delivering'] = {'worker': [
-            {'tok': 'c96b90af6d2bcf7a', 'at': '2026-09-09T18:27:27.769Z',
+            {'tok': 'c96b90af6d2bcf7a', 'mode': 'turn',
+             'custody': supervisor.mailruntime.stamp_for(org, 'worker'), 'at': '2026-09-09T18:27:27.769Z',
              'mail': [{'id': 'm1', 'from': 'coordinator', 'kind': 'request',
                        'body': 'the message its turn never delivered'}],
              'notices': []}]}
@@ -481,9 +483,11 @@ class RestartResumeTests(unittest.TestCase):
         """The shape the desk labels "queued … not read yet": the mail has
         LEFT the mailbox into an unconfirmed delivery journal batch, which is
         the only copy that survives the process."""
+        org.mailbox_identity(nid)
         org.d.setdefault('delivering', {})[nid] = [
             {'tok': 'ab12cd34ef567890', 'at': '2026-09-18T20:49:00.000Z',
-             'via': 'steer',
+             'via': 'steer', 'mode': 'steer',
+             'custody': supervisor.mailruntime.stamp_for(org, nid),
              'mail': [{'id': 'q1', 'from': '@user', 'kind': 'message',
                        'at': '2026-09-18T20:49:00.000Z',
                        'body': self.QUEUED}],

@@ -153,7 +153,8 @@ class MailDrainTests(unittest.TestCase):
              patch.object(sup, 'notify', side_effect=notification):
             with self.assertRaisesRegex(RuntimeError, 'after queue pop'):
                 sup._run_turn(self.slug, 'worker', 'existing turn')
-        self.assertEqual(self.st['queue'], [])
+        self.assertEqual(len(self.st['queue']), 1)
+        self.assertIn('popped during finalization', self.st['queue'][0]['text'])
         self.assertFalse(self.st['busy'])
         self.assertTrue(store.load_org(self.slug).d['delivering']['worker'])
         with patch.object(maildrain.time, 'time', return_value=time.time() + 40):
@@ -190,7 +191,10 @@ class MailDrainTests(unittest.TestCase):
         store._POOL.close_all(self.slug)
         sup._state.pop((self.slug, 'worker'))
         self.st = sup.state(self.slug, 'worker')
-        self.assertTrue(self.recover_inline())
+        # An unowned batch still observes the shared classifier's drain grace.
+        self.assertFalse(self.recover_inline())
+        with patch.object(maildrain.time, 'time', return_value=time.time() + 40):
+            self.assertTrue(self.recover_inline())
         self.assertEqual(self.delivered, ['journal survives'])
 
     def test_restart_does_not_replay_a_confirmed_batch(self):

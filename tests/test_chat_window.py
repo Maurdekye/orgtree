@@ -24,6 +24,8 @@ from orgtree import store, ledger, supervisor as sup, chat_window
 slugs=[]
 
 def tearDownModule():
+    from orgtree import transcript_records
+    transcript_records.close_all()
     for slug in slugs: store._POOL.close_all(slug)
     fixture.cleanup()
 
@@ -44,6 +46,73 @@ class WindowTests(unittest.TestCase):
         return {'type':role,'uuid':f'id-{i}','timestamp':f'2026-09-10T12:{i//60%60:02d}:{i%60:02d}Z',
                 'message':{'id':f'm-{i}','role':role,'content':text or f'message {i}'}}
     def read(self,n=8): return chat_window.read_window(self.org,'agent',n)
+    def test_equal_timestamp_pages_advance_unique_cursor_and_reach_end(self):
+        rows = [self.rec(i) for i in range(40)]
+        for row in rows:
+            row['timestamp'] = '2026-09-29T22:28:00Z'
+        self.write(rows)
+        page = self.read(8)
+        seen_cursors, seen_rows = set(), set()
+        for _ in range(10):
+            ids = {row['row_id'] for row in page['messages']}
+            self.assertFalse(ids & seen_rows, 'a page must not repeat a visible row')
+            seen_rows.update(ids)
+            if not page['has_older']:
+                break
+            cursor = page['before']
+            self.assertIsNotNone(cursor, 'older history needs a cursor')
+            self.assertNotIn(cursor, seen_cursors, 'timestamp ties must not cycle the cursor')
+            seen_cursors.add(cursor)
+            page = chat_window.read_page(self.org, 'agent', 8, cursor)
+        else:
+            self.fail('equal timestamp history did not terminate')
+        self.assertEqual(len(seen_rows), 40)
+        self.assertFalse(page['has_older'])
+        self.assertIsNone(page['before'])
+    def test_older_pages_sort_before_the_window_after_a_burst_larger_than_it(self):
+        # item v3-loading-earlier-agent-messages-fails-couldn-t, reopened
+        # 2026-09-30: a burst of new rows larger than the window left no
+        # ranked row in the next window, which was numbered from 0 -- below
+        # the older rows already ranked. Older pages then sorted AFTER the
+        # visible rows and the desk showed "couldn't load earlier messages".
+        self.write([self.rec(i) for i in range(10)])
+        self.read(8)
+        self.write([self.rec(i) for i in range(10, 30)], mode='a')
+        page = self.read(8)
+        epoch, seen = page['order_epoch'], {r['row_id'] for r in page['messages']}
+        oldest = page['messages'][0]['seq']
+        for _ in range(12):
+            if not page['has_older']:
+                break
+            page = chat_window.read_page(self.org, 'agent', 8, page['before'])
+            if page['order_epoch'] != epoch:  # ranks were rebuilt: the desk reloads its window
+                page = self.read(8)
+                epoch, seen = page['order_epoch'], {r['row_id'] for r in page['messages']}
+                oldest = page['messages'][0]['seq']
+                continue
+            new = [r for r in page['messages'] if r['row_id'] not in seen]
+            self.assertTrue(new, 'an older page must bring rows the desk does not have')
+            self.assertTrue(all(r['seq'] < oldest for r in new),
+                            f'older rows must sort before the visible ones: {[r["seq"] for r in new]} vs {oldest}')
+            self.assertEqual([r['seq'] for r in page['messages']], sorted(r['seq'] for r in page['messages']))
+            seen.update(r['row_id'] for r in new)
+            oldest = page['messages'][0]['seq']
+        else:
+            self.fail('paging did not reach the start')
+        self.assertEqual(len(seen), 30)
+    def test_an_older_page_whose_anchor_lost_its_rank_still_sorts_before_the_window(self):
+        from orgtree import transcript_records
+        self.write([self.rec(i) for i in range(30)])
+        window = self.read(8)
+        rows = window['messages']
+        with transcript_records.database() as conn:  # the anchor's identity is no longer ranked
+            conn.execute('DELETE FROM transcript_order WHERE source=? AND event=?',
+                         (chat_window.source_key(self.org, 'agent'), rows[0]['row_id']))
+        page = chat_window.read_page(self.org, 'agent', 8, window['before'])
+        self.assertEqual(page['order_epoch'], window['order_epoch'])
+        self.assertTrue(page['messages'])
+        self.assertLess(max(r['seq'] for r in page['messages']), min(r['seq'] for r in rows[1:]),
+                        'an older page belongs before every still-ranked visible row')
     def test_db_only_history_survives_compaction_retirement_and_rehire(self):
         from orgtree import transcript_records
         self.org.node('agent')['model'] = 'luna'
@@ -85,16 +154,28 @@ class WindowTests(unittest.TestCase):
     def test_committed_steer_wire_projects_each_socket_without_raw_event_leak(self):
         import asyncio
         from orgtree.api import Hub
+        import json
         class Socket:
+            # joins through Hub.join like a real socket: frames go through the
+            # per-socket outbox and its writer (the bounded-outbox fix)
+            query_params={}
             def __init__(self): self.frames=[]
+            async def accept(self): pass
             async def send_json(self, row): self.frames.append(row)
+            async def send_text(self, text): self.frames.append(json.loads(text))
         admin=Socket();visitor=Socket();hub=Hub()
-        hub.rooms['room']={admin,visitor};hub.public.add(visitor)
         row={'role':'user','text':'visible','row_id':'same-id','segments':[
             {'kind':'mail','rows':[{'id':'mail-one','body':'visible',
                 'ev_raw':{'private':'must stay internal'},
                 'ev_error':{'code':'bad_structure','private':'details'}}]}]}
-        asyncio.run(hub._send('room',{'kind':'steered','committed_row_raw':row}))
+        async def run():
+            await hub.join('room',admin);await hub.join('room',visitor,public=True)
+            await hub._send('room',{'kind':'steered','committed_row_raw':row})
+            for _ in range(20):
+                if admin.frames and visitor.frames: break
+                await asyncio.sleep(0.01)
+            hub.leave('room',admin);hub.leave('room',visitor)
+        asyncio.run(run())
         self.assertNotIn('committed_row_raw',admin.frames[0])
         self.assertNotIn('committed_row_raw',visitor.frames[0])
         self.assertEqual(admin.frames[0]['committed_row']['row_id'],'same-id')

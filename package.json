@@ -1,6 +1,6 @@
 {
   "name": "orgtree",
-  "version": "2.1.12",
+  "version": "3.0.2",
   "private": true,
   "description": "Orgtree desktop application",
   "license": "MIT",
@@ -22,6 +22,7 @@
     "package:mac:dir": "npm run build && node tools/package-preflight.mjs && electron-builder --mac --dir",
     "package:mac": "npm run build && node tools/package-preflight.mjs && electron-builder --mac",
     "package:mac:x64": "npm run build && node tools/package-preflight.mjs && electron-builder --mac --x64",
+    "package:private-alpha": "node tools/private-alpha.mjs",
     "release:windows": "node tools/release-windows.mjs",
     "verify:release": "node tools/release-verification.mjs",
     "package:dev": "npm run build && node tools/package-dev.mjs",
@@ -29,7 +30,8 @@
     "test:acceptance:agent-turn": "node tests/acceptance/run_agent_turn.mjs",
     "test:macos-preflight": "node tools/verify-macos-preflight.mjs",
     "runtime:provision": "python tools/provision-runtime.py",
-    "runtime:stage": "node tools/stage-runtime.mjs"
+    "runtime:stage": "node tools/stage-runtime.mjs",
+    "postgres:provision": "python tools/provision-postgres.py"
   },
   "dependencies": {
     "react": "18.3.1",
@@ -74,8 +76,14 @@
         "to": "engine",
         "filter": [
           "**/*",
-          "!**/__pycache__/**"
+          "!**/__pycache__/**",
+          "!native/**/target/**"
         ]
+      },
+      {
+        "from": "tools/pypg",
+        "to": "tools/pypg",
+        "filter": ["pgimport.py", "cutover_verify.py"]
       },
       {
         "from": "dist/renderer",

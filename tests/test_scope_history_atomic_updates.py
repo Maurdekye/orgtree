@@ -246,8 +246,10 @@ class ObjectiveIsVersioned(unittest.TestCase):
 
         it = item(org, wid)
         self.assertEqual(it["objective"], OBJ_2, "the description stayed frozen")
-        self.assertLessEqual(len(it["scope"]), ledger.Org.WORK_SCOPE_MAX)
-        whole = list(it.get("scope_archive") or []) + list(it["scope"])
+        # the live WINDOW is what the cap bounds; storage keeps only a tail
+        # inline (docket-history-lazy), so read the record, not the field
+        self.assertLessEqual(org._work_scope_live_n(it), ledger.Org.WORK_SCOPE_MAX)
+        whole = org._work_scope_all(it)
         self.assertEqual(len(whole), ledger.Org.WORK_SCOPE_MAX + 1)
         # every original row is still there, byte for byte
         kept = {int(r["seq"]): r for r in whole}

@@ -11,10 +11,13 @@ import { SetToggle } from './settingskit'
  * over that corner leaves them looking detached from the area actually being
  * worked in.
  *
- * OFF BY DEFAULT, and opt-in on purpose: which corner a control belongs in is
- * a settled question, and this does not reopen it. The toggle changes only
- * the RECTANGLE those corners are measured from - the controls keep the same
- * corner and the same offsets within it.
+ * ON BY DEFAULT since private v3 (user 2026-09-23): a preference never
+ * explicitly saved - a fresh install, a missing or malformed value - reads as
+ * on. A saved boolean, off OR on, is the user's choice and always wins, so
+ * nobody who turned this off gets it switched back on. Which corner a control
+ * belongs in is a settled question, and this does not reopen it. The toggle
+ * changes only the RECTANGLE those corners are measured from - the controls
+ * keep the same corner and the same offsets within it.
  *
  * BROWSER-LOCAL, like every other preference in the Desk group: it is about
  * how this screen is arranged, not about the organization, so it never
@@ -24,7 +27,7 @@ import { SetToggle } from './settingskit'
  */
 export const CANVAS_ANCHOR_KEY = 'orgtree-canvas-anchor-bounded'
 export interface CanvasAnchorSetting { enabled: boolean }
-const DEFAULT_ANCHOR: CanvasAnchorSetting = { enabled: false }
+const DEFAULT_ANCHOR: CanvasAnchorSetting = { enabled: true }
 
 let anchorCache: CanvasAnchorSetting | null = null
 const anchorSubs = new Set<() => void>()

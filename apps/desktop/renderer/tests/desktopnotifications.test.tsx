@@ -5,6 +5,10 @@ import { notificationInboxTarget, useNativeNotifications } from '../src/notifica
 import type { DesktopNotice } from '../src/notifications'
 import type { NativeNotice } from '../src/desktop'
 import { bumpLive } from '../src/livebus'
+// ⚠ `notification-click` is a HELD type: its consumer subscribes through
+// events/heldbus.ts, so a document now has two listeners and a single-slot
+// `onEvent` fake would keep only one of them. See heldevents.ts.
+import { eventFanout, startBus } from './heldevents'
 import { InboxPanel } from '../src/App'
 import type { TreePayload } from '../src/types'
 
@@ -12,12 +16,14 @@ test('global attention reaches other orgs, retains exact click targets and stops
   localStorage.clear(); useFakeClock()
   const original = globalThis.fetch
   const calls: string[] = [], delivered: NativeNotice[] = [], opened: DesktopNotice[] = [], synced: unknown[] = []
-  let click: (event: { type: string; data: unknown }) => void = () => {}
+  const fan = eventFanout()
+  const click = fan.emit
   Object.defineProperty(window, 'orgtreeDesktop', { configurable: true, value: {
     notify: async (n: NativeNotice) => { delivered.push(n); return true },
     syncNotifications: async (active: unknown) => { synced.push(active) },
-    onEvent: (fn: typeof click) => { click = fn; return () => { click = () => {} } },
+    onEvent: fan.onEvent,
   } })
+  const stopBus = startBus()
   let notices: DesktopNotice[] = [
     { id: 'global-id-a', org: 'other-org', source_id: 'ask-42', title: 'Question', body: 'Choose', kind: 'question', agent: 'writer' },
     { id: 'global-id-b', org: 'third-org', title: 'Attention', body: 'Review', kind: 'work-attention', item: 'check-this' },
@@ -46,7 +52,7 @@ test('global attention reaches other orgs, retains exact click targets and stops
     assert.equal(opened.length, 1, 'a stale OS click cannot reopen a resolved question')
     await advance(6100)
     assert.equal(delivered.length, 2, 'dismissed notices do not create new notifications')
-  } finally { await v.unmount(); globalThis.fetch = original; Object.defineProperty(window, 'orgtreeDesktop', { value: undefined, configurable: true }) }
+  } finally { stopBus(); await v.unmount(); globalThis.fetch = original; Object.defineProperty(window, 'orgtreeDesktop', { value: undefined, configurable: true }) }
   const stopped = calls.length
   await advance(7000)
   assert.equal(calls.length, stopped, 'no polling survives owner unmount')
@@ -82,12 +88,14 @@ test('pagination reaches every urgent item and persistent dedup survives remount
     kind: 'urgent-mail', title: 'Urgent message', body: `Action ${i}`,
   }))
   const delivered: NativeNotice[] = [], opened: DesktopNotice[] = []
-  let click: (event: { type: string; data: unknown }) => void = () => {}
+  const fan = eventFanout()
+  const click = fan.emit
   Object.defineProperty(window, 'orgtreeDesktop', { configurable: true, value: {
     notify: async (n: NativeNotice) => { delivered.push(n); return true },
     syncNotifications: async () => {},
-    onEvent: (fn: typeof click) => { click = fn; return () => {} },
+    onEvent: fan.onEvent,
   } })
+  const stopBus = startBus()
   globalThis.fetch = async url => {
     const offset = Number(new URL(String(url), 'http://localhost').searchParams.get('offset') ?? 0)
     const end = offset + 200
@@ -113,7 +121,7 @@ test('pagination reaches every urgent item and persistent dedup survives remount
     const { source_id: _source, ...oldNativeNotice } = rows[500]!
     await inAct(async () => { click({ type: 'notification-click', data: oldNativeNotice }); await flush(60) })
     assert.equal(notificationInboxTarget(opened[0]!), 'mail-500', 'even a pre-refresh opaque ID resolves to the exact source')
-  } finally { await v.unmount(); globalThis.fetch = original; Object.defineProperty(window, 'orgtreeDesktop', { value: undefined, configurable: true }); realClock() }
+  } finally { stopBus(); await v.unmount(); globalThis.fetch = original; Object.defineProperty(window, 'orgtreeDesktop', { value: undefined, configurable: true }); realClock() }
 })
 
 test('a withdrawal while the attention read is pending discards that stale response', async () => {

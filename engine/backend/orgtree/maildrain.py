@@ -78,24 +78,30 @@ def worker(fn):
             return fn(slug, nid, *args, **kwargs)
         except Exception:
             try:
-                with store.DOC_LOCK:
-                    org = store.load_org(slug)
-                    demand = org.node(nid).get('mail_drain')
+                # PG-3d: the seat's own row, not DOC_LOCK
+                from . import orgtx
+                with orgtx.org_tx(slug, nodes=[nid]) as tx:
+                    demand = tx.org.node(nid).get('mail_drain')
                     if demand:
-                        defer(org, nid, demand)
-                        store.save_org(org)
+                        defer(tx.org, nid, demand)
             except Exception:
                 pass  # durable content/intent remains; the consumer retries
             raise
         finally:
             # A concurrent send may already have reserved the next worker.
             # Never release its claim while unwinding this older worker.
-            with store.DOC_LOCK:
-                with sup._state_lock:
-                    if st.get('mail_drain_owner') is owner:
-                        st.pop('mail_drain_owner', None)
-                        st['busy'] = st['waiting'] = st['responding'] = False
-                        sup._fold_steer(st)
+            # fence-off S2: `_state_lock` only. Every claim and release of
+            # `mail_drain_owner` is taken under it (here, `run` above and
+            # `_start_turn_worker`); DOC_LOCK here ordered this RAM release
+            # only against DOC_LOCK holders, which with the fence off no send
+            # is. A send that saw `busy` leaves its mail in the durable box
+            # and its demand in `mail_drain`, and the `wake()` below re-drives
+            # `recover`, which delivers it (test_mail_drain_fence_off).
+            with sup._state_lock:
+                if st.get('mail_drain_owner') is owner:
+                    st.pop('mail_drain_owner', None)
+                    st['busy'] = st['waiting'] = st['responding'] = False
+                    sup._fold_steer(st)
             wake()
     return run
 
@@ -119,116 +125,287 @@ def discard(org, nid: str, ids) -> None:
         org.node(nid).pop('mail_drain', None)
 
 
-def recover(slug: str, nid: str) -> bool:
-    """One seat, one admission at most. Never take work from a live owner."""
-    from . import halt, supervisor as sup
-    global _discovery_needed
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
-        n = org.nodes.get(nid)
-        if n is None:
-            # A renamed seat carries its marker under the new name.
-            _discovery_needed = True
-        if not n or not pending(org, nid):
-            _forget(slug, nid)
-            return False
-        demand = n['mail_drain']
-        # ⚠ Import recovery is NOT a mail gate (user report 2026-09-14). It
-        # owns exactly ONE thing — the single retained intent an import
-        # interrupted — and `supervisor._import_recovery_hold` guards that at
-        # the place it would be replayed. This consumer never replays it; it
-        # delivers ordinary NEW mail, which cannot re-dispatch an imported
-        # turn. Gating here switched the drain off from the import onward for
-        # an org whose recovery can never settle (archived imported agents
-        # leave their rows "uncertain" for good), and the same reasoning is
-        # already written out at `_import_recovery_hold`.
-        if (n['state'] != 'live' or n.get('halt') or org.d.get('killswitch')
-                or n.get('frozen') or n.get('limit_locked')
-                or n.get('remote_controlled') or org.d.get('spend_frozen')
-                or (org.d.get('storage_blocked') and sup.sbx.on_disk(slug))
-                or demand.get('retry_at', 0) > time.time()
+#: The org-level sections the gate reads. The reclaim transaction holds them
+#: FOR SHARE, so the gate it re-decides on the locked Org holds until commit.
+GATE_SECTIONS = ('killswitch', 'spend_frozen', 'storage_blocked')
+
+
+def _gated(org, nid: str, slug: str) -> bool:
+    """The durable admission gate for one seat (the drain's own retry
+    deadline aside), read on the lock-free snapshot to decide whether to try
+    at all. It is decided AGAIN inside the reclaim transaction, on the locked
+    Org (`supervisor._reclaim_blocked`, which covers every term here), before
+    any admission (fence-off S2, p01's review condition b): the DOC_LOCK
+    this replaced kept a freeze or spend write from committing between the
+    gate read and the thread start."""
+    from . import supervisor as sup
+    n = org.nodes.get(nid)
+    return bool(n is None or n['state'] != 'live' or n.get('halt')
+                or org.d.get('killswitch') or n.get('frozen')
+                or n.get('limit_locked') or n.get('remote_controlled')
+                or org.d.get('spend_frozen')
+                or (org.d.get('storage_blocked') and sup.sbx.on_disk(slug)))
+
+
+def _write_demand(slug: str, nid: str, fn, default=None) -> None:
+    """One row transaction on the seat's node row: `fn(org, demand)` edits
+    the CURRENT `mail_drain` (re-read under the lock, never the snapshot's),
+    or `default` when there is none; nothing is written when both are empty."""
+    from . import orgtx
+    with orgtx.org_tx(slug, nodes=[nid]) as tx:
+        demand = tx.org.node(nid).get('mail_drain') or default
+        if demand:
+            fn(tx.org, demand)
+
+
+def _waiting_carrier(st) -> bool:
+    """An idle seat still holding a queued MAIL carrier in RAM.
+
+    A send that finds the seat busy queues its carrier under `_state_lock`
+    BEFORE its admission transaction commits the demand. If the worker
+    releases and a recovery pass reads in that window, the pass sees no
+    demand; forgetting the seat then would strand the carrier on an idle
+    node once the send commits (nothing else revisits it). The seat stays
+    tracked instead, and the next sweep admits it."""
+    from . import supervisor as sup
+    with sup._state_lock:
+        return (not st.get('busy')
+                and any(sup._carrier_is_ping(c) for c in st.get('queue') or []))
+
+
+def _nothing_to_do_while_busy(org, slug: str, nid: str, st) -> bool:
+    """Scale slice A: skip the reclaim transaction for a BUSY seat when the
+    lock-free snapshot shows it would change nothing that matters now.
+
+    Every sweep used to open `reclaim_orphans`' row transaction (a full org
+    load on SQLite and on PostgreSQL alike) and commit the `_settle` write for
+    every seat with outstanding mail, although a busy seat is never admitted
+    below. Only the fold is worth doing while a turn runs, and only when some
+    batch is eligible. So skip when the seat is busy, no reclaim intent or
+    publication wait needs the transaction's retry, and the snapshot has no
+    eligible token. Skipping decides nothing durable: the seat stays tracked
+    and the next sweep asks again, so a stale snapshot only delays a fold by
+    one tick; the demand is settled once the seat is free."""
+    from . import halt, mailruntime, supervisor as sup
+    with sup._state_lock:
+        if not (st.get('busy') or st.get('proc_control') or st.get('responding')
                 or halt._workers.get((slug, nid))):
             return False
-        # SAY SO WHEN A SEAT CANNOT BE REACHED AT ALL. Every refusal above is
-        # already visible on the agent's card — archived, frozen, limit-
-        # locked, halted, out of spend. A native-context hold was not, and it
-        # refuses the send path too, so an agent could stop receiving mail
-        # completely with nothing anywhere saying why: the 2026-09-14 report
-        # was "the coordinator isn't receiving new messages despite not being
-        # in a turn", with 9 messages sitting undelivered in its mailbox.
-        # Written once per distinct reason — this loop runs every second.
-        held = sup._native_context_hold(org, nid)
-        if held:
-            if demand.get('held_reason') != held:
-                from .ledger import now
-                org.node(nid)['mail_drain'] = {
-                    **demand, 'held_reason': held, 'held_since': now()}
-                store.save_org(org)
-                print(f'[orgtree] {slug}/{nid}: mail delivery held — {held}')
+        if st.get('mail_reclaim_intents') or st.get('mail_publication_wait'):
             return False
-        if demand.get('held_reason') or demand.get('held_since'):
-            demand = {k: v for k, v in demand.items()
-                      if k not in ('held_reason', 'held_since')}
-            org.node(nid)['mail_drain'] = demand
-            store.save_org(org)
-        st = sup.state(slug, nid)
-        with sup._state_lock:
-            if st.get('busy') or st.get('proc_control') or st.get('responding'):
-                return False
-        # A receipt save may have failed after the provider consumed a batch.
-        # Retry that save BEFORE any fold-back; never knowingly replay it.
-        confirmed = list(st.get('mail_confirmed') or [])
-        if confirmed:
-            sup._confirm_delivered(slug, nid, confirmed)
-            if st.get('mail_confirmed'):
-                return False
-            org = store.load_org(slug)
-        sup.scan_steer_records(slug, nid)
-        with sup._state_lock:
+        facts = mailruntime.runtime_facts(st)
+    return not mailruntime.eligible_tokens(org, nid, facts, now=time.time(),
+                                           pump_toks=())
+
+
+def recover(slug: str, nid: str) -> bool:
+    """One seat, one admission at most. Never take work from a live owner.
+
+    fence-off S2: no DOC_LOCK. The old single hold covered several SEPARATE
+    saves (the hold reason, the receipt retry, the reclaim fold and settle,
+    the failed-admission deferral); each is now its own row transaction, and
+    the fold and the settle stay ONE. The durable gate is decided on a
+    lock-free read first and re-decided inside the reclaim transaction."""
+    from . import halt, supervisor as sup
+    global _discovery_needed
+    # Scale slice A: the shared seq-gated snapshot (a dict lookup while the
+    # org is unchanged), never a fresh full load per seat per tick. It is
+    # READ-ONLY: every decision below is re-made under the lock (the reclaim
+    # transaction, `_write_demand`), and nothing here writes to `org`.
+    org = store.cached_org(slug)
+    n = org.nodes.get(nid)
+    if n is None:
+        # A renamed seat carries its marker under the new name.
+        _discovery_needed = True
+    if not n or not pending(org, nid):
+        if n and _waiting_carrier(sup.state(slug, nid)):
+            return False            # a send is still committing: stay tracked
+        _forget(slug, nid)
+        return False
+    demand = n['mail_drain']
+    # ⚠ Import recovery is NOT a mail gate (user report 2026-09-14). It
+    # owns exactly ONE thing — the single retained intent an import
+    # interrupted — and `supervisor._import_recovery_hold` guards that at
+    # the place it would be replayed. This consumer never replays it; it
+    # delivers ordinary NEW mail, which cannot re-dispatch an imported
+    # turn. Gating here switched the drain off from the import onward for
+    # an org whose recovery can never settle (archived imported agents
+    # leave their rows "uncertain" for good), and the same reasoning is
+    # already written out at `_import_recovery_hold`.
+    if _gated(org, nid, slug) or demand.get('retry_at', 0) > time.time():
+        return False
+    # SAY SO WHEN A SEAT CANNOT BE REACHED AT ALL. Every refusal above is
+    # already visible on the agent's card — archived, frozen, limit-
+    # locked, halted, out of spend. A native-context hold was not, and it
+    # refuses the send path too, so an agent could stop receiving mail
+    # completely with nothing anywhere saying why: the 2026-09-14 report
+    # was "the coordinator isn't receiving new messages despite not being
+    # in a turn", with 9 messages sitting undelivered in its mailbox.
+    # Written once per distinct reason — this loop runs every second.
+    held = sup._native_context_hold(org, nid)
+    if held:
+        if demand.get('held_reason') != held:
+            from .ledger import now
+
+            def _hold(o, d):
+                if d.get('held_reason') != held:
+                    o.node(nid)['mail_drain'] = {
+                        **d, 'held_reason': held, 'held_since': now()}
+            _write_demand(slug, nid, _hold)
+            print(f'[orgtree] {slug}/{nid}: mail delivery held — {held}')
+        return False
+    if demand.get('held_reason') or demand.get('held_since'):
+        def _unhold(o, d):
+            o.node(nid)['mail_drain'] = {
+                k: v for k, v in d.items()
+                if k not in ('held_reason', 'held_since')}
+        _write_demand(slug, nid, _unhold)
+        demand = {k: v for k, v in demand.items()
+                  if k not in ('held_reason', 'held_since')}
+    st = sup.state(slug, nid)
+    # A receipt save may have failed after the provider consumed a batch.
+    # Retry that save BEFORE any fold-back; never knowingly replay it.
+    confirmed = list(st.get('mail_confirmed') or [])
+    if confirmed:
+        sup._confirm_delivered(slug, nid, confirmed)
+        if st.get('mail_confirmed'):
+            return False
+    sup.scan_steer_records(slug, nid)
+    with sup._state_lock:
+        # ⚠ ONLY when the turn has stopped responding. The steer store
+        # means something exactly while `responding` is true — that is the
+        # flag `send_message` reads to append there — so folding it under a
+        # live tool call would take a carrier away from the turn that is
+        # about to collect it.
+        if not st.get('responding'):
             sup._fold_steer(st)
-            # Self-contained carriers also own authored/replay context. Keep
-            # their journal/text intact; only pure mail pointers can be rebuilt.
-            keep = {t for c in st['queue'] if isinstance(c, dict)
-                    and not sup._carrier_is_ping(c) for t in c.get('toks') or []}
-        sup._fold_back_undelivered(slug, nid, keep_toks=keep)
-        org = store.load_org(slug)
-        box = (org.d.get('mail') or {}).get(nid) or []
+    # RECLAIM, then decide whether a turn is owed.
+    #
+    # ⚠ The old code returned here when the node was `busy`, `responding`
+    # or under process control. That is the node-wide bit: it says the node
+    # is doing SOMETHING, never that it is doing something with THIS batch,
+    # and an old batch nothing owns stayed invisible to recovery for as
+    # long as the node stayed busy with anything else. The resolver answers
+    # the actual question per batch, so recovery no longer needs the
+    # blindfold — a live current-turn batch, a queued or steered carrier, a
+    # claim, a lease, a halt hold and a pending confirmation all still
+    # protect, on their own evidence.
+    #
+    # One transaction: the fold and the `mail_drain` bookkeeping go into
+    # the same document through `mutate`, instead of the old sequence of
+    # self-loading wrapper, reload, and a second save against a document
+    # read after an unsynchronized mutation.
+    outcome: dict = {}
+
+    def _settle(o) -> None:
+        # Runs only once `reclaim_orphans` has re-decided the gate on the
+        # LOCKED Org (`_reclaim_blocked`, a superset of `_gated`), so a seat
+        # refused there never reaches this and is never admitted.
+        outcome['settled'] = True
+        box = (o.d.get('mail') or {}).get(nid) or []
         outstanding = {str(m.get('id')) for m in box}
-        # If storage repair failed, journal content still owns the demand.
-        journals = (org.d.get('delivering') or {}).get(nid) or []
-        if any(b['tok'] not in keep for b in journals):
-            return False
-        outstanding.update(str(m.get('id')) for b in journals for m in b['mail'])
-        remaining = [i for i in demand['ids'] if i in outstanding]
+        journals = (o.d.get('delivering') or {}).get(nid) or []
+        # A batch still journaled is still owned by something the resolver
+        # protected; its content keeps owning the demand, exactly as
+        # before. Absence of a row is never read as success.
+        outcome['journaled'] = [b['tok'] for b in journals]
+        outstanding.update(str(m.get('id')) for b in journals
+                           for m in b.get('mail') or [])
+        # the demand as it is NOW, under the lock: the snapshot's copy may
+        # predate a send that added ids, and those must not be dropped
+        current = o.node(nid).get('mail_drain') or demand
+        remaining = [i for i in current['ids'] if i in outstanding]
+        outcome['remaining'] = remaining
         if not remaining:
-            org.node(nid).pop('mail_drain', None)
-            store.save_org(org)
-            _forget(slug, nid)
+            o.node(nid).pop('mail_drain', None)
+        else:
+            o.node(nid)['mail_drain'] = {**current, 'ids': remaining}
+
+    # A queued carrier always holds its batch in the resolver: it is
+    # due for delivery, and `_envelope` skips the mailbox for a
+    # carrier that owns a batch, so folding it would leave the mail
+    # delivered by nobody. This function services that carrier below.
+    # `now` comes from THIS module's clock so the drain hysteresis can
+    # be exercised by the suite the same way the rest of the gate is.
+    if _nothing_to_do_while_busy(org, slug, nid, st):
+        return False                # stays tracked: the next sweep looks again
+    # fence-off S2: the row branch (no `org=`) — ONE org_tx on the
+    # seat's reclaim rows (its node row FOR UPDATE) plus GATE_SECTIONS FOR
+    # SHARE, so the gate `_reclaim_blocked` re-decides on the locked Org
+    # cannot change before the commit (p01's review condition b).
+    try:
+        sup.reclaim_orphans(slug, nid, pump_toks=(),
+                            now=time.time(), mutate=_settle,
+                            share_sections=GATE_SECTIONS)
+    except Exception as exc:                         # noqa: BLE001
+        # The transaction did not commit. The in-memory mutation is
+        # discarded with the document and NOTHING is concluded from the
+        # failure: the demand stays exactly as it was on disk and the
+        # next sweep retries. Reporting success here — or clearing the
+        # demand because the fold "probably" happened — is the
+        # absent-evidence mistake this whole protocol refuses.
+        print(f'[orgtree] {slug}/{nid}: mail reclaim will retry: {exc}')
+        return False
+    if not outcome.get('settled'):
+        # refused on the locked Org: a gate closed since the lock-free read.
+        # Nothing was settled and nothing is admitted, and the seat stays
+        # tracked, exactly as a refusal at the first gate leaves it.
+        return False
+    remaining = outcome.get('remaining') or []
+    if not remaining:
+        _forget(slug, nid)
+        return False
+    # Anything still journaled is protected by something. A QUEUE carrier
+    # is the one holder this function is itself about to service, so it
+    # does not block; every other holder — a live turn, the steer store, a
+    # claim, a lease, halt retention, a pending confirmation, or a batch
+    # still inside the drain grace — owns the delivery, and starting a
+    # second turn for the same mail would duplicate it. This is the old
+    # `keep` rule, decided from evidence rather than from carrier shape.
+    # The holder check, the free-node check, the pop and `busy` are ONE
+    # take: a turn admitted between two takes would otherwise be joined
+    # by a second one started here.
+    with sup._state_lock:
+        queued_toks = {t for c in st['queue'] if isinstance(c, dict)
+                       for t in c.get('toks') or []}
+        if [t for t in outcome.get('journaled') or [] if t not in queued_toks]:
             return False
-        org.node(nid)['mail_drain'] = {**demand, 'ids': remaining}
-        store.save_org(org)
-        with sup._state_lock:
-            # Journaled carriers were restored to the mailbox above. Remove
-            # their stale copies, keeping commands and ordinary queue order.
-            st['queue'] = [c for c in st['queue']
-                           if not (sup._carrier_is_ping(c) and c.get('toks'))
-                           and not (sup._carrier_is_ping(c) and c.get('mail_ids')
-                                    and not set(c['mail_ids']).intersection(remaining))]
-            carrier = (st['queue'].pop(0) if st['queue'] else sup._mark_ping(
+        # ADMISSION is still gated on the node being free. Reclaim is safe
+        # while a turn runs; STARTING one is not.
+        if (st.get('busy') or st.get('proc_control') or st.get('responding')
+                or halt._workers.get((slug, nid))):
+            return False
+        # Protected journaled carriers still own their exact payload.
+        # Only empty obsolete pointers can be removed from this queue.
+        st['queue'] = [c for c in st['queue']
+                       if not (sup._carrier_is_ping(c) and not c.get('toks')
+                               and c.get('mail_ids')
+                               and not set(c['mail_ids']).intersection(remaining))]
+        # A carrier that survived the filter may still name a batch the
+        # reclaim moved back. Strip those tokens: a carrier claiming to own
+        # a row that no longer exists makes `_envelope` skip the mailbox,
+        # so it would deliver neither the folded mail nor the new mail.
+        st['queue'] = [survivor for survivor in
+                       (sup._publishable(st, c) for c in st['queue'])
+                       if survivor is not None]
+        # The pop registers a visible handoff in this same take, so the
+        # carrier is never held only by this frame on its way to the turn.
+        carrier = sup._take_queued_carrier(st)
+        if carrier is None:
+            carrier = sup._mark_ping(
                 '(orgtree) You have new mail above — handle it as appropriate.',
-                mail_ids=remaining))
-            st['busy'] = True
-        try:
-            sup._start_turn_worker(slug, nid, carrier)
-        except Exception:
-            # A failed thread admission must have another owner: this durable
-            # deadline, serviced without another message or UI read.
-            org = store.load_org(slug)
-            d = org.node(nid).get('mail_drain') or demand
-            defer(org, nid, d)
-            store.save_org(org)
-            raise
-        return True
+                mail_ids=remaining)
+        st['busy'] = True
+    try:
+        sup._start_turn_worker(slug, nid, carrier)
+    except Exception:
+        # A failed thread admission must have another owner: this durable
+        # deadline, serviced without another message or UI read.
+        # the legacy `get('mail_drain') or demand`: a demand settled away
+        # meanwhile is re-armed, so the failed admission keeps an owner
+        _write_demand(slug, nid, lambda o, d: defer(o, nid, d), default=demand)
+        raise
+    return True
 
 
 def discover() -> bool:
@@ -241,21 +418,36 @@ def discover() -> bool:
     for row in orgs:
         slug = row['slug']
         try:
-            with store.DOC_LOCK:
-                org = store.load_org(slug)
-                if not org.d.get('mail_drain_version'):
-                    # Upgrade existing queued mail too: requiring one new send
-                    # to mint the first intent would preserve the original bug.
-                    for nid, n in org.nodes.items():
-                        if (n['state'] == 'live' and not n.get('mail_drain')
-                                and not n.get('hard_fail_run') and org.waking_mail(nid)):
-                            request(org, nid)
-                            if n.get('halt') or org.d.get('killswitch'):
-                                suspend(org, nid)
-                    org.d['mail_drain_version'] = 1
-                    store.save_org(org)
-                seats = [nid for nid, n in org.nodes.items()
-                         if pending(org, nid) and n['state'] == 'live']
+            # PG-3d: a lock-free read, and the one-time upgrade as a row
+            # transaction on the org's node rows, not DOC_LOCK
+            from . import orgtx
+            # a runtime read: on on-demand rows only the live seats are
+            # decoded, never the retired history (engine-startup-cost-must-
+            # not-grow-with-retired-h). Both passes below act on live seats
+            # only, so declaring and walking the others did nothing but cost.
+            org = store.load_runtime_org(slug)
+            if not org.d.get('mail_drain_version'):
+                declared = store.live_node_ids(org)
+                with orgtx.org_tx(slug, nodes=declared, sections=['mail_drain_version'],
+                                  share_sections=['mail', 'killswitch']) as tx:
+                    up = tx.org
+                    if not up.d.get('mail_drain_version'):
+                        # Upgrade existing queued mail too: requiring one new
+                        # send to mint the first intent would preserve the
+                        # original bug. (A seat hired since the read gets its
+                        # intent from its own first send.)
+                        for nid in declared:
+                            n = up.nodes.get(nid)
+                            if (n and n['state'] == 'live' and not n.get('mail_drain')
+                                    and not n.get('hard_fail_run') and up.waking_mail(nid)):
+                                request(up, nid)
+                                if n.get('halt') or up.d.get('killswitch'):
+                                    suspend(up, nid)
+                        up.d['mail_drain_version'] = 1
+                org = store.load_runtime_org(slug)
+            # `pending` needs the node's `mail_drain` demand: only those rows
+            seats = [nid for nid in store.node_ids_with(org, 'mail_drain')
+                     if pending(org, nid) and org.nodes[nid]['state'] == 'live']
         except Exception:
             complete = False
             continue

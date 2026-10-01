@@ -140,6 +140,46 @@ class RoDenyRulesTests(unittest.TestCase):
             self.assertEqual(first, ro_deny_rules([root], own))
             self.assertEqual(len(first), len(set(first)))
 
+    # ── short-lived files do not churn the rules (warm identity hash) ─────
+    def test_short_lived_files_at_any_chain_level_leave_the_rules_unchanged(
+            self) -> None:
+        """Item idle-warm-processes-respawn-every-few-seconds-wh: a SQLite
+        sidecar appearing and going at a carve level used to add and drop a
+        rule, which changed argv and respawned the parked process."""
+        with tempfile.TemporaryDirectory() as folder:
+            root, own = self._tree(folder)
+            before = ro_deny_rules([root], own)
+            made = []
+            for level in (root, os.path.join(root, "scratch"),
+                          os.path.join(root, "scratch", "org")):
+                for name in ("orgtree.db-wal", "orgtree.db-shm", "x.sqlite3-journal",
+                             "settings.json.123.tmp", "LOUD.DB-WAL"):
+                    path = os.path.join(level, name)
+                    Path(path).write_text("x", encoding="utf-8")
+                    made.append(path)
+            self.assertEqual(ro_deny_rules([root], own), before)
+            for path in made:
+                os.remove(path)
+            self.assertEqual(ro_deny_rules([root], own), before)
+
+    def test_an_ordinary_new_file_is_still_named(self) -> None:
+        """The control: only the short-lived names are left out."""
+        with tempfile.TemporaryDirectory() as folder:
+            root, own = self._tree(folder)
+            before = ro_deny_rules([root], own)
+            Path(root, "notes-wal.txt").write_text("x", encoding="utf-8")
+            after = _rule_paths(ro_deny_rules([root], own))
+            self.assertNotEqual(ro_deny_rules([root], own), before)
+            self.assertIn(f"{root}/notes-wal.txt".replace("\\", "/"), after)
+
+    def test_a_directory_with_a_short_lived_name_keeps_its_subtree_clamp(
+            self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root, own = self._tree(folder)
+            Path(root, "cache.tmp").mkdir()
+            paths = set(_rule_paths(ro_deny_rules([root], own)))
+            self.assertIn(f"{root}/cache.tmp".replace("\\", "/") + "/**", paths)
+
 
 if __name__ == "__main__":
     unittest.main()

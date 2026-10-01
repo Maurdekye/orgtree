@@ -9,7 +9,9 @@ installed by hand — 28 August, on this machine. On 4 September that cost
 hours. OpenAI's ``model/list`` gates rollout models on the REPORTING CLIENT
 VERSION, so the stale pin returned 9 model ids while a newer CLI returned the
 same 9 plus ``gpt-6-astra`` — same account, same auth, same code. The tier was
-invisible, and the refusal said the ACCOUNT did not offer the model.
+invisible, and the refusal said the ACCOUNT did not offer the model. (Astra
+has been offered regardless of that list since 2026-09-24, so a stale pin can
+no longer hide it; the pin still decides which models a turn can reach.)
 
 WHY THIS IS ITS OWN MODULE, and why it imports nothing but `re`: both update
 scripts read `PIN` out of here at a point in the deploy where nothing else
@@ -57,7 +59,12 @@ PACKAGE = "@openai/codex"
 #: PATCH updates only — so `^0.150.1` could never reach 0.153.x and a re-run
 #: reported "up to date" while doing nothing. That is how the pin sat still
 #: for a week while looking maintained.
-PIN = "0.155.1"
+#:
+#: 0.159.0 (2026-09-29): the first pin that is offered ``gpt-6.1-sol``, the
+#: Sol default. MEASURED on one signed-in account through `model/list`,
+#: changing only the executable: 0.155.1 → no ``gpt-6.1-sol``; 0.159.0 → it is
+#: listed first and marked default. Versions between are untested.
+PIN = "0.159.0"
 
 #: The oldest CLI observed to be offered the ``gpt-6-astra`` rollout model.
 #:
@@ -70,10 +77,10 @@ PIN = "0.155.1"
 #: somewhere in that range; this records the newest version known to be too
 #: old and the oldest known to be new enough, and nothing finer.
 #:
-#: It is deliberately NOT used to gate anything. `providers` decides astra by
-#: EXACT MEMBERSHIP in a live inventory, never by a version number — a version
-#: floor would be a second, staler answer to a question the account already
-#: answers. This constant exists to explain the pin, not to enforce it.
+#: It is deliberately NOT used to gate anything, and it is HISTORY: Astra is an
+#: always-offered tier since 2026-09-24 (user ruling), so neither this bracket
+#: nor the live inventory decides whether it can be picked. This constant
+#: exists to explain the pin, not to enforce it.
 ROLLOUT_OBSERVED_ABSENT = "0.150.1"
 ROLLOUT_OBSERVED_PRESENT = "0.153.0"
 

@@ -1,0 +1,19 @@
+[package]
+name = "orgtree-scope-clamp"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Non-authoritative pure Rust model of the legacy permission-scope clamps (tools, MCP servers, folders, visibility, permission mode, kiosk ceiling), checked against Python-oracle parity vectors"
+license = "MIT"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "scope-vectors"
+path = "src/bin/scope-vectors.rs"
+
+[dependencies]
+# The reviewed backend codec supplies the Python-compatible JSON value model
+# used by the vector runner. It is consumed read-only; nothing here changes it.
+orgtree-backend-codec = { path = "../backend-codec" }

@@ -24,7 +24,7 @@ import { BASE, getChat } from './api'
 import { decodeEventRow, record } from './events/decode'
 import { segmentClientOps, segmentMailIds } from './events/wire'
 import type { ChatMessage, ChatPayload } from './types'
-import { assistantIds, isAssistantSnapshot, mergeAssistantRows, uniqueFileCards } from './assistantMessages'
+import { applyAssistantDelta, assistantIds, isAssistantDelta, isAssistantSnapshot, mergeAssistantRows, uniqueFileCards } from './assistantMessages'
 import type { LiveRow, PulseEvent, StreamEvent } from './canvas/shared'
 import { useCallback, useSyncExternalStore } from 'react'
 
@@ -33,6 +33,20 @@ import { useCallback, useSyncExternalStore } from 'react'
  *  carries markdown and tool chips — so this is deliberately small. */
 export const CHAT_WINDOW = 8
 export const MAX_WINDOW = 1_000_000   // expanded only on viewport demand or history scrolling
+const MAX_PAGING_BATCH = 64
+
+// A successful HTTP response need not be a successful page. Repeated rows
+// used to retrigger the desk's viewport fill on every store notification.
+function olderPageProgress(current: ChatPayload, page: ChatPayload): boolean {
+  const oldest = current.messages[0]?.seq
+  const ids = new Set(current.messages.map(row => row.row_id ?? row.event_id ?? row.seq))
+  return page.messages.some(row => !ids.has(row.row_id ?? row.event_id ?? row.seq)
+    && (typeof oldest !== 'number' || typeof row.seq !== 'number' || row.seq < oldest))
+}
+
+function stalledPage(slug: string, nid: string, reason: string): void {
+  console.warn('Transcript pagination stopped', { slug, nid, reason })
+}
 const BUSY_POLL_MS = 2500      // heartbeat while the payload says busy
 const IDLE_POLL_MS = 7000      // heartbeat otherwise — slower, never off
 const NUDGE_MS = 200           // burst coalescing for the post-event refetch
@@ -205,6 +219,9 @@ const BLANK: Convo = {
 
 interface Entry {
   assistantRows: Map<string, ChatMessage>
+  /** delta frames whose base revision has not arrived yet, per assistant id
+   *  (bounded); chained as soon as a frame or a fetch supplies the base */
+  assistantGaps: Map<string, ChatMessage[]>
   assistantNative: Set<string>
   committedRows: Map<string, ChatMessage>
   pageInFlight?: boolean
@@ -223,8 +240,15 @@ interface Entry {
    * The viewport path (fillViewport -> loadOlder(n, viewport)) does not make
    * its own request: it widens `win` and forces a refresh, so that refresh's
    * outcome is the page's outcome, and it is the only place that can report
-   * one (desk-review, third pass). */
-  growingOlder?: boolean
+   * one (desk-review, third pass).
+   *
+   * It holds the WINDOW that growth asked for, and only a refresh requested
+   * with at least that window may answer it. An ordinary poll already in
+   * flight was asked with the old window: it settles first on a busy machine,
+   * carries no older rows, and was taken as the growth's empty answer, so
+   * every desk showed "couldn't load earlier messages" (docket
+   * v3-loading-earlier-agent-messages-fails-couldn-t). */
+  growingOlder?: number
   /** canonical map key owning this Entry; callbacks verify it before
    * publishing after a rename or removal. */
   ownerKey: string
@@ -288,6 +312,9 @@ interface Entry {
   nudge: ReturnType<typeof setTimeout> | null
   poll: ReturnType<typeof setTimeout> | null
   inflight: boolean
+  /** Every outstanding fetch, including older requests superseded by a
+   * forced refresh. The newest-request latch alone is not a retention guard. */
+  requests: number
   /** Monotonic request identity. Only the newest issued request clears the
    *  in-flight latch; response freshness is measured at installation. */
   requestSerial: number
@@ -326,6 +353,60 @@ interface Entry {
 }
 
 const M = new Map<string, Entry>()
+// Reconstructible tails only. Active desks, local sends, uncommitted stream
+// state and reconciliation rows are never evicted to meet these budgets.
+const inactive = new Map<Entry, number>()
+const retentionQueue = new Set<Entry>()
+const MAX_INACTIVE = 32
+const MAX_INACTIVE_BYTES = 8 * 1024 * 1024
+let inactiveBytes = 0
+let retentionScheduled = false
+
+function removeInactive(e: Entry): void {
+  const bytes = inactive.get(e)
+  if (bytes !== undefined) { inactiveBytes -= bytes; inactive.delete(e) }
+}
+
+function protectedConvo(e: Entry): boolean {
+  return Boolean(e.subs.size || e.requests || e.inflight || e.pageInFlight
+    || e.pendingCollapse || e.growingOlder !== undefined || e.s.loadingOlder
+    || e.s.pending.length || e.s.draft || e.s.thinking || e.thinkT0
+    || e.live || e.liveRaf !== null || e.liveTimer
+    || e.assistantRows.size || e.committedRows.size
+    || e.s.chat?.busy || e.s.chat?.responding || e.s.chat?.queued
+    || e.s.chat?.mail_pending || e.s.chat?.pending_mail?.length
+    || e.poll || e.nudge || e.clock)
+}
+
+/** Classify after the synchronous operation finishes: entry() callers often
+ * install pending/live state next. Never evict halfway through that write. */
+function retainConvo(e: Entry): void {
+  removeInactive(e)
+  retentionQueue.add(e)
+  if (retentionScheduled) return
+  retentionScheduled = true
+  queueMicrotask(() => {
+    retentionScheduled = false
+    for (const candidate of retentionQueue) {
+      if (M.get(candidate.ownerKey) !== candidate || protectedConvo(candidate)) continue
+      // A serialized UTF-16 budget, not a JavaScript heap measurement. The
+      // other retained maps are empty for an eligible entry by construction.
+      const bytes = JSON.stringify([candidate.s, [...candidate.assistantNative]]).length * 2
+      inactive.set(candidate, bytes)
+      inactiveBytes += bytes
+    }
+    retentionQueue.clear()
+    while (inactive.size > MAX_INACTIVE || inactiveBytes > MAX_INACTIVE_BYTES) {
+      const oldest = inactive.keys().next().value!
+      removeInactive(oldest)
+      // A later operation may have made it active before this drain.
+      if (M.get(oldest.ownerKey) === oldest && !protectedConvo(oldest)) {
+        oldest.ownerVersion++
+        M.delete(oldest.ownerKey)
+      }
+    }
+  })
+}
 // '/' cannot appear in a slug or node id (both are slugify()'d to [a-z0-9-]),
 // so the key is unambiguous — and greppable in a debug dump, which a
 // lookalike separator would not be.
@@ -340,6 +421,7 @@ export function renameConvo(slug: string, from: string, to: string): void {
   const oldKey = key(slug, from), newKey = key(slug, to)
   const old = M.get(oldKey)
   if (!old) return
+  removeInactive(old)
   // Existing callbacks capture this Entry, so moving it is safe without a
   // name-based alias. Cancel callbacks that only captured the old key; a new
   // subscription will arm the same Entry under its canonical key.
@@ -368,11 +450,13 @@ export function renameConvo(slug: string, from: string, to: string): void {
     if (replaced.nudge) { clearTimeout(replaced.nudge); replaced.nudge = null }
     cancelLive(replaced)
     stopClock(replaced)
+    removeInactive(replaced)
   }
   old.ownerKey = newKey
   old.ownerVersion++
   M.set(newKey, old)
   M.delete(oldKey)
+  retainConvo(old)
 }
 
 /** Forget a genuinely removed node and stop callbacks owned by its Entry. */
@@ -380,6 +464,7 @@ export function dropConvo(slug: string, nid: string): void {
   const target = key(slug, nid)
   const old = M.get(target)
   if (!old) return
+  removeInactive(old)
   if (old.poll) { clearTimeout(old.poll); old.poll = null }
   if (old.nudge) { clearTimeout(old.nudge); old.nudge = null }
   cancelLive(old)
@@ -392,14 +477,15 @@ export function dropConvo(slug: string, nid: string): void {
 function entry(k: string): Entry {
   let e = M.get(k)
   if (!e) {
-    e = { assistantRows: new Map(), assistantNative: new Set(), committedRows: new Map(), ownerKey: k, ownerVersion: 0, s: BLANK, subs: new Set(), thinkT0: 0, clock: null, nudge: null,
+    e = { assistantRows: new Map(), assistantGaps: new Map(), assistantNative: new Set(), committedRows: new Map(), ownerKey: k, ownerVersion: 0, s: BLANK, subs: new Set(), thinkT0: 0, clock: null, nudge: null,
           textSeen: 0, epochBoot: null,
           live: null, liveRaf: null, liveTimer: null,
           staleDraft: false, staleThink: false, staleAt: 0, streamAt: 0,
-          poll: null, inflight: false, requestSerial: 0, inflightAt: 0, fetchedAt: 0,
+          poll: null, inflight: false, requests: 0, requestSerial: 0, inflightAt: 0, fetchedAt: 0,
           installed: 0, dirty: false, pageSerial: 0 }
     M.set(k, e)
   }
+  retainConvo(e)
   return e
 }
 
@@ -414,6 +500,7 @@ function patchEntry(e: Entry, p: Partial<Convo>, ownerVersion = e.ownerVersion):
   if (!changed) return
   e.s = { ...e.s, ...p }
   e.subs.forEach((cb) => cb())
+  retainConvo(e)
 }
 
 function patch(k: string, p: Partial<Convo>): void {
@@ -586,6 +673,7 @@ export function useConvo(slug: string, nid: string): Convo {
           e.dirty = true
         }
       }
+      retainConvo(e)
     }
   }, [k, slug, nid])
   const snap = useCallback(() => entry(k).s, [k])
@@ -715,6 +803,7 @@ export function refreshConvo(slug: string, nid: string,
     return Promise.resolve()
   }
   e.inflight = true
+  e.requests++
   const requestSerial = ++e.requestSerial
   e.inflightAt = now
   const startedAt = now
@@ -723,6 +812,20 @@ export function refreshConvo(slug: string, nid: string,
   // Issuing another fetch cannot invalidate a usable response: a busy stream
   // can issue faster than the backend answers, starving the view forever.
   const stillFreshest = (): boolean => ownsRequest() && requestSerial >= e.installed
+  const askedWin = e.s.win
+  // Is this response the answer to a pending viewport growth? Only if it was
+  // asked with the grown window (see Entry.growingOlder). Consumed on use.
+  const takeGrowth = (): boolean => {
+    // the window shrank under the growth (collapse, last view closed): no
+    // response can answer it any more, and a flag left standing would hold
+    // `loadingOlder` true and refuse every later page
+    if (e.growingOlder !== undefined && e.s.win < e.growingOlder) e.growingOlder = undefined
+    if (e.growingOlder === undefined || askedWin < e.growingOlder) return false
+    e.growingOlder = undefined
+    return true
+  }
+  // the literal `e.s.win` is pinned by derived.test.tsx ② (this is THE fetch);
+  // askedWin was read from it a line above, so the two are the same value
   return getChat(slug, nid, e.s.win).then(async (c) => {
     if (!ownsRequest()) return
     if (!stillFreshest()) return
@@ -738,12 +841,21 @@ export function refreshConvo(slug: string, nid: string,
     if (!changedConversation && e.s.paged && e.s.chat?.messages.length && c.messages.length) {
       const previousLast = e.s.chat.messages.filter(row => typeof row.seq === 'number').at(-1)?.seq
       let cursor = c.before
+      const visited = new Set<string>()
       while (cursor && typeof previousLast === 'number'
              && typeof c.messages[0]?.seq === 'number' && c.messages[0].seq > previousLast) {
+        if (visited.has(cursor) || visited.size >= MAX_PAGING_BATCH) {
+          stalledPage(slug, nid, 'burst cursor cycle or page limit')
+          throw new Error('Transcript pagination did not advance')
+        }
+        visited.add(cursor)
         const page = await getChat(slug, nid, e.s.win, cursor)
         if (!stillFreshest()) return
         if ((page.order_epoch ?? 0) !== (c.order_epoch ?? 0)) throw new Error('Transcript order changed while paging')
-        if (!page.messages.length || page.before === cursor) break
+        if (!olderPageProgress(c, page) || (page.has_older && (!page.before || page.before === cursor))) {
+          stalledPage(slug, nid, 'burst page did not advance')
+          throw new Error('Transcript pagination did not advance')
+        }
         const ids = new Set(c.messages.map(row => row.row_id ?? row.event_id ?? row.seq))
         c = { ...c, messages: [...page.messages.filter(row => row.assistant_id
           || !ids.has(row.row_id ?? row.event_id ?? row.seq)), ...c.messages] }
@@ -754,6 +866,7 @@ export function refreshConvo(slug: string, nid: string,
     // viewport. Page just that interval until its actual visible row is found;
     // never dismiss an unseen send merely because its sequence is old.
     let proofCursor = c.before
+    const proofVisited = new Set<string>()
     const needsProof = () => {
       const ids = serverMailIds(c)
       const ops = serverOpIds(c)
@@ -764,10 +877,18 @@ export function refreshConvo(slug: string, nid: string,
         && typeof oldest === 'number' && g.seq0 !== UNKNOWN_SEQ && oldest > g.seq0)
     }
     while (!changedConversation && proofCursor && needsProof()) {
+      if (proofVisited.has(proofCursor) || proofVisited.size >= MAX_PAGING_BATCH) {
+        stalledPage(slug, nid, 'proof cursor cycle or page limit')
+        break
+      }
+      proofVisited.add(proofCursor)
       const page = await getChat(slug, nid, e.s.win, proofCursor)
       if (!stillFreshest()) return
       if ((page.order_epoch ?? 0) !== (c.order_epoch ?? 0)) throw new Error('Transcript order changed while paging')
-      if (!page.messages.length || page.before === proofCursor) break
+      if (!olderPageProgress(c, page) || (page.has_older && (!page.before || page.before === proofCursor))) {
+        stalledPage(slug, nid, 'proof page did not advance')
+        break
+      }
       const ids = new Set(c.messages.map(row => row.row_id ?? row.event_id ?? row.seq))
       c = { ...c, messages: [...page.messages.filter(row => row.assistant_id
         || !ids.has(row.row_id ?? row.event_id ?? row.seq)), ...c.messages] }
@@ -779,12 +900,19 @@ export function refreshConvo(slug: string, nid: string,
     e.installed = requestSerial
     e.fetchedAt = Date.now()
     if (changedConversation) e.committedRows.clear()
-    if (changedAssistantScope) { e.assistantRows.clear(); e.assistantNative.clear() }
+    if (changedAssistantScope) { e.assistantRows.clear(); e.assistantGaps.clear(); e.assistantNative.clear() }
     if (!changedConversation && e.s.paged && e.s.chat && c.messages.length) {
       const first = c.messages[0]!.seq
       const older = e.s.chat.messages.filter(row => typeof row.seq === 'number' && typeof first === 'number' && row.seq < first)
       c = { ...c, messages: [...older, ...c.messages],
         before: e.s.chat.before, has_older: e.s.chat.has_older }
+    }
+    // deltas held for a missing base: the fetched pending row may be it
+    for (const id of [...e.assistantGaps.keys()]) {
+      const fetched = c.messages.find(row => assistantIds(row).includes(id))
+      if (!fetched) continue
+      const latest = drainAssistantGaps(e, id, fetched)
+      if (latest !== fetched) e.assistantRows.set(id, latest)
     }
     c = mergeCommitted(e, c, true)
     // A pending ghost graduates once the SERVER'S OWN copy is visible — by
@@ -944,13 +1072,21 @@ export function refreshConvo(slug: string, nid: string,
     // LiveRow.text is not — a cast would silently re-open the type hole the
     // typing wave closed
     const live: LiveRow[] = (c.live ?? []).map((r) => ({ ...r, text: r.text ?? '' }))
-    const grew = e.growingOlder
-    e.growingOlder = false
-    patchEntry(e, { chat: c, paged: changedConversation ? false : e.s.paged, loaded: true, loadingOlder: Boolean(e.pageInFlight), pending, live, ...retire, ...(grew ? { olderError: false } : {}) }, ownerVersion)
+    const grew = takeGrowth()
+    const stalledGrowth = grew && !changedConversation && !!c.has_older && !!e.s.chat
+      && !olderPageProgress(e.s.chat, c)
+    if (stalledGrowth) {
+      stalledPage(slug, nid, 'viewport window returned no older rows')
+      // A larger window can bring a new live row without bringing history.
+      // Keep that usable tail (pending reconciliation already refers to it).
+      // An empty malformed page must not erase the last usable transcript.
+      if (!c.messages.length) c = { ...c, messages: e.s.chat!.messages }
+    }
+    patchEntry(e, { chat: c, paged: changedConversation ? false : e.s.paged, loaded: true, loadingOlder: Boolean(e.pageInFlight || e.growingOlder !== undefined), pending, live, ...retire, ...(grew ? { olderError: stalledGrowth } : {}) }, ownerVersion)
     // the grow-path settle: a leave-history recorded while this (viewport
     // window growth) refresh was the in-flight work runs now, once no page
     // request remains to own it
-    if (e.pendingCollapse && !e.pageInFlight) { e.pendingCollapse = false; collapseWindow(slug, nid) }
+    if (e.pendingCollapse && !e.pageInFlight && e.growingOlder === undefined) { e.pendingCollapse = false; collapseWindow(slug, nid) }
   }).catch(() => {
     if (!stillFreshest()) return
     // …and if this refresh WAS the older-rows request (the viewport path
@@ -960,12 +1096,13 @@ export function refreshConvo(slug: string, nid: string,
     // pass). It differs from the cursor path in one way worth keeping in
     // mind: fillViewport re-asks on the next render, so this is an honest
     // indication that also self-heals, not the only way back.
-    const grew = e.growingOlder
-    e.growingOlder = false
-    patchEntry(e, { loadingOlder: Boolean(e.pageInFlight), ...(grew ? { olderError: true } : {}) }, ownerVersion)
-    if (e.pendingCollapse && !e.pageInFlight) { e.pendingCollapse = false; collapseWindow(slug, nid) }
+    const grew = takeGrowth()
+    patchEntry(e, { loadingOlder: Boolean(e.pageInFlight || e.growingOlder !== undefined), ...(grew ? { olderError: true } : {}) }, ownerVersion)
+    if (e.pendingCollapse && !e.pageInFlight && e.growingOlder === undefined) { e.pendingCollapse = false; collapseWindow(slug, nid) }
   }).finally(() => {
     if (ownsRequest() && e.requestSerial === requestSerial) e.inflight = false
+    e.requests--
+    retainConvo(e)
   })
 }
 
@@ -978,12 +1115,14 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
   const k = key(slug, nid)
   const e = entry(k)
   if (e.s.loadingOlder || e.pageInFlight || e.s.win >= MAX_WINDOW) return false
+  if (e.s.chat?.has_older === false) return false
   const before = e.s.chat?.before
   if (before && !viewport) {
     const version = e.ownerVersion
     const conversation = e.s.chat?.conversation_id
     const pageSerial = ++e.pageSerial
     e.pageInFlight = true
+    e.requests++
     patchEntry(e, { loadingOlder: true, olderError: false })
     void getChat(slug, nid, Math.max(1, Math.ceil(rows)), before).then(page => {
       const currentPage = e.pageSerial === pageSerial
@@ -1052,6 +1191,11 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
         return
       }
       const ids = new Set(current.messages.map(row => row.row_id ?? row.event_id ?? row.seq))
+      if (!olderPageProgress(current, page) || (page.has_older && (!page.before || page.before === before))) {
+        stalledPage(slug, nid, 'history cursor or page did not advance')
+        patchEntry(e, { loadingOlder: false, olderError: true }, version)
+        return
+      }
       const added = page.messages.filter(row => row.assistant_id || !ids.has(row.row_id ?? row.event_id ?? row.seq))
       patchEntry(e, { paged: true, loadingOlder: false, olderError: false,
         chat: mergeCommitted(e, { ...current, messages: [...added, ...current.messages],
@@ -1083,14 +1227,15 @@ export function loadOlder(slug: string, nid: string, rows = CHAT_WINDOW, viewpor
       patchEntry(e, { loadingOlder: false, paged: false, olderError: true }, version)
       if (wanted) collapseWindow(slug, nid, keep ?? CHAT_WINDOW)
       void refreshConvo(slug, nid, { force: true })
-    })
+    }).finally(() => { e.requests--; retainConvo(e) })
     return true
   }
   // the VIEWPORT path: no request of its own — widen the window and let the
   // forced refresh carry it. Mark it so that refresh's outcome is reported as
   // this page's outcome.
-  e.growingOlder = true
-  patch(k, { loadingOlder: true, olderError: false, win: Math.min(MAX_WINDOW, e.s.win + Math.max(1, Math.ceil(rows))) })
+  const grown = Math.min(MAX_WINDOW, e.s.win + Math.max(1, Math.ceil(rows)))
+  e.growingOlder = grown
+  patch(k, { loadingOlder: true, olderError: false, win: grown })
   void refreshConvo(slug, nid, { force: true })
   return true
 }
@@ -1195,6 +1340,42 @@ export function markBusy(slug: string, nid: string): void {
 }
 
 // ------------------------------------------------------------------ ingest
+/** The newest row this client holds for an assistant id: the streamed one or
+ *  the fetched one, whichever has the later revision. */
+function knownAssistantRow(e: Entry, id: string): ChatMessage | undefined {
+  const streamed = e.assistantRows.get(id)
+  const fetched = e.s.chat?.messages.find(row => assistantIds(row).includes(id))
+  if (!streamed || !fetched) return streamed ?? fetched
+  if (!fetched.assistant_pending) return fetched
+  return (fetched.assistant_revision ?? 0) > (streamed.assistant_revision ?? 0) ? fetched : streamed
+}
+
+const GAP_HOLD = 64
+
+function holdAssistantGap(e: Entry, delta: ChatMessage): void {
+  const id = delta.assistant_id!
+  const held = [...(e.assistantGaps.get(id) ?? []), delta]
+  e.assistantGaps.set(id, held.slice(-GAP_HOLD))
+}
+
+/** Chain every held delta that now has its base; drop the ones it passed. */
+function drainAssistantGaps(e: Entry, id: string, row: ChatMessage): ChatMessage {
+  const held = e.assistantGaps.get(id)
+  if (!held) return row
+  let latest = row
+  for (;;) {
+    const next = held.find(d => d.assistant_base_revision === latest.assistant_revision)
+    const out = next && applyAssistantDelta(latest, next)
+    if (!out || typeof out === 'string') break
+    latest = out
+  }
+  const rest = held.filter(d => (d.assistant_base_revision ?? 0) >= (latest.assistant_revision ?? 0))
+  if (rest.length && latest.assistant_pending && latest.assistant_state !== 'complete') {
+    e.assistantGaps.set(id, rest)
+  } else e.assistantGaps.delete(id)
+  return latest
+}
+
 /** Called ONCE per websocket frame, at the app level — not per mounted view.
  *
  *  Since P2 this does NOT assemble a conversation. Anything a view must still
@@ -1213,7 +1394,7 @@ export function ingestStream(slug: string, ev: StreamEvent): void {
   // tokens were buffered at all; only the number of notifications changed.
   if (ev.kind !== 'delta' && ev.kind !== 'thinking') flushLive(e)
   if (isAssistantSnapshot(ev.assistant_row)) {
-    const row = ev.assistant_row
+    let row = ev.assistant_row
     if (e.s.chat?.assistant_scope && e.s.chat.assistant_scope !== row.assistant_scope) {
       nudge(slug, ev.node)
       return
@@ -1228,6 +1409,19 @@ export function ingestStream(slug: string, ev: StreamEvent): void {
       return
     }
     if (assistantIds(row).some(id => e.assistantNative.has(id))) return
+    if (isAssistantDelta(row)) {
+      // only the text added since assistant_base_revision rides the frame
+      // (supervisor.wire_reply_frame); a missing base costs one refetch
+      const out = applyAssistantDelta(knownAssistantRow(e, row.assistant_id!), row)
+      if (out === 'stale') return
+      if (out === 'gap') {
+        holdAssistantGap(e, row)
+        nudge(slug, ev.node)
+        return
+      }
+      row = out
+    }
+    row = drainAssistantGaps(e, row.assistant_id!, row)
     const current = e.s.chat ?? { busy: true, queued: 0, responding: true,
       last_error: null, occupancy: null, messages: [], mail_pending: 0, pending_mail: [] }
     const prior = e.assistantRows.get(row.assistant_id!)
@@ -1452,10 +1646,12 @@ export function resetConvos(): void {
     e.pendingKeep = undefined
     e.dirty = false
     e.assistantRows.clear()
+    e.assistantGaps.clear()
     e.assistantNative.clear()
     e.committedRows.clear()
     e.s = BLANK
     e.subs.forEach((cb) => cb())
+    retainConvo(e)
   })
 }
 

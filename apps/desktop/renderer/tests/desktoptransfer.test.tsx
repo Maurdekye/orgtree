@@ -3,11 +3,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { JSDOM } from 'jsdom'
 import { useState } from 'react'
-import { ImportSettings } from '../src/canvas/importsettings'
 import { AddHub } from '../src/canvas/connections'
 import { HostHub } from '../src/canvas/hosthub'
 import { downloadDocument, responseFilename } from '../src/canvas/download'
-import { terminalImportServer } from './importjobfixture'
 
 async function type(field: HTMLInputElement, value: string) {
   await inAct(() => {
@@ -20,78 +18,6 @@ const click = async (el: HTMLElement, label: string) => {
   assert.ok(button, label)
   await inAct(async () => { button.click(); await flush(8) })
 }
-
-test('native source profiles are shared by preview and copy and changing them invalidates approval', async () => {
-  const original = globalThis.fetch
-  localStorage.clear()
-  const calls: any[] = []
-  globalThis.fetch = async (url, init) => {
-    if (String(url) === '/api/orgs') return new Response('[]')
-    calls.push(JSON.parse(String(init?.body)))
-    return new Response(JSON.stringify(String(url).endsWith('/preview') ? {
-      organizations: [{ slug: 'native', name: 'Native', native_context: [
-        { node: 'ready', provider: 'claude', status: 'available', source_path: 'C:/source/session.jsonl' },
-        { node: 'held', provider: 'codex', status: 'held', reason: 'Native session file is missing.' },
-      ] }], warnings: [],
-    } : { imported: [{ slug: 'native', name: 'Native' }], warnings: [] }))
-  }
-  globalThis.fetch = terminalImportServer(globalThis.fetch)
-  const v = await mountView(<ImportSettings />, el => el)
-  await inAct(async () => { await flush(8) })
-  try {
-    await type(v.el.querySelector('[aria-label="V1 data folder"]')!, 'C:/synthetic-v1')
-    await type(v.el.querySelector('[aria-label="Source Claude profile"]')!, ' C:/source/claude ')
-    await type(v.el.querySelector('[aria-label="Source Codex profile"]')!, 'C:/source/codex')
-    await click(v.el, 'Preview organizations')
-    assert.match(v.el.textContent!, /native context available/)
-    assert.match(v.el.textContent!, /held - native context unavailable/)
-    assert.match(v.el.textContent!, /Native session file is missing/)
-    await inAct(() => { v.el.querySelector<HTMLInputElement>('[aria-label="Acknowledge duplicate work"]')!.click() })
-    await type(v.el.querySelector('[aria-label="Source Codex profile"]')!, 'C:/source/codex-other')
-    assert.ok(![...v.el.querySelectorAll('button')].some(b => b.textContent === 'Copy selected organizations'))
-    await click(v.el, 'Preview organizations')
-    const copy = [...v.el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Copy selected organizations')!
-    assert.equal(copy.disabled, true, 'changed source requires a fresh acknowledgement')
-    await inAct(() => { v.el.querySelector<HTMLInputElement>('[aria-label="Acknowledge duplicate work"]')!.click() })
-    await click(v.el, 'Copy selected organizations')
-    const expected = { claude_profile: 'C:/source/claude', codex_profile: 'C:/source/codex-other' }
-    assert.deepEqual(calls[1].native_sources, expected)
-    assert.deepEqual(calls[2].native_sources, expected)
-    assert.equal(localStorage.length, 0, 'source profile paths are not retained in renderer storage')
-  } finally { await v.unmount(); globalThis.fetch = original }
-})
-
-test('copy import requires preview, selected organizations and duplicate-work acknowledgement', async () => {
-  const original = globalThis.fetch
-  const calls: { url: string; body: unknown }[] = []
-  globalThis.fetch = async (url, init) => {
-    if (String(url) === '/api/orgs') return new Response('[]')
-    calls.push({ url: String(url), body: JSON.parse(String(init?.body)) })
-    return new Response(JSON.stringify(String(url).endsWith('/preview')
-      ? { organizations: [{ slug: 'first', name: 'First' }, { slug: 'second', name: 'Second' }], warnings: ['Copy retains source data.'] }
-      : { imported: [{ slug: 'first', name: 'First' }], warnings: [] }), { status: 200 })
-  }
-  globalThis.fetch = terminalImportServer(globalThis.fetch)
-  const v = await mountView(<ImportSettings />, el => el)
-  await inAct(async () => { await flush(8) })
-  try {
-    await type(v.el.querySelector('input')!, 'C:\\synthetic-v1-root')
-    await click(v.el, 'Preview organizations')
-    assert.match(v.el.textContent!, /both copies can perform the same work/)
-    const copy = [...v.el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Copy selected organizations')!
-    assert.equal(copy.disabled, true)
-    await inAct(() => { copy.click() })
-    assert.equal(calls.length, 1, 'disabled copy cannot send acknowledgement on behalf of the user')
-    const boxes = v.el.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')
-    await inAct(() => { boxes[1]!.click(); boxes[2]!.click() })
-    assert.equal(copy.disabled, false)
-    await click(v.el, 'Copy selected organizations')
-    assert.deepEqual(calls[1], { url: '/api/desktop/import-v1/jobs', body: {
-      source_root: 'C:\\synthetic-v1-root', organizations: ['first'], acknowledge_duplicate_work: true, request_id: (calls[1].body as { request_id: string }).request_id,
-    } })
-    assert.match(v.el.textContent!, /Imported First/)
-  } finally { await v.unmount(); globalThis.fetch = original }
-})
 
 test('adding a hub sends one address field; the test never gates; failure preserves the value', async () => {
   localStorage.clear()
@@ -158,47 +84,6 @@ test('a child download uses main fetch and the engine ZIP filename, with no exec
   } finally {
     globalThis.fetch = original; window.URL.createObjectURL = create; window.URL.revokeObjectURL = revoke; window.setTimeout = timeout; child.window.close()
   }
-})
-
-
-test('partial import shows committed copies, recovery and per-org warnings, and refreshes without retrying', async () => {
-  const original = globalThis.fetch
-  let copied = 0, refreshes = 0
-  const refresh = () => { refreshes++ }
-  window.addEventListener('orgtree:organizations-imported', refresh)
-  globalThis.fetch = async url => {
-    if (String(url) === '/api/orgs') return new Response('[]')
-    if (String(url).endsWith('/preview')) return new Response(JSON.stringify({ organizations: [
-      { slug: 'first', name: 'First', conflict: null }, { slug: 'second', name: 'Second', conflict: null },
-      { slug: 'existing', name: 'Existing', conflict: 'Already exists in this installation' },
-    ], warnings: ['Readable history is copied.'] }))
-    copied++
-    return new Response(JSON.stringify({ imported: [{ slug: 'first', name: 'First', recovery_pending: true,
-      warnings: ['Independent provider sessions will start.', 'Account configuration was skipped.'] }],
-      failed: [{ slug: 'second', error: 'Copy failed', not_attempted: ['third'] }], warnings: ['Original data is untouched.', 'Independent provider sessions will start.'] }))
-  }
-  globalThis.fetch = terminalImportServer(globalThis.fetch)
-  const v = await mountView(<ImportSettings />, el => el)
-  await inAct(async () => { await flush(8) })
-  try {
-    await type(v.el.querySelector('input')!, 'C:\\synthetic-partial')
-    await click(v.el, 'Preview organizations')
-    const checkboxes = v.el.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')
-    assert.equal(checkboxes[2]!.disabled, true)
-    assert.equal(checkboxes[2]!.checked, false)
-    await inAct(() => { v.el.querySelector<HTMLInputElement>('input[aria-label="Acknowledge duplicate work"]')!.click() })
-    await click(v.el, 'Copy selected organizations')
-    assert.match(v.el.textContent!, /Imported First/)
-    assert.match(v.el.textContent!, /Independent provider sessions/)
-    assert.equal(v.el.textContent!.split('Independent provider sessions will start.').length - 1, 1, 'duplicate continuity warning appears once')
-    assert.match(v.el.textContent!, /Account configuration was skipped/)
-    assert.match(v.el.textContent!, /resuming its active work is still pending/)
-    assert.match(v.el.textContent!, /second: Copy failed/)
-    assert.match(v.el.textContent!, /Not copied: third/)
-    assert.equal(refreshes, 1)
-    assert.equal(copied, 1)
-    assert.ok(![...v.el.querySelectorAll('button')].some(b => b.textContent === 'Copy selected organizations'), 'a committed partial copy cannot be blindly retried')
-  } finally { await v.unmount(); globalThis.fetch = original; window.removeEventListener('orgtree:organizations-imported', refresh) }
 })
 
 

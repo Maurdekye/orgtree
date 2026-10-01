@@ -126,8 +126,13 @@ test('packaging, renderer, tray and windows reference the eye icons', () => {
   assert.match(main, /app\.isPackaged\s*\?\s*path\.join\(process\.resourcesPath, 'runtime-icons'\)/)
   assert.match(main, /path\.join\(app\.getAppPath\(\), 'apps\/desktop\/assets'\)/)
   assert.match(main, /const iconPath = path\.join\(assetsPath, 'orgtree-eye\.ico'\)/)
-  assert.match(main, /if \(process\.platform === 'win32'\) configureTaskbar\(window, process\.execPath, iconPath, identity\.appUserModelId, identity\.displayName\)/,
+  assert.match(main, /if \(process\.platform === 'win32'\) configureTaskbar\(window, process\.execPath, file, identity\.appUserModelId, identity\.displayName\)/,
     'every Windows channel must set explicit shell icon metadata')
+  assert.match(main, /app\.on\('browser-window-created', \(_event, window\) => \{[\s\S]*?applyWindowIcon\(window\)/,
+    'every window gets the themed icon when it is created')
+  assert.match(main, /for \(const window of BrowserWindow\.getAllWindows\(\)\) applyWindowIcon\(window, image\)/,
+    'a theme change re-applies the same icon the tray got to every open window')
+  assert.match(main, /const runtimeIconFile = /, 'the taskbar is handed a real .ico file for the themed eye')
   // UI-05: the initial Tray construction and rebuildTray()'s tray-image
   // assignment go through trayIcon() (a Template image on darwin), while the
   // Dock icon and every window icon stay on the unwrapped runtimeIcon() -
@@ -137,7 +142,7 @@ test('packaging, renderer, tray and windows reference the eye icons', () => {
   assert.match(main, /engine\.status\.state === 'ready'/)
   assert.match(main, /let effectiveTheme: VisualTheme \| undefined/)
   assert.match(main, /const theme = effectiveTheme \?\? explicit \?\? 'claude'/)
-  assert.match(main, /handle\('desktop:set-effective-theme', value => setEffectiveTheme\(value\)\)/)
+  assert.match(main, /handleApp\('desktop:set-effective-theme', value => setEffectiveTheme\(value\)\)/)
   assert.match(main, /isVisualTheme\(value\)/)
 
   assert.match(main, /engine\.on\('status',[^\r\n]*rebuildTray\(\)/)
@@ -169,4 +174,17 @@ test('macOS ICNS round-trips through iconutil to the full 10-image iconset', () 
   assert.equal(expected.length, 10)
   const names = fs.readdirSync(iconsetDir)
   for (const name of expected) assert.ok(names.includes(name), `iconset contains ${name}`)
+})
+
+test('a recoloured eye can be wrapped as a one-image .ico for the taskbar', async () => {
+  const { icoFromPng } = await import('./../apps/desktop/main/taskbar.ts')
+  const png = Buffer.from([1, 2, 3, 4, 5])
+  const ico = icoFromPng(png, 256, 256)
+  assert.equal(ico.readUInt16LE(2), 1, 'icon type')
+  assert.equal(ico.readUInt16LE(4), 1, 'one image')
+  assert.equal(ico[6], 0, '256 is stored as 0')
+  assert.equal(ico.readUInt32LE(14), 5)
+  assert.equal(ico.readUInt32LE(18), 22)
+  assert.deepEqual([...ico.subarray(22)], [...png])
+  assert.equal(icoFromPng(png, 32, 16)[7], 16)
 })

@@ -26,6 +26,21 @@ DIMENSIONS = ("authority", "reads", "writes", "predicates", "conflicts",
 GATES = {"runtime_census": False, "conversion_authorized": False}
 GROUPS = {"entries": "registrations", "dispatch": "dispatch_selectors",
           "storage": "connection_sites"}
+# The committed inventory's syntax_sha256 fields hash ast.dump output, whose
+# format differs between Python minor versions. On any other interpreter every
+# witness looks rebound and the registry reads as stale (measured: 22 false
+# errors under 3.10), so the CLI refuses rather than report drift that isn't
+# there. The provisioned runtime is engine/runtime/python.exe.
+REQUIRED_PYTHON = (3, 13)
+
+
+def interpreter_refusal(version):
+    if tuple(version[:2]) == REQUIRED_PYTHON:
+        return None
+    return ("state_operation_contracts requires Python %d.%d (the provisioned engine/runtime/python.exe), "
+            "not %d.%d: the inventory's syntax_sha256 hashes the interpreter's AST dump, so any other "
+            "minor version reports false source drift. Nothing was checked."
+            % (REQUIRED_PYTHON + tuple(version[:2])))
 
 
 def digest(value):
@@ -72,6 +87,21 @@ def condition_matches(condition, args):
             raise ValueError("truthy_text requires a key")
         # Exact reservation selector semantics, not a generic wire validator.
         return bool(str(args.get(key) or "").strip())
+    if "equals" in condition:
+        # Exact equality of ONE named argument with one text value, as a string
+        # field compares it (the operator ops door dispatches on `op`, S3 decision 7).
+        spec = condition["equals"]
+        if not isinstance(spec, dict) or set(spec) != {"key", "value"} \
+                or not isinstance(spec["key"], str) or not spec["key"] or not isinstance(spec["value"], str):
+            raise ValueError("equals requires {key, value}: a nonblank key and a text value")
+        return args.get(spec["key"]) == spec["value"]
+    if "all" in condition:
+        parts = condition["all"]
+        if not isinstance(parts, list) or len(parts) < 2:
+            raise ValueError("all requires a list of at least two conditions")
+        # every part is evaluated, never short-circuited, so a malformed later
+        # part cannot hide behind an earlier false one
+        return all([condition_matches(part, args) for part in parts])
     raise ValueError("unknown condition operator")
 
 
@@ -86,6 +116,10 @@ def select(document, entry_id, args):
             value = str(value or "").strip().lower()
         elif mode == "str_or_empty":
             value = str(value or "")
+        elif mode == "str_or_arm":
+            # the agent door's own reading for orgtree_prime_restart and orgtree_restart_wake:
+            # str(a.get("action") or "arm"), so every falsy action arms (P01 F2 review, rev 11)
+            value = str(value or "arm")
         return value == contract["action"]
 
     return [key for key, contract in document["contracts"].items()
@@ -176,11 +210,13 @@ def validate(document, source, repo):
         if strings(contract["entry_ids"], where + ".entry_ids"):
             require(set(contract["entry_ids"]) <= set(entry_sites), where + ": unknown entry binding")
             bound_sites = [entry_sites[k] for k in contract["entry_ids"] if k in entry_sites]
-            expected_names = {n for r in bound_sites if r["kind"] == "tool" for n in (r.get("names") or [])}
+            expected_names = {n for r in bound_sites if r["kind"] in {"tool", "tool_verb"}
+                              for n in (r.get("names") or [])}
             require(set(contract["tools"]) == expected_names, where + ": entry/tool binding mismatch")
         strings(contract["tools"], where + ".tools", nonempty=False)
         require(contract["action"] is None or text(contract["action"]), where + ": action must be null or text")
-        require(contract["action_normalization"] in {"identity", "str_or_empty", "str_or_empty_strip_lower"},
+        require(contract["action_normalization"] in {"identity", "str_or_empty", "str_or_empty_strip_lower",
+                                                     "str_or_arm"},
                 where + ": unknown action normalization")
         require(contract["domain_mode"] in {"read", "write", "conditional_write"}, where + ": invalid domain mode")
         refs(contract["source_refs"], where)
@@ -253,9 +289,11 @@ def validate(document, source, repo):
                 require(row["contracts"] == [], where + ": excluded witness cannot bind contracts")
                 refs(row["source_refs"], where)
                 # A static literal HTTP/tool registration is an obligation; it
-                # cannot disappear by being relabelled as a false positive.
+                # cannot disappear by being relabelled as a false positive. A
+                # tool verb (a name the agent door dispatches without a card) is
+                # one too: an agent can call it whether or not it is advertised.
                 if group == "entries":
-                    require(expected[identity]["kind"] not in {"http", "websocket", "tool"},
+                    require(expected[identity]["kind"] not in {"http", "websocket", "tool", "tool_verb"},
                             where + ": concrete entry cannot be excluded")
             else:
                 require(row["contracts"] == [] and row["source_refs"] == [],
@@ -318,6 +356,10 @@ def main(argv=None):
     parser.add_argument("--require-complete", action="store_true")
     parser.add_argument("--details", action="store_true", help="include every unresolved obligation")
     args = parser.parse_args(argv)
+    refusal = interpreter_refusal(sys.version_info)
+    if refusal:
+        print(json.dumps({"valid": False, "error": refusal, "qualification": dict(GATES)}), file=sys.stderr)
+        return 4
     try:
         result = check(args.repo.resolve(), args.repo / args.contracts, args.repo / args.inventory)
         result["pending_count"] = len(result["pending"])

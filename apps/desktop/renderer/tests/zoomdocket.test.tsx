@@ -4,6 +4,7 @@
 // 2026-09-12). Loaded before the harness installs jsdom, DOMPurify binds to
 // nothing and `sanitize` is not a function.
 import { flush, inAct, mountView, realClock, useFakeClock } from './harness'
+import { compatibilityWorkFixture } from './workcompat.fixture'
 import { AGENT_SHORTCUTS_KEY, setAgentShortcutsOn } from '../src/canvas/shared'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -14,11 +15,11 @@ const click = async (e:Element|null) => { assert.ok(e); await inAct(()=>{(e as H
 test('overview Docket opens the selected agent, archive toggle and details reuse existing view',async t=>{
  setAgentShortcutsOn(true); t.after(()=>{localStorage.removeItem(AGENT_SHORTCUTS_KEY)})
  useFakeClock(); const calls:string[]=[]
- globalThis.fetch=async (url,init)=>{
+ globalThis.fetch=compatibilityWorkFixture(async (url,init)=>{
   assert.equal(init?.method??'GET','GET','no mutation requested')
   calls.push(String(url))
   return new Response(JSON.stringify(String(url).includes('/work-items')?payload:{}),{headers:{'Content-Type':'application/json'}})
- }
+ })
  const v=await mountView(<OrgCanvas tree={tree(['alpha','beta','empty'])} slug="mine" op={async()=>({})} toast={()=>{}} mailEvt={null}/>,x=>x)
  t.after(async()=>{await v.unmount();realClock()})
  await flush()

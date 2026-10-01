@@ -283,6 +283,13 @@ def _install_desktop_routes(api_app: Any, data: Path, stop: Callable[[], None],
             "buildIdentity": resolve_build_identity(runtime_root),
         }
 
+    # Liveness: the service host's hang watch and the engine's own stall watch
+    # ask this every 30 s. A plain `def` on purpose, so an answer needs the
+    # event loop AND a free worker thread; no I/O, unlike identity's build lookup.
+    @api_app.get("/api/desktop/alive")
+    def desktop_alive() -> dict[str, Any]:
+        return {"protocol": 1, "pid": os.getpid(), "dataRootId": data_root_id(data)}
+
     @api_app.get("/api/desktop/notifications")
     def desktop_notifications(offset: int = 0) -> dict[str, Any]:
         from orgtree.desktop_notifications import notices
@@ -310,8 +317,25 @@ def _install_desktop_routes(api_app: Any, data: Path, stop: Callable[[], None],
     # ── who may connect to THIS INSTALLATION's hub ───────────────────────
     # An installation hosts at most one hub, so its grants belong to App
 
+# ⚠ THE GIL HAND-BACK WAIT (measured 2026-09-30, window-open item). A thread
+# that releases the GIL for a syscall — every open, stat, socket read and
+# PostgreSQL round trip — must wait up to the switch interval to take it back
+# while any other thread is running Python. The engine keeps ~0.8 core busy
+# with agent work, so at CPython's default 5 ms a request that does ~1000 small
+# file operations (the foreground tree's per-agent annotation) took 3-5 s live
+# for ~90 ms of CPU. Under 2/4/8 busy threads the same annotation measured
+# 6.5/1.5/26 s at 5 ms and 0.09/0.11/0.15 s at 0.5 ms; CPU-bound threads lost
+# nothing measurable to the extra switching.
+GIL_SWITCH_INTERVAL_S = 0.0005
+
+
+def tune_gil() -> None:
+    sys.setswitchinterval(GIL_SWITCH_INTERVAL_S)
+
+
 def load_app() -> tuple[Any, str, Path, int, dict[str, bool]]:
     """Validate environment, strip token, then import the V1 API app."""
+    tune_gil()
     data = validate_data_root(_required_path("ORGTREE_DATA"))
     bundled_backend = Path(__file__).resolve().parent / "backend"
     backend = bundled_backend
@@ -380,7 +404,7 @@ def main() -> None:
                               "reason": str(exc)[:300]},
                              separators=(",", ":")), flush=True)
         raise
-    progress.report("lifetime-owned")
+    progress.report("lifetime-owned"); _own_database(data, progress.report)  # PYPG PG-1, below
     app, _token, data, port, stopping = load_app()
     from orgtree import startup
     startup.progress = progress.report
@@ -407,8 +431,9 @@ def main() -> None:
     hub.start()
     progress.report("hub-started")
     import uvicorn  # noqa: PLC0415
+    from orgtree.api import LOCAL_UVICORN_OPTIONS  # noqa: PLC0415
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port,
-                                           access_log=False))
+                                           access_log=False, **LOCAL_UVICORN_OPTIONS))
     async def serve() -> None:
         task = asyncio.create_task(server.serve())
         while not server.started and not task.done():
@@ -421,6 +446,7 @@ def main() -> None:
                           "guardianPid": guardian_pid,
                           "hubPort": hub.config["port"]},
                          separators=(",", ":")), flush=True)
+        from engine.stall_watch import start_stall_watch; start_stall_watch(data, port, _token)  # noqa: E702,PLC0415
         while not task.done():
             if stopping["value"]:
                 server.should_exit = True
@@ -430,6 +456,30 @@ def main() -> None:
         asyncio.run(serve())
     finally:
         hub.stop()
+
+
+def _own_database(data: Path, report: Any = None) -> None:
+    """PYPG PG-1: with ORGTREE_STORE=postgres, bring the private database up
+    (and migrate it) AFTER the root is proven ours and BEFORE the API loads;
+    stop it at interpreter exit, which follows every normal or failed end of
+    ``main`` (a forced kill takes it with the guardian's Job instead). Inert
+    otherwise. A refusal raises: there is no SQLite fallback. Kept to one call
+    in ``main`` so the P01 inventory's sites there do not move.
+    engine/pg_process.py says why and where. ``report`` is main's startup
+    progress reporter: each database step is a checkpoint, so the desktop's
+    readiness window restarts between them (review N-B)."""
+    import atexit  # noqa: PLC0415  (a top-level import would move main's lines)
+    from engine.pg_process import ConversionFailed, start_for_engine
+    try:
+        database = start_for_engine(data, os.environ, progress=report)
+    except ConversionFailed as exc:
+        # The desktop discards stderr: a structured line is how the user sees
+        # WHY the first-launch conversion stopped and where its log is.
+        print(json.dumps({"type": "refused", "code": "conversion-failed", "reason": str(exc)[:2000]},
+                         separators=(",", ":")), flush=True)
+        raise
+    if database is not None:
+        atexit.register(database.stop)
 
 
 if __name__ == "__main__":

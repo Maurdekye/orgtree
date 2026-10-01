@@ -3,11 +3,13 @@
 User invariant (docs/v2-user-decisions.md, 12 September 2026):
 "A turn cannot run while its agent is halted."
 
-DOC_LOCK orders admission, delivery and the durable halt request. Workers
-register before releasing it and unregister after all turn cleanup. A halt
-first closes admission as `halting`, kills provider processes, then publishes
-`halted` only when those workers and their processes have settled. Never wait
-for a worker while holding DOC_LOCK: its finally block needs the same lock.
+The agent's NODE ROW (PYPG: `org_tx`, see "row transactions" below) orders
+admission, delivery and the durable halt request. Workers register before
+they run and unregister after all turn cleanup. A halt first COMMITS
+`halting`, kills provider processes, then publishes `halted` in a fresh
+transaction only when those workers and their processes have settled. Never
+wait for a worker while holding a row lock (or `_reg`): its finally block
+needs them.
 
 The ORG KILLSWITCH (user redesign 2026-09-13) is the second durable halt
 state: one persistent org-level latch, `org.d["killswitch"]`, that makes
@@ -21,29 +23,419 @@ until a separate event legitimately starts work (docket rev 4).
 """
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import copy
+import os
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from functools import wraps
 import threading
 import time
 import uuid
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, Callable, Iterable, Iterator
 
-from . import store
-from .ledger import LedgerError, USER, now
+from . import orgtx, store
+from .ledger import LedgerError, USER, actor_kind, now
 
 
 class Cancelled(RuntimeError):
     """Halt closed admission; this is cancellation, not provider failure."""
 
 
+# ------------------------------------------------ PYPG: row transactions
+# PG-3a (PYPG-PLAN §3). The durable half of this module no longer orders on
+# DOC_LOCK but on the AGENT'S NODE ROW: admission, delivery, halt and unhalt
+# lock it FOR UPDATE in one `orgtx.org_tx`, and a halt COMMITS `halting`
+# before it kills anything. The org killswitch is the doc section row
+# `killswitch`: every gate takes it FOR SHARE, the latch FOR UPDATE, so
+# admissions never serialize on it and a latch waits for the in-flight ones.
+#
+# The in-process registry (`_workers` & co.) is not durable state and gets its
+# own lock, `_reg`. LOCK ORDER: node row (inside org_tx) → `_reg`, never the
+# reverse, and nobody waits on `_reg` (or on a worker) while holding a row.
+#
+# ⚠ THE TRANSITION FENCE. Until the last family converts, unconverted code
+# still does `DOC_LOCK: load → change → save` with no row locks. Such a cycle
+# that loaded BEFORE a halt commit and saves AFTER it rewrites the node row it
+# touched — and a lost `halting` is a turn running on a halted agent. So every
+# transaction here takes DOC_LOCK first and then its rows (the permitted
+# order, PYPG-PLAN §3.6: unconverted code may take DOC_LOCK and then call
+# org_tx; org_tx never waits on DOC_LOCK). Each is short — no kill or wait
+# ever runs inside one — so this is the old lock's cost, not a new convoy.
+# ONE switch for both fences (S8, lead 2026-09-26): this one follows
+# `orgtx.TRANSITION_FENCE` (env ORGTREE_ORGTX_FENCE; default off only when
+# the store is postgres AND the door is enabled, on otherwise, so
+# ORGTREE_PGDOOR=0 keeps it) at call time, so a fence-off run measures the
+# real thing. `_FENCE` True/False is a TEST-ONLY
+# override; None (the default) follows org_tx.
+_FENCE: bool | None = None
+KILLSWITCH = "killswitch"
+# The killswitch row ALWAYS EXISTS (plan decision 26: PG-0 creates/backfills
+# it), so a latch serializes on an exclusive lock of a real row rather than a
+# FOR SHARE of a missing one, which protects nothing. Release therefore
+# CLEARS it to this falsy value instead of deleting it; every reader tests
+# the latch by truthiness.
+KILLSWITCH_CLEAR: Any = None
+_EVENTS = "events"
+
+
+@dataclass
+class _Ctx:
+    tx: orgtx.OrgTx
+    after: list[Callable[[], None]] = field(default_factory=list)
+    abort: list[Callable[[], None]] = field(default_factory=list)
+
+
+_current: contextvars.ContextVar[_Ctx | None] = contextvars.ContextVar(
+    "halt_tx", default=None)
+
+
+def current_tx() -> orgtx.OrgTx | None:
+    """The org_tx a halt gate (`delivery`, `admission`) opened around the
+    body it wraps. A converted body MUST use it rather than open its own —
+    a second org_tx on the same org on this thread raises `orgtx.NestedTx`."""
+    ctx = _current.get()
+    return ctx.tx if ctx is not None else None
+
+
+def _fence():
+    on = orgtx.TRANSITION_FENCE if _FENCE is None else _FENCE
+    return store.FENCE if on else contextlib.nullcontext()   # S8: counted as the fence
+
+
+def _covers(tx: orgtx.OrgTx, nodes: frozenset[str], sections: frozenset[str],
+            share_nodes: frozenset[str], share_sections: frozenset[str],
+            logs: frozenset[Any]) -> list[str]:
+    missing = [f"node {n!r}" for n in nodes - tx.lock_nodes]
+    # an owner row (`section\x1fowner`) is also covered when the enclosing
+    # transaction holds its whole split container FOR UPDATE — the same rule
+    # org_tx's own write check applies (store.split_section_of)
+    # A custody-receipt owner (`mail_transitions\x1fowner`) is not a split
+    # row, and is covered by the whole receipt section the same way -- which
+    # is what an unconverted org's transaction holds (orgtx._receipt_scope)
+    missing += [f"section {s!r}" for s in sections - tx.lock_sections
+                if store.split_section_of(s) not in tx.lock_sections
+                and not (s.startswith(store.RECEIPT_KEY + store.SPLIT_SEP)
+                         and store.RECEIPT_KEY in tx.lock_sections)]
+    missing += [f"shared node {n!r}" for n in
+                share_nodes - tx.lock_nodes - tx.share_nodes]
+    missing += [f"shared section {s!r}" for s in
+                share_sections - tx.lock_sections - tx.share_sections]
+    missing += [f"log {lg!r}" for lg in logs - tx.logs]
+    return missing
+
+
+@contextmanager
+def txn(slug: str, *, nodes: Iterable[str] = (), sections: Iterable[str] = (),
+        share_nodes: Iterable[str] = (), share_sections: Iterable[str] = (),
+        logs: Iterable[Any] = ()) -> Iterator[orgtx.OrgTx]:
+    """One halt transaction: the fence, then `org_tx` on exactly these rows.
+
+    JOINS an enclosing halt transaction on the same org instead of nesting,
+    provided it already holds every row named here (a gap is a programming
+    error and raises, rather than silently writing unlocked rows). Work
+    registered with `_after` runs only once the outermost transaction has
+    COMMITTED; work registered with `_on_abort` only if it did not."""
+    # Coverage is judged on the row names org_tx itself locks: a
+    # `(split section, owner)` pair is the owner's row (`section\x1fowner`)
+    # plus its container FOR SHARE (`orgtx._section_names`). Comparing the raw
+    # pair against the enclosing transaction's encoded names would refuse
+    # every join that names a per-owner mail row.
+    want = (frozenset(nodes), frozenset(sections), frozenset(share_nodes),
+            frozenset(share_sections), frozenset(logs))
+    lock_rows, lock_parents = orgtx._section_names(  # pyright: ignore[reportPrivateUsage]
+        want[1], "sections")
+    share_rows, share_parents = orgtx._section_names(  # pyright: ignore[reportPrivateUsage]
+        want[3], "share_sections")
+    cover = (want[0], lock_rows, want[2],
+             (share_rows | share_parents | lock_parents) - lock_rows, want[4])
+    outer = _current.get()
+    if outer is not None and outer.tx.slug == slug:
+        missing = _covers(outer.tx, *cover)
+        if missing:
+            raise orgtx.OrgTxError(
+                "halt: the enclosing transaction does not lock "
+                + ", ".join(missing))
+        yield outer.tx
+        return
+    foreign = orgtx.current_tx(slug)
+    if foreign is not None:
+        # a transaction some other code opened on this thread (the agent
+        # door, an operator op): join it the same way. Its commit is not
+        # ours to see, so `_after` work runs when THIS block ends and
+        # `_on_abort` work when it raises — the closest this caller can get.
+        missing = _covers(foreign, *cover)
+        if missing:
+            raise orgtx.OrgTxError(
+                "halt: the enclosing transaction does not lock "
+                + ", ".join(missing))
+        jctx = _Ctx(foreign)
+        token = _current.set(jctx)
+        try:
+            yield foreign
+        except BaseException:
+            for fn in jctx.abort:
+                with contextlib.suppress(Exception):
+                    fn()
+            raise
+        finally:
+            _current.reset(token)
+        for fn in jctx.after:
+            fn()
+        return
+    ctx: _Ctx | None = None
+    try:
+        with _fence(), orgtx.org_tx(slug, nodes=want[0], sections=want[1],
+                                    share_nodes=want[2], share_sections=want[3],
+                                    logs=want[4]) as tx:
+            ctx = _Ctx(tx)
+            token = _current.set(ctx)
+            try:
+                yield tx
+            finally:
+                _current.reset(token)
+    except BaseException:
+        if ctx is not None:
+            for fn in ctx.abort:
+                with contextlib.suppress(Exception):
+                    fn()
+        raise
+    assert ctx is not None
+    for fn in ctx.after:
+        fn()
+
+
+def _after(fn: Callable[[], None]) -> bool:
+    """Run `fn` after the open halt transaction commits. False (and nothing
+    registered) when no halt transaction is open on this thread."""
+    ctx = _current.get()
+    if ctx is None:
+        return False
+    ctx.after.append(fn)
+    return True
+
+
+def _on_abort(fn: Callable[[], None]) -> None:
+    ctx = _current.get()
+    if ctx is not None:
+        ctx.abort.append(fn)
+
+
+def _no_org(slug: str) -> bool:
+    """No such org: the gates then run their body exactly as the lock-free
+    `blocked()` pre-gate used to let them (it answered None for a missing
+    org), instead of an org_tx raising "no such org" out of every delivery
+    of a deleted or never-created org.
+
+    S-C (pg-per-call-cost, 2026-09-26): the org's own file answers first. A
+    document at `store.org_path` (`<slug>.pg` marker, `.db`, or `.json`) is
+    an org, and the gate's transaction loads it anyway — one stat instead of
+    a shared-snapshot rebuild, which after every commit (the send's own) was
+    a load of ~35 round trips on PostgreSQL. Only a missing file falls back
+    to the historical check, so a deleted, never-created or still-cached org
+    and a test's injected fixture answer exactly as before. The one case
+    that differs: a file that exists but cannot be loaded (a damaged
+    database, an unreadable marker) is no longer "no org" — the gate's
+    transaction raises that load error instead of running the body ungated.
+    An invalid slug is no org, as before (`_safe_slug` raised the same)."""
+    try:
+        if os.path.exists(store.org_path(slug)):
+            return False
+    except LedgerError:
+        return True
+    try:
+        store.cached_org(slug)
+        return False
+    except LedgerError:
+        return True
+
+
+def _gate_blocked(org, nid: str) -> str | None:
+    """`blocked` asked of a transaction's own rows — the node row it holds
+    FOR UPDATE and the killswitch it holds FOR SHARE. This, not the lock-free
+    `blocked`, is the admission decision."""
+    n = org.nodes.get(nid)
+    if n is not None and n.get("halt"):
+        return "halt"
+    if org.d.get(KILLSWITCH):
+        return "killswitch"
+    return None
+
+
+class _Respec(Exception):
+    """The ancestor chain moved between the snapshot and the locks."""
+
+
+def _chain(slug: str, nid: str) -> list[str]:
+    try:
+        org = store.cached_org(slug)
+        return ([a for a in org.ancestors(nid) if a in org.nodes]
+                if nid in org.nodes else [])
+    except LedgerError:
+        return []
+
+
+@contextmanager
+def _authorized(slug: str, nid: str, actor: str, **spec: Any) -> Iterator[orgtx.OrgTx]:
+    """`txn` on `spec` that ALSO share-locks nid's ancestor chain when the
+    actor is an agent, so `_require_authority` decides on locked rows. The
+    chain comes from a snapshot; if it moved before the locks were granted
+    the body is refused (`_Respec`) and the caller's loop re-runs it."""
+    agent = actor_kind(actor) not in ("user", "system")
+    chain = _chain(slug, nid) if agent else []
+    with txn(slug, share_nodes=[*spec.pop("share_nodes", ()), *chain],
+             **spec) as tx:
+        if agent and nid in tx.org.nodes and \
+                {a for a in tx.org.ancestors(nid) if a in tx.org.nodes}                 - set(chain) - tx.lock_nodes:
+            raise _Respec()
+        tx.org._require_authority(actor, nid)
+        yield tx
+
+
+def _retrying(fn: Callable[[], Any], tries: int = 4) -> Any:
+    for i in range(tries):
+        try:
+            return fn()
+        except _Respec:
+            if i == tries - 1:
+                raise LedgerError("the agent tree kept moving; try again") from None
+
+
 # Kept separately from disposable provider/runtime state. A model switch or
 # forget_state must not erase evidence of a worker that still owns cleanup.
+# Guarded by `_reg` (see the lock order above), NOT by DOC_LOCK.
 _workers: dict[tuple[str, str], int] = {}
 _worker_states: dict[tuple[str, str], list[dict]] = {}
 _halt_states: dict[tuple[str, str], list[dict]] = {}
 _halters: dict[tuple[str, str], int] = {}
-_changed = threading.Condition(store.DOC_LOCK)
+_reg = threading.Condition(threading.RLock())
+_changed = _reg   # the old name; waiters/notifiers elsewhere keep working
+
+# ------------------------------------------- per-worker pending carriers (S11)
+# The carrier a turn worker has handed to its provider but not yet seen
+# consumed. It used to be ONE slot per runtime (`st["halt_pending_carrier"]`),
+# which was safe only while the transition fence admitted one turn worker at
+# a time: with the fence off, workers admitted side by side on one agent
+# overwrote each other's carrier and a halt retained only the last
+# (test_s11_halt_carriers_fence_off, 7/20 before this). Now each turn worker
+# owns its own slot, keyed by a token it holds in `_SLOT` for the length of
+# its body; `st["halt_pending_carriers"]` maps token → carrier and
+# `st["halt_carrier_ids"]` token → the carrier's `_halt_id` at the time it was
+# set. A turn worker nested on the same thread for the same agent (`_run_turn`
+# → `_run_one_turn`) REUSES the outer token, which is exactly the old
+# one-slot-per-thread behaviour. Everything that makes carriers durable
+# (`_capture`, the settle poll, the mail census) reads ALL slots; everything a
+# turn does to its own input (set, consume, link a freeze) touches only its
+# own. Every access is under `supervisor._state_lock`, like the old slot.
+_SLOT: "contextvars.ContextVar[dict[tuple[str, str], object] | None]" = \
+    contextvars.ContextVar("halt_pending_slot", default=None)
+
+
+def _slot_token(slug: str, nid: str) -> object | None:
+    held = _SLOT.get()
+    return held.get((slug, nid)) if held else None
+
+
+def _own_slot(st, slug: str, nid: str) -> object | None:
+    """This thread's token for the agent, or — outside any turn worker — the
+    ONLY pending slot when there is exactly one (a single-worker caller keeps
+    working as before); None when that is ambiguous. Caller holds
+    `_state_lock`."""
+    tok = _slot_token(slug, nid)
+    if tok is not None:
+        return tok
+    slots = st.get("halt_pending_carriers") or {}
+    return next(iter(slots)) if len(slots) == 1 else None
+
+
+def pending_carrier(st, slug: str, nid: str):
+    """This worker's pending carrier, or None. Caller holds `_state_lock`."""
+    tok = _own_slot(st, slug, nid)
+    return (st.get("halt_pending_carriers") or {}).get(tok) if tok is not None else None
+
+
+def set_pending_carrier(st, slug: str, nid: str, carrier) -> dict:
+    """Make `carrier` this worker's pending carrier (a bare text is wrapped)
+    and return the dict stored. Caller holds `_state_lock`."""
+    c = carrier if isinstance(carrier, dict) else {"text": carrier}
+    tok = _own_slot(st, slug, nid)
+    if tok is None:
+        # outside a turn worker with no single slot to take: a slot of its
+        # own, which every halt capture still sweeps; the last worker out
+        # clears it
+        if st.get("halt_pending_carriers"):
+            print(f"[orgtree] {slug}/{nid}: a pending carrier was set off "
+                  f"the turn thread beside "
+                  f"{len(st['halt_pending_carriers'])} others — kept in a "
+                  f"slot of its own", flush=True)
+        tok = object()
+    st.setdefault("halt_pending_carriers", {})[tok] = c
+    st.setdefault("halt_carrier_ids", {})[tok] = c.get("_halt_id")
+    return c
+
+
+def has_pending_carrier(st, slug: str, nid: str) -> bool:
+    """Does this worker still hold an unconsumed carrier? Takes
+    `_state_lock` itself (a lock-free peek from the stream loop)."""
+    from . import supervisor as sup
+    with sup._state_lock:
+        return bool(pending_carrier(st, slug, nid))
+
+
+def set_pending_id(st, slug: str, nid: str, ident: Any) -> None:
+    """Record the `_halt_id` of this worker's carrier. Caller holds
+    `_state_lock`."""
+    tok = _own_slot(st, slug, nid)
+    if tok is not None:
+        st.setdefault("halt_carrier_ids", {})[tok] = ident
+
+
+def _slot_by_tokens(st, toks: Iterable[str]) -> object | None:
+    """The slot whose carrier holds one of these journal tokens, or None."""
+    want = set(toks)
+    if not want:
+        return None
+    for tok, c in (st.get("halt_pending_carriers") or {}).items():
+        if isinstance(c, dict) and want.intersection(c.get("toks") or ()):
+            return tok
+    return None
+
+
+def pop_pending_carrier(st, slug: str, nid: str,
+                        toks: Iterable[str] = ()) -> tuple[Any, Any]:
+    """Remove the consumed worker's slot: (carrier, the id recorded with it).
+
+    Which slot: the one whose carrier holds one of the confirmed journal
+    `toks` (exact, from any thread — a mail-drain recovery, a tool hook, an
+    HTTP handler, where the ContextVar is empty; review by p03-ws3b); else
+    this thread's own (`_SLOT`); else the only slot when there is exactly
+    one. Ambiguous (several slots, none matching) spends NOTHING and
+    says so: an unspent carrier can at worst be replayed by a halt, a wrongly
+    spent one is lost. Caller holds `_state_lock`."""
+    # the confirmed journal tokens name the carrier exactly, so they win
+    # even over this thread's own slot (review N3); then the own slot; then
+    # the only slot
+    tok = _slot_by_tokens(st, toks)
+    if tok is None:
+        tok = _own_slot(st, slug, nid)
+    if tok is None:
+        if st.get("halt_pending_carriers"):
+            print(f"[orgtree] {slug}/{nid}: provider acknowledgement matched "
+                  f"no pending carrier among "
+                  f"{len(st['halt_pending_carriers'])} (off the turn thread, "
+                  f"no matching journal token) — none spent", flush=True)
+        return None, None
+    c = (st.get("halt_pending_carriers") or {}).pop(tok, None)
+    ident = (st.get("halt_carrier_ids") or {}).pop(tok, None)
+    return c, ident
+
+
+def pending_carriers(st) -> list:
+    """Every worker's pending carrier. Caller holds `_state_lock`."""
+    return [c for c in (st.get("halt_pending_carriers") or {}).values()
+            if c is not None]
 SETTLE_TIMEOUT = 20.0  # leave room inside the agent tool transport's 30s timeout
 
 # ---------------------------------------------------- the durable settler
@@ -84,7 +476,8 @@ SETTLER_POLL_MAX = 5.0    # …backing off to this, so a long settle is not a sp
 # own copy under the lock, because everything below this block writes.
 def _node(slug: str, nid: str):
     try:
-        return store.cached_org(slug).nodes.get(nid)
+        from .foreground_reads import node_gates
+        return node_gates(slug, nid)["node"]
     except LedgerError:
         return None
 
@@ -104,7 +497,7 @@ def org_killswitch(slug: str) -> dict[str, Any] | None:
         return None
 
 
-def blocked(slug: str, nid: str) -> str | None:
+def blocked(slug: str, nid: str, projection: dict | None = None) -> str | None:
     """The unified non-runnable cause: 'halt' when the agent itself carries
     the durable halt, 'killswitch' when its org's latch holds. One predicate,
     asked by every gate in this module, so the org latch covers exactly the
@@ -118,24 +511,36 @@ def blocked(slug: str, nid: str) -> str | None:
     # never extended to the action anyway. What the lock DID do under swarm
     # load was convoy: a snapshot rebuild that fell back to a full parse ran
     # inside it and stalled every write for tens of seconds.
+    # `projection`: a `read_runtime_node(slug, nid, ("killswitch",))` result
+    # the caller already holds from this same request (agent_call's identity
+    # check), so the pre-gate costs no second read.
     try:
-        org = store.cached_org(slug)
+        if projection is None:
+            projection = (store.read_runtime_node(slug, nid, ("killswitch",))
+                          if store.STORE_BACKEND == "postgres" else None)
+        if projection is None:
+            org = store.cached_org(slug)
+            n, latch = org.nodes.get(nid), org.d.get("killswitch")
+        else:
+            n, latch = projection["node"], projection.get("killswitch")
     except LedgerError:
         return None
-    n = org.nodes.get(nid)
     if n is not None and n.get("halt"):
         return "halt"
-    if org.d.get("killswitch"):
+    if latch:
         return "killswitch"
     return None
 
 
 def _states(slug: str, nid: str, st) -> list[dict]:
-    """Under DOC_LOCK: account/model resets may have replaced runtime state."""
+    """Account/model resets may have replaced runtime state. Takes `_reg`
+    (reentrant) for the registry reads."""
     from . import supervisor as sup
     unique = {}
-    for s in [st, sup.state(slug, nid), *_worker_states.get((slug, nid), []),
-              *_halt_states.get((slug, nid), [])]:
+    with _reg:
+        regs = [*_worker_states.get((slug, nid), []),
+                *_halt_states.get((slug, nid), [])]
+    for s in [st, sup.state(slug, nid), *regs]:
         unique[id(s)] = s
     return list(unique.values())
 
@@ -199,7 +604,7 @@ def link_freeze_replay(slug: str, nid: str, frozen) -> None:
     from . import supervisor as sup
     st = sup.state(slug, nid)
     with sup._state_lock:
-        pending = st.get("halt_pending_carrier")
+        pending = pending_carrier(st, slug, nid)
         if pending is not None and frozen.get("resume_texts"):
             ident = pending.setdefault("_halt_id", uuid.uuid4().hex)
             frozen.setdefault("halt_sources", {})[str(len(frozen["resume_texts"]) - 1)] = ident
@@ -222,55 +627,137 @@ def restore_frozen_sources(org, nid: str, carriers, sources) -> None:
 
 
 def _capture(org, nid: str, st, *, force: bool = False) -> None:
+    """Make every runtime carrier of `st` durable in `org`'s halt_queue.
+
+    Inside a halt transaction whose org IS `org`, the carriers are retained
+    into the transaction and the runtime queues are pruned only AFTER it
+    commits (restored to `halt_aux_carriers` if it does not) — the same
+    durable-first rule the legacy path below keeps with its own save."""
     from . import supervisor as sup
     with sup._state_lock:
         queued = list(st.get("queue") or []) + list(st.get("steer") or [])
         queued.extend(st.get("halt_steering_carriers") or [])
         queued.extend(st.get("halt_aux_carriers") or [])
+        queued.extend(st.get("mail_handoffs") or [])
+        queued.extend(st.get("mail_publication_wait") or [])
         for entry in st.get("steer_limbo") or []:
             queued.extend(entry.get("carriers") or [])
-        pending = st.get("halt_pending_carrier")
-        if pending is not None:
-            queued.insert(0, pending)
+        # every worker's unconfirmed input, ahead of the queues (S11)
+        queued[:0] = pending_carriers(st)
     changed = retain(org, nid, queued)
-    # Durable first. A failed save leaves every runtime carrier in place.
+
+    def stash() -> None:
+        # The outer worker may retire its pending slot while unwinding.
+        # Preserve every complete carrier if durability is still unknown.
+        with sup._state_lock:
+            held = st.setdefault("halt_aux_carriers", [])
+            held.extend(c for c in queued if not any(c is h for h in held))
+
+    def prune() -> None:
+        captured = {id(c) for c in queued}
+        with sup._state_lock:
+            st["queue"] = [c for c in st.get("queue") or [] if id(c) not in captured]
+            st["steer"] = [c for c in st.get("steer") or [] if id(c) not in captured]
+            for key in ("mail_handoffs", "mail_publication_wait"):
+                st[key] = [c for c in st.get(key) or [] if id(c) not in captured]
+            st["mail_handoff_owners"] = {key: value for key, value in
+                st.get("mail_handoff_owners", {}).items() if key not in captured}
+
+    ctx = _current.get()
+    if ctx is not None and ctx.tx.org is org:
+        _on_abort(stash)
+        _after(prune)
+        return
+    # Legacy (unconverted caller under DOC_LOCK): durable first. A failed
+    # save leaves every runtime carrier in place.
     if changed or force:
-        store.save_org(org)
-    captured = {id(c) for c in queued}
-    with sup._state_lock:
-        st["queue"] = [c for c in st.get("queue") or [] if id(c) not in captured]
-        st["steer"] = [c for c in st.get("steer") or [] if id(c) not in captured]
+        try:
+            store.save_org(org)
+        except Exception:
+            stash()
+            raise
+    prune()
 
 
-def delivery(empty):
-    """Serialize a short mailbox/receipt transaction with halt admission."""
+def _capture_tx(slug: str, nid: str, *states) -> None:
+    """Capture `states` in one halt transaction on nid's row."""
+    with txn(slug, nodes=[nid]) as tx:
+        for st in states:
+            _capture(tx.org, nid, st)
+
+
+_ROW_KINDS = ("nodes", "sections", "share_nodes", "share_sections", "logs")
+
+
+def _gate_rows(nid: str, rows, args, kwargs) -> dict[str, set]:
+    """The gate's own rows (nid FOR UPDATE, the killswitch FOR SHARE) united
+    with what the wrapped body declares. `rows` is called with the wrapped
+    call's own arguments BEFORE any lock is taken, and returns a mapping (or
+    an object with attributes) over `_ROW_KINDS`; None adds nothing."""
+    out = {k: set() for k in _ROW_KINDS}
+    out["nodes"].add(nid)
+    out["share_sections"].add(KILLSWITCH)
+    extra = rows(*args, **kwargs) if rows is not None else None
+    if extra is not None:
+        for k in _ROW_KINDS:
+            got = (extra.get(k) if isinstance(extra, Mapping)
+                   else getattr(extra, k, None))
+            if isinstance(got, str):
+                raise TypeError(f"halt gate rows: {k} must be an iterable "
+                                f"of names, not the string {got!r}")
+            out[k].update(got or ())
+    return out
+
+
+def delivery(empty, *, rows=None):
+    """Serialize a short mailbox/receipt transaction with halt admission.
+
+    The body runs INSIDE one halt transaction holding nid's row FOR UPDATE
+    and the killswitch FOR SHARE, so it is strictly ordered against a halt's
+    `halting` commit. A converted body takes that transaction from
+    `current_tx()`; an unconverted one still runs under the fence's DOC_LOCK
+    exactly as before. `rows(slug, nid, *args, **kwargs)` optionally declares
+    the body's own rows; the gate locks their union in its one transaction."""
     def decorate(fn):
         @wraps(fn)
         def guarded(slug, nid, *args, **kwargs):
-            with store.DOC_LOCK:
-                if blocked(slug, nid):
+            if _no_org(slug):
+                return fn(slug, nid, *args, **kwargs)
+            want = _gate_rows(nid, rows, (slug, nid) + args, kwargs)
+            with txn(slug, **want) as tx:
+                if _gate_blocked(tx.org, nid):
                     return empty()
                 return fn(slug, nid, *args, **kwargs)
         return guarded
     return decorate
 
 
-def admission(fn):
-    """The send door is atomic with halt, including steer envelope drains."""
+def admission(fn=None, *, rows=None):
+    """The send door is atomic with halt, including steer envelope drains:
+    the blocked decision, the retained carrier and the body are one halt
+    transaction on nid's row (killswitch FOR SHARE). Used bare, or as
+    `@admission(rows=...)` where `rows(slug, nid, text, *args, **kwargs)`
+    declares the body's own rows, locked with the gate's in one transaction."""
+    if fn is None:
+        return lambda f: admission(f, rows=rows)
+
     @wraps(fn)
     def guarded(slug, nid, text, *args, **kwargs):
         options = dict(zip(("command", "wake", "mail_ping", "idle_only", "view",
                             "sender", "ping_reason", "segments", "_inventory"),
                            args))
         options.update(kwargs)
-        with store.DOC_LOCK:
-            n = _node(slug, nid)
-            cause = blocked(slug, nid) if n else None
+        if _no_org(slug):
+            return fn(slug, nid, text, *args, **kwargs)
+        want = _gate_rows(nid, rows, (slug, nid, text) + args, kwargs)
+        with txn(slug, **want) as tx:
+            org = tx.org
+            n = org.nodes.get(nid)
+            cause = _gate_blocked(org, nid) if n else None
             if n and cause:
                 # Commands have no mailbox. Retain them verbatim, as well as
                 # raw restart/replay nudges; passive notices never create work.
                 if options.get("wake", True) and not options.get("idle_only"):
-                    org = store.load_org(slug)
                     c = {"text": text, "view": options.get("view") or ""}
                     # a replay's frozen composition is retained WITH it: an
                     # unhalt that handed back the text and dropped the segments
@@ -284,7 +771,6 @@ def admission(fn):
                         c["ping"] = True
                         c["ping_reason"] = options.get("ping_reason")
                     retain(org, nid, [c])
-                    store.save_org(org)
                     n = org.node(nid)
                 halt_rec = n.get("halt")
                 return {"accepted": not options.get("idle_only", False),
@@ -301,65 +787,119 @@ def admission(fn):
     return guarded
 
 
+def _unregister(slug: str, nid: str, st, *, gated: bool,
+                slot: object | None = None) -> None:
+    """Under `_reg`: drop one registration of `st` and the pending-carrier
+    `slot` it owned (S11); the last one out clears every slot (and, when
+    gated, the busy flags)."""
+    from . import supervisor as sup
+    key = (slug, nid)
+    owners = _worker_states.get(key, [])
+    for i, owner in enumerate(owners):
+        if owner is st:
+            owners.pop(i)
+            break
+    if not owners:
+        _worker_states.pop(key, None)
+    if slot is not None:
+        with sup._state_lock:
+            (st.get("halt_pending_carriers") or {}).pop(slot, None)
+            (st.get("halt_carrier_ids") or {}).pop(slot, None)
+    count = _workers.get(key, 1) - 1
+    if count:
+        _workers[key] = count
+    else:
+        _workers.pop(key, None)
+        with sup._state_lock:
+            st.pop("halt_pending_carriers", None)
+            st.pop("halt_carrier_ids", None)
+        if gated:
+            runtimes = _states(slug, nid, st)
+            with sup._state_lock:
+                for runtime in runtimes:
+                    runtime["busy"] = runtime["waiting"] = False
+    _reg.notify_all()
+
+
 def worker(fn):
-    """Register the whole turn owner, including slot waits and finalizers."""
+    """Register the whole turn owner, including slot waits and finalizers.
+
+    REGISTER, THEN CHECK. The worker registers under `_reg` first and only
+    then reads the durable halt state; a halt commits `halting` first and only
+    then reads the registry (`_settled`). Whichever order the two land in, one
+    of them sees the other: either this read sees `halting` and the body never
+    runs, or the halt's registry read sees this worker and waits for it. This
+    costs a provider callback (which re-enters here on every stream event) no
+    row transaction; only a BLOCKED worker opens one, to retain its carriers.
+    (It does still take the transition fence — see the note in the body.)
+    (The read is `blocked`, whose snapshot is seq-gated: a committed halt is
+    visible to the very next read — store.cached_org.)"""
     @wraps(fn)
     def guarded(slug, nid, *args, **kwargs):
         from . import supervisor as sup
         key = (slug, nid)
         st = sup.state(slug, nid)
-        with store.DOC_LOCK:
-            n = _node(slug, nid)
-            if n and blocked(slug, nid):
-                org = store.load_org(slug)
-                kept = (retain(org, nid, [args[0]])
-                        if args and fn.__name__ in ("_run_turn", "_run_one_turn") else False)
-                _capture(org, nid, st, force=kept)
-                with sup._state_lock:
-                    if not _workers.get(key):
-                        st["busy"] = st["waiting"] = False
-                _changed.notify_all()
-                return None
-            _workers[key] = _workers.get(key, 0) + 1
-            _worker_states.setdefault(key, []).append(st)
-            if fn.__name__ in ("_run_turn", "_run_one_turn") and args:
+        turn = fn.__name__ in ("_run_turn", "_run_one_turn") and bool(args)
+        # UNDER THE FENCE, like the DOC_LOCK section this replaced, while the
+        # fence is on. The ordering proof above needs no lock, and since S11
+        # neither do the pending carriers: each turn worker owns its own slot
+        # (the per-worker carriers block above), so workers admitted side by
+        # side on one agent no longer overwrite each other's unconfirmed
+        # carrier. test_s11_halt_carriers_fence_off runs the guard
+        # (test_halt_racing_send_and_manual_drive_...) with the fence off.
+        slot: object | None = None      # the slot this worker OWNS
+        held = _SLOT.get() or {}
+        with _fence():
+            with _reg:
+                _workers[key] = _workers.get(key, 0) + 1
+                _worker_states.setdefault(key, []).append(st)
+            refused = bool(_node(slug, nid) and blocked(slug, nid))
+            if turn and not refused:
+                # admitted: registered BEFORE the check, so a halt that
+                # commits from here on waits for this worker, whose finally
+                # captures this carrier if it was not spent
                 c = args[0] if isinstance(args[0], dict) else {"text": str(args[0])}
+                # a turn worker nested on this thread (`_run_turn` →
+                # `_run_one_turn`) reuses the outer worker's slot
+                tok = held.get(key)
+                if tok is None:
+                    tok = slot = object()
                 with sup._state_lock:
-                    old = st.get("halt_pending_carrier")
+                    slots = st.setdefault("halt_pending_carriers", {})
+                    old = slots.get(tok)
                     if old and old.get("text") == c.get("text") and not isinstance(args[0], dict):
                         c = old
-                    st["halt_pending_carrier"] = c
-                    st["halt_carrier_id"] = c.get("_halt_id")
+                    slots[tok] = c
+                    st.setdefault("halt_carrier_ids", {})[tok] = c.get("_halt_id")
+        if refused:
+            # Not admitted. The pending slot may hold a running worker's
+            # carrier that no capture has reached yet, so a refused worker
+            # never touches it: it retains its own carrier explicitly, with
+            # everything else queued on the runtime.
+            try:
+                with txn(slug, nodes=[nid]) as tx:
+                    if turn:
+                        retain(tx.org, nid, [args[0]])
+                    _capture(tx.org, nid, st)
+            finally:
+                with _reg:
+                    _unregister(slug, nid, st, gated=True)
+            return None
+        reset = _SLOT.set({**held, key: slot}) if slot is not None else None
         try:
             return fn(slug, nid, *args, **kwargs)
         finally:
-            with store.DOC_LOCK:
-                gated = False
-                try:
-                    n = _node(slug, nid)
-                    gated = bool(n and blocked(slug, nid))
-                    if gated:
-                        _capture(store.load_org(slug), nid, st)
-                finally:
-                    owners = _worker_states.get(key, [])
-                    for i, owner in enumerate(owners):
-                        if owner is st:
-                            owners.pop(i)
-                            break
-                    if not owners:
-                        _worker_states.pop(key, None)
-                    count = _workers.get(key, 1) - 1
-                    if count:
-                        _workers[key] = count
-                    else:
-                        _workers.pop(key, None)
-                        st.pop("halt_pending_carrier", None)
-                        if gated:
-                            runtimes = _states(slug, nid, st)
-                            with sup._state_lock:
-                                for runtime in runtimes:
-                                    runtime["busy"] = runtime["waiting"] = False
-                    _changed.notify_all()
+            if reset is not None:
+                _SLOT.reset(reset)
+            gated = False
+            try:
+                gated = bool(_node(slug, nid) and blocked(slug, nid))
+                if gated:
+                    with txn(slug, nodes=[nid]) as tx:
+                        _capture(tx.org, nid, st)
+            finally:
+                with _reg:
+                    _unregister(slug, nid, st, gated=gated, slot=slot)
     return guarded
 
 
@@ -398,31 +938,34 @@ def confirmed(org, nid: str, toks, carriers=()) -> None:
 
 @delivery(lambda: None)
 def complete_auxiliary(slug: str, nid: str, carrier) -> None:
-    org = store.load_org(slug)
-    confirmed(org, nid, [], [carrier])
-    store.save_org(org)
+    tx = current_tx()
+    assert tx is not None
+    confirmed(tx.org, nid, [], [carrier])
 
 
-def consumed(slug: str, nid: str) -> None:
-    """Initial provider acknowledgement also spends a retained raw carrier."""
+def consumed(slug: str, nid: str, toks: Iterable[str] = ()) -> None:
+    """Initial provider acknowledgement also spends a retained raw carrier.
+    Opens a transaction only when there is a durable copy to spend. `toks`
+    (the journal tokens the acknowledgement confirmed) pick the carrier when
+    this runs off the turn's own thread (`pop_pending_carrier`)."""
     from . import supervisor as sup
-    with store.DOC_LOCK:
-        n = _node(slug, nid)
-        if not n or n.get("halt"):
-            return
-        st = sup.state(slug, nid)
-        with sup._state_lock:
-            c = st.pop("halt_pending_carrier", None)
-            ident = (c or {}).get("_halt_id") or st.pop("halt_carrier_id", None)
-            st.pop("halt_carrier_id", None)
-        if ident and n.get("halt_queue"):
-            org = store.load_org(slug)
-            confirmed(org, nid, [], [{"_halt_id": ident}])
-            store.save_org(org)
+    n = _node(slug, nid)
+    if not n or n.get("halt"):
+        return
+    st = sup.state(slug, nid)
+    with sup._state_lock:
+        c, recorded = pop_pending_carrier(st, slug, nid, toks)
+        ident = (c or {}).get("_halt_id") or recorded
+    if not ident or not n.get("halt_queue"):
+        return
+    with txn(slug, nodes=[nid]) as tx:
+        n = tx.org.nodes.get(nid)
+        if n and not n.get("halt") and n.get("halt_queue"):
+            confirmed(tx.org, nid, [], [{"_halt_id": ident}])
 
 
 def _cut(slug: str, nid: str, st, *, halting: bool = True) -> None:
-    with store.DOC_LOCK:
+    with _reg:
         owners = _states(slug, nid, st)
     for runtime in owners:
         _cut_state(slug, nid, runtime, halting=halting)
@@ -458,6 +1001,9 @@ def _cut_state(slug: str, nid: str, st, *, halting: bool = True) -> None:
             st["halt_requested"] = True
         st["interrupted"] = True
         st["admission_cancel_token"] = st.get("admission_wait_token")
+        # the fair turn-slot queue blocks on a condition: wake it so a queued
+        # turn sees the cancel now (FairSlots never takes _state_lock)
+        sup._turn_slots.wake()
         st["deploy_hold_cancel"] = st.get("deploy_hold_token")
         ev = st.get("mcp_tool_event")
         proc = st.get("proc")
@@ -508,8 +1054,9 @@ def _cut_state(slug: str, nid: str, st, *, halting: bool = True) -> None:
 
 def _settled(slug: str, nid: str, st) -> bool:
     from . import supervisor as sup, warmpool
-    if _workers.get((slug, nid)):
-        return False
+    with _reg:
+        if _workers.get((slug, nid)):
+            return False
     if not warmpool.halt_settled(slug, nid):
         return False
     return all(_state_settled(runtime) for runtime in _states(slug, nid, st))
@@ -559,7 +1106,7 @@ def surviving(slug: str, nid: str, st=None) -> list[dict[str, Any]]:
     if st is None:
         st = sup.state(slug, nid)
     alive: list[dict[str, Any]] = []
-    with store.DOC_LOCK:
+    with _reg:
         runtimes = _states(slug, nid, st)
     for runtime in runtimes:
         with sup._state_lock:
@@ -577,7 +1124,7 @@ def blocking(slug: str, nid: str, st=None) -> list[str]:
     if st is None:
         st = sup.state(slug, nid)
     reasons: list[str] = []
-    with store.DOC_LOCK:
+    with _reg:
         count = _workers.get((slug, nid)) or 0
         runtimes = _states(slug, nid, st)
     if count:
@@ -601,12 +1148,12 @@ def blocking(slug: str, nid: str, st=None) -> list[str]:
 
 def halt(slug: str, nid: str, actor: str = USER, *, timeout=None) -> dict[str, Any]:
     key = (slug, nid)
-    with store.DOC_LOCK:
+    with _reg:
         _halters[key] = _halters.get(key, 0) + 1
     try:
         return _halt(slug, nid, actor, timeout=timeout)
     finally:
-        with store.DOC_LOCK:
+        with _reg:
             count = _halters[key] - 1
             if count:
                 _halters[key] = count
@@ -618,35 +1165,50 @@ def halt(slug: str, nid: str, actor: str = USER, *, timeout=None) -> dict[str, A
 def _halt(slug: str, nid: str, actor: str, *, timeout=None) -> dict[str, Any]:
     from . import supervisor as sup
     st = sup.state(slug, nid)
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
-        org._require_authority(actor, nid)
-        n = org.node(nid)
-        if n.get("remote_controlled"):
-            remote = sup._remote_procs.get((slug, nid))
-            if remote is not None:
-                st["halt_remote_proc"] = remote
-            elif not _workers.get((slug, nid)):
-                raise LedgerError("remote-control process ownership is unavailable; release remote control first")
-        if not n.get("halt"):
-            n["halt"] = {"phase": "halting", "requested_at": now(), "by": actor}
-            org._log("halt", actor, {"node": nid, "phase": "halting"}, [])
-        sup.maildrain.suspend(org, nid)
-        owners = _states(slug, nid, st)
-        _halt_states[(slug, nid)] = owners
-        with sup._state_lock:
+
+    def begin() -> None:
+        # ONE transaction on the node row: authority, the durable `halting`
+        # record and every runtime carrier captured so far. Nothing is killed
+        # until it has COMMITTED — an admission holding the row either
+        # finished first (its worker is registered, and the settle loop below
+        # waits for it) or runs after and sees `halting`.
+        with _authorized(slug, nid, actor, nodes=[nid], logs=[_EVENTS]) as tx:
+            org = tx.org
+            n = org.node(nid)
+            if n.get("remote_controlled"):
+                remote = sup._remote_procs.get((slug, nid))
+                if remote is not None:
+                    st["halt_remote_proc"] = remote
+                else:
+                    with _reg:
+                        busy = _workers.get((slug, nid))
+                    if not busy:
+                        raise LedgerError("remote-control process ownership is unavailable; release remote control first")
+            if not n.get("halt"):
+                n["halt"] = {"phase": "halting", "requested_at": now(), "by": actor}
+                org._log("halt", actor, {"node": nid, "phase": "halting"}, [])
+            sup.maildrain.suspend(org, nid)
+            with _reg:
+                owners = _states(slug, nid, st)
+                _halt_states[(slug, nid)] = owners
+            with sup._state_lock:
+                for runtime in owners:
+                    runtime["halt_requested"] = True
+            # a turn queued in the fair turn-slot queue sees the halt now
+            sup._turn_slots.wake()
+
+            def undo() -> None:
+                if not requested(slug, nid):
+                    with sup._state_lock:
+                        for runtime in owners:
+                            runtime.pop("halt_requested", None)
+                    with _reg:
+                        _halt_states.pop((slug, nid), None)
+            _on_abort(undo)
             for runtime in owners:
-                runtime["halt_requested"] = True
-        try:
-            for runtime in owners:
-                _capture(org, nid, runtime, force=True)
-        except Exception:
-            if not requested(slug, nid):
-                with sup._state_lock:
-                    for runtime in owners:
-                        runtime.pop("halt_requested", None)
-                _halt_states.pop((slug, nid), None)
-            raise
+                _capture(org, nid, runtime)
+
+    _retrying(begin)
     sup.notify(slug, nid, "halting")
     deadline = time.monotonic() + (SETTLE_TIMEOUT if timeout is None else timeout)
     # ⚠ THE SETTLE POLL MUST NOT CYCLE THE DOCUMENT LOCK (beta.1 wave finding,
@@ -688,16 +1250,18 @@ def _halt(slug: str, nid: str, actor: str, *, timeout=None) -> dict[str, Any]:
                 cut_error = f"{type(e).__name__}: {e}"
             last_cut = now_m
         if _pending_carriers(slug, nid, st):
-            with store.DOC_LOCK:
-                org = store.load_org(slug)
-                _capture(org, nid, st)
+            _capture_tx(slug, nid, st)
         if _settled(slug, nid, st):
-            with store.DOC_LOCK:
-                org = store.load_org(slug)
-                _capture(org, nid, st)
+            # the re-check holds the node row: no admission can register a
+            # worker that runs a body past it (a worker registering now
+            # reads `halting` and returns without running)
+            result = None
+            with txn(slug, nodes=[nid]) as tx:
+                _capture(tx.org, nid, st)
                 if _settled(slug, nid, st):
-                    result = _publish_halted(org, nid)
-                    break
+                    result = _publish_halted(tx.org, nid)
+            if result is not None:
+                break
             # ⚠ NO `continue` HERE, AND ITS ABSENCE IS THE FIX. The lock-free
             # check said settled and the re-check under the lock disagreed —
             # a worker registered in between. `ed54b13` sent that arm straight
@@ -741,8 +1305,9 @@ def _halt(slug: str, nid: str, actor: str, *, timeout=None) -> dict[str, Any]:
 
 
 def _publish_halted(org, nid: str) -> dict[str, Any]:
-    """Under DOC_LOCK, with settlement ALREADY PROVEN by `_settled`: commit
-    the durable `halted` phase and save.
+    """Inside a halt transaction holding nid's row, with settlement ALREADY
+    PROVEN by `_settled`: record the durable `halted` phase (the transaction
+    commits it).
 
     Only ever called behind `_settled`, which is what makes this the point at
     which the user's halt semantic is satisfied — admission closed, every
@@ -758,7 +1323,6 @@ def _publish_halted(org, nid: str) -> dict[str, Any]:
     n.pop("remote_controlled", None)
     if n.get("inflight"):
         n["halt"]["interrupted_turn"] = n.pop("inflight")
-    store.save_org(org)
     return {"node": nid, "halted": True, "settled": True,
             "queued": len(n.get("halt_queue") or []),
             "status": "halted; no turn can run until explicit unhalt"}
@@ -768,7 +1332,7 @@ def operation(slug: str, nid: str) -> dict[str, Any] | None:
     """The live settle operation for this node, or None. Refreshed on read,
     so a caller polling it sees what is blocking NOW rather than the list
     that was true when the operation started."""
-    with store.DOC_LOCK:
+    with _reg:
         op = _settlers.get((slug, nid))
         if op is None:
             return None
@@ -786,7 +1350,7 @@ def _start_settler(slug: str, nid: str) -> dict[str, Any]:
     is running instead of starting a second one. That is what lets repeat
     lifecycle calls be answered structurally rather than racing."""
     key = (slug, nid)
-    with store.DOC_LOCK:
+    with _reg:
         existing = _settlers.get(key)
         if existing is not None and existing.get("state") == "settling":
             op, fresh = existing, False
@@ -801,14 +1365,12 @@ def _start_settler(slug: str, nid: str) -> dict[str, Any]:
     snapshot["surviving"] = surviving(slug, nid)
     # Durable, so the operation is visible to anything reading the org doc
     # rather than only to a caller holding this process's return value.
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
-        n = org.nodes.get(nid)
+    with txn(slug, nodes=[nid]) as tx:
+        n = tx.org.nodes.get(nid)
         if n is not None and n.get("halt"):
             n["halt"]["settling"] = {"operation_id": snapshot["operation_id"],
                                      "since": op["requested_at"],
                                      "blocking": snapshot["blocking"]}
-            store.save_org(org)
     if fresh:
         threading.Thread(target=_settle_loop, args=(slug, nid, op),
                          name=f"halt-settle-{slug}-{nid}", daemon=True).start()
@@ -827,10 +1389,10 @@ def _settle_loop(slug: str, nid: str, op: dict[str, Any]) -> None:
     st = sup.state(slug, nid)
     delay = SETTLER_POLL
     while True:
-        with store.DOC_LOCK:
+        n = _node(slug, nid)
+        with _reg:
             if _settlers.get((slug, nid)) is not op:
                 return                      # superseded by a newer operation
-            n = _node(slug, nid)
             if n is None or not n.get("halt"):
                 op["state"] = "released"
                 _settlers.pop((slug, nid), None)
@@ -843,20 +1405,20 @@ def _settle_loop(slug: str, nid: str, op: dict[str, Any]) -> None:
             op["last_error"] = f"{type(e).__name__}: {e}"
         published = None
         if _settled(slug, nid, st):
-            with store.DOC_LOCK:
-                org = store.load_org(slug)
-                n = org.nodes.get(nid)
+            with txn(slug, nodes=[nid]) as tx:
+                n = tx.org.nodes.get(nid)
                 if n is not None and n.get("halt"):
-                    _capture(org, nid, st)
+                    _capture(tx.org, nid, st)
                     if _settled(slug, nid, st):
-                        published = _publish_halted(org, nid)
-                        op["state"] = "halted"
-                        op["completed_at"] = now()
-                        if _settlers.get((slug, nid)) is op:
-                            _settlers.pop((slug, nid), None)
+                        published = _publish_halted(tx.org, nid)
+            if published is not None:
+                with _reg:
+                    op["state"] = "halted"
+                    op["completed_at"] = now()
+                    if _settlers.get((slug, nid)) is op:
+                        _settlers.pop((slug, nid), None)
         elif _pending_carriers(slug, nid, st):
-            with store.DOC_LOCK:
-                _capture(store.load_org(slug), nid, st)
+            _capture_tx(slug, nid, st)
         op["polls"] = int(op.get("polls") or 0) + 1
         if published is not None:
             sup.notify(slug, nid, "halted")
@@ -874,7 +1436,7 @@ def _pending_carriers(slug: str, nid: str, st) -> bool:
         if (st.get("queue") or st.get("steer")
                 or st.get("halt_steering_carriers")
                 or st.get("halt_aux_carriers")
-                or st.get("halt_pending_carrier") is not None):
+                or pending_carriers(st)):
             return True
         for entry in st.get("steer_limbo") or []:
             if entry.get("carriers"):
@@ -887,11 +1449,15 @@ def recover(org) -> bool:
     from . import supervisor as sup
     changed = False
     slug = org.d["slug"]
-    for nid, n in org.nodes.items():
+    # only rows holding a halt: retired history is not decoded (engine-
+    # startup-cost-must-not-grow-with-retired-h)
+    for nid in store.node_ids_with(org, "halt"):
+        n = org.nodes[nid]
         if not n.get("halt"):
             continue
         st = sup.state(slug, nid)
         st["halt_requested"] = True
+        sup._turn_slots.wake()      # the fair queue never polls its cancels
         if _settled(slug, nid, st):
             n["halt"]["phase"] = "halted"
             n["halt"].setdefault("at", now())
@@ -906,36 +1472,48 @@ def recover(org) -> bool:
 
 def unhalt(slug: str, nid: str, actor: str = USER) -> dict[str, Any]:
     from . import supervisor as sup, warmpool
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
-        org._require_authority(actor, nid)
-        n = org.node(nid)
-        if not n.get("halt"):
-            return {"node": nid, "unhalted": False, "status": "agent is not halted"}
-        st = sup.state(slug, nid)
-        if _halters.get((slug, nid)) or not _settled(slug, nid, st):
-            raise LedgerError("halt is still settling — wait for the active turn to end")
-        n.pop("halt")
-        runtimes = _states(slug, nid, st)
-        with sup._state_lock:
-            for runtime in runtimes:
-                runtime.pop("halt_requested", None)
-                runtime.pop("interrupted", None)
-                runtime.pop("admission_cancel_token", None)
-        _halt_states.pop((slug, nid), None)
-        org._log("unhalt", actor, {"node": nid}, [])
-        store.save_org(org)
-        sup.scan_steer_records(slug, nid)
-        # Docket rev 4 (user rule 2026-09-13): clearing a halt only restores
-        # eligibility — it must not start, resume or requeue a turn. Retained
-        # carriers are MERGED back into the runtime queue so the next
-        # legitimately started turn delivers them; mail waits in the mailbox
-        # it never left. `resume_pending` (which starts turns) remains for
-        # startup recovery of NORMAL agents only.
-        result = merge_pending(slug, nid)
+
+    def body() -> dict[str, Any] | None:
+        with _authorized(slug, nid, actor, nodes=[nid], logs=[_EVENTS]) as tx:
+            org = tx.org
+            n = org.node(nid)
+            if not n.get("halt"):
+                return {"node": nid, "unhalted": False, "status": "agent is not halted"}
+            st = sup.state(slug, nid)
+            with _reg:
+                if _halters.get((slug, nid)) or not _settled(slug, nid, st):
+                    raise LedgerError("halt is still settling — wait for the active turn to end")
+                n.pop("halt")
+                runtimes = _states(slug, nid, st)
+                with sup._state_lock:
+                    for runtime in runtimes:
+                        runtime.pop("halt_requested", None)
+                        runtime.pop("interrupted", None)
+                        runtime.pop("admission_cancel_token", None)
+                _halt_states.pop((slug, nid), None)
+            org._log("unhalt", actor, {"node": nid}, [])
+            return None
+
+    refused = _retrying(body)
+    if refused is not None:
+        return refused
+    sup.scan_steer_records(slug, nid)
+    # Docket rev 4 (user rule 2026-09-13): clearing a halt only restores
+    # eligibility — it must not start, resume or requeue a turn. Retained
+    # carriers are MERGED back into the runtime queue so the next
+    # legitimately started turn delivers them; mail waits in the mailbox
+    # it never left. `resume_pending` (which starts turns) remains for
+    # startup recovery of NORMAL agents only.
+    result = merge_pending(slug, nid)
     sup.notify(slug, nid, "unhalted")
     warmpool.poke()
     return {"node": nid, "unhalted": True, "delivery": result}
+
+
+def _runnable(org, nid: str) -> bool:
+    n = org.node(nid)
+    return not (n.get("halt") or org.d.get(KILLSWITCH) or n.get("state") != "live"
+                or n.get("frozen") or n.get("limit_locked"))
 
 
 def merge_pending(slug: str, nid: str) -> dict[str, Any]:
@@ -945,14 +1523,16 @@ def merge_pending(slug: str, nid: str) -> dict[str, Any]:
     spends them (`confirmed`), so a restart before the next legitimate turn
     loses nothing. Mail needs no merge — it waits in the mailbox and the
     next turn's envelope drains it; this preserves retained COMMANDS and
-    raw nudges, which have no mailbox."""
+    raw nudges, which have no mailbox.
+
+    Decides on nid's row and the killswitch held FOR SHARE: a halt or latch
+    cannot commit between the decision and the merge."""
     from . import supervisor as sup
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
-        n = org.node(nid)
-        if n.get("halt") or org.d.get("killswitch") or n.get("state") != "live" \
-                or n.get("frozen") or n.get("limit_locked"):
+    with txn(slug, share_nodes=[nid], share_sections=[KILLSWITCH]) as tx:
+        org = tx.org
+        if not _runnable(org, nid):
             return {"deferred": True, "merged": 0}
+        n = org.node(nid)
         st = sup.state(slug, nid)
         with sup._state_lock:
             queued = {c.get("_halt_id") for c in st.get("queue") or []
@@ -969,16 +1549,17 @@ def resume_pending(slug: str, nid: str) -> dict[str, Any]:
     ⚠ This one STARTS a turn when there is work, so it belongs to startup
     recovery of NORMAL agents only — unhalt and killswitch release call
     `merge_pending` instead (docket rev 4: clearing never starts work), and
-    the latch guard here keeps restart recovery from driving a latched org."""
+    the latch guard here keeps restart recovery from driving a latched org.
+    The turn it starts is re-gated by `worker`; the mail ping by `admission`."""
     from . import supervisor as sup
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
-        n = org.node(nid)
-        if n.get("halt") or org.d.get("killswitch") or n.get("state") != "live" \
-                or n.get("frozen") or n.get("limit_locked"):
+    first = None
+    waking = False
+    with txn(slug, share_nodes=[nid], share_sections=[KILLSWITCH]) as tx:
+        org = tx.org
+        if not _runnable(org, nid):
             return {"deferred": True}
+        n = org.node(nid)
         st = sup.state(slug, nid)
-        first = None
         with sup._state_lock:
             if st.get("busy") or st.get("proc_control"):
                 return {"queued": True}
@@ -988,12 +1569,14 @@ def resume_pending(slug: str, nid: str) -> dict[str, Any]:
             if st["queue"]:
                 first = st["queue"].pop(0)
                 st["busy"] = True
-        if first is not None:
-            threading.Thread(target=sup._run_turn, args=(slug, nid, first), daemon=True).start()
-            return {"started": True}
-        if org.waking_mail(nid):
-            return sup.send_message(slug, nid, "(orgtree) Handle your pending mail.", mail_ping=True)
-        return {"idle": True}
+        if first is None:
+            waking = bool(org.waking_mail(nid))
+    if first is not None:
+        threading.Thread(target=sup._run_turn, args=(slug, nid, first), daemon=True).start()
+        return {"started": True}
+    if waking:
+        return sup.send_message(slug, nid, "(orgtree) Handle your pending mail.", mail_ping=True)
+    return {"idle": True}
 
 
 def restore_carriers(org, nid: str, current) -> None:
@@ -1006,9 +1589,7 @@ def restore_carriers(org, nid: str, current) -> None:
             ids.add(current.get("_halt_id"))
         st["queue"].extend(copy.deepcopy(c) for c in org.node(nid).get("halt_queue") or []
                            if c.get("_halt_id") not in ids)
-        st["halt_pending_carrier"] = (current if isinstance(current, dict)
-                                      else {"text": current})
-        st["halt_carrier_id"] = st["halt_pending_carrier"].get("_halt_id")
+        set_pending_carrier(st, org.d["slug"], nid, current)
 
 
 def killswitch_latch(slug: str, actor: str = USER) -> dict[str, Any]:
@@ -1017,11 +1598,12 @@ def killswitch_latch(slug: str, actor: str = USER) -> dict[str, Any]:
     `interrupt_all`, a turn boundary agents sailed straight back over).
 
     ORDER IS LOAD-BEARING, same rule as `interrupt_all`'s watchdog pause:
-    the latch and the dog pause commit in ONE save BEFORE any agent is
-    interrupted. Once that save lands, every gate in this module answers
-    'killswitch', so no queue pump, retry or fresh mail can start a turn
-    between the per-agent interrupts that follow — the org transition and
-    the sweep read as one coordinated operation.
+    the latch and the dog pause commit in ONE transaction BEFORE any agent is
+    interrupted. The latch takes the `killswitch` row FOR UPDATE, which every
+    gate holds FOR SHARE: it waits for the admissions in flight, and once it
+    commits every gate answers 'killswitch', so no queue pump, retry or fresh
+    mail can start a turn between the per-agent interrupts that follow — the
+    org transition and the sweep read as one coordinated operation.
 
     Watchdogs: still paused, and release does NOT resume them — the
     2026-09-04 ruling ("nothing un-pauses them") predates the latch and
@@ -1029,16 +1611,35 @@ def killswitch_latch(slug: str, actor: str = USER) -> dict[str, Any]:
     mail into boxes while the org stands still."""
     from . import supervisor as sup
     sup._wd_bump_stop_epoch(slug)
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
-        already = bool(org.d.get("killswitch"))
-        if not already:
-            org.d["killswitch"] = {"at": now(), "by": actor}
-            org._log("killswitch", actor, {"latched": True}, [])
-        paused = org.watchdogs_pause_all(org.WATCHDOG_KILLSWITCH_PAUSE)
-        for nid in org.nodes:
-            sup.maildrain.suspend(org, nid)
-        store.save_org(org)
+    try:
+        snap = store.cached_org(slug)
+        drains = {nid for nid, n in snap.nodes.items() if n.get("mail_drain")}
+    except LedgerError:
+        drains = set()
+    for _ in range(4):
+        try:
+            # the rows written: the latch, the dogs, and every node whose
+            # mail-drain demand gets suspended (read from a snapshot, then
+            # confirmed on the locked copy)
+            with txn(slug, sections=[KILLSWITCH, "watchdogs"], nodes=drains,
+                     logs=[_EVENTS]) as tx:
+                org = tx.org
+                need = {nid for nid, n in org.nodes.items() if n.get("mail_drain")}
+                if need - drains:
+                    drains |= need
+                    raise _Respec()
+                already = bool(org.d.get(KILLSWITCH))
+                if not already:
+                    org.d[KILLSWITCH] = {"at": now(), "by": actor}
+                    org._log("killswitch", actor, {"latched": True}, [])
+                paused = org.watchdogs_pause_all(org.WATCHDOG_KILLSWITCH_PAUSE)
+                for nid in org.nodes:
+                    sup.maildrain.suspend(org, nid)
+            break
+        except _Respec:
+            continue
+    else:
+        raise LedgerError("the org kept changing; try the killswitch again")
     sweep = sup.interrupt_all(slug)
     return {"latched": True, "already_latched": already,
             "interrupted": sweep["interrupted"], "watchdogs_paused": paused}
@@ -1049,17 +1650,16 @@ def killswitch_release(slug: str, actor: str = USER) -> dict[str, Any]:
     and so survive exactly as they stand; nothing is restarted, resumed or
     requeued — retained carriers are merged for the next legitimate turn
     and watchdogs stay paused (per-dog manual resume is the only exit)."""
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
-        rec = org.d.get("killswitch")
+    with txn(slug, sections=[KILLSWITCH], logs=[_EVENTS]) as tx:
+        org = tx.org
+        rec = org.d.get(KILLSWITCH)
         if not rec:
             return {"released": False, "status": "the killswitch is not latched"}
-        org.d.pop("killswitch")
+        org.d[KILLSWITCH] = KILLSWITCH_CLEAR   # keep the row (decision 26)
         org._log("killswitch_release", actor,
                  {"latched_at": rec.get("at"), "latched_by": rec.get("by")}, [])
-        store.save_org(org)
-        merged = [nid for nid, n in org.nodes.items()
-                  if n["state"] == "live" and not n.get("halt")
-                  and n.get("halt_queue")
-                  and merge_pending(slug, nid).get("merged")]
+        held = [nid for nid, n in org.nodes.items()
+                if n["state"] == "live" and not n.get("halt")
+                and n.get("halt_queue")]
+    merged = [nid for nid in held if merge_pending(slug, nid).get("merged")]
     return {"released": True, "merged": merged}

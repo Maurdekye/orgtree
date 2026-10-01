@@ -146,7 +146,7 @@ class TheDeadEnd(ScopeCapBase):
     def test_s1_the_guard_refused_a_full_record(self) -> None:
         wid = self.item_at_cap()
         it, _ = self.org._work_get_for(self.agent, wid)
-        self.assertEqual(len(it.get('scope') or []), self.org.WORK_SCOPE_MAX)
+        self.assertEqual(len(self.org._work_scope_live(it)), self.org.WORK_SCOPE_MAX)
 
         with self.assertRaises(ledger.LedgerError) as caught:
             self.org._work_scope_room(it, relief=False)

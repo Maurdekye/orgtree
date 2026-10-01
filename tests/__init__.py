@@ -18,3 +18,10 @@ import sys
 from . import import_provenance
 
 sys.modules.setdefault("import_provenance", import_provenance)
+
+# The same flat-import alias for the hub-isolation helper rigs share.
+from . import hub_isolation  # noqa: E402
+
+sys.modules.setdefault("hub_isolation", hub_isolation)
+from . import child_python  # noqa: E402
+sys.modules.setdefault("child_python", child_python)

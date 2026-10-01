@@ -2,6 +2,14 @@ import { beginWindowExit, endWindowExit } from './windowlayout'
 import type { WindowRestore } from './windowlayout'
 // One opener owns all movable surfaces and the restart decision. No React/API
 // imports: api.ts can consult this without creating an application cycle.
+/** How a temporary borrow ends. See `WindowSurface.borrow`. */
+export interface BorrowedSurface {
+  /** put the window back exactly where it was */
+  restore: () => void
+  /** the window is not coming back — stop the saved layout claiming it is */
+  release: () => void
+}
+
 export interface WindowSurface {
   id: string
   kind: string
@@ -9,6 +17,31 @@ export interface WindowSurface {
   editable: boolean
   window: Window
   redock: () => void
+  /** Take this surface out of its native window WITHOUT recording it as
+   *  closed, and hand back the two ways the borrow can end.
+   *
+   *  For TEMPORARY BORROWING — a detached desk pulled into a modal for that
+   *  modal's life and then given back. `redock` is the wrong call for it: it
+   *  clears the saved row, which both loses the arrangement on reopen and
+   *  makes the return land at a freshly computed position instead of the one
+   *  it left. See `borrow` in popout.tsx.
+   *
+   *  ⚠ TWO OUTCOMES, BECAUSE THERE REALLY ARE TWO. `restore` puts the window
+   *  back exactly where it was. `release` gives it up — for when the borrow
+   *  ends and the window is NOT coming back, because the destination it would
+   *  return to is gone. Both are needed: a borrow that simply stops leaves a
+   *  saved row claiming `open: true` with no window behind it, which makes
+   *  startup restoration reopen a window nobody left open, and `restore` in
+   *  that situation would resurrect a window with nowhere valid to be.
+   *
+   *  Both are idempotent, mutually exclusive (the first one used wins), and
+   *  both become no-ops once any boundary has moved the surface on — an
+   *  ordinary redock, an unmount, or another open — since each of those has
+   *  already reconciled the row itself.
+   *
+   *  Optional because only a surface that owns a native window has one; the
+   *  caller must hold the handle and end the borrow exactly once. */
+  borrow?: () => BorrowedSurface
   flush?: () => void
   /** WHAT THIS SURFACE IS SHOWING, READ LIVE.
    *

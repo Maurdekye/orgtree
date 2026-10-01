@@ -20,6 +20,11 @@ load_app()
 from orgtree import transcript_records as records
 
 
+def tearDownModule():
+    records.close_all()
+    fixture.cleanup()
+
+
 class RecordsTests(unittest.TestCase):
     def setUp(self):
         self.path = Path(fixture.name) / (self._testMethodName + ".jsonl")
@@ -37,6 +42,63 @@ class RecordsTests(unittest.TestCase):
 
     def texts(self, count=8):
         return [json.loads(row[2])["text"] for row in records.tail(self.source, count)[0]]
+
+    def test_worker_connection_is_reused_but_transactions_still_rollback(self):
+        records.close_all()
+        with patch.object(records.sqlite3,'connect',wraps=sqlite3.connect) as connect:
+            with records.reuse_database():
+                with records.database() as conn:
+                    conn.execute('INSERT INTO transcript_owned VALUES (?)',(self.source,))
+                self.assertFalse(conn.in_transaction)
+                with self.assertRaisesRegex(RuntimeError,'abort'):
+                    with records.database() as second:
+                        self.assertIs(second,conn)
+                        second.execute('DELETE FROM transcript_owned WHERE source=?',(self.source,))
+                        raise RuntimeError('abort')
+                with self.assertRaises(sqlite3.ProgrammingError):conn.execute('SELECT 1')
+                with records.reuse_database(), records.database() as third:
+                    self.assertIsNot(third,conn)
+                    self.assertIsNotNone(third.execute('SELECT 1 FROM transcript_owned WHERE source=?',
+                                                      (self.source,)).fetchone())
+                self.assertEqual(connect.call_count,2)
+            with self.assertRaises(sqlite3.ProgrammingError):conn.execute('SELECT 1')
+            with self.assertRaises(sqlite3.ProgrammingError):third.execute('SELECT 1')
+
+    def test_reuse_does_not_share_connections_between_nested_blocks_or_threads(self):
+        import threading
+        other=[]
+        def on_thread():
+            with records.database() as conn:other.append(conn)
+        with records.reuse_database(), records.database() as outer:
+            with records.database() as inner:self.assertIsNot(inner,outer)
+            worker=threading.Thread(target=on_thread);worker.start();worker.join()
+            self.assertEqual(len(other),1)
+            self.assertIsNot(other[0],outer)
+
+    def test_reuse_switches_connection_when_the_data_root_changes(self):
+        from orgtree import store
+        with tempfile.TemporaryDirectory(prefix='capture-other-root-') as root:
+            with records.reuse_database():
+                with records.database() as first:
+                    first.execute('INSERT INTO transcript_owned VALUES (?)',(self.source,))
+                with patch.object(store,'DATA_ROOT',root):
+                    with records.database() as second:
+                        self.assertIsNot(first,second)
+                        self.assertIsNone(second.execute('SELECT 1 FROM transcript_owned WHERE source=?',
+                                                        (self.source,)).fetchone())
+                with records.database() as third:
+                    self.assertIsNot(first,third)
+                    self.assertIsNotNone(third.execute('SELECT 1 FROM transcript_owned WHERE source=?',
+                                                       (self.source,)).fetchone())
+
+    def test_ingest_failure_on_reused_connection_retries_without_skipping_records(self):
+        self.write(20)
+        with records.reuse_database():
+            with patch.object(records,'_insert',side_effect=RuntimeError('failed insert')):
+                with self.assertRaisesRegex(RuntimeError,'failed insert'):self.ingest(20)
+            self.assertEqual(self.texts(20),[])
+            self.ingest(20)
+            self.assertEqual(self.texts(20),[str(i) for i in range(20)])
 
     def test_repeated_prompt_index_decodes_only_the_requested_time_range(self):
         import datetime as dt
@@ -131,6 +193,75 @@ class RecordsTests(unittest.TestCase):
         records.order(self.source, expanded)
         self.assertEqual([row['seq'] for row in expanded], sorted(row['seq'] for row in expanded))
         self.assertEqual({row['event_id']: row['seq'] for row in expanded if row['event_id'] in before}, before)
+
+    def test_a_window_with_no_ranked_row_goes_after_the_existing_ranks(self):
+        older = [{"event_id": n} for n in "abcd"]
+        records.order(self.source, older)
+        burst = [{"event_id": n} for n in "wxyz"]
+        records.order(self.source, burst)
+        self.assertGreater(burst[0]["seq"], older[-1]["seq"])
+        self.assertEqual([r["seq"] for r in burst], sorted(r["seq"] for r in burst))
+
+    def test_an_older_page_with_no_ranked_row_goes_before_the_existing_ranks(self):
+        newer = [{"event_id": n} for n in "wxyz"]
+        records.order(self.source, newer)
+        page = [{"event_id": n} for n in "abcd"]
+        records.order(self.source, page, older=True)
+        self.assertLess(page[-1]["seq"], newer[0]["seq"])
+        self.assertEqual([r["seq"] for r in page], sorted(r["seq"] for r in page))
+
+    def test_pages_descending_from_a_newer_window_stop_above_older_ranked_rows(self):
+        # the shape a rebuild leaves (attn-sol, 2026-09-30): an older page was
+        # ranked on its own, the desk reloaded the newest window, and pages
+        # now descend from that window towards the already-ranked older rows
+        oldest = [{"event_id": n} for n in "abcd"]
+        records.order(self.source, oldest, older=True)
+        window = [{"event_id": n} for n in "wxyz"]
+        records.order(self.source, window)
+        for page_ids in ("mnop", "ijkl", "efgh"):
+            page = [{"event_id": n} for n in page_ids] + [{"event_id": window[0]["event_id"]}]
+            records.order(self.source, page, older=True)
+            self.assertGreater(page[0]["seq"], oldest[-1]["seq"], f"page {page_ids} must stay above the older rows")
+            self.assertEqual([r["seq"] for r in page], sorted(r["seq"] for r in page))
+            window = page
+        self.assertEqual(records.order(self.source, []), 0, "no rebuild was needed")
+
+    def test_a_new_tail_stops_below_a_higher_ranked_row(self):
+        with records.database() as conn:
+            conn.executemany("INSERT INTO transcript_order VALUES (?,?,?)",
+                             [(self.source, "known", 0.0), (self.source, "stray", 100.0)])
+        tail = [{"event_id": "known"}, {"event_id": "t1"}, {"event_id": "t2"}]
+        records.order(self.source, tail)
+        self.assertTrue(0.0 < tail[1]["seq"] < tail[2]["seq"] < 100.0)
+
+    def test_contradicting_ranks_are_rebuilt_once_and_the_epoch_moves(self):
+        # the live state of 2026-09-30: an older row ranked after a newer one
+        with records.database() as conn:
+            conn.executemany("INSERT INTO transcript_order VALUES (?,?,?)",
+                             [(self.source, "old", 3072.0), (self.source, "new", -8192.0)])
+        before = records.order(self.source, [])
+        rows = [{"event_id": "old"}, {"event_id": "new"}]
+        epoch = records.order(self.source, rows)
+        self.assertEqual(epoch, before + 1, "the desk must learn its held seq values are stale")
+        self.assertLess(rows[0]["seq"], rows[1]["seq"])
+        again = [{"event_id": "old"}, {"event_id": "new"}]
+        self.assertEqual(records.order(self.source, again), epoch, "consistent ranks are not rebuilt again")
+        self.assertEqual([r["seq"] for r in again], [r["seq"] for r in rows])
+
+    def test_two_rows_sharing_a_rank_are_rebuilt(self):
+        # live 2026-09-30: three unrelated rows all held rank -8192
+        with records.database() as conn:
+            conn.executemany("INSERT INTO transcript_order VALUES (?,?,?)",
+                             [(self.source, "first", -8192.0), (self.source, "second", -8192.0)])
+        before = records.order(self.source, [])
+        rows = [{"event_id": "first"}, {"event_id": "second"}]
+        self.assertEqual(records.order(self.source, rows), before + 1)
+        self.assertLess(rows[0]["seq"], rows[1]["seq"])
+
+    def test_a_repeated_row_is_not_a_contradiction(self):
+        rows = [{"event_id": "a"}, {"event_id": "b"}]
+        epoch = records.order(self.source, rows)
+        self.assertEqual(records.order(self.source, [{"event_id": "a"}, {"event_id": "b"}, {"event_id": "a"}]), epoch)
 
     # ------------------------------------------ F1: durable recovery spool
     def test_sqlite_outage_spools_durably_and_a_read_replays_exactly_once(self):

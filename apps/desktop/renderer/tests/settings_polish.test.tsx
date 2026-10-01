@@ -139,9 +139,6 @@ test('Providers tab: compact refresh bar, secondary button styling, and discover
         json: () => Promise.resolve({ providers: [provider('claude'), provider('openai'), provider('google')] }),
       })
     }
-    if (path === '/api/desktop/import-v1/jobs/current') {
-      return Promise.resolve({ ok: true, status: 200, headers: new Headers(), json: () => Promise.resolve({ job: null }) })
-    }
     if (path === '/api/app-settings/runtime') {
       return Promise.resolve({ ok: true, status: 200, headers: new Headers(), json: () => Promise.resolve({}) })
     }
@@ -188,9 +185,6 @@ test('Display tab: section headers Appearance, Desk, Startup omit "saved on this
         ok: true, status: 200, headers: new Headers(),
         json: () => Promise.resolve({ version: 2, primary: { id: 'primary', signed_in: true }, keys: [], assignments: {} }),
       })
-    }
-    if (path === '/api/desktop/import-v1/jobs/current') {
-      return Promise.resolve({ ok: true, status: 200, headers: new Headers(), json: () => Promise.resolve({ job: null }) })
     }
     if (path === '/api/app-settings/runtime') {
       return Promise.resolve({ ok: true, status: 200, headers: new Headers(), json: () => Promise.resolve({}) })

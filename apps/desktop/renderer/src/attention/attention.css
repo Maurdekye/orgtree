@@ -1,0 +1,312 @@
+/* attention/attention.css — the Attention view's own styles.
+ *
+ * A separate sheet, imported by attention/AttentionView.tsx, rather than a
+ * block appended to styles.css: every rule here belongs to one feature whose
+ * files are all in this folder, and keeping them together is what stops the
+ * shared sheet growing a section that nothing points at. Every colour, radius
+ * and spacing value is a variable the shared sheet already defines, so this
+ * inherits the theme (and the contrast and agent-colour syncs) rather than
+ * restating any of it. */
+
+.attn-stage {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  gap: 0;
+}
+
+/* Hidden while the organization is showing the canvas. ONLY the stage — a
+ * pinned or popped-out panel has already moved its own content into the pin
+ * layer or a child window, which are not inside this box. */
+.attn-stage-off { display: none; }
+
+.attn-backdrop-message {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px;
+  pointer-events: none;
+}
+.attn-backdrop-message p { margin: 0; }
+.attn-backdrop-message .attn-backdrop-hint { margin-top: 8px; font-size: 12px; }
+
+.attn-slot {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 0;
+  /* COMPACT (user 2026-09-29: "the padding and margin on both of these
+   * attention panels is way too large"): 8px → 3px here, and each panel's own
+   * padding below roughly a third of what it was */
+  padding: 3px;
+}
+.attn-slot > * { flex: 1 1 auto; min-width: 0; }
+/* PinFrame's in-place wrapper: a column, so the panel inside can fill it.
+ * A DESCENDANT selector, not `>`: between the slot and it sit MovableSurface's
+ * `display: contents` wrappers, so it is the slot's flex item for layout
+ * without being its child in the DOM (measured, attentionlayout_probe.py). */
+.attn-slot .surface-inline {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* the panels themselves: the app's ordinary panel surface. Embedded, they FILL
+ * the slot rather than sitting at a modal's centred width.
+ *
+ * ⚠ THE EMBEDDED RULE NEEDS TWO CLASSES. main.tsx imports App (and so this
+ * sheet) BEFORE styles.css, so a lone `.attn-panel` loses every tie to
+ * `.settings { width: 660px; height: 88vh }` — which is exactly what shipped:
+ * the slots followed the divider and the 660px panels inside them did not
+ * (user report 2026-09-29, image-17). `attentionlayout_probe.py` loads the
+ * sheets in the app's order so this cannot pass by accident again. */
+.attn-panel {
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+}
+.attn-slot .attn-panel {
+  flex: 1 1 auto;
+  width: auto;
+  max-width: none;
+  min-height: 0;
+  height: auto;
+  margin: 0;
+}
+/* the queue panel keeps `.settings` for its type and controls, but not its
+ * 22px 26px modal padding or 14px gap. Published through the same variables,
+ * so the pin/pop-out bar still cancels exactly this padding. */
+.attn-slot .attn-panel-queue {
+  --panel-pad-y: 5px;
+  --panel-pad-x: 7px;
+  gap: 4px;
+}
+.attn-slot .attn-panel-queue > .modalpin-bar:not(.on):not(.detached) {
+  margin: -2px 0 -2px auto;
+}
+
+/* THE DESK PANEL IS A DESK, NOT A SETTINGS FORM (user 2026-09-29, image-20):
+ * it carries no `.settings` class, whose roomy form metrics (14px buttons with
+ * 7px 15px padding, 13px badges, 22px 26px panel padding) restyled every
+ * button of the desk inside it. It takes the pinned desk window's metrics
+ * instead — `.pinwin`'s 13px type and `.pinwin-body`'s padding — so the same
+ * desk looks the same in both places. */
+.attn-panel-desk {
+  --panel-pad-y: 3px;
+  --panel-pad-x: 4px;
+  padding: 3px 4px 4px;
+  font-size: 13px;
+  overflow: hidden;
+}
+/* unpinned, the pin/pop-out cluster takes a short row of its own at the top
+ * right, instead of the 14px pull `.modalpin-bar` makes into a `.settings`
+ * panel's much larger padding. Not overlaid on the desk header: on a wide
+ * panel that header puts its tabs and ⚙ at the right end, exactly where the
+ * cluster sits (measured, attentionlayout_probe.py at 1600px). */
+.attn-panel-desk > .modalpin-bar:not(.on):not(.detached) {
+  margin: -2px 0 2px auto;
+}
+
+/* ---------------------------------------------------------- the divider */
+.attn-divider {
+  flex: 0 0 6px;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: col-resize;
+  background: transparent;
+  border: 0;
+  touch-action: none;
+}
+.attn-divider-grip {
+  width: 2px;
+  height: 46px;
+  border-radius: 2px;
+  background: var(--line);
+  transition: background 120ms ease, height 120ms ease;
+}
+.attn-divider:hover .attn-divider-grip,
+.attn-divider:focus-visible .attn-divider-grip,
+.attn-dragging .attn-divider-grip {
+  background: var(--accent, var(--line-hover));
+  height: 78px;
+}
+.attn-divider:focus-visible { outline: 1px solid var(--accent, var(--line-hover)); outline-offset: -2px; }
+/* a drag must not select the prose either side of it */
+.attn-dragging { user-select: none; }
+
+/* ------------------------------------------------- the needs-attention list
+ * The list and the pane are the app's own mailbox (`.mailer`), and every row
+ * and body inside is the home surface's own component (AttentionQueue.tsx),
+ * so there are no attention-only row or detail styles here: a ticket looks as
+ * it does in the docket, a mail or question as it does in the inbox. */
+.attn-wrap { display: flex; flex-direction: column; min-height: 0; height: 100%; gap: 4px; }
+.attn-mailer { flex: 1 1 auto; min-height: 0; }
+.attn-mlist:focus-visible { outline: 1px solid var(--line-hover); outline-offset: -2px; }
+/* a cell carries this panel's hooks (data-attn-row, the listbox option) and,
+ * for a ticket, the docket's style scope — but no box of its own, so the row
+ * inside lays out exactly as it does at home */
+.attn-cell { display: contents; }
+.attn-gaps { font-size: 12px; }
+.attn-empty { padding: 8px 6px; }
+
+/* ------------------------------------------------- the dynamic agent area */
+.attn-agents-wrap {
+  position: relative;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: stretch;
+  min-height: 0;
+  height: 100%;
+}
+.attn-agents-bar {
+  grid-area: 1 / 1;
+  position: relative;
+  z-index: 4;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 0 3px 0 0;
+}
+.attn-agents-toggle { pointer-events: auto; }
+.attn-agents-rail-label {
+  writing-mode: vertical-rl;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+/* THE DRAWER (user 2026-09-29, image-28). It expands from the rail over the
+ * desk — a clip that opens left to right, not a floating card — and it is
+ * opened only by the list button. Shut, it is `visibility: hidden`, so it takes
+ * no pointer and no focus. It sits above the scrim, and the scrim above the
+ * desk; the desk is its own stacking context (`.attn-desk`), so no z-index
+ * inside a desk (its "↑ you" jump chip, its menus) can climb over either. */
+.attn-agents {
+  position: absolute;
+  /* Reclaim the rail below the toggle, keeping the drawer's right edge. */
+  grid-area: 1 / 2;
+  top: 0;
+  left: calc(-1 * var(--attn-agent-rail, 0px));
+  bottom: 0;
+  z-index: 3;
+  width: calc(232px + var(--attn-agent-rail, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  box-shadow: 6px 0 18px rgba(0, 0, 0, 0.32);
+  clip-path: inset(0 100% 0 0);
+  visibility: hidden;
+  transition: clip-path 160ms ease, visibility 0s linear 160ms;
+}
+.attn-agents-wrap.list-open .attn-agents {
+  clip-path: inset(0 -24px 0 0);
+  visibility: visible;
+  transition: clip-path 160ms ease, visibility 0s;
+}
+/* the dark layer over the desk while the drawer is out */
+.attn-agents-scrim {
+  position: absolute;
+  grid-area: 1 / 2;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 2;
+  background: rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+.attn-agents-wrap.list-open .attn-agents-scrim {
+  opacity: 1;
+  pointer-events: auto;
+  cursor: default;
+}
+
+/* the drawer's contents are the canvas's own Agents List (`.tray`, styles.css)
+ * embedded the way the canvas embeds it in its panel (`.tray-panel > .tray`):
+ * the drawer is the frame, so the list drops its own border and shadow. */
+.attn-agents > .tray {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+}
+/* Only the filter needs clearance for the collapse button. */
+.attn-agents .tray-filter {
+  margin-left: calc(4px + var(--attn-agent-rail, 0px));
+  width: calc(100% - 8px - var(--attn-agent-rail, 0px));
+}
+@media (prefers-reduced-motion: reduce) {
+  .attn-agents, .attn-agents-wrap.list-open .attn-agents,
+  .attn-agents-scrim { transition: none; }
+  .attn-divider-grip { transition: none; }
+}
+
+.attn-desk {
+  grid-area: 1 / 2;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  /* a stacking context of its own: whatever z-index the desk's contents use,
+   * they stay under the scrim and the drawer */
+  isolation: isolate;
+  position: relative;
+  z-index: 0;
+}
+.attn-desk > * { flex: 1 1 auto; min-width: 0; }
+.attn-desk-empty { padding: 24px; }
+
+/* ------------------------------------------------------- the header toggle */
+.orgview-toggle {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.orgview-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.orgview-tab + .orgview-tab { border-left: 1px solid var(--line); }
+.orgview-tab:hover:not(:disabled) { background: var(--panel-2); color: var(--ink); }
+.orgview-tab.sel { background: var(--panel-2); color: var(--ink-strong); }
+.orgview-tab:disabled { opacity: 0.5; cursor: default; }
+.orgview-tab:focus-visible { outline: 1px solid var(--line-hover); outline-offset: -2px; }
+.orgview-label { line-height: 1; }

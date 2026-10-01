@@ -74,6 +74,7 @@ import time
 from typing import Any, Iterator
 
 from . import store, agentauth
+from . import orgtx
 
 # ── knobs ──────────────────────────────────────────────────────────────────
 # how often the keeper re-checks every live agent's hash even with no poke.
@@ -81,6 +82,14 @@ from . import store, agentauth
 # changed) never call store.save_org, so polling is what catches them;
 # org-borne changes arrive faster via the save-hook poke.
 WARM_POLL = float(os.environ.get("ORGTREE_WARM_POLL", "20"))
+#: how often the keeper runs a FULL pass (every org, every live node re-hashed,
+#: files and accounts re-read). Saves still get a scoped pass within the poke
+#: debounce, and turn admission re-hashes the seat it is about to use, so this
+#: only bounds how late a change NO save announces (an edited CLAUDE.md, a
+#: re-pointed account, a crashed parked process) is pre-warmed. It was every
+#: WARM_POLL (20 s); at ~700+ live agents a full pass took longer than that
+#: (scale-runtime, 2026-09-26).
+WARM_FULL_EVERY = float(os.environ.get("ORGTREE_WARM_FULL_EVERY", "60"))
 # cascade pacing: one team_charter edit can dirty a whole subtree at once, and
 # this machine already has port contention — at most this many spawns run
 # concurrently; the rest queue behind the gate, still "immediate" per agent.
@@ -786,6 +795,60 @@ def _startup_rule(data: bytes) -> bool:
     return _RULE_PATHS_RE.search(frontmatter) is None
 
 
+# One instruction file's contribution to the native startup digest, keyed by
+# (abspath, memory, rule) and valid while its (st_mtime_ns, st_size) holds:
+# (sig, None) = a rule file that does not load at startup, else
+# (sig, (sha256 hex, [paths it imports])). The keeper recomputes every seat's
+# identity on every pass (scale-runtime stackprof: ~30% of samples were these
+# reads at 20 seats), and almost no file changes between passes. An edit
+# moves mtime_ns (and usually size), so a changed file is re-read and still
+# changes the identity hash on the next pass.
+_DIGEST_FILE_CACHE: dict[tuple[str, bool, bool],
+                         tuple[tuple[int, int],
+                               tuple[str, list[str]] | None]] = {}
+_DIGEST_FILE_CACHE_MAX = 8192
+
+
+def _digest_file(path: str, *, memory: bool, rule: bool
+                 ) -> tuple[str, list[str]] | None | bool:
+    """(sha256, imports) for `path`, None when a rule file is not a startup
+    rule, False when it cannot be read. Stat first; read only on a miss."""
+    try:
+        st = os.stat(path)
+    except (OSError, ValueError):
+        return False
+    sig = (st.st_mtime_ns, st.st_size)
+    ck = (path, memory, rule)
+    hit = _DIGEST_FILE_CACHE.get(ck)
+    if hit is not None and hit[0] == sig:
+        return hit[1]
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except (OSError, ValueError):
+        return False
+    if rule and not _startup_rule(data):
+        out: tuple[str, list[str]] | None = None
+    else:
+        if memory:
+            data = _memory_prefix(data)
+        imports: list[str] = []
+        text = data.decode("utf-8", "replace")
+        for match in _STARTUP_IMPORT_RE.finditer(text):
+            token = match.group(1).rstrip(".,;:!?)]}")
+            if not token:
+                continue
+            imports.append(
+                os.path.expanduser(token) if token.startswith("~")
+                else token if os.path.isabs(token)
+                else os.path.join(os.path.dirname(path), token))
+        out = (hashlib.sha256(data).hexdigest(), imports)
+    if len(_DIGEST_FILE_CACHE) >= _DIGEST_FILE_CACHE_MAX:
+        _DIGEST_FILE_CACHE.clear()
+    _DIGEST_FILE_CACHE[ck] = (sig, out)
+    return out
+
+
 def native_startup_context_digest(org: Any, nid: str) -> str:
     """Digest Claude's file-borne, once-per-session instruction inputs.
 
@@ -807,7 +870,7 @@ def native_startup_context_digest(org: Any, nid: str) -> str:
     """
     from . import supervisor as sup                 # noqa: PLC0415
 
-    cwd = os.path.abspath(sup.scratch_dir(org.d["slug"], nid))
+    cwd = os.path.abspath(sup.scratch_dir(org.d["slug"], nid, policy_org=org))
     home = os.path.abspath(os.path.expanduser("~"))
     manifest: dict[str, str] = {}
     seen: set[str] = set()
@@ -815,31 +878,22 @@ def native_startup_context_digest(org: Any, nid: str) -> str:
     def add(path: str, depth: int = 0, *, memory: bool = False,
             rule: bool = False) -> None:
         path = os.path.abspath(os.path.expanduser(path))
+        # the stat (cached read) first: most candidate paths do not exist,
+        # and realpath on a missing path walks every component — it was
+        # most of a warm pass once the reads were cached. A missing file and
+        # a lazy rule add nothing, so the order does not change the result.
+        got = _digest_file(path, memory=memory, rule=rule)
+        if got is False or got is None:
+            return
         key = os.path.normcase(os.path.realpath(path))
         if key in seen:
             return
-        try:
-            with open(path, "rb") as f:
-                data = f.read()
-        except (OSError, ValueError):
-            return
-        if rule and not _startup_rule(data):
-            return
         seen.add(key)
-        if memory:
-            data = _memory_prefix(data)
-        label = os.path.normcase(path)
-        manifest[label] = hashlib.sha256(data).hexdigest()
+        digest, imports = got
+        manifest[os.path.normcase(path)] = digest
         if depth >= 5:
             return
-        text = data.decode("utf-8", "replace")
-        for match in _STARTUP_IMPORT_RE.finditer(text):
-            token = match.group(1).rstrip(".,;:!?)]}")
-            if not token:
-                continue
-            imported = (os.path.expanduser(token) if token.startswith("~")
-                        else token if os.path.isabs(token)
-                        else os.path.join(os.path.dirname(path), token))
+        for imported in imports:
             add(imported, depth + 1)
 
     # Managed policy, then user instructions.
@@ -984,7 +1038,7 @@ def codex_startup_context_digest(
     # this projection is consumed. Re-reading ambient paths here used to hash
     # files the captured app-server would not read.
     cwd = os.path.abspath(
-        cwd if cwd is not None else sup.scratch_dir(org.d["slug"], nid))
+        cwd if cwd is not None else sup.scratch_dir(org.d["slug"], nid, policy_org=org))
     codex_home = os.path.abspath(
         codex_home if codex_home is not None else
         (os.environ.get("CODEX_HOME") or os.path.expanduser("~/.codex")))
@@ -1082,7 +1136,9 @@ def identity_snapshot(org: Any, nid: str, *,
         return h.hexdigest()[:32], {
             name: _part(raw[name]) for name in IDENTITY_COMPONENTS}
     if cmd is None:
-        cmd = sup._build_cmd(org, nid, write_ident=False)
+        # hash-only: the session flag's name is normalised away below, so the
+        # transcript lookup is skipped (see _build_cmd's session_probe)
+        cmd = sup._build_cmd(org, nid, write_ident=False, session_probe=False)
     if overrides is None:
         overrides = sup.env_overrides(org.d["slug"], nid)
     if env is None:
@@ -1467,11 +1523,16 @@ def process_control(slug: str, nid: str, action: str,
     expected: WarmProcess | None = None
     killed = False
     try:
-        # DOC_LOCK serializes this admission with retire/rename/freeze writes;
-        # state is then reserved before the flag or pool is changed. A turn
-        # that reached the state lock first wins and this request refuses.
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
+        # The node row and the gates it is decided on are read FOR SHARE
+        # (PG-3e-B): a retire/rename/freeze of this node locks it FOR UPDATE,
+        # so it orders before or after this admission, never through it —
+        # what DOC_LOCK did. State is then reserved before the flag or pool
+        # is changed. A turn that reached the state lock first wins and this
+        # request refuses. No org row is written here.
+        with orgtx.org_tx(slug, share_nodes=[nid],
+                          share_sections=["delivering", "spend_frozen",
+                                          "storage_blocked"]) as tx:
+            org = tx.org
             n = org.node(nid)
             status = process_control_status(org, nid)
             paused = bool(status["paused"])
@@ -1590,7 +1651,8 @@ def boundary_check(slug: str, nid: str,
     if node_excluded(slug, nid):
         return False, label, "excluded-by-flag"
     try:
-        org = store.load_org(slug)
+        from . import identity_context
+        org = identity_context.load(slug, nid)
         ok, why = eligible(org, nid)
         if not ok:
             return False, label, why or "not-eligible"
@@ -1628,7 +1690,8 @@ def current_hash(slug: str, nid: str) -> str | None:
     if not warm_enabled() or node_excluded(slug, nid):
         return None
     try:
-        org = store.load_org(slug)
+        from . import identity_context
+        org = identity_context.load(slug, nid)
         ok, _why = eligible(org, nid)
         if not ok:
             return None
@@ -1800,6 +1863,7 @@ KILL_REASON_CLASS = {
     # is visible, distinct from the pool's own deliberate kills:
     "turn-timeout": "turn-machinery",    # the idle/budget watchdog killed it
     "limit-frozen": "turn-machinery",    # usage limit froze the seat
+    "effort-sent-live": "turn-machinery",  # sent a live effort level: respawn
     "background-children": "turn-machinery",  # lives on till bg agents land
     "stdin-closed": "turn-machinery",    # generic non-park drain-to-exit
     # a Codex app-server whose bounded prewarm initialize() failed, timed out
@@ -2618,6 +2682,45 @@ _dirty_lock = threading.Lock()
 _dirty: set[str] = set()
 _dirty_all = [False]
 
+# ── scoped-pass skipping ────────────────────────────────────────────────────
+# `(slug, nid) -> (input fingerprint, identity hash)` as of the keeper's last
+# identity_snapshot of that seat. A SCOPED pass (a save poke) re-hashes a seat
+# only when its fingerprint moved; a FULL pass re-hashes every seat and
+# refreshes the map. The fingerprint covers what the identity reads out of
+# the org document (identity_prompt's own contract, D-181): the seat's whole
+# node row, its ancestors' `team_charter`, and the org-level sections — minus
+# the logs, mailboxes and the docket, which move on almost every save and are
+# not identity inputs. What it cannot see (files on disk, the accounts
+# registry, the CLI version) is the full pass's job. A wrong skip costs only a
+# late pre-warm: turn admission re-hashes the seat before it uses a parked
+# process and respawns on a mismatch.
+_seen: dict[tuple[str, str], tuple[str, str]] = {}
+_FP_SKIP: frozenset[str] = frozenset(
+    set(store.LIST_LOGS) | set(store.DICT_LOGS) | set(store.KEYED_DICT_LOGS)
+    | set(store.SPLIT_SECTIONS)
+    | {"nodes", "work_items", "lifecycle", "watchdogs", "watchdog_tombs",
+       "watchdog_history", "reservations", "credit_requests"})
+
+
+def _org_fingerprint(org: Any) -> str:
+    """The org-level identity inputs, hashed. Reads only the sections the
+    document already holds (`dict.keys`, not `org.d.keys()`, which would
+    materialise every lazy log section to answer)."""
+    d = org.d
+    doc = {k: dict.__getitem__(d, k) for k in sorted(dict.keys(d))
+           if k not in _FP_SKIP}
+    return hashlib.sha256(json.dumps(doc, sort_keys=True, default=str)
+                          .encode("utf-8", "replace")).hexdigest()
+
+
+def _seat_fingerprint(org: Any, nid: str, org_fp: str) -> str:
+    chain = [(a, org.nodes[a].get("team_charter"))
+             for a in org.ancestors(nid) if a in org.nodes]
+    h = hashlib.sha256(org_fp.encode("ascii"))
+    h.update(json.dumps([org.node(nid), chain], sort_keys=True, default=str)
+             .encode("utf-8", "replace"))
+    return h.hexdigest()
+
 
 def poke(slug: str | None = None) -> None:
     """Wake the keeper now — called from store.save_hooks (any org change may
@@ -2646,6 +2749,42 @@ def _busy(slug: str, nid: str) -> bool:
         return bool(ent.get("busy") or ent.get("proc_control"))
 
 
+def _unchanged(org: Any, slug: str, nid: str, org_fp: str,
+               current: str | None) -> bool:
+    """True when this seat's inputs match the last hash the keeper took of
+    it AND that hash is the process's own — the re-hash can be skipped."""
+    if not org_fp or current is None:
+        return False
+    prev = _seen.get((slug, nid))
+    if prev is None or prev[1] != current:
+        return False
+    try:
+        return prev[0] == _seat_fingerprint(org, nid, org_fp)
+    except Exception:                               # noqa: BLE001
+        return False
+
+
+def _snapshot_seen(org: Any, slug: str, nid: str,
+                   org_fp: str) -> tuple[str, dict[str, str]]:
+    """identity_snapshot, remembering (fingerprint, hash) for later scoped
+    passes. The fingerprint is taken BEFORE the hash, so an input that moves
+    in between leaves a stale fingerprint that forces the next re-hash rather
+    than a fresh one that hides it."""
+    try:
+        fp = _seat_fingerprint(org, nid, org_fp) if org_fp else ""
+    except Exception:                               # noqa: BLE001
+        fp = ""
+    h, parts = identity_snapshot(org, nid)
+    if fp:
+        _seen[(slug, nid)] = (fp, h)
+    else:
+        _seen.pop((slug, nid), None)
+    return h, parts
+
+
+from . import policy_context
+
+
 def _keeper_pass(slugs: set[str] | None = None) -> None:
     """One reconcile. `slugs=None` is the FULL pass (root listing + deleted-
     org reap + every org); a set is the SCOPED pass a save poke buys — only
@@ -2663,7 +2802,7 @@ def _keeper_pass(slugs: set[str] | None = None) -> None:
             kill_node(slug, nid, "disabled")
         return
     if slugs is None:
-        orgs = store.cached_list()
+        orgs = policy_context.org_rows()
         known = {o["slug"] for o in orgs}
         # a DELETED org never appears in the loop below — its parked
         # processes would otherwise be orphans no pass ever visits
@@ -2680,7 +2819,7 @@ def _keeper_pass(slugs: set[str] | None = None) -> None:
             # a READ — eligibility, identity hashing, live sets. A scoped
             # pass follows a save, whose seq bump makes this a fresh load
             # anyway; the periodic full pass stops re-parsing unchanged orgs
-            org = store.cached_org(slug)
+            org = policy_context.read(slug)
         except Exception:                           # noqa: BLE001
             if slugs is not None:
                 # scoped poke for an org that no longer loads — deleted or
@@ -2691,6 +2830,11 @@ def _keeper_pass(slugs: set[str] | None = None) -> None:
                     kill_node(slug, nid, "org-deleted")
             continue
         live = {k for k, n in org.nodes.items() if n.get("state") == "live"}
+        scoped = slugs is not None
+        try:
+            org_fp = _org_fingerprint(org)
+        except Exception:                           # noqa: BLE001
+            org_fp = ""                              # never skip on doubt
         # reap processes whose seat is gone or no longer eligible — retire
         # and dissolve do not touch process state anywhere else (measured
         # gap: supervisor leaves st["proc"] and _state intact on archive)
@@ -2719,9 +2863,12 @@ def _keeper_pass(slugs: set[str] | None = None) -> None:
                             slug, nid, live=True, relaunch=True,
                             reason=_relaunch_text(_why or "not-eligible"),
                             owner=serving)
+                    elif scoped and _unchanged(org, slug, nid, org_fp,
+                                               serving.hash):
+                        pass
                     else:
                         try:
-                            h, parts = identity_snapshot(org, nid)
+                            h, parts = _snapshot_seen(org, slug, nid, org_fp)
                             if h != serving.hash:
                                 fields = identity_change_fields(
                                     serving.hash, serving.ident_components,
@@ -2757,8 +2904,11 @@ def _keeper_pass(slugs: set[str] | None = None) -> None:
                 # exit owner, and share the once-only guard with the EOF pump.
                 _journal_exit_once(wp, "crash")
                 wp = None
+            if (scoped and wp is not None
+                    and _unchanged(org, slug, nid, org_fp, wp.hash)):
+                continue                             # nothing it reads moved
             try:
-                h, next_components = identity_snapshot(org, nid)
+                h, next_components = _snapshot_seen(org, slug, nid, org_fp)
             except Exception:                       # noqa: BLE001
                 continue
             if wp is not None and wp.hash == h:
@@ -2785,8 +2935,10 @@ def _prewarm_node(org: Any, nid: str, why: str) -> None:
     @halt.callback(slug, nid)
     def run() -> None:
         with halt.slot(slug, nid, _spawn_gate):
-            with store.DOC_LOCK:
-                fresh = store.load_org(slug)
+            # halt is decided on the node row, read FOR SHARE (PG-3e-B): a
+            # halt locks it FOR UPDATE and commits `halting` first
+            with orgtx.org_tx(slug, share_nodes=[nid]) as tx:
+                fresh = tx.org
                 if nid not in fresh.nodes or fresh.node(nid).get("halt") or _busy(slug, nid):
                     return
             nwp = _spawn_for(fresh, nid, why)
@@ -2794,8 +2946,11 @@ def _prewarm_node(org: Any, nid: str, why: str) -> None:
             return
         parked = False
         try:
-            with store.DOC_LOCK:
-                current = store.load_org(slug)
+            # parked under the node's row lock (FOR SHARE), so a halt either
+            # commits first and this sees it, or waits and then finds the
+            # parked process in the pool to kill
+            with orgtx.org_tx(slug, share_nodes=[nid]) as tx:
+                current = tx.org
                 if nid in current.nodes and not current.node(nid).get("halt"):
                     with _pool_lock:
                         if _pool.get((slug, nid)) is None and not _busy(slug, nid):
@@ -2841,9 +2996,9 @@ def _pool_snapshot() -> None:
                    for wp in _serving.values() if wp.alive()]
     entries = parked + serving
     elig_total = 0
-    for o in store.cached_list():
+    for o in policy_context.org_rows():
         try:
-            org = store.cached_org(o["slug"])
+            org = policy_context.read(o["slug"])
         except Exception:                            # noqa: BLE001
             continue
         for nid, n in org.nodes.items():
@@ -2903,14 +3058,14 @@ def _keeper() -> None:
             want_all = _dirty_all[0]
             _dirty_all[0] = False
         try:
-            if (not poked or want_all or not dirty
-                    or time.time() - last_full >= WARM_POLL):
-                # timeout tick, an unscoped poke, or the periodic backstop —
-                # a stream of scoped pokes must not starve full reconciles
+            if want_all or time.time() - last_full >= WARM_FULL_EVERY:
+                # an unscoped poke, or the periodic backstop (WARM_FULL_EVERY)
+                # — a stream of scoped pokes must not starve full reconciles
                 last_full = time.time()
                 _keeper_pass()
-            else:
+            elif dirty:
                 _keeper_pass(dirty)
+            # else: a quiet WARM_POLL tick between full passes — nothing to do
         except Exception as e:                      # noqa: BLE001
             print(f"[orgtree] warmpool keeper pass failed: "
                   f"{type(e).__name__}: {e}")

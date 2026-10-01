@@ -299,8 +299,9 @@ class ScopedSaveControls(unittest.TestCase):
         with store.write_org('scope-neg') as w:
             d = w.d
             nodes = dict.__getitem__(d, 'nodes')
-            # raw access: no marks
-            dict.__getitem__(nodes, 'alpha')['state'] = 'smuggled'
+            # Bypass both the NodesMap read barrier and the node's mutation
+            # tracker. Ordinary assignment is now caught even via an old ref.
+            dict.__setitem__(dict.__getitem__(nodes, 'alpha'), 'state', 'smuggled')
             store._SCOPED_VERIFY = True
             try:
                 with self.assertRaises(RuntimeError) as ctx:

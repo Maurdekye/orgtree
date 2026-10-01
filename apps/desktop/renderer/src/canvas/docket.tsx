@@ -22,19 +22,22 @@
 // `questions` array (wire contract v3) is only used to know WHICH asks to
 // look up and for the "who is asking" header — never to answer directly.
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useDocketWindow } from './docketwindow'
 import { usePendingAttention } from '../pending-attention'
-import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
+import { askSubmitted, useSubmittedAsks } from '../asksubmitted'
+import { dismissAttention, flaggedNow, manualNow, useDismissedAttention } from '../attndismiss'
+import type { ComponentProps, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import Select from '@mui/material/Select'
 import MenuItem from '@mui/material/MenuItem'
 import type {
-  AskInfo, ToastFn, TreeNode, TreePayload, WorkActor, WorkItem, WorkReceipt,
+  AskInfo, ToastFn, TreeNode, TreePayload, WorkActor, WorkItem, WorkItemsPayload, WorkReceipt,
 } from '../types'
 import {
-  deleteWorkItemAttachment, dismissWorkItemAttention, getWorkItems,
+  deleteWorkItemAttachment, getWorkReferences, getWorkItem,
   replyWorkItem, uploadWorkItemAttachment, workItemArtifactUrl,
   workItemAttachmentUrl,
-  req,
+  req, agentReferences,
 } from '../api'
 import { AttachIcon, CloseIcon, DocketIcon, DownloadIcon, TuneIcon } from '../icons'
 import { agentNavProps } from './agentnav'
@@ -45,11 +48,12 @@ import { revealDetachedDocument } from '../windowlife'
 import { closeIfCentred, PinFrame } from './modalpin'
 import { AgentName } from './identity'
 import { MailReplyBox } from './mail'
-import { ago, jumpKey, useEsc, usePolled } from './shared'
+import { ago, jumpKey, useEsc } from './shared'
+import { useWorkItems, useSelectedWork } from './useworkitems'
 import { fmtFull } from '../timefmt'
 import { buildMentionIndex } from './workrefs'
 import type { MentionIndex } from './workrefs'
-import { RefProse, refToken } from './reflinks'
+import { ForegroundViewContext, RefProse, refToken, resolveRef, useAgentOutcome } from './reflinks'
 import { DocketDescription } from './docketdesc'
 import { copyToClipboard, useContextMenu } from './contextmenu'
 import { quickStaffEntry, quickStaffPath } from './quickstaff'
@@ -230,9 +234,11 @@ export function sortItems(items: WorkItem[], mode: DocketSortMode): WorkItem[] {
  *  its identity across session generations: when the node is live, the
  *  docket's name resolves to that live successor and its current model. Only
  *  a node that is actually retired gets the historical treatment. */
-export type ActorFit = 'current' | 'retired' | 'gone'
+export type ActorFit = 'current' | 'retired' | 'gone' | 'unknown'
 
-export interface NodeFacts { tier: string; generation: number; live: boolean }
+/** `unresolved` marks an agent a partial tree omitted whose exact lookup has
+ *  not answered (or failed): not proven present and never proven gone. */
+export interface NodeFacts { tier: string; generation: number; live: boolean; unresolved?: boolean }
 
 export function buildNodeFacts(roots?: TreeNode[]): Map<string, NodeFacts> {
   const map = new Map<string, NodeFacts>()
@@ -252,12 +258,117 @@ export function buildNodeFacts(roots?: TreeNode[]): Map<string, NodeFacts> {
   return map
 }
 
+const PROSE_TOKEN = /[A-Za-z0-9](?:[A-Za-z0-9_-]*[A-Za-z0-9])?/g
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+/** Tokens that are never worth an agent lookup: plain numbers, pieces of a
+ *  timestamp (`2026-09-27T22`, `124Z`) and UUIDs. Word-shaped tokens stay:
+ *  whether one names an agent is the backend's answer, not a guess here. */
+export function notAgentShaped(id: string): boolean {
+  return /^\d+$/.test(id) || /^\d[\d-]*(?:T\d+)?Z?$/i.test(id) || UUID.test(id)
+}
+
+/** Name-shaped words in an item's text, excluding what the caller already
+ *  resolves. Bounded by count and by characters scanned: a candidate list,
+ *  never an index of history. */
+export function proseCandidates(value: unknown, skip: (id: string) => boolean,
+                                cap = 256, chars = 200_000): string[] {
+  const out = new Set<string>()
+  let budget = chars
+  const visit = (v: unknown, depth: number) => {
+    if (out.size >= cap || budget <= 0 || depth > 6) return
+    if (typeof v === 'string') {
+      const text = v.slice(0, budget)
+      budget -= text.length
+      for (const m of text.matchAll(PROSE_TOKEN)) {
+        const id = m[0]
+        if (id.length >= 2 && id.length <= 64 && !notAgentShaped(id) && !skip(id)) out.add(id)
+        if (out.size >= cap) return
+      }
+    } else if (Array.isArray(v)) v.forEach(x => visit(x, depth + 1))
+    else if (v && typeof v === 'object') Object.values(v).forEach(x => visit(x, depth + 1))
+  }
+  visit(value, 0)
+  return [...out].sort()
+}
+
+/** A bare agent name in an item's prose is a mention only when the agent
+ *  resolves. On a SELECTED tree a retired agent may be omitted, so the
+ *  name-shaped words are looked up in bounded batches for the tree's
+ *  catalog; found agents join the index, and an item of the same name keeps
+ *  winning the collision. A complete tree's index is returned unchanged. */
+export function useProseAgentIndex(slug: string, source: unknown, index: MentionIndex): MentionIndex {
+  const view = useContext(ForegroundViewContext)
+  const catalog = view?.catalog_revision
+  const candidates = useMemo(() => catalog === undefined ? []
+    : proseCandidates(source, id => index.has(id) || !!view?.missing.includes(id)),
+  [catalog, source, index, view])
+  const key = JSON.stringify(candidates)
+  const [answered, setAnswered] = useState(0)
+  useEffect(() => agentReferences.subscribe(() => setAnswered(n => n + 1)), [])
+  useEffect(() => {
+    if (catalog !== undefined && candidates.length) agentReferences.request(slug, catalog, candidates)
+  }, [slug, catalog, key])   // eslint-disable-line react-hooks/exhaustive-deps
+  return useMemo(() => {
+    if (catalog === undefined || !candidates.length) return index
+    let out: MentionIndex | null = null
+    for (const id of candidates) {
+      const state = agentReferences.get(slug, catalog, id)
+      if (state && 'ref' in state && state.ref && !index.has(id)) {
+        out ??= new Map(index)
+        out.set(id, { kind: 'agent', id, tier: state.ref.tier })
+      }
+    }
+    return out ?? index
+  }, [slug, catalog, key, index, answered])   // eslint-disable-line react-hooks/exhaustive-deps
+}
+
+/** Every agent an item names. Only these are looked up when omitted. */
+export function itemActorIds(items: Iterable<WorkItem> | null | undefined): string[] {
+  const ids = new Set<string>()
+  const add = (a: unknown) => {
+    if (a && typeof a === 'object' && typeof (a as WorkActor).node === 'string') ids.add((a as WorkActor).node)
+  }
+  for (const it of items ?? []) { add(it.owner); add(it.reviewer); add(it.last_updater); add(it.created_by) }
+  return [...ids].sort()
+}
+
+/** Tree facts, completed for a SELECTED tree: an agent it does not carry is
+ *  resolved by exact lookup for that tree's catalog. Until the answer lands it
+ *  is `unresolved`; only the backend's `missing` makes it absent. A complete
+ *  legacy tree is authoritative as it stands and asks nothing. */
+export function useNodeFacts(slug: string, tree: TreePayload | null | undefined,
+                             ids: readonly string[]): Map<string, NodeFacts> {
+  const base = useMemo(() => buildNodeFacts(tree?.roots), [tree?.roots])
+  const catalog = tree?.foreground?.catalog_revision
+  const known = tree?.foreground?.missing
+  const wanted = useMemo(() => catalog === undefined ? []
+    : ids.filter(id => !base.has(id) && !known?.includes(id)), [catalog, base, known, ids])
+  const wantedKey = JSON.stringify(wanted)
+  const [answered, setAnswered] = useState(0)
+  useEffect(() => agentReferences.subscribe(() => setAnswered(n => n + 1)), [])
+  useEffect(() => {
+    if (catalog !== undefined && wanted.length) agentReferences.request(slug, catalog, wanted)
+  }, [slug, catalog, wantedKey])   // eslint-disable-line react-hooks/exhaustive-deps
+  return useMemo(() => {
+    if (catalog === undefined || !wanted.length) return base
+    const facts = new Map(base)
+    for (const id of wanted) {
+      const state = agentReferences.get(slug, catalog, id)
+      if (!state || !('ref' in state)) facts.set(id, { tier: '', generation: 0, live: false, unresolved: true })
+      else if (state.ref) facts.set(id, { tier: state.ref.tier ?? '', generation: state.ref.generation ?? 0,
+        live: state.ref.state === 'live' })
+    }
+    return facts
+  }, [slug, catalog, base, wanted, answered])
+}
+
 export function actorFit(actor: WorkActor | null | undefined,
                          facts: Map<string, NodeFacts>):
   { fit: ActorFit; tier?: string } {
   if (!actor?.node) return { fit: 'gone' }
   const n = facts.get(actor.node)
   if (!n) return { fit: 'gone' }
+  if (n.unresolved) return { fit: 'unknown' }
   // The actor's generation records who wrote the item, but it does not turn
   // the node id into a different identity. A live node is therefore the
   // current destination even when the item names an archived predecessor.
@@ -271,6 +382,7 @@ const FIT_WHY: Record<ActorFit, string | null> = {
   // explains itself
   retired: 'this agent has been retired',
   gone: 'this agent is no longer in the org',
+  unknown: "this agent's current status has not been confirmed yet",
 }
 
 /** An agent identity as it appears everywhere in this panel: the model chip
@@ -351,28 +463,50 @@ function SlugText({ item }: { item: WorkItem }) {
   )
 }
 
-export function DocketToolbarButton({ summary, onClick }: {
-  summary?: { attention: number; active: number } | null
+export function DocketToolbarButton({ summary, onClick, label, org }: {
+  summary?: { attention: number; active: number; raises?: [string, number][] } | null
   onClick?: () => void
+  /** the v3 compact header's name for this icon-only button: its
+   *  `aria-label`, never visible text (user 2026-09-29). Absent everywhere
+   *  else, so the button is byte-identical in every surface that already
+   *  renders it. */
+  label?: string
+  /** the open organization. With it, a flag the user has just dismissed
+   *  leaves the glow and the dot on the click (user 2026-09-30, attndismiss.ts)
+   *  and the dot counts only this organization's tickets, like the inbox dot.
+   *  Without it (older surfaces), both read their sources as they come. */
+  org?: string
 }) {
-  const { attention, active } = summary ?? { attention: 0, active: 0 }
+  const { attention: served, active } = summary ?? { attention: 0, active: 0 }
+  useDismissedAttention()
+  // ⚠ ONLY A MANUAL FLAG LIGHTS THIS BUTTON (user 2026-09-30: a question
+  // attached to a ticket lit both this and the Inbox, "two things" for one).
+  // The served count holds every ticket with a manual flag OR an open
+  // question (ledger `_work_attention`); the same payload lists the manual
+  // raises (`raises`), so the glow counts those the user has not dismissed.
+  // A ticket with both still glows here for its flag, and the Inbox lights
+  // for its question: two real things. An engine that lists no raises
+  // shows the served count.
+  const attention = org && summary?.raises ? manualNow(org, summary.raises) : served
   const hasAttn = attention > 0
   // count > 0 is load-bearing: `{count && ...}` renders a literal `0` in React
   const count = hasAttn ? attention : active
-  // The standing dot (user ruling 2026-09-12) reads the cross-organization
-  // aggregate the taskbar pulse reads, so a ticket waiting in ANOTHER
-  // organization still shows here. The glow above stays what it always was:
-  // the OPEN organization's own attention count.
+  // The standing dot (user ruling 2026-09-12) reads the aggregate the taskbar
+  // pulse reads. ORG-SCOPED when the organization is known (user 2026-09-30,
+  // as for the inbox dot): a ticket in another organization cannot be seen
+  // from this window's docket, so it does not light this dot.
   // The dot is aria-hidden, so the title carries the same claim in words —
   // see AskBell for why an icon-only indicator has to say itself twice.
   const pending = usePendingAttention()
-  const waiting = pending.docket > 0
+  const flagged = org ? flaggedNow(org).length : pending.docket
+  const waiting = flagged > 0
   return (
     <button className={'iconbtn docket-bell' + (hasAttn ? ' glow' : '')}
+      aria-label={label}
       title={(hasAttn
         ? `work docket — ${attention} item(s) need attention`
         : 'work docket')
-        + (waiting ? ` — ${pending.docket} ticket(s) still waiting on you` : '')}
+        + (waiting ? ` — ${flagged} ticket(s) still waiting on you` : '')}
       onClick={onClick}>
       <DocketIcon fontSize="inherit" />
       {waiting && <i className="attn-dot" aria-hidden="true" />}
@@ -387,6 +521,7 @@ export function DocketToolbarButton({ summary, onClick }: {
 /** the owner-less group's heading — named explicitly rather than left as a
  *  silent remainder at the bottom of the list (user 2026-09-05) */
 export const UNASSIGNED = 'Unassigned'
+const EMPTY_ITEMS: WorkItem[] = []
 
 export interface Section {
   key: string
@@ -600,6 +735,22 @@ export function makeHaystack(): (it: WorkItem) => string {
  *  searching render, it must not look like a new set each time. */
 const NO_FOLD: ReadonlySet<string> = new Set<string>()
 
+/** ⚠ ONLY A MANUAL FLAG MAKES A TICKET AN ATTENTION ROW (user 2026-09-30: a
+ *  question attached to a ticket lit both the Work button and the Inbox — "two
+ *  things" for one). The backend's `effective_attention` is also true for an
+ *  open question; that question is answered in the Inbox, so here the ticket
+ *  keeps its own status and says `question waiting` instead (`questionWaiting`).
+ *  The Attention view already reads `manual_attention` for the same reason
+ *  (attention/feed.ts). */
+export const flaggedForUser = (it: WorkItem): boolean =>
+  it.effective_attention && it.attention_sources.includes('manual')
+
+/** An attached question is still open and the user has not just answered it.
+ *  Answering hides it on the click (../asksubmitted); callers re-render on
+ *  `useSubmittedAsks`. */
+export const questionWaiting = (it: WorkItem): boolean =>
+  it.questions.some((q) => !askSubmitted(q.ask_id))
+
 /** The whole list, in order. The contract this function exists to keep: the
  *  backlog and the archive are ALWAYS the last two sections, in that order, in
  *  every grouping mode — so ticking a box can only ever add something to the
@@ -612,7 +763,7 @@ export function buildSections(mode: DocketGroupMode, active: WorkItem[],
 
   if (mode === 'status') {
     const bucket = (it: WorkItem): string => {
-      if (it.effective_attention) return 'attention'
+      if (flaggedForUser(it)) return 'attention'
       if (STATUS_GROUPS.some((g) => g.key === it.status)) return it.status
       return 'other'
     }
@@ -753,51 +904,24 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
   // URL (Astra review 2026-09-05). Comparing the tag during RENDER rather than
   // clearing in an effect also means there is no frame in which the stale rows
   // are still on screen.
-  const [cache, setCache] = useState<{ slug: string; archived: WorkItem[]; backlog: WorkItem[] }>(
-    { slug, archived: [], backlog: [] })
   const [sel, setSel] = useState<{ slug: string; id: string } | null>(null)
-  const archivedCache = cache.slug === slug ? cache.archived : []
-  const backlogCache = cache.slug === slug ? cache.backlog : []
+  const work = useWorkItems(slug, showArchived, showBacklog, 5000, bump)
+  const data = work.value
+  const navigation = useRef({ slug, sequence: 0 })
+  if (navigation.current.slug !== slug) navigation.current = { slug, sequence: 0 }
+  useEffect(() => () => { ++navigation.current.sequence }, [])
+  const [located, setLocated] = useState<{ slug: string; item: WorkItem } | null>(null)
 
-  // ⚠ BOTH GROUPS ARE ALWAYS FETCHED, AND THE CHECKBOXES ONLY DECIDE WHAT IS
-  // SHOWN. A slug link must work when it points at a backlogged or archived
-  // item — "reveal the row" is impossible if the row was never loaded, and a
-  // mention that silently refuses to link because a checkbox is off would be
-  // the worst of both worlds. `ledger.work_list` builds all three groups on
-  // every call regardless of the flags (they gate the RESPONSE, not the work),
-  // so this costs payload, not server time.
-  //
-  // deps is [slug] so ticking a filter does not clear data to null (which
-  // would unmount the pane and wipe the user's in-flight reply draft).
-  //
-  // ⚠ THE TOGGLES STAY IN THE REFRESH KEY even though they no longer change the
-  // REQUEST. They are what makes a tick refetch immediately instead of waiting
-  // out the five-second poll, and that is load-bearing: the panel keeps a copy
-  // of each group, and unticking is how a row that has just left the archive
-  // gets replaced by its current self rather than by the copy we cached. Drop
-  // them from the key and the stale copy survives on screen until the next
-  // poll (caught by §31 of docket.test.tsx).
-  const data = usePolled(() => getWorkItems(slug, true, true),
-    [slug], 5000, `${bump}-${showArchived}-${showBacklog}`)
-
-  useEffect(() => {
-    if (!data?.archived && !data?.backlogged) return
-    setCache((c) => ({
-      slug,
-      archived: data.archived ?? (c.slug === slug ? c.archived : []),
-      backlog: data.backlogged ?? (c.slug === slug ? c.backlog : []),
-    }))
-  }, [slug, data?.archived, data?.backlogged])
-
-  const facts = useMemo(() => buildNodeFacts(tree?.roots), [tree?.roots])
-
-  const active = data?.items ?? []
+  const active = data?.items ?? EMPTY_ITEMS
   // while a toggle's first fetch is in flight the cached group keeps showing,
   // so the list grows once and never blinks
-  const archived = showArchived ? (data?.archived ?? archivedCache) : []
-  const backlog = showBacklog ? (data?.backlogged ?? backlogCache) : []
-  const archivedCount = data?.counts?.archived ?? archivedCache.length
-  const backlogCount = data?.counts?.backlogged ?? backlogCache.length
+  const archived = showArchived ? (data?.archived ?? EMPTY_ITEMS) : EMPTY_ITEMS
+  const backlog = showBacklog ? (data?.backlogged ?? EMPTY_ITEMS) : EMPTY_ITEMS
+  const actorIds = useMemo(() => itemActorIds([...active, ...archived, ...backlog]),
+    [active, archived, backlog])
+  const facts = useNodeFacts(slug, tree, actorIds)
+  const archivedCount = data?.counts?.archived ?? 0
+  const backlogCount = data?.counts?.backlogged ?? 0
 
   const ownerName = useCallback((it: WorkItem) => it.owner?.node ?? UNASSIGNED, [])
 
@@ -848,8 +972,16 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
   // standing it would reappear the moment the reader deselected a row, long
   // after the reference that caused it.
   const setSelId = useCallback((id: string | null) => {
+    ++navigation.current.sequence
     setMissedJump(null)
+    setLocated(null)
     setSel(id ? { slug, id } : null)
+  }, [slug])
+  const pickRow = useCallback((id: string) => {
+    ++navigation.current.sequence
+    setMissedJump(null)
+    setLocated(null)
+    setSel(previous => previous?.slug === slug && previous.id === id ? null : { slug, id })
   }, [slug])
   // ⚠ ORDER IS THE POINT. The CURRENT response is written LAST, so it wins over
   // anything held from an earlier one. Written the other way round — caches
@@ -859,14 +991,23 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
   // 2026-09-05).
   const allKnown = useMemo(() => {
     const map = new Map<string, WorkItem>()
-    for (const item of archivedCache) map.set(item.slug, item)
-    for (const item of backlogCache) map.set(item.slug, item)
+    // References carry identity/group membership only. They make hidden-group
+    // links resolvable without fetching those groups' descriptions or records.
+    // Reference-only selections enter DocketPane's hydration branch; they
+    // never render as full rows or details until the group/item read returns.
+    for (const item of data?.references ?? []) map.set(item.slug, { ...item, view: 'list' } as unknown as WorkItem)
     for (const item of (data?.archived ?? [])) map.set(item.slug, item)
     for (const item of (data?.backlogged ?? [])) map.set(item.slug, item)
     for (const item of active) map.set(item.slug, item)
     return map
-  }, [active, data?.archived, data?.backlogged, archivedCache, backlogCache])
-  const cur = allKnown.get(selId ?? '')
+  }, [active, data?.references, data?.archived, data?.backlogged])
+  const selected = allKnown.get(selId ?? '') ?? (located?.slug === slug
+    && located.item.slug === selId ? located.item : undefined)
+  const cur = useSelectedWork(slug, selId, selected, showArchived, showBacklog)
+  useEffect(() => {
+    if (located && (located.slug !== slug || located.item.slug !== selId
+        || allKnown.has(located.item.slug))) setLocated(null)
+  }, [located, slug, selId, allKnown])
   const asksById = new Map<string, AskInfo>((tree.asks ?? []).map((a) => [a.id, a]))
 
   // ---- names in prose become links to the item or the agent they name
@@ -912,16 +1053,20 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
   // will", and the destination is the reader below, which reports "could not
   // load the document: …" from the exact GET. An empty Map here would call
   // every real document missing.
+  // an unresolved placeholder is not evidence the agent exists
+  const settled = useMemo(() => new Map([...facts].filter(([, f]) => !f.unresolved)), [facts])
+  const agentOutcome = useAgentOutcome(slug, settled, tree?.foreground)
   const refWorld = useMemo<RefWorld>(() => {
     const handles = new Set<RefKind>(['item', 'agent', 'doc'])
     if (onOpenMail) handles.add('mail')
     return {
       org: slug,
-      items: data
-        ? new Map([...allKnown.keys()].map((s) => [s, s]))
-        : 'loading',
+      items: data ? undefined : 'loading',
+      boundedItems: true,
+      workRevision: data?.revision,
       itemTitles: new Map([...allKnown].map(([s, item]) => [s, item.title])),
       agents: new Map([...facts.keys()].map((id) => [id, id])),
+      ...(agentOutcome ? { agentOutcome } : {}),
       // ⚠ A NODE'S INBOX IS ONLY REAL IF THE NODE IS. The user's box and the
       // org's box always exist; a NODE box named after somebody this org has
       // never had (or who was dissolved out of the tree) does not, and the
@@ -930,12 +1075,17 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
       // this panel was handed is the same tree the canvas routes against, so
       // asking it here is the same question, asked before the click.
       mail: (r) => (r.box !== 'node' ? 'ready'
-        : facts.has(String(r.node ?? '')) ? 'ready' : 'absent'),
+        : agentOutcome ? agentOutcome(String(r.node ?? ''))
+          : facts.has(String(r.node ?? '')) ? 'ready' : 'absent'),
       handles,
     }
-  }, [slug, data, allKnown, facts, onOpenMail])
+  }, [slug, data, allKnown, facts, onOpenMail, agentOutcome])
   const [flash, setFlash] = useState<string | null>(null)
   const rows = useRef(new Map<string, HTMLDivElement>())
+  const captureRow = useCallback((id: string, el: HTMLDivElement | null) => {
+    if (el) rows.current.set(id, el)
+    else rows.current.delete(id)
+  }, [])
   // COLLAPSE IS OPT-IN. Everything starts expanded, because a docket that
   // hides work by default is worse than one that is long; the arrow is how
   // you make it shorter. Per-panel, not persisted — it is a reading posture,
@@ -962,33 +1112,54 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
     })
   }, [])
 
-  const goToItem = useCallback((id: string) => {
-    const it = allKnown.get(id)
-    if (!it) return           // not ours to show — never a broken selection
-    // REVEAL BEFORE SELECT. A backlogged or archived item has no row while its
-    // group is filtered out, and selecting an invisible row would look like
-    // the link did nothing.
-    if (it.archived) setShowArchived(true)
-    else if (it.status === 'backlogged') setShowBacklog(true)
-    // ⚠ AND OPEN ITS ANCESTORS: a collapsed parent means the row is not on
-    // screen, so the link would appear to do nothing.
-    const line = ancestorsOf([...allKnown.values()], id)
-    if (line.length) {
-      setCollapsed((c) => {
-        if (!line.some((a) => c.has(a))) return c   // no needless re-render
+  const goToItem = useCallback(async (id: string) => {
+    const owner = navigation.current
+    const sequence = ++owner.sequence
+    const usable = () => navigation.current === owner && sequence === owner.sequence
+    setMissedJump(null)
+    try {
+      let it = allKnown.get(id)
+      const known = new Map(allKnown)
+      if (!it) {
+        const found = (await getWorkReferences(slug, data?.revision ?? '', [id])).get(id)
+        if (!usable()) return
+        if (!found) { setMissedJump(id); return }
+        it = { ...found, view: 'list' } as unknown as WorkItem
+        known.set(id, it)
+      }
+      // Only the visible parent chain is needed to reveal a collapsed target.
+      let parent = it.parent_visible === false ? null : it.parent
+      const visited = new Set([id])
+      while (parent && !visited.has(parent)) {
+        visited.add(parent)
+        let row = known.get(parent)
+        if (!row) {
+          const found = (await getWorkReferences(slug, data?.revision ?? '', [parent])).get(parent)
+          if (!usable()) return
+          if (!found) break
+          row = { ...found, view: 'list' } as unknown as WorkItem
+          known.set(parent, row)
+        }
+        parent = row.parent_visible === false ? null : row.parent
+      }
+      if (!usable()) return
+      if (it.archived) setShowArchived(true)
+      else if (it.status === 'backlogged') setShowBacklog(true)
+      const line = ancestorsOf([...known.values()], id)
+      setCollapsed(c => {
+        if (!line.some(a => c.has(a))) return c
         const next = new Set(c)
         for (const a of line) next.delete(a)
         return next
       })
+      setCollapsedCategories(c => c.size ? new Set<string>() : c)
+      setLocated({ slug, item: it })
+      setSel({ slug, id })
+      setFlash(id)
+    } catch (error) {
+      if (usable()) toast([`Could not open ${id}: ${error instanceof Error ? error.message : String(error)}`])
     }
-    // A category fold is another way the target can be off-screen. Reveal all
-    // category rows before selecting a referenced item, just as the ancestor
-    // fold above does for nested ticket rows. This is panel-local posture, not
-    // docket data, and clearing it keeps every jump visibly actionable.
-    setCollapsedCategories((c) => c.size ? new Set<string>() : c)
-    setSel({ slug, id })
-    setFlash(id)
-  }, [allKnown, slug])
+  }, [allKnown, slug, data?.revision, toast])
 
   /** a canonical reference clicked. ONLY the kinds `refWorld.handles` admits
    *  can arrive here — anything else was rendered inert and never became a
@@ -1048,17 +1219,17 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
   const doneJump = useRef<string | null>(null)
   const [missedJump, setMissedJump] = useState<string | null>(null)
   useEffect(() => {
-    const key = jumpKey(jumpTo, jumpSeq)
+    const key = slug + ':' + jumpKey(jumpTo, jumpSeq)
     if (!jumpTo || !data || doneJump.current === key) return
     doneJump.current = key
-    if (allKnown.has(jumpTo)) { setMissedJump(null); goToItem(jumpTo) }
-    else setMissedJump(jumpTo)
+    void goToItem(jumpTo)
     onJumpHandled?.()
   }, [jumpTo, jumpSeq, data, allKnown, goToItem, onJumpHandled])
 
-  const onDismiss = (item: WorkItem) => {
+  const onDismiss = useCallback((item: WorkItem) => {
     if (!item.manual_attention) return
-    dismissWorkItemAttention(slug, item.slug, item.manual_attention.set_rev)
+    dismissAttention(slug, { slug: item.slug, manual_attention: item.manual_attention,
+      attention_sources: item.attention_sources })
       .then(() => {
         toast([`dismissed the attention flag on “${item.title}”`])
         setBump((n) => n + 1)
@@ -1066,10 +1237,16 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
       // 409 (stale set_rev / already cleared) surfaces as an ordinary thrown
       // Error via req() — never a silent no-op or override
       .catch((e: Error) => toast([`error: ${e.message}`]))
-  }
+  }, [slug, toast])
 
   const pickGroup = (m: DocketGroupMode) => { setGroupMode(m); writeGroupMode(m) }
   const pickSort = (m: DocketSortMode) => { setSortMode(m); writeSortMode(m) }
+  const windowSections = useMemo(() => sections.map(section => ({ ...section,
+    rows: nestRows(section.items, searching ? NO_FOLD : collapsed),
+    folded: Boolean(section.heading && !searching && collapsedCategories.has(section.key)),
+  })), [sections, searching, collapsed, collapsedCategories])
+  const rowWindow = useDocketWindow(windowSections, flash)
+  const ageTick = Math.floor(Date.now() / 60_000)
 
   /** The FIRST ROW ACTUALLY ON SCREEN — what Enter in the search box opens.
    *
@@ -1104,7 +1281,7 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
   }, [query, clearSearch, firstRow, setSelId])
 
   return (
-    <>
+    <ForegroundViewContext.Provider value={tree?.foreground}>
     <PinFrame kind="docket" title="Work docket" panel="settings wide docket-modal"
       close={close} onEsc={escClose}>
         {/* One mounted set of controls: inline when wide, disclosed when narrow. */}
@@ -1217,10 +1394,12 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
         </div>
           </div>
         </div>
+        {work.status.loading && data && <div role="status" className="dim">Loading docket…</div>}
+        {work.status.failed && <div role="status" className="dim">Could not refresh docket: {work.status.error}</div>}
         <div className="mailpane">
-          {!data
+          {!data && !cur
             ? <div className="dim pad">loading…</div>
-            : rowCount === 0
+            : rowCount === 0 && !cur && !missedJump
               // ⚠ "NOTHING MATCHED" IS NOT "NOTHING EXISTS". Left as the one
               // message, a query that found nothing would claim the org has no
               // work at all — and the reader would have no way to tell that
@@ -1236,8 +1415,9 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
                 : <div className="dim pad">no work items yet</div>
               : (
                 <div className="mailer">
-                  <div className="mailer-list">
-                    {sections.map((s) => {
+                  <div className="mailer-list" ref={rowWindow.ref} onScroll={rowWindow.onScroll}>
+                    {rowWindow.before > 0 && <div aria-hidden="true" style={{ height: rowWindow.before }} />}
+                    {rowWindow.windows.map((s) => {
                       // ⚠ A SEARCH RENDERS THROUGH BOTH FOLDS, WITHOUT CLEARING
                       // EITHER. A query that finds a row and then refuses to
                       // show it because a heading or an ancestor happens to be
@@ -1256,7 +1436,7 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
                         <div key={s.key}
                           className={'docket-section' + (s.tone ? ' tone-' + s.tone : '')}>
                           {s.heading && (
-                            <div className="docket-group-head">
+                            <div className="docket-group-head" data-docket-measure={'head:' + s.key}>
                               {/* an agent's head IS that agent; a status, the
                                   backlog, the archive and `Unassigned` are
                                   words and stay plain spans */}
@@ -1293,9 +1473,10 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
                           )}
                           <div id={s.heading ? rowsId : undefined}
                             className="docket-category-rows" hidden={categoryFolded}>
-                            {nestRows(s.items, searching ? NO_FOLD : collapsed).map((row) => (
+                            {s.before > 0 && <div aria-hidden="true" style={{ height: s.before }} />}
+                            {s.visibleRows.map((row) => (
                               <DocketRow key={row.item.slug} item={row.item}
-                                ageMode={sortMode} org={slug} toast={toast}
+                                ageMode={sortMode} ageTick={ageTick} org={slug} toast={toast}
                                 selected={row.item.slug === selId}
                                 depth={row.depth} kids={row.kids}
                                 // ⚠ THE ARROW DESCRIBES WHAT IS ON SCREEN, not
@@ -1306,25 +1487,23 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
                                 // opposite of what is rendered.
                                 folded={!searching && collapsed.has(row.item.slug)}
                                 foldLocked={searching}
-                                onFold={() => toggleFold(row.item.slug)}
-                                onClick={() => setSelId(
-                                  row.item.slug === selId ? null : row.item.slug)}
+                                onFold={toggleFold}
+                                onClick={pickRow}
                                 onDismiss={onDismiss} facts={facts}
                                 onFocusAgent={onFocusAgent} close={navClose}
                                 flash={row.item.slug === flash}
-                                rowRef={(el) => {
-                                  if (el) rows.current.set(row.item.slug, el)
-                                  else rows.current.delete(row.item.slug)
-                                }} />
+                                rowRef={captureRow} />
                             ))}
+                            {s.after > 0 && <div aria-hidden="true" style={{ height: s.after }} />}
                           </div>
                         </div>
                       )
                     })}
+                    {rowWindow.after > 0 && <div aria-hidden="true" style={{ height: rowWindow.after }} />}
                   </div>
                   <div className="mailer-read">
                     {cur
-                      ? <DocketPane key={cur.slug} slug={slug} item={cur} toast={toast}
+                      ? <DocketPane key={slug + ":" + cur.slug} slug={slug} item={cur} toast={toast}
                           asksById={asksById} onDismiss={onDismiss}
                           close={navClose} onFocusAgent={onFocusAgent} facts={facts}
                           refIndex={refIndex} onGoToItem={goToItem}
@@ -1363,7 +1542,7 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
           openRef(r)
         } }} />
     )}
-    </>
+    </ForegroundViewContext.Provider>
   )
 }
 
@@ -1492,7 +1671,7 @@ export function actionableAssignedCount(data: {
  *  the work is yours. */
 export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
   onChanged, showArchived = false, onShowArchived = () => {}, refs,
-  emptyText }: {
+  emptyText, onShowBacklog, references, boundedReferences = false, workRevision }: {
   slug: string
   nid: string
   /** this agent's items, already selected by `agentItems` — null while the
@@ -1506,6 +1685,10 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
   onChanged?: () => void
   showArchived?: boolean
   onShowArchived?: (show: boolean) => void
+  onShowBacklog?: (show: boolean) => void
+  references?: WorkItemsPayload['references']
+  boundedReferences?: boolean
+  workRevision?: string
   /** THE DESK'S OWN REFERENCE WIRING, passed down whole rather than rebuilt.
    *  Required, not optional: a fallback world here would be a second answer to
    *  the same question on the same desk, and the two would drift. */
@@ -1521,26 +1704,32 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
 }) {
   const controlsId = useId()
   const [showBacklog, setShowBacklog] = useState(false)
+  useEffect(() => { onShowBacklog?.(showBacklog) }, [showBacklog, onShowBacklog])
   const [sortMode, setSortMode] = useState<DocketSortMode>(readSortMode)
   const [groupMode, setGroupMode] = useState<DocketGroupMode>(readGroupMode)
-  const [selId, setSelId] = useState<string | null>(null)
+  const [selection, setSelection] = useState<{ scope: string; id: string } | null>(null)
+  const selectionScope = JSON.stringify([slug, nid])
+  const selId = selection?.scope === selectionScope ? selection.id : null
+  const setSelId = (id: string | null) => setSelection(id ? { scope: selectionScope, id } : null)
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
     () => new Set<string>())
   const [collapsedCategories, setCollapsedCategories] = useState<ReadonlySet<string>>(
     () => new Set<string>())
-  const rows = mine ?? []
-  const sections = buildSections(groupMode,
+  const rows = mine ?? EMPTY_ITEMS
+  const sections = useMemo(() => buildSections(groupMode,
     sortItems(rows.filter(it => !it.archived && it.status !== 'backlogged'), sortMode),
     showBacklog ? sortItems(rows.filter(it => !it.archived && it.status === 'backlogged'), sortMode) : [],
     showArchived ? sortItems(rows.filter(it => it.archived), sortMode) : [],
-    it => it.owner?.node ?? UNASSIGNED)
+    it => it.owner?.node ?? UNASSIGNED), [groupMode, rows, sortMode, showBacklog, showArchived])
   const byName = useMemo(
     () => new Map(rows.map((it) => [it.slug, it])), [rows])
   const refIndex = useMemo(
-    () => buildMentionIndex(byName.values(),
+    () => buildMentionIndex([...(references ?? []), ...byName.values()],
                             [...facts].map(([id, f]) => [id, f.tier] as const)),
-    [byName, facts])
-  const cur = byName.get(selId ?? '')
+    [byName, facts, references])
+  const hiddenSelection = references?.find(it => it.slug === selId)
+  const cur = useSelectedWork(selectionScope, selId, byName.get(selId ?? '') ?? (hiddenSelection
+    ? { ...hiddenSelection, view: 'list' } as unknown as WorkItem : undefined), showArchived, showBacklog)
   /** THE DESK'S WORLD, WITH EXACTLY ONE ROUTE TAKEN OVER.
    *
    *  ⚠ THIS TAB USED TO BUILD ITS OWN NARROW WORLD (`handles` = item + agent),
@@ -1563,11 +1752,15 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
    *  anything else through the desk's work route. */
   const refWorld = useMemo<RefWorld>(() => ({
     ...refs.world,
-    itemTitles: new Map([...(refs.world.itemTitles ?? []), ...rows.map(it => [it.slug, it.title] as const)]),
+    boundedItems: boundedReferences || refs.world.boundedItems,
+    workRevision: workRevision ?? refs.world.workRevision,
+    itemTitles: new Map([...(refs.world.itemTitles ?? []),
+      ...(references ?? []).map(it => [it.slug, it.title] as const),
+      ...rows.map(it => [it.slug, it.title] as const)]),
     handles: refs.world.handles
       ? new Set<RefKind>([...refs.world.handles, 'item'])
       : undefined,
-  }), [refs.world, mine])
+  }), [refs.world, mine, references, boundedReferences, workRevision])
   /** An item this tab HOLDS selects in place — the row is right there, and
    *  navigating the whole canvas to the Work panel to show a row already on
    *  screen is the surprising behaviour. Anything else is the desk's, which is
@@ -1599,15 +1792,23 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
       return next
     })
   }, [])
-  const onDismiss = (item: WorkItem) => {
+  const onDismiss = useCallback((item: WorkItem) => {
     if (!item.manual_attention) return
-    dismissWorkItemAttention(slug, item.slug, item.manual_attention.set_rev)
+    dismissAttention(slug, { slug: item.slug, manual_attention: item.manual_attention,
+      attention_sources: item.attention_sources })
       .then(() => {
         toast([`dismissed the attention flag on “${item.title}”`])
         onChanged?.()
       })
       .catch((e: Error) => toast([`error: ${e.message}`]))
-  }
+  }, [slug, toast, onChanged])
+  const pickRow = (id: string) => setSelId(selId === id ? null : id)
+  const windowSections = useMemo(() => sections.map(section => ({ ...section,
+    rows: nestRows(section.items, collapsed),
+    folded: Boolean(section.heading && collapsedCategories.has(section.key)),
+  })), [sections, collapsed, collapsedCategories])
+  const rowWindow = useDocketWindow(windowSections, selId)
+  const ageTick = Math.floor(Date.now() / 60_000)
   return (
     <div className="msgs docket-modal docket-agent">
       <div className="docket-filterbar">
@@ -1635,9 +1836,9 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
         <span className="dim docket-sort-why">{SORT_MODES.find(mode => mode.value === sortMode)?.why}
           {groupMode !== 'none' && ', inside each group'}</span>
       </div>
-      {mine === null
+      {mine === null && !cur
         ? <div className="dim pad">loading…</div>
-        : sections.length === 0
+        : sections.length === 0 && !cur
           ? <div className="dim pad">
               {emptyText ?? <>
                 no docket items are assigned to {nid} — assignment is ownership,
@@ -1646,15 +1847,16 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
             </div>
           : (
             <div className="mailer">
-              <div className="mailer-list">
-                {sections.map(section => {
+              <div className="mailer-list" ref={rowWindow.ref} onScroll={rowWindow.onScroll}>
+                {rowWindow.before > 0 && <div aria-hidden="true" style={{ height: rowWindow.before }} />}
+                {rowWindow.windows.map(section => {
                   const categoryFolded = Boolean(section.heading && collapsedCategories.has(section.key))
                   const rowsId = `${controlsId}-${section.key}-rows`
                   const categoryName = `${section.heading}`
                   return (
                     <div key={section.key}
                       className={'docket-section' + (section.tone ? ' tone-' + section.tone : '')}>
-                      {section.heading && <div className="docket-group-head">
+                      {section.heading && <div className="docket-group-head" data-docket-measure={'head:' + section.key}>
                         <span>{section.heading}</span>
                         <button type="button" className="docket-category-toggle"
                           title={`${categoryFolded ? 'expand' : 'collapse'} ${categoryName}`}
@@ -1667,30 +1869,35 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
                       </div>}
                       <div id={section.heading ? rowsId : undefined}
                         className="docket-category-rows" hidden={categoryFolded}>
-                        {nestRows(section.items, collapsed).map((row) => (
+                        {section.before > 0 && <div aria-hidden="true" style={{ height: section.before }} />}
+                        {section.visibleRows.map((row) => (
                           <DocketRow key={row.item.slug} item={row.item}
-                            org={slug} toast={toast} ageMode={sortMode}
+                            org={slug} toast={toast} ageMode={sortMode} ageTick={ageTick}
                             selected={row.item.slug === selId}
                             depth={row.depth} kids={row.kids}
                             folded={collapsed.has(row.item.slug)}
-                            onFold={() => toggleFold(row.item.slug)}
-                            onClick={() => setSelId(
-                              row.item.slug === selId ? null : row.item.slug)}
+                            onFold={toggleFold}
+                            onClick={pickRow}
                             onDismiss={onDismiss} facts={facts}
                             onFocusAgent={onFocusAgent} />
                         ))}
+                        {section.after > 0 && <div aria-hidden="true" style={{ height: section.after }} />}
                       </div>
                     </div>
                   )
                 })}
+                {rowWindow.after > 0 && <div aria-hidden="true" style={{ height: rowWindow.after }} />}
               </div>
               <div className="mailer-read">
                 {cur
-                  ? <DocketPane key={cur.slug} slug={slug} item={cur} toast={toast}
+                  ? <DocketPane key={slug + ":" + cur.slug} slug={slug} item={cur} toast={toast}
                       asksById={new Map()} onDismiss={onDismiss}
                       close={() => setSelId(null)} onFocusAgent={onFocusAgent}
                       facts={facts} refIndex={refIndex}
-                      onGoToItem={(id) => { if (byName.has(id)) setSelId(id) }}
+                      onGoToItem={(id) => {
+                        if (byName.has(id)) setSelId(id)
+                        else refs.onOpen(resolveRef({ kind: 'item', org: slug, id }, refs.world))
+                      }}
                       refWorld={refWorld} onOpenRef={openRef}
                       refresh={() => onChanged?.()} />
                   : <div className="dim pad mailer-none">select an item to view it</div>}
@@ -1706,7 +1913,7 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
  *  module counter is enough and needs no reset. */
 let copyTicket = 0
 
-function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
+export const DocketRow = memo(function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
   close, flash, rowRef, depth = 0, kids = 0, folded = false, onFold,
   foldLocked = false, ageMode = 'updated', org, toast }: {
   item: WorkItem
@@ -1720,19 +1927,21 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
    *  beside a row agrees with the order it sits in. The agent docket is served
    *  in updated order and has no selector, so it takes the default. */
   ageMode?: DocketSortMode
+  /** Re-evaluate relative ages as time advances, even if the poll reuses an item. */
+  ageTick: number
   /** w2d5fab0a elements 1 and 2: how deep this row sits, and whether it has
    *  children of its own to fold away. The connecting lines are drawn from
    *  `depth` in CSS rather than with spacer elements. */
   depth?: number
   kids?: number
   folded?: boolean
-  onFold?: () => void
+  onFold?: (slug: string) => void
   /** the subtree fold cannot change anything right now, because a SEARCH is
    *  showing every match regardless of the fold. The arrow is disabled and
    *  says why rather than staying clickable and doing nothing — this file's
    *  standing objection to a live-looking control that is actually inert. */
   foldLocked?: boolean
-  onClick: () => void
+  onClick: (slug: string) => void
   onDismiss: (item: WorkItem) => void
   facts: Map<string, NodeFacts>
   onFocusAgent?: (agentId: string) => void
@@ -1740,9 +1949,12 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
   /** briefly true after a slug link brought the reader here, so the row the
    *  link meant is identifiable among rows that all look alike */
   flash?: boolean
-  rowRef?: (el: HTMLDivElement | null) => void
+  rowRef?: (slug: string, el: HTMLDivElement | null) => void
 }) {
-  const attention = item.effective_attention
+  const capture = useCallback((el: HTMLDivElement | null) => rowRef?.(item.slug, el), [rowRef, item.slug])
+  useSubmittedAsks()
+  const attention = flaggedForUser(item)
+  const asking = questionWaiting(item)
   // active (white) / attention (orange) / backlog (its own quiet colour) /
   // archived (grey, darker bg). Archived wins over backlog, and attention wins
   // over both — the backend never hands us an archived attention row, but the
@@ -1864,7 +2076,7 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
     const row = e.currentTarget
     const { clientX, clientY } = e
     const entries: MenuEntry[] = [
-      { label: selected ? 'Close details' : 'Open details', onSelect: onClick },
+      { label: selected ? 'Close details' : 'Open details', onSelect: () => onClick(item.slug) },
     ]
     // ⚠ AND IT IS SUPPRESSED WHILE A SEARCH IS ACTIVE, for the same reason the
     // arrow is disabled — but it has to be said TWICE, because the menu is a
@@ -1875,7 +2087,7 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
     // clear the box — the exact restore guarantee this ticket turns on.
     if (kids > 0 && onFold && !foldLocked) {
       entries.push({ label: folded ? `Show ${kids} sub-item${kids === 1 ? '' : 's'}`
-        : `Hide ${kids} sub-item${kids === 1 ? '' : 's'}`, onSelect: onFold })
+        : `Hide ${kids} sub-item${kids === 1 ? '' : 's'}`, onSelect: () => onFold(item.slug) })
     }
     const owner = item.owner?.node
     if (owner && onFocusAgent) {
@@ -1899,8 +2111,9 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
     // THE NAME IN THE LIST IS THE SLUG (user 2026-09-05). The full descriptive
     // title is printed only in the detail pane; here it is the row's hover
     // title, so nothing is lost and the row stays one line of name.
-    <div data-copy-ticket-title={item.title} className={cls} title={item.title} onClick={onClick}
-      onDoubleClick={copySlug} ref={rowRef}
+    <div data-copy-ticket-title={item.title} data-docket-measure={'row:' + item.slug}
+      className={cls} title={item.title} onClick={() => onClick(item.slug)}
+      onDoubleClick={copySlug} ref={capture}
       // ⚠ THE STAFFING LOAD STARTS HERE, NOT ON THE MENU (user requirement
       // 2026-09-15). Hovering or focusing a row precedes the right-click that
       // opens its menu, so by the time the menu exists the request is already
@@ -1953,7 +2166,7 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
               : folded ? `show ${kids} sub-item${kids === 1 ? '' : 's'}`
                 : `hide ${kids} sub-item${kids === 1 ? '' : 's'}`}
             aria-expanded={!folded}
-            onClick={(e) => { e.stopPropagation(); onFold?.() }}>▾</button>
+            onClick={(e) => { e.stopPropagation(); onFold?.(item.slug) }}>▾</button>
         )}
         <span className="mfrom docket-rowname">{itemName(item)}</span>
         {folded && kids > 0 && (
@@ -1969,6 +2182,7 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
           title={attention ? undefined : statusHelp(item.status)}>
           {label}
         </span>
+        {asking && <span className="docket-qwait" title="An open question on this ticket is waiting in your Inbox">question waiting</span>}
         {/* THE ASSIGNMENT, where the last updater used to be (user ruling
             2026-09-05: assignment is ownership, and it is what the docket
             names). An unowned item says so in words rather than leaving the
@@ -1991,19 +2205,26 @@ function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
       </div>
     </div>
   )
-}
+})
 
 /** Every ticket-detail section uses the same disclosure contract.  The state
  * is deliberately local to the mounted pane: polling keeps a reader's
  * posture, while DocketPane's slug key resets it when a different ticket is
  * selected, matching the existing docket category-fold convention. */
-function DocketSection({ title, children }: { title: string; children: ReactNode }) {
+function DocketSection({ title, summary, children }: {
+  title: string
+  /** shown beside the title, so a collapsed section still says what it holds */
+  summary?: ReactNode
+  children: ReactNode
+}) {
   const id = useId()
-  // Acceptance and verification are audit context, not the reader's first
-  // answer.  They must start closed on every newly mounted ticket pane, even
-  // when another section remains open by default.  The state is still local
-  // so the reader can expand either section for the current visit.
+  // Acceptance, verification and the integration review are audit context,
+  // not the reader's first answer.  They must start closed on every newly
+  // mounted ticket pane, even when another section remains open by default.
+  // The state is still local so the reader can expand them for the current
+  // visit.  (Integration review: user 2026-09-30.)
   const startsCollapsed = title === 'ACCEPTANCE CONDITIONS' || title === 'VERIFICATION'
+    || title === 'INTEGRATION REVIEW'
   const [collapsed, setCollapsed] = useState(startsCollapsed)
   return (
     <section className={(title === 'DESCRIPTION' || title === 'BLOCKED BECAUSE'
@@ -2018,6 +2239,7 @@ function DocketSection({ title, children }: { title: string; children: ReactNode
             || title.startsWith('ENDED WITHOUT COMPLETING')
             || title === 'ATTACHMENTS')
             ? ' docket-list-heading' : '')}>{title}</h4>
+        {summary != null && <span className="docket-detail-section-summary dim">{summary}</span>}
         <button type="button" className="docket-detail-toggle"
           aria-expanded={!collapsed} aria-controls={`${id}-body`}
           aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${title}`}
@@ -2152,8 +2374,11 @@ function DocketReviewState({ item }: { item: WorkItem }) {
   const evidence = verdict?.evidence ?? packet?.evidence ?? []
   const note = verdict?.note ?? packet?.note
   return (
-    <DocketSection title="INTEGRATION REVIEW">
-      <div className="docket-review-box">
+    // plain like its neighbours and collapsed: nothing here needs the user
+    // (user 2026-09-30); the short sha says what the closed section holds
+    <DocketSection title="INTEGRATION REVIEW"
+      summary={candidate ? <code>{candidate.slice(0, 7)}</code> : undefined}>
+      <div className="docket-review-body">
       {verdict && (
         <div className="docket-review-verdict">
           <span className={'docket-status status-' + verdict.decision}>
@@ -2391,8 +2616,36 @@ function DocketAttachments({ slug, item, toast, refresh }: {
   )
 }
 
-function DocketPane({ slug, item, toast, asksById, onDismiss, close, onFocusAgent,
-  facts, refIndex, onGoToItem, refWorld, onOpenRef, refresh }: {
+/** Exported for the Attention view, which shows a flagged ticket with this
+ *  exact pane (user 2026-09-29) rather than a copy that could drift. */
+export function DocketPane(props: ComponentProps<typeof FullDocketPane>) {
+  const { slug, item } = props
+  const [loaded, setLoaded] = useState<{ slug: string; id: string; item: WorkItem } | null>(null)
+  const [error, setError] = useState('')
+  const [retry, setRetry] = useState(0)
+  useEffect(() => {
+    if (item.view !== 'list') return
+    let current = true
+    setError('')
+    getWorkItem(slug, item.slug).then(({ item: full }) => {
+      if (current) setLoaded({ slug, id: item.slug, item: full })
+    }).catch((e: Error) => { if (current) setError(e.message) })
+    return () => { current = false }
+  }, [slug, item.slug, item.rev, item.view, item.view_revision, retry])
+  const full = item.view !== 'list' ? item
+    : loaded?.slug === slug && loaded.id === item.slug ? loaded.item : null
+  // Keep the inner pane mounted through refreshes: its reply draft belongs to
+  // the selected item, not the newest HTTP request. Never reuse it across orgs.
+  return <>
+    {error && <div role="alert">Could not refresh this item: {error}{' '}
+      <button onClick={() => setRetry(n => n + 1)}>Retry</button></div>}
+    {full ? <FullDocketPane key={`${slug}/${item.slug}`} {...props} item={full} />
+      : <div className="dim pad" role="status">Loading item details…</div>}
+  </>
+}
+
+function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocusAgent,
+  facts, refIndex: panelIndex, onGoToItem, refWorld, onOpenRef, refresh }: {
   slug: string
   item: WorkItem
   toast: ToastFn
@@ -2409,7 +2662,8 @@ function DocketPane({ slug, item, toast, asksById, onDismiss, close, onFocusAgen
    *  alone would leave the pane showing the pre-mutation copy */
   refresh: () => void
 }) {
-  const attention = item.effective_attention
+  const refIndex = useProseAgentIndex(slug, item, panelIndex)
+  const attention = flaggedForUser(item)
   const label = attention ? 'Needs attention' : statusLabel(item.status)
   const canDismiss = item.attention_sources.includes('manual')
   const assignee = item.owner

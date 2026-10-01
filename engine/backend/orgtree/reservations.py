@@ -138,6 +138,28 @@ _CONTENTION_NAMES = ("id", "owner", "resource", "candidate", "base", "state",
                      "created_at", "updated_at", "expires_at", "heartbeat_at")
 
 
+def _bounded(out: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """At most MAX_RESERVATIONS rows of a list/landing answer, and how many
+    were left out (user ruling D2, 2026-09-24).
+
+    Only HELD rows count toward the acquire cap, so finished rows accumulate
+    without limit and an answer listing them would too. When rows must go,
+    the OLDEST non-held rows go first (storage order is creation order, and
+    it is kept for what remains), so every held claim and the newest history
+    survive. Held rows never exceed the cap, so this always fits. Below the
+    cap the answer is exactly what it was, with no marker at all."""
+    over = len(out) - MAX_RESERVATIONS
+    if over <= 0:
+        return out, 0
+    drop: set[int] = set()
+    for i, r in enumerate(out):
+        if len(drop) == over:
+            break
+        if r.get("state") != HELD:
+            drop.add(i)
+    return [r for i, r in enumerate(out) if i not in drop], len(drop)
+
+
 def _contention(row: Mapping[str, Any]) -> dict[str, Any]:
     out = {k: row[k] for k in _CONTENTION_NAMES if k in row}
     out["view"] = "contention"
@@ -328,7 +350,11 @@ def execute(d: dict[str, Any], actor: str, args: Mapping[str, Any],
                 # from becoming an org-wide directory of private reservations,
                 # and HELD-only keeps it to claims that still bind anyone.
                 out.append(_contention(r))
-        return {"reservations": out, "count": len(out), "stale": stale}
+        out, omitted = _bounded(out)
+        result = {"reservations": out, "count": len(out), "stale": stale}
+        if omitted:
+            result.update(truncated=True, omitted=omitted)
+        return result
 
     if action == "landing":
         item = _text(args.get("item"), "item", MAX_ITEM_LENGTH)
@@ -336,7 +362,11 @@ def execute(d: dict[str, Any], actor: str, args: Mapping[str, Any],
                and r.get("state") == LANDED and _visible(r, actor, item_reader)]
         if not out and item_reader and not item_reader(item):
             raise ReservationError("reservation is not visible to this collaborator")
-        return {"landed": out, "count": len(out)}
+        out, omitted = _bounded(out)
+        landed: dict[str, Any] = {"landed": out, "count": len(out)}
+        if omitted:
+            landed.update(truncated=True, omitted=omitted)
+        return landed
 
     if action == "acquire":
         resource = _text(args.get("resource"), "resource", MAX_RESOURCE_LENGTH)
@@ -362,8 +392,6 @@ def execute(d: dict[str, Any], actor: str, args: Mapping[str, Any],
                         raise ReservationError("integration_key already identifies a different reservation")
                     _authorize(old, actor, item_reader)
                     return {"reservation": _safe(old), "replayed": True}
-        if len(rows) >= MAX_RESERVATIONS:
-            raise ReservationError(f"reservation store is limited to {MAX_RESERVATIONS} records")
         for old in rows:
             if old.get("resource") != resource or old.get("state") not in (HELD,):
                 continue
@@ -392,6 +420,20 @@ def execute(d: dict[str, Any], actor: str, args: Mapping[str, Any],
                                        else "owner_not_live")
             old["updated_at"] = _stamp(ts)
             old["updated_ts"] = ts
+        # THE CAP COUNTS HELD ROWS ONLY (user ruling D1, 2026-09-24). It used
+        # to count every retained row, terminal ones included, and nothing
+        # ever removes a row, so an organization's 513th reservation in its
+        # whole lifetime refused forever. Finished rows stay as history (the
+        # integration-key scan above needs them). The check sits HERE, after
+        # the same-owner replay and the recovery pass, because only the row
+        # about to be appended can push the count over: a replay creates
+        # nothing, and a recovered holder has just freed its slot. Callers
+        # hold the document lock, so the limit is exact.
+        if sum(1 for r in rows if r.get("state") == HELD) >= MAX_RESERVATIONS:
+            raise ReservationError(
+                f"this organization already holds the maximum of "
+                f"{MAX_RESERVATIONS} active reservations; release one before "
+                f"acquiring another")
         rid = _id("res")
         row: dict[str, Any] = {
             "id": rid, "owner": actor, "item": item, "resource": resource,

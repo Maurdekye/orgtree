@@ -1,0 +1,18 @@
+[package]
+name = "orgtree-store-schema"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "P03 prototype PostgreSQL schema: ordered SQL migrations with checksums and static DDL lints"
+license = "MIT"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "schema-manifest"
+path = "src/bin/schema-manifest.rs"
+
+[dependencies]
+# sha256 only; consumed read-only.
+orgtree-op-receipt-codec = { path = "../op-receipt-codec" }

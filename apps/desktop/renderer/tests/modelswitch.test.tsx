@@ -85,11 +85,12 @@ const options = (el: HTMLElement) =>
 const option = (el: HTMLElement, tier: string) =>
   options(el).find((o) => o.value === tier)!
 
-for (const [tier, seat] of [['sol', 2], ['luna', 0.1]] as const) {
-  configTest(`${tier} offers 6 by default and 5.6 inside one tier`, async (mount) => {
+for (const [tier, seat, latest, older] of [
+  ['sol', 2, '6.1', ['6', '5.6']], ['luna', 0.1, '6', ['5.6']]] as const) {
+  configTest(`${tier} offers ${latest} by default and older versions inside one tier`, async (mount) => {
     const { el, ops } = await mount({ node: { ...node(tier), seat },
       provider: provider({ tiers: [{ tier, provider: 'openai', seat,
-        model: `gpt-6-${tier}`, letter: tier === 'sol' ? 'S' : 'L' }] }),
+        model: `gpt-${latest}-${tier}`, letter: tier === 'sol' ? 'S' : 'L' }] }),
     })
     assert.equal(option(el, `gpt-6-${tier}`), undefined)
     assert.match(option(el, tier).textContent ?? '', new RegExp(`seat ${seat}`))
@@ -97,7 +98,8 @@ for (const [tier, seat] of [['sol', 2], ['luna', 0.1]] as const) {
     const versions = [...el.querySelectorAll<HTMLSelectElement>('select')]
       .find((s) => [...s.options].some((o) => o.textContent === `${tier} 5.6`))!
     assert.deepEqual([...versions.options].map((o) => [o.value, o.textContent]),
-      [['', 'latest (6)'], ['6', `${tier} 6`], ['5.6', `${tier} 5.6`]])
+      [['', `latest (${latest})`], [latest, `${tier} ${latest}`],
+        ...older.map((v) => [v, `${tier} ${v}`])])
     const { act } = await import('react')
     await act(async () => {
       versions.value = '5.6'
@@ -152,6 +154,21 @@ configTest('Opus offers 5.5 as latest and saves an explicit older version',
     assert.equal(saved.length, 1)
     assert.equal(saved[0].model_version, '5')
     assert.equal(ops.some((o) => o.op === 'switch_model'), false)
+  })
+
+configTest('Sonnet offers 5.5 as latest and shows a migrated agent pinned to 5',
+  async (mount) => {
+    const base = node('sonnet')
+    const { el } = await mount({
+      node: { ...base, seat: 2, scope: { ...base.scope, model_version: '5' } },
+      tree: tree({ tiers: { haiku: 1, sonnet: 2, opus: 4, fable: 10 } }) })
+    assert.equal(TIER_SEAT.sonnet, 2)
+    const versions = [...el.querySelectorAll<HTMLSelectElement>('select')]
+      .find((s) => [...s.options].some((o) => o.textContent === 'sonnet 5.5'))!
+    assert.ok(versions, 'Sonnet version selector is visible')
+    assert.deepEqual([...versions.options].map((o) => [o.value, o.textContent]),
+      [['', 'latest (5.5)'], ['5.5', 'sonnet 5.5'], ['5', 'sonnet 5']])
+    assert.equal(versions.value, '5', 'the pin is shown, not the default')
   })
 
 test('the header summary counts every provider family', async (t: TestContext) => {
@@ -216,7 +233,7 @@ configTest('gpt-reserve is REMOVED from the switch whatever the grant says '
     assert.equal(option(el, 'gpt-reserve'), undefined,
       'the legacy token is not listed, not listed-disabled — even with a live grant')
     // the leg that must hold: its siblings are untouched
-    for (const t of ['luna', 'terra', 'sol']) {
+    for (const t of ['luna', 'sol']) {
       assert.equal(option(el, t)?.disabled, false, `${t} stays switchable`)
     }
   })
@@ -247,9 +264,11 @@ configTest('the switch lists every provider family with its ledger seats',
     assert.deepEqual(options(el).map((o) => [o.value, o.textContent?.trim()]), [
       ['haiku', 'haiku · seat 1'], ['sonnet', 'sonnet · seat 2'],
       ['opus', 'opus · seat 4'], ['fable', 'fable · seat 10'],
-      ['luna', 'luna · seat 0.1'], ['terra', 'terra · seat 2'],
-      ['sol', 'sol · seat 2'],
-      ['flash', 'flash · seat 1'], ['pro', 'pro · seat 2'],
+      // terra is an opt-in legacy tier, hidden by default (legacytiers.test)
+      ['luna', 'luna · seat 0.1'],
+      ['sol', 'sol · seat 2'], ['astra', 'astra · seat 10'],
+      // pro is an opt-in legacy tier, hidden by default (legacypro.test)
+      ['flash', 'flash · seat 1'],
     ])
   })
 
@@ -288,7 +307,7 @@ configTest('disconnected Codex tiers stay visible and explain why disabled',
       reason: 'not signed in — run `codex login` on this machine',
       status: { installed: true, connected: false, kind: null },
     }) })
-    for (const tier of ['luna', 'terra', 'sol']) {
+    for (const tier of ['luna', 'sol', 'astra']) {
       assert.equal(option(el, tier).disabled, true)
       assert.match(option(el, tier).textContent ?? '', /not signed in/)
     }
@@ -301,8 +320,10 @@ configTest('kiosk policy and seat cap disable options instead of hiding them',
     const { el } = await mount({ tree: tree({
       kiosk: { max_tier: 'sonnet' } as TreePayload['kiosk'],
     }) })
-    assert.equal(options(el).length, 9)   // 4 claude + 3 codex + 2 antigravity
-    for (const tier of ['luna', 'terra', 'sol', 'flash', 'pro']) {
+    // Astra is always offered (user 2026-09-24, 9e640fb)
+    // 4 claude + 3 codex (terra is hidden legacy) + 1 antigravity (pro is too)
+    assert.equal(options(el).length, 8)
+    for (const tier of ['luna', 'sol', 'astra', 'flash']) {
       assert.equal(option(el, tier).disabled, true)
       assert.match(option(el, tier).textContent ?? '', /unavailable in kiosk orgs/)
     }
@@ -334,5 +355,5 @@ configTest('a grandfathered current tier remains a truthful no-op',
         status: { installed: true, connected: false, kind: null } }),
     })
     assert.equal(option(el, 'sol').disabled, false)
-    assert.equal(option(el, 'terra').disabled, true)
+    assert.equal(option(el, 'luna').disabled, true)
   })

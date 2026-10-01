@@ -15,6 +15,7 @@ from unittest.mock import patch
 from tests.test_desktop_import import DesktopImportTests, fingerprint, imp, store
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+import child_python  # a child Python imports THIS checkout's engine (tests/child_python.py)
 
 from engine.backend.orgtree import desktop_import_jobs as jobs
 from engine.launch import TokenGate
@@ -172,7 +173,7 @@ print("ready", flush=True)
 time.sleep(2)
 jobs._release(lock)
 '''
-        child = subprocess.Popen([sys.executable, "-c", script, str(root)],
+        child = subprocess.Popen(child_python.argv("-c", script, str(root)),
                                  cwd=Path(__file__).resolve().parents[1],
                                  stdout=subprocess.PIPE, text=True)
         try:
@@ -388,7 +389,7 @@ while True: time.sleep(.02)
             with self.subTest(stage=stage):
                 destination = self.root / ("crash-" + stage)
                 identifier = str(uuid.uuid4())
-                child = subprocess.run([sys.executable, "-c", script, str(destination), str(self.source), identifier, stage],
+                child = subprocess.run(child_python.argv("-c", script, str(destination), str(self.source), identifier, stage),
                                        cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True, timeout=20)
                 self.assertEqual(child.returncode, 17, child.stderr)
                 with patch.object(store, "DATA_ROOT", str(destination)), patch.dict(os.environ, {"ORGTREE_DATA": str(destination)}):

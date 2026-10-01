@@ -1,0 +1,18 @@
+[package]
+name = "orgtree-backend-codec"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Non-authoritative Rust backend codec foundation: strict JSON presence, exact credits and identity codecs with Python parity vectors"
+license = "MIT"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "codec-vectors"
+path = "src/bin/codec-vectors.rs"
+
+[dependencies]
+# The already-reviewed P01 work-name codec is reused, never reimplemented.
+orgtree-work-name-codec = { path = "../work-name-codec" }

@@ -61,7 +61,7 @@ from fastapi import HTTPException                       # noqa: E402
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
-from orgtree import api, halt, ledger, store            # noqa: E402
+from orgtree import api, halt, ledger, sandbox, store   # noqa: E402
 
 assert Path(store.DATA_ROOT).resolve() == Path(_root.name).resolve()
 
@@ -217,6 +217,23 @@ class ToolCallSingleLoad(unittest.TestCase):
             c.reset()
             self.call("orgtree_chart", {})
             self.assertEqual(c.n, 0, "a warm chart must not re-parse")
+
+    def test_chart_and_read_scratch_after_a_write_refresh_without_a_parse(self):
+        """N1000 #4: at N1000 a third of chart calls and half of read_scratch
+        calls re-read the whole org (~21 MB) after writes. In steady state a
+        write must cost these readers a section refresh, never a parse, and
+        no full reload of any kind may be counted."""
+        self.call("orgtree_chart", {})         # warm the snapshot
+        loads = dict(store.full_load_counts)
+        for i in range(3):
+            self.status(f"write {i}")
+            sandbox._disk_flag.pop(self.slug, None)   # its 10 s cache must not hide a load
+            with _LoadCounter() as c:
+                c.reset()
+                self.call("orgtree_chart", {})
+                self.call("orgtree_read_scratch", {"node": self.worker})
+                self.assertEqual(c.n, 0, f"write {i}: a read after a write re-parsed the document")
+        self.assertEqual(dict(store.full_load_counts), loads)
 
     def test_gates_answer_from_the_last_save_not_from_a_remembered_document(self):
         """THE STALENESS CONTROL, aimed at `store.cached_org` itself rather

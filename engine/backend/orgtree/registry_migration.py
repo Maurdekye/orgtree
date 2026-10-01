@@ -117,7 +117,7 @@ def run_startup_migration() -> dict[str, Any] | None:
                  "error": f"orgs directory unreadable: {e}"}) from None
         for f in names:
             slug = f[:-5] if f.endswith(".json") else (
-                f[:-3] if f.endswith(".db") else "")
+                f[:-len(store.db_ext())] if f.endswith(store.db_ext()) else "")
             if slug and slug not in seen and not f.endswith(".premigration"):
                 seen.add(slug)
                 slugs.append(slug)
@@ -190,6 +190,11 @@ def observe_ambient() -> dict[str, str | None]:
     return {"claude": claude if os.path.isdir(claude) else None,
             "openai": codex if os.path.isdir(codex) else None,
             "google": agy if agy and os.path.isdir(agy) else None}
+
+
+#: the org-document fields the API-key cutover converts or removes
+_CUTOVER_FIELDS = ("api_key", "api_fallback", "fable_api_fallback",
+                   "api_fallback_until", "api_fallback_since")
 
 
 def _sandboxed(doc: dict[str, Any]) -> bool:
@@ -415,7 +420,7 @@ def run_apikey_cutover() -> dict[str, Any] | None:
         seen: set[str] = set()
         for f in names:
             slug = f[:-5] if f.endswith(".json") else (
-                f[:-3] if f.endswith(".db") else "")
+                f[:-len(store.db_ext())] if f.endswith(store.db_ext()) else "")
             if slug and slug not in seen and not f.endswith(".premigration"):
                 seen.add(slug)
                 slugs.append(slug)
@@ -423,6 +428,17 @@ def run_apikey_cutover() -> dict[str, Any] | None:
         loaded: set[str] = set()
         for slug in slugs:
             try:
+                if store.STORE_BACKEND == "postgres":
+                    # the settings keys first (no node row decoded): an org
+                    # with none of the fields this pass converts or removes
+                    # needs no whole load and no save (engine-startup-cost-
+                    # must-not-grow-with-retired-h). Same outcome as the walk
+                    # below: a keyless, unsandboxed org counts as loaded.
+                    view = store.doc_keys_view(slug)
+                    if not _sandboxed(view) and not any(
+                            f in view for f in _CUTOVER_FIELDS):
+                        loaded.add(slug)
+                        continue
                 org = store.load_org(slug)
             except Exception as e:                           # noqa: BLE001
                 report["errors"][slug] = f"{type(e).__name__}: {e}"
@@ -464,8 +480,7 @@ def run_apikey_cutover() -> dict[str, Any] | None:
                 if d.get("api_fallback"):
                     report["fallback_was_on"].append(slug)
             changed = False
-            for field in ("api_key", "api_fallback", "fable_api_fallback",
-                          "api_fallback_until", "api_fallback_since"):
+            for field in _CUTOVER_FIELDS:
                 if field in d:
                     d.pop(field, None)
                     changed = True

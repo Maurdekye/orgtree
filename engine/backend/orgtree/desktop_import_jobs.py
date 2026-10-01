@@ -31,7 +31,7 @@ def _now():
 
 
 def _root():
-    root = Path(imp._store().DATA_ROOT).resolve() / "import-jobs"
+    root = Path(imp._store(writes_orgs=False).DATA_ROOT).resolve() / "import-jobs"
     imp._plain(root)
     root.mkdir(exist_ok=True)
     return root

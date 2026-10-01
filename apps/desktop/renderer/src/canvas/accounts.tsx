@@ -1,10 +1,9 @@
-import { ImportSettings } from './importsettings'
 import { AccountRegistrySection, AddAccountDialog, useAccountRegistry } from './accountsregistry'
 import type { AccountProvider } from './accountsregistry'
 import { ThemeSetting } from '../themes'
-import { DesktopSettings } from './desktopsettings'
+import { DesktopSettings, RunAsAdministratorSetting } from './desktopsettings'
 import { QuickStaffSetting } from './quickstaffsetting'
-import { CharterDocumentsSetting } from './chartersettings'
+import { CharterDocumentsSetting, CharterTemplateDirsSetting } from './chartersettings'
 import { MailHubSettings } from './hosthub'
 import { useEffect, useState } from 'react'
 import type {
@@ -14,6 +13,7 @@ import type {
 import {
   getProviders, peekProviders, getRuntimeSettings,
   setIdleDocketRemindersEnabled, setBlockedDocketRemindersEnabled,
+  setMaxConcurrentTurns,
   setProviderEnabled,
   setWaitForMcpToolsEnabled, setWarmingEnabled, setWorkingCheckupsEnabled,
   setApikeyFallbackEnabled, setSubscriptionInferenceEnabled,
@@ -22,20 +22,24 @@ import { desktop } from '../desktop'
 import { fmtStamp } from '../timefmt'
 import type { LoginProvider, ProviderLoginStatus } from '../../../../../packages/contracts'
 import {
-  SetGroup, SetRow, SettingsTabPanel, SettingsTabs, SetToggle,
+  OPEN_APP_SETTINGS_EVENT, SetGroup, SetRow, SettingsTabPanel, SettingsTabs,
+  SetToggle,
 } from './settingskit'
 import type { SettingsTab } from './settingskit'
-import { OpenRouterSection } from './openrouter'
+import { OpenRouterHarnessSetting, OpenRouterSection } from './openrouter'
 import { ModalOverlapSettings, PinFrame } from './modalpin'
 import { CanvasAnchorSettings } from './canvasanchor'
 import {
-  setAgentShortcutsOn, useAgentShortcuts, setCrowdPilesOn, setDeskDpi, setHideRetiredOn, setOpenRouterTiers, setStartView, setStartZoomOn,
-  TIER_LETTER,
-  useCrowdPiles, useDeskDpi, useHideRetired, useStartView, useStartZoom,
+  setAgentShortcutsOn, useAgentShortcuts, setPinSnapOn, usePinSnap, setCrowdPilesOn, setDeskDpi, setHideRetiredOn, setOpenRouterTiers, setShowLegacyModelsOn, setStartView, setStartZoomOn,
+  legacyMark, optInLegacyHidden, TIER_LETTER,
+  setChartLayout, useChartLayout, useCrowdPiles, useDeskDpi, useHideRetired, useShowLegacyModels, useStartView, useStartZoom,
 } from './shared'
 import { fmtWhen } from '../timefmt'
 import type { StartView } from './shared'
 import { AutorenewIcon } from '../icons'
+import { AboutSection, StartupWindowsSetting, useAppVersion } from '../shell/general'
+import { DefaultsForm } from '../shell/defaults'
+import { EngineDebugToggle } from './enginedebug'
 
 // small local copies of the usage-modal label helpers (App.tsx owns the
 // originals beside UsageModal; importing them here would cycle App ↔ panel)
@@ -79,14 +83,16 @@ const sevOf = (l: UsageLimit): '' | 'warn' | 'crit' => {
  *  and the two differ constantly — a fallback has capacity for opus the whole
  *  time opus is happily running on the primary above it. */
 export function TierStandings({ tiers }: { tiers: TierStanding[] }) {
+  // Terra and Gemini Pro only with "show legacy models" on, like every tier chooser
+  useShowLegacyModels()
   return (
     <div className="acct-tiers">
-      {tiers.map((t) => (
+      {tiers.filter((t) => !optInLegacyHidden(t.tier)).map((t) => (
         <div className="acct-tier-row" key={t.tier}>
           <span className={'tier t-' + t.tier
             + (t.available ? '' : ' acct-chip-dim')}>
             {TIER_LETTER[t.tier] ?? t.tier.slice(0, 1).toUpperCase()}</span>
-          <span className="acct-tier-name">{t.tier}</span>
+          <span className="acct-tier-name">{t.tier + legacyMark(t.tier)}</span>
           {t.available
             ? <span className="acct-tier-ok">has capacity</span>
             : <span className="acct-tier-wait">
@@ -207,16 +213,33 @@ export function UsageBars({ u }: { u: AccountUsage }) {
   )
 }
 
-type AppSettingsTab = 'providers' | 'runtime' | 'mailhub' | 'display' | 'import'
+type AppSettingsTab = 'about' | 'providers' | 'runtime' | 'mailhub'
+  | 'display' | 'defaults' | 'developer'
+// Strip order is the user's own list (2026-09-29): Providers, Runtime,
+// Display, Default org settings, Mail hub, Developer, About. The panel OPENS
+// on Providers, the first tab (user 2026-09-30), unless the caller asks for a
+// tab (the queued-turn banner's link to Runtime) — see useState below.
 const APP_TABS: SettingsTab<AppSettingsTab>[] = [
   { id: 'providers', label: 'Providers' },
   { id: 'runtime', label: 'Runtime' },
+  { id: 'display', label: 'Display' },
+  // Default org settings USED TO BE ITS OWN WINDOW, opened from the sidebar
+  // that v3 removes. It is app-wide — every new organization is born with
+  // these values — so it belongs here rather than in one organization's
+  // settings. The standalone window still exists and still opens; this is the
+  // same fields (shell/defaults.tsx), not a copy.
+  { id: 'defaults', label: 'Default org settings' },
   // one installation hosts at most one mail hub, so hosting it and granting
   // access to it are machine-wide settings — they used to sit inside a single
   // organization's Connections tab, which is where they did not belong
   { id: 'mailhub', label: 'Mail hub' },
-  { id: 'display', label: 'Display' },
-  { id: 'import', label: 'Import' },
+  // tools for looking inside the running engine; nothing here changes behaviour
+  { id: 'developer', label: 'Developer' },
+  // About: what is actually running. The v3 shell removes the sidebar that
+  // used to carry the version badge and the repository link, so this is their
+  // home. It was "General" until 2026-09-29, when its one setting (the startup
+  // choice) moved to Display → Startup as an ordinary dropdown.
+  { id: 'about', label: 'About' },
 ]
 
 function DeskTextSize() {
@@ -256,6 +279,48 @@ function AgentShortcutsToggle() {
   return <SetToggle label="show agent card shortcuts" checked={on}
     onChange={setAgentShortcutsOn}
     hint="show action buttons beneath agent names on canvas cards" />
+}
+
+/* user 2026-09-30: Terra is "a legacy option", hidden by default. Off, no hire
+   or tier chooser offers it; on, it comes back marked "legacy". Agents
+   already on Terra show it either way. */
+function ShowLegacyModelsToggle() {
+  const on = useShowLegacyModels()
+  return (
+    <SetGroup title="Legacy models">
+      <SetToggle label="show legacy models (Terra, Gemini Pro)" checked={on}
+        onChange={setShowLegacyModelsOn}
+        hint={'off: hire and model choices, and the model tier lists, leave Terra and Gemini Pro out. '
+          + 'Agents already on them keep running and show their model either way.'} />
+    </SetGroup>
+  )
+}
+
+/* user 2026-09-30: "make pinned window snapping an optional toggle in
+   display". On by default; off, dragging and resizing a pinned panel never
+   snaps (pins.tsx and modalpin.tsx read it at each gesture). */
+function PinSnapToggle() {
+  const on = usePinSnap()
+  return <SetToggle label="snap pinned panels to edges" checked={on}
+    onChange={setPinSnapOn}
+    hint={'dragging or resizing a pinned panel snaps it to the window edges '
+      + 'and beside other pinned panels; off, it goes exactly where you put it'} />
+}
+
+export function ChartLayoutSetting() {
+  const mode = useChartLayout()
+  return (
+    <SetRow label="org chart layout"
+      hint={mode === 'circular'
+        ? 'the top-level node sits at the centre; each team fans out behind its parent and each level is a further ring'
+        : 'agents sit in a row under the top-level node, one row per level'}>
+      <select aria-label="Org chart layout" value={mode}
+        onChange={e => setChartLayout(e.target.value === 'circular' ? 'circular' : 'row')}>
+        <option value="row">row (default)</option>
+        <option value="circular">circular</option>
+      </select>
+    </SetRow>
+  )
 }
 
 function HideRetiredToggle() {
@@ -450,8 +515,52 @@ export function ProviderSignIn({ provider, connected, toast, onRefresh,
   )
 }
 
-export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => void }) {
-  const [tab, setTab] = useState<AppSettingsTab>('providers')
+/** The machine-wide limit on agent turns running at once (user ruling
+ *  2026-09-26: a setting, default 16, applied live). Turns beyond it wait in
+ *  a fair queue — first come first served within an org, taking turns across
+ *  orgs — and a queued agent's desk points here. */
+export function TurnLimitSetting({ runtime, busy, onSave }: {
+  runtime: RuntimeSettingsPayload | null
+  busy: boolean
+  onSave: (limit: number) => void
+}) {
+  const live = runtime?.max_concurrent_turns
+  const [draft, setDraft] = useState('')
+  useEffect(() => { if (live !== undefined) setDraft(String(live)) }, [live])
+  if (live === undefined) return null
+  const n = Number(draft)
+  const valid = Number.isInteger(n) && n >= 1 && n <= 512
+  const slots = runtime?.turn_slots
+  const commit = () => { if (valid && n !== live) onSave(n) }
+  return <SetRow label="most agent turns running at once"
+    hint={'Default 16, shared by every organization on this machine. Extra '
+      + 'turns wait their turn: first come, first served within an '
+      + 'organization, and taking turns across organizations. A change applies '
+      + 'at once; lowering it lets running turns finish.'
+      + (slots ? ` Now: ${slots.held} running, ${slots.waiting} waiting.` : '')}>
+    <input id="app-settings-max-concurrent-turns" type="number" min={1} max={512}
+      aria-label="most agent turns running at once" value={draft}
+      aria-invalid={!valid} disabled={busy}
+      onChange={e => setDraft(e.target.value)} onBlur={commit}
+      onKeyDown={e => { if (e.key === 'Enter') commit() }} />
+  </SetRow>
+}
+
+export function AccountsPanel({ toast, close, initialTab }: {
+  toast: ToastFn; close: () => void; initialTab?: AppSettingsTab
+}) {
+  const [tab, setTab] = useState<AppSettingsTab>(initialTab ?? 'providers')
+  // the Model tiers list leaves Terra and Gemini Pro out unless "show legacy models" is on
+  useShowLegacyModels()
+  useEffect(() => {
+    const open = (e: Event) => {
+      const tab = (e as CustomEvent<{ tab?: string }>).detail?.tab
+      if (tab && APP_TABS.some(t => t.id === tab)) setTab(tab as AppSettingsTab)
+    }
+    window.addEventListener(OPEN_APP_SETTINGS_EVENT, open)
+    return () => window.removeEventListener(OPEN_APP_SETTINGS_EVENT, open)
+  }, [])
+  const appVersion = useAppVersion()
   const registry = useAccountRegistry()
   const [addAccount, setAddAccount] = useState<AccountProvider | null>(null)
   const [providers, setProviders] = useState<ProviderInfo[] | null>(() => peekProviders()?.providers ?? null)
@@ -532,6 +641,9 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
     <h3>App settings</h3>
     <SettingsTabs tabs={APP_TABS} tab={tab} setTab={setTab} idBase="app-settings" label="Application settings sections" />
     {error && <div className="ask-warn" role="alert">{error}</div>}
+    <SettingsTabPanel id="about" idBase="app-settings" active={tab === 'about'}>
+      <AboutSection appVersion={appVersion} />
+    </SettingsTabPanel>
     <SettingsTabPanel id="providers" idBase="app-settings" active={tab === 'providers'}>
       {registry.error && <p className="ask-warn" role="alert">Could not load the account list: {registry.error} <button onClick={() => { void registry.reload() }}>retry</button></p>}
       {!providers && !error && <p className="dim">Detecting harnesses…</p>}
@@ -575,12 +687,15 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
         </div>
         {p.status.path && <p className='dim mono acct-provider-path'>{p.status.path}</p>}
         {!p.status.installed && downloads[p.id] && <a className='acct-provider-download' href={downloads[p.id]} target='_blank' rel='noopener noreferrer'>Download {p.label}</a>}
-        {p.reason && <p className='dim acct-provider-note'>{p.reason}</p>}
+        {/* user 2026-09-30: an OFF provider's reason is always "turned off in App
+            settings → Providers" — redundant beside its own switch, so it is
+            not shown here. Surfaces outside settings keep that pointer. */}
+        {p.reason && p.user_enabled !== false && <p className='dim acct-provider-note'>{p.reason}</p>}
         {p.tiers.length ? <div className='acct-provider-tiers' aria-label={p.label + ' model tiers'}>
           <div className='acct-provider-tier-title'>Model tiers</div>
-          {p.tiers.map(t => <div className='acct-provider-tier' key={t.tier}>
+          {p.tiers.filter(t => !optInLegacyHidden(t.tier)).map(t => <div className='acct-provider-tier' key={t.tier}>
             <span className={'tier t-' + t.tier}>{t.letter}</span>
-            <span className='acct-provider-tier-name'>{t.name ?? t.tier}</span>
+            <span className='acct-provider-tier-name'>{(t.name ?? t.tier) + legacyMark(t.tier)}</span>
             <span className='acct-provider-tier-model'>{t.model}</span>
             <span className='acct-provider-tier-seat'>seat {t.seat}</span>
           </div>)}
@@ -614,14 +729,23 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
     </SettingsTabPanel>
     <SettingsTabPanel id="runtime" idBase="app-settings" active={tab === 'runtime'}>
       <DesktopSettings />
+      <RunAsAdministratorSetting />
       <QuickStaffSetting />
       <CharterDocumentsSetting />
+      <CharterTemplateDirsSetting />
       <SetGroup title="Agent processes">
         <SetToggle label="keep agent processes warm" checked={runtime?.warming_enabled !== false}
           disabled={!runtime || busy} onChange={v => changeRuntime(setWarmingEnabled, v)}
           hint="Keep supported harness processes ready between turns." />
+        <OpenRouterHarnessSetting toast={toast} />
       </SetGroup>
       <SetGroup title="Turns">
+        <TurnLimitSetting runtime={runtime} busy={busy} onSave={limit => {
+          setBusy(true)
+          setMaxConcurrentTurns(limit).then(r => { setRuntime(r); setError('') })
+            .catch((e: Error) => { setError(e.message); toast([e.message]) })
+            .finally(() => setBusy(false))
+        }} />
         <SetToggle label="check on working agents after 20 minutes" checked={runtime?.working_checkups_enabled !== false}
           disabled={!runtime || busy} onChange={v => changeRuntime(setWorkingCheckupsEnabled, v)} />
         <SetToggle label="wait until the MCP tool surface is ready" checked={runtime?.wait_for_mcp_tools_enabled === true}
@@ -631,15 +755,21 @@ export function AccountsPanel({ toast, close }: { toast: ToastFn; close: () => v
         <SetToggle label="also remind about blocked items when every ticket is blocked" checked={runtime?.blocked_docket_reminders_enabled === true}
           disabled={!runtime || busy} onChange={v => changeRuntime(setBlockedDocketRemindersEnabled, v)} />
       </SetGroup>
+      <ShowLegacyModelsToggle />
     </SettingsTabPanel>
     <SettingsTabPanel id="mailhub" idBase="app-settings" active={tab === 'mailhub'}>
       <MailHubSettings active={tab === 'mailhub'} />
     </SettingsTabPanel>
     <SettingsTabPanel id="display" idBase="app-settings" active={tab === 'display'}>
       <ThemeSetting />
-      <SetGroup title="Desk"><DeskTextSize /><CrowdStackToggle /><HideRetiredToggle /><AgentShortcutsToggle /><ModalOverlapSettings /><CanvasAnchorSettings /></SetGroup>
-      <SetGroup title="Startup"><StartupView /></SetGroup>
+      <SetGroup title="Desk"><ChartLayoutSetting /><DeskTextSize /><CrowdStackToggle /><HideRetiredToggle /><AgentShortcutsToggle /><ModalOverlapSettings /><PinSnapToggle /><CanvasAnchorSettings /></SetGroup>
+      <SetGroup title="Startup"><StartupWindowsSetting /><StartupView /></SetGroup>
     </SettingsTabPanel>
-    <SettingsTabPanel id="import" idBase="app-settings" active={tab === 'import'}><ImportSettings active={tab === 'import'} /></SettingsTabPanel>
+    <SettingsTabPanel id="defaults" idBase="app-settings" active={tab === 'defaults'}>
+      <DefaultsForm toast={toast} onDone={close} />
+    </SettingsTabPanel>
+    <SettingsTabPanel id="developer" idBase="app-settings" active={tab === 'developer'}>
+      <SetGroup title="Debug"><EngineDebugToggle /></SetGroup>
+    </SettingsTabPanel>
   </PinFrame>{addAccount && <AddAccountDialog key={addAccount} provider={addAccount} onAdded={registry.reload} close={() => setAddAccount(null)} />}</>
 }

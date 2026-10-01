@@ -1,0 +1,460 @@
+/* shell.css — the v3 desktop shell's own stylesheet.
+ *
+ * SEPARATE FROM styles.css ON PURPOSE. The v3 shell work runs beside the
+ * canonical desk/card/canvas work in another worktree, and styles.css is the
+ * file both of them would otherwise be editing at once. Everything the shell
+ * adds lives here; nothing here redefines a shared rule, so removing this one
+ * import returns the app to exactly today's appearance.
+ *
+ * Loaded AFTER styles.css (see main.tsx) so a shell rule can layer over a
+ * shared one without !important when it genuinely has to.
+ */
+
+/* ------------------------------------------------- organization list status
+ *
+ * `show-current-organization-statuses-immediately`. The row markup is in
+ * App.tsx's OrgRows; these are the two states it can be in when its numbers
+ * are not current. Both are deliberately QUIET — the list is still perfectly
+ * usable for navigation while its counts are catching up, and an alarm colour
+ * on an ordinary three-second refresh would cry wolf. */
+
+.org-freshness {
+  padding: 2px 8px 6px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* the ellipsis standing in for counts we have not got yet. Same tabular
+ * column as a real count, so nothing shifts when the number arrives. */
+.org-counts-loading {
+  opacity: .55;
+  font-variant-numeric: tabular-nums;
+}
+
+/* numbers we still have but can no longer vouch for. Dotted underline rather
+ * than a colour: it marks the claim as provisional without competing with the
+ * error colours that mean something is actually wrong. */
+.org-counts-stale {
+  opacity: .7;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--dim);
+}
+
+/* "Already open" beside an organization whose window exists elsewhere —
+ * selecting it focuses that window instead of binding this one. */
+.org-open-badge {
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 10px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+/* ===================================================== the v3 compact shell
+ *
+ * The header, the four views' pages, and the bottom status strip. Nothing
+ * here overrides a shared rule: every selector is a `shell-` class that
+ * exists only in these components, so removing this block's import returns
+ * the app to the sidebar shell exactly as it stands on main.
+ */
+
+/* ------------------------------------------------------------- the header */
+
+.shell-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  /* the window controls stretch to this full height, flush with the top and
+   * right edges, so a pointer thrown into the corner lands on Close */
+  min-height: 38px;
+  padding: 0 0 0 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--side);
+  /* the width question is asked of THIS BAR, not of the screen: an org window
+   * and a Homepage window can be different widths at the same moment */
+  container-type: inline-size;
+  container-name: shellheader;
+}
+
+.shell-header-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  /* the whole bar is a drag region in the native shell; the controls inside
+   * re-enable pointer interaction for themselves */
+  -webkit-app-region: drag;
+}
+
+.shell-header-main button,
+.shell-header-main input,
+.shell-header-main [role='menuitem'],
+.shell-header-main [role='radio'] { -webkit-app-region: no-drag; }
+
+.shell-header-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.shell-header-gap { flex: 1; min-width: 8px; }
+
+.shell-header-actions {
+  display: flex;
+  align-items: center;
+  /* Badges project 7px beyond the button; leave room before the next frame. */
+  gap: 10px;
+  flex: none;
+}
+
+/* THE HEADER BUTTONS ARE ONE SET (user 2026-09-29): the Orgtree menu, Work,
+ * Inbox, Presentations and Org settings are icons only, in the same frame —
+ * same border, background and size — with the same corner count badge
+ * wherever a count applies. Their names are aria-labels and tooltips. */
+.shell-header .shell-menu-button,
+.shell-header-actions > button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  gap: 0;
+  width: 32px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.shell-header .shell-menu-button:hover,
+.shell-header-actions > button:hover,
+.shell-header-actions > .iconbtn:hover {
+  border-color: var(--button-accent);
+  color: var(--ink-strong);
+}
+
+.shell-header-actions > button.u-warn { color: var(--warn); }
+.shell-header-actions > button.u-bad { color: var(--bad); }
+
+/* one badge, one corner, for every count in the row */
+.shell-header-actions > button > .eye-count {
+  position: absolute;
+  top: -5px;
+  right: -7px;
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 15px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.shell-header-guard {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+
+/* the killswitch latch matches the button row's height */
+.shell-header-guard .kill-latch,
+.shell-header-guard .kill-btn.expanded,
+.shell-header-guard .kill-release { height: 28px; }
+.shell-header-guard .kill-latch { width: 32px; padding: 0; font-size: 14px; border-radius: 6px; }
+.shell-header-guard .kill-latch:not(.open) { background: var(--panel); }
+.shell-header-guard .kill-latch.open { border-radius: 0 6px 6px 0; }
+
+/* the running version where there is no status strip (Home, New
+ * organization), and at the strip's right end in an organization window */
+.shell-version {
+  flex: none;
+  font-size: 11px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The native 640px minimum: everything is icons already, so only the gaps
+ * tighten. The title is the part that yields (it ellipsizes). */
+@container shellheader (max-width: 760px) {
+  .shell-header-main { gap: 4px; }
+  .shell-header-gap { min-width: 0; }
+  .shell-header > .window-controls .window-control { flex-basis: 34px; width: 34px; }
+}
+
+.shell-header > .window-controls {
+  align-self: stretch;
+  height: auto;
+  margin-left: 0;
+}
+
+/* ------------------------------------------- the Canvas/Attention switch
+ *
+ * One switch, one word (user 2026-09-29): a circular knob carrying the
+ * current view's icon slides end to end, and the current view's name sits in
+ * the space it leaves. The track is a fixed width so the knob always travels
+ * the same distance, whichever word is showing. */
+
+.shell-switch {
+  --knob: 22px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  width: 108px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.shell-switch:hover { border-color: var(--line-hover); }
+.shell-switch:focus-visible { outline: 2px solid var(--org-accent); outline-offset: 1px; }
+
+.shell-switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  display: grid;
+  place-items: center;
+  width: var(--knob);
+  height: var(--knob);
+  border-radius: 50%;
+  background: var(--org-accent);
+  color: var(--accent-ink);
+  font-size: 14px;
+  transition: left .18s ease;
+}
+
+.shell-switch.on .shell-switch-knob { left: calc(100% - var(--knob) - 2px); }
+
+/* the word fills the side the knob is not on */
+.shell-switch-word {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--knob) + 4px);
+  right: 4px;
+  display: grid;
+  place-items: center;
+  white-space: nowrap;
+}
+
+.shell-switch.on .shell-switch-word {
+  left: 4px;
+  right: calc(var(--knob) + 4px);
+}
+
+.shell-mode-count {
+  position: absolute;
+  top: -5px;
+  right: -7px;
+  font-size: 10px;
+  line-height: 15px;
+}
+
+/* --------------------------------------------------------- the app menu */
+
+.shell-menu { position: relative; flex: none; }
+
+/* the menu button's frame is the header button set's, above */
+
+.shell-menu-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 60;
+  min-width: 260px;
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.shell-menu-group {
+  padding: 8px 10px 4px;
+  color: var(--dim);
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.shell-menu-item,
+.shell-menu-org {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--ink);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.shell-menu-item:hover,
+.shell-menu-org:hover,
+.shell-menu-item:focus-visible,
+.shell-menu-org:focus-visible { background: var(--input); outline: none; }
+
+.shell-menu-org.current { color: var(--org-accent); }
+.shell-menu-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shell-menu-value { flex: none; font-size: 11px; font-variant-numeric: tabular-nums; }
+.shell-menu-sep { margin: 4px 6px; border-top: 1px solid var(--line-soft); }
+
+.shell-menu-filter {
+  width: calc(100% - 12px);
+  margin: 4px 6px 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--input);
+  color: var(--ink);
+  font-size: 12px;
+}
+
+/* the "Open organization…" submenu: a flyout beside the panel, in the panel's
+ * own dress. Placed by shell/menu.tsx from measured boxes (right of the panel,
+ * or left of it when the window has no room), because the panel scrolls and
+ * would clip anything nested inside it. */
+.shell-menu-sub {
+  position: absolute;
+  z-index: 61;
+  min-width: 240px;
+  max-width: 360px;
+  max-height: min(70vh, 480px);
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+/* the row whose submenu is showing keeps its highlight, as a desktop menu does */
+.shell-menu-subrow.on { background: var(--input); }
+
+/* ------------------------------------------------------ flush window edges
+ *
+ * User 2026-09-29: no margin around the window. The shared `main` rule pads
+ * 14px/18px, which left a gap above the header, below the status strip and
+ * down both sides — and put empty space between the pointer and the window
+ * controls in the top-right corner. A v3 window's header, strip and canvas
+ * sit flush with the window's edges instead. The header is the drag region,
+ * so the canvas's 10px drag strips go too. */
+main.shell-window,
+main.solo:has(> .shell-header) { padding: 0; }
+
+main.solo:has(> .shell-header) > .canvas-stage > .window-drag-margin { display: none; }
+
+main.solo:has(> .shell-header) > .canvas-stage > .viewport {
+  border: 0;
+  border-radius: 0;
+}
+
+/* -------------------------------------------- the Homepage / Create pages */
+
+.shell-window { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.shell-page { flex: 1; min-height: 0; overflow-y: auto; }
+
+.shell-page-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 36px 24px 48px;
+}
+
+.shell-page-eyebrow {
+  color: var(--org-accent);
+  font-size: 10px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.shell-page-title { margin: 0; font-size: 26px; font-weight: 600; color: var(--ink-strong); }
+
+.shell-page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.shell-create-btn { flex: none; }
+
+.shell-homepage-filter,
+.shell-create-name {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--input);
+  color: var(--ink-strong);
+  font-size: 14px;
+}
+
+.shell-homepage-list { display: flex; flex-direction: column; }
+.shell-create-lede { margin: 0; font-size: 13px; line-height: 1.5; }
+.shell-create-error { margin-top: 4px; }
+.shell-create-actions { justify-content: flex-end; margin-top: 8px; }
+
+/* --------------------------------------------- the bottom status strip */
+
+.shell-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  padding: 4px 8px;
+  border-top: 1px solid var(--line);
+  background: var(--side);
+  font-size: 11px;
+}
+
+/* the chips are the part that yields at narrow widths… */
+.shell-statusbar-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.shell-statusbar-chips::-webkit-scrollbar { display: none; }
+
+/* …and the actionable error keeps its seat, because an error scrolled off
+ * the end of a row nobody scrolls is an error nobody reads */
+.shell-statusbar-error {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+}

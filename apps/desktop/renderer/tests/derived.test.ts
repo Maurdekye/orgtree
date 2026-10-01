@@ -353,7 +353,8 @@ test('⑬  the agent tray lists by hierarchy, with filtered ancestors kept',
     assert.ok(/const walk = \(id: string, depth: number\)/.test(src),
       'the tray hierarchy walk is gone — rows are no longer grouped under '
       + 'their superior')
-    assert.ok(/paddingLeft: 8 \+ depth \* \d+/.test(src),
+    // the rows themselves moved to the shared list component (2026-09-30)
+    assert.ok(/paddingLeft: 8 \+ depth \* \d+/.test(code('canvas/agenttray.tsx')),
       'the depth indent is gone — hierarchy order without indentation reads '
       + 'as an arbitrary shuffle')
     assert.ok(/anyMatch/.test(src) && /ghost/.test(src),
@@ -441,15 +442,39 @@ test('⑮  the insert-superior splice is atomic with the hire, and the draft '
 
 // --------------------------------------------------------------------- (16)
 test('(16)  open requests render as ONE composed batch card per agent',
-  () => {
+  async () => {
     // FR-14 (user ruling 2026-08-12). Open per-kind rows would resurrect the
     // multi-card state the batch model replaced: the inbox derives its open
     // rows from the NODES' composed `ask` (kind batch), while the raw
     // per-store entries feed only the resolved history.
+    //
+    // Since 2026-09-29 (point 29) the inbox and the Attention view both list
+    // open requests through `openAsks` (canvas/openasks.ts): a held node's own
+    // composed card, and — for an agent the SELECTED v3 tree does not carry,
+    // which has no `node.ask` — the header's open rows composed into the same
+    // one card per agent by `composeBatch`.
     const src = code('App.tsx')
-    assert.ok(/\[\.\.\.nodes\.values\(\)\]\s*\n?\s*\.filter\(\(n\) => n\.ask && askOpen\(n\.ask\)\)/.test(src),
-      'askPending no longer derives from the composed node batches — open '
-      + 'components now render as separate per-kind rows')
+    assert.ok(/const askPending = openAsks\(tree, nodes\.values\(\)\)/.test(src),
+      'askPending no longer derives from openAsks — the inbox and the Attention '
+      + 'view can disagree, and open components can render as per-kind rows')
+    const open = code('canvas/openasks.ts')
+    assert.ok(/askIsOpen\(n\.ask\)/.test(open) && /composeBatch\(node, rows\)/.test(open),
+      'openAsks no longer takes the node batches first and composes the rest per agent')
+    // …and behaviourally: an agent outside the tree with an open question AND a
+    // pending credit request is ONE batch card, not two per-kind rows
+    const { openAsks } = await import('../src/canvas/openasks')
+    const listed = openAsks({ asks: [
+      { id: 'q1', node: 'far', status: 'open', at: '2026-09-29T10:00:00Z', rev: 3,
+        questions: [{ question: 'Ship it?', options: [{ label: 'yes' }] }] },
+      { id: 'c1', node: 'far', kind: 'credit', status: 'pending', at: '2026-09-29T09:00:00Z',
+        rev: 2, old: 10, new: 20, reason: 'more work' },
+    ] as never }, [])
+    assert.equal(listed.length, 1, 'one card for the agent')
+    assert.equal(listed[0]!.kind, 'batch')
+    assert.deepEqual(listed[0]!.tabs!.map((t) => t.kind), ['question', 'credits'])
+    assert.deepEqual(listed[0]!.revs, { ask: 3, credits: 2 },
+      'the per-store CAS stamps the batch submit must echo')
+    assert.equal(listed[0]!.at, '2026-09-29T09:00:00Z', 'the earliest component')
     const asks = code('canvas/asks.tsx')
     assert.ok(/ask\.kind === 'batch' && ask\.tabs\?\.length/.test(asks),
       'AskCard lost its batch dispatch — composed cards fall through to the '
@@ -457,4 +482,34 @@ test('(16)  open requests render as ONE composed batch card per agent',
     assert.ok(/skiprow/.test(asks) && /skip: true/.test(asks),
       'the explicit-skip affordance is gone — a tab the user wants to leave '
       + 'unanswered has no honest path, and close-all loses its meaning')
+  })
+
+test('(16b) a server-composed batch primed into the header is listed as it came, never recomposed',
+  async () => {
+    // The live-question primer (askprime.patchNodeAsk) stores a node's detail
+    // `ask` — already the composed batch — in `tree.asks` when the selected
+    // tree does not hold that node. It replaces the raw row with the same id.
+    // Recomposing it dropped its option-bearing tabs and its credits/scope
+    // CAS stamps, so the batch submit would be refused (review-sol, befede0).
+    const { patchNodeAsk } = await import('../src/askprime')
+    const { openAsks } = await import('../src/canvas/openasks')
+    const batch = {
+      id: 'q1', node: 'far', kind: 'batch', status: 'open', at: '2026-09-29T09:00:00Z',
+      tabs: [
+        { kind: 'question', question: 'Ship it?', options: [{ label: 'yes' }, { label: 'no' }] },
+        { kind: 'question', question: 'Tonight?', options: [{ label: 'now' }, { label: 'later' }] },
+        { kind: 'credits', id: 'c1', old: 10, new: 20, reason: 'more' },
+        { kind: 'scope', id: 's1', item: { kind: 'tool', tool: 'Bash' }, reason: 'run', label: 'tool: Bash' },
+      ],
+      revs: { ask: 4, credits: 2, scope: 7 }, question: 'Ship it?', rev: 4,
+    }
+    const tree = patchNodeAsk({ roots: [], asks: [
+      { id: 'q1', node: 'far', status: 'open', at: '2026-09-29T10:00:00Z', rev: 4,
+        questions: [{ question: 'Ship it?' }] },
+      { id: 'c1', node: 'far', kind: 'credit', status: 'pending', at: '2026-09-29T09:00:00Z',
+        rev: 2, old: 10, new: 20, reason: 'more' },
+    ] as never }, 'far', batch as never)
+    const listed = openAsks(tree, [])
+    assert.equal(listed.length, 1, 'one card for the agent')
+    assert.deepEqual(listed[0], batch, 'the served batch, tabs and revs untouched')
   })

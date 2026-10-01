@@ -1,5 +1,6 @@
 import { advance, flush, inAct, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
+import { resetLocalReads } from '../src/mailread'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -28,6 +29,9 @@ async function type(el:HTMLElement, value:string) {
 }
 
 export function mailCorrections(profile:'operator'|'public') {
+  // one store per window (mailread.ts): a read in one case is not still
+  // "read here" in the next
+  test.beforeEach(() => resetLocalReads())
   for (const outcome of ['success','refused','read-failed','command'] as const) test(profile+' reply '+outcome+' preserves send/read ordering and original identity', async t=>{
     assert.equal(BASE, profile==='public'?'/k/visitor':'')
     useFakeClock(); resetConvos()

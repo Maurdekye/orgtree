@@ -78,7 +78,7 @@ from mailhub import app as hubapp, db as hubdb                   # noqa: E402
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from orgtree import api, net, store, supervisor                  # noqa: E402
-from orgtree.ledger import LedgerError, USER                     # noqa: E402
+from orgtree.ledger import LedgerError, MCP_RETIRED, USER        # noqa: E402
 
 hubapp.print = lambda *a, **k: None            # the hub's per-request log line
 
@@ -470,20 +470,26 @@ def sec_seen_ring() -> None:
         finally:
             con.close()
         net._poll_pass(parts_for(b))
-        assert len(inbox_rows(b, "in")) == before + 1, (
-            "the eviction did not produce a redelivery — re-read this check")
-        note = (f"an id evicted from the {net.SEEN_RING}-entry ring is "
-                f"delivered AGAIN if the hub still holds it (retention is "
-                f"{hubapp.RETENTION_DAYS} days). Bounded but real: it needs a "
-                f"lost ack plus {net.SEEN_RING} newer messages from that hub.")
-        GAPS.append(("the seen-ring's far edge is a redelivery window",
+        # PG-3f: the delivery carries op_key net:<hub>:<id>, so an id the
+        # ring has forgotten still finds its org_tx receipt and REPLAYS
+        # (nothing posted twice) — for as long as the receipt is kept
+        assert len(inbox_rows(b, "in")) == before, (
+            "an id evicted from the ring was delivered again although its "
+            "delivery receipt still exists — re-read this check")
+        note = (f"an id evicted from the {net.SEEN_RING}-entry ring is no "
+                f"longer delivered again while its delivery receipt exists: "
+                f"durable on PostgreSQL, in process memory only on the SQLite "
+                f"and JSON stores (a restart reopens the window there; hub "
+                f"retention is {hubapp.RETENTION_DAYS} days).")
+        GAPS.append(("the seen-ring's far edge is a redelivery window on the "
+                     "SQLite/JSON stores after a restart",
                      "DESIGN QUESTION, not a defect: at-least-once plus a "
                      "bounded ring means duplicates are possible by "
-                     "construction. The alternative is a persisted high-water "
-                     "mark per hub (received_at is monotonic on the hub side) "
-                     "instead of a set of ids. Raising SEEN_RING only moves "
-                     "the edge.", note))
-        print("  ⚑ GAP    the seen-ring's far edge is a redelivery window")
+                     "construction; the op_key receipt closes it wherever "
+                     "receipts are durable. The alternative is a persisted "
+                     "high-water mark per hub (received_at is monotonic on "
+                     "the hub side) instead of a set of ids.", note))
+        print("  ⚑ GAP    the seen-ring's far edge (SQLite/JSON, after a restart)")
     check("(measuring the ring's far edge)", _eviction_is_a_redelivery_window)
 
 
@@ -812,17 +818,23 @@ def sec_compose() -> None:
     check("a user-composed message with an attachment crosses the wire",
           _send_rides_the_spool)
 
-    def _text_only_transports_refuse_attachments():
+    def _retired_mcp_form_is_refused():
+        # user ruling 2026-09-25: the external-chat MCP server is retired and
+        # outside chats use the mail hub only, so a compose to @mcp: refuses
+        # (with or without an attachment) before anything is recorded — the
+        # same treatment @ext: got on 2026-08-05.
         a = mkorg()
         _c, j = upload(a)
-        for to in ("@mcp:peer",):        # @ext: retired 2026-08-05
+        for extra in ({}, {"attachments": [j["id"]]}):
             code, r = api_call(api.app, "POST",
                                f"/api/orgs/{a}/org_inbox/send",
-                               {"to": to, "body": "x",
-                                "attachments": [j["id"]]})
-            assert code == 422 and "text-only" in json.dumps(r), (to, code, r)
-    check("@mcp: refuses attachments (ruled text-only; @ext: retired)",
-          _text_only_transports_refuse_attachments)
+                               {"to": "@mcp:peer", "body": "x", **extra})
+            assert code == 422, (extra, code, r)
+            assert r.get("detail") == MCP_RETIRED, r
+        assert not [x for x in inbox_rows(a, "out")
+                    if x.get("peer") == "@mcp:peer"],             "a refused @mcp: compose still logged an org-inbox row"
+    check("a compose to the retired @mcp: form is refused and records nothing",
+          _retired_mcp_form_is_refused)
 
     def _restart_fails_safe():
         # _COMPOSE_STAGE is in-memory: a restart invalidates every staged id.
@@ -873,7 +885,7 @@ def sec_compose() -> None:
         store.save_org(org)
         code, r = api_call(api.app, "POST",
                            f"/api/orgs/{org.d['slug']}/org_inbox/send",
-                           {"to": "@mcp:someone", "body": "x"})
+                           {"to": "@org:someone", "body": "x"})
         # the SEAL must be the reason — not a retired address form, which
         # would make this pass for the wrong reason
         assert code == 422 and "sealed kiosk" in json.dumps(r), (code, r)
@@ -911,7 +923,7 @@ def sec_compose() -> None:
         for path in (f"/k/{tok}/api/orgs/{k}/org_inbox/send",
                      f"/k/{tok}/api/orgs/{k}/org_inbox/upload"):
             code, _r = api_call(pub, "POST", path,
-                                {"to": "@mcp:x", "body": "y"})
+                                {"to": "@org:x", "body": "y"})
             assert code == 404, (path, code)
     check("☞ a kiosk visitor reaches neither compose endpoint",
           _public_gateway_cannot_compose)

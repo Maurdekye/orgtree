@@ -265,7 +265,8 @@ test('§1d the eye’s context menu reaches the inbox and org settings with '
   assert.equal(took, true, 'the eye must take the right-click, not leave it '
     + 'to the browser menu')
   assert.deepEqual(menuLabels(),
-    ['Open inbox', 'Org settings', 'Retire all agents…'])
+    ['Open inbox', 'Org settings', 'Cheap-compact all agents…',
+      'Retire all agents…'])
 
   await inAct(async () => { menuItem('Open inbox')!.click(); await flush(2) })
   assert.deepEqual(opened, ['inbox'])

@@ -218,7 +218,9 @@ test('preset failure has retry while manual charter remains usable', async () =>
     const select = view.el.querySelector<HTMLSelectElement>('.df-preset-add')
     assert.ok(select)
     await inAct(async () => {
-      select!.value = 'Short'
+      // options are keyed by file path (external template folders can
+      // repeat a name), so the choice is made by path
+      select!.value = 'short.md'
       select!.dispatchEvent(new Event('change', { bubbles: true }))
       await flush(4)
     })

@@ -13,7 +13,7 @@ function identity(n: { org: string; id: string }) { return JSON.stringify([n.org
 export function notification(value: unknown): DesktopNotification {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid notification')
   const v = value as Record<string, unknown>
-  for (const key of Object.keys(v)) if (!['id', 'title', 'body', 'org', 'agent', 'item', 'kind', 'source_id', 'generation'].includes(key)) throw new Error('Unknown notification field')
+  for (const key of Object.keys(v)) if (!['id', 'title', 'body', 'org', 'agent', 'item', 'kind', 'source_id', 'generation', 'rev'].includes(key)) throw new Error('Unknown notification field')
   const text = (key: string, max: number) => {
     if (typeof v[key] !== 'string' || !v[key] || (v[key] as string).length > max) throw new Error('Invalid notification ' + key)
     return v[key] as string
@@ -25,6 +25,10 @@ export function notification(value: unknown): DesktopNotification {
   if (v.generation !== undefined) {
     if (!Number.isSafeInteger(v.generation) || (v.generation as number) < 0) throw new Error('Invalid notification generation')
     result.generation = v.generation as number
+  }
+  if (v.rev !== undefined) {
+    if (!Number.isSafeInteger(v.rev) || (v.rev as number) < 0) throw new Error('Invalid notification rev')
+    result.rev = v.rev as number
   }
   if (kind === 'agent-frozen' && (!result.agent || result.generation === undefined)) throw new Error('Missing frozen agent identity')
   if (kind === 'document' && !result.source_id) throw new Error('Missing document identity')

@@ -42,7 +42,7 @@ from urllib.parse import urlsplit
 # typing wave: Any/Response types must be RUNTIME imports — FastAPI evaluates
 # endpoint annotation strings (PEP 563) at decoration time. Helper-only types
 # stay under TYPE_CHECKING so the runtime import graph is unchanged.
-from typing import TYPE_CHECKING, Any, Final, Literal, cast
+from typing import TYPE_CHECKING, Any, Final, Literal, NoReturn, TypeVar, cast
 
 # ⚠ BEFORE ANY orgtree MODULE IS IMPORTED, so nothing can print ahead of it.
 #
@@ -82,16 +82,35 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, model_validator
 
 from . import account_fallback as accountfallback
+from . import orgtx
 from . import crashreports
+from . import mailtx  # PG-3d: mail on row transactions
+from . import lifecycle_tx  # S4: the lifecycle HTTP routes on row transactions
+from . import orgtx
 from . import events
 from . import registry
 from . import refs
 from . import deployment
 from . import frozen_install
+from . import census
 from . import profiling
 from . import workitems
 from . import workevidence
+from . import orgtx
+from . import worktx
 from . import opreceipts
+from . import toolargs
+from . import inbox  # the manual inbox (orgtree_inbox)
+from . import pgdoor
+from . import workdoor
+from . import runtimedoor
+from . import maildoor  # S1: the agent mail tools on the door
+from . import presentdoor  # S2 slice 4: present / submit_report on the door
+from . import rcdoor  # PG-3c: credits/reservations/status on row transactions
+# PG-3a's door declarations: importing registers them with pgdoor
+from . import lifecycle_door
+from . import staffdoor  # noqa: F401  PG-3b: registers its door tools
+from . import accountdoor  # noqa: F401  fence-off S7: registers its door tools
 from . import reservations
 from . import ledger as ledger_mod
 from . import (accounts, antigravity_limits, appsettings, bridgeauth,
@@ -114,6 +133,23 @@ if TYPE_CHECKING:
     from .schema import DirGrant, KioskCfg as KioskDoc, MailEntry, UserMailEntry
 
 app = FastAPI(title="orgtree", version="1.0.0")
+
+#: uvicorn options for the LOCAL admin listener (the desktop engine in
+#: engine/launch.py, and `main` below). The renderer's org websocket runs over
+#: loopback, where permessage-deflate buys nothing: the N1000 engprof measured
+#: it at 0.083 cores on the event-loop thread, which was already starved.
+#: Chromium always offers the extension, so switching it off here is enough;
+#: the server then does not accept it. The public listener keeps uvicorn's
+#: default, since remote clients may benefit from compression.
+#: timeout_keep_alive: uvicorn closes an idle keep-alive connection after 5 s
+#: by default, the same moment a client that also expires idle connections at
+#: 5 s reuses it, so the request lands on a closing socket (WinError 10054,
+#: measured under GIL load); the desktop's undici expires at 4 s, a thin
+#: margin. 30 s keeps the server's close well after every local client's.
+LOCAL_UVICORN_OPTIONS: dict[str, Any] = {"ws_per_message_deflate": False,
+                                         "timeout_keep_alive": 30}
+from . import p03_door  # P03 door hook: installs NOTHING unless a marked prototype root is set (p03_door.py)
+p03_door.install(app, store.DATA_ROOT)
 from . import startup
 app.add_middleware(startup.RecoveryBarrier)
 
@@ -187,12 +223,34 @@ _PROFILE_ALLOWED_FIELDS = frozenset({
     # (org_save_ms 5063 ms of which CPU was 46.9 ms).
     "org_load_cpu_ms", "org_save_cpu_ms", "mutate_cpu_ms",
     "chat_read_cpu_ms", "history_work_cpu_ms",
+    # The lock census (see `profiling` and `store._InstrumentedDocLock`).
+    # COUNTS AND MAXIMA, not a sixth and seventh stage — they answer how often
+    # and how deep, which no duration can. ⚠ `lock_contended` is the only one
+    # that means contention: it is written by the FIFO admission gate, the one
+    # place that can tell a real queue from the ordinary cost of taking a free
+    # lock, and a positive `lock_wait_ms` is NOT evidence of the same thing.
+    # Every one of them is excluded from `_PROFILE_WALL_STAGE_FIELDS` below;
+    # `lock_hold_ms` especially, because it spans the same interval as
+    # `mutate_ms` plus the document IO inside the lock and subtracting it would
+    # count those milliseconds twice.
+    "lock_acquires", "lock_failed", "lock_contended",
+    "lock_queue_ahead_max", "lock_max_depth", "lock_hold_ms",
 })
 #: Wall-clock stage fields that decompose handler time; the emit computes
 #: `unattributed_ms = handler_ms - sum(present wall stages)` from exactly
 #: this set, so time no stage claims is EXPLICIT in every record instead of
 #: an exercise for the reader (user decision 2026-09-19). CPU fields are
 #: excluded: they re-measure the same intervals on a different clock.
+#:
+#: ⚠ THE LOCK-CENSUS FIELDS ARE EXCLUDED TOO, and for two distinct reasons.
+#: `lock_acquires`, `lock_failed`, `lock_contended`, `lock_queue_ahead_max` and
+#: `lock_max_depth` are not milliseconds at all — subtracting a count from a
+#: duration is meaningless. `lock_hold_ms` IS milliseconds, and is the more
+#: dangerous of the two cases: it spans the same interval as `mutate_ms` plus
+#: whatever document IO ran inside the lock, so including it would subtract
+#: those milliseconds a second time and drive `unattributed_ms` negative on
+#: every ordinary write — an attribution bug this record is supposed to expose,
+#: manufactured by the record itself.
 _PROFILE_WALL_STAGE_FIELDS = frozenset({
     "load_snapshot_ms", "tree_ms", "annotate_ms",
     "lock_wait_ms", "org_load_ms", "chat_read_ms", "history_work_ms",
@@ -229,8 +287,16 @@ _PROFILE_TOOL_FIELD = "tool"
 #:                           normally unwraps it to the verb it carries, and
 #:                           this entry only covers a wrapper that arrives
 #:                           carrying nothing usable
+#:   orgtree_operation_census  the agent-side read door to the operation
+#:                           census (`_census_agent_payload`) — dispatchable
+#:                           but deliberately NOT advertised in the catalogue,
+#:                           for the same reason as the two above and one
+#:                           more: every entry in `mcptool.TOOLS` is part of
+#:                           every agent's system prompt, so advertising a
+#:                           diagnostics verb changes that prefix for the
+#:                           whole organization
 _PROFILE_EXTRA_TOOL_VERBS = ("orgtree_send_file_once", "orgtree_self_update",
-                             "orgtree_op_call")
+                             "orgtree_op_call", "orgtree_operation_census")
 #: Built once, lazily: `mcptool` is imported inside functions everywhere else
 #: in this module and there is no reason for this to be the one thing that
 #: drags it into import time. Derived FROM the catalogue rather than retyped,
@@ -428,6 +494,16 @@ class AccessRecord:
         # modules and have no request to ask. Bound here, on the
         # OUTERMOST middleware, so the whole stack is inside the window.
         profile_token = profiling.bind(profile)
+        # The census's own per-request slot: what the dispatch learns about
+        # WHICH operation this is (tool, action, target shape) and any scope a
+        # handler declares. A SEPARATE ContextVar from `profiling`'s on
+        # purpose — the census must not change what the shipped instrument
+        # emits, and sharing its dict would put census keys into
+        # `profiling.snapshot` and therefore into `_PROFILE_RECORDS`.
+        # Always bound, like the profile dict above: one empty dict, thrown
+        # away if nothing uses it, so a handler can classify without knowing
+        # whether capture is on.
+        census_token = census.bind()
         # storage-boundary attribution (stateprobe): the label must be the
         # route TEMPLATE, which exists only after routing — so it is resolved
         # lazily at record time, and the concrete path can never leak into a
@@ -463,6 +539,22 @@ class AccessRecord:
                 _access_emit(scope, status, handler_ms, total_ms, nbytes, depth, profile)
             except Exception:                                   # noqa: BLE001
                 pass      # a log line may never be the reason a request fails
+            # EVERY ATTEMPTED OPERATION, not only the slow ones and not only
+            # while a toggle is on — that bias is the whole reason the census
+            # exists. In the same `finally`, so a handler that RAISED is
+            # censused exactly as one that returned: a failed operation is as
+            # much an operation as a successful one, and it is the one an
+            # outcome census must not lose. `census.observe` swallows and
+            # COUNTS its own errors, so no second guard is needed here.
+            #
+            # ⚠ `handler_ms` MAY STILL BE THE `-1.0` SENTINEL ABOVE. It is
+            # passed through unchanged rather than patched here: `census`
+            # treats a negative handler duration as "no response start", which
+            # keeps the rule in the sink that has to honour it and works for
+            # every caller, not only this one.
+            census.observe(str(scope.get("method") or "?"), _route_label(scope),
+                           status, handler_ms, total_ms, nbytes, depth, profile)
+            census.unbind(census_token)
             if profile_token is not None:
                 # After the emit, so anything the emit itself touches is still
                 # inside the window, and unconditional so a raising handler
@@ -628,6 +720,59 @@ class ProfileTimingControl(BaseModel):
     enabled: bool
 
 
+#: Agent-side read limit for the census. Smaller than the operator route's
+#: ceiling because an agent's result travels back through a tool response.
+_CENSUS_AGENT_MAX = 2000
+
+
+def _census_agent_payload(a: "dict[str, Any]") -> dict[str, Any]:
+    """The census, for an authenticated agent, WITHOUT the desktop token.
+
+    ⚠ THIS IS THE READ HALF OF A DELIBERATELY SPLIT PERMISSION, and the split
+    is the point (census work item, decision seq 2; the absorbed item
+    `the-profile-timing-instrument-is-on-main-but-no` asked for exactly this).
+    The shipped timing instrument and its two siblings sit behind the desktop
+    token, which lives only in the Electron main process's memory and is never
+    handed to an agent — so an agent asked to diagnose a slow write could not
+    reach the instrument built for that and had to construct its own harness
+    first. This verb is the supported door.
+
+    ⚠ AND IT READS ONLY. It accepts `n` and nothing else: there is no argument
+    here that could enable or disable capture, and none is silently tolerated
+    — an agent that sends `enabled` gets `ignored_arguments` naming it back
+    and a process whose capture state is exactly what it was. Turning capture
+    on changes behaviour for every caller in the process at once, which is an
+    operator act; it lives on `POST /api/diagnostics/operation-census` behind
+    `_profile_operator_only` AND behind `launch.TokenGate`, which refuses an
+    agent credential on that path at transport before any dependency runs.
+
+    WHY ANY LIVE AGENT MAY READ IT. The payload is identifier-free BY
+    MECHANISM, not by promise (see `census._build`): route templates, finite
+    numbers or nulls under a closed allowlist, and members of catalogue or
+    census-local enums — and route templates carry no organization identifier,
+    so a reader cannot even attribute a record to an org. What an agent learns
+    is the process-wide shape of work, which is the thing the census exists to
+    produce. Recorded as a decision on the work item rather than left as an
+    accident of which route was chosen.
+    """
+    try:
+        want = int(a.get("n", _CENSUS_AGENT_MAX))
+    except (TypeError, ValueError):
+        want = _CENSUS_AGENT_MAX
+    payload = census.snapshot(limit=max(0, min(want, _CENSUS_AGENT_MAX)))
+    # Named back rather than ignored in silence: `enabled` is the argument an
+    # agent would most plausibly try, and answering it with a plain snapshot
+    # would read as "accepted" to a caller that never checks.
+    extra = sorted(k for k in a if k not in ("n",))
+    if extra:
+        payload["ignored_arguments"] = extra
+        payload["control_note"] = (
+            "read-only verb: capture is toggled only by the host operator "
+            "through POST /api/diagnostics/operation-census. Nothing was "
+            "changed.")
+    return payload
+
+
 def _profile_operator_only(request: Request) -> None:
     state = request.scope.get("state") or {}
     if state.get("public_slug") or state.get("bridge_slug"):
@@ -679,7 +824,8 @@ def state_access_diagnostics(reset: bool = False) -> dict[str, Any]:
     privacy boundary as the route-timing sink: labels are templates and
     verbs, never a path, an argument or content. `?reset=1` returns the
     aggregate and clears it, for clean before/after windows."""
-    return stateprobe.snapshot(reset=reset)
+    return {**stateprobe.snapshot(reset=reset),
+            "doc_lock_tripwire": store.doc_lock_tripwire_report()}
 
 
 @app.post("/api/diagnostics/state-access", dependencies=[Depends(_profile_operator_only)])
@@ -702,6 +848,75 @@ def slow_requests(n: int = 200) -> dict[str, Any]:
     rows = slowtrace.tail(max(1, min(int(n), 2000)))
     return {"threshold_ms": slowtrace.THRESHOLD_MS, "path": slowtrace.path(),
             "rows": rows, "rankings": slowtrace.rankings(rows)}
+
+
+@app.get("/api/diagnostics/operation-census",
+         dependencies=[Depends(_profile_operator_only)])
+def operation_census(n: int = 2000) -> dict[str, Any]:
+    """The all-operation census (`census`) — the OPERATOR's door to it.
+
+    Agents reach the same snapshot through the `orgtree_operation_census`
+    verb on the authenticated agent gateway and need no desktop token; see
+    `_census_agent_payload`. The two doors return the same payload from the
+    same function, so a record an agent can see is one an operator can see and
+    there is no second projection to keep in step.
+
+    ⚠ READ `counters.observed` BEFORE ANY LATENCY HERE. It advances on every
+    request the middleware saw, capture on or off, so a window in which it did
+    not move is a window in which nothing ran — and the timings describe
+    nothing. `evicted` is published twice, once as the counter kept at append
+    time and once as `evicted_derived`, recomputed from the oldest surviving
+    sequence number; they must agree.
+
+    ⚠ AND READ `limits` AND `provenance` BEFORE DRAWING A PROPORTION. One row
+    is one HTTP ATTEMPT, not one logical operation; `scope` is a table or a
+    route shape, never an observed storage contact; and this GET is itself
+    excluded from the ring, counted in `counters.skipped_self`, so polling it
+    does not inflate the denominator it reports.
+    """
+    return census.snapshot(limit=max(0, min(int(n), 20000)))
+
+
+@app.post("/api/diagnostics/operation-census",
+          dependencies=[Depends(_profile_operator_only)])
+def operation_census_control(body: ProfileTimingControl) -> dict[str, Any]:
+    """Enable or disable census capture in this running process, and nothing
+    else can.
+
+    ⚠ TWO SEPARATE PERMISSIONS, AND THIS IS THE NARROW ONE (census work item,
+    decision seq 2). Reading records is a smaller grant than changing process
+    behaviour for every caller at once, so they are not the same grant:
+    reading is open to any live authenticated agent through the gateway verb,
+    while the toggle lives HERE, behind `_profile_operator_only`, and is
+    reachable through no agent-dispatchable verb at all. `orgtree_operation_census`
+    takes no argument that could enable or disable anything, and
+    `test_operation_census` proves an agent passing `enabled` changes nothing.
+
+    ⚠ THE DEPENDENCY IS THE SECOND GATE, NOT THE FIRST. `launch.TokenGate`
+    requires the desktop token on every path except `POST /api/agent` and the
+    node-steer routes, so an agent credential presented straight to this route
+    is refused 401 AT TRANSPORT before any dependency runs.
+    `test_operation_census` proves that through a real request, because a
+    change to that allowlist would otherwise break the real boundary with the
+    dependency still wired and the suite still green.
+    """
+    return census.set_enabled(body.enabled)
+
+
+@app.post("/api/diagnostics/operation-census/reset",
+          dependencies=[Depends(_profile_operator_only)])
+def operation_census_reset() -> dict[str, Any]:
+    """Start a clean capture window: empty the ring, zero the counters,
+    restart the clock and open a new window generation. Operator-only for the
+    same reason the toggle is — discarding the window another reader is
+    mid-way through measuring is a process-wide effect, not a private one.
+
+    The generation is what makes this safe against an `observe` already in
+    flight: a record built against the previous window is dropped at append
+    and counted in `counters.dropped_stale_window` rather than landing here
+    with a foreign clock origin."""
+    census.reset()
+    return census.snapshot(limit=0)
 
 
 @app.put("/api/desktop/profile-timing", dependencies=[Depends(_profile_operator_only)])
@@ -1187,18 +1402,12 @@ def _external_candidates(name: str) -> dict[str, list[str]]:
     the redteam): the outside knowledge the hermetic ledger cannot hold.
     `org` = local orgs whose slug matches exactly (sealed kiosks answer like
     nonexistent orgs, same as interorg_send); `net` = hub peers whose full
-    slug OR leading name segment matches. The @mcp: tier lives in the org's
-    own correspondence log, resolved ledger-side."""
+    slug OR leading name segment matches. (There is no @mcp: tier any more:
+    retired 2026-09-25 with the external-chat MCP server.)"""
     out: dict[str, list[str]] = {"org": [], "net": []}
     try:
-        for o in store.list_orgs():
-            if o.get("slug") == name:
-                try:
-                    if store.load_org(name).d.get("kiosk") is not None:
-                        continue
-                except LedgerError:
-                    continue
-                out["org"].append(name)
+        from . import org_listing
+        out["org"] = org_listing.local_candidates(name)
     except OSError:
         pass
     for p in net.remote_peers():
@@ -1258,6 +1467,8 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
               f"{type(e).__name__}: {e}")
     loop = asyncio.get_running_loop()
     _LOOP = loop  # type: ignore[constant-redefinition]  # captured-at-startup cell, not a constant
+    if store.STORE_BACKEND == "postgres":
+        _start_revision_feed()
     try:
         # hook processes get a sanitized env — the steering hook finds us here
         open(os.path.join(store.DATA_ROOT, ".port"), "w",
@@ -1279,7 +1490,8 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
     mail_notify = _mail
 
     def stream(slug: str, node: str, payload: dict[str, Any]) -> None:
-        payload = supervisor.capture_reply_stream(slug, node, payload)
+        payload = supervisor.wire_reply_frame(
+            supervisor.capture_reply_stream(slug, node, payload))
         if payload.get("kind") in ("cache_forecast", "mcp_tool_count",
                                    "mcp_readiness"):
             # these frames patch the rendered tree in place on every client;
@@ -1299,6 +1511,9 @@ async def _wire_notify() -> None:  # type: ignore[unused-function]  # registered
     store.on_save = hub_changed
     # Awaiting the worker here would put fleet size back on readiness. The
     # ASGI mutation barrier preserves repair-before-new-turn ordering instead.
+    # S8: from here on a DOC_LOCK acquisition is a live legacy writer (the
+    # recovery below included) — the tripwire counts it per call site
+    store.arm_doc_lock_tripwire_from_env()
     startup.recovery.start(_recover_startup)
 
 
@@ -1323,16 +1538,16 @@ def _recover_startup() -> None:
     legacy = os.environ.get("ORGTREE_KIOSK")
     if legacy:
         try:
-            with store.DOC_LOCK:
-                org = store.load_org(legacy)
-                if not org.d.get("kiosk"):
-                    org.d["kiosk"] = {
+            # PG-3f: the kiosk section alone, never DOC_LOCK
+            from . import orgtx
+            with orgtx.org_tx(legacy, sections=["kiosk"]) as tx:
+                if not tx.d.get("kiosk"):
+                    tx.d["kiosk"] = {
                         "enabled": True, "token": secrets.token_hex(16),
                         "credits": int(os.environ.get("ORGTREE_KIOSK_CREDITS", "0") or 0),
                         "spend_limit": float(os.environ.get("ORGTREE_KIOSK_SPEND_LIMIT", "0") or 0),
                         "storage_limit_mb": 0,
                     }
-                    store.save_org(org)
             print(f"[orgtree] ORGTREE_KIOSK is retired — {legacy!r} is now a kiosk "
                   f"org (secret URL on the admin dashboard); set "
                   f"ORGTREE_PUBLIC_PORT to expose it")
@@ -1345,11 +1560,10 @@ def _recover_startup() -> None:
     for o in store.list_orgs():
         healed: list[str] | None = None
         try:
-            with store.DOC_LOCK:
-                horg = store.load_org(o["slug"])
-                healed = horg.heal_plan_stamps()
-                if healed is not None:
-                    store.save_org(horg)
+            # PG-3f: the one-shot heal sweeps every node, so every node row
+            # plus the two sections it writes; never DOC_LOCK
+            from . import settingstx
+            healed = settingstx.heal_plan_stamps(o["slug"])
         except Exception as e:                       # noqa: BLE001
             print(f"[orgtree] {o['slug']}: plan-stamp heal failed ({e})")
         if healed:
@@ -1373,7 +1587,6 @@ def _recover_startup() -> None:
     net.start_net_client()
     supervisor.start_cred_watcher()
     supervisor.start_watchdog_engine()
-    supervisor.start_extern_sweeper()
     supervisor.start_steer_late_watchdog()
     supervisor.maildrain.start()
     from . import toolwait
@@ -1387,6 +1600,9 @@ def _recover_startup() -> None:
 @app.on_event("shutdown")
 async def _cancel_startup() -> None:
     startup.recovery.cancel()
+    # Idle handles close immediately; active workers release theirs on exit.
+    from . import transcript_records
+    transcript_records.close_all()
 
 
 PORT = int(os.environ.get("ORGTREE_PORT", "7360"))
@@ -1397,6 +1613,91 @@ FRONTEND_DIST = os.path.normpath(os.environ.get("ORGTREE_V2_UI_DIR") or
 
 
 # ------------------------------------------------------------------ websocket
+# ── the per-socket outbox (mem-leak-probe, 2026-09-26) ───────────────────────
+#
+# Every frame used to be written by its own `_send` coroutine awaiting
+# `ws.send_json` directly. A window that stops reading (a renderer busy parsing
+# a large payload, or hung white) blocks uvicorn's send on flow control, and
+# every later frame for that window then waited in engine memory with its whole
+# payload — nothing capped, dropped or coalesced them. Measured 2026-09-25 with
+# this class on uvicorn: +1 MB/s at 100 frames/s against a non-reading client,
+# flat against a reading one; the live engine grew by GB per hour.
+#
+# Now each socket owns a bounded queue drained by ONE writer task, so `_send`
+# only enqueues and never waits on a slow window. A socket that fills its queue,
+# or whose single write stalls past `_WS_SEND_TIMEOUT`, is dropped: its
+# connection is ABORTED (a close frame could not pass a stalled socket either),
+# the renderer's `onclose` reconnects after 1.5 s, and a fresh connection resets
+# the sync bookkeeping and refetches the tree — so a dropped window loses no
+# state, only the frames it was not reading anyway.
+#: frames one socket may have queued before it is judged stuck and dropped
+_WS_QUEUE_MAX = 256
+#: seconds one frame may take to write before the socket is judged stuck
+_WS_SEND_TIMEOUT = 15.0
+
+
+def _abort_socket(ws: WebSocket) -> bool:
+    """Abort the TCP connection under `ws` without writing anything.
+
+    Starlette exposes no transport, so this follows the ASGI `send` callable —
+    through any middleware closures — to the server protocol object that owns
+    one (uvicorn's websocket protocols keep it as `.transport`). Returns False
+    when none is reachable; the caller then falls back to a timed close."""
+    stack: list[Any] = [getattr(ws, "_send", None)]
+    seen: set[int] = set()
+    while stack and len(seen) < 64:
+        obj = stack.pop()
+        if obj is None or id(obj) in seen:
+            continue
+        seen.add(id(obj))
+        owner = getattr(obj, "__self__", None)
+        transport = getattr(owner, "transport", None)
+        if transport is not None and callable(getattr(transport, "abort", None)):
+            transport.abort()
+            return True
+        for cell in getattr(obj, "__closure__", None) or ():
+            try:
+                stack.append(cell.cell_contents)
+            except ValueError:
+                pass
+    return False
+
+
+#: window ids remembered for the debug view's reconnect counts (oldest forgotten)
+_WS_WINDOWS_MAX = 64
+
+
+def _ws_window_id(ws: WebSocket) -> str:
+    """The renderer's per-window id (`?win=`), so reconnects of one window can
+    be counted across its sockets; sanitized, and "-" when absent."""
+    try:
+        raw = str(ws.query_params.get("win") or "")[:64]
+    except Exception:
+        raw = ""
+    return re.sub(r"[^A-Za-z0-9_.:-]", "", raw) or "-"
+
+
+class _Outbox:
+    """One socket's pending frames and the task that writes them, in order.
+    Frames are pre-encoded text, so their byte size is known for free."""
+
+    __slots__ = ("frames", "ready", "task", "bytes", "sent", "sent_bytes",
+                 "win", "slug", "joined")
+
+    def __init__(self, slug: str = "", win: str = "-") -> None:
+        #: (encoded text, its UTF-8 size in bytes)
+        self.frames: collections.deque[tuple[str, int]] = collections.deque()
+        self.ready = asyncio.Event()
+        self.task: asyncio.Task[None] | None = None
+        #: encoded size of the frames still queued
+        self.bytes = 0
+        self.sent = 0
+        self.sent_bytes = 0
+        self.win = win
+        self.slug = slug
+        self.joined = time.time()
+
+
 class Hub:
     """Per-org 'something changed' fanout. Payloads are deliberately dumb — the UI
     refetches the tree; the ledger stays the single source of truth."""
@@ -1407,9 +1708,27 @@ class Hub:
         # payload carrying typed segments is projected for them (design §6) —
         # the room is shared, the projection is not
         self.public: set[WebSocket] = set()
+        self._boxes: dict[WebSocket, _Outbox] = {}
+        #: sockets dropped for not reading, by reason — diagnostics and tests
+        self.drops: dict[str, int] = {"overflow": 0, "stuck": 0, "abort_failed": 0}
+        #: per renderer window (`?win=`): connects and drops, for the debug view
+        self.windows: collections.OrderedDict[str, dict[str, Any]] = collections.OrderedDict()
+
+    def _window(self, win: str) -> dict[str, Any]:
+        rec = self.windows.get(win)
+        if rec is None:
+            rec = self.windows[win] = {"connects": 0, "drops": 0}
+            while len(self.windows) > _WS_WINDOWS_MAX:
+                self.windows.popitem(last=False)
+        self.windows.move_to_end(win)
+        return rec
 
     async def join(self, slug: str, ws: WebSocket, *, public: bool = False) -> None:
         await ws.accept()
+        box = _Outbox(slug, _ws_window_id(ws))
+        self._window(box.win)["connects"] += 1
+        self._boxes[ws] = box
+        box.task = asyncio.get_running_loop().create_task(self._writer(slug, ws, box))
         self.rooms.setdefault(slug, set()).add(ws)
         if public:
             self.public.add(ws)
@@ -1417,9 +1736,82 @@ class Hub:
     def leave(self, slug: str, ws: WebSocket) -> None:
         self.rooms.get(slug, set()).discard(ws)
         self.public.discard(ws)
+        box = self._boxes.pop(ws, None)
+        if box is not None:
+            box.frames.clear()
+            box.bytes = 0
+            task = box.task
+            if task is not None and not task.done():
+                try:
+                    current = asyncio.current_task()
+                except RuntimeError:
+                    current = None
+                if task is not current:
+                    task.cancel()
+
+    def pending(self, ws: WebSocket) -> int:
+        """Frames queued for `ws` and not yet written (0 once it has left)."""
+        box = self._boxes.get(ws)
+        return len(box.frames) if box is not None else 0
+
+    def _drop(self, slug: str, ws: WebSocket, reason: str) -> None:
+        """Give up on a socket that is not reading: forget it, free its queue,
+        and abort its connection so the window reconnects and refetches."""
+        self.drops[reason] = self.drops.get(reason, 0) + 1
+        box = self._boxes.get(ws)
+        if box is not None:
+            self._window(box.win)["drops"] += 1
+        self.leave(slug, ws)
+        try:
+            aborted = _abort_socket(ws)
+        except Exception:
+            aborted = False
+        if not aborted:
+            self.drops["abort_failed"] += 1
+
+            async def _close() -> None:
+                with contextlib.suppress(Exception):
+                    await asyncio.wait_for(ws.close(code=1013), _WS_SEND_TIMEOUT)
+            asyncio.get_running_loop().create_task(_close())
+
+    async def _writer(self, slug: str, ws: WebSocket, box: _Outbox) -> None:
+        while True:
+            while not box.frames:
+                box.ready.clear()
+                await box.ready.wait()
+            frame, size = box.frames.popleft()
+            box.bytes -= size
+            try:
+                # == ws.send_json(payload): the same compact, non-ASCII-escaped text
+                await asyncio.wait_for(ws.send_text(frame), _WS_SEND_TIMEOUT)
+            except asyncio.TimeoutError:
+                self._drop(slug, ws, "stuck")
+                return
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self.leave(slug, ws)
+                return
+            box.sent += 1
+            box.sent_bytes += size
+
+    def stats(self) -> list[dict[str, Any]]:
+        """One row per open socket, for the debug view (cheap: no encoding)."""
+        now = time.time()
+        rows: list[dict[str, Any]] = []
+        for ws, box in list(self._boxes.items()):
+            win = self.windows.get(box.win) or {"connects": 0, "drops": 0}
+            rows.append({"org": box.slug, "window": box.win,
+                         "public": ws in self.public,
+                         "pending": len(box.frames), "pending_bytes": box.bytes,
+                         "sent": box.sent, "sent_bytes": box.sent_bytes,
+                         "age_s": round(now - box.joined, 1),
+                         "window_connects": win["connects"],
+                         "window_drops": win["drops"]})
+        return rows
 
     async def _send(self, slug: str, payload: dict[str, Any]) -> None:
-        dead: list[WebSocket] = []
+        """Queue `payload` for every socket in the room; never waits on one."""
         raw_segments = payload.get("segments_raw")
         admin_payload = payload
         public_payload = payload
@@ -1440,17 +1832,37 @@ class Hub:
                 return result
             admin_payload = row_payload(admin_payload, False)
             public_payload = row_payload(public_payload, True)
-        for ws in self.rooms.get(slug, set()):
-            try:
-                await ws.send_json(public_payload if ws in self.public else admin_payload)
-            except Exception:
-                dead.append(ws)
-        for ws in dead:
-            self.leave(slug, ws)
+        room = list(self.rooms.get(slug, set()))
+        if not room:
+            return
+        # encoded ONCE per broadcast, exactly as starlette's send_json would
+        encoded: dict[bool, tuple[str, int]] = {}
+
+        def text(public: bool) -> tuple[str, int]:
+            if public not in encoded:
+                t = json.dumps(public_payload if public else admin_payload,
+                               separators=(",", ":"), ensure_ascii=False)
+                encoded[public] = (t, len(t.encode("utf-8")))
+            return encoded[public]
+        for ws in room:
+            box = self._boxes.get(ws)
+            if box is None:
+                continue
+            if len(box.frames) >= _WS_QUEUE_MAX:
+                self._drop(slug, ws, "overflow")
+                continue
+            frame = text(ws in self.public)
+            box.frames.append(frame)
+            box.bytes += frame[1]
+            box.ready.set()
 
     async def changed(self, slug: str) -> None:
-        await self._send(slug, {"type": "changed", "org": slug,
-                                "rev": _next_sync_rev(slug)})
+        payload: dict[str, Any] = {"type": "changed", "org": slug,
+                                   "rev": _next_sync_rev(slug)}
+        org_rev = _org_rev(slug)
+        if org_rev is not None:
+            payload["org_rev"] = org_rev     # PG-4: the commit counter, additive
+        await self._send(slug, payload)
 
     async def node_event(self, slug: str, node: str, event: str,
                          detail: dict[str, Any] | None = None) -> None:
@@ -1503,6 +1915,48 @@ def _next_sync_rev(slug: str) -> int:
 def _current_sync_rev(slug: str) -> int:
     with _sync_rev_lock:
         return _sync_revs.get(slug, 0)
+
+
+# ── PG-4: the commit revision feed (postgres only) ──────────────────────────
+# `org_rev` is PostgreSQL's per-org COMMIT counter, a different number from the
+# frame `rev` above (which counts frames, coalesced). The feed LISTENs on
+# org_rev; a revision this process did not commit, or a missed NOTIFY found by
+# its catch-up/poll reads, makes the shared snapshot reload fully and sends the
+# ordinary coalesced 'changed' frame — the renderer's existing refetch. See
+# pgfeed.py for how a missed NOTIFY is detected.
+_REV_FEED: Any = None
+
+
+def _start_revision_feed() -> None:
+    global _REV_FEED
+    from . import orgtx, pgfeed, pgstore
+    if _REV_FEED is not None:
+        return
+    orgtx.commit_listeners.append(lambda c: pgfeed.note_local(c.slug, c.revision))
+    feed = pgfeed.RevisionFeed(
+        lambda: pgfeed.psycopg_conn(pgstore.url()),
+        pgfeed.engine_callback(lambda s: store.external_change(s, "feed"),
+                               hub_changed))
+    feed.start()
+    _REV_FEED = feed
+
+
+@app.on_event("shutdown")
+async def _stop_revision_feed() -> None:
+    # signal only, no join: the listener may sit in a notification wait for up
+    # to poll_s, and shutdown must not block the loop for it. The thread leaves
+    # at its next wake and closes its own session (RevisionFeed.run's finally).
+    if _REV_FEED is not None:
+        _REV_FEED.stop(timeout=0.0)
+
+
+def _org_rev(slug: str) -> int | None:
+    """The newest committed revision this process knows for `slug` (postgres
+    only; None elsewhere), read BEFORE a snapshot like `sync_rev`."""
+    if store.STORE_BACKEND != "postgres":
+        return None
+    from . import pgfeed
+    return pgfeed.known_revision(_REV_FEED, slug)
 
 
 _BCAST_COALESCE = 0.4      # seconds; see hub_changed
@@ -1571,22 +2025,24 @@ class OrgCreate(Body):
 
 
 @app.get("/api/orgs")
+async def _orgs_list_route(request: Request) -> list[dict[str, Any]]:
+    return await _run_ui_read(orgs_list, request)
+
+
 def orgs_list(request: Request) -> list[dict[str, Any]]:
+    from . import org_summary
     pub = _public_slug(request)
     if pub:
         # public visitors see exactly their token's org — nothing to discover,
         # and no document body needed, so this branch keeps the cheap listing
-        return [{**o, "kiosk": True} for o in store.list_orgs()
-                if o["slug"] == pub]
+        return org_summary.public_rows(pub)
     # admin: attach the kiosk dashboard summary (incl. the secret token —
     # this listener is loopback-only).
     #
-    # ONE parse per org, not two. This used to call `store.list_orgs()` (which
-    # reads and parses every org document) and then `store.load_org()` per org
-    # (which parses every one of them again) — 168 ms per request against this
-    # machine's 18.53 MB data root, on a route the desk polls every 3 s.
+    # Current-format orgs use coherent totals and active funding rows; legacy
+    # settings or exceptional cost shapes use the complete per-org reader.
     out: list[dict[str, Any]] = []
-    for o, org in store.list_orgs_with_docs():
+    for o, org in org_summary.admin_rows():
         row = {**o, "cost_usd_total": org.cost_total(),
                # F-09: agents with a running turn. Deliberately absent from the
                # public/kiosk branch above — visitors don't see how busy an org is.
@@ -1602,7 +2058,7 @@ def orgs_list(request: Request) -> list[dict[str, Any]]:
                 "spend_frozen": bool(org.d.get("spend_frozen")),
                 "storage_blocked": bool(org.d.get("storage_blocked")),
                 "sandbox": bool(k.get("sandbox")),
-                "held": org.audit()["top_level_holds"],
+                "held": org_summary.top_level_holds(org),
                 # stale-served + background-refreshed: the walk never runs on
                 # the request path (arti's took ~7 s and stalled every load)
                 "storage_mb": (round(u / 1048576, 2)
@@ -1700,15 +2156,6 @@ def orgs_create(body: OrgCreate) -> dict[str, Any]:
         raise HTTPException(422, "sandboxed orgs ride a fixed-size disk with "
                                  "a 4096 MB minimum — set disk_mb to at "
                                  "least 4096")
-    try:
-        org = store.create_org(body.name, body.dirs, body.permission_mode)
-    except LedgerError as e:
-        raise HTTPException(400, str(e))
-    except OSError as e:
-        # create_org mkdirs the workspace before the ledger ever sees the
-        # name; a name the host filesystem refuses (too long, a reserved
-        # device name, an unwritable data root) surfaced as a bare 500
-        raise HTTPException(422, f"could not create the org's workspace: {e}")
     # global default org settings (user spec): every new org is born with them.
     # net_hub_address is CONFIG for the local hub entry, not an org-doc key —
     # popped here and translated below, never written raw into the doc.
@@ -1729,16 +2176,23 @@ def orgs_create(body: OrgCreate) -> dict[str, Any]:
     dflt.pop("prefer_reserve", None)
     local_hub_addr = str(dflt.pop("net_hub_address", "") or "") \
         or net._default_address()
-    if dflt:
-        with store.DOC_LOCK:
-            org.d.update(dflt)  # type: ignore[arg-type]  # defaults.json holds org-doc-shaped keys
-            store.save_org(org)
-    if body.kiosk is not None:
-        # kiosk orgs are a DISTINCT TYPE, born as kiosks with their limits
-        # defined at creation (user ruling) — never converted from a normal
-        # org. Token + sandbox secret are minted with the org.
-        with store.DOC_LOCK:
-            o = store.load_org(org.d["slug"])
+
+    # PG-3f: everything below is applied to the new Org BEFORE its one
+    # creating save (store.create_org's `prepare`), so the org is born whole
+    # in a single atomic write. It used to be up to three more
+    # load-modify-save cycles under DOC_LOCK after the create — defaults,
+    # then kiosk/sandbox, then the network identity — and a kiosk whose
+    # ceiling failed validation was unwound by deleting an org that had
+    # already been saved as a NON-kiosk one (a window in which the net
+    # poller could register it). Now a failure raises before anything is
+    # saved, so there is nothing to unwind.
+    def prepare(o: Org) -> None:
+        if dflt:
+            o.d.update(dflt)  # type: ignore[arg-type]  # defaults.json holds org-doc-shaped keys
+        if body.kiosk is not None:
+            # kiosk orgs are a DISTINCT TYPE, born as kiosks with their limits
+            # defined at creation (user ruling) — never converted from a normal
+            # org. Token + sandbox secret are minted with the org.
             o.d["kiosk"] = {
                 "enabled": True,
                 "token": secrets.token_hex(16),
@@ -1760,56 +2214,46 @@ def orgs_create(body: OrgCreate) -> dict[str, Any]:
                 o.d["kiosk"]["max_scope"] = o._norm_ceiling(
                     prov if prov is not None else o.default_kiosk_ceiling())
             except (LedgerError, *_BAD_SHAPE) as e:
-                # unwind: without this, the org survived its own failed
-                # creation as a non-kiosk org (registered + saved above)
-                # while the 422 told the caller nothing was made
-                # ⚠ A NARROW RACE, closed for the same reason the
-                # delete endpoint takes the polite exit: this org was
-                # saved as a NON-kiosk one, and the net poller mints an
-                # identity and registers any non-kiosk org it finds. If
-                # a pass landed in that window the unwind would leave a
-                # roster row for an org that never finished being made.
-                # Snapshot before the rename; never let it fail the
-                # unwind, which is already an error path.
-                try:
-                    _doc = dict(store.load_org(org.d["slug"]).d)
-                except LedgerError:
-                    _doc = {}
-                store.delete_org(org.d["slug"])
-                if _doc:
-                    net.unregister_org(_doc)
-                raise HTTPException(422, str(e))
+                # nothing has been saved yet: refusing here leaves no org
+                raise HTTPException(422, str(e)) from e
             # a capped org never inherits the 50-credit hire pre-fill (user
             # report: the first hire swallowed the whole pool) — grants in a
             # kiosk are deliberate drags; the admin can set a sub-cap default
             o.d["default_top_grant"] = 0
-            store.save_org(o)
-            if o.d["kiosk"]["sandbox"]:
-                sandbox.warm(o)        # prebuild image+container in background
-        _token_cache["at"] = 0.0
-        _bridge_cache["at"] = 0.0
-    elif body.sandbox:
-        # a sandboxed NORMAL org (user ruling): same container isolation,
-        # no kiosk limits or public URL
-        with store.DOC_LOCK:
-            o = store.load_org(org.d["slug"])
+        elif body.sandbox:
+            # a sandboxed NORMAL org (user ruling): same container isolation,
+            # no kiosk limits or public URL
             o.d["sandbox"] = {"enabled": True, "secret": secrets.token_hex(16),
                               **({"limit_mb": int(body.disk_mb)}
                                  if body.disk_mb is not None else {})}
-            store.save_org(o)
-            sandbox.warm(o)
-        _bridge_cache["at"] = 0.0
-    if body.kiosk is None:
-        # F-06: non-kiosk orgs mint their permanent network identity at birth
-        # (kiosks are sealed and mint none). The hub list starts with the
-        # local entry (unless opted out) plus any typed remote addresses.
-        with store.DOC_LOCK:
-            o = store.load_org(org.d["slug"])
+        if body.kiosk is None:
+            # F-06: non-kiosk orgs mint their permanent network identity at
+            # birth (kiosks are sealed and mint none). The hub list starts
+            # with the local entry (unless opted out) plus any typed remote
+            # addresses.
             net.mint_identity(o)
             o.d["net_autoconnect"] = bool(body.net_autoconnect)
             o.d["net_hubs"] = net.hub_entries(
                 body.net_autoconnect, body.net_hubs, local_hub_addr)
-            store.save_org(o)
+
+    try:
+        org = store.create_org(body.name, body.dirs, body.permission_mode,
+                               prepare=prepare)
+    except LedgerError as e:
+        raise HTTPException(400, str(e))
+    except OSError as e:
+        # create_org mkdirs the workspace before the ledger ever sees the
+        # name; a name the host filesystem refuses (too long, a reserved
+        # device name, an unwritable data root) surfaced as a bare 500
+        raise HTTPException(422, f"could not create the org's workspace: {e}")
+    if body.kiosk is not None:
+        if org.d["kiosk"]["sandbox"]:
+            sandbox.warm(org)      # prebuild image+container in background
+        _token_cache["at"] = 0.0
+        _bridge_cache["at"] = 0.0
+    elif body.sandbox:
+        sandbox.warm(org)
+        _bridge_cache["at"] = 0.0
     return {"slug": org.d["slug"]}
 
 
@@ -1834,6 +2278,8 @@ def orgs_delete(slug: str) -> dict[str, Any]:
         store.delete_org(slug)
     except LedgerError as e:
         raise HTTPException(404, str(e))
+    except orgtx.LockTimeout as e:     # S8: behind a long org_tx; nothing moved
+        raise HTTPException(409, f"the org is busy, try the delete again ({e})")
     # ⚠ AFTER the delete has succeeded, and it can NEVER fail one. A hub that
     # is down, slow or gone is an ordinary condition; an org that could not be
     # deleted because some unrelated machine was unreachable would be a worse
@@ -1891,8 +2337,12 @@ def org_net(slug: str, request: Request) -> dict[str, Any]:
         # is an org that silently never joins while the panel says autoconnect
         # is on (researcher finding 2026-08-05). Mirrors the chatq precedent
         # (existing orgs register automatically; opt-out lives in settings).
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
+        # PG-3f: org_tx on the three net rows; kiosk is the decision input
+        from . import orgtx
+        with orgtx.org_tx(slug, sections=["net_identity", "net_hubs",
+                                          "net_autoconnect"],
+                          share_sections=["kiosk"]) as tx:
+            org = tx.org
             net.mint_identity(org)
             if "net_hubs" not in org.d:
                 addr = str(load_org_defaults().get("net_hub_address") or "") \
@@ -1900,19 +2350,18 @@ def org_net(slug: str, request: Request) -> dict[str, Any]:
                 org.d.setdefault("net_autoconnect", True)
                 org.d["net_hubs"] = net.hub_entries(
                     bool(org.d.get("net_autoconnect", True)), [], addr)
-            store.save_org(org)
     # V2-era docs may carry retired pairing fields — scrub once on reveal
     # (migration hygiene; the V1 shape has no per-hub credentials at all)
     legacy_connection_fields = {"peer_token", "peer_slug", "token"}
     if any(legacy_connection_fields.intersection(h) for h in (org.d.get("net_hubs") or [])
            if isinstance(h, dict)):
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
+        from . import orgtx
+        with orgtx.org_tx(slug, sections=["net_hubs"]) as tx:
+            org = tx.org
             for hub in org.d.get("net_hubs") or []:
                 if isinstance(hub, dict):
                     for field in legacy_connection_fields:
                         hub.pop(field, None)
-            store.save_org(org)
     return {"identity": org.d.get("net_identity"),
             "hubs": org.d.get("net_hubs") or [],
             "autoconnect": bool(org.d.get("net_autoconnect", True))}
@@ -2376,19 +2825,82 @@ def _tree_cache_drop(slug: str) -> None:
         _tree_cache.pop((slug, False), None)
 
 
-def _tree_etag(slug: str) -> str:
+def _tree_runtime_stamp(slug: str) -> tuple:
     with _tree_cache_lock:
         inval = _tree_inval_rev.get(slug, 0)
-    parts = (store.org_seq(slug),
-             supervisor.tree_state_fingerprint(slug),
+    return (supervisor.tree_state_fingerprint(slug),
              float(limits._cache.get("at") or 0.0),
              repr(supervisor.primed_restart()),
              inval,
              int(time.time() // _TREE_STALE_BUCKET_S))
+
+
+def _tree_etag(slug: str) -> str:
+    parts = (store.org_seq(slug), *_tree_runtime_stamp(slug))
     return '"t' + hashlib.sha1(repr(parts).encode()).hexdigest()[:20] + '"'
 
 
 @app.get("/api/orgs/{slug}")
+async def _org_tree_route(slug: str, request: Request, response: Response,
+                          view: str = "") -> Any:
+    if view == "delta":
+        return await _run_ui_read(_org_tree_transport, slug, request)
+    return await _run_ui_read(org_tree, slug, request, response)
+
+
+def _org_tree_transport(slug: str, request: Request) -> Response:
+    from . import tree_ui, tree_fast
+    compressed = tree_ui.accepts_gzip(request.headers.get("accept-encoding", ""))
+    try:
+        etag, body, watermarks = tree_ui.read(
+            slug, _public_slug(request) is not None,
+            request.headers.get("if-none-match", ""),
+            stamp=lambda: _tree_etag(slug),
+            build=lambda: _org_view(slug, request, None), feed=_REV_FEED,
+            compressed=compressed,
+            fast=tree_fast.StatusProjection(slug, lambda:_tree_runtime_stamp(slug),
+                lambda:{'sync_rev':_current_sync_rev(slug)}))
+    except LedgerError as error:
+        raise HTTPException(404, str(error))
+    headers = {"ETag": etag, "Vary": "Accept-Encoding",
+               "Cache-Control": "private, no-cache", **watermarks}
+    if body is None:
+        return Response(status_code=304, headers=headers)
+    if compressed:
+        headers["Content-Encoding"] = "gzip"
+    return Response(content=body, media_type="application/json", headers=headers)
+
+
+@app.get("/api/orgs/{slug}/foreground-tree")
+async def foreground_tree(slug: str, request: Request) -> Response:
+    from . import foreground_api
+    return await _run_ui_read(foreground_api.read, slug, request)
+
+
+@app.get("/api/orgs/{slug}/foreground-tree/children")
+async def foreground_children(slug: str, request: Request) -> Response:
+    from . import foreground_api
+    return await _run_ui_read(partial(foreground_api.read, mode='children'), slug, request)
+
+
+@app.get("/api/orgs/{slug}/foreground-tree/search")
+async def foreground_search(slug: str, request: Request) -> Response:
+    from . import foreground_api
+    return await _run_ui_read(partial(foreground_api.read, mode='search'), slug, request)
+
+
+@app.get("/api/orgs/{slug}/foreground-tree/lookup/{nid}")
+async def foreground_lookup(slug: str, nid: str, request: Request) -> Response:
+    from . import foreground_api
+    return await _run_ui_read(partial(foreground_api.read, mode='lookup', nid=nid), slug, request)
+
+
+@app.get("/api/orgs/{slug}/foreground-tree/references")
+async def foreground_references(slug: str, request: Request) -> Response:
+    from . import foreground_api
+    return await _run_ui_read(partial(foreground_api.read, mode='references'), slug, request)
+
+
 def org_tree(slug: str, request: Request,
              response: Response = None) -> Any:  # type: ignore[assignment]
     # `response` is FastAPI's header-injection seam on the dict-returning
@@ -2471,6 +2983,7 @@ def _org_view(slug: str, request: Request,
     # Read BEFORE the snapshot: see the sync-revision note at the Hub —
     # stamping older-than-content is safe (idempotent re-apply), newer is not.
     sync_rev0 = _current_sync_rev(slug)
+    org_rev0 = _org_rev(slug)         # PG-4: same read-before-snapshot rule
     try:
         _stage = time.perf_counter()
         # THE SHARED REFRESHED SNAPSHOT, not a fresh parse (2026-09-19).
@@ -2497,8 +3010,20 @@ def _org_view(slug: str, request: Request,
         raise HTTPException(404, str(e))
     _t0 = time.perf_counter()
     _stage = time.perf_counter()
+    if detail_node is not None:
+        # §4.8 detail (Show lineage, an archived seat's card): ONE node's
+        # projection, not the whole tree. Building every node and the header
+        # to hand back one entry cost ~45 ms idle and far more under load on
+        # the live-org copy (480 nodes, docket counts), per open. The entry is
+        # `tree_node(..., descend=False)`: the same projection the full walk
+        # makes for it, minus the children the detail answer drops anyway.
+        tree = {"roots": [_detail_tree_node(org, detail_node)]}
+        if profile is not None: profile["tree_ms"] = (time.perf_counter() - _stage) * 1000.0
+        return _annotate_org_view(org, tree, request, detail_node, profile=profile)
     tree = org.tree()
     tree["sync_rev"] = sync_rev0
+    if org_rev0 is not None:
+        tree["org_rev"] = org_rev0
     if profile is not None: profile["tree_ms"] = (time.perf_counter() - _stage) * 1000.0
     # FR-27: the primed restart is a MACHINE fact, not an org one — it is
     # armed from one org and cuts every org on the box. So it is injected
@@ -2518,6 +3043,35 @@ def _org_view(slug: str, request: Request,
               f"one-second threshold is crossed; the O(n²) children scan "
               f"is now relevant (see the 2026-08-06 ruling)", flush=True)
 
+    return _annotate_org_view(org, tree, request, detail_node, profile=profile)
+
+
+def _detail_tree_node(org: Org, nid: str) -> dict[str, Any]:
+    """The tree entry `org.tree()` would carry for `nid`, built alone.
+
+    404 exactly where the full walk would not reach it: an unknown id, or a
+    node off the org axis at any step up to a root (`org_children` hides an
+    archived predecessor that has a successor; that holds for its ancestors
+    too)."""
+    index = org.children_index()
+    seen: set[str] = set()
+    cur: str | None = nid
+    while cur is not None:
+        if cur in seen or cur not in org.nodes:
+            raise HTTPException(404, f"no such node: {nid!r}")
+        seen.add(cur)
+        parent = org.nodes[cur].get("parent")
+        if cur not in org.org_children(parent, index):
+            raise HTTPException(404, f"no such node: {nid!r}")
+        cur = parent
+    return org.tree_node(nid, children_index=index, descend=False)
+
+
+def _annotate_org_view(org: Org, tree: dict[str, Any], request: Request,
+                       detail_node: str | None = None, *,
+                       profile: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Shared runtime annotations and public scrubbing for tree projections."""
+    slug = org.d["slug"]
     # one roster read per TIER per render, not per frozen node
     _cap_cache: dict[str, dict[str, Any]] = {}
 
@@ -2642,6 +3196,10 @@ def _org_view(slug: str, request: Request,
         # №12: three states wore one pulse — split them: waiting on a turn
         # slot vs actually responding vs busy-but-between (draining/queued)
         node["waiting"] = bool(st.get("waiting"))
+        # queued behind the machine-wide concurrent-turn limit (user ruling
+        # 2026-09-26): {since, limit, waiting} while queued, else None — the
+        # desk shows a banner pointing at the setting
+        node["queued_for_slot"] = st.get("queued_for_slot") or None
         node["responding"] = bool(st.get("responding"))
         node["phase"] = st.get("phase")     # e.g. "compacting" (№3)
         # ⚠ WHICH ACCOUNT ACTUALLY SERVED THIS TURN — captured at spawn from
@@ -2992,9 +3550,10 @@ def _scrub_public(tree: dict[str, Any]) -> None:
 
     def walk(n: dict[str, Any]) -> None:
         n.pop("session_id", None)              # row-level field: safe to pop
-        # an @mcp: peer id is a bearer credential, not a label: anyone holding
-        # it can GET /api/extern/{peer}/messages and read that channel. Kiosk
-        # visitors get the org, never its outside channels.
+        # an @mcp: peer id was a bearer credential, not a label: anyone
+        # holding it could read that channel through the (now retired)
+        # external-chat routes. Kiosk visitors get the org, never its
+        # outside channels.
         n.pop("external_handles", None)
         sc: dict[str, Any] = n.get("scope") or {}
         if sc.get("add_dirs"):
@@ -3220,15 +3779,31 @@ def org_settings(slug: str, body: Settings) -> dict[str, Any]:
     """Org-level knobs. Folder holdings (org_dirs) are edited from the eye's
     gear panel: the workspace is permanent; additions apply to FUTURE hires;
     removals revoke everywhere; rw→ro downgrades propagate to every grant."""
-    with store.DOC_LOCK:
-        return _org_settings_locked(slug, body)
+    return _org_settings_locked(slug, body)
 
 
 def _org_settings_locked(slug: str, body: Settings) -> dict[str, Any]:
+    """PG-3f: one org_tx over the settings sections (FOR UPDATE — hire and
+    staffing hold them FOR SHARE, the phantom rule) and, when the body
+    sweeps the fleet (an org_dirs edit revokes/downgrades every grant; a
+    fable-lock clear touches every node), every node row. Never DOC_LOCK.
+    The name is kept: callers and tests reach it directly."""
+    from . import settingstx
+    all_nodes = body.org_dirs is not None or bool(body.clear_fable_lock)
     try:
-        org = store.load_org(slug)
+        res = settingstx.settings_tx(
+            slug, lambda tx: _org_settings_apply(tx.org, body),
+            all_nodes=all_nodes, sections=settingstx.SETTINGS_SECTIONS,
+            share_sections=settingstx.SETTINGS_SHARE,
+            logs=settingstx.SETTINGS_LOGS)
     except LedgerError as e:
         raise HTTPException(404, str(e))
+    hub_changed(slug)
+    net.kick()
+    return res
+
+
+def _org_settings_apply(org: Org, body: Settings) -> dict[str, Any]:
     ws = org.d.get("workspace")
     warnings: list[str] = []
     if body.org_dirs is not None:
@@ -3448,9 +4023,6 @@ def _org_settings_locked(slug: str, body: Settings) -> dict[str, Any]:
             if k not in addr_now \
                     or (cells.get(k) or {}).get("address") != addr_now[k]:
                 cells.pop(k, None)
-    store.save_org(org)
-    hub_changed(slug)
-    net.kick()
     return {"dirs": org.d["dirs"], "warnings": warnings}
 
 
@@ -3469,11 +4041,12 @@ def org_kiosk(slug: str, body: KioskCfg) -> dict[str, Any]:
     """Admin-only (the public gateway 403s the path): enable/disable an org as
     a kiosk, adjust its caps, rotate its secret URL. Raising a breached limit
     clears the matching hard freeze — ▶ resume then replays halted turns."""
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
+    # PG-3f: one org_tx over the kiosk rows and EVERY node row (the
+    # ceiling sweep and the freeze clear touch them all); never DOC_LOCK
+    from . import settingstx
+
+    def _body(tx: Any) -> tuple[Any, list[str], list[str], list[str], bool]:
+        org = tx.org
         if not org.d.get("kiosk"):
             # kiosk is a creation-time TYPE (user ruling) — no conversion
             raise HTTPException(
@@ -3547,8 +4120,16 @@ def org_kiosk(slug: str, body: KioskCfg) -> dict[str, Any]:
             drive_after = [k for k, v in org.nodes.items()
                            if v["state"] == "live" and not v.get("frozen")
                            and (org.d.get("mail") or {}).get(k)]
-        store.save_org(org)
         need_freeze = over and not org.d.get("spend_frozen")
+        return k, cleared, ceiling_warnings, drive_after, need_freeze
+    try:
+        k, cleared, ceiling_warnings, drive_after, need_freeze = \
+            settingstx.whole_org_tx(
+                slug, _body, sections=settingstx.KIOSK_SECTIONS,
+                share_sections=settingstx.KIOSK_SHARE,
+                logs=settingstx.KIOSK_LOGS)
+    except LedgerError as e:
+        raise HTTPException(404, str(e))
     # limits apply in REAL TIME (user ruling), both directions: lowering the
     # spend limit below what's already spent freezes now, not at the next
     # turn's end; the storage recheck applies/lifts the write block likewise
@@ -3584,7 +4165,14 @@ def org_hire_defaults(slug: str, body: HireDefaults,
     a default is a pre-filled grant, so the ceiling clamps it like any grant.
     The rest of /settings (org folders, caps, policies) stays admin-only."""
     pub = bool(_public_slug(request))
-    with _entry_ledger_422(store.write_org(slug)) as org:
+    # PG-3f: the default sections FOR UPDATE (hire holds them FOR SHARE), the
+    # kiosk ceiling FOR SHARE; never DOC_LOCK
+    from . import orgtx, settingstx
+    with _entry_ledger_422(cast("AbstractContextManager[Any]", orgtx.org_tx(
+            slug, sections=settingstx.DEFAULTS_SECTIONS,
+            share_sections=["kiosk"],
+            logs=settingstx.SETTINGS_LOGS))) as tx:
+        org = tx.org
         try:
             rc = (not pub) and (bool((org.d.get("kiosk") or {}).get("auto_raise"))
                                 or body.raise_ceiling)
@@ -3595,7 +4183,6 @@ def org_hire_defaults(slug: str, body: HireDefaults,
                 raise_ceiling=rc)
         except LedgerError as e:
             raise HTTPException(422, str(e))
-        store.save_org(org)
     if pub and isinstance(result, dict):
         result.pop("bridge", None)
     hub_changed(slug)
@@ -3620,9 +4207,9 @@ class Scope(Body):
     clear_account_fallback: bool = False  # inherit the org default
     # {enabled?, occ?} per-node cache-protection override; {} clears to inherit
     auto_cheap_compact: dict[str, Any] | None = None
-    # post-hire @mcp:<peer> response handles (2026-08-22). REPLACES the node's
-    # set; [] clears. Read the current set off the org tree first if you mean
-    # to ADD one. Superior-only — a handle is an outbound-mail bypass.
+    # post-hire @mcp:<peer> response handles — RETIRED with @mcp: on
+    # 2026-09-25: any entry is refused (ledger.HANDLES_RETIRED); [] still
+    # clears what a node stored before the retirement.
     external_handles: list[str] | None = None
     raise_ceiling: bool = False             # the one-action bridge (spec §1)
 
@@ -3639,27 +4226,45 @@ class Scope(Body):
 def node_scope(slug: str, nid: str, body: Scope,
                request: Request) -> dict[str, Any]:
     pub = bool(_public_slug(request))
-    with _entry_ledger_422(store.write_org(slug)) as org:
-        try:
-            rc = (not pub) and (bool((org.d.get("kiosk") or {}).get("auto_raise"))
-                                or body.raise_ceiling)
-            result = org.set_scope(USER, nid, add_dirs=body.add_dirs, tools=body.tools,
-                                   org_visibility=body.org_visibility,
-                                   permission_mode=body.permission_mode,
-                                   charter=body.charter,
-                                   team_charter=body.team_charter,
-                                   effort=body.effort,
-                                   model_version=body.model_version,
-                                   auto_cheap_compact=body.auto_cheap_compact,
-                                   external_handles=body.external_handles,
-                                   raise_ceiling=rc,
-                                   account_fallback=body.account_fallback,
-                                   clear_account_fallback=body.clear_account_fallback,
-                                   clear_prefer_reserve=body.clear_prefer_reserve,
-                                   prefer_reserve=body.prefer_reserve)
-        except LedgerError as e:
-            raise HTTPException(422, str(e))
-        store.save_org(org)
+    # S4 (fence-off): one row transaction over WS3b's `_scope_plan` rows, not
+    # the DOC_LOCK cycle. The kiosk ceiling is still decided on the locked
+    # kiosk row (`may_raise` is only the permission: not a public slug), and
+    # the effort level before the write is read on the locked document too.
+    kw = dict(add_dirs=body.add_dirs, tools=body.tools,
+              org_visibility=body.org_visibility,
+              permission_mode=body.permission_mode,
+              charter=body.charter,
+              team_charter=body.team_charter,
+              effort=body.effort,
+              model_version=body.model_version,
+              auto_cheap_compact=body.auto_cheap_compact,
+              external_handles=body.external_handles,
+              raise_ceiling=body.raise_ceiling,
+              account_fallback=body.account_fallback,
+              clear_account_fallback=body.clear_account_fallback,
+              clear_prefer_reserve=body.clear_prefer_reserve,
+              prefer_reserve=body.prefer_reserve)
+    try:
+        result, effort_before, org = lifecycle_tx.set_scope_observed(
+            slug, USER, nid, kw, not pub,
+            before=((lambda o: o.effective_effort(nid))
+                    if body.effort is not None else None))
+    except lifecycle_tx.WidenExhausted as e:
+        raise HTTPException(409, str(e))
+    except LedgerError as e:
+        raise HTTPException(422, str(e))
+    # `org` is the transaction's committed private document: the live effort
+    # below is sent only after the commit, from what was committed
+    if body.effort is not None and isinstance(result, dict):
+        # the level is saved now, so a running Claude turn may be sent it.
+        # COMMITTED from here on (plan decision 27, F2): a delivery that
+        # raises is logged and disclosed in result["warnings"], never raised
+        # — the scope change stands either way
+        delivery = pgdoor.after_commit(result, "effort_live",
+                                       supervisor.send_live_effort,
+                                       org, nid, previous=effort_before)
+        if delivery is not None:
+            result["effort_delivery"] = delivery
     if pub and isinstance(result, dict):
         result.pop("bridge", None)
     # (the explicit broadcast is gone: store.save_org announces every write
@@ -3801,6 +4406,11 @@ def charters_list() -> dict[str, Any]:
     without touching the installation. Per-agent charters live in each
     organization document and are unaffected by any of this.
 
+    Templates from the app-wide external charter template folders
+    (`appsettings.charter_template_dirs`) are listed too, read-only, with
+    `source: "external"` and their `dir`; they never shadow and are never
+    shadowed, and `template_dirs` reports each folder's state.
+
     Each record carries `chars` (the body's TRUE length, before any cut) and
     `truncated`, so a cut is never silent. The payload carries `charter_long`
     (ledger.CHARTER_LONG) — NOT a limit, just the length above which the hire
@@ -3818,15 +4428,233 @@ def charters_list() -> dict[str, Any]:
     shadowed = {r["file"] for r in user}
     bundled = [r for r in _charter_records(CHARTERS_DIR, "bundled")
                if r["file"] not in shadowed]
-    out = sorted(user + bundled, key=lambda r: r["name"])
+    # External template folders (user ruling 2026-09-23, docket
+    # add-external-agent-charter-templates-folder): every template in every
+    # configured folder is its OWN choice — a name repeated across folders,
+    # or matching a user/bundled preset, is never shadowed. Records carry
+    # `dir` so the hire form can tell same-named choices apart; `path` is
+    # unique per record. Ordering among equal names is user, then folders in
+    # configured order, then bundled.
+    external: list[dict[str, Any]] = []
+    template_dirs: list[dict[str, Any]] = []
+    for rank, folder in enumerate(
+            external_charter_templates(content=True, duplicates=False)["directories"]):
+        for t in folder.pop("templates"):
+            external.append({**t, "source": "external", "dir": folder["path"],
+                             "_rank": 1 + rank})
+        template_dirs.append(folder)
+    for r in user:
+        r["_rank"] = 0
+    for r in bundled:
+        r["_rank"] = 1 + len(template_dirs)
+    out = sorted(user + external + bundled, key=lambda r: (r["name"], r["_rank"]))
+    for r in out:
+        del r["_rank"]
     payload: dict[str, Any] = {"charters": out, "preset_max": PRESET_MAX,
                                "user_dir": user_charters_dir(),
                                "charter_long": ledger_mod.CHARTER_LONG}
+    if template_dirs:
+        # each configured folder's state (templates themselves are in
+        # `charters`), so a missing or refused folder is visible, not silent
+        payload["template_dirs"] = template_dirs
     if user_dir_error:
         payload["user_dir_error"] = user_dir_error
     if skipped_links:
         payload["skipped_links"] = skipped_links
     return payload
+
+
+#: Read bounds for EXTERNAL charter template folders (docket
+#: add-external-agent-charter-templates-folder). Unlike ~/.orgtree/charters
+#: these are folders the user points at, which may hold anything: a file over
+#: the byte bound is declared `oversize` and never read, and a folder with more
+#: `.md` entries than the listing bound declares `listing_truncated` rather
+#: than going quiet about the rest (every examined entry counts, including
+#: skipped ones, so the scan's own work is bounded too).
+TEMPLATE_FILE_MAX_BYTES = 1_000_000
+TEMPLATE_DIR_MAX_FILES = 500
+
+
+def _is_link(info: os.stat_result) -> bool:
+    return bool(stat.S_ISLNK(info.st_mode)
+                or getattr(info, "st_file_attributes", 0) & 0x400)
+
+
+def _invalid_path(exc: BaseException) -> bool:
+    """A path the OS refuses as SYNTAX (ERROR_INVALID_NAME, e.g. a folder name
+    holding `<` or a second `:`), as opposed to one that is merely absent or
+    unreachable."""
+    return isinstance(exc, ValueError) or getattr(exc, "winerror", None) == 123
+
+
+def _scan_template_dir(folder: str, *, content: bool) -> dict[str, Any]:
+    """Read-only scan of one configured charter template folder.
+
+    Never creates, writes, copies or executes anything. The folder itself and
+    every existing ancestor must be plain (no link or reparse point — the same
+    rule `_checked_user_charters` applies), and each entry is lstat'ed without
+    following: linked `.md` entries are declared in `skipped_links`, other
+    non-regular ones (a folder named x.md) in `not_files`, and neither is ever
+    opened. An opened file is re-checked with fstat against its lstat, so a
+    link swapped in between the two is refused rather than followed. Only
+    `*.md` (any case) directly in the folder counts; subfolders are not
+    walked. A template uses the existing charter preset format — an optional
+    header ending at a '---' line, then the body.
+
+    The folder's state is always REPORTED, never raised: `status` is one of
+    ok | missing | not_directory | link_refused | invalid_path | unreadable,
+    with `error` carrying the reason, so one bad folder never breaks the
+    others or the bundled and user presets (review F1: an invalid-syntax path
+    used to raise straight out of GET /api/charters).
+    """
+    out: dict[str, Any] = {"path": folder, "status": "ok", "templates": [],
+                           "count": 0}
+    try:
+        _scan_template_dir_into(out, folder, content)
+    except (OSError, ValueError) as exc:
+        out.update(templates=[], count=0,
+                   status="invalid_path" if _invalid_path(exc) else "unreadable",
+                   error=str(exc))
+        for key in ("skipped_links", "not_files", "oversize",
+                    "unreadable_files", "listing_truncated"):
+            out.pop(key, None)
+    return out
+
+
+def _scan_template_dir_into(out: dict[str, Any], folder: str, content: bool) -> None:
+    from pathlib import Path
+    from .desktop_import import ImportRefused, _plain
+    try:
+        _plain(Path(folder))
+    except ImportRefused as exc:
+        out.update(status="link_refused", error=str(exc))
+        return
+    try:
+        info = os.lstat(folder)
+    except FileNotFoundError:
+        out.update(status="missing", error=f"folder does not exist: {folder}")
+        return
+    if not stat.S_ISDIR(info.st_mode):
+        out.update(status="not_directory", error=f"not a folder: {folder}")
+        return
+    names = sorted(os.listdir(folder))
+    templates: list[dict[str, Any]] = []
+    skipped: list[str] = []
+    not_files: list[str] = []
+    oversize: list[str] = []
+    unreadable: list[str] = []
+    examined = 0
+    for f in (n for n in names if n.lower().endswith(".md")):
+        if examined >= TEMPLATE_DIR_MAX_FILES:
+            out["listing_truncated"] = True
+            break
+        examined += 1
+        path = os.path.join(folder, f)
+        try:
+            entry = os.lstat(path)
+        except OSError:
+            unreadable.append(f)
+            continue
+        if _is_link(entry):
+            skipped.append(f)
+            continue
+        if not stat.S_ISREG(entry.st_mode):
+            not_files.append(f)
+            continue
+        if entry.st_size > TEMPLATE_FILE_MAX_BYTES:
+            oversize.append(f)
+            continue
+        record: dict[str, Any] = {"name": f[:-3].replace("-", " "), "file": f,
+                                  "path": os.path.abspath(path)}
+        if content:
+            try:
+                with open(path, encoding="utf-8", errors="replace") as stream:
+                    opened = os.fstat(stream.fileno())
+                    if (not stat.S_ISREG(opened.st_mode)
+                            or (opened.st_dev, opened.st_ino)
+                            != (entry.st_dev, entry.st_ino)):
+                        skipped.append(f)
+                        continue
+                    text = stream.read(TEMPLATE_FILE_MAX_BYTES + 1)
+            except OSError:
+                unreadable.append(f)
+                continue
+            body = text.split("\n---\n", 1)[-1].strip()
+            record.update(content=body[:PRESET_MAX], chars=len(body),
+                          truncated=len(body) > PRESET_MAX)
+        templates.append(record)
+    out["templates"] = templates
+    out["count"] = len(templates)
+    for key, values in (("skipped_links", skipped), ("not_files", not_files),
+                        ("oversize", oversize), ("unreadable_files", unreadable)):
+        if values:
+            out[key] = values
+
+
+def external_charter_templates(*, content: bool,
+                               duplicates: bool = True) -> dict[str, Any]:
+    """Scan every configured charter template folder, in configured order.
+
+    With `duplicates`, templates whose names repeat — within the external
+    folders, or against ~/.orgtree/charters and the bundled presets — are
+    REPORTED (each name with every location, in scan order) for the settings
+    view. Nothing is dropped or ranked: per the user ruling of 2026-09-23 the
+    hire form offers every one of them as a distinct choice.
+    """
+    folders = [_scan_template_dir(d, content=content)
+               for d in appsettings.charter_template_dirs()]
+    if not duplicates:
+        return {"directories": folders}
+    seen: dict[str, list[dict[str, str]]] = {}
+    try:
+        user = _charter_records(_checked_user_charters(), "user")
+    except (HTTPException, OSError):
+        user = []
+    for source, rows in (("user", user),
+                         ("bundled", _charter_records(CHARTERS_DIR, "bundled"))):
+        for r in rows:
+            seen.setdefault(r["name"], []).append(
+                {"source": source, "path": r["path"]})
+    for folder in folders:
+        for t in folder["templates"]:
+            seen.setdefault(t["name"], []).append(
+                {"source": "external", "path": t["path"]})
+    duplicates = [{"name": name, "locations": locs}
+                  for name, locs in sorted(seen.items())
+                  if len(locs) > 1 and any(l["source"] == "external" for l in locs)]
+    return {"directories": folders, "duplicates": duplicates}
+
+
+class CharterTemplateDirs(Body):
+    dirs: list[str]
+
+
+@app.get("/api/app-settings/charter-template-dirs")
+async def charter_template_dirs_info() -> dict[str, Any]:
+    """The app-wide list of external charter template folders, each with its
+    live read-only scan state (template names and paths, no bodies)."""
+    from fastapi.concurrency import run_in_threadpool
+
+    def build() -> dict[str, Any]:
+        return {"dirs": appsettings.charter_template_dirs(),
+                "max_dirs": appsettings.CHARTER_TEMPLATE_DIRS_MAX,
+                **external_charter_templates(content=False)}
+    return await run_in_threadpool(build)
+
+
+@app.put("/api/app-settings/charter-template-dirs")
+async def charter_template_dirs_save(body: CharterTemplateDirs) -> dict[str, Any]:
+    """Replace the ordered folder list. Only the setting is written: the
+    folders themselves are never created, touched or checked for existence
+    here — a missing folder is stored and reported by the scan."""
+    from fastapi.concurrency import run_in_threadpool
+    try:
+        await run_in_threadpool(appsettings.set_charter_template_dirs, body.dirs)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    except appsettings.AppSettingsUnreadable as e:
+        raise HTTPException(409, str(e)) from e
+    return await charter_template_dirs_info()
 
 
 #: A charter document filename (without .md): plain names only — no path
@@ -3957,8 +4785,18 @@ async def claude_usage(force: bool = False) -> dict[str, Any]:
 # /api/usage: the modal may spend an upstream request, the always-on glow may
 # not, and a caller that cannot ask for the expensive behaviour cannot
 # accidentally get it.
-@app.get("/api/usage/peek")
-def claude_usage_peek() -> dict[str, Any]:
+# ⚠ THE FOUR `*/usage/peek` ROUTES ARE `async def` WITH `response_model=None`
+# (N1000 engprof, 2026-09-28). They are 59% of all requests: every open window
+# polls all four. As sync `def`s, each paid one threadpool hop for the handler
+# and a second for response validation, ~145 + 150 ms queued behind the rest
+# of the pool at N1000 (p50 ~230 ms, p95 ~790 ms for a ~1 ms read). Each
+# `peek()` is a cache-only read. It takes its module `_lock` only around
+# in-memory dict reads, and no fetch holds that lock across I/O (the fetches
+# use `_fetch_lock`), so running it on the loop cannot block it. The response
+# bytes are unchanged; tests/test_usage_peek_async.py pins them. A peek that
+# ever gains I/O must go back to `run_in_threadpool`.
+@app.get("/api/usage/peek", response_model=None)
+async def claude_usage_peek() -> dict[str, Any]:
     """Cache-only usage standing for the header glow — see `limits.peek`."""
     return limits.peek()
 
@@ -3975,8 +4813,8 @@ async def codex_usage(force: bool = False) -> dict[str, Any]:
     return await run_in_threadpool(codex_limits.fetch, force)
 
 
-@app.get("/api/codex/usage/peek")
-def codex_usage_peek() -> dict[str, Any]:
+@app.get("/api/codex/usage/peek", response_model=None)
+async def codex_usage_peek() -> dict[str, Any]:           # async: see claude_usage_peek
     """Cache-only Codex usage standing for the header warning glow."""
     return codex_limits.peek()
 
@@ -3993,8 +4831,8 @@ async def antigravity_usage(force: bool = False) -> dict[str, Any]:
     return await run_in_threadpool(antigravity_limits.fetch, force)
 
 
-@app.get("/api/antigravity/usage/peek")
-def antigravity_usage_peek() -> dict[str, Any]:
+@app.get("/api/antigravity/usage/peek", response_model=None)
+async def antigravity_usage_peek() -> dict[str, Any]:     # async: see claude_usage_peek
     """Cache-only Antigravity standing for the header warning glow."""
     return antigravity_limits.peek()
 
@@ -4012,8 +4850,8 @@ async def openrouter_usage(force: bool = False) -> dict[str, Any]:
     return await run_in_threadpool(openrouter_limits.fetch, force)
 
 
-@app.get("/api/openrouter/usage/peek")
-def openrouter_usage_peek() -> dict[str, Any]:
+@app.get("/api/openrouter/usage/peek", response_model=None)
+async def openrouter_usage_peek() -> dict[str, Any]:      # async: see claude_usage_peek
     """Cache-only OpenRouter standing for the header warning glow."""
     from . import openrouter_limits              # noqa: PLC0415
     return openrouter_limits.peek()
@@ -4314,6 +5152,11 @@ async def providers_info(force: bool = False,
     providers and reporting a successful login as failed."""
     from fastapi.concurrency import run_in_threadpool
 
+    if not force:
+        cached = _providers_cached()
+        if cached is not None:
+            return cached
+    key = _providers_cache_key()      # read BEFORE composing (see _providers_keep)
     payload = await run_in_threadpool(_providers_payload, force, force_provider)
     if force:
         # ⚠ HOOKED ON THE ROUTE, NOT INSIDE `_providers_payload`. A forced read
@@ -4323,7 +5166,60 @@ async def providers_info(force: bool = False,
         # cache's OWN read invalidate the cache it was filling, so one forced
         # login check ran discovery twice.
         registry.availability_changed("provider sign-in state re-read")
+        # this document IS the re-read sign-in state, so it may carry the
+        # generation it just moved -- but NOT a preference write that landed
+        # while it was composing: that counter stays the one read before
+        from . import staffcache
+        key = (key[0], staffcache.generation())
+    _providers_keep(key, payload)
     return payload
+
+
+#: GET /api/providers is answered from the last composed document for up to
+#: this long (N1000 read shortcuts: ~10 desk polls a second, each a trip
+#: through the shared 40-worker pool, p50 52 ms / p95 291 ms for a 2 ms
+#: compose). The document's own inputs already cache for 60 s (CLI install
+#: state, codex/antigravity status); this adds at most these seconds.
+#: Dropped at once by a preference write (`_providers_invalidate`) and by
+#: anything `registry.availability_changed` announces (staffcache generation);
+#: a forced read (the login flow's check) never reads it and refills it.
+PROVIDERS_CACHE_S = 2.0
+_providers_lock = threading.Lock()
+_providers_writes = 0
+_providers_doc: tuple[tuple[int, int], float, dict[str, Any]] | None = None
+
+
+def _providers_cache_key() -> tuple[int, int]:
+    from . import staffcache
+    with _providers_lock:
+        return (_providers_writes, staffcache.generation())
+
+
+def _providers_cached() -> dict[str, Any] | None:
+    key = _providers_cache_key()
+    with _providers_lock:
+        doc = _providers_doc
+    if doc is None or doc[0] != key or time.monotonic() - doc[1] >= PROVIDERS_CACHE_S:
+        return None
+    return doc[2]
+
+
+def _providers_keep(key: tuple[int, int], payload: dict[str, Any]) -> None:
+    """Keep `payload` only if nothing invalidated since `key` was read before
+    composing it: a document composed across a preference write is served
+    once, to its own caller, and never again."""
+    global _providers_doc
+    if key != _providers_cache_key():
+        return
+    with _providers_lock:
+        _providers_doc = (key, time.monotonic(), payload)
+
+
+def _providers_invalidate() -> None:
+    global _providers_writes, _providers_doc
+    with _providers_lock:
+        _providers_writes += 1
+        _providers_doc = None
 
 
 class ProviderPreference(Body):
@@ -4351,6 +5247,8 @@ async def provider_preference(
             appsettings.set_provider_enabled, provider_id, body.enabled)
     except (appsettings.AppSettingsUnreadable, OSError) as e:
         raise HTTPException(500, str(e)) from e
+    finally:
+        _providers_invalidate()
     return await run_in_threadpool(_providers_payload)
 
 
@@ -4369,6 +5267,8 @@ async def provider_apikey_fallback(provider_id: str,
         raise HTTPException(404, str(e))
     except (appsettings.AppSettingsUnreadable, OSError) as e:
         raise HTTPException(500, str(e)) from e
+    finally:
+        _providers_invalidate()
     return await run_in_threadpool(_providers_payload)
 
 
@@ -4388,6 +5288,8 @@ async def provider_subscription_inference(provider_id: str,
         raise HTTPException(404, str(e))
     except (appsettings.AppSettingsUnreadable, OSError) as e:
         raise HTTPException(500, str(e)) from e
+    finally:
+        _providers_invalidate()
     return await run_in_threadpool(_providers_payload)
 
 
@@ -4560,6 +5462,7 @@ class RuntimePreference(Body):
     idle_docket_reminders_enabled: bool | None = None
     blocked_docket_reminders_enabled: bool | None = None
     git_periodic_fetch_enabled: bool | None = None
+    max_concurrent_turns: int | None = None
 
 
 def _runtime_preferences() -> dict[str, Any]:
@@ -4575,6 +5478,10 @@ def _runtime_preferences() -> dict[str, Any]:
             appsettings.idle_docket_reminders_enabled()),
         "blocked_docket_reminders_enabled": (
             appsettings.blocked_docket_reminders_enabled()),
+        # the LIVE limit (setting, else ORGTREE_MAX_TURNS, else 16) and the
+        # queue behind it right now
+        "max_concurrent_turns": supervisor._turn_slots.limit,
+        "turn_slots": supervisor._turn_slots.snapshot(),
     }
 
 
@@ -4602,7 +5509,8 @@ async def runtime_preference(body: RuntimePreference) -> dict[str, Any]:
             and body.blocked_docket_reminders_enabled is None
             and body.git_periodic_fetch_enabled is None
             and body.quick_staff_behavior is None
-            and body.quick_staff_request_accounts is None):
+            and body.quick_staff_request_accounts is None
+            and body.max_concurrent_turns is None):
         raise HTTPException(422, "one runtime setting is required")
     try:
         if body.quick_staff_behavior is not None:
@@ -4631,6 +5539,13 @@ async def runtime_preference(body: RuntimePreference) -> dict[str, Any]:
                 body.blocked_docket_reminders_enabled)
         if body.git_periodic_fetch_enabled is not None:
             await run_in_threadpool(appsettings.set_git_periodic_fetch_enabled, body.git_periodic_fetch_enabled)
+        if body.max_concurrent_turns is not None:
+            try:
+                await run_in_threadpool(appsettings.set_max_concurrent_turns,
+                                        body.max_concurrent_turns)
+            except ValueError as e:
+                raise HTTPException(422, str(e)) from e
+            supervisor.set_turn_limit(body.max_concurrent_turns)
         result = await run_in_threadpool(_runtime_preferences)
     except (appsettings.AppSettingsUnreadable, OSError) as e:
         raise HTTPException(500, str(e)) from e
@@ -4656,7 +5571,7 @@ def _account_bindings() -> dict[str, list[dict[str, str]]]:
     seen = set()
     for f in names:
         slug = f[:-5] if f.endswith(".json") else (
-            f[:-3] if f.endswith(".db") else "")
+            f[:-len(store.db_ext())] if f.endswith(store.db_ext()) else "")
         if not slug or slug in seen or f.endswith(".premigration"):
             continue
         seen.add(slug)
@@ -4883,7 +5798,22 @@ async def accounts_usage(account_id: str) -> dict[str, Any]:
     `accountusage.view`, which the AGENT TURN ENVELOPE also calls — with
     `allow_fetch=False`, so the board an agent reads every turn spends no
     upstream request. One resolver, two callers, and no second interpretation
-    of the same caches for the two surfaces to disagree over."""
+    of the same caches for the two surfaces to disagree over.
+
+    ⚠ OFF THE EVENT LOOP (docket v3-the-first-agent-desk-opened-in-an-org-window).
+    `allow_fetch=True` can reach limits.fetch, codex_limits.fetch and
+    antigravity_limits.fetch, which are network reads. This route used to call
+    them from its `async def` body, so a slow upstream froze the WHOLE engine
+    for as long as the fetch took: no other request, not even the tree a newly
+    opened window's first desk waits for, could start meanwhile. (The live
+    slow-request log at 2026-09-30 09:09Z shows that shape: this route, the
+    other usage reads and the org trees in flight all ended together after
+    ~9.8 s.) Run it on a worker, as `/api/usage` does."""
+    from fastapi.concurrency import run_in_threadpool
+    return await run_in_threadpool(_accounts_usage, account_id)
+
+
+def _accounts_usage(account_id: str) -> dict[str, Any]:
     from . import accountusage
     try:
         row = registry.get_account(account_id)
@@ -4935,7 +5865,8 @@ async def accounts_remove(account_id: str) -> dict[str, Any]:
         raise HTTPException(422, str(e))
     except account_removal.RemovalIncomplete as e:
         raise HTTPException(500, str(e))
-    account_removal.announce(out["wakes"], out["rebound"])
+    account_removal.announce(out["wakes"], out["rebound"],
+                             out.get("exports"))
     for slug in out["orgs"]:
         await hub.changed(slug)
     return {"removed": out["removed"], "rebound": out["rebound"],
@@ -4963,6 +5894,47 @@ async def accounts_enabled(account_id: str,
     return {"account": row["id"], "enabled": registry.is_enabled(row)}
 
 
+@app.get("/api/accounts/{account_id}/marks")
+async def accounts_marks(account_id: str) -> dict[str, Any]:
+    """Every stored capacity mark on one account, from the registry and the
+    old roster, with provenance, reset time and age (user item
+    add-agent-tool-and-ui-to-clear-account-limit-mar). The operator sees
+    every account; `account_id` may be a row id, a canonical name, or an
+    old-roster key id."""
+    from . import markclear
+    try:
+        return markclear.inspect(account_id, org=None)
+    except markclear.UnknownMarkAccount as e:
+        raise HTTPException(404, str(e))
+
+
+class AccountMarkClear(Body):
+    source: str
+    pool: str
+    expected: dict[str, Any]
+    companion_expected: dict[str, Any] | None = None
+    reason: str = ""
+
+
+@app.post("/api/accounts/{account_id}/marks/clear")
+async def accounts_mark_clear(account_id: str,
+                              body: AccountMarkClear) -> dict[str, Any]:
+    """Clear ONE mark the user confirmed, by compare-and-set against the
+    `expected` values the dialog showed. A mark that changed, vanished or
+    expired since is answered with `result` and nothing is written, so the
+    dialog can show the new state and ask again. Resumes no agent."""
+    from . import markclear
+    try:
+        return markclear.clear(
+            account_id, body.pool, body.expected,
+            source=body.source, org=None, actor=USER, via="user_ui",
+            reason=body.reason, companion_expected=body.companion_expected)
+    except markclear.UnknownMarkAccount as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+
 class AccountAssign(Body):
     account: str
 
@@ -4987,14 +5959,14 @@ async def node_account_assign(slug: str, nid: str,
 
 @app.post("/api/orgs/{slug}/nodes/{nid}/reorder")
 def node_reorder(slug: str, nid: str, body: Reorder) -> dict[str, Any]:
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-            result = org.reorder(USER, nid, before=body.before, after=body.after)
-        except LedgerError as e:
-            raise HTTPException(422, str(e))
-        store.save_org(org)
-    hub_changed(slug)
+    # S4 (fence-off): one row transaction (lifecycle_tx.reorder)
+    try:
+        result = lifecycle_tx.reorder(slug, USER, nid, body.before, body.after)
+    except lifecycle_tx.WidenExhausted as e:
+        raise HTTPException(409, str(e))
+    except LedgerError as e:
+        raise HTTPException(422, str(e))
+    # (no explicit hub_changed: the commit's save hook broadcasts — S4 C5)
     return result
 
 
@@ -5036,9 +6008,14 @@ def _send_receipt(org: Org, slug: str, nid: str, r: Mapping[str, Any], *,
     out: dict[str, Any] = {"id": mid, "ref": refs.mail(slug, nid, mid) or ""}
     if r.get("operation_id"):
         out["operation_id"] = str(r["operation_id"])
-    rows = [*((org.d.get("mail") or {}).get(nid) or []),
-            *((org.d.get("mail_log") or {}).get(nid) or [])]
-    row = next((m for m in rows if str(m.get("id")) == mid), None)
+    # the pending box first: a message just sent is there, and the archive --
+    # the recipient's whole mail history, never trimmed -- is read only for
+    # one already delivered (engine-startup-cost-must-not-grow-with-retired-h)
+    row = next((m for m in ((org.d.get("mail") or {}).get(nid) or [])
+                if str(m.get("id")) == mid), None)
+    if row is None:
+        row = next((m for m in ((org.d.get("mail_log") or {}).get(nid) or [])
+                    if str(m.get("id")) == mid), None)
     if row is not None:
         if row.get("operation_id") and "operation_id" not in out:
             out["operation_id"] = str(row["operation_id"])
@@ -5088,7 +6065,14 @@ def node_message(slug: str, nid: str, body: Message,
     # the user reached, not about whether a copy was filed.
     if stripped.startswith("/") \
             and re.fullmatch(r"/[A-Za-z?][\w-]*", stripped.split()[0]):
-        with _entry_ledger_422(store.write_org(slug), 404) as org:
+        # fence-off S2: ONE row transaction on the rows the command's direct
+        # user contact writes — `user_deep_reach`'s notices to the superior
+        # chain and the user audience (mailtx.send_rows locks the `notices`
+        # container and `audiences`, which cover every superior's row) —
+        # not store.write_org. The node and killswitch reads that decide the
+        # refusals are inside it, as before.
+        halted_send = False
+        with _entry_ledger_422(mailtx.org_of(slug, **mailtx.send_rows(nid)), 404) as org:
             try:
                 n = org.node(nid)
             except LedgerError as e:
@@ -5112,13 +6096,14 @@ def node_message(slug: str, nid: str, body: Message,
                              "the org killswitch is latched — release it "
                              "before compacting")
                 org.user_deep_reach(nid, stripped[:160], kind="command")
-                store.save_org(org)
-                return supervisor.send_message(slug, nid, stripped, command=True)
-            if n.get("frozen"):
+                # the send runs AFTER the commit (below), never inside the
+                # row transaction: it opens its own admission transaction
+                halted_send = True
+            elif n.get("frozen"):
                 raise HTTPException(
                     409, "frozen (usage limit) — a session command would be "
                          "dropped, not queued; ▶ resume the org first")
-            if n.get("remote_controlled"):
+            elif n.get("remote_controlled"):
                 # FR-01 (redteam): the remote park queues MAIL, but a command
                 # has no mailbox behind it — success here would be a lie
                 raise HTTPException(
@@ -5132,8 +6117,23 @@ def node_message(slug: str, nid: str, body: Message,
             # the validity checks and before any of the three command paths
             # below, so all of them get it from one place — the branch has
             # several returns and per-return calls would rot apart.
-            org.user_deep_reach(nid, stripped[:160], kind="command")
-            store.save_org(org)
+            if not halted_send:
+                org.user_deep_reach(nid, stripped[:160], kind="command")
+        if halted_send:
+            # A halted node retains the command (send_message's halt queue).
+            # CHANGED FAILURE BEHAVIOUR (fence-off S2, p01 d / lead C2, R1):
+            # the deep-reach notices above are COMMITTED before this send,
+            # where the old single write_org hold discarded them when the
+            # send raised — the chain was truthfully told the user spoke. The
+            # failure itself is still an ERROR STATUS, never a 200 (the
+            # composer's failure path must run): an HTTPException passes
+            # through unchanged, anything else is a 502. Nothing retries it.
+            try:
+                return supervisor.send_message(slug, nid, stripped, command=True)
+            except HTTPException:
+                raise
+            except Exception as e:                         # noqa: BLE001
+                raise HTTPException(502, f"the command was not delivered: {e}")
         if stripped.split()[0] == "/compact":
             # review C4: one word, one meaning. The hinted /compact used to
             # compact the CLI session IN PLACE — same desk, same word as the
@@ -5159,6 +6159,10 @@ def node_message(slug: str, nid: str, body: Message,
                 # nothing the successor lacks.
                 raise HTTPException(422, "just compacted — nothing to compact "
                                          "until it takes a turn")
+            # background tasks do not block a compaction: they are stopped
+            # (user ruling 2026-09-29); any other running turn still refuses
+            bg_stopped = supervisor.stop_background(slug, org, nid,
+                                                    subtree=False)
             if supervisor.state(slug, nid)["busy"]:
                 raise HTTPException(409, "busy — wait for the current turn to finish")
 
@@ -5170,8 +6174,10 @@ def node_message(slug: str, nid: str, body: Message,
 
             threading.Thread(target=run, daemon=True).start()
             r: dict[str, Any] = {"accepted": True, "compacting": True}
+            if bg_stopped:
+                r["warnings"] = bg_stopped
             if stripped != "/compact":
-                r["warnings"] = ["/compact arguments are ignored — org "
+                r["warnings"] = r.get("warnings", []) + ["/compact arguments are ignored — org "
                                  "compaction preserves the whole session as "
                                  "a knowledge bearer"]
             return r
@@ -5225,7 +6231,12 @@ def node_message(slug: str, nid: str, body: Message,
             # an agent's context
             missing.append(f"{extra} further attachment(s) — past the "
                            f"{ledger_mod.ATTACHMENT_MAX}-per-message limit")
-    with _entry_ledger_422(store.write_org(slug)) as org:
+    # PG-3d: a row transaction on the recipient's rows, not DOC_LOCK
+    # (a quoted reply may mint the node's reply-event incarnation, so it
+    # names that row too — reply_events.incarnation mints on this Org)
+    rows = mailtx.merge(mailtx.send_rows(nid),
+                        sections=["reply_incarnation"] if body.reply_to is not None else [])
+    with _entry_ledger_422(mailtx.org_of(slug, **rows)) as org:
         try:
             reply_meta: dict[str, Any] | None = None
             if body.reply_to is not None and target is None:
@@ -5264,7 +6275,6 @@ def node_message(slug: str, nid: str, body: Message,
             # 80 chars truncated most instructions mid-clause; the notice is a
             # gist, but it has to survive being read on its own
             org.user_deep_reach(nid, body.text.strip().splitlines()[0][:160])
-            store.save_org(org)
         except LedgerError as e:
             raise HTTPException(422, str(e))
     mail_notify(slug, USER, nid)
@@ -5339,12 +6349,17 @@ def _validate_steer_actor(request: Request | None, slug: str, nid: str) -> None:
     if identity is None:
         return  # Desktop-authenticated request, or the standalone V1 gateway.
     valid = False
-    if identity[:2] == (slug, nid):
+    if isinstance(identity, (tuple, list)) and len(identity) == 4 and tuple(identity[:2]) == (slug, nid):
         try:
-            with store.DOC_LOCK:
-                node = store.load_org(slug).node(nid)
-                valid = node.get("state") == "live" and int(node.get("generation", 0)) == identity[2]
-        except (KeyError, ValueError, OSError):
+            # Revocation may commit in another process before pgfeed
+            # invalidates cached_org. Check committed credential fields on
+            # every poll/ack, without loading the org on the row backend.
+            node = store.read_node_credential(slug, nid) if supervisor.STEER_CHEAP else None
+            if node is None:
+                node = orgtx.org_read(slug).node(nid)
+            valid = (node.get("state") == "live" and int(node.get("generation", 0)) == identity[2]
+                     and str(node.get("seat_id") or "") == identity[3])
+        except (KeyError, TypeError, ValueError, OSError):
             pass
     if not valid:
         raise HTTPException(403, "Steering credential does not name this live agent generation")
@@ -5547,6 +6562,9 @@ def node_compact(slug: str, nid: str) -> dict[str, Any]:
     if supervisor.halt.org_killswitch(slug):
         raise HTTPException(409, "the org killswitch is latched — release it "
                                  "before compacting")
+    # background tasks do not block a compaction: they are stopped (user
+    # ruling 2026-09-29); any other running turn still refuses
+    bg_stopped = supervisor.stop_background(slug, org, nid, subtree=False)
     if supervisor.state(slug, nid)["busy"]:
         raise HTTPException(409, "busy — wait for the current turn to finish")
 
@@ -5559,7 +6577,7 @@ def node_compact(slug: str, nid: str) -> dict[str, Any]:
             pass          # raced into busy — the 409 precheck caught most; harmless
 
     threading.Thread(target=run, daemon=True).start()
-    return {"started": True}
+    return {"started": True, **({"warnings": bg_stopped} if bg_stopped else {})}
 
 
 @app.post("/api/orgs/{slug}/lineage/{nid}/recover")
@@ -5613,19 +6631,15 @@ def lineage_drop_phantom(slug: str, nid: str) -> dict[str, Any]:
 @app.post("/api/orgs/{slug}/dissolve-all")
 def org_dissolve_all(slug: str) -> dict[str, Any]:
     """Dissolve EVERY agent in the org at once (context kept — rehire revives)."""
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-            freed = nodes = 0
-            for root in list(org.children(None)):
-                r = org.dissolve(USER, root)
-                freed += r["freed"]
-                nodes += len(r["nodes"])
-            store.save_org(org)
-        except LedgerError as e:
-            raise HTTPException(422, str(e))
-    hub_changed(slug)
-    return {"freed": freed, "nodes": nodes}
+    # S4 (fence-off): ONE row transaction over every root, all or nothing
+    try:
+        result = lifecycle_tx.dissolve_all(slug, USER)
+    except lifecycle_tx.WidenExhausted as e:
+        raise HTTPException(409, str(e))
+    except LedgerError as e:
+        raise HTTPException(422, str(e))
+    # (no explicit hub_changed: the commit's save hook broadcasts — S4 C5)
+    return result
 
 
 @app.post("/api/orgs/{slug}/killswitch")
@@ -5706,31 +6720,40 @@ def credit_request_decide(slug: str, body: CreditDecision) -> dict[str, Any]:
     if body.dry:
         if body.granted is None:
             raise HTTPException(422, "dry run needs `granted`")
-        with store.DOC_LOCK:
-            try:
-                return store.load_org(slug).credit_preview(body.id, body.granted)
-            except LedgerError as e:
-                raise HTTPException(422, str(e))
-    with store.DOC_LOCK:
+        # PG-3c: a preview writes nothing — a coherent read, no lock
         try:
-            org = store.load_org(slug)
-            req = org.credit_request_action(body.id, body.action,
-                                            granted=body.granted)
-            _kiosk_cap_check(org)
-            notice = req.get("notice")
-            drive = False
-            if notice and req["node"] in org.nodes:
-                # typed: decision.credit rides the result as `ev`; the body is
-                # its rendering (== `notice`)
-                posted = org.post_mail(USER, req["node"], "", ev=req["ev"])
-                drive = not posted.get("deferred")
-                # message-visibility invariant: see ask_answer
-                org.bind_answer_mail(str(posted.get("id") or ""),
-                                     credits=body.id)
-            req = {k: v for k, v in req.items() if k != "ev"}
+            return orgtx.org_read(slug).credit_preview(body.id, body.granted)
         except LedgerError as e:
             raise HTTPException(422, str(e))
-        store.save_org(org)
+    # PG-3c: one row transaction on the request row, the approval's chain
+    # (actor USER: the target up to the top) and the decision mail's rows —
+    # not DOC_LOCK (rcdoor.decide_rows)
+    st: dict[str, Any] = {"drive": False}
+
+    def _decide(tx: Any) -> dict[str, Any]:
+        org = tx.org
+        rcdoor.hold(slug, rcdoor.decide_rows(org, body.id))
+        req = org.credit_request_action(body.id, body.action,
+                                        granted=body.granted)
+        _kiosk_cap_check(org)
+        notice = req.get("notice")
+        st["drive"] = False
+        if notice and req["node"] in org.nodes:
+            # typed: decision.credit rides the result as `ev`; the body is
+            # its rendering (== `notice`)
+            posted = org.post_mail(USER, req["node"], "", ev=req["ev"])
+            st["drive"] = not posted.get("deferred")
+            # message-visibility invariant: see ask_answer
+            org.bind_answer_mail(str(posted.get("id") or ""),
+                                 credits=body.id)
+        return {k: v for k, v in req.items() if k != "ev"}
+
+    try:
+        req = rcdoor.run_op(slug, rcdoor.decide_rows(orgtx.org_read(slug),
+                                                     body.id), _decide)
+    except LedgerError as e:
+        raise HTTPException(422, str(e))
+    drive = st["drive"]
     if drive:
         mail_notify(slug, USER, req["node"])
         supervisor.send_message(
@@ -5809,13 +6832,21 @@ def documents_list(slug: str, offset: int = 0, limit: int = 100, node: str = "",
 @app.get("/api/orgs/{slug}/documents/{did}")
 def document_get(slug: str, did: str) -> dict[str, Any]:
     """FR-03: the reader fetches the BODY on open (the tree payload carries
-    metadata only). Kiosk visitors are the user of their org — readable."""
+    metadata only). Kiosk visitors are the user of their org — readable.
+    On PostgreSQL the one document row and its presenter's node are read
+    (store.read_document), not the whole org."""
     try:
-        org = store.load_org(slug)
+        found = store.read_document(slug, did)
+        if found is store.DOCUMENT_READ_FALLBACK:
+            org = store.load_org(slug)
+            doc = _document_or_404(org, did)
+            presenter = org.nodes.get(doc["node"])
+        elif found is None:
+            raise _no_document(did)
+        else:
+            doc, presenter = found
     except LedgerError as e:
         raise HTTPException(404, str(e))
-    doc = _document_or_404(org, did)
-    presenter = org.nodes.get(doc["node"])
     out: dict[str, Any] = {
         "id": doc["id"], "node": doc["node"], "title": doc["title"],
         "body": doc["body"], "at": doc["at"],
@@ -5860,10 +6891,14 @@ def document_download(slug: str, did: str) -> Response:
 def _document_or_404(org: Org, did: str) -> dict[str, Any]:
     doc = next((x for x in org.d.get("documents", []) if x["id"] == did), None)
     if doc is None:
-        raise HTTPException(
-            404, f"no document {did!r} — it was removed or is unavailable "
-                 f"in the imported history")
+        raise _no_document(did)
     return doc
+
+
+def _no_document(did: str) -> HTTPException:
+    return HTTPException(
+        404, f"no document {did!r} — it was removed or is unavailable "
+             f"in the imported history")
 
 
 # present-html-mockups-in-a-new-browser-tab (2026-09-06). The mockup's bytes
@@ -5970,13 +7005,14 @@ def document_mockup(slug: str, did: str, request: Request) -> Response:
 @app.delete("/api/orgs/{slug}/documents/{did}")
 def document_dismiss(slug: str, did: str) -> dict[str, Any]:
     """FR-03: the card's ✕ — remove a presented document."""
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-            r = org.dismiss_document(did)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
-        store.save_org(org)
+    # PG-3r: one row transaction; the dismissal edits the `documents` log and
+    # appends its `present_dismissed` event. A refusal rolls back.
+    from . import orgtx
+    try:
+        with orgtx.org_tx(slug, logs=["documents", "events"]) as tx:
+            r = tx.org.dismiss_document(did)
+    except LedgerError as e:
+        raise HTTPException(404, str(e))
     hub_changed(slug)
     return {"ok": True, "node": r["node"]}
 
@@ -6007,29 +7043,35 @@ def repair_rename(slug: str, body: RenameRepair) -> dict[str, Any]:
     id, an intact identity chain, and the user or the renamed identity as
     actor. No MCP tool — a new tool definition would change every agent's
     prompt, and this is a repair, not a capability."""
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
-        try:
-            # Convert an old-identity document IN THIS SAVE, like every other
-            # docket mutation. The ledger's own guard runs from `_work_sweep`,
-            # which this repair does not go through — it writes item fields
-            # directly, because the docket's mutators refuse for exactly the
-            # reason being repaired. Without this the repair would save a
-            # legacy document and the next read would 409.
-            migrated = _work_identity_ready(org, slug)
-            r = org.repair_rename_identity(
-                body.actor, body.rename_at,
-                documents=body.documents, work_items=body.work_items)
-        except LedgerError as e:
-            # nothing is saved on a refusal, so a document that was pending
-            # conversion is still pending — the repair does not convert it as
-            # a side effect of failing
-            raise HTTPException(422, str(e))
-        store.save_org(org)
-    hub_changed(slug)
+    try:
+        store.cached_org(slug)
+    except LedgerError as e:
+        raise HTTPException(404, str(e))
+    try:
+        # S4 (fence-off): ONE row transaction. Convert an old-identity
+        # document IN THIS TRANSACTION, like every other docket mutation. The
+        # ledger's own guard runs from `_work_sweep`, which this repair does
+        # not go through — it writes item fields directly, because the
+        # docket's mutators refuse for exactly the reason being repaired.
+        # Without this the repair would commit a legacy document and the
+        # next read would 409.
+        convert = _work_identity_ready_once(slug)
+        reports: list[dict[str, Any] | None] = []
+        r = lifecycle_tx.repair_rename_identity(
+            slug, body.actor, body.rename_at,
+            extra_sections=WORK_CONVERSION_SECTIONS,
+            extra_nodes=work_conversion_nodes,
+            pre=lambda org: reports.append(convert(org)),
+            documents=body.documents, work_items=body.work_items)
+        migrated = reports[-1] if reports else None   # the committed attempt's
+    except lifecycle_tx.WidenExhausted as e:
+        raise HTTPException(409, str(e))
+    except LedgerError as e:
+        # nothing commits on a refusal, so a document that was pending
+        # conversion is still pending — the repair does not convert it as
+        # a side effect of failing
+        raise HTTPException(422, str(e))
+    # (no explicit hub_changed: the commit's save hook broadcasts — S4 C5)
     return {"ok": True, "migrated": migrated, **r}
 
 
@@ -6068,9 +7110,11 @@ def staffing_options(slug: str) -> dict[str, Any]:
     # one returns at once, and neither must ever happen with DOC_LOCK held.
     snap = staffcache.read()
     try:
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            return quickstaff.availability(org, snap)
+        # fence-off S5: the shared snapshot (`org_seq`-guarded, lock-free),
+        # which a warm read serves from memory as the resident under
+        # DOC_LOCK did. Read-only by contract: availability never writes it.
+        org = store.cached_org(slug)
+        return quickstaff.availability(org, snap)
     except LedgerError as e:
         raise HTTPException(422, str(e)) from e
 
@@ -6101,10 +7145,16 @@ def quick_staff_preview(slug: str, wid: str) -> dict[str, Any]:
     # while the network was slow.
     snap = staffcache.read()
     try:
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
+        # fence-off S5: the shared snapshot (`org_seq`-guarded, lock-free),
+        # read-only by contract. A document still on the old work identity
+        # is converted in a PRIVATE copy instead (never saved here, exactly
+        # as the unsaved load under DOC_LOCK was): the shared one must never
+        # be migrated in place.
+        org = store.cached_org(slug)
+        if org.work_identity_state() != "slug":
+            org = orgtx.org_read(slug)
             _work_identity_ready(org, slug)
-            return quickstaff.preview(org, wid, snap=snap)
+        return quickstaff.preview(org, wid, snap=snap)
     except LedgerError as e:
         raise HTTPException(422, str(e)) from e
 
@@ -6154,30 +7204,196 @@ def _quick_staff_undo(slug: str, wid: str, request_id: str, nid: str,
     means another writer has moved the item since, and their state wins; the
     caller still reports the failure, it simply does not rewrite somebody
     else's docket row."""
+    if pgdoor.routed("quick_staff_undo"):
+        # PYPG (PG-3b): one row transaction instead of DOC_LOCK
+        try:
+            return bool(pgdoor.op_tx(
+                slug, "quick_staff_undo", None,
+                {"wid": wid, "org_slug": slug, "request_id": request_id,
+                 "nid": nid, "undo": undo}, pgdoor.BODIES["quick_staff_undo"]))
+        except pgdoor._Replay:
+            return False
     with store.DOC_LOCK:
         org = store.load_org(slug)
-        try:
-            item = org._work_find(wid)[0]
-        except LedgerError:
+        if not _quick_staff_undo_locked(org, wid, request_id, nid, undo):
             return False
-        receipts = item.get("quick_staff_receipts") or {}
-        if request_id not in receipts or int(item.get("rev") or 0) != int(undo["rev"]):
-            return False
-        flag = item.get("manual_attention")
-        org.work_update(USER, wid, undo["done"], undo["next"],
-                        status=undo["status"], owner=undo["owner"] or None,
-                        expected_rev=int(undo["rev"]))
-        item = org._work_find(wid)[0]
-        # restore OUR OWN clear verbatim: the forward update dropped a standing
-        # manual flag because every update restates it, and putting the stored
-        # record back is not a fresh raise (no `manual_attention_rev` bump, no
-        # re-ping of a reason the user may have dismissed)
-        item["manual_attention"] = undo["attention"] if flag is None else flag
-        (item.get("quick_staff_receipts") or {}).pop(request_id, None)
-        if undo.get("mail"):
-            _retract_mail(org, nid, str(undo["mail"]))
         store.save_org(org)
     return True
+
+
+def _quick_staff_undo_locked(org: Org, wid: str, request_id: str, nid: str,
+                             undo: dict[str, Any]) -> bool:
+    """`_quick_staff_undo` on the locked document, lifted out WHOLE for the
+    row door (PG-3b). False = declined, and nothing was written."""
+    try:
+        item = org._work_find(wid)[0]
+    except LedgerError:
+        return False
+    receipts = item.get("quick_staff_receipts") or {}
+    if request_id not in receipts or int(item.get("rev") or 0) != int(undo["rev"]):
+        return False
+    flag = item.get("manual_attention")
+    # ⚠ THE LISTS ARE RESTORED, NOT RE-AUTHORED. A ticket may store no
+    # progress at all, and work_update refuses an update whose two lists are
+    # both empty ("says nothing the user can read") — so passing the stored
+    # lists made the undo RAISE: a 500, the ticket left at Open and the
+    # request left in the inbox. The update carries the lists the forward
+    # step wrote (never both empty), and the stored ones are put back below.
+    org.work_update(USER, wid, list(item.get("done_so_far") or []),
+                    list(item.get("working_on_next") or []),
+                    status=undo["status"], owner=undo["owner"] or None,
+                    expected_rev=int(undo["rev"]))
+    item = org._work_find(wid)[0]
+    item["done_so_far"] = list(undo["done"])
+    item["working_on_next"] = list(undo["next"])
+    # restore OUR OWN clear verbatim: the forward update dropped a standing
+    # manual flag because every update restates it, and putting the stored
+    # record back is not a fresh raise (no `manual_attention_rev` bump, no
+    # re-ping of a reason the user may have dismissed)
+    item["manual_attention"] = undo["attention"] if flag is None else flag
+    (item.get("quick_staff_receipts") or {}).pop(request_id, None)
+    if undo.get("mail"):
+        _retract_mail(org, nid, str(undo["mail"]))
+    return True
+
+
+def _quick_staff_locked(org: Org, slug: str, wid: str,
+                        body: "QuickStaffSelection", request_id: str,
+                        selection: dict[str, Any], snap: Any,
+                        harness: str | None, drive: list[str]
+                        ) -> tuple[dict[str, Any], dict[str, Any] | None, bool]:
+    """Everything `quick_staff_select` does to the locked document, lifted out
+    WHOLE (not a line of its logic changed) so the DOC_LOCK cycle and the row
+    door (PG-3b, staffdoor) run the same staffing. Returns (result, undo,
+    replayed): a replayed receipt changed nothing, so it is neither saved nor
+    driven."""
+    from . import quickstaff
+    undo: dict[str, Any] | None = None
+    _work_identity_ready(org, slug)
+    item = org._work_find(wid)[0]
+    receipts = item.get("quick_staff_receipts") or {}
+    previous = receipts.get(request_id)
+    if previous:
+        if previous["selection"] != selection:
+            raise LedgerError("That staffing request id already belongs to a different selection.")
+        return {**previous["result"], "replayed": True}, None, True
+    item, ctx = quickstaff.context(org, wid)
+    if any(selection[k] != ctx[k] for k in ("mode", "configured_mode", "owner")):
+        raise LedgerError("The staffing behavior or assignee changed. Reopen the ticket menu to see where staffing will happen.")
+    if body.effort is not None and not body.tier:
+        raise LedgerError("Select a model before choosing an effort.")
+    if ctx["mode"] != "request" and not body.tier:
+        raise LedgerError("Immediate staffing requires a model. Reopen Staff… and select one.")
+    if body.account and not body.tier:
+        raise LedgerError("Select a model before choosing an account.")
+    if (body.account and ctx["mode"] == "request"
+            and not appsettings.quick_staff_request_accounts()):
+        # Request staffing hands the choice to the assignee, which hires
+        # on its own authority. Naming an account here would look like a
+        # binding and bind nothing — unless the user has turned on
+        # "Include account selection when requesting staffing", which
+        # carries the account as an explicit SUGGESTION in the request.
+        raise LedgerError("Request staffing cannot pin an account — the "
+                          "assignee makes that choice when it hires.")
+    if body.tier:
+        chosen = quickstaff.check_choice(org, item, ctx, body.tier,
+                                         account=body.account, snap=snap)
+        if body.effort is not None:
+            efforts = (chosen["efforts"] if chosen is not None
+                       else quickstaff.supported_efforts(body.tier, snap))
+            if body.effort not in efforts:
+                raise LedgerError("That effort is not currently supported by this model. Reopen Staff….")
+    if ctx["mode"] == "request":
+        nid = str(ctx["owner"]["node"])
+        text = f"Please staff the docket ticket {item['slug']} ({item['title']})."
+        if body.tier:
+            text += f" Suggested model: {body.tier}."
+        if body.effort is not None:
+            text += f" Suggested effort: {body.effort}."
+        if body.account:
+            # A suggestion, not a binding: the assignee hires on its own
+            # authority and may choose differently.
+            text += f" Suggested account: {body.account}."
+        # everything the undo needs, read BEFORE the first mutation
+        undo = {"status": item.get("status"),
+                "done": list(item.get("done_so_far") or []),
+                "next": list(item.get("working_on_next") or []),
+                "owner": str((item.get("owner") or {}).get("node") or ""),
+                "attention": item.get("manual_attention"),
+                "node": nid}
+        org.work_update(USER, wid, item.get("done_so_far") or [],
+            item.get("working_on_next") or ["Staff the ticket."], status="open")
+        mailed = org.post_mail(USER, nid, text, kind="request", typed=True)
+        if not mailed.get("deferred"):
+            drive.append(nid)
+        undo["mail"] = mailed.get("id")
+        result = {"message": f"Staffing requested from {nid}"
+                  + (f" (suggested account {body.account})" if body.account else "")
+                  + "; ticket moved to Open.",
+                  "requested_from": nid, "mail": mailed.get("id")}
+    else:
+        # Keep the assignee that owned the ticket before the immediate
+        # update.  Once _staff_call hands the item to the new seat,
+        # item['owner'] no longer identifies the recipient.  This is
+        # deliberately limited to under-assignee staffing: top-level
+        # fallback has no existing assignee beneath whom the seat was
+        # placed, and request mode leaves the assignment unchanged.
+        previous_assignee = (str(ctx["owner"].get("node") or "")
+                             if ctx["mode"] == "under_assignee" else "")
+        args = quickstaff.staff_args(org, item, ctx, str(body.tier),
+                                     body.effort, body.account)
+        result = _staff_call(org, slug, USER, args, drive, None, [],
+                             harness)
+        result["message"] = f"Staffed {result['node']} " + (
+            "at top level" if ctx["mode"] == "top_level" else f"under {ctx['owner']['node']}") + (
+            f" on {body.account}" if body.account else "") + "; ticket moved to Open."
+        if previous_assignee:
+            notice = (f"[QUICK STAFFING · {item['slug']} "
+                      f'\"{str(item.get("title") or "")[:80]}\"]\n'
+                      "The user initiated immediate staffing beneath "
+                      f"you, and {result['node']} is now staffed under "
+                      "you. Selected model: "
+                      f"{body.tier}.")
+            if body.effort is not None:
+                notice += f" Selected effort: {body.effort}."
+            if body.account:
+                notice += f" Selected account: {body.account}."
+            # This is part of the same in-memory transaction as the
+            # successful staffing. Refusals and failures above never
+            # reach this point, so they cannot emit a false-success
+            # notice. Do not grant a reply audience for an automatic
+            # notice.
+            org.post_mail(USER, previous_assignee, notice, "notice",
+                          typed=True, grant_reply_audience=False)
+            result["assignee_notified"] = previous_assignee
+    # Receipts commit WITH the request/seat and status. Retries after a
+    # lost response or restart cannot create another agent or request.
+    item = org._work_find(wid)[0]
+    receipts = item.setdefault("quick_staff_receipts", {})
+    receipts[request_id] = {"selection": selection, "result": result}
+    if undo is not None:
+        # the rev the undo is allowed to rewrite, and nothing else
+        undo["rev"] = int(item.get("rev") or 0)
+    return result, undo, False
+
+
+def _quick_staff_door(slug: str, wid: str, body: "QuickStaffSelection",
+                      request_id: str, selection: dict[str, Any], snap: Any,
+                      harness: str | None, drive: list[str]
+                      ) -> tuple[dict[str, Any], dict[str, Any] | None, bool]:
+    """`_quick_staff_locked` as ONE row transaction (pgdoor.op_tx, rows from
+    staffdoor.quick_staff_spec). The wake-ups join `drive` only after the
+    commit, so a rolled-back attempt drives nobody."""
+    try:
+        result, undo, woken = pgdoor.op_tx(
+            slug, "quick_staff", body, {"wid": wid, "org_slug": slug},
+            pgdoor.BODIES["quick_staff"],
+            pre={"request_id": request_id, "selection": selection,
+                 "snap": snap, "harness": harness})
+    except pgdoor._Replay as r:
+        return r.payload, None, True
+    drive.extend(woken)
+    return result, undo, False
 
 
 @app.post("/api/orgs/{slug}/work-items/{wid}/quick-staff")
@@ -6206,114 +7422,21 @@ def quick_staff_select(slug: str, wid: str, body: QuickStaffSelection) -> dict[s
         # new OpenRouter agent's harness spawns a Codex process, and provider
         # reads never happen under the document lock. See `new_hire_harness`.
         _hire_harness = new_hire_harness(body.tier)
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            _work_identity_ready(org, slug)
-            item = org._work_find(wid)[0]
-            receipts = item.get("quick_staff_receipts") or {}
-            previous = receipts.get(request_id)
-            if previous:
-                if previous["selection"] != selection:
-                    raise LedgerError("That staffing request id already belongs to a different selection.")
-                return {**previous["result"], "replayed": True}
-            item, ctx = quickstaff.context(org, wid)
-            if any(selection[k] != ctx[k] for k in ("mode", "configured_mode", "owner")):
-                raise LedgerError("The staffing behavior or assignee changed. Reopen the ticket menu to see where staffing will happen.")
-            if body.effort is not None and not body.tier:
-                raise LedgerError("Select a model before choosing an effort.")
-            if ctx["mode"] != "request" and not body.tier:
-                raise LedgerError("Immediate staffing requires a model. Reopen Staff… and select one.")
-            if body.account and not body.tier:
-                raise LedgerError("Select a model before choosing an account.")
-            if (body.account and ctx["mode"] == "request"
-                    and not appsettings.quick_staff_request_accounts()):
-                # Request staffing hands the choice to the assignee, which hires
-                # on its own authority. Naming an account here would look like a
-                # binding and bind nothing — unless the user has turned on
-                # "Include account selection when requesting staffing", which
-                # carries the account as an explicit SUGGESTION in the request.
-                raise LedgerError("Request staffing cannot pin an account — the "
-                                  "assignee makes that choice when it hires.")
-            if body.tier:
-                chosen = quickstaff.check_choice(org, item, ctx, body.tier,
-                                                 account=body.account, snap=snap)
-                if body.effort is not None:
-                    efforts = (chosen["efforts"] if chosen is not None
-                               else quickstaff.supported_efforts(body.tier, snap))
-                    if body.effort not in efforts:
-                        raise LedgerError("That effort is not currently supported by this model. Reopen Staff….")
-            if ctx["mode"] == "request":
-                nid = str(ctx["owner"]["node"])
-                text = f"Please staff the docket ticket {item['slug']} ({item['title']})."
-                if body.tier:
-                    text += f" Suggested model: {body.tier}."
-                if body.effort is not None:
-                    text += f" Suggested effort: {body.effort}."
-                if body.account:
-                    # A suggestion, not a binding: the assignee hires on its own
-                    # authority and may choose differently.
-                    text += f" Suggested account: {body.account}."
-                # everything the undo needs, read BEFORE the first mutation
-                undo = {"status": item.get("status"),
-                        "done": list(item.get("done_so_far") or []),
-                        "next": list(item.get("working_on_next") or []),
-                        "owner": str((item.get("owner") or {}).get("node") or ""),
-                        "attention": item.get("manual_attention"),
-                        "node": nid}
-                org.work_update(USER, wid, item.get("done_so_far") or [],
-                    item.get("working_on_next") or ["Staff the ticket."], status="open")
-                mailed = org.post_mail(USER, nid, text, kind="request", typed=True)
-                if not mailed.get("deferred"):
-                    drive.append(nid)
-                undo["mail"] = mailed.get("id")
-                result = {"message": f"Staffing requested from {nid}"
-                          + (f" (suggested account {body.account})" if body.account else "")
-                          + "; ticket moved to Open.",
-                          "requested_from": nid, "mail": mailed.get("id")}
-            else:
-                # Keep the assignee that owned the ticket before the immediate
-                # update.  Once _staff_call hands the item to the new seat,
-                # item['owner'] no longer identifies the recipient.  This is
-                # deliberately limited to under-assignee staffing: top-level
-                # fallback has no existing assignee beneath whom the seat was
-                # placed, and request mode leaves the assignment unchanged.
-                previous_assignee = (str(ctx["owner"].get("node") or "")
-                                     if ctx["mode"] == "under_assignee" else "")
-                args = quickstaff.staff_args(org, item, ctx, str(body.tier),
-                                             body.effort, body.account)
-                result = _staff_call(org, slug, USER, args, drive, None, [],
-                                     _hire_harness)
-                result["message"] = f"Staffed {result['node']} " + (
-                    "at top level" if ctx["mode"] == "top_level" else f"under {ctx['owner']['node']}") + (
-                    f" on {body.account}" if body.account else "") + "; ticket moved to Open."
-                if previous_assignee:
-                    notice = (f"[QUICK STAFFING · {item['slug']} "
-                              f'\"{str(item.get("title") or "")[:80]}\"]\n'
-                              "The user initiated immediate staffing beneath "
-                              f"you, and {result['node']} is now staffed under "
-                              "you. Selected model: "
-                              f"{body.tier}.")
-                    if body.effort is not None:
-                        notice += f" Selected effort: {body.effort}."
-                    if body.account:
-                        notice += f" Selected account: {body.account}."
-                    # This is part of the same in-memory transaction as the
-                    # successful staffing. Refusals and failures above never
-                    # reach this point, so they cannot emit a false-success
-                    # notice. Do not grant a reply audience for an automatic
-                    # notice.
-                    org.post_mail(USER, previous_assignee, notice, "notice",
-                                  typed=True, grant_reply_audience=False)
-                    result["assignee_notified"] = previous_assignee
-            # Receipts commit WITH the request/seat and status. Retries after a
-            # lost response or restart cannot create another agent or request.
-            item = org._work_find(wid)[0]
-            receipts = item.setdefault("quick_staff_receipts", {})
-            receipts[request_id] = {"selection": selection, "result": result}
-            store.save_org(org)
-            if undo is not None:
-                # the rev the undo is allowed to rewrite, and nothing else
-                undo["rev"] = int(item.get("rev") or 0)
+        if pgdoor.routed("quick_staff"):
+            # PYPG (PG-3b): one row transaction instead of DOC_LOCK
+            result, undo, replayed = _quick_staff_door(
+                slug, wid, body, request_id, selection, snap, _hire_harness,
+                drive)
+        else:
+            with store.DOC_LOCK:
+                org = store.load_org(slug)
+                result, undo, replayed = _quick_staff_locked(
+                    org, slug, wid, body, request_id, selection, snap,
+                    _hire_harness, drive)
+                if not replayed:
+                    store.save_org(org)
+        if replayed:
+            return result
     except (LedgerError, ValueError) as e:
         raise HTTPException(422, str(e)) from e
     hub_changed(slug)
@@ -6416,7 +7539,8 @@ WORK_IDENTITY_STALE = (
 
 
 def _work_identity_ready(org: Any, slug: str) -> dict[str, Any] | None:
-    """Convert IN THIS SAVE if needed. Caller must hold `store.DOC_LOCK` and
+    """Convert IN THIS SAVE if needed. Caller must hold `store.DOC_LOCK` (or be
+    inside the `org_tx` that will commit it — PG-3w) and
     must be about to `save_org`. Returns the migration report, or None when
     the document was already converted — which is what makes calling it at
     the head of every mutation cheap and idempotent."""
@@ -6427,6 +7551,40 @@ def _work_identity_ready(org: Any, slug: str) -> dict[str, Any] | None:
     return org.work_identity_migrate()
 
 
+#: The rows the work-identity conversion (`Org.work_identity_migrate`) writes
+#: beyond `work_items` and the `events` log, for a row transaction that runs
+#: it: the `asks` list (question cards' docket pointers) and the
+#: `work_identity` marker, plus — `work_conversion_nodes` — every node holding
+#: a live `ask` card, whose pointers it rewrites too. A converted docket needs
+#: none of the node rows. (S4 item: the node rows were found by the spec
+#: test, beyond the reviewed plan.)
+WORK_CONVERSION_SECTIONS: tuple[str, ...] = ("asks", "work_identity")
+
+
+def work_conversion_nodes(org: Any) -> set[str]:
+    if org.work_identity_state() == org.WORK_IDENTITY_SLUG:
+        return set()
+    return {k for k, n in org.nodes.items() if isinstance(n.get("ask"), dict)}
+
+
+def _work_identity_ready_once(slug: str) -> Callable[[Any], dict[str, Any] | None]:
+    """`_work_identity_ready` for a body that may RUN MORE THAN ONCE (a row
+    transaction re-run on Widen): the conversion itself re-applies on each
+    attempt's fresh document, but the pre-migration backup file is taken at
+    most once per call."""
+    backed_up = False
+
+    def convert(org: Any) -> dict[str, Any] | None:
+        nonlocal backed_up
+        if org.work_identity_state() == "slug":
+            return None
+        if not backed_up:
+            store.export_json(slug)
+            backed_up = True
+        return org.work_identity_migrate()
+    return convert
+
+
 def _work_identity_guard(org: Any) -> None:
     """Read paths: refuse rather than serve a document we would have to
     describe with two different kinds of name."""
@@ -6434,36 +7592,177 @@ def _work_identity_guard(org: Any) -> None:
         raise HTTPException(409, WORK_IDENTITY_STALE)
 
 
+_T = TypeVar("_T")
+
+
+def _work_route_tx(slug: str, fn: Callable[[Org], _T],
+                   rows: worktx.Rows | None = None, *,
+                   sweep: bool = True) -> _T:
+    """PG-3w: one operator docket route as row transactions instead of
+    DOC_LOCK — the archive sweep in its own transaction (decision 13), then
+    `fn(org)` in one `org_tx` that commits whatever it changed (the item, and
+    the mail it sends: one atomic write, never split). An HTTPException or a
+    LedgerError raised by `fn` rolls everything back, exactly as leaving the
+    old `with DOC_LOCK` block unsaved did. A missing org is a 404 before any
+    transaction opens. The operator's routes had no halt gate or receipt
+    prologue under DOC_LOCK and have none here (pgdoor.op_tx's rule)."""
+    if not os.path.exists(store.org_path(slug)):
+        raise HTTPException(404, f"no such org: {slug!r}")
+    if sweep:
+        worktx.sweep(slug)
+    return worktx.run(slug, fn, rows=rows)
+
+
+def _work_route_open(org: Org, slug: str, wid: str) -> None:
+    """The shared head of every operator docket route, on the locked
+    document: the identity conversion (422) and the item lookup (404)."""
+    try:
+        _work_identity_ready(org, slug)
+    except LedgerError as e:
+        raise HTTPException(422, str(e))
+    try:
+        org._work_find(wid)
+    except LedgerError as e:
+        raise HTTPException(404, str(e))
+
+
 @app.post("/api/orgs/{slug}/migrate-work-identity")
 def work_identity_migrate(slug: str) -> dict[str, Any]:
     """The one-shot conversion. Idempotent: a second call reports
     `already: true` and writes nothing at all."""
-    with store.DOC_LOCK:
+    def body(org: Org) -> dict[str, Any] | None:
         try:
-            org = store.load_org(slug)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
-        try:
-            report = _work_identity_ready(org, slug)
+            return _work_identity_ready(org, slug)
         except LedgerError as e:
             # a refusal (e.g. two items already sharing a name) must leave the
-            # stored document exactly as it was — nothing has been saved yet
+            # stored document exactly as it was — the transaction rolls back
             raise HTTPException(422, str(e))
-        if report is None:
-            return {"already": True}
-        store.save_org(org)
+    report = _work_route_tx(slug, body, worktx.Rows(
+        sections={"work_items", "asks", "work_identity"}), sweep=False)
+    if report is None:
+        return {"already": True}
     return {"already": False, **report}
 
 
-@app.get("/api/orgs/{slug}/work-items")
-def work_items_list(slug: str, archived: int = 0,
-                    backlogged: int = 0, compact: int = 0) -> dict[str, Any]:
-    """Every item, split by the DERIVED archive and backlog rules, newest
-    docket update first; `counts` over the full set for the toolbar badge.
-    `?archived=1` adds the archived group and `?backlogged=1` the backlog
-    group — the modal's two independent header checkboxes, each of which only
-    APPENDS its group below the main list. Read-only: the physical archive
-    sweep runs on the next docket write, never here."""
+# ── the docket list is CONDITIONAL (mem-leak-probe, 2026-09-26) ─────────────
+# Five renderer surfaces poll this list with both groups included, the attention
+# queue every 5 s, and on the operator's org the body is ~38 MB (measured
+# 2026-09-25: 37,969,616 bytes; ~170 GB served in 1 h 40 min). Every poll paid a
+# full document parse plus the build, and the renderer paid a 38 MB JSON parse
+# on the same main thread that must drain the websocket. The list derives only
+# from the document and the clock (the archive/backlog rules are time-based), so
+# `store.org_seq` plus a clock bucket is a complete validator: an unchanged org
+# answers 304 with no body, and the one build after a change is shared by every
+# poller through the body cache below.
+#
+# A cached body is tens of MB on a big org, so it is kept only while it is
+# useful: it is EVICTED once nobody has requested it for `_WORK_CACHE_IDLE_S`,
+# or once its org's seq has moved on (it can never be served again), whichever
+# comes first. A daemon sweep runs every `_WORK_CACHE_SWEEP_S` while the cache
+# is non-empty and stops when it is empty, so an idle engine holds no body.
+_WORK_STALE_BUCKET_S = 30.0
+_WORK_CACHE_IDLE_S = 60.0
+_WORK_CACHE_SWEEP_S = 5.0
+
+
+class _WorkBody:
+    __slots__ = ("etag", "body", "seq", "used")
+
+    def __init__(self, etag: str, body: bytes, seq: int) -> None:
+        self.etag, self.body, self.seq = etag, body, seq
+        self.used = time.monotonic()
+
+
+_work_list_cache: dict[tuple[str, int, int, int], _WorkBody] = {}
+_work_list_cache_lock = threading.Lock()
+_work_list_build_locks: dict[tuple[str, int, int, int], threading.Lock] = {}
+_work_list_sweeper: threading.Timer | None = None
+
+
+class _PollStats:
+    """Docket-list answers over the last minute, in one-second buckets, for
+    the debug view: how many were full 200s, how many 304s, and the 200 bytes."""
+
+    WINDOW_S = 60
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        #: [second, n200, n304, bytes200], oldest first
+        self._buckets: collections.deque[list[int]] = collections.deque()
+
+    def record(self, status: int, nbytes: int = 0) -> None:
+        sec = int(time.time())
+        with self._lock:
+            if not self._buckets or self._buckets[-1][0] != sec:
+                self._buckets.append([sec, 0, 0, 0])
+                self._trim(sec)
+            b = self._buckets[-1]
+            if status == 304:
+                b[2] += 1
+            else:
+                b[1] += 1
+                b[3] += nbytes
+
+    def _trim(self, sec: int) -> None:
+        while self._buckets and self._buckets[0][0] <= sec - self.WINDOW_S:
+            self._buckets.popleft()
+
+    def last_minute(self) -> dict[str, int]:
+        with self._lock:
+            self._trim(int(time.time()))
+            n200 = sum(b[1] for b in self._buckets)
+            n304 = sum(b[2] for b in self._buckets)
+            by = sum(b[3] for b in self._buckets)
+        return {"full_200": n200, "not_modified_304": n304, "bytes_200": by}
+
+
+_work_list_polls = _PollStats()
+
+
+def _work_list_etag(seq: int, key: tuple[str, int, int, int]) -> str:
+    parts = (seq, key[1:], int(time.time() // _WORK_STALE_BUCKET_S))
+    return '"w' + hashlib.sha1(repr(parts).encode()).hexdigest()[:20] + '"'
+
+
+def _work_list_sweep() -> int:
+    """Evict idle and superseded bodies; returns how many were evicted."""
+    now = time.monotonic()
+    evicted = 0
+    with _work_list_cache_lock:
+        for key, hit in list(_work_list_cache.items()):
+            if (now - hit.used > _WORK_CACHE_IDLE_S
+                    or store.org_seq(key[0]) != hit.seq):
+                del _work_list_cache[key]
+                evicted += 1
+        for key, lock in list(_work_list_build_locks.items()):
+            if key not in _work_list_cache and not lock.locked():
+                del _work_list_build_locks[key]
+    return evicted
+
+
+def _work_list_sweep_tick() -> None:
+    global _work_list_sweeper
+    try:
+        _work_list_sweep()
+    finally:
+        with _work_list_cache_lock:
+            _work_list_sweeper = None
+            if _work_list_cache:
+                _work_list_arm_sweeper_locked()
+
+
+def _work_list_arm_sweeper_locked() -> None:
+    """Start the sweep if it is not running (caller holds the cache lock)."""
+    global _work_list_sweeper
+    if _work_list_sweeper is None:
+        timer = threading.Timer(_WORK_CACHE_SWEEP_S, _work_list_sweep_tick)
+        timer.daemon = True
+        _work_list_sweeper = timer
+        timer.start()
+
+
+def _work_list_build(slug: str, archived: int, backlogged: int,
+                     compact: int) -> dict[str, Any]:
     try:
         org = store.load_org(slug)
     except LedgerError as e:
@@ -6474,17 +7773,232 @@ def work_items_list(slug: str, archived: int = 0,
         include_backlogged=bool(backlogged), compact=bool(compact)))
 
 
+@app.get("/api/orgs/{slug}/work-items")
+async def _work_items_list_route(slug: str, archived: int = 0, backlogged: int = 0,
+                                 compact: int = 0,
+                                 request: Request = cast(Request, None)) -> Any:
+    return await _run_ui_read(work_items_list, slug, archived, backlogged, compact,
+                              request)
+
+
+def work_items_list(slug: str, archived: int = 0,
+                    backlogged: int = 0, compact: int = 0,
+                    request: Request = cast(Request, None)) -> Any:
+    """Every item, split by the DERIVED archive and backlog rules, newest
+    docket update first; `counts` over the full set for the toolbar badge.
+    `?archived=1` adds the archived group and `?backlogged=1` the backlog
+    group — the modal's two independent header checkboxes, each of which only
+    APPENDS its group below the main list. Read-only: the physical archive
+    sweep runs on the next docket write, never here.
+
+    HTTP callers get an ETag and a 304 while nothing moved (see above); a
+    DIRECT in-process caller (`request is None`) keeps the plain dict."""
+    flags = (1 if archived else 0, 1 if backlogged else 0, 1 if compact else 0)
+    if request is None:
+        return _work_list_build(slug, *flags)
+    key = (slug, *flags)
+    seq = store.org_seq(slug)
+    etag = _work_list_etag(seq, key)
+    if request.headers.get("if-none-match") == etag:
+        _work_list_polls.record(304)
+        return Response(status_code=304, headers={"ETag": etag})
+    with _work_list_cache_lock:
+        hit = _work_list_cache.get(key)
+        lock = _work_list_build_locks.setdefault(key, threading.Lock())
+    if hit is None or hit.etag != etag:
+        with lock:
+            # a concurrent poller may have built this very version while we queued
+            with _work_list_cache_lock:
+                hit = _work_list_cache.get(key)
+                if hit is not None and hit.etag != etag:
+                    # superseded: free it now rather than hold two bodies
+                    del _work_list_cache[key]
+                    hit = None
+            if hit is None:
+                body = _dump_tree(_work_list_build(slug, *flags))
+                # the seq may have moved during the build: stamp what it was
+                # BEFORE, so a stale build can only cause one extra refetch
+                hit = _WorkBody(etag, body, seq)
+                with _work_list_cache_lock:
+                    _work_list_cache[key] = hit
+                    _work_list_arm_sweeper_locked()
+    hit.used = time.monotonic()
+    _work_list_polls.record(200, len(hit.body))
+    return Response(content=hit.body, media_type="application/json",
+                    headers={"ETag": hit.etag})
+
+
+# ── the engine debug view (mem-leak-probe, 2026-09-26) ──────────────────────
+# Polled about once a second by the desktop's Developer › engine debug view,
+# and only while that toggle is on. Everything here is a read of counters the
+# engine already keeps: no org is loaded, nothing is encoded per frame.
+@app.get("/api/orgs/{slug}/work-items-view")
+async def _work_items_view_route(slug: str, archived: int = 0, backlogged: int = 0,
+                                 request: Request = cast(Request, None)) -> Any:
+    return await _run_ui_read(work_items_view, slug, archived, backlogged, request)
+
+
+def work_items_view(slug: str, archived: int = 0, backlogged: int = 0,
+                    request: Request = cast(Request, None)) -> Any:
+    from . import work_ui
+    since = request.headers.get("if-none-match", "").strip('"') if request else ""
+    try:
+        revision, body = work_ui.read(slug, bool(archived), bool(backlogged), since)
+    except work_ui.IdentityMigrationRequired as e:
+        raise HTTPException(409, WORK_IDENTITY_STALE) from e
+    except LedgerError as e:
+        raise HTTPException(404, str(e))
+    headers = {"ETag": '"' + revision + '"', "Cache-Control": "private, no-cache"}
+    if body is None:
+        _work_list_polls.record(304)
+        return Response(status_code=304, headers=headers)
+    encoded = _dump_tree(body)
+    _work_list_polls.record(200, len(encoded))
+    return Response(content=encoded, media_type="application/json", headers=headers)
+
+
+def _bounded_work_response(slug: str, kind: str, backlogged: bool = False,
+                           limit: int = 50, cursor: str = '', wid: str = '',
+                           since: str = '', archive_limit: int = 0) -> Any:
+    from fastapi.responses import JSONResponse
+    from . import worklist, workquery
+    tag = None
+    try:
+        if kind == 'foreground' and not archive_limit:
+            # Answer an unchanged poll from revision counters, before any row
+            # is selected or projected (N1000: a 304 used to cost a full 200).
+            found = worklist.foreground_conditional(slug, backlogged=backlogged,
+                                                    since=since.strip())
+            tag, body = found if found is not None else (None, None)
+            if tag is not None and body is None:
+                return Response(status_code=304, headers={
+                    'Cache-Control': 'private, no-cache', 'ETag': tag})
+        elif kind == 'foreground':
+            body = worklist.foreground(slug, backlogged=backlogged, archive_limit=archive_limit)
+        elif kind == 'archive':
+            body = worklist.archive(slug, limit=limit, cursor=cursor)
+        elif kind == 'references':
+            body = worklist.lookup_many(slug, USER, wid.split(',') if wid else [])
+        else:
+            body = worklist.lookup(slug, USER, wid)
+    except workquery.CursorReset as e:
+        return JSONResponse(status_code=409, content={'kind': 'reset', 'detail': str(e)})
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    except LedgerError as e:
+        raise HTTPException(404, str(e)) from e
+    if body is None:
+        # Explicit opt-in: the caller switches its entire reader to the old
+        # route. Never pretend an unavailable bounded view is empty or mix it
+        # into a previously fetched page.
+        return JSONResponse(status_code=409, content={
+            'kind': 'compatibility', 'legacy_url': f'/api/orgs/{slug}/work-items-view'})
+    headers = {'Cache-Control': 'private, no-cache'}
+    if kind == 'foreground':
+        headers['ETag'] = tag or '"' + body['revision'] + '"'
+        # A validator issued before the counter ETag (the body revision) still
+        # matches after a full build; it just does not get the cheap path.
+        if since.strip('"') == body['revision']:
+            return Response(status_code=304, headers=headers)
+    return Response(content=_dump_tree(body), media_type='application/json', headers=headers)
+
+
+@app.get('/api/orgs/{slug}/work-items-foreground')
+async def _work_foreground_route(slug: str, backlogged: int = 0,
+                                  request: Request = cast(Request, None), archive_limit: int = 0) -> Any:
+    since = request.headers.get('if-none-match', '') if request else ''
+    if since and not archive_limit:
+        # An unchanged poll is answered by ONE statement on a small pool of
+        # its own, not behind the org tree's reads on the desk limiter (N1000:
+        # 82% of these polls were 304s, p95 365 ms). Any doubt runs the full
+        # path below, which decides exactly as before.
+        from . import worklist
+        loop = asyncio.get_running_loop()
+        limiter = _ui_check_limiters.setdefault(loop, anyio.CapacityLimiter(UI_CHECK_THREADS))
+        if await anyio.to_thread.run_sync(partial(
+                worklist.foreground_unchanged, slug, backlogged=bool(backlogged),
+                since=since), limiter=limiter):
+            return Response(status_code=304, headers={
+                'Cache-Control': 'private, no-cache', 'ETag': since.strip()})
+    return await _run_ui_read(_bounded_work_response, slug, 'foreground',
+                              bool(backlogged), 50, '', '', since, archive_limit)
+
+
+@app.get('/api/orgs/{slug}/work-items-archive-page')
+async def _work_archive_page_route(slug: str, limit: int = 50, cursor: str = '') -> Any:
+    return await _run_ui_read(_bounded_work_response, slug, 'archive', False, limit, cursor)
+
+
+@app.get('/api/orgs/{slug}/work-item-reference/{wid}')
+async def _work_reference_route(slug: str, wid: str) -> Any:
+    return await _run_ui_read(_bounded_work_response, slug, 'reference', False, 50, '', wid)
+
+
+@app.get('/api/orgs/{slug}/work-item-references')
+async def _work_references_route(slug: str, names: str = '') -> Any:
+    return await _run_ui_read(_bounded_work_response, slug, 'references', False, 50, '', names)
+
+
+_engine_proc: Any = None
+
+
+def _engine_memory() -> dict[str, int | None]:
+    global _engine_proc
+    try:
+        import psutil
+        if _engine_proc is None:
+            _engine_proc = psutil.Process()
+        mi = _engine_proc.memory_info()
+    except Exception:
+        return {"private_bytes": None, "rss_bytes": None}
+    # `private` is Windows' private bytes (commit charge); elsewhere absent
+    return {"private_bytes": getattr(mi, "private", None), "rss_bytes": mi.rss}
+
+
+@app.get("/api/diagnostics/engine-stats", dependencies=[Depends(_profile_operator_only)])
+async def engine_stats() -> dict[str, Any]:
+    with _work_list_cache_lock:
+        cached = [(k[0], len(v.body)) for k, v in _work_list_cache.items()]
+    return {
+        "at": time.time(),
+        "pid": os.getpid(),
+        "memory": _engine_memory(),
+        "websockets": {
+            "queue_max": _WS_QUEUE_MAX,
+            "send_timeout_s": _WS_SEND_TIMEOUT,
+            "drops": dict(hub.drops),
+            "sockets": hub.stats(),
+        },
+        "work_list": {
+            **_work_list_polls.last_minute(),
+            "window_s": _PollStats.WINDOW_S,
+            "cached_bodies": len(cached),
+            "cached_bytes": sum(n for _, n in cached),
+            "cache_idle_s": _WORK_CACHE_IDLE_S,
+        },
+        # a silent fall back to whole-org loads is ~9x the memory of a chat
+        # read (measured on the live org, 64 MB vs 7 MB): make it visible
+        "lazy_rows": store.lazy_rows_report(),
+    }
+
+
 @app.get("/api/orgs/{slug}/work-items/{wid}")
 def work_item_get(slug: str, wid: str, compact: int = 0) -> dict[str, Any]:
+    from . import workdetail
     try:
-        org = store.load_org(slug)
+        it = workdetail.get(slug, USER, wid, compact=bool(compact))
     except LedgerError as e:
         raise HTTPException(404, str(e))
-    _work_identity_guard(org)
-    try:
-        it = org.work_get(USER, wid, compact=bool(compact))
-    except LedgerError as e:
-        raise HTTPException(404, str(e))
+    if it is None:
+        try:
+            org = store.load_org(slug)
+        except LedgerError as e:
+            raise HTTPException(404, str(e))
+        _work_identity_guard(org)
+        try:
+            it = org.work_get(USER, wid, compact=bool(compact))
+        except LedgerError as e:
+            raise HTTPException(404, str(e))
     it["ref"] = refs.item(slug, str(it["slug"]))
     return {"item": it}
 
@@ -6524,19 +8038,15 @@ def work_item_reply(slug: str, wid: str, body: WorkReply,
     if not text:
         raise HTTPException(422, "empty reply")
     to = str(body.to or "").strip()
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
-        try:
-            _work_identity_ready(org, slug)
-        except LedgerError as e:
-            raise HTTPException(422, str(e))
-        try:
-            org._work_find(wid)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
+    public = _public_slug(request)
+
+    # PG-3w: one `org_tx` (the reply mail, the deep-reach note and the
+    # attention clear commit together, as they saved together under
+    # DOC_LOCK). The recipient is resolved inside it, so its node row is
+    # named by `worktx`'s widening when the prediction (none) misses it.
+    def tx_body(org: Org) -> tuple[str, str, dict[str, Any], dict[str, Any],
+                                   dict[str, Any], bool]:
+        _work_route_open(org, slug, wid)
         try:
             tgt = (org.work_reply_recipient(wid, to) if to
                    else org.work_reply_target(wid))
@@ -6595,7 +8105,7 @@ def work_item_reply(slug: str, wid: str, body: WorkReply,
                 org.work_item_ref(org._work_find(wid)[0]), body=text, role=role,
                 owner=(str(tgt.get("owner") or "") if role == "participant" else None)),
                 attachments=metas or None, missing=missing or None)
-            receipt = _send_receipt(org, slug, nid, r, public=_public_slug(request))
+            receipt = _send_receipt(org, slug, nid, r, public=public)
             org.user_deep_reach(nid, text.splitlines()[0][:160])
             # A successful user reply acknowledges manual attention without
             # taking the explicit-dismissal path (which blocks the item).
@@ -6606,9 +8116,12 @@ def work_item_reply(slug: str, wid: str, body: WorkReply,
             # question it answered; passing `text` here is what puts the ruling
             # and the thing it ruled on together on one row that `get` serves.
             org.work_clear_attention_on_user_reply(wid, text)
-            store.save_org(org)
+            return nid, role, tgt, r, receipt, can_notice
         except LedgerError as e:
             raise HTTPException(422, str(e))
+
+    nid, role, tgt, r, receipt, can_notice = _work_route_tx(
+        slug, tx_body, worktx.Rows().notify())
     mail_notify(slug, USER, nid)
     # allow-attachments-in-contextual-reply-composers: same D-171 rule as
     # node_message — `warnings` is CODE's own channel for an attachment
@@ -6659,19 +8172,9 @@ def work_item_dismiss(slug: str, wid: str, body: WorkDismiss) -> dict[str, Any]:
     """Dismiss a MANUAL attention flag: clears it, sets the work Blocked,
     records the dismissal; pending questions are untouched (they keep the
     item orange). 409 on a stale `set_rev` or an already-cleared flag."""
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
-        try:
-            _work_identity_ready(org, slug)
-        except LedgerError as e:
-            raise HTTPException(422, str(e))
-        try:
-            org._work_find(wid)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
+    # PG-3w: one `org_tx`; the dismissal and its status mail commit together
+    def tx_body(org: Org) -> tuple[dict[str, Any], Any]:
+        _work_route_open(org, slug, wid)
         try:
             r = org.work_dismiss_attention(wid, int(body.set_rev))
         except LedgerError as e:
@@ -6694,7 +8197,9 @@ def work_item_dismiss(slug: str, wid: str, body: WorkDismiss) -> dict[str, Any]:
                                    dismissed_by=USER))
             except LedgerError:
                 notify = None
-        store.save_org(org)
+        return r, notify
+
+    r, notify = _work_route_tx(slug, tx_body, worktx.Rows().notify())
     if notify:
         supervisor.send_message(
             slug, str(notify),
@@ -6708,25 +8213,13 @@ def work_item_dismiss(slug: str, wid: str, body: WorkDismiss) -> dict[str, Any]:
 def work_item_accept(slug: str, wid: str, body: WorkAccept) -> dict[str, Any]:
     """The user accepts an item as done (the same rule the tool enforces
     for a superior: never the owner)."""
-    with store.DOC_LOCK:
+    def tx_body(org: Org) -> dict[str, Any]:
+        _work_route_open(org, slug, wid)
         try:
-            org = store.load_org(slug)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
-        try:
-            _work_identity_ready(org, slug)
+            return org.work_accept(USER, wid, body.note)
         except LedgerError as e:
             raise HTTPException(422, str(e))
-        try:
-            org._work_find(wid)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
-        try:
-            r = org.work_accept(USER, wid, body.note)
-        except LedgerError as e:
-            raise HTTPException(422, str(e))
-        store.save_org(org)
-    return r
+    return _work_route_tx(slug, tx_body)
 
 
 @app.delete("/api/orgs/{slug}/work-items/{wid}")
@@ -6735,25 +8228,16 @@ def work_item_delete(slug: str, wid: str, note: str = "") -> dict[str, Any]:
     rule the tool enforces (`Org.work_delete`): the record leaves the docket
     and its archive, pointers other items hold to it are cleared, and the
     refusals (nested children, an open attached question) are the ledger's."""
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
-        try:
-            _work_identity_ready(org, slug)
-        except LedgerError as e:
-            raise HTTPException(422, str(e))
-        try:
-            org._work_find(wid)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
+    def tx_body(org: Org) -> tuple[str, dict[str, Any]]:
+        _work_route_open(org, slug, wid)
         try:
             item_slug = str(org._work_find(wid)[0]["slug"])
-            r = org.work_delete(USER, wid, note)
+            return item_slug, org.work_delete(USER, wid, note)
         except LedgerError as e:
             raise HTTPException(422, str(e))
-        store.save_org(org)
+    rows = worktx.rows_for("delete", {})
+    rows.logs.add("work_items_archive")      # delete erases the archive too
+    item_slug, r = _work_route_tx(slug, tx_body, rows)
     # the deleted record's stored attachment bytes go with it — the record
     # that named them no longer exists anywhere (delete erases the archive
     # too), so keeping the files would be an unlisted orphan pile
@@ -6802,39 +8286,46 @@ async def work_item_attach(slug: str, wid: str, request: Request,
     # event loop), reached the other way round. `run_in_threadpool` is already
     # this module's idiom for exactly this (see the usage/limits routes).
     def _store_attachment() -> dict[str, Any]:
-        with store.DOC_LOCK:
+        # PG-3w: the BYTES are written first, OUTSIDE any transaction — an
+        # `org_tx` body may re-run (widen / retry) and must not write a file
+        # twice. The name is claimed with an exclusive create (`xb`), which
+        # is atomic on the filesystem, so two uploads can never take the same
+        # name without the lock that used to serialise them. The record is
+        # then one `org_tx`; if it is refused the bytes are removed again.
+        if not os.path.exists(store.org_path(slug)):
+            raise HTTPException(404, f"no such org: {slug!r}")
+        try:
+            it, _ = orgtx.org_read(slug, sections=["work_items_archive"]
+                                   )._work_find(wid)
+        except LedgerError as e:
+            raise HTTPException(404, str(e))
+        adir = _work_attach_dir(slug, str(it["slug"]))
+        os.makedirs(adir, exist_ok=True)
+        final, i = stem + ext, 2
+        while True:
             try:
-                org = store.load_org(slug)
-            except LedgerError as e:
-                raise HTTPException(404, str(e))
-            try:
-                _work_identity_ready(org, slug)
-            except LedgerError as e:
-                raise HTTPException(422, str(e))
-            try:
-                it, _ = org._work_find(wid)
-            except LedgerError as e:
-                raise HTTPException(404, str(e))
-            adir = _work_attach_dir(slug, str(it["slug"]))
-            os.makedirs(adir, exist_ok=True)
-            final, i = stem + ext, 2
-            while os.path.exists(os.path.join(adir, final)):
-                final, i = f"{stem}-{i}{ext}", i + 1
-            try:
-                with open(os.path.join(adir, final), "wb") as f:
+                with open(os.path.join(adir, final), "xb") as f:
                     f.write(data)
+                break
+            except FileExistsError:
+                final, i = f"{stem}-{i}{ext}", i + 1
             except OSError as e:
                 raise HTTPException(422, f"could not store the attachment: {e}")
+
+        def tx_body(org: Org) -> dict[str, Any]:
+            _work_route_open(org, slug, wid)
             try:
-                rec = org.work_attach(USER, wid, final, len(data), final)
-                store.save_org(org)
+                return org.work_attach(USER, wid, final, len(data), final)
             except LedgerError as e:
-                # the record was refused, so the bytes must not linger unlisted
-                try:
-                    os.unlink(os.path.join(adir, final))
-                except OSError:
-                    pass
                 raise HTTPException(422, str(e))
+        try:
+            rec = _work_route_tx(slug, tx_body)
+        except BaseException:
+            try:
+                os.unlink(os.path.join(adir, final))
+            except OSError:
+                pass
+            raise
         return {"attachment": rec}
 
     from fastapi.concurrency import run_in_threadpool
@@ -7059,29 +8550,27 @@ def work_item_artifact_file(slug: str, wid: str, aid: str) -> FileResponse:
 def work_item_detach(slug: str, wid: str, aid: str) -> dict[str, Any]:
     """Remove one attachment permanently: the record via the ledger, then
     the stored bytes. There is no undelete."""
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
+    # PG-3w: the record in one `org_tx`; the bytes are unlinked only AFTER it
+    # commits (a body that may re-run must not touch the filesystem, and a
+    # refused removal must leave the file its record still names)
+    def tx_body(org: Org) -> tuple[str, dict[str, Any]]:
         try:
             _work_identity_ready(org, slug)
         except LedgerError as e:
             raise HTTPException(422, str(e))
         try:
             it, _ = org._work_find(wid)
-            removed = org.work_detach(USER, wid, aid)
+            return str(it["slug"]), org.work_detach(USER, wid, aid)
         except LedgerError as e:
             raise HTTPException(404, str(e))
-        store.save_org(org)
-        base = os.path.realpath(_work_attach_dir(slug, str(it["slug"])))
-        full = os.path.realpath(os.path.join(
-            base, str(removed.get("path") or "")))
-        if full.startswith(base + os.sep) and os.path.isfile(full):
-            try:
-                os.unlink(full)
-            except OSError:
-                pass
+    item_slug, removed = _work_route_tx(slug, tx_body)
+    base = os.path.realpath(_work_attach_dir(slug, item_slug))
+    full = os.path.realpath(os.path.join(base, str(removed.get("path") or "")))
+    if full.startswith(base + os.sep) and os.path.isfile(full):
+        try:
+            os.unlink(full)
+        except OSError:
+            pass
     return {"removed": aid}
 
 
@@ -7611,15 +9100,18 @@ def _work_receipt_call(body: AgentCall, a: dict[str, Any], *, rangediff: bool
     and a receipt can never be appended to an item that changed underneath it.
     """
     wid = _work_ref(a)
-    with store.DOC_LOCK:
-        org = store.load_org(body.org)
-        org._require_live(body.node)
-        _work_identity_guard(org)
-        it, _ = org._work_get_for(body.node, wid)     # read right, or refusal
-        rev = int(it.get("rev") or 0)
-        item_slug = str(it["slug"])
-        checkout = _work_checkout(org, body.node, a)
-        logs = [] if rangediff else _work_receipt_logs(org, body.node, a)
+    # PG-3w: this phase only READS (the rev the write compare-and-sets
+    # against, the read right, the checkout grant), so it is a lock-free
+    # `org_read`. The write phase refuses with `stale` if the item moved in
+    # between, exactly as when this phase held DOC_LOCK and released it.
+    org = orgtx.org_read(body.org, sections=["work_items_archive"])
+    org._require_live(body.node)
+    _work_identity_guard(org)
+    it, _ = org._work_get_for(body.node, wid)     # read right, or refusal
+    rev = int(it.get("rev") or 0)
+    item_slug = str(it["slug"])
+    checkout = _work_checkout(org, body.node, a)
+    logs = [] if rangediff else _work_receipt_logs(org, body.node, a)
 
     # ── outside the lock: git and the filesystem ────────────────────────────
     if rangediff:
@@ -7656,24 +9148,28 @@ def _work_receipt_call(body: AgentCall, a: dict[str, Any], *, rangediff: bool
         ref = str(a.get("ref") or "") or (" ".join(command)[:200] or rc["candidate"])
         kind = str(a.get("kind") or "log")
 
-    with store.DOC_LOCK:
-        org = store.load_org(body.org)
+    # PG-3w: the write phase is the archive sweep's own transaction, then one
+    # `org_tx`, which commits nothing when the compare-and-set refuses.
+    def tx_body(org: Org) -> dict[str, Any] | None:
         try:
-            r = org.work_evidence(body.node, wid, kind, ref,
-                                  str(a.get("note") or "") or None,
-                                  execution=rc["execution"], receipt=rc,
-                                  expected_rev=rev)
+            return org.work_evidence(body.node, wid, kind, ref,
+                                     str(a.get("note") or "") or None,
+                                     execution=rc["execution"], receipt=rc,
+                                     expected_rev=rev)
         except StaleRevError:
             # ⚠ CAUGHT BY TYPE, NOT BY MESSAGE TEXT. This is the one refusal
             # the route answers rather than surfaces: the item moved while the
             # tree was being measured, which is normal traffic, not caller
             # error. Matching on the wording would silently stop working the
             # first time somebody improved the sentence.
-            return {"stale": True, "item": item_slug,
-                    "hint": "the item changed while the tree was being "
-                            "measured; nothing was written — read it again "
-                            "and repeat the call"}
-        store.save_org(org)
+            return None
+    worktx.sweep(body.org)
+    r = worktx.run(body.org, tx_body)
+    if r is None:
+        return {"stale": True, "item": item_slug,
+                "hint": "the item changed while the tree was being "
+                        "measured; nothing was written — read it again "
+                        "and repeat the call"}
     tree = rc["tree"]
     return {**r, "item": item_slug, "ref": refs.item(body.org, item_slug),
             "receipt": rc,
@@ -7776,17 +9272,40 @@ def _work_read_call(body: AgentCall, a: dict[str, Any]) -> dict[str, Any]:
             from . import desktop_policy
             if desktop_policy.enabled():
                 raise LedgerError('Git verification is not available in desktop MVP')
-            with store.DOC_LOCK:
-                org = store.load_org(body.org)
-                cap = org.work_verify_capture(body.node, _work_ref(a),
-                                              str(a.get("stage") or ""))
+            # PG-3w: capture is a pure read (lock-free `org_read`); the
+            # write-back is one `org_tx` whose compare-and-set on `rev`
+            # changes nothing when stale, so a stale result commits nothing
+            cap = orgtx.org_read(
+                body.org, sections=["work_items_archive"]).work_verify_capture(
+                    body.node, _work_ref(a), str(a.get("stage") or ""))
             res = workitems.evaluate(cap["stage"], cap["sha"])
-            with store.DOC_LOCK:
-                org = store.load_org(body.org)
-                r = org.work_verify_commit(cap["wid"], cap["stage"], cap["rev"], res)
-                if not r.get("stale"):
-                    store.save_org(org)
-            return r
+            return worktx.run(body.org, lambda org: org.work_verify_commit(
+                cap["wid"], cap["stage"], cap["rev"], res))
+        if act == "get":
+            from . import workdetail
+            it = workdetail.get(body.org, body.node, _work_ref(a),
+                                compact=_arg_flag(a, "compact"),
+                                projection=_work_projection(a, "full"),
+                                fields=a.get("fields"))
+            if it is not None:
+                return {"item": {"slug": it.get("slug"),
+                    "ref": refs.item(body.org, str(it["slug"])),
+                    **{k: v for k, v in it.items() if k != "slug"}}}
+        if act == "list":
+            # agent-orgtree-work-list-still-reads-the-whole-or: the same answer
+            # as the `cached_org` branch below, from the PG docket index in one
+            # read-only snapshot. None (SQLite, a dirty or unavailable index,
+            # the operator as viewer) takes that exact branch instead.
+            from . import worklist
+            listed = worklist.agent_list(
+                body.org, body.node,
+                include_archived=_arg_flag(a, "include_archived"),
+                include_backlogged=_arg_flag(a, "include_backlogged"),
+                compact=_arg_flag(a, "compact"),
+                projection=_work_projection(a, "summary"),
+                fields=a.get("fields"))
+            if listed is not None:
+                return _work_refs(body.org, listed)
         # `list` and `get` only read. The shared snapshot (`org_seq`-guarded,
         # dropped by every save) serves them without a third whole-document
         # parse in a call that has already paid for two — 56 ms of the 266 ms
@@ -8123,6 +9642,18 @@ class AskAnswer(Body):
     dismiss: bool = False
 
 
+def _ask_node(slug: str, aid: str) -> str | None:
+    """The node that asked `aid`, read lock-free (PG-3d): it names the rows
+    the answer's transaction locks. None when there is no such ask — the
+    ledger then refuses inside the transaction, as before."""
+    try:
+        pre = orgtx.org_read(slug)
+    except LedgerError as e:
+        raise HTTPException(422, str(e))
+    a = next((x for x in pre.d.get("asks", []) if x.get("id") == aid), None)
+    return str(a["node"]) if a and a.get("node") else None
+
+
 @app.post("/api/orgs/{slug}/asks/{aid}/answer")
 def ask_answer(slug: str, aid: str, body: AskAnswer) -> dict[str, Any]:
     """Answer an agent's question (F-04) — from the desk card or the inbox
@@ -8130,7 +9661,9 @@ def ask_answer(slug: str, aid: str, body: AskAnswer) -> dict[str, Any]:
     is posted, under one doc lock; every other rendering of the card nulls
     to grey "answered" on the next payload. (The wake-void this ordering
     once guarded against was retired 2026-08-06 — see withdraw_ask.)"""
-    with _entry_ledger_422(store.write_org(slug)) as org:
+    # PG-3d: the asks row plus the asking node's mail rows, not DOC_LOCK.
+    # The asker is read lock-free first (an ask's node never changes).
+    with _entry_ledger_422(mailtx.org_of(slug, **mailtx.ask_rows(_ask_node(slug, aid)))) as org:
         try:
             r = (org.ask_dismiss(aid) if body.dismiss
                  else org.ask_answer(aid, selected=body.selected,
@@ -8144,7 +9677,6 @@ def ask_answer(slug: str, aid: str, body: AskAnswer) -> dict[str, Any]:
             org.bind_answer_mail(str(posted.get("id") or ""), ask=aid)
         except LedgerError as e:
             raise HTTPException(422, str(e))
-        store.save_org(org)
     if drive:
         mail_notify(slug, USER, r["node"])
         supervisor.send_message(
@@ -8173,29 +9705,79 @@ class BatchResolve(Body):
     scope: list[str] | None = None
 
 
+def _batch_rows(org: Org, nid: str) -> pgdoor.TxSpec:
+    """The rows `Org.resolve_batch` + the composed answer mail write for
+    `nid`'s open batch, derived from `org`: the three request tables (asks
+    also rewrites work_items — the docket reconcile), the answer mail to
+    `nid`; for a pending CREDIT request the operator decision's rows
+    (`rcdoor.decide_rows`: the approval's chain and funding settings); for a
+    pending SCOPE request `set_scope(USER, nid, <capabilities>)`'s plan
+    (`lifecycle_tx._scope_plan`, the ceiling not raised — resolve_batch
+    never raises it). Derived once from a lock-free read to open the
+    transaction and AGAIN from the locked Org inside it (`rcdoor.hold`), so
+    a batch that changed in between widens and re-runs, never guesses."""
+    from . import lifecycle_tx
+    send = mailtx.send_rows(nid)
+    parts = [pgdoor.TxSpec(nodes=tuple(send.get("nodes", ())),
+                           sections=(*send.get("sections", ()), "asks", "work_items",
+                                     "credit_requests", "scope_requests"),
+                           logs=(*send.get("logs", ()), "events", "notice_log"))]
+    cr = next((r for r in org.d.get("credit_requests", [])
+               if r["node"] == nid and r["status"] == "pending"), None)
+    if cr is not None:
+        parts.append(rcdoor.decide_rows(org, cr["id"]))
+    sr = next((r for r in org.d.get("scope_requests", [])
+               if r["node"] == nid and r["status"] == "pending"), None)
+    if sr is not None and nid in org.nodes:
+        # any capability field makes the plan the capability-grant one; the
+        # superset is taken whatever the per-item decisions turn out to be
+        upd, share, secs, ssecs, logs = lifecycle_tx._scope_plan(
+            org, USER, nid, {"add_dirs": []}, False)
+        parts.append(pgdoor.TxSpec(nodes=tuple(sorted(upd)),
+                                   share_nodes=tuple(sorted(share)),
+                                   sections=secs, share_sections=ssecs, logs=logs))
+    return rcdoor.union(*parts)
+
+
+
 @app.post("/api/orgs/{slug}/nodes/{nid}/batch")
 def batch_resolve(slug: str, nid: str, body: BatchResolve) -> dict[str, Any]:
     """FR-14: resolve a node's whole request batch — question answers, the
     credit decision and per-item scope grants — in one submit, one lock, one
-    composed answer mail. The desk card and the inbox card both land here."""
-    with _entry_ledger_422(store.write_org(slug)) as org:
-        try:
-            r = org.resolve_batch(nid, body.revs, answers=body.answers,
-                                  credits=body.credits, scope=body.scope)
-            _kiosk_cap_check(org)
-            posted = org.post_mail(USER, r["node"], "", ev=r["ev"])
-            drive = not posted.get("deferred")
-            # message-visibility invariant: see ask_answer — the composed
-            # batch answer is ONE mail; whichever resolved record node_ask
-            # lingers must carry its id
-            comps = r.get("resolved") or {}
-            org.bind_answer_mail(str(posted.get("id") or ""),
-                                 ask=comps.get("ask"),
-                                 credits=comps.get("credits"),
-                                 scope=comps.get("scope"))
-        except LedgerError as e:
-            raise HTTPException(422, str(e))
-        store.save_org(org)
+    composed answer mail. The desk card and the inbox card both land here.
+
+    fence-off S2: ONE door transaction (never split: the answers, the credit
+    decision, the scope grant and the composed mail commit together or not
+    at all) on `_batch_rows`, not store.write_org. The rows are re-derived
+    from the locked batch; a batch that grew since the lock-free read widens
+    and re-runs (pgdoor, up to MAX_WIDEN), and only a lock set that keeps
+    growing past that bound is refused, with 409 (lead C3)."""
+    st: dict[str, Any] = {}
+
+    def _resolve(h: Any) -> None:
+        org = h.org
+        rcdoor.hold(slug, _batch_rows(org, nid))
+        r = org.resolve_batch(nid, body.revs, answers=body.answers,
+                              credits=body.credits, scope=body.scope)
+        _kiosk_cap_check(org)
+        posted = org.post_mail(USER, r["node"], "", ev=r["ev"])
+        # message-visibility invariant: see ask_answer — the composed
+        # batch answer is ONE mail; whichever resolved record node_ask
+        # lingers must carry its id
+        comps = r.get("resolved") or {}
+        org.bind_answer_mail(str(posted.get("id") or ""),
+                             ask=comps.get("ask"),
+                             credits=comps.get("credits"),
+                             scope=comps.get("scope"))
+        st["r"], st["drive"] = r, not posted.get("deferred")
+
+    try:
+        rcdoor.run_op(slug, _batch_rows(orgtx.org_read(slug), nid), _resolve)
+    except LedgerError as e:
+        if str(e).startswith("pgdoor: the lock set kept growing"):
+            raise HTTPException(409, str(e))
+        raise HTTPException(422, str(e))
+    r, drive = st["r"], st["drive"]
     if drive:
         mail_notify(slug, USER, r["node"])
         supervisor.send_message(
@@ -8215,14 +9797,21 @@ class WatchdogAction(Body):
 
 @app.post("/api/orgs/{slug}/watchdogs")
 def watchdog_action(slug: str, body: WatchdogAction) -> dict[str, Any]:
-    """FR-18: the user manages any dog from the canvas detail panel."""
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-            r = org.watchdog_action(USER, body.id, body.action, body.reason)
-        except LedgerError as e:
-            raise HTTPException(422, str(e))
-        store.save_org(org)
+    """FR-18: the user manages any dog from the canvas detail panel.
+
+    PG-3c (fence-off S10): one operator transaction on the dog rows
+    (`rcdoor.watchdog_action_rows` — for the user that is the watchdog
+    sections and the events log; `_require_authority` reads no node row for
+    a user actor), not DOC_LOCK + a whole-document save."""
+    def _act(h: Any) -> dict[str, Any]:
+        rcdoor.hold(slug, rcdoor.watchdog_action_rows(h.org, USER, body.id))
+        return h.org.watchdog_action(USER, body.id, body.action, body.reason)
+
+    try:
+        r = rcdoor.run_op(slug, rcdoor.watchdog_action_rows(
+            orgtx.org_read(slug), USER, body.id), _act)
+    except LedgerError as e:
+        raise HTTPException(422, str(e))
     hub_changed(slug)
     return r
 
@@ -8235,13 +9824,16 @@ def node_unstick(slug: str, nid: str) -> dict[str, Any]:
     kept replay texts (or a nudge), exactly as ▶ resume would have. This
     endpoint is loopback-admin like every other user control; there is
     deliberately NO agent verb for it."""
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-            r = org.unstick(USER, nid)
-        except LedgerError as e:
-            raise HTTPException(422, str(e))
-        store.save_org(org)
+    # PG-3e-A: one halt transaction on the agent's row, the org fable_lock
+    # (released when this was its last holder; the Fable escalation writes
+    # the same row, so the two are ordered), and the notice/event it writes.
+    try:
+        with supervisor.halt.txn(slug, nodes=[nid],
+                                 sections=["fable_lock", ("notices", nid)],
+                                 logs=["events", "notice_log"]) as _us_tx:
+            r = _us_tx.org.unstick(USER, nid)
+    except LedgerError as e:
+        raise HTTPException(422, str(e))
     if r.get("released"):
         texts = cast("list[str]", r.get("resume_texts") or []) or [
             "(orgtree) The user manually UNSTUCK you (override) — handle "
@@ -8268,6 +9860,20 @@ _continue_guard = threading.Lock()
 def _continue_lock(slug: str, nid: str) -> threading.Lock:
     with _continue_guard:
         return _continue_locks.setdefault((slug, nid), threading.Lock())
+
+
+def unstick_rows(slug: str, nid: str) -> dict[str, Any]:
+    """PG-3r: the org_tx names for `Org.unstick(actor, nid)`. It writes the
+    seat's node row, the org-wide `fable_lock`, the `policy.unstuck` notice
+    and its log lines; it clears `fable_lock` only when no OTHER node is
+    limit-locked, and checks the actor's authority up the chain, so every
+    other node row is read for that decision (FOR SHARE). A node created
+    after the pre-read is born without `limit_locked`, so it cannot change
+    the decision. Reused by any door that unsticks (node_unstick's owner)."""
+    others = [k for k in orgtx.org_read(slug).nodes if k != nid]
+    return {"nodes": [nid], "share_nodes": others,
+            "sections": ["fable_lock", "notices"], "share_sections": ["spend_frozen"],
+            "logs": ["notice_log", "events"]}
 
 
 def _continue_on_account(slug: str, nid: str, account: str, *, actor: str,
@@ -8315,23 +9921,25 @@ def _continue_on_account(slug: str, nid: str, account: str, *, actor: str,
         raise HTTPException(409, f"{nid} is already being continued on another "
                                  f"account; that operation is still running")
     try:
-        with store.DOC_LOCK:
-            try:
-                org = store.load_org(slug)
-                node = org.node(nid)
-            except LedgerError as e:
-                raise HTTPException(404, str(e)) from e
-            if not accountfallback.manual_only(org, nid):
-                # covers: not frozen any more, automatic fallback on, busy,
-                # already switching, or a freeze another account cannot clear
-                raise HTTPException(
-                    409, f"{nid} cannot be continued on another account right "
-                         f"now — it is not frozen in a way a different account "
-                         f"would clear, or automatic account fallback is on")
-            rows = registry.list_accounts(org=slug)
-            offered = {str(r["id"]) for r in
-                       accountfallback.replacements(org, nid, rows)}
-            tier = str(node.get("model") or "")
+        # PG-3r: the eligibility gate is a lock-free coherent read; the
+        # switch itself (assign_account) and the release below are the
+        # writes, each in its own row transaction.
+        try:
+            org = orgtx.org_read(slug)
+            node = org.node(nid)
+        except LedgerError as e:
+            raise HTTPException(404, str(e)) from e
+        if not accountfallback.manual_only(org, nid):
+            # covers: not frozen any more, automatic fallback on, busy,
+            # already switching, or a freeze another account cannot clear
+            raise HTTPException(
+                409, f"{nid} cannot be continued on another account right "
+                     f"now — it is not frozen in a way a different account "
+                     f"would clear, or automatic account fallback is on")
+        rows = registry.list_accounts(org=slug)
+        offered = {str(r["id"]) for r in
+                   accountfallback.replacements(org, nid, rows)}
+        tier = str(node.get("model") or "")
         if account not in offered:
             raise HTTPException(
                 422, f"{account!r} is not an alternative account for {nid} — "
@@ -8357,26 +9965,24 @@ def _continue_on_account(slug: str, nid: str, account: str, *, actor: str,
                                      f"and unchanged: {e}") from e
         # …switched. From here the agent IS on the new account whatever else
         # happens, so every exit below says so.
-        with store.DOC_LOCK:
-            try:
-                org = store.load_org(slug)
-                # the ACTOR, not USER: `unstuck.by` is the audit record of who
-                # released this seat, and an agent's rescue must not be filed
-                # under the user's name. The authority re-check it performs is
-                # the same strict-descent one the agent door already passed.
-                released = org.unstick(actor, nid)
-                store.save_org(org)
-            except LedgerError as e:
-                return {"switched": True, "resumed": False,
-                        "state": "switched_not_resumed", "account": account,
-                        "disclosure": disclosure,
-                        "error": str(e),
-                        "agent": "idle",
-                        "retry": retry_hint,
-                        "status": f"{nid} is now on {account} but is STILL "
-                                  f"FROZEN — releasing it failed ({e}). Its "
-                                  f"held work has not resumed and it is IDLE; "
-                                  f"use {retry_hint} to finish the move."}
+        try:
+            # the ACTOR, not USER: `unstuck.by` is the audit record of who
+            # released this seat, and an agent's rescue must not be filed
+            # under the user's name. The authority re-check it performs is
+            # the same strict-descent one the agent door already passed.
+            with orgtx.org_tx(slug, **unstick_rows(slug, nid)) as tx:
+                released = tx.org.unstick(actor, nid)
+        except LedgerError as e:
+            return {"switched": True, "resumed": False,
+                    "state": "switched_not_resumed", "account": account,
+                    "disclosure": disclosure,
+                    "error": str(e),
+                    "agent": "idle",
+                    "retry": retry_hint,
+                    "status": f"{nid} is now on {account} but is STILL "
+                              f"FROZEN — releasing it failed ({e}). Its "
+                              f"held work has not resumed and it is IDLE; "
+                              f"use {retry_hint} to finish the move."}
         # ⚠ WHETHER IT IS RUNNING IS READ, NOT ASSUMED. Releasing a freeze is
         # not the only hold on a seat: a HALTED node (and the docket's own
         # workaround halted one) takes the replay into its durable queue and
@@ -8462,7 +10068,8 @@ class InboxRead(Body):
 def user_inbox_read(slug: str, body: InboxRead) -> dict[str, Any]:
     """Per-mail read: a viewed mail is marked read when the user clicks off it
     (user ruling) — it moves from unread into the read archive."""
-    with _entry_ledger_422(store.write_org(slug), 404) as org:
+    # PG-3d: locks the user inbox and its read archive only, not DOC_LOCK
+    with _entry_ledger_422(mailtx.org_of(slug, **mailtx.READ_MARK_ROWS), 404) as org:
         ids = set(body.ids)
         keep: list[UserMailEntry] = []
         read: list[UserMailEntry] = []
@@ -8470,166 +10077,12 @@ def user_inbox_read(slug: str, body: InboxRead) -> dict[str, Any]:
             (read if m.get("id") in ids else keep).append(m)
         if read:
             org.d["user_inbox"] = keep
-            log = org.d.setdefault("user_mail_log", [])
-            log.extend(read)
-            # the archive is CHRONOLOGICAL, never read-order. extend() appends
-            # in whatever order the user happened to CLICK, and the reader
-            # renders by list position — so without this sort a mail read
-            # second outranks one sent later (user bug 2026-08-02). `at` is
-            # ISO-8601 Z, so a string sort is a time sort.
-            log.sort(key=lambda m: m.get("at") or "")
-
-            store.save_org(org)
+            # the archive is CHRONOLOGICAL, never read-order (user bug
+            # 2026-08-02), and filed WITHOUT a sort: sorting rewrote every row
+            # of the archive on each read (ledger.file_read_mail)
+            ledger_mod.file_read_mail(org.d.setdefault("user_mail_log", []), read)
     hub_changed(slug)
     return {"read": len(read)}
-
-
-# ------------------------------------------------ external chats (no chatq)
-# The extern MCP server (externtool.py) gives any outside Claude Code session
-# a peer identity (@mcp:<id>) and three verbs against org inboxes: send, read
-# what's addressed to me, and wait for a response — a full Q&A loop with an
-# org, no chatq required. chatq stays relevant only when the ORG must wake an
-# external chat unprompted.
-_PEER_RE = re.compile(r"[A-Za-z0-9._-]{1,64}")
-
-
-class ExternSend(Body):
-    org: str
-    body: str
-    attachments: list[str] = []   # absolute local paths (extern peers are local)
-
-
-def _extern_peer(peer: str) -> str:
-    if not _PEER_RE.fullmatch(peer):
-        raise HTTPException(422, "peer id must be 1-64 chars of [A-Za-z0-9._-]")
-    return f"@mcp:{peer}"
-
-
-@app.post("/api/extern/{peer}/send")
-def extern_send(peer: str, body: ExternSend) -> dict[str, Any]:
-    addr = _extern_peer(peer)
-    store.extern_seen(addr)          # D-166: reaching in is evidence of life
-    if not body.body.strip():
-        raise HTTPException(422, "empty message")
-    # attachments (user spec 2026-07-31): absolute paths on this machine —
-    # extern peers are local sessions. Validated here; copied into every
-    # recipient's uploads/ by deliver_org_inbox.
-    atts: list[str] = []
-    for p in (body.attachments or [])[:10]:
-        p = str(p)
-        if not os.path.isfile(p):
-            raise HTTPException(422, f"attachment not found: {p}")
-        if os.path.getsize(p) > 25 * 1048576:
-            raise HTTPException(413, f"attachment over the 25 MB cap: {p}")
-        atts.append(p)
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(body.org)
-        except LedgerError:
-            org = None
-        # sealed kiosks must be INDISTINGUISHABLE from nonexistent orgs out
-        # here (review finding: a 403 vs 404 split let an outside peer
-        # enumerate the kiosk roster the org listing deliberately withholds)
-        if org is None or org.is_kiosk:
-            raise HTTPException(404, f"no organization named {body.org!r}")
-    delivered = supervisor.deliver_org_inbox(body.org, addr, body.body,
-                                             attachments=atts or None)
-    return {"delivered": delivered or ["(user inbox — no live agents)"]}
-
-
-def _extern_scan(addr: str, org_slug: str | None, after: str | None,
-                 fresh_only: bool = False) -> list[dict[str, Any]]:
-    """Replies addressed to `addr`. `fresh_only` (the wait path, №5): with no
-    explicit cursor, only replies newer than the peer's own LAST message to
-    that org count — a wait for question ② must never be satisfied by the
-    answer to question ①. The read path stays full-history (freeform flow:
-    the org may reply any time, any number of times)."""
-    out: list[dict[str, Any]] = []
-    with store.DOC_LOCK:
-        for o in store.list_orgs():
-            if org_slug and o["slug"] != org_slug:
-                continue
-            try:
-                org = store.load_org(o["slug"])
-            except LedgerError:
-                continue
-            if org.is_kiosk:
-                # unreachable today (kiosk inboxes can hold no "out" entries —
-                # the ledger seals every inbound/outbound path), but the seal
-                # belongs on THIS path too, locally, not as a 3-file argument
-                continue
-            entries = org.d.get("org_inbox", [])
-            floor = after
-            if not floor and fresh_only:
-                # timestamps are millisecond-resolution now (user ruling), so
-                # the floor is simply the peer's own latest message to the org
-                mine = [e.get("at", "") for e in entries
-                        if e.get("peer") == addr and e.get("dir") == "in"]
-                if not mine:
-                    # the peer's own inbound was trimmed (the 200-entry log
-                    # cap) or never existed — nothing is provably fresh, and
-                    # a collapsed floor would hand back the whole history:
-                    # exactly what fresh_only exists to prevent (review P1)
-                    continue
-                floor = max(mine)
-            for e in entries:
-                if e.get("peer") == addr and e.get("dir") == "out" \
-                        and (not floor or e.get("at", "") > floor):
-                    # org-voice mail stays anonymous (§8 pins that `by` never
-                    # leaks) — but a held-handle send (external_handles) spoke
-                    # to its OWN channel and carries the sender's name for the
-                    # panel to render
-                    by = e.get("by") if e.get("attributed") else None
-                    out.append({"org": o["slug"], "id": e["id"],
-                                "at": e["at"], "body": e["body"],
-                                **({"by": by} if by else {})})
-    out.sort(key=lambda x: x["at"])
-    return out
-
-
-@app.get("/api/extern/{peer}/messages")
-def extern_messages(peer: str, org: str | None = None,
-                    after: str | None = None) -> dict[str, Any]:
-    addr = _extern_peer(peer)
-    store.extern_seen(addr)          # D-166: a READ is a sighting too — it is
-    # the only heartbeat a peer that never sends anything ever produces
-    msgs = _extern_scan(addr, org, after)
-    # the cursor rides every reply (review P1): pass it back as `after` and a
-    # repeat wait/read can never re-deliver what this call already handed over
-    return {"messages": msgs, **({"cursor": msgs[-1]["at"]} if msgs else {})}
-
-
-@app.get("/api/extern/{peer}/wait")
-async def extern_wait(peer: str, org: str | None = None,
-                      after: str | None = None, timeout: int = 25) -> dict[str, Any]:
-    """Long-poll: block until an org replies to this peer (or timeout).
-    Rescans (DOC_LOCK + org-doc reads) only when store.REVISION moved —
-    review finding: parked waiters were paying a full scan every second
-    under the same lock the turn machinery serialises on."""
-    addr = _extern_peer(peer)
-    store.extern_seen(addr)          # D-166: the listener's own heartbeat —
-    # recorded on ARRIVAL, not on return, so a peer that waits the full window
-    # and gets nothing still counts as alive
-    deadline = time.monotonic() + min(max(timeout, 1), 55)
-    rev = None
-    # This one KEEPS `async`: the whole point of a long poll is to suspend
-    # without holding a thread, and `asyncio.sleep` is a genuine await. But
-    # `_extern_scan` takes DOC_LOCK and reads org documents, and doing that on
-    # the event loop froze every other request and every websocket frame for
-    # its duration -- No.22's rule, and a parked waiter can sit here for 55
-    # seconds rescanning. So the scan goes to the threadpool and only the
-    # sleep stays on the loop.
-    from fastapi.concurrency import run_in_threadpool
-    while True:
-        if rev != store.REVISION:
-            rev = store.REVISION
-            msgs = await run_in_threadpool(_extern_scan, addr, org, after,
-                                           fresh_only=True)
-            if msgs:
-                return {"messages": msgs, "cursor": msgs[-1]["at"]}
-        if time.monotonic() >= deadline:
-            return {"messages": []}
-        await asyncio.sleep(1.0)
 
 
 @app.get("/api/orgs/{slug}/org_inbox")
@@ -8710,13 +10163,9 @@ def mail_one(slug: str, box: str, mid: str, request: Request = cast(Request, Non
 @app.post("/api/orgs/{slug}/org_inbox/read")
 def org_inbox_read(slug: str) -> dict[str, Any]:
     """The user opened the org-inbox panel: clear its unread count."""
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
+    # PG-3d: the org-inbox read mark alone, not DOC_LOCK
+    with _entry_ledger_422(mailtx.org_of(slug, sections=["org_inbox_read"]), 404) as org:
         org.org_inbox_mark_read()
-        store.save_org(org)
     hub_changed(slug)
     return {"ok": True}
 
@@ -8749,9 +10198,12 @@ def _prune_stage(max_age_s: float = 86400.0) -> None:
 
 
 class OrgInboxSend(Body):
-    to: str                                  # @ext:/@org:/@mcp:/@net: address
+    to: str                                  # @org:/@net: (@ext:, @mcp: retired)
     body: str
     attachments: list[str] = []              # stage ids from /org_inbox/upload
+    # PG-3d (plan decision 38): a retry carrying the same key delivers to an
+    # @org: destination at most once and records the send at most once
+    op_key: str | None = None
 
 
 @app.post("/api/orgs/{slug}/org_inbox/upload")
@@ -8782,6 +10234,52 @@ async def org_inbox_upload(slug: str, request: Request,
     return {"id": sid, "name": safe, "bytes": len(data)}
 
 
+def _org_inbox_send_org(slug: str, dst: str, body: OrgInboxSend,
+                        paths: list[str], warnings: list[str]) -> str:
+    """The user's compose to another org (PG-3d, plan decision 38): the
+    DESTINATION commits first, under a receipt, and only then does the source
+    record the send, under its own. A crash between the two commits leaves
+    the mail delivered and the send unrecorded; a retry with the same
+    `op_key` replays the delivery (no second copy) and records the send once.
+    Refusals are decided before anything is written, on lock-free reads."""
+    to = f"@org:{dst}"
+    key = body.op_key or uuid.uuid4().hex
+    try:
+        src = orgtx.org_read(slug)
+    except LedgerError as e:
+        raise HTTPException(404, str(e))
+    if src.d.get("kiosk") is not None:
+        raise HTTPException(422, "a sealed kiosk org has no outside face")
+    try:
+        sealed = orgtx.org_read(dst).d.get("kiosk") is not None
+    except LedgerError:
+        sealed = True
+    try:
+        if sealed:
+            # same anti-enumeration answer as interorg_send
+            warnings.append(f"not delivered: no organization named {dst!r} "
+                            f"is reachable")
+        else:
+            supervisor.deliver_org_inbox(dst, f"@org:{slug}", body.body,
+                                         attachments=paths or None,
+                                         op_key=f"org-send:{slug}:{key}")
+        fp = hashlib.sha256(f"{to}\0{body.body}".encode("utf-8")).hexdigest()
+        with _entry_ledger_422(orgtx.org_tx(
+                slug, **mailtx.OUTSIDE_SEND_ROWS,
+                op_key=f"org-send-out:{slug}:{key}", fingerprint=fp), 404) as tx:
+            if tx.replayed:
+                return str((tx.result or {}).get("oid") or "")
+            oid = tx.org._org_inbox_log("out", to, body.body, by="user")
+            tx.result = {"oid": oid}
+        return oid
+    finally:
+        for p in paths:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+
+
 @app.post("/api/orgs/{slug}/org_inbox/send")
 def org_inbox_send(slug: str, body: OrgInboxSend,
                    request: Request) -> dict[str, Any]:
@@ -8792,9 +10290,12 @@ def org_inbox_send(slug: str, body: OrgInboxSend,
         # user ruling 2026-08-05: @ext: retired with chatq — refuse loudly
         raise HTTPException(422, "the @ext: address form is retired — reach "
                                  "chats through the mail hub (@net:<slug>)")
-    if not to.startswith(("@org:", "@mcp:", "@net:")):
+    if to.startswith("@mcp:"):
+        # user ruling 2026-09-25: retired with the external-chat MCP server
+        raise HTTPException(422, ledger_mod.MCP_RETIRED)
+    if not to.startswith(("@org:", "@net:")):
         raise HTTPException(422, "recipient must be an outside address "
-                                 "(@org:/@mcp:/@net:)")
+                                 "(@org:/@net:)")
     paths: list[str] = []
     for sid in body.attachments[:10]:
         staged = _COMPOSE_STAGE.get(sid)
@@ -8802,16 +10303,14 @@ def org_inbox_send(slug: str, body: OrgInboxSend,
             raise HTTPException(422, f"staged attachment {sid!r} not found — "
                                      f"re-upload and retry")
         paths.append(staged[1])
-    if paths and to.startswith("@mcp:"):
-        # ruled 2026-08-05: that transport is text-only
-        raise HTTPException(422, "attachments ride @net: and @org: mail "
-                                 "only — @mcp: is a text-only transport")
     warnings: list[str] = []
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
+    if to.startswith("@org:"):
+        oid = _org_inbox_send_org(slug, to[5:], body, paths, warnings)
+        mail_notify(slug, USER, "org_inbox")
+        hub_changed(slug)
+        return {"id": oid, "warnings": warnings}
+    # PG-3d: the outbound org-inbox row and the hub spool, not DOC_LOCK
+    with _entry_ledger_422(mailtx.org_of(slug, **mailtx.OUTSIDE_SEND_ROWS), 404) as org:
         if org.d.get("kiosk") is not None:
             raise HTTPException(422, "a sealed kiosk org has no outside face")
         if to.startswith("@net:") and to[5:] == (
@@ -8832,7 +10331,6 @@ def org_inbox_send(slug: str, body: OrgInboxSend,
         if to.startswith("@net:"):
             net.spool_append(org, to[5:], body.body, oid=oid,
                              attachments=paths)
-        store.save_org(org)
     # spark on the wire (user spec 2026-08-05): a user compose leaves the
     # eye for the mailbox like an agent's outbound leaves its node
     mail_notify(slug, USER, "org_inbox")
@@ -8857,7 +10355,6 @@ def org_inbox_send(slug: str, body: OrgInboxSend,
                 os.remove(p)
             except OSError:
                 pass
-    # @mcp: — the org-inbox entry IS the delivery; the peer polls
     hub_changed(slug)
     return {"id": oid, "warnings": warnings}
 
@@ -8866,16 +10363,12 @@ def org_inbox_send(slug: str, body: OrgInboxSend,
 def user_inbox_clear(slug: str) -> dict[str, Any]:
     """Mark-all-read: archives into the read log (mirror of a node's mail_log)
     rather than deleting."""
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-        except LedgerError as e:
-            raise HTTPException(404, str(e))
-        log = org.d.setdefault("user_mail_log", [])
-        log.extend(org.d.get("user_inbox", []))
+    # PG-3d: the user inbox and its read archive only, not DOC_LOCK
+    with _entry_ledger_422(mailtx.org_of(slug, **mailtx.READ_MARK_ROWS), 404) as org:
+        ledger_mod.file_read_mail(org.d.setdefault("user_mail_log", []),
+                                  org.d.get("user_inbox", []))
 
         org.d["user_inbox"] = []
-        store.save_org(org)
     hub_changed(slug)
     return {"ok": True}
 
@@ -8938,13 +10431,12 @@ def crash_report(body: CrashReportBody, request: Request) -> dict[str, Any]:
     delivered = False
     if org_slug and not _public_slug(request):
         try:
-            with store.DOC_LOCK:
-                org = store.load_org(org_slug)
+            # PG-3d: the crash-reporting seat's mail rows, not DOC_LOCK
+            with mailtx.org_of(org_slug, **mailtx.send_rows("crash-reporting")) as org:
                 target = org.nodes.get("crash-reporting")
                 if target is not None and target.get("state") == "live":
                     org.post_mail(USER, "crash-reporting",
                                   crashreports.format_mail_body(report))
-                    store.save_org(org)
                     delivered = True
             if delivered:
                 mail_notify(org_slug, USER, "crash-reporting")
@@ -9168,9 +10660,10 @@ class AudienceAction(Body):
 def user_audience(slug: str, body: AudienceAction) -> dict[str, Any]:
     """User-side audience management: grant/deny requests that reached you, and
     one-click rescind of any audience (your authority is unconditional)."""
-    with store.DOC_LOCK:
+    # PG-3d: audiences, requests and the mail/notice rows a decision writes,
+    # not DOC_LOCK
+    with _entry_ledger_422(mailtx.org_of(slug, **mailtx.audience_rows(body.node)), 404) as org:
         try:
-            org = store.load_org(slug)
             if body.action == "grant":
                 result = org.audience_grant(USER, body.node, body.target)
             elif body.action == "deny":
@@ -9181,7 +10674,6 @@ def user_audience(slug: str, body: AudienceAction) -> dict[str, Any]:
                 raise LedgerError("action must be grant|deny|revoke")
         except LedgerError as e:
             raise HTTPException(422, str(e))
-        store.save_org(org)
     for t in result.pop("drive", []):
         supervisor.send_message(slug, t, "(orgtree) You have new mail above.",
                                 mail_ping=True, ping_reason="audience")
@@ -9495,8 +10987,13 @@ def _arg_flag(a: dict[str, Any], key: str) -> bool:
 _DESKTOP_RELAUNCH_TOOLS = frozenset({
     "orgtree_self_relaunch", "orgtree_prime_relaunch",
 })
+#: Refused by name on the desktop-managed profile. `orgtree_self_update` is
+#: the deprecated alias of `orgtree_self_restart` (rename 2026-08-21), so it is
+#: steered to the same relaunch verb. Left dispatchable it filed a desktop
+#: maintenance request with action `update` and a caller-chosen target
+#: (`mailhub`, `both`), an update-shaped operation the relaunch verbs refuse.
 _DESKTOP_LEGACY_RESTART_TOOLS = frozenset({
-    "orgtree_self_restart", "orgtree_prime_restart",
+    "orgtree_self_restart", "orgtree_self_update", "orgtree_prime_restart",
 })
 
 
@@ -10055,6 +11552,88 @@ def _rehire_seat(org: Org, slug: str, actor: str, a: dict[str, Any],
     return result
 
 
+def _retool_seat(org: Org, slug: str, actor: str, a: dict[str, Any]
+                 ) -> tuple[dict[str, Any], tuple[str, str | None] | None]:
+    """`orgtree_retool`, lifted out of the dispatch whole (like `_rehire_seat`)
+    so the DOC_LOCK cycle and PG-3a's door run the same code. Returns the
+    result and, when the call set `effort`, `(node, level before)` for the
+    live-effort send that runs after the save."""
+    # effort joins retool (ceiling spec §6): a cost dial, so a
+    # superior may set it on REPORTS — never on itself (set_scope's
+    # authority check refuses self). raise_ceiling is deliberately
+    # NOT plumbed: an agent can never raise a kiosk ceiling.
+    #
+    # THE PROVIDER ACCOUNT JOINS RETOOL TOO (user decision
+    # 2026-09-12: "the agent hire / rehire / retool tools should be
+    # able to decide which account to hire on"). This is the surface
+    # for an agent that is ALREADY LIVE — the hire fields choose an
+    # account at the moment a seat is created, and until now nothing
+    # agent-facing could move one afterwards.
+    #
+    # ⚠ CHECKED HERE, WRITTEN BELOW, and the split is the point.
+    # The CHECKS come first so a refusal names the rule the caller
+    # actually broke: `set_scope` would otherwise answer a
+    # self-rebind with "a self-retool sets team_charter only", which
+    # reads as "pass team_charter too" when the real answer is that
+    # an agent never chooses its own billing. The WRITE comes after
+    # set_scope, because `assign_account` notifies outside the
+    # document lock and a scope refusal arriving afterwards would
+    # have announced an account change this transaction discarded.
+    #
+    # ⚠ AND THE AUTHORITY IS NOT retool's. The scope fields are
+    # governed by set_scope's ancestor check; billing is governed by
+    # the stricter rule `orgtree_account_assign` already enforces —
+    # strictly DOWNWARD, never on yourself, because an agent
+    # choosing which account it bills is the one thing neither its
+    # superiors nor the user ever delegated.
+    _rt_acct: str | None = None
+    _rt_target = str(a.get("node") or "")
+    if a.get("account") is not None:
+        if _rt_target == actor:
+            raise HTTPException(
+                403, "you cannot choose your own account — a "
+                     "node's billing is its supervisors' and the "
+                     "user's decision, never its own (a "
+                     "self-retool carries team_charter only)")
+        if not org.is_ancestor(actor, _rt_target):
+            raise HTTPException(
+                403, f"you can only rebind accounts of your "
+                     f"subordinates ({_rt_target!r} is not one)")
+        _rt_acct = str(a.get("account") or "").strip()
+        try:
+            registry.validate_selection(
+                slug, str(org.node(_rt_target).get("model") or ""),
+                _rt_acct)
+        except ValueError as e:
+            raise LedgerError(str(e)) from e
+    rdirs, dwarns = supervisor.sandbox_dirs_to_host(
+        org, a.get("add_dirs"))
+    effort_before: str | None = None
+    if a.get("effort") is not None:
+        effort_before = org.effective_effort(_rt_target)
+    result = org.set_scope(actor, a.get("node", ""),
+                           add_dirs=rdirs,
+                           tools=a.get("tools"),
+                           org_visibility=a.get("org_visibility"),
+                           # D-102: capped at the actor's own by
+                           # set_scope's strict parent clamp —
+                           # nobody grants above themselves
+                           permission_mode=a.get("permission_mode"),
+                           charter=a.get("charter"),
+                           team_charter=a.get("team_charter"),
+                           effort=a.get("effort"),
+                           prefer_reserve=a.get("prefer_reserve"),
+                           account_fallback=a.get("account_fallback"),
+                           clear_account_fallback=bool(a.get("clear_account_fallback")))
+    if dwarns:
+        result.setdefault("warnings", []).extend(dwarns)
+    effort = ((_rt_target, effort_before)
+              if a.get("effort") is not None else None)
+    if _rt_acct is not None:
+        result["_account_selection"] = (_rt_target, _rt_acct, "retool")
+    return result, effort
+
+
 def _staff_mode(a: dict[str, Any]) -> str:
     """hire or rehire, decided ONCE and read everywhere — the pre-lock rename
     step and the dispatch must agree about which one this call is.
@@ -10291,14 +11870,15 @@ def _forced_self_restart(body: AgentCall, a: dict[str, Any]) -> dict[str, Any]:
     reason = str(a.get("reason") or "")
     if target not in ("org", "mailhub", "both"):
         raise HTTPException(422, "target must be org|mailhub|both")
-    with store.DOC_LOCK:
-        try:
-            org = store.load_org(slug)
-            org.node(nid)
-            org.self_restart_gate(nid, force=True, reason=reason)
-        except LedgerError as e:
-            raise HTTPException(422, str(e))
-        store.save_org(org)
+    # PG-3r: the gate reads the caller's row and the audience/kiosk sections
+    # for its authority decision and appends its `self_restart` event.
+    try:
+        with orgtx.org_tx(slug, share_nodes=[nid], share_sections=["audiences", "kiosk"],
+                          logs=["events"]) as tx:
+            tx.org.node(nid)
+            tx.org.self_restart_gate(nid, force=True, reason=reason)
+    except LedgerError as e:
+        raise HTTPException(422, str(e))
     # ⚠ the mailhub leg never had a mid-turn precondition — it rebuilds a
     # container and no agent turn runs through it — so there is nothing for
     # force to force. Stopping the machine for it would be pure damage.
@@ -10310,12 +11890,11 @@ def _forced_self_restart(body: AgentCall, a: dict[str, Any]) -> dict[str, Any]:
     r = supervisor.launch_self_restart(slug, nid, target,
                                        force=True, quiesced=q)
     if q:
-        with store.DOC_LOCK:
-            org = store.load_org(slug)
-            org.log_forced_restart(
+        # PG-3r: the cost record is one appended event.
+        with orgtx.org_tx(slug, logs=["events"]) as tx:
+            tx.org.log_forced_restart(
                 nid, cast("list[str]", q.get("cut") or []),
                 cast("list[str]", q.get("not_settled") or []))
-            store.save_org(org)
     hub_changed(slug)
     return r
 
@@ -10346,8 +11925,10 @@ def _op_ev_baseline(org: Org) -> int | None:
     free there. A SQLite document must NOT be made to materialise its
     unbounded events log merely to number a receipt — for that backend the
     count comes from `store.appended_since_load` afterwards, and only if the
-    dispatch materialised the section itself."""
-    if store.STORE_BACKEND != "sqlite":
+    dispatch materialised the section itself. PG-4: postgres is the same row
+    backend, and counting here would materialise its whole events log on
+    every operation."""
+    if not store.row_store():
         return len(cast("list[Any]", org.d.get("events") or []))
     return None
 
@@ -10572,6 +12153,47 @@ def _op_absent(key: str, cls: str, at: str = "") -> dict[str, Any]:
                       "have happened — the outcome is unknown; do not reissue"}
 
 
+def _inbox_call(body: AgentCall, a: dict[str, Any],
+                caller: dict[str, Any]) -> dict[str, Any]:
+    """`orgtree_inbox`: the calling agent's OWN waiting mail (user ruling
+    2026-09-29, item let-agents-manually-check-their-unread-inbox).
+
+    The mailbox is the authenticated caller's, at the generation this call
+    authenticated as; no argument can name another one (`inbox.check_args`
+    refuses anything outside each action's own set with one fixed text).
+    `list` only looks. `fetch` and `chunk` run the supervisor's receipted
+    manual delivery, keyed by our own client's `op_key`/`op_epoch` when it
+    sent them. A refusal is an answer (`ok: false`), not an HTTP error, so
+    the agent reads why."""
+    if body.node == USER or not caller:
+        raise HTTPException(422, "the manual inbox belongs to agents")
+    rest = {k: v for k, v in a.items() if k != "action"}
+    action = str(a.get("action") or "")
+    refused = inbox.check_args(action, rest)
+    if refused is not None:
+        return refused
+    generation = int(caller.get("generation") or 0)
+    if action == "list":
+        return supervisor.manual_list(body.org, body.node, generation,
+                                      cursor=rest.get("cursor"),
+                                      limit=rest.get("limit"))
+    if action == "fetch":
+        return supervisor.manual_fetch(body.org, body.node, generation,
+                                       rest.get("message_ids"),
+                                       op_key=body.op_key, op_epoch=body.op_epoch)
+    if not body.op_key:
+        # the unkeyed chunk read stays internal (decision42 D1): through the
+        # door every chunk call is a receipted transaction, which is what
+        # the Codex confirmation matches its echo against
+        return inbox.refusal("op_key_required", "chunk needs this client's "
+                             "operation key; nothing was read")
+    return supervisor.manual_fetch_chunk(body.org, body.node, generation,
+                                         rest.get("delivery_id"),
+                                         rest.get("message_id"),
+                                         rest.get("chunk_index"),
+                                         op_key=body.op_key, op_epoch=body.op_epoch)
+
+
 def _op_lookup_call(body: AgentCall, a: dict[str, Any]) -> dict[str, Any]:
     """"Did the call carrying this key apply?" — five answers, and `unknown`
     whenever the truth is not provable.
@@ -10603,9 +12225,12 @@ def _op_lookup_call(body: AgentCall, a: dict[str, Any]) -> dict[str, Any]:
     except LedgerError as e:
         raise HTTPException(422, str(e))
     cls = opreceipts.coverage(tool, for_args)
-    with store.DOC_LOCK:
+
+    def decide(org: Org) -> tuple[dict[str, Any], int | None]:
+        """The answer, and the receipt seq to witness when this call FENCED
+        the key (None when it wrote nothing). Runs on the document the
+        caller holds — under DOC_LOCK, or inside the row transaction."""
         try:
-            org = store.load_org(body.org)
             org.node(body.node)
         except LedgerError as e:
             raise HTTPException(422, str(e))
@@ -10619,9 +12244,9 @@ def _op_lookup_call(body: AgentCall, a: dict[str, Any]) -> dict[str, Any]:
         # and generation, `opreceipts.classify`)
         state = opreceipts.classify(row, tool, for_args)
         if state == "conflict":
-            return {"state": "conflict", "op_key": key, "receipt": row,
+            return ({"state": "conflict", "op_key": key, "receipt": row,
                     "status": "that key already identifies a DIFFERENT "
-                              "operation; this one was never done"}
+                              "operation; this one was never done"}, None)
         if str(a.get("op_epoch") or "") != epoch:
             # the key's epoch was rotated (restart or rewind): the log's
             # silence means nothing. A matching applied row is durable
@@ -10629,12 +12254,12 @@ def _op_lookup_call(body: AgentCall, a: dict[str, Any]) -> dict[str, Any]:
             # reported as a fence, not as an absence proof; no fence is
             # written (admission already refuses a stale epoch).
             if state == "applied":
-                return {"state": "applied", "op_key": key, "receipt": row,
+                return ({"state": "applied", "op_key": key, "receipt": row,
                         "status": "the document transaction committed (its "
                                   "receipt survived, and is being read under "
                                   "a later operation epoch); post-commit "
-                                  "effects are not covered"}
-            return {"state": "unknown", "reason": "epoch_rotated",
+                                  "effects are not covered"}, None)
+            return ({"state": "unknown", "reason": "epoch_rotated",
                     "op_key": key, "coverage": cls, "fenced": state == "fenced",
                     "status": "the operation epoch this key was issued under "
                               "is no longer current — the backend restarted, "
@@ -10643,54 +12268,111 @@ def _op_lookup_call(body: AgentCall, a: dict[str, Any]) -> dict[str, Any]:
                               "call applied. Do NOT reissue it; check the org."
                               + (" (A lookup had fenced this key, so no "
                                  "document transaction under it can commit "
-                                 "from here on.)" if state == "fenced" else "")}
+                                 "from here on.)" if state == "fenced" else "")}, None)
         if state == "applied":
-            return {"state": "applied", "op_key": key, "receipt": row,
+            return ({"state": "applied", "op_key": key, "receipt": row,
                     "status": "the document transaction committed; "
-                              "post-commit effects are not covered"}
+                              "post-commit effects are not covered"}, None)
         if state == "fenced":
             # an earlier lookup already fenced it — the SAME answer as fencing
             # it here, including the coverage caveat: a fence stops the
             # document effect, and cannot speak for work done outside it.
             # The class comes from the ROW, not from the asker's verb, which
             # by now is known to be the same call.
-            return _op_absent(key, str(cast("dict[str, Any]", row).get("cls")
+            return (_op_absent(key, str(cast("dict[str, Any]", row).get("cls")
                                        or cls),
                               at=str(cast("dict[str, Any]", row).get("at")
-                                     or ""))
+                                     or "")), None)
         with _OP_INFLIGHT_LOCK:
             running = (body.org, body.node, key) in _OP_INFLIGHT
         if running:
-            return {"state": "running", "op_key": key,
+            return ({"state": "running", "op_key": key,
                     "status": "a call with this key is executing in THIS "
                               "backend process right now; its outcome is not "
-                              "decided yet — do not reissue"}
+                              "decided yet — do not reissue"}, None)
         if not opreceipts.receipted(tool, for_args):
-            return {"state": "unknown", "reason": "unsupported_operation",
+            return ({"state": "unknown", "reason": "unsupported_operation",
                     "op_key": key, "coverage": cls,
                     "status": "this verb never reaches the document "
                               "transaction, so no receipt can exist either "
-                              "way — the outcome is unknown"}
+                              "way — the outcome is unknown"}, None)
         # nothing recorded, nothing running: FENCE the key, then answer.
         decision, info = opreceipts.admit(d, body.node, gen, key, tool,
                                           for_args, epoch_ok=True)
         if decision == opreceipts.REFUSE:
-            return {"state": "unknown", "reason": info.get("reason"),
+            return ({"state": "unknown", "reason": info.get("reason"),
                     "op_key": key, "coverage": cls,
-                    "status": str(info.get("detail") or "")}
+                    "status": str(info.get("detail") or "")}, None)
         opreceipts.append(d, opreceipts.row(
             op_id=opreceipts.new_id(), node=body.node, generation=gen,
             key=key, mint_ms=int(cast("int", info["mint_ms"])),
             tool=tool, args=for_args, cls=cls, outcome="fenced",
             at=ledger_mod.now(),
             summary="fenced by a lookup: not recorded as applied"))
-        store.save_org(org)
-        # the fence is a committed append too: witness it (see agent_call)
-        opreceipts.witness(store.DATA_ROOT, body.org, opreceipts.seq(d))
-    return _op_absent(key, cls)
+        return _op_absent(key, cls), opreceipts.seq(d)
+
+    if pgdoor.enabled():
+        # fence-off S5: ONE row transaction on exactly the rows a keyed call
+        # on the door takes for its receipt (pgdoor.agent_spec) — the counter
+        # (op_receipts_meta) FOR UPDATE and the receipt log — so an original
+        # carrying this key and this lookup's fence serialise on the counter:
+        # either the original commits first and is found, or the fence does
+        # and the original is refused. The caller's row is only read.
+        try:
+            answer, fenced = orgtx.org_tx_call(
+                body.org, lambda tx: decide(tx.org),
+                share_nodes=[body.node], sections=[opreceipts.META],
+                logs=[opreceipts.SECTION])
+        except LedgerError as e:
+            raise HTTPException(422, str(e))
+        if fenced is not None:
+            # committed: witness it (after the commit, as the door does)
+            opreceipts.witness(store.DATA_ROOT, body.org, fenced)
+        return answer
+    with store.DOC_LOCK:
+        try:
+            org = store.load_org(body.org)
+        except LedgerError as e:
+            raise HTTPException(422, str(e))
+        answer, fenced = decide(org)
+        if fenced is not None:
+            store.save_org(org)
+            # the fence is a committed append too: witness it (see agent_call)
+            opreceipts.witness(store.DATA_ROOT, body.org, fenced)
+    return answer
 
 
 _chat_read_limiters: Any = weakref.WeakKeyDictionary()
+
+
+_ui_read_limiters: Any = weakref.WeakKeyDictionary()
+
+#: Worker threads the desk's polled reads may hold at once (#5, scale gate).
+UI_READ_THREADS = 8
+
+_ui_check_limiters: Any = weakref.WeakKeyDictionary()
+#: Worker threads for one-statement "has it changed?" checks answered before
+#: a desk read (the docket list's 304): kept apart from UI_READ_THREADS so a
+#: burst of tree reads cannot queue them.
+UI_CHECK_THREADS = 4
+
+
+async def _run_ui_read(function: Any, *args: Any) -> Any:
+    """The desk's polled reads — the org list, the org tree, the docket list —
+    on a worker from THEIR OWN capacity, not the shared 40-worker pool.
+
+    Measured in-process (2026-09-26, N=100, artifacts/ui_pool_probe.py): with
+    the shared pool full of writers parked on DOC_LOCK (40 borrowed, 20
+    waiting), each of these reads — a few ms on an idle engine, and needing
+    no lock — waited ~3.5 s for a worker; the chat read, already on its own
+    limiter, answered in 20 ms. mem-leak-probe saw the same shape under real
+    agent load (org tree p50 60 s at 2 calls/s). The reads' own work is
+    unchanged: they run the same sync function on a worker thread, only
+    admitted by a limiter agent traffic cannot exhaust. Like the chat read,
+    the wait happens on the event loop BEFORE a worker is borrowed."""
+    loop = asyncio.get_running_loop()
+    limiter = _ui_read_limiters.setdefault(loop, anyio.CapacityLimiter(UI_READ_THREADS))
+    return await anyio.to_thread.run_sync(partial(function, *args), limiter=limiter)
 
 
 async def _run_chat_read(function: Any, *args: Any) -> Any:
@@ -10714,26 +12396,64 @@ async def _agent_call_route(body: AgentCall, request: Request) -> dict[str, Any]
     # calls. Unvalidated here on purpose: `_access_emit` checks it against
     # the tool catalogue at the point of publication and drops anything else.
     profiling.label(_PROFILE_TOOL_FIELD, toolwait.tool_name(body))
-    if body.node != USER and toolwait.tool_name(body) in toolwait.TOOLS:
+    # THE SAME VERB, classified for the census — and this is where the census
+    # earns its keep. The line above gives the shipped instrument a tool name
+    # and nothing else, which is why `orgtree_work` arrives as 176 rows under
+    # one label mixing a plain `get` with a spanning `assign`, and why
+    # `orgtree_status` cannot say whether it was the self-local `working` or
+    # the parent-notifying `done`. `census.classify` reads the ACTION and the
+    # target SHAPE out of the arguments — membership in a catalogue enum and a
+    # comparison against the caller, nothing else, with no organization state
+    # loaded and no argument value retained. Beside the label rather than
+    # inside it, so the shipped record is unchanged byte for byte.
+    # ⚠ THE ARGUMENTS MUST BE UNWRAPPED THE SAME WAY THE VERB IS. A keyed call
+    # arrives as `orgtree_op_call` carrying the real call in `args["args"]`
+    # (see `_op_unwrap`), and `toolwait.tool_name` already reports the verb it
+    # WRAPS. Classifying the wrapper's own arguments against the inner verb's
+    # catalogue would find no action at all and quietly file every
+    # receipt-bearing call as unclassified — the exact silent gap this ticket
+    # exists to close, reintroduced one level in.
+    _census_args = body.args if isinstance(body.args, dict) else {}
+    if body.tool == OP_CALL and isinstance(_census_args.get("args"), dict):
+        _census_args = _census_args["args"]
+    census.classify(toolwait.tool_name(body), _census_args, body.node)
+    if body.node != USER and toolwait.managed_call(body):
         from fastapi.concurrency import run_in_threadpool
 
         def managed():
             caller = _agent_identity(body, request, durable=True)
             return toolwait.invoke(body, caller, lambda: agent_call(body, request))
-        return await run_in_threadpool(managed)
+        managed_result = await run_in_threadpool(managed)
+        # ⚠ HTTP 200 IS NOT THIS OPERATION'S OUTCOME WHEN toolwait YIELDED.
+        # After `WAIT_S` seconds `toolwait.invoke` answers `{"state":
+        # "running"}` while its daemon thread carries on and delivers the real
+        # result — including a refusal — later as durable mail. Without this
+        # line the census would record such an attempt as `outcome: "ok"`, a
+        # completion that had not happened, for the eight
+        # `mcptool.MANAGED_WAIT_TOOLS`. The census marks it NON-TERMINAL
+        # instead; the `operation_id` that would join this attempt to its
+        # completion is deliberately not recorded, because it is an identifier
+        # and causal linkage is a later stage.
+        census.managed_state(managed_result)
+        return managed_result
     if body.tool == 'orgtree_read_transcript':
         return await _run_chat_read(agent_call, body, request)
     from fastapi.concurrency import run_in_threadpool
     return await run_in_threadpool(agent_call, body, request)
 
 
-def _agent_identity(body: AgentCall, request: Request, *, durable: bool = False) -> dict[str, Any]:
-    """Authenticate before creating a managed operation, then again at execution."""
+def _agent_identity(body: AgentCall, request: Request, *, durable: bool = False,
+                    gate: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Authenticate before creating a managed operation, then again at execution.
+
+    `gate`, when given, receives the runtime projection this check read
+    (the caller's node row and the killswitch), so the halt pre-gate that
+    follows in the same call reuses it instead of reading both again."""
     # a sandboxed container's secret pins it to its OWN org — a compromised
     # sandbox cannot act as another org's agents
     identity = getattr(request.state, "agent_identity", None)
     if identity is not None:
-        if not isinstance(identity, (tuple, list)) or len(identity) != 3:
+        if not isinstance(identity, (tuple, list)) or len(identity) != 4:
             raise HTTPException(403, "unsupported authenticated agent context; reconnect this session")
         if (body.org, body.node) != tuple(identity[:2]):
             raise HTTPException(403, "agent credential identity mismatch")
@@ -10742,25 +12462,32 @@ def _agent_identity(body: AgentCall, request: Request, *, durable: bool = False)
         raise HTTPException(403, "bridge secret is scoped to its own org")
     if body.node == USER:
         return {}
-    # THE READ HALF takes the shared snapshot (store.cached_org), not a
-    # private parse — and NO LONGER UNDER DOC_LOCK (state-access
-    # rearchitecture, incident 2026-09-19: a user message send stalled for
-    # minutes). The snapshot is seq-gated and torn-proof without the lock,
-    # the identity→dispatch window was never covered by it anyway (the lock
-    # released between the two), and the dispatch re-validates the seat,
-    # halt and killswitch under its own lock on the resident. What the lock
-    # DID do under swarm load was convoy: a snapshot rebuild that fell back
-    # to a full parse ran inside it and stalled every write behind a
-    # 20-second hold.
+    # PG preflight needs the normalized caller, not docket bodies. The
+    # explicit runtime view keeps node/section coherence without refreshing
+    # the eager UI cache. Dispatch still repeats seat, halt and killswitch
+    # checks on its locked rows; no authorization relies on this preflight.
     try:
-        org = store.cached_org(body.org)
-        caller = org.node(body.node)
+        projection = (store.read_runtime_node(body.org, body.node, ("killswitch",))
+                      if store.STORE_BACKEND == "postgres" else None)
+        caller = projection.get("node") if projection is not None else None
+        if gate is not None and caller is not None:
+            gate["projection"] = projection
+        if caller is None or any(key not in caller for key in ("state", "generation", "seat_id")):
+            org = (store.load_runtime_org(body.org) if store.STORE_BACKEND == "postgres"
+                   else store.cached_org(body.org))
+            caller = org.node(body.node)
     except LedgerError as exc:
         raise HTTPException(403, "authenticated seat is missing; reconnect through a live seat") from exc
     if caller.get("state") != "live" or caller.get("successor"):
         raise HTTPException(403, "authenticated seat is archived or replaced; reconnect through its live successor")
     if identity is not None and int(caller.get("generation", 0)) != identity[2]:
         raise HTTPException(403, "agent credential is stale: session generation changed; reconnect this session")
+    # P04a-2: the credential names the SEAT, not only the reusable key. A
+    # deleted seat's token (or one minted before a rename moved the seat away)
+    # names a seat a same-name successor does not hold, and is refused here
+    # even when key and generation match.
+    if identity is not None and str(caller.get("seat_id") or "") != identity[3]:
+        raise HTTPException(403, "agent credential names another seat: that agent was deleted or replaced; reconnect through a live seat")
     if durable and not caller.get("seat_id"):
         # Legacy hires predate seat_id. Authenticate and validate the live
         # record FIRST, then mint once and persist before a managed worker
@@ -10773,13 +12500,460 @@ def _agent_identity(body: AgentCall, request: Request, *, durable: bool = False)
         # request may have minted between our snapshot and here). This
         # branch is the rare one (a legacy hire, once ever), so the cycle
         # costs nothing measurable and keeps the read path honest.
-        with store.write_org(body.org) as morg:
-            caller = morg.node(body.node)
-            if not caller.get("seat_id"):
-                caller["seat_id"] = str(uuid.uuid4())
-                store.save_org(morg)
-        caller = dict(caller)
+        if pgdoor.enabled():
+            # fence-off S5: the seat's own row FOR UPDATE, nothing else. Two
+            # racing mints meet on it: the second sees the first one's id.
+            def _mint(tx: Any) -> dict[str, Any]:
+                c = tx.org.node(body.node)
+                if not c.get("seat_id"):
+                    c["seat_id"] = str(uuid.uuid4())
+                return dict(c)
+            caller = orgtx.org_tx_call(body.org, _mint, nodes=[body.node])
+        else:
+            with store.write_org(body.org) as morg:
+                caller = morg.node(body.node)
+                if not caller.get("seat_id"):
+                    caller["seat_id"] = str(uuid.uuid4())
+                    store.save_org(morg)
+            caller = dict(caller)
     return dict(caller)
+
+
+def _list_orgs_payload(body: AgentCall) -> dict[str, Any]:
+    """`orgtree_list_orgs`: the local orgs (kiosks hidden) and the hub's
+    remote peers. A READ (fence-off S5): it once ran inside the agent_call
+    write cycle for no reason but history."""
+    # №43 (user-approved): the @org: channel was advertised but
+    # undiscoverable from inside — agents had no org listing.
+    # F-06 (§6 presence): remote peers from the hub roster ride
+    # the same listing, addressed @net:<slug>, with online /
+    # last_seen so an agent can route around a dark peer.
+    # Transport sets (user spec 2026-08-05): every entry names
+    # WHICH transports resolve it, derived from the same data
+    # the bare-name resolver consults — the list and the send
+    # agree by construction.
+    from . import org_listing
+    locs = org_listing.discovery_rows()
+    local_net = {str(o.get("net_slug")): o["slug"]
+                 for o in locs if o.get("net_slug")}
+    peers = net.remote_peers()
+    roster = {str(p.get("slug") or "")[5:] for p in peers}
+    for p in peers:
+        s = str(p.get("slug") or "")[5:]
+        p["transports"] = (["org", "net"] if s in local_net
+                           else ["net"])
+    return {"orgs": [
+        {"slug": o["slug"], "name": o.get("name", o["slug"]),
+         "you": o["slug"] == body.org,
+         "transports": ["org"] + (
+             ["net"] if o.get("net_slug") in roster else [])}
+        for o in locs] + peers}
+
+
+def _agent_door(body: AgentCall, a: dict[str, Any],
+                pre: dict[str, Any]) -> Any:
+    """Run a DECLARED tool on the row-transaction door (pgdoor.agent_tx):
+    the family body, then the in-transaction steps the resident cycle runs
+    for every tool (a routed verb drives its recipient, the kiosk credit cap,
+    an `_account_selection` left by the body), then — after the commit — the
+    family's own `after.then` callables and the generic tail."""
+    after = pgdoor.After()
+    fam = pgdoor.BODIES[body.tool]
+    notify: dict[str, Any] = {}
+
+    def fn(tx: pgdoor.AgentTx) -> Any:
+        notify.clear()
+        result = fam(tx)
+        if isinstance(result, dict):
+            routed = result.get("routed")
+            if routed and not result.get("deferred"):
+                tx.after.drive.append(str(routed))
+        k = supervisor.kiosk_cfg(tx.org)
+        if k and int(k.get("credits") or 0) > 0 \
+                and body.tool not in pgdoor.KIOSK_EXEMPT:
+            # the cap is a decision on the kiosk section: hold it
+            with pgdoor.join(body.org, share_sections=["kiosk"]):
+                _kiosk_cap_check(tx.org)
+        selection = (result.pop("_account_selection", None)
+                     if isinstance(result, dict) else None)
+        if selection is not None:
+            target, account, via = selection
+            try:
+                # doc_held: never DOC_LOCK under the row locks (decision 26)
+                disclosure = supervisor.assign_account(
+                    body.org, target, account, actor=body.node, org=tx.org,
+                    via=via, notify_change=False, doc_held=True,
+                    export=False)
+            except (RuntimeError, ValueError) as e:
+                raise LedgerError(str(e)) from e
+            old_sid = disclosure.pop("_export_old_sid", None)
+            if old_sid:
+                # the transcript copy is file IO: after the commit, never
+                # under the row locks (lead decision 40(2), review f5)
+                notify["export"] = (target, str(old_sid), tx.org)
+            result["account"] = disclosure["account"]
+            result["account_binding"] = disclosure
+            notify["account"] = target
+            if disclosure.get("unparked"):
+                notify["unpark"] = target
+            if disclosure.get("auth_thawed"):
+                notify["thaw"] = target
+        return result
+
+    def witness(org: Org, rcpt: dict[str, Any] | None) -> None:
+        if rcpt is not None:
+            # this process has now committed this seq (opreceipts.witness)
+            opreceipts.witness(store.DATA_ROOT, body.org,
+                               opreceipts.seq(cast("dict[str, Any]", org.d)))
+
+    try:
+        with _op_inflight(body):
+            result = pgdoor.agent_tx(body, a, fn, admit=_op_admit,
+                                     file=_op_file, after=after, pre=pre,
+                                     on_commit=witness)
+    except LedgerError as e:
+        # a rehire's rename committed BEFORE the door, in its own
+        # transaction: ANY refusal after it (the family body, the kiosk cap,
+        # the account binding) must say so and name the id to retry against,
+        # exactly as the cycle's handler does (review f4)
+        raise HTTPException(422, str(lifecycle_door.rename_stands(
+            e, pre.get("renamed_to"))))
+    if after.replayed:
+        # a replayed key: nothing ran and nothing committed, so NOTHING of
+        # the post-commit tail runs either (the cycle returns it the same way)
+        return result
+    # COMMITTED from here on (plan decision 27, F2): a step that raises is
+    # logged and disclosed in result["warnings"], never raised
+    ac = pgdoor.after_commit
+    if "export" in notify:
+        _xt, _xsid, _xorg = notify["export"]
+        ac(result, "account_export", supervisor.export_after_commit,
+           body.org, _xorg, _xt, _xsid, "account_assign")
+    if "account" in notify:
+        ac(result, "account_notify", supervisor.notify, body.org,
+           notify["account"], "account")
+    if "unpark" in notify:
+        ac(result, "account_unpark", supervisor.drive_account_unpark,
+           body.org, notify["unpark"])
+    if "thaw" in notify:
+        ac(result, "auth_thaw", supervisor.drive_auth_thaw, body.org,
+           notify["thaw"])
+    for then in after.then:
+        ac(result, "then:" + str(getattr(then, "__name__", "then")), then,
+           result)
+    return _agent_door_tail(body, result, after.drive)
+
+
+def _agent_door_tail(body: AgentCall, result: Any,
+                     drive: list[str]) -> Any:
+    """The GENERIC part of agent_call's post-save tail, for door tools: the
+    remote-control reap, the drive wake-ups, participation notices, the
+    reference and the hub fan-out. Tool-specific tail work (a send's
+    delivery note, a watchdog smoke run, …) is the family's, in
+    `after.then`. The legacy tail below stays for the cycle's tools until the
+    last family converts; this copy is kept to the steps every tool shares.
+
+    ⚠ NOT HERE — tool-specific legacy tail steps a family must carry in its
+    own `after.then` when it converts the tool (pg-workitems' co-review, F3):
+    switch_model's `drive_unfrozen_by_switch(stale_freeze_resumed)`;
+    orgtree_message's `mail_to` delivery note, `ping_reason="agent_mail"` and
+    `delivery_receipt.carrier_note`; send_notice's `notice_to`; the
+    inter-org send's `net.kick`; and effort_live / unstick_resume / the
+    watchdog smoke run.
+
+    Everything here runs AFTER the commit, so each step goes through
+    `pgdoor.after_commit` (plan decision 27, F2): one that raises is logged
+    and disclosed in `result["warnings"]`, and the steps after it still run."""
+    ac = pgdoor.after_commit
+    if body.tool in ("orgtree_retire", "orgtree_dissolve", "orgtree_rename",
+                     "orgtree_cheap_compact"):
+        ac(result, "remote_reap", supervisor.remote_reap, body.org)
+    for target in dict.fromkeys(drive):
+        ac(result, "drive:" + target, supervisor.send_message,
+           body.org, target,
+           "(orgtree) You have new mail above — handle it as appropriate, "
+           "and use orgtree_status when your own task state changes.",
+           mail_ping=True, sender=body.node, ping_reason=None)
+    if isinstance(result, dict) and result.get("noticed"):
+        deferred = set(result.get("noticed_deferred") or [])
+        for n in dict.fromkeys(str(x) for x in result["noticed"] if x):
+            ac(result, "notice_ping:" + n, mail_notify, body.org, body.node, n)
+            if n in deferred:
+                continue
+            r = ac(result, "notice:" + n, supervisor.send_message,
+                   body.org, n,
+                   "(orgtree) A notice arrived in your mail above — you were "
+                   "added as a participant on a docket item. Informational, "
+                   "no reply expected. Note it and continue your current "
+                   "task.",
+                   wake=False, mail_ping=True, sender=body.node,
+                   ping_reason="participation")
+            if r is not None:
+                result.setdefault("notice_delivery", {})[n] = ac(
+                    result, "notice_delivery:" + n, supervisor.delivery_note,
+                    body.org, n, r, kind="notice")
+    if isinstance(result, dict):
+        result.pop("bridge", None)
+        ac(result, "attach_ref", _attach_ref, body.org, body.tool, result)
+    ac(result, "hub_changed", hub_changed, body.org)
+    return result
+
+
+# PG-3w: the docket's mutating actions run on the door (workdoor.py). The
+# legacy `orgtree_work` branch in the cycle below stays for pgdoor.enabled()
+# == False. `mail_notify` is rebound at startup, so it is looked up per call.
+workdoor.declare(_work_identity_ready, _work_mutate,
+                 lambda slug, actor, n: mail_notify(slug, actor, n))
+
+# S1 (fence-off): the agent mail tools run on the door (maildoor.py); the
+# legacy branches in the cycle below stay for pgdoor.enabled() == False.
+# Every api/supervisor callable is looked up per call (rebound at startup).
+maildoor.declare(lambda slug, actor, n: mail_notify(slug, actor, n),
+                 lambda *a, **k: supervisor.send_message(*a, **k),
+                 lambda *a, **k: supervisor.delivery_note(*a, **k))
+
+
+def _runtime_refuse(status: int, message: str) -> NoReturn:
+    raise HTTPException(status, message)
+
+
+# S6 (fence-off plan): the runtime tools (interrupt, unstick, restart_wake,
+# self/prime restart and relaunch) run on the door (runtimedoor.py); their
+# legacy branches in the cycle below stay for pgdoor.enabled() == False.
+runtimedoor.declare(_runtime_refuse,
+                    lambda: os.environ.get('ORGTREE_DESKTOP_MANAGED') == '1',
+                    _arg_opt_int)
+
+
+def _message_door_before(call: Any, a: dict[str, Any]) -> dict[str, Any]:
+    """`orgtree_message`'s pre-transaction step (pgdoor BEFORE, run once, no
+    lock held): everything the legacy branch did that is NOT a pure function
+    of the document — the hub roster probe and the attachment work, which
+    COPIES files into the outbox and so must never re-run with the
+    transaction. The body re-resolves the recipient on the locked document
+    and refuses if it moved away from the one these attachments were
+    prepared for. ⚠ Runs before receipt admission: a REPLAYED keyed call
+    with user attachments re-copies them into outbox/ (residue without a
+    card — the same class the legacy branch already leaves when post_mail
+    refuses), and nothing else."""
+    if str(a.get("kind") or "") == "notice":
+        raise LedgerError(
+            "kind 'notice' is minted by orgtree_send_notice (a send that "
+            "never wakes the recipient) — use that tool instead")
+    # Recipient prediction reads only node relationships. Attachment handling
+    # retains its ordinary coherent snapshot. The locked body re-resolves
+    # the destination and refuses/widens when this prediction became stale.
+    runtime = store.STORE_BACKEND == "postgres" and not a.get("attachments")
+    snap = (store.load_runtime_org(str(call.org)) if runtime
+            else store.cached_org(str(call.org)))
+    dest = snap._resolve_recipient(str(a.get("to", "")), outward=True)
+    if dest.startswith("@net:"):
+        _require_net_peer(dest[5:])
+    net_atts: list[str] = []
+    user_atts: list[dict[str, Any]] = []
+    raw_atts = [str(x) for x in cast("list[Any]", a.get("attachments") or [])]
+    if raw_atts:
+        if len(raw_atts) > 10:
+            raise LedgerError("at most 10 attachments")
+        if dest == USER:
+            for rel in raw_atts:
+                user_atts.append(_agent_send_file(
+                    snap, call.node, {"path": rel}, max_bytes=None)["sent"])
+        elif dest.startswith("@net:"):
+            ab = os.path.realpath(supervisor.scratch_dir(call.org, call.node))
+            for rel in raw_atts:
+                rel = _no_nul(rel).strip().lstrip("/\\")
+                full = os.path.realpath(os.path.join(ab, rel))
+                if full != ab and not full.startswith(ab + os.sep):
+                    raise LedgerError(f"attachment escapes your "
+                                      f"scratch space: {rel}")
+                if not os.path.isfile(full):
+                    raise LedgerError(f"attachment not found: {rel}")
+                if os.path.getsize(full) > _NET_ATT_MAX:
+                    raise LedgerError(f"attachment over 25 MB: {rel}")
+                net_atts.append(full)
+        else:
+            raise LedgerError(
+                "attachments ride mail to the user or @net: "
+                "peers — for local agent recipients use "
+                "orgtree_send_file or paths")
+    out = {"dest": dest, "user_atts": user_atts, "net_atts": net_atts,
+           "had_atts": bool(raw_atts)}
+    if runtime:
+        # the door plans the message's rows from this same runtime read
+        # rather than loading the org again (pgdoor.PLAN_SNAPSHOT)
+        out[pgdoor.PLAN_SNAPSHOT] = snap
+    return out
+
+
+def _message_door_body(t: pgdoor.AgentTx) -> dict[str, Any]:
+    """The legacy `orgtree_message` branch on the locked document; its
+    post-save steps (spark, drive with ping_reason, delivery note and
+    carrier note, inter-org send, hub kick) after the commit."""
+    slug, actor, a, org = str(t.call.org), t.node, t.args, t.org
+    to = str(a.get("to", ""))
+    if to.startswith("@net:") and not any(
+            h.get("enabled") for h in org.d.get("net_hubs") or []):
+        raise LedgerError(
+            "no mailserver is configured for this org — ask the "
+            "user to enable a hub (settings → mailserver) before "
+            "addressing @net: mail")
+    dest = org._resolve_recipient(to, outward=True)
+    copied = [str(x.get("path") or x.get("name") or "")
+              for x in t.pre.get("user_atts") or []]
+    try:
+        if t.pre.get("had_atts") and dest != t.pre.get("dest"):
+            raise LedgerError("the recipient changed while the attachments "
+                              "were being prepared — send again")
+        if dest.startswith("@net:") and dest != t.pre.get("dest"):
+            # S-C: before() resolved on the shared snapshot; a hub address it
+            # did not see was never checked against the hub roster
+            raise LedgerError("the recipient changed while the send was "
+                              "being prepared — send again")
+        # the addressing rule reads the parent pointers between sender and
+        # recipient: hold them, re-derived here (p01 condition C1)
+        maildoor.hold_path(t, dest)
+        result = org.post_mail(actor, to, a.get("body", ""),
+                               a.get("kind", "message"),
+                               attachments=t.pre.get("user_atts") or None,
+                               urgent=bool(a.get("urgent")),
+                               urgent_reason=str(a.get("urgent_reason") or ""))
+    except LedgerError as e:
+        if copied:
+            # p01 condition C4: the before-step already copied these into
+            # outbox/; a refused send must say so rather than orphan them
+            raise LedgerError(f"{e} (already copied to your outbox, with no "
+                              f"card pointing at them: {', '.join(copied)})") from e
+        raise
+    delivered = result.get("delivered")
+    then = t.after.then
+    if delivered and delivered.startswith("@"):
+        then.append(lambda _r: mail_notify(slug, actor, "org_inbox"))
+    if delivered and delivered.startswith("@org:"):
+        dst, text = delivered[5:], a.get("body", "")
+        # p01 condition C2 (plan decision 38 deferred): the source records
+        # "out" in THIS transaction; the destination is written after the
+        # commit under an op_key naming this outbound mail, so a retry of the
+        # delivery is idempotent at the destination. A crash between the two
+        # leaves "out, not delivered" (a keyed replay of the tool does not
+        # re-run this step) — exactly the legacy window, and said below.
+        okey = f"agent-out:{slug}:{result.get('id') or ''}"
+        result["delivery"] = (
+            "recorded as sent; the other org's inbox is written right after "
+            "this commit — if that step fails you get a 'not delivered' "
+            "warning, and repeating this exact call does not retry it")
+
+        def _interorg(res: Any) -> None:
+            err = supervisor.interorg_send(slug, dst, text, op_key=okey)
+            if err and isinstance(res, dict):
+                res.setdefault("warnings", []).append(f"not delivered: {err}")
+        then.append(_interorg)
+    elif delivered and delivered.startswith("@net:"):
+        # the spool entry rides this transaction (atomic with the org-inbox
+        # row); the daemon ships it after the commit
+        net.spool_append(org, delivered[5:], a.get("body", ""),
+                         oid=str(result.get("id") or ""),
+                         kind=a.get("kind", "message"),
+                         attachments=list(t.pre.get("net_atts") or []))
+
+        def _kick(res: Any) -> None:
+            net.kick()
+            if isinstance(res, dict):
+                res.setdefault("warnings", []).append(
+                    "queued for the mail hub — delivery states (sent/delivered/"
+                    "read) appear on the org inbox entry")
+        then.append(_kick)
+    elif delivered is not None:
+        target = USER if delivered == "user_inbox" else delivered
+        then.append(lambda _r: mail_notify(slug, actor, target))
+        if delivered != "user_inbox" and not result.get("deferred"):
+            def _drive(res: Any) -> None:
+                r = supervisor.send_message(
+                    slug, delivered,
+                    "(orgtree) You have new mail above — handle it as "
+                    "appropriate, and use orgtree_status when your own task "
+                    "state changes.", mail_ping=True, sender=actor,
+                    ping_reason="agent_mail")
+                if isinstance(res, dict):
+                    res["delivery"] = supervisor.delivery_note(slug, delivered, r)
+                    receipt = res.get("delivery_receipt")
+                    if isinstance(receipt, dict):
+                        receipt["carrier_note"] = res["delivery"]
+            then.append(_drive)
+        elif delivered != "user_inbox":
+            state = result.get("recipient_state") or "not live"
+
+            def _deferred(res: Any) -> None:
+                if isinstance(res, dict):
+                    res["delivery"] = supervisor.delivery_note(
+                        slug, delivered, {"deferred": state})
+            then.append(_deferred)
+    return result
+
+
+maildoor.declare_message(_message_door_before, _message_door_body)
+
+
+def _present_door_before(call: Any, a: dict[str, Any]) -> dict[str, Any]:
+    """`orgtree_present`'s pre-transaction step (pgdoor BEFORE, run once, no
+    lock held): present-by-path's argument checks, the ledger gate on a
+    lock-free snapshot (a refused present leaves no outbox residue, as the
+    legacy branch promised), then the COPY into outbox/ — file IO that must
+    never re-run with the transaction. A markdown present has no before
+    work. ⚠ Runs before receipt admission: a replayed keyed call re-copies
+    the file (residue without a card, the class `_message_door_before`
+    documents), and nothing else."""
+    raw = _no_nul(str(a.get("path") or "")).strip()
+    if not raw:
+        return {}
+    if str(a.get("body") or "").strip():
+        raise LedgerError("an HTML mockup takes `path` OR `body`, not both")
+    if not _MOCKUP_EXT.search(raw):
+        raise LedgerError(
+            f"only a .html/.htm file may be presented by path — {raw} is "
+            f"not one. Markdown goes in `body`; any other file is a "
+            f"download (orgtree_send_file)")
+    snap = orgtx.org_read(str(call.org))
+    snap.present_gate(call.node, a.get("title") or "")
+    final, size = _outbox_snapshot(snap, call.node, raw, max_bytes=_MOCKUP_MAX,
+                                   always_copy=True, html_bundle=True)
+    return {"html_file": f"outbox/{final}", "html_bytes": size}
+
+
+def _present_door_body(t: pgdoor.AgentTx) -> dict[str, Any]:
+    """The legacy `orgtree_present` branch on the locked document. A path
+    was already copied by the before-step; the locked gate runs again inside
+    present_document, and a refusal there names the copy it leaves behind
+    (p01 condition C4, as `_message_door_body` does)."""
+    a = t.args
+    html = t.pre.get("html_file")
+    if not html:
+        # markdown only: `_agent_present` takes no path here, so it never
+        # reaches the copy
+        return _agent_present(t.org, t.node, {**a, "path": ""})
+    try:
+        return t.org.present_document(t.node, a.get("title") or "", "",
+                                      a.get("replaces"), html_file=str(html),
+                                      html_bytes=int(t.pre.get("html_bytes") or 0))
+    except LedgerError as e:
+        raise LedgerError(f"{e} (already copied to your outbox, with no card "
+                          f"pointing at it: {html})") from e
+
+
+def _report_door_body(t: pgdoor.AgentTx) -> dict[str, Any]:
+    """The legacy `orgtree_submit_report` branch on the locked document. It
+    mails the caller's own superior: one hop up, decided on the caller's
+    `parent` (its row is the door's own, FOR UPDATE) and delivered into the
+    superior's rows (the spec's send rows), so the addressing path is fully
+    held (p01 condition C1) without `maildoor.hold_path`. The legacy cycle
+    popped `_mail_to` into `mail_to` but never drove it (only a `drive`
+    target reads `mail_to`), so nothing is driven here either."""
+    result = _agent_submit_report(t.org, t.node, t.args)
+    result.pop("_mail_to", None)
+    return result
+
+
+presentdoor.declare(_present_door_before, _present_door_body, _report_door_body)
 
 
 def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
@@ -10793,12 +12967,19 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
         if not body.args.get('delivery_id'):
             raise HTTPException(422, 'retryable file delivery requires delivery_id')
         body = body.model_copy(update={'tool': 'orgtree_send_file'})
-    _agent_identity(body, request, durable=body.tool == 'orgtree_send_file')
+    gate: dict[str, Any] = {}
+    caller = _agent_identity(body, request, durable=body.tool == 'orgtree_send_file',
+                             gate=gate)
+    seat = (body.org, body.node)
     # ⚠ BEFORE EVERY GATE BELOW, because unwrapping only substitutes the call
     # this request was always making: after it, `body.tool` is the real verb
     # and every authority, capability and policy check below sees THAT.
     body = _op_unwrap(body)
-    _blocked = supervisor.halt.blocked(body.org, body.node)
+    # the identity check's read, not a second one: both are pre-gates, and
+    # the door re-checks halt and killswitch on its locked rows
+    _blocked = supervisor.halt.blocked(
+        body.org, body.node,
+        projection=gate.get("projection") if (body.org, body.node) == seat else None)
     if _blocked == "halt":
         raise HTTPException(409, "agent is halted — tools cannot execute until unhalt")
     if _blocked == "killswitch":
@@ -10808,6 +12989,12 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
         a = _norm_args(body.args)
     except LedgerError as e:
         raise HTTPException(422, str(e))
+    # the server half of the empty-mail guard (toolargs): a client older than
+    # the check in mcptool, or any direct caller, still cannot send a blank
+    # mail or have its misnamed text silently dropped
+    _refused = toolargs.server_refusal(body.tool, a)
+    if _refused is not None:
+        raise HTTPException(422, _refused)
     if body.tool == OP_EPOCH:
         # THE PREFLIGHT. The client asks for the operation epoch before it
         # mints a key, and binds the key to the answer. A VERB, for the same
@@ -10820,13 +13007,33 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
         # the seq it reads is what the rewind check compares and reading it
         # beside a half-written transaction would be a false rewind. The
         # resident makes this lock-consistent read cost microseconds.
-        with _entry_ledger_422(store.write_org(body.org)) as org:
+        if pgdoor.enabled():
+            # fence-off S5: a row transaction holding the receipt counter
+            # (op_receipts_meta) FOR SHARE. Every keyed call holds it FOR
+            # UPDATE until it commits, so this read never lands beside a
+            # half-written one — the reason the write lock was taken here —
+            # and it does not wait for DOC_LOCK or for other readers.
+            def _epoch(tx: Any) -> tuple[str, str]:
+                try:
+                    tx.org.node(body.node)
+                except LedgerError as e:
+                    raise HTTPException(422, str(e))
+                return opreceipts.custody(cast("dict[str, Any]", tx.org.d),
+                                          store.DATA_ROOT, body.org)
             try:
-                org.node(body.node)
+                epoch, why = orgtx.org_tx_call(
+                    body.org, _epoch, share_nodes=[body.node],
+                    share_sections=[opreceipts.META])
             except LedgerError as e:
                 raise HTTPException(422, str(e))
-            epoch, why = opreceipts.custody(cast("dict[str, Any]", org.d),
-                                            store.DATA_ROOT, body.org)
+        else:
+            with _entry_ledger_422(store.write_org(body.org)) as org:
+                try:
+                    org.node(body.node)
+                except LedgerError as e:
+                    raise HTTPException(422, str(e))
+                epoch, why = opreceipts.custody(cast("dict[str, Any]", org.d),
+                                                store.DATA_ROOT, body.org)
         return {"epoch": epoch, "org": body.org,
                 # named so a reader can see WHY a fresh epoch appeared; the
                 # client does not branch on it
@@ -10843,6 +13050,8 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
         # It runs before the gates below because a lookup performs none of
         # those operations.
         return _op_lookup_call(body, a)
+    if body.tool == inbox.TOOL:
+        return _inbox_call(body, a, caller)
     _desktop_managed = os.environ.get('ORGTREE_DESKTOP_MANAGED') == '1'
     if body.tool in ("orgtree_self_restart", "orgtree_self_update",
                      "orgtree_prime_restart", *_DESKTOP_RELAUNCH_TOOLS) \
@@ -10859,9 +13068,9 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 "profile")
         _desktop_relaunch_args(body.tool, a)
     elif _desktop_managed and body.tool in _DESKTOP_LEGACY_RESTART_TOOLS:
-        replacement = ("orgtree_self_relaunch"
-                       if body.tool == "orgtree_self_restart"
-                       else "orgtree_prime_relaunch")
+        replacement = ("orgtree_prime_relaunch"
+                       if body.tool == "orgtree_prime_restart"
+                       else "orgtree_self_relaunch")
         raise HTTPException(
             422,
             f"desktop-managed V2 renamed {body.tool} to {replacement}; "
@@ -10872,7 +13081,7 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             raise HTTPException(422, 'Desktop maintenance waits for idle; force is unavailable')
         return _forced_self_restart(body, a)
     if body.tool in ("orgtree_state_inspect", "orgtree_capabilities",
-                     "orgtree_preview"):
+                     "orgtree_preview", "orgtree_operation_census"):
         # These diagnostics deliberately share the authenticated agent gateway
         # with every other MCP call.  They never save the loaded document and
         # never call a supervisor/provider side-effect path.
@@ -10892,6 +13101,8 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                     include_archived=_arg_flag(a, "include_archived"))
             if body.tool == "orgtree_capabilities":
                 return _agent_capability_payload(org, body.node)
+            if body.tool == "orgtree_operation_census":
+                return _census_agent_payload(a)
             operation = str(a.get("operation") or "").removeprefix("orgtree_")
             if operation not in _AGENT_PREVIEW_OPS:
                 raise LedgerError(
@@ -10949,19 +13160,38 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             raise HTTPException(422, str(e))
     if body.tool in ("orgtree_read_transcript", "orgtree_read_scratch",
                      "orgtree_chart", "orgtree_send_file",
-                     "orgtree_list_tiers"):
+                     "orgtree_list_tiers", "orgtree_list_orgs"):
         try:
             # read-shaped tools, and the block says so at every branch below:
             # the shared snapshot rather than a private parse of the whole
             # document. Nothing in here saves — `send_file` is filesystem-only
             # and the rest render a payload — so the read-only contract on
             # `store.cached_org` holds. It is `org_seq`-guarded, not time-based.
-            org = store.cached_org(body.org)
-            org.node(body.node)
+            if body.tool in ("orgtree_list_orgs", "orgtree_list_tiers"):
+                from .foreground_reads import node_gates
+                pre = node_gates(body.org, body.node, ("killswitch",))
+                seat = pre["node"]
+                if seat is None:
+                    raise LedgerError(f"no such node: {body.node!r}")
+            else:
+                org = store.cached_org(body.org)
+                org.node(body.node)
+            if body.tool == "orgtree_list_orgs":
+                # fence-off S5: off the write cycle, with the two refusals
+                # the cycle gave it (same words)
+                if seat.get("halt"):
+                    raise LedgerError("agent is halted — tools cannot "
+                                      "execute until unhalt")
+                if pre.get("killswitch"):
+                    raise LedgerError("the org killswitch is latched — tools "
+                                      "cannot execute until the user "
+                                      "releases it")
+                return _list_orgs_payload(body)
             if body.tool == "orgtree_list_tiers":
                 # Provider discovery may probe a CLI or API behind its own
                 # short cache. Keep that I/O outside the global document lock.
-                org._require_live(body.node)
+                if seat["state"] != "live":
+                    raise LedgerError(f"{body.node} is {seat['state']}, not live")
                 try:
                     return _tier_discovery_payload()
                 except RuntimeError as e:
@@ -11062,9 +13292,11 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
         except LedgerError as e:
             raise HTTPException(422, str(e))
     if body.tool in ("orgtree_halt", "orgtree_unhalt"):
-        # Halt must wait OUTSIDE DOC_LOCK: the target's cleanup owns that
-        # same lock. These idempotent lifecycle operations own their saves;
-        # the receipt honestly names this PRE-transaction coverage.
+        # Halt must wait OUTSIDE any lock the target's cleanup needs. These
+        # idempotent lifecycle operations own their transactions (halt.txn);
+        # the receipt honestly names this PRE-transaction coverage, and is
+        # admitted on a lock-free read and filed in its own row transaction
+        # (S3, fence-off) — never DOC_LOCK.
         #
         # BATCHED ADMISSION (2026-09-19, approved tier-1 scope): `nodes` takes
         # a LIST and the whole group is one call — authority for every target
@@ -11085,13 +13317,17 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                            if raw_nodes else [str(a.get("node") or "")])
                 if not targets:
                     raise LedgerError("halt/unhalt needs a node or a nodes list")
-                with store.DOC_LOCK:
-                    org = store.load_org(body.org)
-                    for target in targets:
-                        org._require_authority(body.node, target)
-                    rcpt = _op_admit(org, body, a)
-                    if rcpt is not None and "replay" in rcpt:
-                        return cast("dict[str, Any]", rcpt["replay"])
+                # S3 (fence-off): admission on a lock-free coherent read
+                # (meta + receipt log), as S7's PRE windows. The authority
+                # check here is only a pre-check, as it was under DOC_LOCK,
+                # which was released before the halt: halt()/unhalt() re-run
+                # it on the LOCKED chain (halt._authorized).
+                org = orgtx.org_read(body.org, sections=[opreceipts.SECTION])
+                for target in targets:
+                    org._require_authority(body.node, target)
+                rcpt = _op_admit(org, body, a)
+                if rcpt is not None and "replay" in rcpt:
+                    return cast("dict[str, Any]", rcpt["replay"])
                 halting = body.tool == "orgtree_halt"
                 if halting and len(targets) > 1:
                     for target in targets:
@@ -11112,14 +13348,87 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                           else {"batch": len(targets), "nodes": per_node})
             except LedgerError as e:
                 raise HTTPException(422, str(e)) from e
-            with store.DOC_LOCK:
-                org = store.load_org(body.org)
-                if rcpt is not None:
-                    _op_file(org, body, a, rcpt, result)
-                    store.save_org(org)
-                    opreceipts.witness(store.DATA_ROOT, body.org,
-                                      opreceipts.seq(cast("dict[str, Any]", org.d)))
+            if rcpt is not None:
+                # S3: the receipt in its own row transaction (was DOC_LOCK +
+                # a whole load/save): the META row and the receipt log. Still
+                # PRE coverage: the halt committed in halt.txn before this.
+                with orgtx.org_tx(body.org, sections=[opreceipts.META],
+                                  logs=[opreceipts.SECTION]) as _h_tx:
+                    _op_file(_h_tx.org, body, a, rcpt, result)
+                opreceipts.witness(store.DATA_ROOT, body.org,
+                                   opreceipts.seq(cast("dict[str, Any]", _h_tx.org.d)))
             return result
+    if body.tool == "orgtree_account_mark":
+        # MANUAL CAPACITY-MARK CLEARING (user item
+        # add-agent-tool-and-ui-to-clear-account-limit-mar, rulings 2026-09-23).
+        # Out here, like continue_on, because the effect is a write to the
+        # machine's account files, not to this org's document: the clear and
+        # its audit row are one write in that store (markclear), and the org
+        # log entry plus the receipt follow in this org's own transaction.
+        #
+        # AUTHORITY IS DELIBERATELY WIDE (user ruling): any agent, any account
+        # its org can see. A hidden other-org row answers like an unknown id.
+        # Clearing resumes nobody; `frozen_here` only NAMES this org's frozen
+        # agents on that account so the caller knows who still needs a resume.
+        from . import markclear
+        _m_action = str(a.get("action") or "inspect")
+        _m_account = str(a.get("account") or "").strip()
+        try:
+            if _m_action == "inspect":
+                return markclear.inspect(_m_account, org=body.org)
+            if _m_action != "clear":
+                raise HTTPException(422, "action must be inspect or clear")
+            if not str(a.get("reason") or "").strip():
+                raise HTTPException(422, "clear needs a `reason` for the audit")
+            with _op_inflight(body):
+                # S7: admission on a lock-free coherent read (meta + receipt
+                # log). This window never saved; the DOC_LOCK it held was
+                # released before the clear, so it never excluded a
+                # concurrent same-key call either — the same parity here.
+                rcpt = _op_admit(orgtx.org_read(body.org, sections=[opreceipts.SECTION]),
+                                 body, a)
+                if rcpt is not None and "replay" in rcpt:
+                    return cast("dict[str, Any]", rcpt["replay"])
+                # the machine's account file, outside any org transaction:
+                # no org transaction can cover it (hence PRE coverage)
+                result = markclear.clear(
+                    _m_account, str(a.get("pool") or ""),
+                    a.get("expected"), source=str(a.get("source") or ""),
+                    org=body.org, actor=body.node, via="agent_tool",
+                    reason=str(a.get("reason") or ""),
+                    companion_expected=a.get("companion_expected"))
+                # S7: the audit row and the receipt in one row transaction
+                # (was DOC_LOCK + a whole load/save): the events log, and the
+                # receipt META row + log when a key rides the call
+                _m_keyed = rcpt is not None
+                with orgtx.org_tx(
+                        body.org, logs=["events"] + ([opreceipts.SECTION] if _m_keyed else []),
+                        sections=[opreceipts.META] if _m_keyed else []) as _m_tx:
+                    org = _m_tx.org
+                    if result.get("result") == "cleared":
+                        org._log("account_mark_cleared", body.node, {
+                            "account": result["account"],
+                            "source": result["source"],
+                            "pool": result["pool"],
+                            "cleared": result["cleared"],
+                            "kept": result["kept"],
+                            "reason": str(a.get("reason") or "")}, [])
+                        result = {**result, "frozen_here": markclear.frozen_on_account(
+                            cast("dict[str, Any]", org.d), {result["account"]}), "note": (
+                            "Cleared. No capacity was added and no agent was "
+                            "resumed; a frozen agent needs its own resume.")}
+                    if rcpt is not None:
+                        _op_file(org, body, a, rcpt, result)
+                if rcpt is not None:
+                    opreceipts.witness(store.DATA_ROOT, body.org,
+                                       opreceipts.seq(cast("dict[str, Any]", org.d)))
+                return result
+        except markclear.UnknownMarkAccount as e:
+            raise HTTPException(422, str(e)) from e
+        except LedgerError as e:
+            raise HTTPException(422, str(e)) from e
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
     if body.tool == "orgtree_continue_on":
         # ⭐ SWITCH A FROZEN REPORT'S ACCOUNT AND RELEASE IT IN ONE ACT (user
         # ruling 2026-09-17 21:37). The agent-side twin of the user's
@@ -11144,21 +13453,25 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
         with _op_inflight(body):
             _c_target = str(a.get("node") or "")
             try:
-                with store.DOC_LOCK:
-                    org = store.load_org(body.org)
-                    org.node(_c_target)       # 422s a bogus target before it acts
-                    if _c_target == body.node:
-                        raise HTTPException(
-                            403, "you cannot choose your own account — a "
-                                 "node's billing is its supervisors' and the "
-                                 "user's decision, never its own, and that "
-                                 "does not change because the move would also "
-                                 "release your own freeze")
-                    org._require_authority(body.node, _c_target)
-                    org._require_live(_c_target)
-                    rcpt = _op_admit(org, body, a)
-                    if rcpt is not None and "replay" in rcpt:
-                        return cast("dict[str, Any]", rcpt["replay"])
+                # S7: the gate is read-only, so a lock-free coherent read
+                # (receipt log included for admission) replaces the DOC_LOCK
+                # window; the move itself re-reads under its own row locks
+                # (`_continue_on_account`), exactly as it did after this
+                # window released DOC_LOCK
+                org = orgtx.org_read(body.org, sections=[opreceipts.SECTION])
+                org.node(_c_target)       # 422s a bogus target before it acts
+                if _c_target == body.node:
+                    raise HTTPException(
+                        403, "you cannot choose your own account — a "
+                             "node's billing is its supervisors' and the "
+                             "user's decision, never its own, and that "
+                             "does not change because the move would also "
+                             "release your own freeze")
+                org._require_authority(body.node, _c_target)
+                org._require_live(_c_target)
+                rcpt = _op_admit(org, body, a)
+                if rcpt is not None and "replay" in rcpt:
+                    return cast("dict[str, Any]", rcpt["replay"])
             except LedgerError as e:
                 raise HTTPException(422, str(e)) from e
             _c_account = str(a.get("account") or "").strip()
@@ -11174,16 +13487,23 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 # its class says so: PRE, because the switch is already durable
                 # by now. A missing receipt for this verb is `unknown`, never
                 # "nothing happened".
-                with store.DOC_LOCK:
-                    org = store.load_org(body.org)
+                # S7: a row transaction on the receipt META row + log (was
+                # DOC_LOCK + a whole load/save)
+                with orgtx.org_tx(body.org, sections=[opreceipts.META],
+                                  logs=[opreceipts.SECTION]) as _c_tx:
+                    org = _c_tx.org
                     _op_file(org, body, a, rcpt, result)
-                    store.save_org(org)
-                    opreceipts.witness(store.DATA_ROOT, body.org,
-                                       opreceipts.seq(cast("dict[str, Any]", org.d)))
+                opreceipts.witness(store.DATA_ROOT, body.org,
+                                   opreceipts.seq(cast("dict[str, Any]", org.d)))
             return result
     account_notify: str | None = None
     account_unpark: str | None = None   # a node an assignment just un-parked (SH-2)
     account_thawed: str | None = None   # a node a rebind just auth-thawed (2026-09-16)
+    # (node, archived session) whose transcript a rebind owes AFTER the save
+    # (lead decision 41: the copy is a file effect, never inside the tx)
+    account_export: tuple[str, str] | None = None
+    effort_live: str | None = None      # a node whose effort a retool changed
+    effort_before: str | None = None    # …and the level it resolved to before
     drive: list[str] = []      # nodes whose turn should run after we release the lock
     stale_freeze_resumed: list[str] = []  # switch_model cleared their freeze
     unstick_resume: tuple[str, list[str], list[str]] | None = None
@@ -11260,6 +13580,18 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             raise HTTPException(422, str(e))
         _archive_warnings = supervisor.interrupt_before_archive(
             body.org, _pre_org, _arch_node)
+    elif body.tool == "orgtree_cheap_compact":
+        # the target's background tasks are STOPPED before its session is
+        # replaced (user ruling 2026-09-29) — outside the lock for the same
+        # reason, behind the same pre-guard; the ledger re-checks under it
+        _cc_node = str(a.get("node") or "")
+        try:
+            _pre_org = store.load_org(body.org)
+            _pre_org._require_authority(body.node, _cc_node)
+        except LedgerError as e:
+            raise HTTPException(422, str(e))
+        _archive_warnings = supervisor.stop_background(
+            body.org, _pre_org, _cc_node, subtree=False)
     # ⚠ OUT HERE FOR A DIFFERENT REASON THAN THE ARCHIVE WAIT ABOVE, and the
     # same reason `orgtree_continue_on` is out here: choosing a new OpenRouter
     # agent's harness is a LIVE PROVIDER READ that spawns a Codex process, and
@@ -11272,6 +13604,29 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
     # the RESIDENT write cycle (rearchitecture Phase B): same DOC_LOCK, same
     # save fanout, same discard-on-failure — without re-parsing 11 MB of
     # document per tool call.
+    if pgdoor.routed(body.tool, a):
+        # PYPG: a family has converted this tool off DOC_LOCK (it declared
+        # its rows and body with pgdoor.declare). It runs as ONE row
+        # transaction with the shared prologue — never inside the cycle
+        # below, and never taking DOC_LOCK — and then the same generic tail.
+        return _agent_door(body, a, {"harness": _hire_harness,
+                                     "archive_warnings": _archive_warnings,
+                                     "renamed_to": _renamed_to,
+                                     "rename_warnings": _rename_warnings})
+    if pgdoor.enabled():
+        # S9 (plan decision 44 (2)): with the door on every agent verb is
+        # routed (tests/test_write_org_door_tripwire.py), so a call that
+        # arrives here is one of the cycle's refusals. State it without
+        # DOC_LOCK, in the cycle's words. Only a name that is no verb at all
+        # is refused here: a catalogue verb left undeclared or unrouted still
+        # falls through to the cycle, where that tripwire fails on it.
+        if body.tool == "orgtree_staff":
+            try:
+                _staff_mode(a)
+            except LedgerError as e:
+                raise HTTPException(422, str(e)) from None
+        if body.tool not in pgdoor.LOCKS and body.tool not in _profile_tool_names():
+            raise HTTPException(422, f"unknown orgtree tool {body.tool!r}")
     with _op_inflight(body), _entry_ledger_422(store.write_org(body.org)) as org:
         try:
             org.node(body.node)
@@ -11298,7 +13653,7 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                         "send that never wakes the recipient) — use that "
                         "tool instead")
                 # F-06 D: outbound attachments — @net: recipients only in v1
-                # (ruled; @mcp: is a text-only transport, @org: local
+                # (ruled; @org: local
                 # mail has its own path). Validated BEFORE post_mail so a
                 # refused send records nothing.
                 if str(a.get("to", "")).startswith("@net:") \
@@ -11391,47 +13746,6 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 if delivered and delivered.startswith("@org:"):
                     # outbound to ANOTHER ORG's inbox — direct
                     org_send = (delivered[5:], a.get("body", ""))
-                elif delivered and delivered.startswith("@mcp:"):
-                    # a polling external chat: the org-inbox entry IS the
-                    # delivery — the peer reads it via the extern MCP server.
-                    #
-                    # D-166: so "delivered" was never true here, and the agent
-                    # acted on it. @mcp: is a PULL transport — the row is
-                    # FILED and a peer may or may not ever collect it; a send
-                    # into a handle whose panel closed returned exactly the
-                    # same cheerful 200 as one into a live channel, and the
-                    # agent had nothing it could ever act on. Say what really
-                    # happened instead, and — when we have a sighting to go on
-                    # — say how long the silence has run.
-                    #
-                    # ⚠ Rewritten HERE, after the branch above has already
-                    # routed, and never in post_mail: the elif chain below
-                    # tests `delivered is not None`, so a False from the
-                    # ledger would fall through it into mail_notify() and
-                    # drive.append(False).
-                    seen = store.extern_last_seen(delivered)
-                    silent_h = ((time.time() - store._epoch(seen)) / 3600
-                                if seen else 0.0)
-                    result["filed"] = delivered
-                    result["delivered"] = False
-                    if seen is None:
-                        result["status"] = (
-                            f"filed for {delivered} — but that peer has NEVER "
-                            f"polled this machine, so nothing is known to be "
-                            f"listening. It is a pull transport: nobody is "
-                            f"pushed to. Do not treat this as an answer "
-                            f"delivered.")
-                    elif silent_h >= 1:
-                        result["status"] = (
-                            f"filed for {delivered} — last heard from it "
-                            f"{silent_h:.1f}h ago (at {seen}). It collects on "
-                            f"its own schedule; if that silence looks wrong, "
-                            f"the channel may be gone.")
-                    else:
-                        result["status"] = (
-                            f"filed for {delivered} — it was polling recently "
-                            f"(last seen {seen}), so it should collect this. "
-                            f"Delivery is still its choice, not ours.")
                 elif delivered and delivered.startswith("@net:"):
                     # F-06: stage the spool entry on the SAME loaded org — it
                     # rides this block's save, so the org-inbox row and the
@@ -11834,10 +14148,10 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 elif act == "cancel":
                     result = restart_wake.cancel_restart_wake(body.org, target)
                 else:
-                    if a.get("mode") and a.get("mode") != "one_shot":
+                    if "mode" in a:            # retired 2026-09-28: refused, never ignored
                         raise HTTPException(
                             422,
-                            "only one-shot restart wakes are supported (re-arm after waking if needed)")
+                            "`mode` is retired: only one-shot restart wakes are supported (re-arm after waking if needed)")
                     reason = a.get("reason")
                     if reason is not None:
                         reason = str(reason)[:200]
@@ -11882,7 +14196,10 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                     # clobbered by that later save of the stale copy
                     result = supervisor.assign_account(
                         body.org, target, str(a.get("account") or ""),
-                        actor=body.node, org=org)
+                        actor=body.node, org=org, export=False)
+                    _xsid = result.pop("_export_old_sid", None)
+                    if _xsid:
+                        account_export = (target, str(_xsid))
                     # SH-2 (state-review fix): this caller owns the save, so
                     # assign_account did NOT drive the unpark wake — do it
                     # after the save below on the flag it returned.
@@ -11893,74 +14210,9 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 except (RuntimeError, ValueError) as e:
                     raise HTTPException(422, str(e))
             elif body.tool == "orgtree_retool":
-                # effort joins retool (ceiling spec §6): a cost dial, so a
-                # superior may set it on REPORTS — never on itself (set_scope's
-                # authority check refuses self). raise_ceiling is deliberately
-                # NOT plumbed: an agent can never raise a kiosk ceiling.
-                #
-                # THE PROVIDER ACCOUNT JOINS RETOOL TOO (user decision
-                # 2026-09-12: "the agent hire / rehire / retool tools should be
-                # able to decide which account to hire on"). This is the surface
-                # for an agent that is ALREADY LIVE — the hire fields choose an
-                # account at the moment a seat is created, and until now nothing
-                # agent-facing could move one afterwards.
-                #
-                # ⚠ CHECKED HERE, WRITTEN BELOW, and the split is the point.
-                # The CHECKS come first so a refusal names the rule the caller
-                # actually broke: `set_scope` would otherwise answer a
-                # self-rebind with "a self-retool sets team_charter only", which
-                # reads as "pass team_charter too" when the real answer is that
-                # an agent never chooses its own billing. The WRITE comes after
-                # set_scope, because `assign_account` notifies outside the
-                # document lock and a scope refusal arriving afterwards would
-                # have announced an account change this transaction discarded.
-                #
-                # ⚠ AND THE AUTHORITY IS NOT retool's. The scope fields are
-                # governed by set_scope's ancestor check; billing is governed by
-                # the stricter rule `orgtree_account_assign` already enforces —
-                # strictly DOWNWARD, never on yourself, because an agent
-                # choosing which account it bills is the one thing neither its
-                # superiors nor the user ever delegated.
-                _rt_acct: str | None = None
-                _rt_target = str(a.get("node") or "")
-                if a.get("account") is not None:
-                    if _rt_target == body.node:
-                        raise HTTPException(
-                            403, "you cannot choose your own account — a "
-                                 "node's billing is its supervisors' and the "
-                                 "user's decision, never its own (a "
-                                 "self-retool carries team_charter only)")
-                    if not org.is_ancestor(body.node, _rt_target):
-                        raise HTTPException(
-                            403, f"you can only rebind accounts of your "
-                                 f"subordinates ({_rt_target!r} is not one)")
-                    _rt_acct = str(a.get("account") or "").strip()
-                    try:
-                        registry.validate_selection(
-                            body.org, str(org.node(_rt_target).get("model") or ""),
-                            _rt_acct)
-                    except ValueError as e:
-                        raise LedgerError(str(e)) from e
-                rdirs, dwarns = supervisor.sandbox_dirs_to_host(
-                    org, a.get("add_dirs"))
-                result = org.set_scope(body.node, a.get("node", ""),
-                                       add_dirs=rdirs,
-                                       tools=a.get("tools"),
-                                       org_visibility=a.get("org_visibility"),
-                                       # D-102: capped at the actor's own by
-                                       # set_scope's strict parent clamp —
-                                       # nobody grants above themselves
-                                       permission_mode=a.get("permission_mode"),
-                                       charter=a.get("charter"),
-                                       team_charter=a.get("team_charter"),
-                                       effort=a.get("effort"),
-                                       prefer_reserve=a.get("prefer_reserve"),
-                                       account_fallback=a.get("account_fallback"),
-                                       clear_account_fallback=bool(a.get("clear_account_fallback")))
-                if dwarns:
-                    result.setdefault("warnings", []).extend(dwarns)
-                if _rt_acct is not None:
-                    result["_account_selection"] = (_rt_target, _rt_acct, "retool")
+                result, _rt_effort = _retool_seat(org, body.org, body.node, a)
+                if _rt_effort is not None:
+                    effort_live, effort_before = _rt_effort
             elif body.tool == "orgtree_retire":
                 result = org.retire(body.node, a.get("node"))  # type: ignore[arg-type]  # node() 422s on None
                 if _archive_warnings:
@@ -11969,6 +14221,8 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 # FR-24: superior-only by _require_authority; the transcript
                 # copy rides the same locked save window as the ledger change
                 result = org.cheap_compact(body.node, a.get("node"))  # type: ignore[arg-type]
+                if _archive_warnings:
+                    result.setdefault("warnings", []).extend(_archive_warnings)
                 supervisor.export_predecessor_transcript(
                     org, str(a.get("node") or ""),
                     old_sid=cast(str, result.get("old_session")),
@@ -11984,37 +14238,9 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             elif body.tool == "orgtree_move":
                 _batch = a.get("moves")
                 if _batch:
-                    # D-224 ③: several moves as one transaction — the whole
-                    # list rides this handler's load-mutate-save window, and
-                    # the ledger restores its own doc on a mid-batch refusal
-                    if not isinstance(_batch, list):
-                        raise LedgerError("`moves` must be a list of "
-                                          "{node, new_parent}")
-                    # …and so must every ELEMENT (redteam 2026-09-02): the
-                    # list check alone let `["abc"]`, `[5]`, `[True]` reach
-                    # `.get` on a str/int/bool → AttributeError → a 500 out of
-                    # the gateway an agent is holding a tool result open on.
-                    # An LLM writes ["a","b"] for this shape readily; D-169's
-                    # rule is that a bad argument 422s with a reason.
-                    _mv: list[tuple[str, str | None]] = []
-                    for i, m in enumerate(cast("list[Any]", _batch)):
-                        if not isinstance(m, dict):
-                            raise LedgerError(
-                                f"moves[{i}] must be an object "
-                                f"{{node, new_parent}}, not "
-                                f"{type(cast('object', m)).__name__}")
-                        _m = cast("dict[str, Any]", m)
-                        if "new_parent" not in _m:
-                            # the schema marks it required, and its absence
-                            # silently meant THE TOP LEVEL — a promotion the
-                            # caller never typed (and one only the user may
-                            # make). Say so instead of guessing.
-                            raise LedgerError(
-                                f"moves[{i}] has no `new_parent` — name the "
-                                f'new superior, or pass "" for the top level '
-                                f"(user only)")
-                        _mv.append((str(_m.get("node") or ""),
-                                    _m.get("new_parent") or None))
+                    # D-224 ③: several moves as one transaction; the
+                    # argument checks are shared with the door
+                    _mv = lifecycle_door.parse_moves(_batch)
                     result = org.move_batch(body.node, _mv)
                 else:
                     result = org.move(body.node, a.get("node", ""),
@@ -12025,31 +14251,6 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             elif body.tool == "orgtree_self_subjugate":
                 result = org.subjugate(body.node, body.node,
                                        a.get("target", ""))
-            elif body.tool == "orgtree_list_orgs":
-                # №43 (user-approved): the @org: channel was advertised but
-                # undiscoverable from inside — agents had no org listing.
-                # F-06 (§6 presence): remote peers from the hub roster ride
-                # the same listing, addressed @net:<slug>, with online /
-                # last_seen so an agent can route around a dark peer.
-                # Transport sets (user spec 2026-08-05): every entry names
-                # WHICH transports resolve it, derived from the same data
-                # the bare-name resolver consults — the list and the send
-                # agree by construction.
-                locs = [o for o in store.list_orgs() if not o.get("kiosk")]
-                local_net = {str(o.get("net_slug")): o["slug"]
-                             for o in locs if o.get("net_slug")}
-                peers = net.remote_peers()
-                roster = {str(p.get("slug") or "")[5:] for p in peers}
-                for p in peers:
-                    s = str(p.get("slug") or "")[5:]
-                    p["transports"] = (["org", "net"] if s in local_net
-                                       else ["net"])
-                result = {"orgs": [
-                    {"slug": o["slug"], "name": o.get("name", o["slug"]),
-                     "you": o["slug"] == body.org,
-                     "transports": ["org"] + (
-                         ["net"] if o.get("net_slug") in roster else [])}
-                    for o in locs] + peers}
             elif body.tool == "orgtree_dissolve":
                 result = org.dissolve(body.node, a.get("node"))  # type: ignore[arg-type]  # node() 422s on None
                 if _archive_warnings:
@@ -12209,16 +14410,25 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 routed = result.get("routed")
                 if routed and not result.get("deferred"):
                     drive.append(str(routed))
-            _kiosk_cap_check(org)
+            # PG-3c (lead decision 18.8): the kiosk cap reads EVERY live node
+            # (Org.audit), which no row lock covers. Tools proven unable to
+            # change top-level holdings skip it (pgdoor.KIOSK_EXEMPT, the ONE
+            # list the door reads too, filled by pgdoor.declare(kiosk_exempt=);
+            # proof: tests/test_pg3c_kiosk_exempt.py); everything else keeps it.
+            if body.tool not in pgdoor.KIOSK_EXEMPT:
+                _kiosk_cap_check(org)
             selection = result.pop("_account_selection", None)
             if selection is not None:
                 target, account, via = selection
                 try:
                     disclosure = supervisor.assign_account(
                         body.org, target, account, actor=body.node, org=org,
-                        via=via, notify_change=False)
+                        via=via, notify_change=False, export=False)
                 except (RuntimeError, ValueError) as e:
                     raise LedgerError(str(e)) from e
+                _xsid = disclosure.pop("_export_old_sid", None)
+                if _xsid:
+                    account_export = (target, str(_xsid))
                 result["account"] = disclosure["account"]
                 result["account_binding"] = disclosure
                 account_notify = target
@@ -12252,6 +14462,13 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
             # below it is a rewind (opreceipts.witness)
             opreceipts.witness(store.DATA_ROOT, body.org,
                                opreceipts.seq(cast("dict[str, Any]", org.d)))
+    if account_export is not None:
+        # saved now: the rebind's transcript copy, off DOC_LOCK's window of
+        # risk (a failure is disclosed, never raised — the rebind stands)
+        pgdoor.after_commit(result, "account_export",
+                            supervisor.export_after_commit, body.org, org,
+                            account_export[0], account_export[1],
+                            "account_assign")
     if account_notify is not None:
         supervisor.notify(body.org, account_notify, "account")
     if account_unpark is not None:
@@ -12262,6 +14479,10 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
         # the rebind cleared this node's auth/credential freeze; the doc is
         # saved now, so wake it (ONE sender shared with the operator door)
         supervisor.drive_auth_thaw(body.org, account_thawed)
+    if effort_live is not None and isinstance(result, dict):
+        # the level is saved now, so a running Claude turn may be sent it
+        result["effort_delivery"] = supervisor.send_live_effort(
+            org, effort_live, previous=effort_before)
     if unstick_resume is not None:
         _target, _texts, _views = unstick_resume
         _texts = _texts or [
@@ -13130,16 +15351,16 @@ class DiskResize(Body):
 
 
 def _disk_doc_update(slug: str, **kv: Any) -> None:
-    with store.DOC_LOCK:
-        o2 = store.load_org(slug)
-        d = dict(o2.d.get("disk") or {})
+    # PG-3f: one org_tx on the `disk` section alone, never DOC_LOCK
+    from . import orgtx
+    with orgtx.org_tx(slug, sections=["disk"]) as tx:
+        d = dict(tx.d.get("disk") or {})
         for k, v in kv.items():
             if v is None:
                 d.pop(k, None)
             else:
                 d[k] = v
-        o2.d["disk"] = d
-        store.save_org(o2)
+        tx.d["disk"] = d
 
 
 @app.post("/api/orgs/{slug}/disk/resize")
@@ -13313,10 +15534,22 @@ async def _node_chat_route(slug: str, nid: str, request: Request,
     return await _run_chat_read(node_chat, slug, nid, request, last, before)
 
 
+#: ORGTREE_CHAT_RUNTIME_VIEW (ON by default; 0/false/off/no turns it off):
+#: the desk chat read takes a runtime view (store.load_runtime_org — private
+#: like load_org, but with on-demand rows under ORGTREE_LAZY_ROWS) instead of
+#: a whole-org load, whose cost grew with the org (N1000 item
+#: desk-chat-read-and-other-request-paths-still-loa).
+_CHAT_RUNTIME_VIEW = store._switch_on(os.environ.get("ORGTREE_CHAT_RUNTIME_VIEW"))
+
+
 def node_chat(slug: str, nid: str, request: Request = cast(Request, None),
               last: int = 300, before: str | None = None) -> dict[str, Any]:
     try:
-        org = store.load_org(slug)
+        # a PRIVATE copy either way: identity stamping (transcript
+        # incarnation) is only safe on one
+        org = (store.load_runtime_org(slug)
+               if _CHAT_RUNTIME_VIEW and store.STORE_BACKEND == "postgres"
+               else store.load_org(slug))
         org.node(nid)
     except LedgerError as e:
         raise HTTPException(404, str(e))
@@ -13496,9 +15729,12 @@ def retained_reply_events(slug: str, nid: str) -> dict[str, Any]:
 def clear_reply_events(slug: str, nid: str) -> dict[str, Any]:
     """Explicit operator removal of retained reply quotes for one agent."""
     from . import reply_events
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
-        org.node(nid)
+    # PG-3d: that node's row, not DOC_LOCK
+    with _entry_ledger_422(mailtx.org_of(slug, nodes=[nid]), 404) as org:
+        try:
+            org.node(nid)
+        except LedgerError as e:
+            raise HTTPException(404, str(e))
         count = reply_events.clear(org, nid)
     return {'removed':count}
 
@@ -13507,16 +15743,15 @@ def clear_reply_events(slug: str, nid: str) -> dict[str, Any]:
 def node_mail_retract(slug: str, nid: str, mid: str) -> dict[str, Any]:
     """Parity №17: retract one UNDRAINED mail entry — the only correction
     channel for a wrong send, since delivery deliberately never interrupts."""
-    with store.DOC_LOCK:
+    # PG-3d: that node's pending box and archive rows, not DOC_LOCK
+    with _entry_ledger_422(mailtx.org_of(slug, **mailtx.retract_rows(nid)), 404) as org:
         try:
-            org = store.load_org(slug)
             org.node(nid)
         except LedgerError as e:
             raise HTTPException(404, str(e))
         if not _retract_mail(org, nid, mid):
             raise HTTPException(404, "no such pending mail — it may already "
                                      "have been delivered")
-        store.save_org(org)
     hub_changed(slug)
     return {"retracted": mid}
 
@@ -13580,27 +15815,40 @@ def node_inbox(slug: str, nid: str, request: Request = cast(Request, None)) -> d
     # the Org — loaded eager-only for node resolution and the in-memory
     # journal annotations — is OVERLAID with that snapshot's box/journal
     # before anything is derived from it.
+    #
+    # ⚠ NO ORG LOAD ON A ROW BACKEND (docket v3-agent-inboxes-take-about-a-
+    # second-to-open). The Org was loaded only to prove the node exists and
+    # to read its `drive_lease`; on a PG copy of the live org that was 28.2 MB
+    # read and 250-350 ms per open, against 0.5 MB for the mail. The node's
+    # own row now answers both, inside the SAME transaction as the box,
+    # journal and tails. The Org load stays as the fallback for backends and
+    # document shapes the bounded read cannot answer.
     try:
-        tails = (store.read_mail_tails(slug, nid, keep=50)
-                 if store.STORE_BACKEND == "sqlite" else None)
-        org = (store.load_org_snapshot(slug, ())
-               if tails is not None
+        got = (store.read_node_inbox(slug, nid, keep=50)
+               if store.row_store() else None)
+        org = (None if got is not None
                else store.load_org_snapshot(slug, ("mail_log", "user_mail_log")))
-        org.node(nid)
+        if org is not None:
+            org.node(nid)
     except LedgerError as e:
         raise HTTPException(404, str(e))
-    if tails is not None:
-        snap_box, snap_delivering, delivered_src, sent = tails
-        org.d.setdefault("mail", {})[nid] = snap_box
-        org.d.setdefault("delivering", {})[nid] = snap_delivering
-    waiting = sorted(supervisor.delivering_mail(org, nid)
-                     + list((org.d.get("mail") or {}).get(nid, [])),
-                     key=lambda m: m.get("at") or "")
+    if got is not None:
+        leased, snap_box, snap_delivering, delivered_src, sent = got
+        waiting = sorted(supervisor.delivering_rows(slug, nid, snap_delivering,
+                                                    leased=leased)
+                         + list(snap_box),
+                         key=lambda m: m.get("at") or "")
+    else:
+        assert org is not None
+        waiting = sorted(supervisor.delivering_mail(org, nid)
+                         + list((org.d.get("mail") or {}).get(nid, [])),
+                         key=lambda m: m.get("at") or "")
     keys = {(m["at"], m["from"], m["body"]) for m in waiting}
-    if tails is not None:
+    if got is not None:
         delivered = [m for m in delivered_src
                      if (m["at"], m["from"], m["body"]) not in keys]
     else:
+        assert org is not None
         delivered = [m for m in (org.d.get("mail_log") or {}).get(nid, [])
                      if (m["at"], m["from"], m["body"]) not in keys]
         # the node's Sent folder, mirrored from the recipients' archives
@@ -13654,6 +15902,12 @@ class Op(Body):
     # W19: validate and simulate this normal operator operation without saving.
     # The operator surface intentionally keeps its existing topology boundary.
     preview: bool = False
+    # cheap_compact only: refuse with 409 instead of replacing the session of
+    # an agent that is MID-TURN. The single action does not send it and keeps
+    # its existing behaviour; the renderer's bulk actions always do, because a
+    # bulk run must never swap a running turn's session out from under it
+    # (docket add-bulk-cheap-compact-context-menu-actions).
+    if_idle: bool = False
     actor: str = USER
     node: str | None = None       # target node (all but hire)
     parent: str | None = None     # hire target parent (None = top level)
@@ -13663,8 +15917,8 @@ class Op(Body):
     charter: str | None = None    # hire — short standing role card
     add_dirs: list[Any] | None = None  # hire — [{path, mode}] or bare paths
     tools: dict[str, Any] | None = None  # hire — {bash, web, edit, subagents, mcp: []}
-    # hire — @mcp:<peer> addresses the hire may answer directly from any depth
-    # (per-address post_mail bypass, by=sender attribution); Prompt Wizard panels
+    # hire — @mcp:<peer> response handles: RETIRED with @mcp: on 2026-09-25;
+    # any entry is refused (ledger.HANDLES_RETIRED)
     external_handles: list[str] | None = None
     # FR-25 insert-superior: hire + splice as ONE op — the fresh node takes
     # this anchor's slot among its siblings and the anchor is reparented
@@ -13813,6 +16067,17 @@ def provider_hire_gate(
                 f"tier '{tier}' is an Antigravity tier and Antigravity is "
                 f"not signed in — run `agy` once on this machine and sign in "
                 f"with your Google account (accounts panel → Antigravity)")
+        if tier in providers.CONDITIONAL_ANTIGRAVITY_TIERS:
+            # Argon: admitted only while the account's live `agy models`
+            # registry lists the pinned id (re-probed fresh when the cached
+            # list lacks it). A model that cannot run is never hired.
+            availability = providers.conditional_antigravity_availability(
+                tier, status=ast)
+            if not availability["enabled"]:
+                raise LedgerError(
+                    f"tier '{tier}' is a conditional Antigravity tier and is "
+                    f"not available to this account right now: "
+                    f"{availability['reason']}")
         if org.d.get("kiosk"):
             raise LedgerError(
                 "kiosk orgs cannot hire Antigravity tiers yet — antigravity "
@@ -13911,31 +16176,32 @@ def org_op(slug: str, body: Op, request: Request) -> dict[str, Any]:
             raise HTTPException(
                 422, f"preview does not support operator operation {body.op!r}")
         try:
-            with store.DOC_LOCK:
-                org = store.load_org(slug)
-                actor = USER if pub else body.actor
-                if actor != USER:
-                    org.node(actor)
-                    org._require_live(actor)
-                args = body.model_dump(exclude={"op", "actor", "preview"},
-                                       exclude_none=True)
-                switch_busy = False
-                if body.op == "switch_model":
-                    if body.tier is None:
-                        raise LedgerError("switch_model needs tier")
-                    provider_hire_gate(org, body.tier)
-                    account = str(body.account or "") or None
-                    try:
-                        supervisor.check_switch_account(
-                            org, slug, str(body.node or ""), body.tier,
-                            account)
-                    except ValueError as e:
-                        raise HTTPException(422, str(e)) from None
-                    switch_busy = bool(
-                        body.node and supervisor.state(slug, body.node).get("busy"))
-                return statepreview.preview(
-                    org, actor, body.op, args, include_archived=True,
-                    switch_busy=switch_busy)
+            # fence-off S5: a preview only reads — the committed document,
+            # lock-free, never the write lock
+            org = orgtx.org_read(slug)
+            actor = USER if pub else body.actor
+            if actor != USER:
+                org.node(actor)
+                org._require_live(actor)
+            args = body.model_dump(exclude={"op", "actor", "preview"},
+                                   exclude_none=True)
+            switch_busy = False
+            if body.op == "switch_model":
+                if body.tier is None:
+                    raise LedgerError("switch_model needs tier")
+                provider_hire_gate(org, body.tier)
+                account = str(body.account or "") or None
+                try:
+                    supervisor.check_switch_account(
+                        org, slug, str(body.node or ""), body.tier,
+                        account)
+                except ValueError as e:
+                    raise HTTPException(422, str(e)) from None
+                switch_busy = bool(
+                    body.node and supervisor.state(slug, body.node).get("busy"))
+            return statepreview.preview(
+                org, actor, body.op, args, include_archived=True,
+                switch_busy=switch_busy)
         except LedgerError as e:
             raise HTTPException(422, str(e))
     # Visitor delete is deliberately OPEN (user ruling 2026-08-01, twice
@@ -13962,16 +16228,31 @@ def org_op(slug: str, body: Op, request: Request) -> dict[str, Any]:
     # OUTSIDE the lock: the wait needs DOC_LOCK free for the interrupted
     # turn's own `finally` to acquire it. The authority check here is a
     # pre-guard only; the real op re-validates under the lock below.
+    # DELETE takes the same step (2026-09-29): it removes a live subtree and
+    # drops its runtime state, which left a running CLI — background tasks
+    # included — working on for a seat that no longer existed. Delete is the
+    # user's alone, so a non-user actor is left to the ledger's refusal
+    # without anything being interrupted first.
+    # CHEAP COMPACTION stops the target's background tasks only (user ruling
+    # 2026-09-29), and never for a bulk `if_idle` run, which skips a busy
+    # agent instead of touching it.
     _archive_warnings: list[str] = []
-    if body.op in ("retire", "dissolve", "rescind") and body.node:
+    _stop_first = body.op in ("retire", "dissolve", "rescind") or (
+        body.op == "delete" and ledger_mod.actor_kind(body.actor) == "user")
+    _stop_bg = body.op == "cheap_compact" and not body.if_idle
+    if (_stop_first or _stop_bg) and body.node:
         try:
             _pre_org = store.load_org(slug)
             _pre_org._require_authority(
-                body.actor, body.node, allow_self=(body.op != "dissolve"))
+                body.actor, body.node,
+                allow_self=(body.op not in ("dissolve", "cheap_compact")))
         except LedgerError as e:
             raise HTTPException(422, str(e))
-        _archive_warnings = supervisor.interrupt_before_archive(
-            slug, _pre_org, body.node)
+        _archive_warnings = (
+            supervisor.interrupt_before_archive(slug, _pre_org, body.node)
+            if _stop_first else
+            supervisor.stop_background(slug, _pre_org, body.node,
+                                       subtree=False))
     # ⚠ OFF DOC_LOCK for the same class of reason as the wait above, though
     # not the same reason: a new OpenRouter agent's harness is chosen by a
     # LIVE PROVIDER READ that spawns a Codex process, and provider reads never
@@ -13979,11 +16260,29 @@ def org_op(slug: str, body: Op, request: Request) -> dict[str, Any]:
     # takes this as its explicit choice and re-asks nothing under the lock.
     _hire_harness = (new_hire_harness(body.tier, getattr(body, "harness", None))
                      if body.op == "hire" else None)
-    with store.DOC_LOCK:
-        result = _org_op_locked(slug, body, allow_raise=not pub,
-                                harness=_hire_harness)
+    if pgdoor.routed(body.op):
+        # PYPG: a family converted this op off DOC_LOCK (pgdoor.declare) —
+        # ONE row transaction, never under DOC_LOCK; the tail below is shared
+        result = _op_door(slug, body, allow_raise=not pub,
+                          harness=_hire_harness)
         if _archive_warnings and isinstance(result, dict):
             result.setdefault("warnings", []).extend(_archive_warnings)
+    elif pgdoor.enabled() and body.op not in pgdoor.LOCKS:
+        # S9 (plan decision 44 (2)): every operator op is declared on the door
+        # (tests/test_fence_s5_ops.py), so an undeclared one is the locked
+        # branch's refusal. State it without DOC_LOCK, in its words and order:
+        # a missing org is a 404 first.
+        try:
+            orgtx.org_read(slug)
+        except LedgerError as e:
+            raise HTTPException(404, str(e)) from None
+        raise HTTPException(422, f"unknown op {body.op!r}")
+    else:
+        with store.DOC_LOCK:
+            result = _org_op_locked(slug, body, allow_raise=not pub,
+                                    harness=_hire_harness)
+            if _archive_warnings and isinstance(result, dict):
+                result.setdefault("warnings", []).extend(_archive_warnings)
     # FR-01 (redteam): retire/dissolve/delete must not orphan a running
     # remote-control server — reap any whose seat is gone or no longer live
     if body.op in ("retire", "dissolve", "delete", "rescind", "cheap_compact"):
@@ -14012,6 +16311,143 @@ def org_op(slug: str, body: Op, request: Request) -> dict[str, Any]:
     return result
 
 
+def _op_door(slug: str, body: "Op", allow_raise: bool,
+             harness: str | None) -> dict[str, Any]:
+    """A DECLARED operator op on the row-transaction door (pgdoor.op_tx):
+    the family body, then the step `_org_op_locked` runs for every op inside
+    its lock (the kiosk credit cap, holding `kiosk` FOR SHARE), then the
+    fan-out. The raise-ceiling decision reads the kiosk section, so it is
+    taken inside the transaction too."""
+    fam = pgdoor.BODIES[body.op]
+
+    def fn(tx: pgdoor.OpTx) -> Any:
+        k = tx.org.d.get("kiosk") or {}
+        tx.pre["rc"] = allow_raise and (bool(k.get("auto_raise"))
+                                        or body.raise_ceiling)
+        result = fam(tx)
+        kc = supervisor.kiosk_cfg(tx.org)
+        if kc and int(kc.get("credits") or 0) > 0 \
+                and body.op not in pgdoor.KIOSK_EXEMPT:
+            with pgdoor.join(slug, share_sections=["kiosk"]):
+                _kiosk_cap_check(tx.org)
+        return result
+
+    try:
+        result = pgdoor.op_tx(slug, body.op, body,
+                              body.model_dump(exclude={"op", "preview"},
+                                              exclude_none=True),
+                              fn, pre={"harness": harness})
+    except LedgerError as e:
+        raise HTTPException(422, str(e))
+    hub_changed(slug)
+    return cast("dict[str, Any]", result)
+
+
+def _op_hire(org: Org, body: "Op", rc: bool,
+             harness: str | None) -> dict[str, Any]:
+    """The operator hire (`POST /ops` op="hire"), lifted out of
+    `_org_op_locked` WHOLE so the DOC_LOCK cycle and the row-transaction
+    door (staffdoor.op_hire_body) run the same hire. Not a line of it
+    changed in the move."""
+    if body.tier is None or body.name is None:
+        raise LedgerError("hire needs tier and name")
+    provider_hire_gate(org, body.tier)
+    # state-audit F2 (user ruling 2026-09-12): ONE insert-superior
+    # implementation, shared with the agent door (`_hire_seat`,
+    # hire_type='superior'). The operator path used to reimplement
+    # the splice as hire-beside + reorder + move — a SECOND
+    # expression of one operation (D-182), and a subtly wrong one:
+    # when the draft's chosen scope was NARROWER than the anchor's,
+    # the `move` of the anchor under the new seat ran `_sweep_dirs`
+    # and silently CLAMPED the anchor's whole branch down to the new
+    # seat. `insert_parent` is the purpose-built verb that cannot do
+    # that — the inserted seat is given the anchor's own scope so
+    # child ⊆ parent holds, and its accounting is budget-neutral by
+    # construction. So an above-hire now hires UNDER the anchor and
+    # calls `insert_parent`, exactly as the agent door does.
+    _hire_parent = body.parent
+    _hire_dirs = body.add_dirs
+    _hire_tools = body.tools
+    _hire_vis = body.org_visibility
+    # state-review 2026-09-12: a draft that staged scope for an
+    # above-hire has it REPLACED by the anchor's below; insert_parent
+    # then compares the (already anchor-scoped) seat against the
+    # anchor and finds no difference, so its raises/removed warning
+    # never fires and the caller was told nothing. Name the dropped
+    # fields explicitly here so the disclosure survives (the agent
+    # door refuses these outright; the operator UI sends them, so it
+    # is told rather than refused).
+    _above_dropped = ([f for f in ("add_dirs", "tools",
+                                   "org_visibility", "permission_mode")
+                       if getattr(body, f, None) is not None]
+                      if body.above is not None else [])
+    if body.above is not None:
+        if org.node(body.above)["parent"] != body.parent:
+            raise LedgerError(
+                f"insert-superior: {body.above} does not report to "
+                f"{body.parent or 'the top level'}")
+        # pre-validate the destination (depth, lineage bearers, the
+        # top-level-is-user-only rule) before anything is created —
+        # the same gate the agent door runs
+        org.check_placement(body.actor, body.above, "superior")
+        # the inserted seat takes the ANCHOR's scope (child ⊆ parent):
+        # a draft's staged add_dirs/tools/visibility for an above-hire
+        # is dropped here, and insert_parent's own result warning says
+        # the seat holds the anchor's scope. Hire UNDER the anchor so
+        # insert_parent's "nid reports to target" precondition holds.
+        _tsc = org.node(body.above)["scope"]
+        _hire_parent = body.above
+        _hire_dirs = [dict(d) for d in _tsc["add_dirs"]]
+        _hire_tools = {**_tsc["tools"],
+                       "mcp": list(_tsc["tools"].get("mcp") or [])}
+        _hire_vis = _tsc.get("org_visibility", "full")
+    result = org.hire(body.actor, _hire_parent, body.tier,
+                      body.grant or 0, body.name, _hire_dirs,
+                      tools=_hire_tools, org_visibility=_hire_vis,
+                      charter=body.charter,
+                      external_handles=body.external_handles,
+                      raise_ceiling=rc,
+                      account=body.account,
+                      harness=harness)
+    if body.effort:
+        # applied WITH the hire, atomically (same save): the draft
+        # gear's effort used to ride a separate /scope call that the
+        # kiosk gateway 403s — a control that could never succeed
+        org.set_scope(body.actor, result["node"], effort=body.effort)
+    if body.prefer_reserve is not None:
+        # same atomic application for the pool order (item 12)
+        org.set_scope(body.actor, result["node"],
+                      prefer_reserve=body.prefer_reserve)
+    if body.account_fallback is not None:
+        org.set_scope(body.actor, result["node"],
+                      account_fallback=body.account_fallback)
+    if body.above is not None:
+        # the atomic splice: one save ⇒ one broadcast, the tree lands
+        # in its final shape, and a refused insertion strands nothing
+        # (§2b — insert_parent mutates only after every refusal).
+        _ins = org.insert_parent(body.actor, str(result["node"]),
+                                 body.above)
+        result["inserted_above"] = body.above
+        result["reports_to"] = _ins["under"] or "the top level"
+        result["grant"] = _ins["grant"]
+        result["spliced"] = body.above
+        result["warnings"] = [*result.get("warnings", []),
+                              *_ins.get("warnings", [])]
+        if _above_dropped:
+            # state-review: the disclosure insert_parent could not make
+            # (the seat already held the anchor's scope by the time it
+            # ran). Say what the caller asked for and did not get.
+            result.setdefault("warnings", []).append(
+                f"insert-superior seats the new agent in "
+                f"{body.above!r}'s position, so it holds that seat's "
+                f"folders, tools, visibility and permission mode — "
+                f"the {', '.join(_above_dropped)} you specified "
+                f"{'was' if len(_above_dropped) == 1 else 'were'} NOT "
+                f"applied. Retool it if it should hold less.")
+            result["scope_from_anchor"] = body.above
+    return result
+
+
 def _org_op_locked(slug: str, body: Op, allow_raise: bool = False,
                    harness: str | None = None) -> dict[str, Any]:
     try:
@@ -14025,102 +16461,7 @@ def _org_op_locked(slug: str, body: Op, allow_raise: bool = False,
     _op_unpark: str | None = None   # a node the switch's account choice un-parked (C)
     try:
         if body.op == "hire":
-            if body.tier is None or body.name is None:
-                raise LedgerError("hire needs tier and name")
-            provider_hire_gate(org, body.tier)
-            # state-audit F2 (user ruling 2026-09-12): ONE insert-superior
-            # implementation, shared with the agent door (`_hire_seat`,
-            # hire_type='superior'). The operator path used to reimplement
-            # the splice as hire-beside + reorder + move — a SECOND
-            # expression of one operation (D-182), and a subtly wrong one:
-            # when the draft's chosen scope was NARROWER than the anchor's,
-            # the `move` of the anchor under the new seat ran `_sweep_dirs`
-            # and silently CLAMPED the anchor's whole branch down to the new
-            # seat. `insert_parent` is the purpose-built verb that cannot do
-            # that — the inserted seat is given the anchor's own scope so
-            # child ⊆ parent holds, and its accounting is budget-neutral by
-            # construction. So an above-hire now hires UNDER the anchor and
-            # calls `insert_parent`, exactly as the agent door does.
-            _hire_parent = body.parent
-            _hire_dirs = body.add_dirs
-            _hire_tools = body.tools
-            _hire_vis = body.org_visibility
-            # state-review 2026-09-12: a draft that staged scope for an
-            # above-hire has it REPLACED by the anchor's below; insert_parent
-            # then compares the (already anchor-scoped) seat against the
-            # anchor and finds no difference, so its raises/removed warning
-            # never fires and the caller was told nothing. Name the dropped
-            # fields explicitly here so the disclosure survives (the agent
-            # door refuses these outright; the operator UI sends them, so it
-            # is told rather than refused).
-            _above_dropped = ([f for f in ("add_dirs", "tools",
-                                           "org_visibility", "permission_mode")
-                               if getattr(body, f, None) is not None]
-                              if body.above is not None else [])
-            if body.above is not None:
-                if org.node(body.above)["parent"] != body.parent:
-                    raise LedgerError(
-                        f"insert-superior: {body.above} does not report to "
-                        f"{body.parent or 'the top level'}")
-                # pre-validate the destination (depth, lineage bearers, the
-                # top-level-is-user-only rule) before anything is created —
-                # the same gate the agent door runs
-                org.check_placement(body.actor, body.above, "superior")
-                # the inserted seat takes the ANCHOR's scope (child ⊆ parent):
-                # a draft's staged add_dirs/tools/visibility for an above-hire
-                # is dropped here, and insert_parent's own result warning says
-                # the seat holds the anchor's scope. Hire UNDER the anchor so
-                # insert_parent's "nid reports to target" precondition holds.
-                _tsc = org.node(body.above)["scope"]
-                _hire_parent = body.above
-                _hire_dirs = [dict(d) for d in _tsc["add_dirs"]]
-                _hire_tools = {**_tsc["tools"],
-                               "mcp": list(_tsc["tools"].get("mcp") or [])}
-                _hire_vis = _tsc.get("org_visibility", "full")
-            result = org.hire(body.actor, _hire_parent, body.tier,
-                              body.grant or 0, body.name, _hire_dirs,
-                              tools=_hire_tools, org_visibility=_hire_vis,
-                              charter=body.charter,
-                              external_handles=body.external_handles,
-                              raise_ceiling=rc,
-                              account=body.account,
-                              harness=harness)
-            if body.effort:
-                # applied WITH the hire, atomically (same save): the draft
-                # gear's effort used to ride a separate /scope call that the
-                # kiosk gateway 403s — a control that could never succeed
-                org.set_scope(body.actor, result["node"], effort=body.effort)
-            if body.prefer_reserve is not None:
-                # same atomic application for the pool order (item 12)
-                org.set_scope(body.actor, result["node"],
-                              prefer_reserve=body.prefer_reserve)
-            if body.account_fallback is not None:
-                org.set_scope(body.actor, result["node"],
-                              account_fallback=body.account_fallback)
-            if body.above is not None:
-                # the atomic splice: one save ⇒ one broadcast, the tree lands
-                # in its final shape, and a refused insertion strands nothing
-                # (§2b — insert_parent mutates only after every refusal).
-                _ins = org.insert_parent(body.actor, str(result["node"]),
-                                         body.above)
-                result["inserted_above"] = body.above
-                result["reports_to"] = _ins["under"] or "the top level"
-                result["grant"] = _ins["grant"]
-                result["spliced"] = body.above
-                result["warnings"] = [*result.get("warnings", []),
-                                      *_ins.get("warnings", [])]
-                if _above_dropped:
-                    # state-review: the disclosure insert_parent could not make
-                    # (the seat already held the anchor's scope by the time it
-                    # ran). Say what the caller asked for and did not get.
-                    result.setdefault("warnings", []).append(
-                        f"insert-superior seats the new agent in "
-                        f"{body.above!r}'s position, so it holds that seat's "
-                        f"folders, tools, visibility and permission mode — "
-                        f"the {', '.join(_above_dropped)} you specified "
-                        f"{'was' if len(_above_dropped) == 1 else 'were'} NOT "
-                        f"applied. Retool it if it should hold less.")
-                    result["scope_from_anchor"] = body.above
+            result = _op_hire(org, body, rc, harness)
         # body.node is Optional on the wire (hire has none); the target ops
         # take str because Org.node(None) already raises LedgerError → 422,
         # hence the arg-type ignores below rather than a behavior-changing check
@@ -14132,6 +16473,17 @@ def _org_op_locked(slug: str, body: Op, allow_raise: bool = False,
             # inside the ceiling per D-001, same as delete
             result = org.rescind(body.actor, body.node)  # type: ignore[arg-type]
         elif body.op == "cheap_compact":
+            if body.if_idle:
+                # checked under DOC_LOCK, after the node is known to exist
+                # (org.node raises the ordinary 422 for an unknown id), so an
+                # agent that began a turn after the bulk run was planned is
+                # skipped rather than compacted mid-turn. Nothing is changed.
+                org.node(cast(str, body.node))
+                if supervisor.state(slug, cast(str, body.node)).get("busy"):
+                    raise HTTPException(
+                        409, f"{body.node} is mid-turn — not cheap-compacted; "
+                             "a running turn is never interrupted for a bulk "
+                             "compaction")
             # FR-24 (opt-in ruling 2026-08-11): retire + fresh hire instead
             # of a cache-cold /compact fork; the transcript copy into the
             # predecessor's scratch rides the same save window
@@ -14236,6 +16588,9 @@ async def org_ws(ws: WebSocket, slug: str) -> None:
         while True:
             await ws.receive_text()   # client pings keep it alive; content ignored
     except WebSocketDisconnect:
+        pass
+    finally:
+        # also on an aborted or otherwise failed socket, not only a clean close
         hub.leave(slug, ws)
 
 
@@ -14528,7 +16883,8 @@ def main() -> None:
     # reaches the wider web); the public listener serves nothing but
     # preauthenticated /k/<token> URLs; the bridge listener serves nothing but
     # secret-gated sandbox traffic
-    servers = [uvicorn.Server(uvicorn.Config(app, host=host, port=PORT))]
+    servers = [uvicorn.Server(uvicorn.Config(app, host=host, port=PORT,
+                                             **LOCAL_UVICORN_OPTIONS))]
     if PUBLIC_PORT and policy.allow_public_listener:
         servers.append(uvicorn.Server(uvicorn.Config(
             PublicGateway(app), host="0.0.0.0", port=PUBLIC_PORT)))
@@ -14543,7 +16899,7 @@ def main() -> None:
             BridgeGateway(app), host=sandbox.bridge_bind_host(),
             port=sandbox.BRIDGE_PORT, **bridge_log)))
     if len(servers) == 1:
-        uvicorn.run(app, host=host, port=PORT)
+        uvicorn.run(app, host=host, port=PORT, **LOCAL_UVICORN_OPTIONS)
         return
 
     async def serve_all() -> None:

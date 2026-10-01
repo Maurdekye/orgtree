@@ -125,7 +125,7 @@ test('the singular is used for exactly one tool', async () => {
 
 test('App applies MCP websocket inventory directly without a refetch', () => {
   // Since the base+patch protocol (2026-09-19, treesync.ts) the three patch
-  // kinds share ONE handler branch that applies via applyPatchFrame; the
+  // kinds share ONE handler branch that publishes subscribed metadata; the
   // only fetch it may contain is the rev-GAP catch-up, which fires solely
   // when frames were missed — never as the ordinary update path.
   const src = readFileSync(path.join(__SRC_DIR__, 'App.tsx'), 'utf8')
@@ -136,8 +136,8 @@ test('App applies MCP websocket inventory directly without a refetch', () => {
   const end = src.indexOf('// the conversation model', start)
   assert.ok(start >= 0 && end > start, 'ws patch handler branch is absent')
   const block = src.slice(start, end)
-  assert.match(block, /setTree\(/)
-  assert.match(block, /applyPatchFrame/)
+  assert.doesNotMatch(block, /setTree\(/, 'metadata must not invalidate the chart tree')
+  assert.match(block, /publishNodeMetadata/)
   assert.match(block, /orgtree:mcp-tool-count-applied/)
   assert.match(block, /latency_ms/)
   assert.match(block, /return/)
@@ -195,7 +195,7 @@ test('readiness websocket transitions repaint the unique gated label', async () 
 
 test('App applies readiness websocket transitions directly without polling', () => {
   // Same merged branch as inventory (base+patch protocol): the direct
-  // application is via applyPatchFrame; only the gap catch-up may fetch.
+  // application is via publishNodeMetadata; only the gap catch-up may fetch.
   const src = readFileSync(path.join(__SRC_DIR__, 'App.tsx'), 'utf8')
   // anchor inside handleWs: applyPatchFrame's own dispatch uses the same
   // kind checks earlier in the file
@@ -205,8 +205,8 @@ test('App applies readiness websocket transitions directly without polling', () 
   assert.ok(start >= 0 && end > start, 'ws patch handler branch is absent')
   const block = src.slice(start, end)
   assert.match(block, /'mcp_readiness'/)
-  assert.match(block, /setTree\(/)
-  assert.match(block, /applyPatchFrame/)
+  assert.doesNotMatch(block, /setTree\(/, 'metadata must not invalidate the chart tree')
+  assert.match(block, /publishNodeMetadata/)
   assert.match(block, /return/)
   assert.doesNotMatch(block, /getTree|bumpLive/,
     'readiness updates fell back to polling/refetch')

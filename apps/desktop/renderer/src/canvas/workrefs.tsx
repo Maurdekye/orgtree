@@ -50,7 +50,7 @@ export type MentionIndex = RefIndex<MentionRef>
  *  absent from `agents` gets no entry, and an agent whose tier is unknown gets
  *  an entry with no tier — neither is filled in with a plausible answer. */
 export function buildMentionIndex(
-  items: Iterable<WorkItem>,
+  items: Iterable<Pick<WorkItem, 'slug' | 'title'>>,
   agents?: Iterable<readonly [string, string | null | undefined]>,
 ): MentionIndex {
   const out: MentionIndex = new Map()
@@ -96,6 +96,16 @@ function linkable(text: string, start: number, end: number): boolean {
 }
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** Only exact, boundary-valid candidates from prose currently being rendered.
+ * Unknown words are resolved in bounded batches, never against all history. */
+export function workReferenceCandidates(text: string): string[] {
+  const names = new Set<string>()
+  for (const match of text.matchAll(/[a-z0-9]+(?:-[a-z0-9]+)*/g)) {
+    if (linkable(text, match.index!, match.index! + match[0].length)) names.add(match[0])
+  }
+  return [...names]
+}
 
 /** Split prose into runs, marking the ones that are mentions of a known name.
  *  Concatenating every `text` back together reproduces the input exactly. */

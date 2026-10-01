@@ -4,7 +4,8 @@
 // agent card itself (NodeSquare). Extracted verbatim from Canvas.tsx in the
 // phase-3 split.
 
-import { useEffect, useRef, useState } from 'react'
+import { askHidden, useSubmittedAsks } from '../asksubmitted'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { ToastFn, TreePayload } from '../types'
@@ -21,7 +22,7 @@ import {
   LockIcon, MailIcon, PinIcon, RetireIcon, SettingsIcon, StopIcon, WarnIcon, DocIcon,
 } from '../icons'
 import {
-  ago, anyTierSeat, codexTierOffer, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DESK_SCALE, deskDpi, DRAFT, familyOffer, fmtCredits, formatCount, freezeKind, FREEZE_LABEL_SHORT, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, isOpenRouterTier, NODE_H, NODE_W, openrouterTierIds, providerOf, queuedAccountTitle, queuedSwitchTitle, stateLabel, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, unicodeLength, USER,
+  ago, antigravityTierOffer, anyTierSeat, codexTierOffer, CODEX_TIER_LETTER, CODEX_TIER_SEAT, CODEX_TIERS, DESK_SCALE, deskDpi, DRAFT, familyOffer, fmtCredits, formatCount, freezeKind, FREEZE_LABEL_SHORT, ANTIGRAVITY_TIER_LETTER, ANTIGRAVITY_TIER_SEAT, ANTIGRAVITY_TIERS, isOpenRouterTier, legacyMark, NODE_H, optInLegacyHidden, NODE_W, openrouterTierIds, procHaloClass, providerOf, queuedAccountTitle, queuedSwitchTitle, stateLabel, TIER_LETTER, TIER_SEAT, tierLabel, TIERS, unicodeLength, USER, useShowLegacyModels,
   USER_H, USER_W, useAgentShortcuts, Z_MAX,
 } from './shared'
 import type {
@@ -33,17 +34,20 @@ import {
   AgentWorkstate, ContextWheel, deriveAgentVisualState, deriveTurnState, isUsageFrozen, DeskChat, DestinationBusy, LastTurnAge,
   MapModeIndicator, MapTurnAge, RouteBadge, ServingAccountBadge,
 } from './desk'
+import { EffortLevelBadge } from './effort'
 import { agentNavProps } from './agentnav'
 import { DocChips } from './docs'
 import { useContextMenu } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
 import { AgentRetireConfirm, agentMenuEntries, continueFrozenOnAccount } from './agentmenu'
 import type { RetireKind } from './agentmenu'
+import { BulkCompactConfirm, allAgents } from './bulkcompact'
 import { useDeskActionsNow } from './deskhosts'
 import { isMobile } from '../mobile'
 import { AgentName, TierChip } from './identity'
 import { PinnedPlaceholder } from './pins'
 import { ConfirmModal, DraftScopeModal } from './modals'
+import { firstUseName, useFirstUse } from './firstuse'
 
 // ------------------------------------------------------------- the overseer
 interface UserNodeProps {
@@ -115,6 +119,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
   // Cleared on zoom change so a cluster can't be left floating after the
   // camera moves, same as NodeSquare.
   const [expandedHire, setExpandedHire] = useState(false)
+  const guideHire = useFirstUse(slug)?.step === 'token'
   useEffect(() => { setExpandedHire(false) }, [zoom])
   // The ✉ and ⚙ came BACK on 2026-09-11, but conditionally: the user asked
   // for them "only when Show agent card shortcuts is enabled", and that
@@ -125,6 +130,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
   const showShortcuts = useAgentShortcuts()
   const menu = useContextMenu()
   const [askingRetireAll, setAskingRetireAll] = useState(false)
+  const [askingCompactAll, setAskingCompactAll] = useState(false)
   // ⚠ THE MENU IS THE UNCONDITIONAL ROUTE. The two buttons above are a
   // convenience that most readers will never switch on, so every action they
   // offer has to be reachable without them — otherwise turning the setting
@@ -139,6 +145,17 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
         title: 'the whole settings modal — hire defaults are a tab of it',
         onSelect: () => onGear() })
     }
+    // bulk cheap compaction of every live agent (canvas/bulkcompact.tsx). The
+    // same presentation gate as the agent menu's bulk entries: not for a
+    // kiosk viewer. Each target still runs the normal op and its checks.
+    if (!pub) {
+      entries.push({
+        label: 'Cheap-compact all agents…',
+        title: 'give every live agent a fresh session; old sessions stay '
+          + 'consultable, mid-turn agents are skipped',
+        onSelect: () => setAskingCompactAll(true),
+      })
+    }
     entries.push('sep', {
       label: 'Retire all agents…', danger: true,
       title: 'retires every agent in the org at once; context is kept',
@@ -152,7 +169,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
     // the user's answer (see .asking), echoed by the header ask icon
     // static edge-b: the eye only has bottom chips, so the nearest-edge
     // gate always resolves to them
-    <div className={'sq user edge-b' + (focused ? ' desk eyeboard' : '')
+    <div className={'sq user edge-b' + (guideHire ? ' first-use-hire' : '') + (focused ? ' desk eyeboard' : '')
       + (isDrop ? ' drop' : '')}
       /* the eye's context menu — NOT at switchboard focus, character for
          character the rule NodeSquare uses for its own desk: the open
@@ -241,7 +258,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
         maxTier={kiosk?.max_tier} soleHire codexHire={codexHire}
         claudeHire={claudeHire} onNoHarness={onNoHarness}
         antigravityHire={antigravityHire} openrouterHire={openrouterHire}
-        zoom={focused ? undefined : zoom} expanded={expandedHire}
+        zoom={focused ? undefined : zoom} expanded={expandedHire || guideHire}
         onToggleExpanded={() => setExpandedHire((v) => !v)} />
       {focused && (
         <EyeDesk map={map} op={op} slug={slug} toast={toast}
@@ -271,6 +288,10 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
             .then((r) => toast([`dissolved ${r.nodes} node(s), freed ${fmtCredits(r.freed)} credits`]))
             .catch((e: Error) => toast([`error: ${e.message}`]))}
           close={() => setAskingRetireAll(false)} />, document.body)}
+      {askingCompactAll && createPortal(
+        <BulkCompactConfirm title="cheap-compact all agents?"
+          scope="all agents" targets={allAgents(map)} op={op} toast={toast}
+          close={() => setAskingCompactAll(false)} />, document.body)}
     </div>
   )
 }
@@ -589,6 +610,8 @@ interface SpawnChipsProps {
 function SpawnChips({ onSpawn, free, seats, maxTier, side, soleHire,
   codexHire, antigravityHire, claudeHire, openrouterHire, onNoHarness, zoom,
   expanded = false, onToggleExpanded }: SpawnChipsProps) {
+  // re-render on the "show legacy models" flip — `codexTierOffer` reads it
+  useShowLegacyModels()
   // kiosk tier cap (user spec): tokens above the cap DISAPPEAR entirely —
   // seat cost doubles as the tier rank, so the cap is a simple cost compare
   const shown = TIERS.filter((t) =>
@@ -601,7 +624,7 @@ function SpawnChips({ onSpawn, free, seats, maxTier, side, soleHire,
     // `or-…` tier id (user ask 2026-09-03)
     const name = tierLabel(t)
     return (
-      <button key={t} disabled={cant} className={'t-' + t}
+      <button key={t} disabled={cant} className={'t-' + t + (legacyMark(t) ? ' legacy' : '')} data-first-use={soleHire ? 'token' : undefined}
         title={cant
           // user report: an exhausted kiosk cap read as an opaque dead
           // end — the tooltip now carries the REMEDY, not just the number
@@ -633,7 +656,7 @@ function SpawnChips({ onSpawn, free, seats, maxTier, side, soleHire,
           : `hire ${/^[aeiou]/.test(name) ? 'an' : 'a'} ${name}`
             + (soleHire ? ''
               : ` ${side === 'top' ? 'superior' : side ? 'coworker' : 'subordinate'}`)
-            + ` (-${fmtCredits(seat)})`}
+            + ` (-${fmtCredits(seat)})` + legacyMark(t)}
         onClick={(e) => { e.stopPropagation(); onSpawn(t) }}>
         {letter}
       </button>
@@ -691,7 +714,11 @@ function SpawnChips({ onSpawn, free, seats, maxTier, side, soleHire,
     // disabled (user ruling 2026-09-02 — "dont just grey out the reserve
     // token. remove it entirely").
     const offerOf = (t: string) =>
-      (key === 'codex' ? codexTierOffer(hire, t) : offer)
+      (key === 'codex' ? codexTierOffer(hire, t)
+        // Gemini Pro (legacy toggle) and Argon (only once agy lists it)
+        : key === 'antigravity' ? antigravityTierOffer(hire, t)
+        // an opt-in legacy tier of another family, toggle off
+        : optInLegacyHidden(t) ? 'hide' : offer)
     // ⚠ FILTERED BEFORE `tiers` IS STORED, because the inward-first sort below
     // orders families by "number of available model tiers" — a hidden chip
     // that still counted would push Codex inward for a row it does not render.
@@ -999,11 +1026,29 @@ interface DraftNodeProps {
 type CharterPreset = {
   name: string; content: string; path: string
   chars?: number; truncated?: boolean
+  source?: 'user' | 'bundled' | 'external'; dir?: string
+}
+
+/** The label a preset is offered under. External template folders never
+ *  shadow (user ruling 2026-09-23), so a name can repeat across the user
+ *  folder, the bundled presets and any number of external folders; `path`
+ *  identifies a choice and a repeated name is labelled with where it lives —
+ *  its folder for an external template, its source otherwise — falling back
+ *  to the full file path if even that repeats. A unique name stays bare. */
+export function presetLabels(presets: CharterPreset[]): Map<string, string> {
+  const count = (keys: string[]) => keys.reduce((m, k) => m.set(k, (m.get(k) ?? 0) + 1), new Map<string, number>())
+  const names = count(presets.map(p => p.name))
+  const where = (p: CharterPreset) => p.source === 'external' ? (p.dir ?? p.path) : (p.source ?? p.path)
+  const first = presets.map(p => (names.get(p.name) ?? 0) > 1 ? `${p.name} — ${where(p)}` : p.name)
+  const again = count(first)
+  return new Map(presets.map((p, i) => [p.path,
+    (again.get(first[i]!) ?? 0) > 1 ? `${p.name} — ${p.path}` : first[i]!]))
 }
 
 export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop, kioskRemaining,
   tree, zoom, pxc, onConfirm, onCancel }: DraftNodeProps) {
   const [name, setName] = useState('')
+  useEffect(() => { firstUseName(tree.slug, name) }, [tree.slug, name])
   const [charter, setCharter] = useState('')
   // pre-hire permissions (user spec): configure the agent's dirs, tool
   // switches, MCP grants and visibility BEFORE hiring — no post-hire
@@ -1034,6 +1079,7 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop, kioskRem
     })
     return () => { current = false }
   }, [presetRetry])
+  const labels = presetLabels(presets)
   const finalCharter = () =>
     [...chosen.map((c) => c.content), charter].filter((t) => t.trim())
       .join('\n\n')
@@ -1121,11 +1167,13 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop, kioskRem
                 onClick={() => setPresetRetry((n) => n + 1)}>Retry</button>
             </div>
           )}
+          {/* a preset is identified by its file PATH, not its name: external
+              template folders can offer the same name more than once */}
           {presetLoad === 'ready' && presets.length > 0 && (
             <select className="df-preset-add" value=""
               onChange={(e) => {
-                const p = presets.find((x) => x.name === e.target.value)
-                if (p && !chosen.some((c) => c.name === p.name)) {
+                const p = presets.find((x) => x.path === e.target.value)
+                if (p && !chosen.some((c) => c.path === p.path)) {
                   setChosen((cs) => [...cs, p])
                   // user spec: the FIRST chosen preset names a still-unnamed
                   // agent after itself (typing over it still works)
@@ -1133,8 +1181,9 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop, kioskRem
                 }
               }}>
               <option value="">add charter preset…</option>
-              {presets.filter((p) => !chosen.some((c) => c.name === p.name))
-                .map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
+              {presets.filter((p) => !chosen.some((c) => c.path === p.path))
+                .map((p) => <option key={p.path} value={p.path}
+                  title={p.path}>{labels.get(p.path) ?? p.name}</option>)}
             </select>
           )}
           {/* the picked cards live INSIDE the charter box (user spec) — they
@@ -1143,10 +1192,10 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop, kioskRem
             {chosen.length > 0 && (
               <div className="preset-cards">
                 {chosen.map((c) => (
-                  <button key={c.name} className="preset-card"
+                  <button key={c.path} className="preset-card"
                     title={c.path ? `${c.path}\n(click to remove)` : 'click to remove'}
-                    onClick={() => setChosen((cs) => cs.filter((x) => x.name !== c.name))}>
-                    {c.name} <CloseIcon fontSize="inherit" />
+                    onClick={() => setChosen((cs) => cs.filter((x) => x.path !== c.path))}>
+                    {labels.get(c.path) ?? c.name} <CloseIcon fontSize="inherit" />
                   </button>
                 ))}
               </div>
@@ -1245,6 +1294,8 @@ interface NodeSquareProps {
    *  tier block, name, status, last-turn stamp — no desk, no chips, no drag.
    *  Taps are arbitrated by the viewport (the sheet opens there). */
   mapMode?: boolean
+  /** A hidden Canvas world retains its camera/card but cannot own the desk. */
+  deskEligible?: boolean
   /** D-125 ②: watchdogs hide from the compact map; the owner card carries
    *  their count as a dot instead */
   dogs?: number
@@ -1264,6 +1315,10 @@ interface NodeSquareProps {
   onPin?: () => void
   /** FR-3: the placeholder's click — raise, un-strand and flash the window */
   onShowPin?: () => void
+  /** "Open desk" (modal) — the host opens the modal (tempdesk.tsx). Takes
+   *  the id because the same handler serves this card and the Agents List row,
+   *  and the two menus must offer the same entries. */
+  onOpenTemporary?: (id: string) => void
   /** "Hire a subordinate…" picked from the AGENTS LIST rather than from this
    *  card (user request 2026-09-12): the chips live here, so the row glides to
    *  the agent and asks its card to open them. A COUNTER, not a flag — picking
@@ -1398,7 +1453,8 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   toast, pxc, zoom, onSpawn, onSpawnSide, onSpawnTop, onConfig, onInbox, onDocket, onTeamDocket, onLineage, onOpenDoc, onOpenAgentGallery,
   onRecenter, onJump, pub, kioskRemaining, cascadeAlloc, maxTop, pile, compactAt, maxTier,
   onMailLink, onWorkLink, onDragStart, onDragMove, onDragEnd, onDragCancel,
-  mapMode, dogs, oneShotDogs, pinned, pinnedFocus, onPin, onShowPin,
+  mapMode, deskEligible = true, dogs, oneShotDogs, pinned, pinnedFocus, onPin, onShowPin,
+  onOpenTemporary,
   revealHire, onHireRevealed, onDismiss }: NodeSquareProps) {
   // `focused` below is the card's LAYOUT state — desk-sized, head hidden, no
   // drag — which a pinned placeholder shares with an open desk. Only the
@@ -1411,6 +1467,8 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   // retire from the CARD (user request 2026-08-17): the seat-freeing action
   // no longer requires zooming to the desk — same confirm + undo-toast flow,
   // same retire/dissolve split as the desk's cc-actions
+  // re-render when an ask is submitted, so the `asking` glow drops at once
+  useSubmittedAsks()
   const [asking, setAsking] = useState<RetireKind | null>(null)
   const liveKids = node.children.some((c) => c.state === 'live')
   // NEAREST-EDGE chip gating (user ruling 2026-08-04): only the set at the
@@ -1477,9 +1535,16 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
         ? () => { desk.requestPopout(); if (!desk.present) onRecenter?.() }
         : undefined,
       onShowWindow: desk.show,
+      // ⚠ NO `onRecenter()` HERE, unlike the popout above. This entry exists
+      // because a glance must not move the camera or change the focused agent,
+      // so it does not mount the desk by walking to it — the modal mounts its
+      // own borrowing slot. Same gate as pin/popout: none of this on mobile.
+      onOpenTemporary: !isMobile && onOpenTemporary
+        ? () => onOpenTemporary(node.id) : undefined,
       onHire: revealHireChips,
       onRetireAsk: setAsking,
       canRetireAll: !pub,
+      canBulkCompact: !pub,
       onDismiss,
       // the same public gate the frozen badge's own unstick already applies:
       // a kiosk visitor releases nothing and moves no account (the backend
@@ -1512,7 +1577,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   // wears terracotta. Dormant until codex hire lands; keyed on the tier
   // family so it needs no new payload field.
   if (node.tier) cls.push('prov-' + providerOf(node.tier))
-  if (live) cls.push(node.proc_warm ? 'proc-warm' : 'proc-cold')
+  if (live) cls.push(procHaloClass(node))
   if (node.busy) cls.push('busy')
   if (dragging) cls.push('lifted')
   if (isDrop) cls.push('drop')
@@ -1528,7 +1593,13 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   // glow now means ONE thing — this agent needs the user's attention (an open
   // ask). Holding a user audience is a capability, not an emergency: it wears
   // the same soft steel as any other audience.
-  if (node.ask && (node.ask.status === 'open' || node.ask.status === 'pending')) {
+  // …and it goes out ON THE CLICK that answers it (docket v3-agent-node-
+  // keeps-its-attention-glow-for-a-whi): the tree keeps the ask open until a
+  // paced tree read after the save, so the glow outlived the card by seconds.
+  // The card leaves on the submit (asksubmitted.ts, point 31); so does this.
+  // A NEW ask (another id) glows as usual, and a refused submit brings it back.
+  if (node.ask && (node.ask.status === 'open' || node.ask.status === 'pending')
+      && !askHidden(slug, node.ask.id)) {
     cls.push('asking')
   }
   if (node.audiences_held?.length) cls.push('aud')
@@ -1538,6 +1609,81 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
   if (!focused && stackN) cls.push('stack' + Math.min(stackN, 3))
   const toggleCompactHire = (which: 'b' | 'l' | 'r' | 't') =>
     setExpandedHireEdge((open) => open === which ? null : which)
+  // MEDIUM-ZOOM FULL NAME (docket show-full-truncated-agent-name-on-hover-at-
+  // mediu): at `lod === 'norm'` a long name is cut to an ellipsis by the card
+  // width. While the card is hovered, and only when the rendered name really
+  // IS cut (scrollWidth > clientWidth — layout widths, so the canvas zoom does
+  // not change the answer), a backdrop-backed copy is laid exactly over it
+  // and runs on past the card edge. It stays where the name is: no lift and
+  // no motion, unlike the far-zoom `.sq-far-name` reveal, which is untouched.
+  // `nameHover` is kept at every lod, so a card hovered at mini and zoomed into
+  // norm under a still pointer is measured on arrival without a fresh enter.
+  const nameRef = useRef<HTMLSpanElement>(null)
+  const cardRef = useRef<HTMLDivElement>(null)
+  const [nameHover, setNameHover] = useState(false)
+  // The menu is a React child of the card, and closing it removes the element
+  // under the pointer (or the focus), so no pointerleave / blur ever arrives: drop both on close.
+  // A pointer still over the card puts it back with its next move.
+  const nameMenuOpen = menu.isOpen
+  const nameMenuWas = useRef(false)
+  useEffect(() => {
+    const was = nameMenuWas.current
+    nameMenuWas.current = nameMenuOpen
+    if (nameMenuOpen || !was) return
+    // recompute from the DOM, not blindly off: a pointer still over the card
+    // (Escape) or focus restored onto it (keyboard) keeps its label. The
+    // browser re-evaluates :hover a beat after the menu leaves, so ask twice.
+    const settle = () => {
+      const el = cardRef.current
+      let over = false
+      try { over = !!el?.matches(':hover') } catch { /* no :hover support */ }
+      setNameHover(over)
+      setNameFocus(!!el && el.contains(el.ownerDocument.activeElement))
+    }
+    settle()
+    const t = setTimeout(settle, 120)
+    return () => clearTimeout(t)
+  }, [nameMenuOpen])
+  // FAR-ZOOM NAME ABOVE EVERY CARD. At mini the hovered card is deliberately
+  // painted UNDER its neighbours (styles.css `.sq.mini:hover { z-index: 0 }`, so
+  // the hire token never steals a neighbour's press), and the name reveal lives
+  // inside that card's stacking context, so a neighbour covered it. The label
+  // is click-through, so a copy in the world layer, above every card, costs no
+  // hit-testing; the in-card copy is hidden while it shows.
+  const [nameFocus, setNameFocus] = useState(false)
+  const farEligible = lod === 'mini' && !focused && !mapMode
+  const farWant = farEligible && (nameHover || nameFocus)
+  // The copy starts in the card's resting look and is switched to the revealed
+  // look right after it is laid out, so the original lift/fade plays; on leaving it stays
+  // mounted until the reverse has played.
+  const [farMounted, setFarMounted] = useState(false)
+  const [farOn, setFarOn] = useState(false)
+  const ghostRef = useRef<HTMLSpanElement>(null)
+  useLayoutEffect(() => {
+    // Only pointer/focus leave retracts the mini reveal. A zoom or desk change
+    // replaces that presentation immediately, including a rapid return to mini.
+    if (!farEligible) {
+      setFarMounted(false)
+      setFarOn(false)
+      return
+    }
+    if (farWant) {
+      setFarMounted(true)
+      void ghostRef.current?.offsetWidth // commit the resting look so the change below animates
+      setFarOn(true)
+      return
+    }
+    setFarOn(false)
+    const t = setTimeout(() => setFarMounted(false), 260)
+    return () => clearTimeout(t)
+  }, [farWant, farEligible])
+  const farGhost = farEligible && (farWant || farMounted)
+  const [fullNameAt, setFullNameAt] = useState<{ left: number; top: number } | null>(null)
+  useLayoutEffect(() => {
+    const el = nameRef.current
+    setFullNameAt(nameHover && el && el.scrollWidth > el.clientWidth
+      ? { left: el.offsetLeft, top: el.offsetTop } : null)
+  }, [nameHover, lod, focused, node.id, node.tier, node.pending_switch?.tier])
   // FR-23: the most recent completed turn (killed included — TurnStat.at is
   // written unconditionally at completion, unlike NodeStatus.at)
   const lastTurn = node.turns?.[node.turns.length - 1]
@@ -1595,14 +1741,18 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
     )
   }
   return (
-    <div data-copy-agent-name={focused ? undefined : node.id} className={cls.join(' ')} style={style}
+    <div ref={cardRef} data-first-use-agent={node.id} data-copy-agent-name={focused ? undefined : node.id}
+      className={cls.join(' ') + (farGhost ? ' far-ghosted' : '')} style={style}
       onPointerDown={(e) => {
         downAt.current = { x: e.clientX, y: e.clientY }
         if (!focused) onDragStart(e, node.id)
       }}
-      onPointerMove={(e) => { trackEdge(e); onDragMove(e, node.id) }}
+      onFocus={(e) => { if (e.currentTarget.contains(e.target as Node)) setNameFocus(true) }}
+      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setNameFocus(false) }}
+      onPointerEnter={() => setNameHover(true)}
+      onPointerMove={(e) => { setNameHover(true); trackEdge(e); onDragMove(e, node.id) }}
       onPointerUp={(e) => onDragEnd(e, node.id, node, focused)}
-      onPointerLeave={() => { setExpandedHireEdge(null); setHireReveal(false) }}
+      onPointerLeave={() => { setExpandedHireEdge(null); setHireReveal(false); setNameHover(false) }}
       /* the card's context menu — NOT at desk zoom: the open desk is its own
          surface (chat text, mail rows, its own header controls), and a
          right-click on its content must keep the browser's or the row's menu */
@@ -1660,7 +1810,11 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           {node.pending_switch &&
             <span className="queued-mark" title={queuedSwitchTitle(node)}>
               →{TIER_LETTER[node.pending_switch.tier] ?? '?'}</span>}
-          <span className="name" title={node.account ? `${node.id}: account ${node.account}` : node.id}>{node.id}</span>
+          <span ref={nameRef} className="name" title={node.account ? `${node.id}: account ${node.account}` : node.id}>{node.id}</span>
+          {fullNameAt && (
+            <span className="name-full" aria-hidden="true"
+              style={{ left: fullNameAt.left, top: fullNameAt.top }}>{node.id}</span>
+          )}
         </div>
         <div className="sq-meta">
           <ContextWheel occ={node.occupancy} cw={node.context_window}
@@ -1835,6 +1989,16 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
               asserted in usageaccountcard.test.tsx rather than left to the
               gate above happening to stay where it is. */}
           <ServingAccountBadge account={node.serving_account} />
+          {/* NON-DEFAULT THINKING EFFORT (docket
+              `show-non-default-effort-level-on-agent-headers`), on the card's
+              badge row as on the desk's — the SAME component, reading the same
+              org default from context, so the two surfaces cannot disagree
+              about the level, the wording, or when it appears at all. Absent
+              whenever the agent is unset or at the ordinary default, and
+              absent as NOTHING rather than as an empty chip, so the row
+              reserves no space for it. Its far-zoom and map exclusions are the
+              ones this whole `.sq-badges` block already carries. */}
+          <EffortLevelBadge node={node} />
           {/* the lineage opens from the desk's own stack badge; out here the
               count is a sign. Same reason as the freeze chip above. */}
           {stackN > 0 &&
@@ -1844,6 +2008,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       )}
       {deskOpen && (
         <DeskChat node={node} map={map} op={op} slug={slug}
+          eligible={deskEligible}
           toast={toast}
           onLineage={onLineage} onConfig={onConfig} compactAt={compactAt}
           onRecenter={onRecenter} onJump={onJump} maxTop={maxTop} pxc={pxc}
@@ -1961,6 +2126,16 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       {asking && createPortal(
         <AgentRetireConfirm kind={asking} node={node} op={op} toast={toast}
           close={() => setAsking(null)} />, document.body)}
+      {farGhost && cardRef.current?.parentElement && createPortal(
+        <span ref={ghostRef} className={'sq-far-ghost' + (farOn && farWant ? ' on' : '')} aria-hidden="true"
+          style={{ left: pos.x, top: pos.y, width: NODE_W, height: NODE_H }}>
+          <span className="sq-far-tier">
+            <span className="sq-far-scaler">
+              <TierChip tier={node.tier} />
+              <span className="sq-far-name">{node.id}</span>
+            </span>
+          </span>
+        </span>, cardRef.current.parentElement)}
     </div>
   )
 }

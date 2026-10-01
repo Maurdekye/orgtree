@@ -376,8 +376,6 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   // a custom sender renderer owns the whole head identity (it receives the
   // mail too — the org inbox uses this for "@agent as @org → @recipient")
   const customS = outgoing && sender != null
-  const brief = (b: string | null | undefined) => (b ?? '').trim().replace(/\s+/g, ' ').slice(0, 90)
-  const when = fmtShort
   // reply from where you read (№11): only for incoming mail whose sender is a
   // plain agent id — @-sentinels (@user/@system/@ext:/@org:/@mcp:) route
   // elsewhere, and slugify guarantees no agent name starts with '@'
@@ -506,11 +504,13 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
           // the run's FIRST member is the row: the list is newest-first, so
           // that is the newest, and the row keeps its place in the ordering
           const m = g[0]!
-          const pile = g.length > 1
           const view = typedView(m)
           return (
-          <div key={keyOf(m)}
-            ref={(el) => {
+          <MailRowView key={keyOf(m)} m={m} pile={g.length} view={view}
+            selected={m === cur} outgoing={outgoing}
+            flash={Boolean(jumpTo && g.some((x) => keyOf(x) === jumpTo))}
+            party={R(displayParty(m)!, m)} mark={rowMark?.(m)} onRetract={onRetract}
+            rowRef={(el) => {
               // a jump aimed at a folded member lands on the row that now
               // carries it, not on nothing
               const target = jumpTo ?? (initialUnread ? keyOf(initialUnread) : null)
@@ -521,40 +521,6 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
                 el.scrollIntoView({ block: 'center' })
               }
             }}
-            className={'mailrow' + (view ? ' event-row event-' + view.family : '') + (m === cur ? ' on' : '') + (m._wait ? ' unread' : '')
-              /* request mails wear the askcard's accent family in the list
-                 (user spec 2026-08-06); resolved asks keep a quiet edge */
-              + (m._ask ? (m._ask.status === 'open' || m._ask.status === 'pending'
-                ? ' ask' : ' ask askdone') : '')
-              /* passive notices (orgtree_send_notice) stand apart too — but
-                 quietly: a dashed neutral edge, never the ask accent */
-              + (!m._ask && m.kind === 'notice' ? ' notice' : '')
-              /* …and a SYSTEM notice shrinks to a single line (user,
-                 2026-08-28). ⚠ The `from` test is what keeps this off an
-                 AGENT's notice, which stays full height: the user asked only
-                 for the machine's own chatter to be de-emphasised, and in a
-                 node mailbox agent-to-agent notices are the common case.
-                 This is a DIFFERENT predicate from the read-on-arrival rule
-                 above it, which is every notice whatever its source — the two
-                 must not be collapsed into one test. */
-              + (isSystemNotice(m) ? ' sysnotice' : '')
-              /* a FOLDED RUN of them is that same row carrying a count — see
-                 pileNotices. No new edge, no new tint: this is meant to read
-                 as more of the one-line system row, not as a new species.
-                 (`notepile`, not `pile` — `.pile-*` is the retired-sibling
-                 stack on the canvas and the two share nothing.) */
-              + (pile ? ' notepile' : '')
-              /* D-169: urgent mail sits at the TOP of that same ladder — one
-                 notch above an open ask on the one axis this list already
-                 uses (edge + tint + chip), not a new colour. It does NOT
-                 pulse: the user asked the INBOX to pulse and the ROW to be
-                 pronounced, and two pulsing rows would read as an alarm
-                 where two strong rows still read as a list. */
-              + (!m._ask && m.urgent ? ' urgent' : '')
-              /* …and it FLASHES on the same test it scrolls on: a jump at a
-                 folded member must not scroll to a row that then sits there
-                 unmarked */
-              + (jumpTo && g.some((x) => keyOf(x) === jumpTo) ? ' jflash' : '')}
             onClick={() => {
               if (cur && keyOf(m) === keyOf(cur)) {
                 // toggling the selected row off — reading it counts as read
@@ -565,52 +531,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
                 setSelId(keyOf(m))
               }
             }}
-            onContextMenu={(e) => menu.open(e, () => rowMenu(m))}>
-            <div className="l1">
-              {/* the row's identity. ⚠ It is a CLICK TARGET inside a row that
-                  is itself a click target (selection): every name renderer
-                  that navigates must stop the bubble, or focusing an agent
-                  would also select — or deselect — the mail you clicked from.
-                  `AgentName` does that itself; `SenderChip` was made to. */}
-              <span className="mfrom">
-                {outgoing ? '→ ' : ''}{R(displayParty(m)!, m)}
-              </span>
-              {!m._ask && view && <span className="event-row-kind">{view.title}</span>}
-              {m._ask && <span className="askkind">{m.kind ?? 'ask'}</span>}
-              {/* the count rides the chip that already said `notice`, so the
-                  folded row is the same row with a number in it: "@system ·
-                  3 notices · 08-28 12:44". A run of one still reads exactly
-                  `notice` — nothing about a lone notice changes. */}
-              {!m._ask && m.kind === 'notice'
-                && <span className="noticekind"
-                  title={pile ? `${g.length} system notices — open to read them`
-                    : undefined}>
-                  {pile ? `${g.length} notices` : 'notice'}</span>}
-              {/* the FILLED chip — every other chip in this list is an
-                  outline, so filled is the one step up the vocabulary that
-                  was still unused. Its tooltip carries the sender's reason,
-                  which is the whole point of requiring one: the user judges
-                  the interruption instead of just receiving it. */}
-              {!m._ask && m.urgent
-                && <span className="urgentkind" title={m.urgent_reason
-                  ? `urgent — ${m.urgent_reason}` : 'urgent'}>urgent</span>}
-              {rowMark?.(m)}
-              <span className="mtime">{when(m.at)}</span>
-              {m._wait && m.id && onRetract && (
-                <button className="chip-x" title="retract (undelivered)"
-                  onClick={(e) => { e.stopPropagation(); onRetract(m) }}>
-                  <CloseIcon fontSize="inherit" /></button>)}
-            </div>
-            {/* the preview line is what makes a row two lines tall, so a
-                SYSTEM notice simply does not render one (user, 2026-08-28:
-                "much narrower in height"). Not hidden in CSS — not built:
-                a long-lived org's mailbox carries a lot of these, and a
-                display:none preview is a DOM node per row that nobody can
-                ever see. The body is still one click away in the reading
-                pane, and the `l1` header keeps the row identifiable. */}
-            {!isSystemNotice(m)
-              && <div className="l2">{brief(view ? eventSummary(view.event) : m.body)}</div>}
-          </div>
+            onContextMenu={(e) => menu.open(e, () => rowMenu(m))} />
           )
         })}
         {piles.length > vis && (
@@ -622,91 +543,14 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
       {menu.node}
       <div {...surface} className={"mailer-read " + surface.className}>
         {cur && (
-          <>
-            <div className="mailer-head event-head">
-              {!(curPile && curPile.length > 1) && <EventCard part="header" row={cur} profile={profile}
-                org={org ?? refs?.world.org ?? ""} world={refs?.world} onOpen={refs?.onOpen} actor={id => S(id, cur)} />}
-              {outgoing && !customS && <span className="dim">to</span>}
-              {(outgoing || !typedView(cur)) && S(displayParty(cur)!, cur)}
-              <span className="dim">
-                {curPile && curPile.length > 1
-                  ? `${curPile.length} notices` : typedView(cur) ? null : cur.kind}</span>
-              {cur.urgent && <span className="urgentkind">urgent</span>}
-              {cur.relationship && <span className="dim">{cur.relationship}</span>}
-              <span className="dim">{fmtFull(cur.at)}</span>
-              {cur._wait && <span className="wait">{waitLabel}</span>}
-            </div>
-            {/* D-169: WHY you are being interrupted, in the sender's own
-                words, on its own line above the mail. The reason exists to be
-                READ — an urgent flag whose justification were merely stored
-                would be a tax on the sender and no check at all, whereas one
-                shown here makes the claim accountable to the person whose
-                attention it took. */}
-            {cur.urgent && cur.urgent_reason && (
-              <div className="urgent-why">{cur.urgent_reason}</div>
-            )}
-            {/* A FOLDED RUN OPENS AS THE LIST OF WHAT IT FOLDED (user,
-                2026-08-28: "display them in a list in the full mail view to
-                the right"), modelled on the block an agent gets on its next
-                turn — supervisor._envelope's `[ORG NOTICES — n change(s)]`,
-                which the user named as the thing to copy. Same shape as that
-                block: one line per notice, `at` then text, OLDEST FIRST, so a
-                run reads forward like the log it is. The list itself is
-                newest-first and stays that way; this is a different axis.
-                ⚠ Nothing is summarised or elided — every folded entry's whole
-                body is here. The row is a shorter way IN, not a shorter
-                version OF. */}
-            {custom
-              ? <div className="mailer-body">{custom}</div>
-              : curPile && curPile.length > 1
-                ? <div className="mailer-body notepile">
-                    {curPile.slice().reverse().map((n) => (
-                      <div className="notepile-row" key={keyOf(n)}>
-                        <span className="notepile-at">{when(n.at)}</span>
-                        {/* a folded notice is a body like any other — a
-                            reference written in one is followed the same way */}
-                        {messageContent(n, true)}
-                      </div>
-                    ))}
-                  </div>
-                : messageContent(cur)}
-            {(cur.attachments ?? []).length > 0 && (
-              <div className="attach-row">
-                {/* extern-shaped attachments may lack `path` — a download
-                    link would point at "undefined"; show a plain chip.
-                    Images render viewable in place (user spec 2026-08-25). */}
-                {cur.attachments!.map((a) => {
-                  const href = (a.path && fileHref?.(a.path, cur)) || ''
-                  const name = a.name ?? a.path ?? 'file'
-                  return href && isImg(name)
-                    ? <AttachThumb key={a.path} href={href} name={name}
-                        meta={a.bytes != null ? `${Math.round(a.bytes / 1024)} KB` : undefined} />
-                    : href
-                      ? <a key={a.path} className="attach-chip" title="download"
-                          href={href} download={a.name}>
-                          <DownloadIcon fontSize="inherit" /> {a.name}
-                          <span className="dim"> {a.bytes != null ? `${Math.round(a.bytes / 1024)} KB` : ''}</span></a>
-                      : <span key={a.path ?? a.name} className="attach-chip">
-                          <FileIcon fontSize="inherit" /> {a.name}</span>
-                })}
-              </div>
-            )}
-            {replyable && (
-              /* ⚠ `org ?? refs?.world.org` — THE SAME RESOLUTION THE HEAD USES
-                 (line above, and the body's `imgBase`). `org` is an OPTIONAL
-                 prop, and the user's own inbox — the one MailList in the app
-                 that supplies `onReply`, so the only one that ever renders
-                 this box — omits it and passes `refs` instead. Read as bare
-                 `org` this handed the composer `undefined`, which is exactly
-                 what `attachable` gates on, so the user's paperclip was
-                 permanently grey (reported 2026-09-17; the dead gate itself
-                 predates the paperclip and shipped as a text button).
-                 NOT `?? ''` like the head: an absent org must stay ABSENT so
-                 the composer degrades the way its `slug?:` contract says. */
-              <MailReplyBox target={party(cur)} slug={org ?? refs?.world.org} toast={toast}
-                onSend={(text, attachments, notice) => onReply!(cur, text, attachments, notice)} />
-            )}
-          </>
+          <MailReadPane cur={cur} members={curPile} org={org} refs={refs}
+            mdBase={mdBase} fileHref={fileHref} sender={S} outgoing={outgoing}
+            customSender={customS} waitLabel={waitLabel} custom={custom}
+            party={displayParty(cur)!}
+            onReply={replyable
+              ? (text, attachments, notice) => onReply!(cur, text, attachments, notice)
+              : undefined}
+            toast={toast} />
         )}
         {!cur && (
           <div className="dim pad mailer-none">
@@ -746,6 +590,250 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   )
 }
 
+const briefLine = (b: string | null | undefined) => (b ?? '').trim().replace(/\s+/g, ' ').slice(0, 90)
+
+/** ONE MAILBOX ROW — the row every mail list draws, exported so the Attention
+ *  view lists an urgent mail or a question with this exact row (user
+ *  2026-09-29: "the list elements should each look identical to how they each
+ *  look in their respective lists") rather than a lookalike that could drift.
+ *  `MailList` renders its rows through it; `pile` is the size of a folded run
+ *  of system notices (1 = a single message). */
+export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, party, mark,
+  onRetract, onClick, onContextMenu, rowRef }: {
+  m: MailRow
+  pile?: number
+  /** the typed event this row decodes to, or null for plain mail */
+  view: EventView | null
+  selected: boolean
+  outgoing?: boolean
+  /** the row a reference just jumped to */
+  flash?: boolean
+  /** the row's identity, already rendered by the list's sender renderer */
+  party: ReactNode
+  /** per-row status mark (redteam §9.2) */
+  mark?: ReactNode
+  onRetract?: (m: MailRow) => void
+  onClick: () => void
+  onContextMenu?: (e: React.MouseEvent<HTMLDivElement>) => void
+  rowRef?: (el: HTMLDivElement | null) => void
+}) {
+  const isPile = pile > 1
+  return (
+    <div ref={rowRef}
+      className={'mailrow' + (view ? ' event-row event-' + view.family : '') + (selected ? ' on' : '') + (m._wait ? ' unread' : '')
+        /* request mails wear the askcard's accent family in the list
+           (user spec 2026-08-06); resolved asks keep a quiet edge */
+        + (m._ask ? (m._ask.status === 'open' || m._ask.status === 'pending'
+          ? ' ask' : ' ask askdone') : '')
+        /* passive notices (orgtree_send_notice) stand apart too — but
+           quietly: a dashed neutral edge, never the ask accent */
+        + (!m._ask && m.kind === 'notice' ? ' notice' : '')
+        /* …and a SYSTEM notice shrinks to a single line (user,
+           2026-08-28). ⚠ The `from` test is what keeps this off an
+           AGENT's notice, which stays full height: the user asked only
+           for the machine's own chatter to be de-emphasised, and in a
+           node mailbox agent-to-agent notices are the common case.
+           This is a DIFFERENT predicate from the read-on-arrival rule,
+           which is every notice whatever its source — the two must not
+           be collapsed into one test. */
+        + (isSystemNotice(m) ? ' sysnotice' : '')
+        /* a FOLDED RUN of them is that same row carrying a count — see
+           pileNotices. No new edge, no new tint: this is meant to read
+           as more of the one-line system row, not as a new species.
+           (`notepile`, not `pile` — `.pile-*` is the retired-sibling
+           stack on the canvas and the two share nothing.) */
+        + (isPile ? ' notepile' : '')
+        /* D-169: urgent mail sits at the TOP of that same ladder — one
+           notch above an open ask on the one axis this list already
+           uses (edge + tint + chip), not a new colour. It does NOT
+           pulse: the user asked the INBOX to pulse and the ROW to be
+           pronounced, and two pulsing rows would read as an alarm
+           where two strong rows still read as a list. */
+        + (!m._ask && m.urgent ? ' urgent' : '')
+        /* …and it FLASHES on the same test it scrolls on: a jump at a
+           folded member must not scroll to a row that then sits there
+           unmarked */
+        + (flash ? ' jflash' : '')}
+      onClick={onClick}
+      onContextMenu={onContextMenu}>
+      <div className="l1">
+        {/* the row's identity. ⚠ It is a CLICK TARGET inside a row that
+            is itself a click target (selection): every name renderer
+            that navigates must stop the bubble, or focusing an agent
+            would also select — or deselect — the mail you clicked from.
+            `AgentName` does that itself; `SenderChip` was made to. */}
+        <span className="mfrom">
+          {outgoing ? '→ ' : ''}{party}
+        </span>
+        {!m._ask && view && <span className="event-row-kind">{view.title}</span>}
+        {m._ask && <span className="askkind">{m.kind ?? 'ask'}</span>}
+        {/* the count rides the chip that already said `notice`, so the
+            folded row is the same row with a number in it: "@system ·
+            3 notices · 08-28 12:44". A run of one still reads exactly
+            `notice` — nothing about a lone notice changes. */}
+        {!m._ask && m.kind === 'notice'
+          && <span className="noticekind"
+            title={isPile ? `${pile} system notices — open to read them`
+              : undefined}>
+            {isPile ? `${pile} notices` : 'notice'}</span>}
+        {/* the FILLED chip — every other chip in this list is an
+            outline, so filled is the one step up the vocabulary that
+            was still unused. Its tooltip carries the sender's reason,
+            which is the whole point of requiring one: the user judges
+            the interruption instead of just receiving it. */}
+        {!m._ask && m.urgent
+          && <span className="urgentkind" title={m.urgent_reason
+            ? `urgent — ${m.urgent_reason}` : 'urgent'}>urgent</span>}
+        {mark}
+        <span className="mtime">{fmtShort(m.at)}</span>
+        {m._wait && m.id && onRetract && (
+          <button className="chip-x" title="retract (undelivered)"
+            onClick={(e) => { e.stopPropagation(); onRetract(m) }}>
+            <CloseIcon fontSize="inherit" /></button>)}
+      </div>
+      {/* the preview line is what makes a row two lines tall, so a
+          SYSTEM notice simply does not render one (user, 2026-08-28:
+          "much narrower in height"). Not hidden in CSS — not built:
+          a long-lived org's mailbox carries a lot of these, and a
+          display:none preview is a DOM node per row that nobody can
+          ever see. The body is still one click away in the reading
+          pane, and the `l1` header keeps the row identifiable. */}
+      {!isSystemNotice(m)
+        && <div className="l2">{briefLine(view ? eventSummary(view.event) : m.body)}</div>}
+    </div>
+  )
+}
+
+/** ONE MESSAGE'S READING PANE — what every mailbox shows for the selected
+ *  row, exported for the Attention view's body for an urgent mail or a
+ *  question (user 2026-09-29: "the bodies should look identical to how they
+ *  look in their respective details"). It renders INSIDE the host's
+ *  `.mailer-read`; `MailList` itself draws its pane through it. `onReply` is
+ *  passed only when this message may be replied to from here. */
+export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender, party,
+  outgoing, customSender, waitLabel, custom, onReply, toast }: {
+  cur: MailRow
+  /** a folded run of system notices, newest first; one entry = no run */
+  members?: MailRow[]
+  org?: string
+  refs?: { world: RefWorld; onOpen?: (r: ResolvedRef) => void }
+  mdBase?: (m: MailRow) => string
+  fileHref?: (path: string, m: MailRow) => string
+  sender: (id: string, m: MailRow) => ReactNode
+  /** the displayed party of `cur` (the event actor, else the sender) */
+  party: string
+  outgoing?: boolean
+  /** the sender renderer owns the whole head identity (the org inbox) */
+  customSender?: boolean
+  waitLabel?: ReactNode
+  /** a caller-supplied body that replaces the message AND the reply box
+   *  (asks: the response form IS the body) */
+  custom?: ReactNode | null
+  onReply?: (text: string, attachments?: string[], notice?: boolean) => Promise<unknown> | void
+  toast?: ToastFn
+}) {
+  const profile = BASE ? 'public' : 'operator'
+  const typed = (m: MailRow) => {
+    const result = decodeEventRow(m, profile)
+    return result.kind === 'known' ? projectEvent(result.event) : null
+  }
+  const S = sender
+  const messageContent = (m: MailRow, standalone = false) => {
+    const decoded = decodeEventRow(m, profile)
+    return decoded.kind === 'legacy'
+      ? <RefMdBody className="mailer-body md" html={md(m.body, mdBase?.(m) || undefined)}
+          world={refs?.world} onOpen={refs?.onOpen} />
+      : <div className="mailer-body"><EventCard part={standalone ? undefined : "body"} row={m} profile={profile}
+          org={org ?? refs?.world.org ?? ''} imgBase={mdBase?.(m) || undefined}
+          world={refs?.world} onOpen={refs?.onOpen} actor={id => S(id, m)} /></div>
+  }
+  const run = members && members.length > 1 ? members : null
+  return (
+    <>
+      <div className="mailer-head event-head">
+        {!run && <EventCard part="header" row={cur} profile={profile}
+          org={org ?? refs?.world.org ?? ""} world={refs?.world} onOpen={refs?.onOpen} actor={id => S(id, cur)} />}
+        {outgoing && !customSender && <span className="dim">to</span>}
+        {(outgoing || !typed(cur)) && S(party, cur)}
+        <span className="dim">
+          {run ? `${run.length} notices` : typed(cur) ? null : cur.kind}</span>
+        {cur.urgent && <span className="urgentkind">urgent</span>}
+        {cur.relationship && <span className="dim">{cur.relationship}</span>}
+        <span className="dim">{fmtFull(cur.at)}</span>
+        {cur._wait && <span className="wait">{waitLabel}</span>}
+      </div>
+      {/* D-169: WHY you are being interrupted, in the sender's own
+          words, on its own line above the mail. The reason exists to be
+          READ — an urgent flag whose justification were merely stored
+          would be a tax on the sender and no check at all, whereas one
+          shown here makes the claim accountable to the person whose
+          attention it took. */}
+      {cur.urgent && cur.urgent_reason && (
+        <div className="urgent-why">{cur.urgent_reason}</div>
+      )}
+      {/* A FOLDED RUN OPENS AS THE LIST OF WHAT IT FOLDED (user,
+          2026-08-28: "display them in a list in the full mail view to
+          the right"), modelled on the block an agent gets on its next
+          turn — supervisor._envelope's `[ORG NOTICES — n change(s)]`,
+          which the user named as the thing to copy. Same shape as that
+          block: one line per notice, `at` then text, OLDEST FIRST, so a
+          run reads forward like the log it is. The list itself is
+          newest-first and stays that way; this is a different axis.
+          ⚠ Nothing is summarised or elided — every folded entry's whole
+          body is here. The row is a shorter way IN, not a shorter
+          version OF. */}
+      {custom
+        ? <div className="mailer-body">{custom}</div>
+        : run
+          ? <div className="mailer-body notepile">
+              {run.slice().reverse().map((n, i) => (
+                <div className="notepile-row" key={n.id ?? i}>
+                  <span className="notepile-at">{fmtShort(n.at)}</span>
+                  {/* a folded notice is a body like any other — a
+                      reference written in one is followed the same way */}
+                  {messageContent(n, true)}
+                </div>
+              ))}
+            </div>
+          : messageContent(cur)}
+      {(cur.attachments ?? []).length > 0 && (
+        <div className="attach-row">
+          {/* extern-shaped attachments may lack `path` — a download
+              link would point at "undefined"; show a plain chip.
+              Images render viewable in place (user spec 2026-08-25). */}
+          {cur.attachments!.map((a) => {
+            const href = (a.path && fileHref?.(a.path, cur)) || ''
+            const name = a.name ?? a.path ?? 'file'
+            return href && isImg(name)
+              ? <AttachThumb key={a.path} href={href} name={name}
+                  meta={a.bytes != null ? `${Math.round(a.bytes / 1024)} KB` : undefined} />
+              : href
+                ? <a key={a.path} className="attach-chip" title="download"
+                    href={href} download={a.name}>
+                    <DownloadIcon fontSize="inherit" /> {a.name}
+                    <span className="dim"> {a.bytes != null ? `${Math.round(a.bytes / 1024)} KB` : ''}</span></a>
+                : <span key={a.path ?? a.name} className="attach-chip">
+                    <FileIcon fontSize="inherit" /> {a.name}</span>
+          })}
+        </div>
+      )}
+      {onReply && (
+        /* ⚠ `org ?? refs?.world.org` — THE SAME RESOLUTION THE HEAD USES
+           (above, and the body's `imgBase`). `org` is an OPTIONAL prop, and
+           the user's own inbox — the one MailList in the app that supplies
+           `onReply`, so the only one that ever renders this box — omits it
+           and passes `refs` instead. Read as bare `org` this handed the
+           composer `undefined`, which is exactly what `attachable` gates on,
+           so the user's paperclip was permanently grey (reported
+           2026-09-17). NOT `?? ''` like the head: an absent org must stay
+           ABSENT so the composer degrades the way its `slug?:` contract says. */
+        <MailReplyBox target={outgoing ? cur.to : cur.from} slug={org ?? refs?.world.org} toast={toast}
+          onSend={(text, attachments, notice) => onReply(text, attachments, notice)} />
+      )}
+    </>
+  )
+}
+
 /** №11: inline mail reply box — textarea + reply button.
  *  Shared between the mailbox reader (mail.tsx), the presented documents
  *  viewer (gallery.tsx) and the docket's own item reply (docket.tsx) —
@@ -780,7 +868,12 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   notice?: boolean
 }) {
   const [draft, setDraft] = useState('')
-  const [busy, setBusy] = useState(false)
+  // what happened to the last send, said in the box: `sending` from the click,
+  // `sent` once the server accepted it, `failed` (with the reason) when it
+  // refused — the text is back in the box by then
+  const [sendState, setSendState] = useState<
+    { state: 'sending' | 'sent' } | { state: 'failed'; error: string } | null>(null)
+  const sendSeq = useRef(0)
   const [attached, setAttached] = useState<{ name: string; path: string; bytes: number }[]>([])
   // PER-COMPOSER, never shared and never persisted (user 2026-09-17): opening
   // a ticket reply must not inherit whatever the mail composer was last set
@@ -788,7 +881,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   // singleton, which is global by design because the desk has one composer.
   const [noticeArmed, setNoticeArmed] = useState(false)
   const fileRef = useRef<HTMLInputElement | null>(null)
-  const attachable = Boolean(slug && target) && !busy && !sendDisabled
+  const attachable = Boolean(slug && target) && !sendDisabled
   const attach = (file: File) => {
     if (!slug || !target) return
     uploadFile(slug, target, file)
@@ -797,7 +890,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   }
   const send = () => {
     const t = draft.trim()
-    if ((!t && !attached.length) || busy || sendDisabled) return
+    if ((!t && !attached.length) || sendDisabled) return
     const paths = attached.map((a) => a.path)
     // DISARMS ON SEND ONLY — not on Escape, not on clearing the text, not on
     // switching recipient. Same rule as the desk composer (b38d9d9 §3), and
@@ -805,15 +898,29 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
     // not leave a live notice armed behind a toast the user already read.
     const armed = noticeArmed && notice
     if (noticeArmed) setNoticeArmed(false)
+    // THE BOX EMPTIES ON THE CLICK (docket v3-sending-a-reply-to-a-mail-
+    // takes-about-half-a, 2026-09-30): it used to stay locked on the typed
+    // text until the server answered, and the inbox's answer includes marking
+    // the replied-to mail read, so a reply took about half a second to
+    // register. Same principle as an answered card (point 31). A refused send
+    // puts the text and attachments back, so nothing typed is lost; if the
+    // user has typed more since, the refused text goes first.
+    const sentDraft = draft
+    const sentAttached = attached
+    setDraft(''); setAttached([])
     const res = onSend(t || '(file attached)', paths.length ? paths : undefined, armed)
     if (res && typeof (res as Promise<unknown>).then === 'function') {
-      setBusy(true)
+      const mine = ++sendSeq.current
+      setSendState({ state: 'sending' })
       Promise.resolve(res)
-        .then(() => { setDraft(''); setAttached([]) })
-        .catch(() => {})
-        .finally(() => setBusy(false))
-    } else {
-      setDraft(''); setAttached([])
+        .then(() => { if (sendSeq.current === mine) setSendState({ state: 'sent' }) })
+        .catch((e: unknown) => {
+          setDraft((cur) => (cur.trim() ? sentDraft + '\n\n' + cur : sentDraft))
+          setAttached((cur) => [...sentAttached, ...cur])
+          if (sendSeq.current === mine) {
+            setSendState({ state: 'failed', error: e instanceof Error ? e.message : String(e) })
+          }
+        })
     }
   }
   return (
@@ -848,10 +955,10 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
                (b38d9d9 §4): the server decides whether a notice is possible
                and silently sends ordinary mail when it is not, so greying the
                button would be this renderer guessing at a rule it does not
-               own. It follows `sendDisabled`/`busy` only, like the draft. */
+               own. It follows `sendDisabled` only, like the draft. */
             <button className={'cc-notice-toggle' + (noticeArmed ? ' armed' : '')}
               type="button"
-              disabled={busy || sendDisabled}
+              disabled={sendDisabled}
               aria-label={noticeArmed ? 'Notice-send armed: this reply arrives as a passive notice' : 'Notice-send: send this reply as a passive notice'}
               title={noticeArmed ? 'Notice-send armed: this reply will arrive as a passive notice without waking the recipient (Alt+N)' : 'Send this reply as a passive notice without waking the recipient (Alt+N)'}
               onClick={() => setNoticeArmed((v) => !v)}>
@@ -871,18 +978,17 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
         <textarea rows={2} value={draft}
           placeholder={placeholder ?? (target ? `reply to ${target}…` : 'reply…')}
           onChange={(e) => setDraft(e.target.value)}
-          disabled={busy}
           onKeyDown={(e) => {
             // Alt+N, the desk composer's own shortcut. Checked BEFORE Enter so
             // the two can never race, and it returns rather than falling
             // through — Alt+N is not a send.
             if (notice && e.altKey && (e.key === 'n' || e.key === 'N')) {
               e.preventDefault()
-              if (!busy && !sendDisabled) setNoticeArmed((v) => !v)
+              if (!sendDisabled) setNoticeArmed((v) => !v)
               return
             }
             if (e.key === 'Enter' && !e.shiftKey && (draft.trim() || attached.length)
-                && !isMobile && !busy && !sendDisabled) {
+                && !isMobile && !sendDisabled) {
               e.preventDefault()
               send()
             }
@@ -893,10 +999,19 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
             positional match silently pick the wrong element instead of
             failing loudly, which is worse */}
         <button className="mail-reply-send"
-          disabled={(!draft.trim() && !attached.length) || busy || sendDisabled} onClick={send}>
+          disabled={(!draft.trim() && !attached.length) || sendDisabled} onClick={send}>
           reply
         </button>
       </div>
+      {sendState && (
+        <div className={'mail-reply-state dim' + (sendState.state === 'failed' ? ' failed' : '')}
+          role={sendState.state === 'failed' ? 'alert' : 'status'}>
+          {sendState.state === 'failed'
+            ? `not sent: ${sendState.error} — your text is back in the box`
+            : `${sendState.state === 'sending' ? 'sending' : 'sent'}${target ? ` to ${target}` : ''}`
+              + (sendState.state === 'sending' ? '…' : '')}
+        </div>
+      )}
     </>
   )
 }
@@ -1240,9 +1355,9 @@ export function NodeInboxModal({ node, slug, close, jumpTo, jumpSeq, onFocusAgen
           onFocusAgent={onFocusAgent
             ? (id) => { closeIfCentred('node-inbox', close, slug); onFocusAgent(id) }
             : undefined} />
-        <div className="row">
-          <button className="primary" onClick={close}>close</button>
-        </div>
+        {/* no footer `close` button (user 2026-09-28), as in the user's own
+            inbox: Escape, a backdrop click, the title bar's menu and — when
+            pinned — its ✕ close it */}
     </PinFrame>
   )
 }
@@ -1529,8 +1644,8 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
 // past correspondent in the log, deduped — plus a free-typed address (FR-07:
 // addressing must never require a live roster; the spool holds @net: mail
 // until the hub is reachable). The user bypasses the audience gate
-// (they outrank it); attachments stage first and are refused for the
-// text-only transports (@ext:/@mcp:) by the server with a clear message.
+// (they outrank it); attachments stage first. The retired forms (@ext:,
+// and @mcp: since 2026-09-25) are refused by the server with a clear message.
 /** How long a hub roster row may be silent before the compose picker
  *  stops presenting it as an ordinary recipient. Well inside the hub's
  *  own ORG_RETENTION_DAYS (45): the point is not to predict the prune,
@@ -1622,8 +1737,10 @@ function ComposeModal({ slug, net, entries, toast, close }: {
     for (const e of entries) {
       // @ext: correspondents are HISTORY only — the bridge is retired
       // (user ruling 2026-08-05); their rows stay readable but they are
-      // not addressable, so no chip
-      if (!e.peer.startsWith('@') || e.peer.startsWith('@ext:')) continue
+      // not addressable, so no chip. @mcp: followed on 2026-09-25 (the
+      // external-chat MCP server is retired; the server refuses new sends)
+      if (!e.peer.startsWith('@') || e.peer.startsWith('@ext:')
+        || e.peer.startsWith('@mcp:')) continue
       const ns = e.peer.slice(1, e.peer.indexOf(':'))
       const g = e.peer.startsWith('@net:')
         ? e.peer.slice(5).split('.')[1] ?? '?'
@@ -1753,7 +1870,7 @@ function ComposeModal({ slug, net, entries, toast, close }: {
             onClick={() => setOther((v) => !v)}>other address…</button>
         </div>
         {other && (
-          <input autoFocus placeholder="@net:slug / @org:slug / @mcp:id"
+          <input autoFocus placeholder="@net:slug / @org:slug"
             value={freeTo} onChange={(e) => setFreeTo(e.target.value)} />
         )}
         <textarea rows={5} placeholder="the message…" value={text}

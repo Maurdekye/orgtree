@@ -3,6 +3,7 @@ dist/
 release/
 release-dev/
 release-rehearsal/
+release-private-alpha/
 .venv/
 __pycache__/
 *.pyc
@@ -10,6 +11,10 @@ __pycache__/
 *.log
 test-results/
 engine/runtime/
+engine/postgresql/
+engine/pg-custodian.exe
+engine/pg-custodian.exe.tmp
+engine/postgres-runtime-manifest.json*
 .runtime-cache/
 
 # regenerated on every cardlayout probe run — evidence artifact, not source
@@ -27,3 +32,9 @@ apps/desktop/assets/orgtree-eye.iconset/
 # it is the belt to that cleanup braces, because the failure mode is an agent
 # sweeping stray fixture dirs into a commit with `git add -A` and not noticing.
 acl-fixtures-*/
+
+# probe roots: isolated Electron output (bundle, redirected app data, result.json).
+# One glob rather than a name per probe — `.probe-canvashide/` and
+# `.probe-attention/` arrived within an hour of each other from two worktrees,
+# which is the signal that the next one should not need another line here.
+.probe-*/

@@ -13,6 +13,7 @@
 // open" passes trivially on a surface that never requests anything and "the
 // order matched" passes trivially against a fixture written to match.
 import { flush, inAct, mountView, advance, useFakeClock, realClock } from './harness'
+import { compatibilityWorkFixture } from './workcompat.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { DocketModal } from '../src/canvas/docket'
@@ -39,7 +40,7 @@ const LOADING = 'Loading current staffing choices…'
  *  produces exactly this sequence from a scrambled organization. Change either
  *  side alone and one of the two files fails. */
 const PUBLISHED = ['haiku', 'sonnet', 'opus', 'fable', 'luna', 'terra', 'sol',
-                   'astra', 'flash', 'pro']
+                   'astra', 'flash', 'pro', 'argon']
 
 /** The model-switch dropdown's own order (modals.tsx): Claude, then Codex, then
  *  Antigravity, then the OpenRouter favorites, each family in the sequence its
@@ -96,6 +97,7 @@ async function docket(t: { after: (fn: () => void) => void },
       now: '2026-09-01T00:00:00Z',
     } : { pending: [], delivered: [], sent: [] }))
   }
+  globalThis.fetch = compatibilityWorkFixture(globalThis.fetch)
   const tree = { slug: 'org1', name: 'Org', epoch: 1, rev: 1, roots: [], asks: [],
     work_items_summary: { active: 1, attention: 0 } } as unknown as TreePayload
   const view = await mountView(

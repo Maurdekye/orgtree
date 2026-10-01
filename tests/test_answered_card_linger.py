@@ -235,5 +235,117 @@ class AnsweredCardLingerTests(unittest.TestCase):
                              'no stamp to judge by — the card stands, as before')
 
 
+class AnsweredCardAcrossSessionReplacementTests(unittest.TestCase):
+    """USER REPORT 2026-09-29 (item v3-an-old-answered-question-card-reappears-
+    in-th): right after coordinator-opus was cheap-compacted, a question it had
+    asked and the user had answered minutes earlier came back at full size at
+    the bottom of its chat, and cleared only when the 15 minutes ran out. No
+    restart happened, so the boot bound above never fired; the desk followed
+    the node to its NEW session, whose rows cannot hold the answer mail that
+    was handed to the old one. The linger is now bounded by the node's
+    current session as well: its predecessor bearer's `archived_at`.
+
+    Every test runs in ONE long-lived process (booted an hour ago), so only
+    the session bound can be what hides a card."""
+
+    def setUp(self) -> None:
+        _boot(_booted(3600))
+
+    def tearDown(self) -> None:
+        _boot('')
+
+    def _split_at(self, org, seconds_ago: float) -> None:
+        """Place the node's latest session split in time. The split itself
+        must have stamped `session_began_at` (checked first: back-dating a
+        stamp the split never wrote would test the fixture, not the code);
+        the real stamp is `now()`, after every fixture answer."""
+        node = org.nodes['agent']
+        self.assertRegex(node.get('session_began_at') or '',
+                         r'^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$',
+                         'the split stamps the session start in now() format')
+        node['session_began_at'] = _at(seconds_ago)
+
+    def test_8_a_cheap_compaction_ends_the_linger(self):
+        # THE REPORTED BUG: answered a minute before the compaction.
+        org = fixture_org('linger-cheap-compact')
+        _answered(org, resolved_at=_at(120))
+        self.assertIsNotNone(org.node_ask('agent'), 'fixture: pinned before the compaction')
+        org.cheap_compact(USER, 'agent')
+        self._split_at(org, 60)
+        self.assertIsNone(org.node_ask('agent'),
+                          'the successor session never received this answer: no card')
+        self.assertIsNone(org.tree_node('agent')['ask'],
+                          'and the tree payload the desk draws from carries none')
+
+    def test_8b_an_answer_after_the_compaction_still_lingers(self):
+        # The anti-vacuity control: the successor's OWN handoff is covered.
+        org = fixture_org('linger-after-compact')
+        org.cheap_compact(USER, 'agent')
+        self._split_at(org, 120)
+        _answered(org, resolved_at=_at(60))
+        card = org.node_ask('agent')
+        self.assertIsNotNone(card, 'an answer given to this session keeps its card')
+        assert card is not None
+        self.assertEqual(card['status'], 'answered')
+
+    def test_8c_an_open_question_survives_a_cheap_compaction(self):
+        # user ruling 2026-09-16: the standing request survives cheap
+        # compaction, and so must its card.
+        org = fixture_org('linger-open-compact')
+        org.ask_user('agent', 'Still waiting on you?')
+        org.cheap_compact(USER, 'agent')
+        card = org.node_ask('agent')
+        self.assertIsNotNone(card)
+        assert card is not None
+        self.assertEqual(card['status'], 'open')
+
+    def test_8d_a_cli_compaction_ends_the_linger_too(self):
+        # The other in-place split: the CLI's own compaction.
+        org = fixture_org('linger-cli-compact')
+        _answered(org, resolved_at=_at(120))
+        org.compact_split('agent', 'sess-after-compact')
+        self._split_at(org, 60)
+        self.assertIsNone(org.node_ask('agent'))
+
+    def test_8e_an_answer_still_queued_at_compaction_is_not_invisible(self):
+        # Same guarantee as §6: with no card, the queued answer is its own
+        # bubble, because it is still in the mailbox the successor will read.
+        org = fixture_org('linger-queued-compact')
+        org.ask_user('agent', 'Proceed?')
+        aid = org.d['asks'][-1]['id']
+        org.ask_answer(aid, selected=['yes'])
+        org.d.setdefault('mail', {}).setdefault('agent', []).append(
+            {'id': 'mail-c', 'from': '@user', 'kind': 'message',
+             'body': 'Answer: yes', 'at': _at(120)})
+        org.bind_answer_mail('mail-c', ask=aid)
+        org.d['asks'][-1]['resolved_at'] = _at(120)
+        org.cheap_compact(USER, 'agent')
+        self._split_at(org, 60)
+        self.assertIsNone(org.node_ask('agent'))
+        self.assertIn('mail-c', [m['id'] for m in org.d['mail']['agent']])
+
+    def test_8f_every_in_place_split_stamps_the_session_start(self):
+        # cheap compaction and compact_split are exercised above; these are
+        # the other two in-place splits (review of ed144be asked for them).
+        org = fixture_org('linger-stamps')
+        self.assertNotIn('session_began_at', org.nodes['agent'],
+                         'a node never split carries no stamp, so no bound')
+        org.record_cli_compaction('agent')
+        self._split_at(org, 60)
+        org.mark_unrecoverable('agent', 'fixture')
+        org.nodes['agent']['session_began_at'] = ''
+        org.reseed(USER, 'agent', 'sess-reseeded')
+        self._split_at(org, 30)
+
+    def test_8g_a_node_without_the_stamp_keeps_the_old_window(self):
+        # A node split before this stamp existed has no `session_began_at`:
+        # no bound, exactly the boot/15-minute behaviour it had before.
+        org = fixture_org('linger-no-stamp')
+        _answered(org, resolved_at=_at(120))
+        org.cheap_compact(USER, 'agent')
+        org.nodes['agent'].pop('session_began_at')
+        self.assertIsNotNone(org.node_ask('agent'))
+
+
 if __name__ == '__main__':
     unittest.main()

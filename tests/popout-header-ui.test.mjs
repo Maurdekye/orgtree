@@ -405,7 +405,12 @@ test('Show desk aims the camera at the host the desk is actually in', async () =
 
     await s.click([...notice.querySelectorAll('button')].find(b => b.textContent === 'Show desk'))
     assert.deepEqual(jumped, [NODE.id], 'Show desk asks the canvas for the agent whose desk it is')
-    assert.deepEqual([...notice.querySelectorAll('button')].map(b => b.textContent), ['Show desk'],
-      'a desk that never left this window offers no way to return it')
+    // 2026-09-30 (desk hover ping-pong fix): an attached desk's placeholder
+    // also offers "Move desk here" — moving it within the window is an
+    // explicit click now that a re-render never moves it. "Return here" is
+    // still the detached-only action.
+    assert.deepEqual([...notice.querySelectorAll('button')].map(b => b.textContent),
+      ['Show desk', 'Move desk here'],
+      'a desk that never left this window offers no way to return it, only to move it here')
   } finally { await s.teardown() }
 })

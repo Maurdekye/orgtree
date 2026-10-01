@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react'
-import { getWorkItems } from '../api'
+import { useWorkItems } from './useworkitems'
 import type { ToastFn, TreePayload } from '../types'
 import { DocketIcon } from '../icons'
-import { AgentDocketView, agentItems, buildNodeFacts } from './docket'
+import { AgentDocketView, agentItems, itemActorIds, useNodeFacts } from './docket'
 import { PinFrame, closeIfCentred } from './modalpin'
-import { flatten, withDraftTree, usePolled } from './shared'
+import { flatten, withDraftTree } from './shared'
 import type { RefRoutes } from './reflinks'
 import { resolveRef } from './reflinks'
 
@@ -14,10 +14,12 @@ export function AgentDocketModal({ slug, nid, tree, toast, close, refs }: {
   close: () => void; refs: RefRoutes
 }) {
   const [showArchived, setShowArchived] = useState(false)
+  const [showBacklog, setShowBacklog] = useState(false)
   const [bump, setBump] = useState(0)
-  const work = usePolled(() => getWorkItems(slug, true, true), [slug], 15000, bump)
+  const work = useWorkItems(slug, showArchived, showBacklog, 15000, bump).value
   const mine = useMemo(() => agentItems(work, nid, showArchived), [work, nid, showArchived])
-  const facts = useMemo(() => buildNodeFacts(tree.roots), [tree.roots])
+  const actorIds = useMemo(() => itemActorIds(mine), [mine])
+  const facts = useNodeFacts(slug, tree, actorIds)
   const routes: RefRoutes = { world: refs.world, onOpen: r => {
     closeIfCentred('agent-docket', close, slug)
     refs.onOpen(r)
@@ -26,6 +28,8 @@ export function AgentDocketModal({ slug, nid, tree, toast, close, refs }: {
     <h3 data-copy-agent-name={nid}><DocketIcon fontSize="inherit" /> {nid} <span className="dim">· Docket</span></h3>
     <AgentDocketView slug={slug} nid={nid} mine={mine} facts={facts} toast={toast}
       showArchived={showArchived} onShowArchived={setShowArchived}
+      onShowBacklog={setShowBacklog}
+      references={work?.references} boundedReferences workRevision={work?.revision}
       onChanged={() => setBump(n => n + 1)} refs={routes}
       onFocusAgent={id => routes.onOpen(resolveRef({ kind: 'agent', org: slug, id }, refs.world))} />
     <div className="row"><button className="primary" onClick={close}>Close</button></div>

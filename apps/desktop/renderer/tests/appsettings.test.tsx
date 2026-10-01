@@ -8,6 +8,7 @@ import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { AccountsPanel } from '../src/canvas/accounts'
+import { OPEN_APP_SETTINGS_EVENT } from '../src/canvas/settingskit'
 import { AccountUsagePanel } from '../src/accountusage'
 import type { AccountsPayload, ProviderInfo, ProvidersPayload } from '../src/types'
 
@@ -81,11 +82,6 @@ function stubFetch(seen: Seen[], initial = ON): void {
         blockedDocketRemindersEnabled = runtime.blocked_docket_reminders_enabled
     }
     const payload = path === '/api/accounts' ? ACCOUNTS
-      // The Import tab mounts ImportSettings, which polls for a running
-      // import. Unmodelled, the stub rejected it and the panel entered its
-      // "progress unavailable" state — an unrelated failure for a tab test.
-      // `{ job: null }` is the server's own answer when nothing is running.
-      : path === '/api/desktop/import-v1/jobs/current' ? { job: null }
       : path === '/api/providers' ? initial
         : path === '/api/app-settings/runtime' && method === 'GET'
           ? { warming_enabled: warmingEnabled,
@@ -138,6 +134,35 @@ test('Accounts omits Codex reserve usage but preserves regular usage', async () 
   } finally { await usage.unmount(); delete g.fetch }
 })
 
+test('§0 opens on Providers; a requested tab still opens; a fresh open starts on Providers again',
+  async () => {
+    localStorage.clear()
+    stubFetch([])
+    const selected = (el: HTMLElement) =>
+      el.querySelector('[role="tab"][aria-selected="true"]')?.textContent?.trim()
+    // the queued-for-a-turn-slot banner's "change in settings" link asks for Runtime
+    const deep = await mountView(
+      <AccountsPanel toast={() => {}} close={() => {}} initialTab="runtime" />, (el) => el)
+    try {
+      await inAct(async () => { await flush(10) })
+      assert.equal(selected(deep.el), 'Runtime', 'a requested tab opens')
+    } finally { await deep.unmount() }
+    const view = await mountSettings()
+    try {
+      assert.equal(selected(view.el), 'Providers', 'no tab requested: Providers')
+      // a later ask while the panel is open still moves it
+      await inAct(async () => {
+        window.dispatchEvent(new window.CustomEvent(OPEN_APP_SETTINGS_EVENT, { detail: { tab: 'runtime' } }))
+      })
+      assert.equal(selected(view.el), 'Runtime')
+    } finally { await view.unmount() }
+    // the last tab is not remembered across opens
+    const again = await mountSettings()
+    try {
+      assert.equal(selected(again.el), 'Providers', 'a fresh open starts on Providers')
+    } finally { await again.unmount() }
+  })
+
 test('§1 stable accessible tabs navigate by key without swapping identity',
   async () => {
     localStorage.clear()
@@ -145,29 +170,52 @@ test('§1 stable accessible tabs navigate by key without swapping identity',
     const view = await mountSettings()
     try {
       const tabs = view.el.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+      // v3: the strip follows the user's own list (2026-09-29), and the
+      // panel opens on its first tab, Providers (user 2026-09-30).
       assert.deepEqual([...tabs].map((b) => b.textContent?.trim()),
-        ['Providers', 'Runtime', 'Mail hub', 'Display', 'Import'])
-      assert.equal(tabs[3]!.querySelector('.app-settings-scope'), null,
+        ['Providers', 'Runtime', 'Display', 'Default org settings',
+          'Mail hub', 'Developer', 'About'])
+      assert.equal(tabs[2]!.querySelector('.app-settings-scope'), null,
         'Display has no device-label pill while retaining its tab identity')
-      assert.equal(tabs[0]!.getAttribute('aria-selected'), 'true')
-      assert.equal(tabs[1]!.getAttribute('aria-selected'), 'false')
+      assert.equal(tabs[0]!.getAttribute('aria-selected'), 'true',
+        'opens on Providers')
+      assert.equal(tabs[6]!.getAttribute('aria-selected'), 'false')
+      assert.equal(view.el.querySelector('#app-settings-panel-providers')!.hasAttribute('hidden'), false)
       await inAct(async () => {
         tabs[0]!.dispatchEvent(new KeyboardEvent('keydown', {
           key: 'ArrowRight', bubbles: true,
         }))
       })
-      assert.equal(tabs[0]!.getAttribute('aria-selected'), 'false')
       assert.equal(tabs[1]!.getAttribute('aria-selected'), 'true')
-      assert.equal(document.activeElement, tabs[1])
       await inAct(async () => {
         tabs[1]!.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'Home', bubbles: true,
+        }))
+      })
+      assert.equal(tabs[1]!.getAttribute('aria-selected'), 'false')
+      assert.equal(tabs[0]!.getAttribute('aria-selected'), 'true')
+      assert.equal(document.activeElement, tabs[0])
+      await inAct(async () => {
+        tabs[0]!.dispatchEvent(new KeyboardEvent('keydown', {
           key: 'End', bubbles: true,
         }))
       })
-      assert.equal(tabs[4]!.getAttribute('aria-selected'), 'true')
-      assert.equal(document.activeElement, tabs[4])
-      const display = view.el.querySelector('#app-settings-panel-import')!
-      assert.equal(display.hasAttribute('hidden'), false)
+      assert.equal(tabs[6]!.getAttribute('aria-selected'), 'true')
+      assert.equal(document.activeElement, tabs[6])
+      await inAct(async () => {
+        tabs[6]!.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'ArrowLeft', bubbles: true,
+        }))
+      })
+      assert.equal(tabs[5]!.getAttribute('aria-selected'), 'true')
+      assert.equal(document.activeElement, tabs[5])
+      const last = view.el.querySelector('#app-settings-panel-developer')!
+      assert.equal(last.hasAttribute('hidden'), false)
+      // the engine debug view's toggle lives here, and is off by default
+      const dbg = last.querySelector<HTMLInputElement>(
+        'input[role="switch"][aria-label="show the engine debug view"]')
+      assert.ok(dbg, 'Developer has no engine debug toggle')
+      assert.equal(dbg!.checked, false)
     } finally { await view.unmount(); delete g.fetch }
   })
 
@@ -197,6 +245,26 @@ test('§2 an installed provider turns off, remains visible, and sends the '
   } finally { await view.unmount(); delete g.fetch }
 })
 
+test('§2b an off provider does not repeat "turned off in App settings → '
+  + 'Providers" beside its own switch; an on provider keeps its reason line',
+  async () => {
+    localStorage.clear()
+    const NOT_SIGNED_IN = { ...provider('openai'),
+      reason: 'not signed in — run `codex login` on this machine' }
+    stubFetch([], { providers: [
+      provider('claude', false), NOT_SIGNED_IN, provider('google', false),
+    ] })
+    const view = await mountSettings()
+    try {
+      const panel = view.el.querySelector<HTMLElement>('#app-settings-panel-providers')!
+      assert.ok(panel.querySelector('input[aria-label="Claude enabled for new agents"]'),
+        'the off provider still shows its switch')
+      assert.doesNotMatch(panel.textContent ?? '', /turned off in App settings/)
+      assert.match(panel.textContent ?? '', /not signed in — run `codex login`/,
+        'a real reason on an enabled provider still shows')
+    } finally { await view.unmount(); delete g.fetch }
+  })
+
 test('§3 provider rows present status and model-tier detail', async () => {
   localStorage.clear()
   stubFetch([])
@@ -204,7 +272,11 @@ test('§3 provider rows present status and model-tier detail', async () => {
   try {
     const panel = view.el.querySelector<HTMLElement>('#app-settings-panel-providers')!
     assert.equal(panel.querySelectorAll('.acct-provider-group').length, 3)
-    assert.equal(panel.querySelectorAll('.acct-provider-tier').length, 8)
+    // 8 in the fixture; Terra and Gemini Pro are left out while "show legacy
+    // models" is off
+    assert.equal(panel.querySelectorAll('.acct-provider-tier').length, 6)
+    assert.doesNotMatch(panel.textContent ?? '', /gpt-5\.6-terra/)
+    assert.doesNotMatch(panel.textContent ?? '', /antigravity-pro/)
     assert.match(panel.textContent ?? '', /Installed · connected/)
     assert.match(panel.textContent ?? '', /Model tiers/)
     assert.match(panel.textContent ?? '', /Haiku/)
@@ -256,6 +328,37 @@ test('§3 Display owns both browser-local controls, with durable values and no '
       true)
   } finally {
     await view.unmount(); delete g.fetch; localStorage.clear()
+  }
+})
+
+test('§3b Display: "snap pinned panels to edges" is on by default and stays '
+  + 'off across a reload once turned off', async () => {
+  localStorage.clear()
+  stubFetch([])
+  const open = async () => {
+    const view = await mountSettings()
+    const displayTab = [...view.el.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+      .find((b) => b.textContent?.includes('Display'))!
+    await inAct(async () => { displayTab.click() })
+    const panel = view.el.querySelector<HTMLElement>('#app-settings-panel-display')!
+    const sw = panel.querySelector<HTMLInputElement>(
+      'input[aria-label="snap pinned panels to edges"]')!
+    return { view, panel, sw }
+  }
+  let v = await open()
+  try {
+    assert.ok(v.sw, 'the toggle is an ordinary Display row')
+    assert.ok(v.sw.closest('.set-row'))
+    assert.equal(v.sw.checked, true, 'unset means on')
+    await inAct(async () => { v.sw.click() })
+    assert.equal(v.sw.checked, false)
+    assert.equal(localStorage.getItem('orgtree-pin-snap'), '0')
+  } finally { await v.view.unmount() }
+  v = await open()
+  try {
+    assert.equal(v.sw.checked, false, 'off survives a reload')
+  } finally {
+    await v.view.unmount(); delete g.fetch; localStorage.clear()
   }
 })
 

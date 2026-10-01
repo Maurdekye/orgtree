@@ -38,8 +38,11 @@ import re
 #: The version a deploy installs into ``<data-root>/cli`` (see
 #: ``supervisor._PIN``). Latest published at the time of writing.
 # Opus 5.5 support and its $4/$20 pricing ($0.20 cache reads) were added
-# in the official Claude Code 2.1.280 changelog on 2026-09-22.
-PIN = "2.1.280"
+# in the official Claude Code 2.1.280 changelog on 2026-09-22. Sonnet 5.5
+# (`claude-sonnet-5-5`, tier_2_10 pricing) is in the 2.1.284 catalog and not
+# in 2.1.280's (measured 2026-09-28 by grepping both native win32 builds;
+# 2.1.281-2.1.283 were not checked).
+PIN = "2.1.284"
 
 #: The npm package a deploy installs to get it.
 PACKAGE = "@anthropic-ai/claude-code"

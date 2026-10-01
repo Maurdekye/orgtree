@@ -8,8 +8,17 @@ import type { NodeDetail } from './archived'
 import { bumpLive } from './livebus'
 import { backendRestart } from './windowlife'
 import { desktop } from './desktop'
+import { applyWorkDelta } from './workdelta'
+import { ForegroundWorkReader } from './workforeground'
+import { WorkReferenceReader } from './workreferences'
+import type { WorkDelta } from './workdelta'
+import { decodeTree, type TreeWire } from './treedelta'
+import { ForegroundTreeReader } from './foregroundtree'
+import { AgentReferences } from './agentrefs'
+import { TreeViewReader } from './treeview'
+import type { TreeSelection } from './treeview'
 import type {
-  AudiencesPayload, ChartersPayload, ChatPayload, DefaultsPayload,
+  AudiencesPayload, CharterTemplateDirsPayload, ChartersPayload, ChatPayload, DefaultsPayload,
   DiskDeleteResult, DiskDirPayload, DiskPayload, EventsPayload, FsPayload,
   HireDefaultsRequest, HistoryPayload, HostPayload,
   InboxPayload, KioskCfgRequest, KioskSaveResult, MailEntry,
@@ -183,6 +192,7 @@ export const req = <T,>(path: string, init?: RequestInit,
       // revision itself, which is the only thing that can see a write made in
       // ANOTHER window or by an agent, where this tab issues no request at all.
       forgetNodeDetail()
+      forgetWorkInflight()
       bumpLive()
     }
     // A 2xx whose body is not JSON is still our bug to report readably, not
@@ -225,7 +235,7 @@ export const createOrg = (
 // re-render entirely (Object.is on the unchanged reference). Bespoke fetch
 // rather than req(): req treats every non-2xx as an error, and 304 is the
 // success case here.
-const treeCache = new Map<string, { etag: string; tree: TreePayload }>()
+const treeCache = new Map<string, { etag: string; tree: TreePayload; raw: TreePayload; revision: string }>()
 // Per-slug invalidation stamp. Deleting the cache entry is not enough for a
 // request already IN FLIGHT (perf-review round 3): its captured `hit` would
 // still resolve a 304 to the pre-patch tree, and its 200 would re-install a
@@ -242,6 +252,18 @@ const treeCacheGen = new Map<string, number>()
  *  and bump the stamp so an in-flight fetch refetches instead of
  *  publishing its pre-patch result. */
 export const invalidateTreeCache = (slug: string): void => {
+  treeCache.delete(slug)
+  treeCacheGen.set(slug, (treeCacheGen.get(slug) ?? 0) + 1)
+  foregroundTreeReader.invalidate()
+}
+/** A ws metadata patch (cache forecast, MCP counts) that edited the rendered
+ *  tree in place. The full-tree cache is fenced exactly as invalidateTreeCache
+ *  fences it. The SELECTED tree keeps its ETag (foreground-tree F1): its
+ *  server moves the runtime stamp BEFORE it sends the frame, so a 304 there
+ *  only ever confirms a body equal to the server's current one, and a changed
+ *  body comes back as a delta against the kept base. Dropping the ETag instead
+ *  made every such frame cost a full snapshot. */
+export const patchedTreeCache = (slug: string): void => {
   treeCache.delete(slug)
   treeCacheGen.set(slug, (treeCacheGen.get(slug) ?? 0) + 1)
 }
@@ -261,7 +283,7 @@ export const invalidateTreeCache = (slug: string): void => {
 export const getTree = (slug: string): Promise<TreePayload | null> => {
   const gen = treeCacheGen.get(slug) ?? 0
   const hit = treeCache.get(slug)
-  return fetch(u(`/api/orgs/${slug}`), {
+  return fetch(u(`/api/orgs/${slug}?view=delta`), {
     signal: timeoutSignal(DEFAULT_TIMEOUT_MS),
     ...(hit ? { headers: { 'If-None-Match': hit.etag } } : {}),
   }).then((r) => {
@@ -269,22 +291,68 @@ export const getTree = (slug: string): Promise<TreePayload | null> => {
     if (r.status === 304 && hit) {
       // the cached body is unchanged server-side; newer patches replay on
       // top of it in the caller, so returning it is always safe now
-      return hit.tree
+      const raw = treeWatermarks(hit.raw, r)
+      if (raw === hit.raw) return hit.tree
+      const tree = hydrateTree(raw)
+      if ((treeCacheGen.get(slug) ?? 0) === gen) treeCache.set(slug, { ...hit, raw, tree })
+      return tree
     }
     if (!r.ok) {
       return failure(r).then((e) => { throw e })
     }
     const etag = r.headers.get('ETag')
-    return r.json().then((raw: TreePayload) => {
+    return r.json().then((wire: TreePayload | TreeWire) => {
+      const raw = treeWatermarks(decodeTree(wire, hit), r)
       const tree = hydrateTree(raw)
       if ((treeCacheGen.get(slug) ?? 0) === gen && etag) {
-        treeCache.set(slug, { etag, tree })
+        const revision = 'format' in wire && wire.format === 'orgtree.tree/v1'
+          ? (wire as TreeWire).revision : etag
+        treeCache.set(slug, { etag, tree, raw, revision })
       } else if (!etag) {
         treeCache.delete(slug)
       }
       return tree
     })
   })
+}
+
+/** Explicit full read for compatibility or a surface that asks for all rows.
+ * A closed foreground view must not leave a whole-history legacy cache behind. */
+export const getCompleteTree = async (slug: string): Promise<TreePayload> => {
+  try {
+    const tree = await getTree(slug)
+    if (!tree) throw new Error('Missing complete tree response')
+    return tree
+  } finally { treeCache.delete(slug) }
+}
+const foregroundTreeReader = new ForegroundTreeReader(async (path, etag) => {
+  const response = await fetch(u(path), { signal: timeoutSignal(DEFAULT_TIMEOUT_MS),
+    ...(etag ? { headers: { 'If-None-Match': etag } } : {}) })
+  noteInstance(response)
+  return response
+}, getCompleteTree)
+const foregroundTreeViews = new TreeViewReader(foregroundTreeReader, getCompleteTree)
+/** Identity facts for agents omitted from a selected tree, per catalog. */
+export const agentReferences = new AgentReferences((org, ids) => foregroundTreeReader.references(org, ids))
+export const getSelectedTree = async (slug: string, selection: TreeSelection): Promise<TreePayload> =>
+  (await foregroundTreeViews.get(slug, selection)).tree
+/** App's tree read. A backend without the selected-tree endpoint keeps the
+ * conditional (ETag) full read on every later heartbeat instead of an
+ * uncached whole-history fetch. */
+export const getAppTree = async (slug: string, selection: TreeSelection): Promise<TreePayload | null> =>
+  foregroundTreeReader.isUnavailable(slug) ? getTree(slug) : getSelectedTree(slug, selection)
+
+/** An unchanged content token can advance its replay boundary without a body.
+ * Never alter a shared cached tree: in-flight readers may still be using it. */
+function treeWatermarks(raw: TreePayload, response: Response): TreePayload {
+  let result = raw
+  for (const [header, key] of [['X-Orgtree-Sync-Rev', 'sync_rev'], ['X-Orgtree-Org-Rev', 'org_rev']] as const) {
+    const value = response.headers.get(header)
+    if (value === null) continue
+    const rev = Number(value)
+    if (Number.isSafeInteger(rev) && rev >= 0 && rev !== raw[key]) result = { ...result, [key]: rev }
+  }
+  return result
 }
 /** §4.8: the fields a summarised (archived) seat does not carry — full
  *  charter, scope, lineage, turn history. Fetched when a seat is opened. */
@@ -305,15 +373,35 @@ export const getChat = (slug: string, nid: string, last?: number, before?: strin
 /** multi-account: reassign a node's account (operator surface). The result
  * is the full disclosure set — billing mode, standing with provenance, the
  * continuity record — shown at the point of action, never silent. */
+/** A USER'S OWN SAVE MOVED THE TREE: re-read it now, not after the pacer's gap
+ *  (docket v3-changing-an-agent-s-model-does-not-show-at-on). The settings
+ *  dialog saves scope (effort, tools, ...) and the account through these direct
+ *  routes rather than App's `op`, so without this the new values waited for the
+ *  server's `changed` frame, whose tree read is paced like background traffic:
+ *  at least TREE_MIN_GAP_MS and up to 2x the last read's duration. App listens
+ *  and asks for an URGENT read, which waits only for a read already in flight. */
+export const TREE_STALE_EVENT = 'orgtree:tree-stale'
+export function markTreeStale(slug: string): void {
+  // a hint, never a failure: the save has already succeeded, so nothing here
+  // may turn it into a rejected promise (and not every host defines
+  // CustomEvent globally)
+  try {
+    if (typeof window === 'undefined' || typeof window.CustomEvent !== 'function') return
+    window.dispatchEvent(new window.CustomEvent(TREE_STALE_EVENT, { detail: { slug } }))
+  } catch { /* the next paced read still brings the change */ }
+}
+const staleAfter = <T,>(slug: string, done: Promise<T>): Promise<T> =>
+  done.then((r) => { markTreeStale(slug); return r })
+
 export const assignAccount = (slug: string, nid: string, account: string):
   Promise<{ account: string; label: string; billing_mode: string
             standing: { state: string; until?: number; provenance?: string }
             session_boundary: boolean }> =>
-  req(`/api/orgs/${slug}/nodes/${nid}/account`, {
+  staleAfter(slug, req(`/api/orgs/${slug}/nodes/${nid}/account`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ account }),
-  })
+  }))
 export const getMcpServers = (): Promise<McpServersPayload> =>
   req('/api/mcp-servers')
 export const getCharters = (): Promise<ChartersPayload> =>
@@ -341,6 +429,16 @@ export const openCharterFolder = async (): Promise<{ ok: boolean; path?: string;
     return { ok: false, error: message }
   }
 }
+/** The app-wide list of external charter template folders with each one's
+ *  read-only scan state. Saving replaces the whole ordered list. */
+export const getCharterTemplateDirs = (): Promise<CharterTemplateDirsPayload> =>
+  req('/api/app-settings/charter-template-dirs')
+export const setCharterTemplateDirs = (dirs: string[]): Promise<CharterTemplateDirsPayload> =>
+  req('/api/app-settings/charter-template-dirs', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dirs }),
+  })
 export const getFs = (path = ''): Promise<FsPayload> =>
   req(`/api/fs?path=${encodeURIComponent(path)}`)
 export const getInbox = (slug: string): Promise<InboxPayload> =>
@@ -524,13 +622,87 @@ export const dismissDocument = (slug: string, did: string):
   req(`/api/orgs/${slug}/documents/${did}`, { method: 'DELETE' })
 // LOCKED docket wire contract v3 (luna-reserve/evidence/docket-wire-
 // contract-v3.md) — see types.ts's "work docket" section.
+//
+// Light rows shared across docket and Attention consumers. Closed groups stay
+// out of list requests; opening an item fetches its full detail separately.
+// A docket-content ETag returns 304 for unrelated saves, or a delta since the
+// retained revision. Concurrent callers of one URL share a request; mutations
+// detach older requests so their late answers cannot replace the newer cache.
+const workCache = new Map<string, { etag: string; body: WorkItemsPayload }>()
+const workInflight = new Map<string, Promise<WorkItemsPayload>>()
+let workGeneration = 0
+export const forgetWorkInflight = (): void => {
+  ++workGeneration; workInflight.clear()
+  foregroundWorkReader.invalidate(); workReferenceReader.invalidate()
+}
 export const getWorkItems = (slug: string, archived = false,
-                             backlogged = false): Promise<WorkItemsPayload> =>
-  req(`/api/orgs/${slug}/work-items`
+                             backlogged = false): Promise<WorkItemsPayload> => {
+  const path = `/api/orgs/${slug}/work-items-view`
     + (archived || backlogged
       ? '?' + [archived ? 'archived=1' : '', backlogged ? 'backlogged=1' : '']
         .filter(Boolean).join('&')
-      : ''))
+      : '')
+  const pending = workInflight.get(path)
+  if (pending) return pending
+  const hit = workCache.get(path)
+  const generation = workGeneration
+  const p: Promise<WorkItemsPayload> = fetch(u(path), {
+    signal: timeoutSignal(DEFAULT_TIMEOUT_MS),
+    ...(hit ? { headers: { 'If-None-Match': hit.etag } } : {}),
+  }).then((r) => {
+    noteInstance(r)
+    if (r.status === 304 && hit) return hit.body
+    if (!r.ok) return failure(r).then((e) => { throw e })
+    const etag = r.headers.get('ETag')
+    return (r.json() as Promise<WorkItemsPayload | WorkDelta>).then((incoming) => {
+      const body = applyWorkDelta(hit?.body, incoming)
+      // A response which predates a mutation may finish after its replacement.
+      // It can answer its original caller, but must never roll the cache back.
+      if (generation === workGeneration && workInflight.get(path) === p) {
+        if (etag) workCache.set(path, { etag, body })
+        else workCache.delete(path)
+        while (workCache.size > 24) workCache.delete(workCache.keys().next().value!)
+      }
+      return body
+    })
+  }).finally(() => {
+    if (workInflight.get(path) === p) workInflight.delete(path)
+  })
+  workInflight.set(path, p)
+  return p
+}
+const readWorkResponse = async (path: string, etag?: string): Promise<Response> => {
+  const response = await fetch(u(path), { signal: timeoutSignal(DEFAULT_TIMEOUT_MS),
+    ...(etag ? { headers: { 'If-None-Match': etag } } : {}) })
+  noteInstance(response)
+  return response
+}
+// Compatibility reads are whole answers and deliberately uncached: retaining
+// an explicitly opened archive here would outlive the view that requested it.
+const legacyWorkRead = (slug: string, archived: boolean, backlogged: boolean): Promise<WorkItemsPayload> =>
+  req(`/api/orgs/${encodeURIComponent(slug)}/work-items-view`
+    + (archived || backlogged ? '?' + [archived ? 'archived=1' : '', backlogged ? 'backlogged=1' : ''].filter(Boolean).join('&') : ''))
+const foregroundWorkReader = new ForegroundWorkReader(readWorkResponse, legacyWorkRead)
+export const getForegroundWorkItems = (slug: string, archived = false, backlogged = false): Promise<WorkItemsPayload> =>
+  foregroundWorkReader.get(slug, archived, backlogged)
+const workReferenceReader = new WorkReferenceReader(async (org, names) => {
+  const response = await readWorkResponse(`/api/orgs/${encodeURIComponent(org)}/work-item-references?names=${encodeURIComponent(names.join(','))}`)
+  if (response.status === 409) {
+    const control = await response.json()
+    if (control.kind === 'compatibility') {
+      const legacy = await legacyWorkRead(org, true, true)
+      return (legacy.references ?? [...legacy.items, ...(legacy.archived ?? []), ...(legacy.backlogged ?? [])])
+        .filter(row => names.includes(row.slug))
+    }
+    throw new Error(control.detail || 'Could not resolve docket references')
+  }
+  if (!response.ok) throw await failure(response)
+  const body = await response.json()
+  if (!Array.isArray(body.references)) throw new Error('Invalid docket reference response')
+  return body.references
+})
+export const getWorkReferences = (org: string, revision: string, names: string[]) =>
+  workReferenceReader.get(org, revision, names)
 export const getWorkItem = (slug: string, id: string): Promise<WorkItemPayload> =>
   req(`/api/orgs/${slug}/work-items/${id}`)
 export const replyWorkItem = (slug: string, id: string, body: string, to?: string,
@@ -750,6 +922,14 @@ export const setBlockedDocketRemindersEnabled = (
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ blocked_docket_reminders_enabled: enabled }),
   })
+export const setMaxConcurrentTurns = (
+  limit: number,
+): Promise<RuntimeSettingsPayload> =>
+  req('/api/app-settings/runtime', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ max_concurrent_turns: limit }),
+  })
 export const getUsage = (force = false): Promise<UsagePayload> =>
   req(`/api/usage${force ? '?force=true' : ''}`)
 // cache-only — the glow polls this; only the modal above may cost a fetch
@@ -855,11 +1035,11 @@ export const probeHub = (
 ): Promise<{ ok: boolean; name?: string | null }> =>
   req(`/api/net/probe${address ? `?address=${encodeURIComponent(address)}` : ''}`)
 export const saveScope = (slug: string, nid: string, scope: ScopeRequest): Promise<OpResult> =>
-  req(`/api/orgs/${slug}/nodes/${nid}/scope`, {
+  staleAfter(slug, req(`/api/orgs/${slug}/nodes/${nid}/scope`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(scope),
-  })
+  }))
 export const reorderNode = (
   slug: string, nid: string, body: ReorderRequest,
 ): Promise<OpResult> =>
@@ -981,18 +1161,62 @@ export const sweepLegacy = (slug: string): Promise<SweepResult> =>
 export const diskFileUrl = (slug: string, path: string): string =>
   u(`/api/orgs/${slug}/disk/file?path=${encodeURIComponent(path)}`)
 
+/* This window's id on the org websocket (`?win=`), so the engine can count one
+   window's reconnects across its sockets for the Developer › engine debug
+   view. Per window, kept across reloads in sessionStorage; purely a label. */
+export const WINDOW_ID: string = (() => {
+  const fresh = (): string => Math.random().toString(36).slice(2, 10)
+  try {
+    const have = sessionStorage.getItem('orgtree-window-id')
+    if (have) return have
+    const id = fresh()
+    sessionStorage.setItem('orgtree-window-id', id)
+    return id
+  } catch { return fresh() }
+})()
+
 export function openWs(
   slug: string,
   onChanged: (ev: MessageEvent) => void,
   onClose?: () => void,
 ): WebSocket {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-  const ws = new WebSocket(`${proto}://${location.host}${BASE}/api/orgs/${slug}/ws`)
+  const ws = new WebSocket(
+    `${proto}://${location.host}${BASE}/api/orgs/${slug}/ws?win=${encodeURIComponent(WINDOW_ID)}`)
   ws.onmessage = onChanged
   const ping = setInterval(() => { if (ws.readyState === 1) ws.send('ping') }, 25000)
   ws.onclose = () => { clearInterval(ping); onClose?.() }
   return ws
 }
+
+/* Developer › engine debug view: one cheap read of counters the engine keeps
+   (api.py `engine_stats`), polled about once a second while the view is on. */
+export interface EngineSocketStats {
+  org: string; window: string; public: boolean
+  pending: number; pending_bytes: number; sent: number; sent_bytes: number
+  age_s: number; window_connects: number; window_drops: number
+}
+export interface EngineStats {
+  at: number; pid: number
+  memory: { private_bytes: number | null; rss_bytes: number | null }
+  websockets: {
+    queue_max: number; send_timeout_s: number
+    drops: Record<string, number>
+    sockets: EngineSocketStats[]
+  }
+  work_list: {
+    full_200: number; not_modified_304: number; bytes_200: number; window_s: number
+    cached_bodies: number; cached_bytes: number; cache_idle_s: number
+  }
+  lazy_rows?: {
+    enabled: boolean; epoch: string | null
+    counts: Record<string, number>
+    stale_epoch_orgs: string[]
+    recent_fallbacks: { why: string; stack: string[] }[]
+  }
+}
+export const getEngineStats = (): Promise<EngineStats> =>
+  req('/api/diagnostics/engine-stats', undefined, 5000)
 
 export const documentDownloadUrl = (slug: string, id: string): string =>
   u(`/api/orgs/${encodeURIComponent(slug)}/documents/${encodeURIComponent(id)}/download`)

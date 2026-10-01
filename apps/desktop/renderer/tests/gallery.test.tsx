@@ -203,8 +203,8 @@ uiTest('§5 the viewer is a PANE, not a takeover: selecting a row renders the bo
   let closed = false
   const { el } = await mount(gallery({ close: () => { closed = true } }))
   await flush()
-  assert.match(pane(el)?.textContent ?? '', /select a document to read it/,
-    'nothing is selected on open — the pane invites a click, as mail does')
+  assert.match(pane(el)?.textContent ?? '', /the body text/,
+    'the newest visible document is selected on open')
   await inAct(() => { (rows(el)[0] as HTMLElement).click() })
   await flush()
   assert.match(pane(el)?.textContent ?? '', /the body text/,
@@ -219,8 +219,8 @@ uiTest('§6 dismiss lives in the viewer and actually deletes that document',
     const calls = mockDocs([row({ id: 'd1', title: 'the plan' })], { d1: 'body' })
     const { el } = await mount(gallery())
     await flush()
-    assert.equal(el.querySelector('.mailer-head button'), null,
-      'no dismiss control before a document is open')
+    assert.ok(el.querySelector('.mailer-head button.chip-x'),
+      'the automatically opened document has its dismiss control')
     await inAct(() => { (rows(el)[0] as HTMLElement).click() })
     await flush()
     const btn = el.querySelector('.mailer-head button.chip-x') as HTMLElement

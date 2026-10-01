@@ -418,7 +418,10 @@ class RepeatLifecycleCallsAreStructural(HaltBase):
                               return_value={"interrupted": False,
                                             "reason": "the turn was already over"}), \
                  patch.object(halt, "cut_for_archive",
-                              side_effect=lambda s, n: reaped.append(n)):
+                              side_effect=lambda s, n: reaped.append(n)), \
+                 patch.object(sup, "ARCHIVE_REAP_SETTLE_S", 0.2):
+                # `busy` never clears here, so the post-reap grace is always
+                # waited out in full; its length is not what is under test
                 warnings = sup.interrupt_before_archive(
                     self.slug, org, self.nid, timeout=0.2)
         finally:

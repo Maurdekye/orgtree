@@ -177,11 +177,16 @@ class SaveChanges:
     section-granular read cache (Phase A) invalidates from."""
 
     __slots__ = ("doc_upserts", "doc_deletes", "node_updates", "node_inserts",
-                 "node_deletes", "log_sections", "log_rows", "dumped_bytes")
+                 "node_deletes", "log_sections", "log_rows", "dumped_bytes",
+                 "containers_created")
 
     def __init__(self) -> None:
         self.doc_upserts: list[str] = []
         self.doc_deletes: list[str] = []
+        #: PG-3d: split sections whose EMPTY container row this save created
+        #: (also in doc_upserts). Idempotent — any two creators write the
+        #: same "{}" — so a per-owner org_tx lock may do it.
+        self.containers_created: list[str] = []
         self.node_updates: list[str] = []
         self.node_inserts: list[str] = []
         self.node_deletes: list[str] = []
@@ -200,7 +205,10 @@ class SaveChanges:
 
     def changed_keys(self) -> set[str]:
         """Top-level sections a reader cache must refresh."""
-        out = set(self.doc_upserts) | set(self.doc_deletes) | self.log_sections
+        # an owner row of a split section (`mail\x1f<nid>`, store.SPLIT_SEP)
+        # refreshes its section
+        out = {k.partition("\x1f")[0]
+               for k in (*self.doc_upserts, *self.doc_deletes)} | self.log_sections
         if self.node_updates or self.node_inserts or self.node_deletes:
             out.add("nodes")
         return out

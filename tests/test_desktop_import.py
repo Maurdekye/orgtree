@@ -28,6 +28,7 @@ os.environ["HOME"] = str(_TEST_ROOT)
 os.environ["USERPROFILE"] = str(_TEST_ROOT)
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+import child_python  # a child Python imports THIS checkout's engine (tests/child_python.py)
 
 from engine.backend.orgtree import desktop_import as imp, store
 from engine.backend.orgtree.ledger import Org
@@ -879,7 +880,7 @@ with patch('subprocess.Popen', side_effect=AssertionError('provider/process laun
                       'source_hashes_unchanged':True,'enabled_automation_only':fired,'provider_processes':0}))
 '''
         root = Path(tempfile.mkdtemp(prefix="assembled-", dir=_TEST_ROOT))
-        result = subprocess.run([sys.executable, "-c", script, str(root)],
+        result = subprocess.run(child_python.argv("-c", script, str(root)),
                                 cwd=Path(__file__).resolve().parents[1],
                                 text=True, capture_output=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

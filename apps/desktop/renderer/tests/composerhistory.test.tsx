@@ -27,7 +27,7 @@ import { draftKey, preserveRemovedDrafts, renameDrafts, storeAttachments } from 
 import { storeReply } from '../src/eventReply'
 import {
   MAX_ENTRIES, MAX_ENTRY_CHARS, MAX_TOTAL_CHARS,
-  absorbStrandedDrafts, historyKey, readHistory, recordSent, recordStranded,
+  absorbStrandedDrafts, carryDraftForward, historyKey, readHistory, recordSent, recordStranded,
 } from '../src/composerhistory'
 
 const W = window as unknown as Window & typeof globalThis
@@ -284,23 +284,95 @@ test('§6 editing a recalled message leaves the stored history entry untouched',
 
 // ────────────────────── §7 messages eaten by an agent state change
 
-test('§7 a draft stranded by a generation change lands in the history and Up reaches it', async () => {
+// A COMPACTION KEEPS THE BOX (user request 2026-09-29, item
+// v3-keep-unsent-chat-text-in-the-message-box-when): the newest older
+// generation's unsent text goes back into the box, not into history. Only
+// what cannot go there -- an older generation, or one whose successor already
+// has text -- is still stranded into history.
+
+test('§7 text left in the box when the agent compacts is still in the box, not in history, and not sent', async () => {
   localStorage.clear(); resetConvos()
-  // A draft written at generation 2, and the agent has since moved to 3.
-  localStorage.setItem(draftKey('org', 'writer', 2), 'the message that got eaten')
+  // Typed at generation 2 and not sent; the agent has since compacted to 3.
+  const old = draftKey('org', 'writer', 2)
+  localStorage.setItem(old, 'half-written when it compacted')
+  storeAttachments(old, [{ name: 'notes.txt', path: 'uploads/notes.txt', bytes: 12 }])
+  storeReply(old, { org: 'org', agent: 'writer', generation: 2, eventId: 'e1', quote: 'the quoted row' })
+  const ops: unknown[] = []
+  installFetch(new FakeServer())
+  const node = { ...writer, generation: 3 }
+  const view = await mountView(<DeskChat node={node} map={new Map([[node.id, node]])} slug="org"
+    op={async (o) => { ops.push(o); return {} }} toast={() => {}} pub={false} bare />, el => el)
+  await inAct(async () => { await flush(3) })
+  try {
+    assert.equal(box(view.el).value, 'half-written when it compacted', 'the text is in the box, unchanged')
+    assert.match(view.el.querySelector('.attach-row')?.textContent ?? '', /notes\.txt/,
+      'and so is its attachment')
+    assert.deepEqual(readHistory('org', 'writer'), [], 'nothing was saved into history')
+    assert.deepEqual(ops, [], 'and nothing was sent')
+    assert.equal(localStorage.getItem(draftKey('org', 'writer', 3)), 'half-written when it compacted',
+      'it now lives under the new generation, so the next keystroke and the next mount agree')
+    for (const gone of [old, `${old}-attachments`, `${old}-reply`]) {
+      assert.equal(localStorage.getItem(gone), null, `${gone} is moved, not copied`)
+    }
+    // The reply target names a generation-2 event, which the server refuses
+    // as stale, so it is dropped rather than carried into an unsendable box.
+    assert.equal(localStorage.getItem(`${draftKey('org', 'writer', 3)}-reply`), null)
+    assert.doesNotMatch(view.el.textContent!, /this message was never sent/)
+  } finally { await view.unmount(); resetConvos() }
+})
+
+test('§7-mounted a desk that stays mounted across the compaction keeps its text too', async () => {
+  localStorage.clear(); resetConvos()
+  const view = await openDesk()
+  try {
+    await type(box(view.el), 'typed before the compaction')
+    assert.equal(localStorage.getItem(draftKey('org', 'writer', 2)), 'typed before the compaction')
+    const next = { ...writer, generation: 3 }
+    await view.render(desk(next))
+    await inAct(async () => { await flush(3) })
+    assert.equal(box(view.el).value, 'typed before the compaction')
+    assert.deepEqual(readHistory('org', 'writer'), [], 'it was not also written into history')
+    assert.equal(localStorage.getItem(draftKey('org', 'writer', 3)), 'typed before the compaction')
+    assert.equal(localStorage.getItem(draftKey('org', 'writer', 2)), null)
+  } finally { await view.unmount(); resetConvos() }
+})
+
+test('§7-occupied text already typed at the new generation is never overwritten', async () => {
+  localStorage.clear(); resetConvos()
+  localStorage.setItem(draftKey('org', 'writer', 2), 'the older message')
+  localStorage.setItem(draftKey('org', 'writer', 3), 'already typed after the compaction')
   const view = await openDesk({ ...writer, generation: 3 })
   try {
-    assert.deepEqual(readHistory('org', 'writer'),
-      [{ text: 'the message that got eaten', delivered: false }],
-      'absorbed on mount, and marked as never delivered')
-    assert.equal(localStorage.getItem(draftKey('org', 'writer', 2)), null, 'the stale draft key is gone')
-
+    assert.equal(box(view.el).value, 'already typed after the compaction')
+    assert.deepEqual(readHistory('org', 'writer'), [{ text: 'the older message', delivered: false }],
+      'the older one has nowhere else to go, so history keeps it as before')
     await press(box(view.el), 'ArrowUp', 0)
-    assert.equal(box(view.el).value, 'the message that got eaten', 'and Up reaches it like anything else')
-
-    // Marked, not silently mixed in with things that were actually sent.
+    assert.equal(box(view.el).value, 'the older message', 'and Up reaches it like anything else')
     assert.match(view.el.textContent!, /this message was never sent/)
   } finally { await view.unmount(); resetConvos() }
+})
+
+test('§7-newest only the newest older generation comes back; older ones stay history', () => {
+  localStorage.clear()
+  localStorage.setItem(draftKey('org', 'writer', 1), 'stranded long ago')
+  localStorage.setItem(draftKey('org', 'writer', 2), 'in the box at the compaction')
+  localStorage.setItem(draftKey('org', 'other', 2), 'another agent')
+  assert.equal(carryDraftForward('org', 'writer', 3), true)
+  assert.equal(carryDraftForward('org', 'writer', 3), false, 'idempotent: the box is no longer empty')
+  assert.equal(localStorage.getItem(draftKey('org', 'writer', 3)), 'in the box at the compaction')
+  assert.equal(localStorage.getItem(draftKey('org', 'writer', 1)), 'stranded long ago', 'left for history')
+  assert.equal(localStorage.getItem(draftKey('org', 'other', 2)), 'another agent', 'other agents untouched')
+  absorbStrandedDrafts('org', 'writer', 3)
+  assert.deepEqual(readHistory('org', 'writer'), [{ text: 'stranded long ago', delivered: false }])
+})
+
+test('§7-lagging a desk still on an older generation never eats the newer box', () => {
+  localStorage.clear()
+  localStorage.setItem(draftKey('org', 'writer', 3), 'kept in the box at generation 3')
+  assert.equal(carryDraftForward('org', 'writer', 2), false, 'nothing moves backwards')
+  assert.equal(absorbStrandedDrafts('org', 'writer', 2), 0)
+  assert.equal(localStorage.getItem(draftKey('org', 'writer', 3)), 'kept in the box at generation 3')
+  assert.deepEqual(readHistory('org', 'writer'), [])
 })
 
 test('§7b the CURRENT generation\'s draft is never eaten', async () => {
@@ -338,7 +410,8 @@ test('§8 the old recovery keys are migrated into history, not stranded, and the
   localStorage.clear(); resetConvos()
   // Exactly what an existing installation has sitting in localStorage.
   localStorage.setItem('orgtree-draft-recovery-["org","writer",1]', 'stranded at generation 1')
-  localStorage.setItem(draftKey('org', 'writer', 2), 'stranded at generation 2')
+  localStorage.setItem(draftKey('org', 'writer', 0), 'stranded at generation 0 (live key)')
+  localStorage.setItem(draftKey('org', 'writer', 2), 'in the box at generation 2')
   localStorage.setItem('orgtree-draft-["org","writer"]-ignored', 'not this key')
   localStorage.setItem('orgtree-draft-org-writer', 'the pre-generation draft')
   localStorage.setItem('orgtree-draft-recovery-dismissed-["org","writer"]', '[1]')
@@ -346,12 +419,16 @@ test('§8 the old recovery keys are migrated into history, not stranded, and the
   const view = await openDesk({ ...writer, generation: 3 })
   try {
     assert.deepEqual(readHistory('org', 'writer').map(e => e.text),
-      ['the pre-generation draft', 'stranded at generation 1', 'stranded at generation 2'],
+      ['the pre-generation draft', 'stranded at generation 0 (live key)', 'stranded at generation 1'],
       'oldest first, so Up reaches the most recent first')
+    // The newest older generation's live draft is what was in the box at the
+    // compaction, so it is back in the box rather than in history (§7).
+    assert.equal(box(view.el).value, 'in the box at generation 2')
     assert.ok(readHistory('org', 'writer').every(e => !e.delivered), 'none of them was ever sent')
 
     for (const gone of [
       'orgtree-draft-recovery-["org","writer",1]',
+      draftKey('org', 'writer', 1),
       draftKey('org', 'writer', 2),
       'orgtree-draft-org-writer',
       'orgtree-draft-recovery-dismissed-["org","writer"]',

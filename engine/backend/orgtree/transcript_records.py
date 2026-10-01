@@ -6,6 +6,7 @@ deletes an earlier incarnation. Each ingestion position commits with its rows.
 """
 from __future__ import annotations
 
+import atexit
 import contextlib
 import datetime as dt
 import hashlib
@@ -14,13 +15,19 @@ import os
 import sqlite3
 import threading
 import uuid
+import weakref
 from pathlib import Path
+
+from . import census_contacts
 
 BLOCK = 65536
 #: how much of the file tail before the committed upper boundary is hashed as
 #: the resume anchor — enough to cover any plausible in-place tail rewrite
 #: while costing one bounded read per ingest that has new work
 ANCHOR_BYTES = 4096
+#: A backfill window with no record-count limit: only the byte budget (and the
+#: start of the file) bounds it, so no lifetime COUNT(*) is needed to size it.
+UNBOUNDED = 1 << 50
 _schema_lock = threading.Lock()
 _initialized = set()
 #: serializes every recovery-spool operation (append, replay, truncate) so a
@@ -29,14 +36,172 @@ _spool_lock = threading.Lock()
 #: reentrancy guard: replay itself calls ingest(), which drains the spool —
 #: without this a drain would deadlock on its own non-reentrant lock
 _spool_state = threading.local()
+#: this thread's reusable connection (slice C, scale qualification): opening
+#: one per call cost ~1.2 ms of connect + PRAGMA on every reply-stream event
+_conn_state = threading.local()
+#: every thread's cached connection, for root changes and explicit disposal
+_held_all = weakref.WeakSet()
+#: guards `_Held.busy` and `_Held.conn` between the owning thread and a sweep
+_held_lock = threading.RLock()
+_active_key = None
+_cache_generation = 0
+_FILE_NAME = "transcript-records.sqlite3"
+
+
+class _Held:
+    """One thread's cached connection to one database file. Closed when it
+    is replaced, discarded, swept while idle, or collected with its thread."""
+
+    def __init__(self, key, conn):
+        self.key, self.conn, self.busy = key, conn, False
+        self.discard = False
+
+    def close(self):
+        conn, self.conn = self.conn, None
+        if conn is not None:
+            with contextlib.suppress(Exception):
+                conn.close()
+
+    __del__ = close
+
+
+def _dispose(match=lambda key: True):
+    """Caller holds _held_lock. Return the number of busy handles deferred."""
+    pending = 0
+    for held in list(_held_all):
+        if held.conn is not None and match(held.key):
+            if held.busy:
+                held.discard = True
+                pending += 1
+            else:
+                held.close()
+    return pending
+
+
+def close_all():
+    """Dispose cached transcript connections before teardown or root replacement.
+
+    Idle connections close now. Busy connections remain usable by their owners
+    and close when their database() blocks finish; the return value counts those
+    deferred handles. Stop and join database users before moving/deleting a root,
+    then call this function and require zero. This does not prevent new calls or
+    reset the schema cache. Nested and still-opening connections are not counted
+    and close at block exit, so zero is not a substitute for quiescing users.
+    Safe to call more than once.
+    """
+    global _cache_generation
+    # the reply-event stream writers are cached the same way; every caller
+    # releasing these handles before a root moves needs those released too
+    from . import reply_events
+    deferred = reply_events.close_all()
+    with _held_lock:
+        _cache_generation += 1
+        return _dispose() + deferred
+
+
+atexit.register(close_all)
+
+
+@contextlib.contextmanager
+def reuse_database():
+    """Bound the backfill worker's cache lifetime to its outermost work scope.
+
+    database() already reuses connections; this retained worker API additionally
+    releases this thread's cached handle at scope exit. Nested scopes share that
+    lifetime without changing individual transaction boundaries.
+    """
+    if getattr(_conn_state, "scope", False):
+        yield
+        return
+    _conn_state.scope = True
+    try:
+        yield
+    finally:
+        _conn_state.scope = False
+        with _held_lock:
+            held = getattr(_conn_state, "held", None)
+            if held is not None:
+                if held.busy:
+                    held.discard = True
+                else:
+                    held.close()
 
 
 @contextlib.contextmanager
 def database():
+    """A connection to the transcript-records database inside `with conn:`
+    (commit on success, rollback on error), exactly as a fresh connection.
+
+    Each thread reuses one connection per database path. A nested call on
+    the same thread, while the cached one is in use, gets a fresh connection
+    of its own, so an inner `with` never commits the outer one's work. Any
+    exception, or a transaction still open after the `with`, closes the
+    cached connection and the next call opens a new one. A change of
+    `store.DATA_ROOT` changes the path: the calling thread replaces its
+    connection and every thread's idle connection to another path is closed."""
     from . import store
-    path = Path(store.DATA_ROOT) / "transcript-records.sqlite3"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path, timeout=30)
+    global _active_key, _cache_generation
+    path = Path(store.DATA_ROOT) / _FILE_NAME
+    key = str(path)
+    held = getattr(_conn_state, "held", None)
+    nested = held is not None and held.busy
+    conn = None
+    with _held_lock:
+        if _active_key != key:
+            _dispose(lambda other: other != key)
+            _active_key = key
+            _cache_generation += 1
+        generation = _cache_generation
+    if not nested:
+        with _held_lock:
+            if held is not None and held.key == key and held.conn is not None:
+                held.busy = True
+                conn = held.conn
+        if conn is None and held is not None:
+            _conn_state.held = None
+            with _held_lock:
+                held.close()
+    if conn is None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # check_same_thread=False only so a sweep or `_Held.__del__` can close
+        # it from another thread; only the thread that opened it ever uses it.
+        conn = sqlite3.connect(path, timeout=30, check_same_thread=False,
+                               factory=census_contacts.sidecar("transcript_records"))
+        _prepare(conn, path)
+        if nested:
+            try:
+                with conn:
+                    yield conn
+            finally:
+                conn.close()
+            return
+        held = _Held(key, conn)
+        held.busy = True
+        with _held_lock:
+            # A root transition or disposal can happen while connect/prepare
+            # runs. A different current root must not leave an idle stale handle.
+            held.discard = _cache_generation != generation
+            _held_all.add(held)
+        _conn_state.held = held
+    try:
+        with conn:
+            yield conn
+        if conn.in_transaction:
+            with _held_lock:
+                held.close()
+    except BaseException:
+        with _held_lock:
+            held.close()
+        raise
+    finally:
+        with _held_lock:
+            held.busy = False
+            if held.discard:
+                held.close()
+
+
+def _prepare(conn, path):
+    """Per-connection PRAGMA, and the schema once per path; closes `conn` on failure."""
     try:
         conn.execute("PRAGMA synchronous=FULL")
         with _schema_lock:
@@ -90,10 +255,9 @@ def database():
             scope TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(scope,id)) WITHOUT ROWID;
                 """)
                 _initialized.add(str(path))
-        with conn:
-            yield conn
-    finally:
+    except BaseException:
         conn.close()
+        raise
 
 
 def _signature(stream, stats):
@@ -104,10 +268,18 @@ def _signature(stream, stats):
     return hashlib.sha256(first).hexdigest() if first.endswith(b"\n") else ""
 
 
-def _tail(stream, end, count, stats):
-    """Return complete lines ending before end, newest first, and lower bound."""
+def _tail(stream, end, count, stats, budget=None):
+    """Return complete lines ending before end, newest first, and lower bound.
+
+    `budget`, when given, is a one-element list of bytes still allowed in
+    this transaction. It is spent per returned line and stops the walk once
+    exhausted, but never before the first line, so a record larger than the
+    budget still makes progress."""
     pos, carry, found = end, b"", []
-    while pos and len(found) < count:
+
+    def spent():
+        return budget is not None and budget[0] <= 0 and bool(found)
+    while pos and len(found) < count and not spent():
         start = max(0, pos - BLOCK)
         stream.seek(start)
         part = stream.read(pos - start)
@@ -117,15 +289,19 @@ def _tail(stream, end, count, stats):
         # end is always a complete line boundary.
         if data.endswith(b"\n"):
             stop -= 1
-        while len(found) < count:
+        while len(found) < count and not spent():
             split = data.rfind(b"\n", 0, stop)
             if split < 0:
                 break
             found.append((start + split + 1, data[split + 1:stop]))
+            if budget is not None:
+                budget[0] -= stop - split
             stop = split
         carry, pos = data[:stop], start
-    if not pos and carry and len(found) < count:
+    if not pos and carry and len(found) < count and not spent():
         found.append((0, carry))
+        if budget is not None:
+            budget[0] -= len(carry) + 1
     lower = found[-1][0] if found else end
     return found, lower
 
@@ -168,6 +344,28 @@ def results_for(source, tool_ids):
             if row:
                 found.append(row)
         return found
+
+
+def records_containing(source, needles, *, limit=64):
+    """`(ref, body)` of committed records of ONE source whose body contains
+    any of `needles`, oldest first, at most `limit` per needle. Read-only;
+    the recovery spool is replayed first, as every read does, so a record
+    that is durable anywhere is seen. `transcript_tool_results` is not used:
+    it keeps only the newest row per tool id, and a later row under the same
+    id must not hide an earlier one (manual-inbox evidence, P08b)."""
+    wanted = [n for n in dict.fromkeys(needles) if isinstance(n, str) and n]
+    if not wanted:
+        return []
+    _drain_spool()
+    found = {}
+    with database() as conn:
+        for needle in wanted:
+            for epoch, position, body in conn.execute(
+                    "SELECT epoch,position,body FROM transcript_records WHERE source=? "
+                    "AND instr(body, ?) > 0 ORDER BY epoch,position LIMIT ?",
+                    (source, needle, int(limit))):
+                found[(epoch, position)] = body
+    return [(f"{e}:{p}", found[(e, p)]) for e, p in sorted(found)]
 
 
 def _native_key(row):
@@ -228,7 +426,7 @@ def _ingest_needed(source: str, path: str, count: int, stats: dict, before) -> b
                             (source,)).fetchone()
         owned = conn.execute("SELECT 1 FROM transcript_owned WHERE source=?", (source,)).fetchone()
         if owned and meta:
-            return bool(meta[3] and _available(conn, source, before) < count
+            return bool(meta[3] and (count >= UNBOUNDED or _available(conn, source, before) < count)
                         and Path(path).is_file())
         try:
             size = os.path.getsize(path)
@@ -236,7 +434,8 @@ def _ingest_needed(source: str, path: str, count: int, stats: dict, before) -> b
             return False          # no file: the write path would return too
         if not meta:
             return True
-        if size != meta[4] or meta[3] and _available(conn, source, before) < count:
+        if size != meta[4] or meta[3] and (count >= UNBOUNDED
+                                           or _available(conn, source, before) < count):
             return True
         anchor = conn.execute("SELECT upper,digest FROM transcript_anchors WHERE source=?",
                               (source,)).fetchone()
@@ -252,12 +451,16 @@ def _ingest_needed(source: str, path: str, count: int, stats: dict, before) -> b
         return False
 
 
-def ingest(source: str, path: str, count: int, stats: dict, *, before=None):
+def ingest(source: str, path: str, count: int, stats: dict, *, before=None, max_bytes=None):
     """Persist new suffixes and enough older records for this requested window.
 
     Invalid/torn final lines stay outside the committed cursor, so completion
     on the next append is retried. No persisted data is removed on rotation.
+    `max_bytes` bounds the OLDER records one call imports (a backfill slice),
+    so one transaction holds the writer lock for a bounded read; new suffixes
+    are unaffected. `count=UNBOUNDED` skips lifetime record counts.
     """
+    budget = [max_bytes] if max_bytes else None
     _drain_spool()
     if not _ingest_needed(source, path, count, stats, before):
         return
@@ -267,14 +470,15 @@ def ingest(source: str, path: str, count: int, stats: dict, *, before=None):
                             (source,)).fetchone()
         owned = conn.execute("SELECT 1 FROM transcript_owned WHERE source=?", (source,)).fetchone()
         def available():
-            return _available(conn, source, before)
+            # an unbounded window only needs "fewer than count": always true
+            return 0 if count >= UNBOUNDED else _available(conn, source, before)
         if owned and meta:
             # The DB writer owns all new records. The old file is consulted
             # only for older ranges predating the changeover.
             have = available()
             if meta[3] and have < count and Path(path).is_file():
                 with open(path, 'rb') as stream:
-                    rows, lower = _tail(stream, meta[3], count - have, stats)
+                    rows, lower = _tail(stream, meta[3], count - have, stats, budget)
                 _insert(conn, source, meta[1], rows)
                 conn.execute("UPDATE transcript_sources SET lower_byte=? WHERE source=?", (lower, source))
             return
@@ -309,7 +513,7 @@ def ingest(source: str, path: str, count: int, stats: dict, *, before=None):
                 stats["bytes_read"] += len(suffix)
                 last = suffix.rfind(b"\n")
                 upper = max(0, size - len(suffix) + last + 1) if last >= 0 else 0
-                rows, lower = _tail(stream, upper, count, stats)
+                rows, lower = _tail(stream, upper, count, stats, budget)
                 _insert(conn, source, epoch, rows)
             elif size > upper:
                 stream.seek(upper)
@@ -322,8 +526,8 @@ def ingest(source: str, path: str, count: int, stats: dict, *, before=None):
                     _insert(conn, source, epoch, [(offset, line.rstrip(b"\r\n"))])
                     upper = stream.tell()
             have = available()
-            if lower and have < count:
-                rows, lower = _tail(stream, lower, count - have, stats)
+            if lower and have < count and not (budget and budget[0] <= 0):
+                rows, lower = _tail(stream, lower, count - have, stats, budget)
                 _insert(conn, source, epoch, rows)
             conn.execute("INSERT OR REPLACE INTO transcript_sources VALUES (?,?,?,?,?,?)",
                          (source, path, epoch, signature, lower, upper))
@@ -416,22 +620,42 @@ def incarnation(org, nid):
     """
     if org.node(nid).get('transcript_incarnation'):
         return org.node(nid)['transcript_incarnation']
-    from . import reply_events, store
+    from . import orgtx, reply_events, store
     identity = reply_events.incarnation(org, nid)
-    with store.DOC_LOCK:
-        persisted = Path(store.org_path(org.d['slug'])).exists()
-        current = store.load_org(org.d['slug']) if persisted else org
-        had = bool(current.node(nid).get('transcript_incarnation'))
-        value = current.node(nid).setdefault('transcript_incarnation', identity)
-        if persisted and not had:
-            # save only a real mint — a value another pass minted since our
-            # fast-path miss needs no rewrite
-            store.save_org(current)
-        if not getattr(org, '_shared_snapshot', False):
-            # never stamp a shared snapshot (store.cached_org — read-only by
-            # contract, perf-review round 2); the mint's save bumps the seq
-            # and the next cached_org() reload carries the value
+    tx = orgtx.current_tx(org.d['slug'])
+    if tx is not None:
+        # PG-3r: a transaction is already open on this org on this thread:
+        # mint on THE TRANSACTION'S Org (the caller names nodes=[nid]) rather
+        # than a second org_tx (NestedTx) or DOC_LOCK after org_tx
+        # (forbidden); memoize onto another caller Org like the other paths.
+        value = tx.org.node(nid).setdefault('transcript_incarnation', identity)
+        if org is not tx.org and not getattr(org, '_shared_snapshot', False):
             org.node(nid)['transcript_incarnation'] = value
+        return value
+    persisted = Path(store.org_path(org.d['slug'])).exists()
+    if not persisted or getattr(store.DOC_LOCK, '_is_owned', lambda: False)():
+        # PG-3r: an unsaved org, or a caller still inside a legacy DOC_LOCK
+        # hold, keeps the legacy mint: that caller's resident document is the
+        # one it will save, and an org_tx here would race its later save of
+        # the same node row.
+        with store.DOC_LOCK:
+            current = store.load_org(org.d['slug']) if persisted else org
+            had = bool(current.node(nid).get('transcript_incarnation'))
+            value = current.node(nid).setdefault('transcript_incarnation', identity)
+            if persisted and not had:
+                # save only a real mint — a value another pass minted since our
+                # fast-path miss needs no rewrite
+                store.save_org(current)
+    else:
+        # PG-3r: the mint is one row transaction on the node row it reads
+        # and writes; a value another pass minted first is kept, not rewritten.
+        with orgtx.org_tx(org.d['slug'], nodes=[nid]) as tx:
+            value = tx.org.node(nid).setdefault('transcript_incarnation', identity)
+    if not getattr(org, '_shared_snapshot', False):
+        # never stamp a shared snapshot (store.cached_org — read-only by
+        # contract, perf-review round 2); the mint's save bumps the seq
+        # and the next cached_org() reload carries the value
+        org.node(nid)['transcript_incarnation'] = value
     return value
 
 
@@ -774,14 +998,63 @@ def _order_epoch(conn, source) -> int:
     return int(row[0]) if row else 0
 
 
-def _assign_ranks(conn, source, rows, known, *, force=False) -> bool:
+def _consistent(rows, known) -> bool:
+    """Do the stored ranks of `rows` (given in display order) strictly
+    increase? A repeated identity is compared once."""
+    last, seen = None, set()
+    for row in rows:
+        identity = row["event_id"]
+        if identity in seen or identity not in known:
+            continue
+        seen.add(identity)
+        if last is not None and known[identity] <= last:
+            return False
+        last = known[identity]
+    return True
+
+
+def _source_extent(conn, source):
+    return conn.execute("SELECT MIN(rank), MAX(rank) FROM transcript_order WHERE source=?",
+                        (source,)).fetchone()
+
+
+def _nearest(conn, source, rank, *, below):
+    """The source's nearest existing rank strictly below (or above) `rank`."""
+    sql = ("SELECT MAX(rank) FROM transcript_order WHERE source=? AND rank<?" if below else
+           "SELECT MIN(rank) FROM transcript_order WHERE source=? AND rank>?")
+    return conn.execute(sql, (source, rank)).fetchone()[0]
+
+
+def _assign_ranks(conn, source, rows, known, *, force=False, older=False) -> bool:
     """One assignment pass. New ranks are written only when every one is
     STRICTLY between its neighbours — a float midpoint that lands on a
     neighbour (precision exhausted, review F9) writes nothing and returns
     False so the caller can renumber first. `force` writes regardless: the
     can't-happen fallback after a renumber, kept so ordering degrades to the
-    old collision behaviour rather than an exception."""
+    old collision behaviour rather than an exception.
+
+    A run of new rows is bounded by the SOURCE's ranks, not only by its
+    neighbours in this call (item v3-loading-earlier-agent-messages-fails-
+    couldn-t, 2026-09-30). It used to take 1024-steps away from its one
+    ranked neighbour — or from 0 when the call had none — straight into
+    ranks the source already held for other rows, and first-rank-wins kept
+    that collision for good: older pages then sorted after the visible rows.
+    Now a run with a ranked neighbour on one side stops short of the
+    source's nearest rank on the other side (1024-steps while they fit,
+    otherwise an even split of the gap), and a call with no ranked row at
+    all goes before the source's lowest rank for an older page (`older`)
+    and after its highest otherwise."""
+    rows = list(rows)
     i, pending, ok = 0, [], True
+    if rows and not any(row["event_id"] in known for row in rows):
+        low, high = _source_extent(conn, source)
+        if low is not None:
+            if older:
+                known = {**known, None: low}
+                rows.append({"event_id": None})
+            else:
+                rows.insert(0, {"event_id": None, "seq": high})
+                i = 1
     while i < len(rows):
         identity = rows[i]["event_id"]
         if identity in known:
@@ -794,8 +1067,16 @@ def _assign_ranks(conn, source, rows, known, *, force=False) -> bool:
         left = rows[i - 1]["seq"] if i else None
         right = known[rows[end]["event_id"]] if end < len(rows) else None
         count = end - i
-        if left is None:
-            left = (right if right is not None else 0) - 1024 * (count + 1)
+        room = 1024 * (count + 1)
+        if left is None and right is not None:
+            floor = _nearest(conn, source, right, below=True)
+            left = floor if floor is not None and right - floor <= room else right - room
+        elif right is None and left is not None:
+            ceiling = _nearest(conn, source, left, below=False)
+            if ceiling is not None and ceiling - left <= room:
+                right = ceiling
+        elif left is None:
+            left = -room
         step = (right - left) / (count + 1) if right is not None else 1024
         prev = left
         for j in range(i, end):
@@ -826,13 +1107,31 @@ def _rebalance(conn, source) -> None:
                  "ON CONFLICT(source) DO UPDATE SET epoch=epoch+1", (source,))
 
 
-def order(source: str, rows: list[dict]) -> int:
+def _discard_ranks(conn, source) -> None:
+    """Forget every rank of `source` and bump its order epoch, so the ranks
+    are rebuilt from the rows actually read and a client holding the old
+    seq values reloads instead of comparing them."""
+    conn.execute("DELETE FROM transcript_order WHERE source=?", (source,))
+    conn.execute("INSERT INTO transcript_order_meta VALUES (?,1) "
+                 "ON CONFLICT(source) DO UPDATE SET epoch=epoch+1", (source,))
+
+
+def order(source: str, rows: list[dict], *, older: bool = False) -> int:
     """Stable numeric handles, including lazy prepends and late inserted
     mail; returns the source's ORDER EPOCH. All-known rows take no write
     lock (review F6). When repeated insertion between the same neighbours
     exhausts float precision, the source is renumbered once — same relative
     order, fresh gaps — and the epoch increments instead of two rows ever
-    sharing a rank (review F9)."""
+    sharing a rank (review F9).
+
+    `rows` are in display order, and their stored ranks must agree with it.
+    Ranks that CONTRADICT it (an older row ranked at or after a newer one)
+    are never served: the desk places rows by seq and treats an older page
+    that sorts after the visible rows as "no older messages", so one bad
+    rank wedged "load earlier messages" for good (measured on a live Codex
+    agent, 2026-09-30). The source's ranks are discarded and rebuilt, and
+    the epoch bump tells the desk to reload. `older` marks an older-page
+    read (see _assign_ranks)."""
     if not rows:
         with database() as conn:
             return _order_epoch(conn, source)
@@ -840,15 +1139,18 @@ def order(source: str, rows: list[dict]) -> int:
         # deferred read transaction: ranks and epoch from one snapshot
         conn.execute("BEGIN")
         known = _known_ranks(conn, source, rows)
-        if len(known) == len({row["event_id"] for row in rows}):
+        if len(known) == len({row["event_id"] for row in rows}) and _consistent(rows, known):
             for row in rows:
                 row["seq"] = known[row["event_id"]]
             return _order_epoch(conn, source)
     with database() as conn:
         conn.execute("BEGIN IMMEDIATE")
         known = _known_ranks(conn, source, rows)
-        if not _assign_ranks(conn, source, rows, known):
+        if not _consistent(rows, known):
+            _discard_ranks(conn, source)
+            known = {}
+        if not _assign_ranks(conn, source, rows, known, older=older):
             _rebalance(conn, source)
             known = _known_ranks(conn, source, rows)
-            _assign_ranks(conn, source, rows, known, force=True)
+            _assign_ranks(conn, source, rows, known, force=True, older=older)
         return _order_epoch(conn, source)

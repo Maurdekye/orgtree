@@ -28,6 +28,8 @@ assert Path(store.DATA_ROOT).resolve() == Path(os.environ['ORGTREE_DATA']).resol
 
 slugs = []
 def tearDownModule():
+    from orgtree import transcript_records
+    transcript_records.close_all()
     for s in slugs: store._POOL.close_all(s)
 
 SEGMENTS = [{'kind': 'mail', 'rows': [{'id': 'mail-abc', 'body': 'audience theme request'}]}]

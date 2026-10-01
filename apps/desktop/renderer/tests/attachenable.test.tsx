@@ -35,6 +35,7 @@
 import './harness'
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
+import { resetLocalReads } from '../src/mailread'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -42,6 +43,10 @@ import { InboxPanel } from '../src/App'
 import { MailReplyBox } from '../src/canvas/mail'
 import { resetConvos } from '../src/convo'
 import type { TreePayload } from '../src/types'
+
+// a read made in one test (closing the inbox reads the open mail) is not
+// still "read here" in the next: mailread.ts is one store per window
+test.beforeEach(() => resetLocalReads())
 
 declare const __SRC_DIR__: string
 
@@ -249,8 +254,13 @@ test('§5 the ticket-reply and presentation-reply composers cannot have the '
   // `slug?: string` — from a parent that renders them only behind a truthy
   // `slug &&` guard, so under `strict: true` neither undefined nor a
   // compile-time-absent value can reach their reply box.
+  // Since 2111052 the docket's reply box lives in FullDocketPane, and
+  // DocketPane is a loader that takes exactly FullDocketPane's props.
+  const docket = src('canvas/docket.tsx')
+  assert.match(docket, /function DocketPane\(props: ComponentProps<typeof FullDocketPane>\)/,
+    'DocketPane takes the props of FullDocketPane, so it inherits the required slug')
   for (const [file, fn] of [
-    ['canvas/docket.tsx', 'DocketPane'],
+    ['canvas/docket.tsx', 'FullDocketPane'],
     ['canvas/gallery.tsx', 'DocPane'],
   ] as const) {
     const text = src(file)

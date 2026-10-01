@@ -16,7 +16,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
-from . import store, turnread
+from . import orgtx, store, turnread
 from .ledger import LedgerError
 
 router = APIRouter()
@@ -36,6 +36,25 @@ SECTIONS = {
     "oracle": ("oracle_exchanges", "Oracle exchanges", True),
     "turn-records": ("turn-records", "Turn diagnostic records", True),
 }
+
+
+
+def _turn_log_rows_from(d: Any, n: Any, node: str) -> list[Any] | None:
+    """A converted node's (ORGTREE_TURN_LOG) complete turn history, oldest
+    first, else None (its ring IS its history). Whatever the switch says
+    now: a converted node's ring holds only its newest turns."""
+    if not (isinstance(n, dict) and "turn_seq" in n):
+        return None
+    log = d.get("turn_log") or {}
+    rows = list(log.get(node) or [])
+    known = {r.get("n") for r in rows if isinstance(r, dict)}
+    # a turn an older engine appended after a rollback is still only in the ring
+    rows += [e for e in n.get("turns") or [] if isinstance(e, dict) and e.get("n") not in known]
+    return rows
+
+
+def _turn_log_rows(org: Any, node: str) -> list[Any] | None:
+    return _turn_log_rows_from(org.d, org.node(node), node)
 
 
 def _digest(value: Any) -> str:
@@ -89,70 +108,70 @@ def history_page(slug: str, section: str, node: str = "", cursor: str = "", limi
     try:
         # Use the canonical loader first: backend mismatch/migration guards and
         # node validation apply equally to new pages and ordinary product reads.
-        _lock_stage = time.perf_counter()
-        with store.DOC_LOCK:
+        # PG-3r: a lock-free coherent read (orgtx.org_read); the canonical guards
+        # (slug, migration, backend) still apply through the same loader.
+        _work_stage = time.perf_counter()
+        org = orgtx.org_read(slug)
+        if profile is not None:
+            profile["org_load_ms"] = (time.perf_counter() - _work_stage) * 1000.0
+        _work_stage = time.perf_counter()
+        if needs_node:
+            org.node(node)
+        if section == "chat":
+            from . import supervisor
+            _read_stage = time.perf_counter()
+            messages = supervisor.read_chat(org, node, last=None, hold_back=False)["messages"]
             if profile is not None:
-                profile["lock_wait_ms"] = (time.perf_counter() - _lock_stage) * 1000.0
-            _work_stage = time.perf_counter()
-            org = store.load_org(slug)
-            if profile is not None:
-                profile["org_load_ms"] = (time.perf_counter() - _work_stage) * 1000.0
-            _work_stage = time.perf_counter()
+                profile["chat_read_ms"] = (time.perf_counter() - _read_stage) * 1000.0
+            items, total, nxt = _list_page(messages, state, limit)
+        elif section == "turn-records":
+            paths = turnread.list_records(store.DATA_ROOT, slug, node)
+            names = [Path(p).name for p in paths]
+            selected, total, nxt = _list_page(names, state, limit)
+            by_name = {Path(p).name: p for p in paths}
+            items = [{"file": name, **turnread.load(by_name[name])} for name in selected]
+        elif section == "turns" and (logged := _turn_log_rows(org, node)) is not None:
+            items, total, nxt = _list_page(logged, state, limit)
+        elif section in ("turns", "oracle"):
+            items, total, nxt = _list_page(org.node(node).get(field) or [], state, limit)
+        elif store.STORE_BACKEND == "sqlite":
+            with store._POOL.acquire(slug) as conn:
+                conn.execute("BEGIN")
+                try:
+                    # Imported older documents may still hold a log as a
+                    # doc blob. First normal save moves it into row storage.
+                    blob = conn.execute("SELECT val FROM doc WHERE key=?", (field,)).fetchone()
+                    if blob:
+                        rows = json.loads(blob[0])
+                        if needs_node:
+                            rows = (rows or {}).get(node, [])
+                        items, total, nxt = _list_page(rows or [], state, limit)
+                    else:
+                        table = "log_d" if needs_node else "log_l"
+                        where = "sect=?" + (" AND owner=?" if needs_node else "")
+                        args = (field, node) if needs_node else (field,)
+                        if state:
+                            anchor = conn.execute(f"SELECT val FROM {table} WHERE {where} AND seq=?",
+                                                  (*args, state["before"])).fetchone()
+                            if state.get("kind") != "sql" or not anchor or _digest(json.loads(anchor[0])) != state.get("anchor"):
+                                _expired()
+                        total = conn.execute(f"SELECT count(*) FROM {table} WHERE {where}", args).fetchone()[0]
+                        boundary = " AND seq<?" if state else ""
+                        page_args = (*args, state["before"]) if state else args
+                        rows = conn.execute(f"SELECT seq,val FROM {table} WHERE {where}{boundary} ORDER BY seq DESC LIMIT ?",
+                                            (*page_args, limit + 1)).fetchall()
+                        items = [json.loads(row[1]) for row in rows[:limit]]
+                        nxt = ({"kind": "sql", "before": rows[limit - 1][0], "anchor": _digest(items[-1])}
+                               if len(rows) > limit else None)
+                finally:
+                    conn.rollback()
+        else:
+            rows = org.d.get(field) or ([] if not needs_node else {})
             if needs_node:
-                org.node(node)
-            if section == "chat":
-                from . import supervisor
-                _read_stage = time.perf_counter()
-                messages = supervisor.read_chat(org, node, last=None, hold_back=False)["messages"]
-                if profile is not None:
-                    profile["chat_read_ms"] = (time.perf_counter() - _read_stage) * 1000.0
-                items, total, nxt = _list_page(messages, state, limit)
-            elif section == "turn-records":
-                paths = turnread.list_records(store.DATA_ROOT, slug, node)
-                names = [Path(p).name for p in paths]
-                selected, total, nxt = _list_page(names, state, limit)
-                by_name = {Path(p).name: p for p in paths}
-                items = [{"file": name, **turnread.load(by_name[name])} for name in selected]
-            elif section in ("turns", "oracle"):
-                items, total, nxt = _list_page(org.node(node).get(field) or [], state, limit)
-            elif store.STORE_BACKEND == "sqlite":
-                with store._POOL.acquire(slug) as conn:
-                    conn.execute("BEGIN")
-                    try:
-                        # Imported older documents may still hold a log as a
-                        # doc blob. First normal save moves it into row storage.
-                        blob = conn.execute("SELECT val FROM doc WHERE key=?", (field,)).fetchone()
-                        if blob:
-                            rows = json.loads(blob[0])
-                            if needs_node:
-                                rows = (rows or {}).get(node, [])
-                            items, total, nxt = _list_page(rows or [], state, limit)
-                        else:
-                            table = "log_d" if needs_node else "log_l"
-                            where = "sect=?" + (" AND owner=?" if needs_node else "")
-                            args = (field, node) if needs_node else (field,)
-                            if state:
-                                anchor = conn.execute(f"SELECT val FROM {table} WHERE {where} AND seq=?",
-                                                      (*args, state["before"])).fetchone()
-                                if state.get("kind") != "sql" or not anchor or _digest(json.loads(anchor[0])) != state.get("anchor"):
-                                    _expired()
-                            total = conn.execute(f"SELECT count(*) FROM {table} WHERE {where}", args).fetchone()[0]
-                            boundary = " AND seq<?" if state else ""
-                            page_args = (*args, state["before"]) if state else args
-                            rows = conn.execute(f"SELECT seq,val FROM {table} WHERE {where}{boundary} ORDER BY seq DESC LIMIT ?",
-                                                (*page_args, limit + 1)).fetchall()
-                            items = [json.loads(row[1]) for row in rows[:limit]]
-                            nxt = ({"kind": "sql", "before": rows[limit - 1][0], "anchor": _digest(items[-1])}
-                                   if len(rows) > limit else None)
-                    finally:
-                        conn.rollback()
-            else:
-                rows = org.d.get(field) or ([] if not needs_node else {})
-                if needs_node:
-                    rows = rows.get(node) or []
-                items, total, nxt = _list_page(rows, state, limit)
-            if profile is not None:
-                profile["history_work_ms"] = (time.perf_counter() - _work_stage) * 1000.0
+                rows = rows.get(node) or []
+            items, total, nxt = _list_page(rows, state, limit)
+        if profile is not None:
+            profile["history_work_ms"] = (time.perf_counter() - _work_stage) * 1000.0
     except LedgerError as exc:
         raise HTTPException(404, str(exc)) from exc
     if nxt:

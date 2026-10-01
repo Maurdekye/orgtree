@@ -1,9 +1,9 @@
-import { FakeServer, flush, inAct, installFetch, mountView, realClock, useFakeClock } from './harness'
+import { FakeServer, advance, flush, inAct, installFetch, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { DeskChat } from '../src/canvas/desk'
 import { ingestStream, loadOlder, refreshConvo, resetConvos, useConvo } from '../src/convo'
-import { mergeAssistantRows } from '../src/assistantMessages'
+import { applyAssistantDelta, mergeAssistantRows } from '../src/assistantMessages'
 import type { ChatMessage, ChatPayload, OpResult } from '../src/types'
 import type { CanvasNode } from '../src/canvas/shared'
 
@@ -202,4 +202,87 @@ lifecycle('scope changes reject old session snapshots while preserving current c
     await refresh()
     await emit(partial('old', 'late old session'))
     assert.deepEqual(text(el), ['new session'])
+  })
+
+// ---- delta frames (supervisor.wire_reply_frame): only the text added since
+// assistant_base_revision rides the frame, not the whole message so far
+const delta = (id: string, fragment: string, revision: number, quote?: string): ChatMessage => {
+  const row: ChatMessage = { ...partial(id, fragment, revision), assistant_delta: true,
+    assistant_base_revision: revision - 1 }
+  if (quote === undefined) delete row.reply_quote
+  else row.reply_quote = quote
+  return row
+}
+
+test('a delta applies only on the revision it names', () => {
+  const base = { ...partial('a', 'one ', 1), reply_quote: 'one ' }
+  const next = applyAssistantDelta(base, delta('a', 'two', 2, 'one two'))
+  assert.ok(typeof next !== 'string')
+  assert.equal(next.text, 'one two')
+  assert.equal(next.reply_quote, 'one two')
+  assert.equal(next.assistant_revision, 2)
+  assert.equal(next.assistant_delta, undefined)
+  assert.equal(next.assistant_base_revision, undefined)
+  const kept = applyAssistantDelta(next, delta('a', ' three', 3))
+  assert.ok(typeof kept !== 'string')
+  assert.equal(kept.reply_quote, 'one two', 'an absent quote keeps the one held')
+  assert.equal(applyAssistantDelta(next, delta('a', 'two', 2)), 'stale')
+  assert.equal(applyAssistantDelta(next, delta('a', 'x', 4)), 'gap')
+  assert.equal(applyAssistantDelta(undefined, delta('a', 'x', 2)), 'gap')
+  assert.equal(applyAssistantDelta(complete('a', 'done', 1), delta('a', 'x', 2)), 'stale')
+  assert.equal(applyAssistantDelta(native('a', 'done'), delta('a', 'x', 2)), 'stale')
+})
+
+lifecycle('delta frames grow one row; duplicates and reordered old deltas change nothing',
+  async ({el, emit}) => {
+    await emit(partial('a', 'one '))
+    const original = rows(el)[0]
+    await emit(delta('a', 'two ', 2))
+    await emit(delta('a', 'three', 3))
+    assert.deepEqual(text(el), ['one two three'])
+    await emit(delta('a', 'three', 3))
+    await emit(delta('a', 'two ', 2))
+    assert.deepEqual(text(el), ['one two three'])
+    assert.equal(rows(el)[0], original)
+    await emit(complete('a', 'one two three!', 4))
+    assert.deepEqual(text(el), ['one two three!'])
+    await emit(delta('a', ' late', 5))
+    assert.deepEqual(text(el), ['one two three!'])
+  })
+
+lifecycle('a missed delta refetches once and chains the held deltas onto the fetched row',
+  async ({el, server, transport, emit}) => {
+    await emit(partial('a', 'one '))
+    const before = transport.requests
+    server.messages = [partial('a', 'one two ', 2)]
+    await emit(delta('a', 'three ', 3))
+    await emit(delta('a', 'four', 4))
+    assert.deepEqual(text(el), ['one'], 'never shows text with a hole in it')
+    await inAct(() => advance(1000))
+    await flush()
+    assert.ok(transport.requests > before, 'the gap asked for the chat')
+    assert.deepEqual(text(el), ['one two three four'])
+    await emit(delta('a', '!', 5))
+    assert.deepEqual(text(el), ['one two three four!'])
+  })
+
+lifecycle('a held delta chains when its base arrives late on the websocket',
+  async ({el, emit}) => {
+    await emit(partial('a', 'one '))
+    await emit(delta('a', 'three', 3))
+    assert.deepEqual(text(el), ['one'])
+    await emit(delta('a', 'two ', 2))
+    assert.deepEqual(text(el), ['one two three'])
+  })
+
+lifecycle('a client that joins mid-reply takes the text from the fetch',
+  async ({el, server, emit}) => {
+    server.messages = [partial('a', 'one two three', 3)]
+    await emit(delta('a', ' five', 5))
+    await emit(delta('a', 'three', 3))
+    await inAct(() => advance(1000))
+    await flush()
+    assert.deepEqual(text(el), ['one two three'])
+    await emit(delta('a', ' four', 4))
+    assert.deepEqual(text(el), ['one two three four five'], 'the held rev 5 chains on')
   })

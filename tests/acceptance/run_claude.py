@@ -46,10 +46,18 @@ PROJECT = RUN / "project"
 DATA.mkdir(); PROJECT.mkdir()
 forbidden = (Path.home() / "orgtree").resolve()
 assert forbidden not in DATA.parents and DATA != forbidden
+# HUB ISOLATION (tests/hub_isolation.py): the engine gets a hub of its own on
+# a free port and an unroutable default, never the operator's live hub; the
+# engine stand-in refuses to boot on a root that was not prepared this way.
+import importlib.util
+_spec = importlib.util.spec_from_file_location("hub_isolation", ROOT / "tests" / "hub_isolation.py")
+hub_isolation = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(hub_isolation)
+hub_isolation.isolate_data_root(DATA)
 token = secrets.token_hex(32)
 env = dict(os.environ)
 for key in ("ORGTREE_PORT", "ORGTREE_BASE", "ORGTREE_V1_ROOT", "ORGTREE_V1_DATA_ROOT", "ORGTREE_V2_PORT", "ORGTREE_AGENT_TOKEN"):
     env.pop(key, None)
+hub_isolation.scrub_inherited_hub(env)
 env.update(ORGTREE_DATA=str(DATA), ORGTREE_V2_TOKEN=token,
            ORGTREE_V2_UI_DIR=str(ROOT / "dist" / "renderer"),
            ORGTREE_V2_PARENT_PID=str(os.getpid()))

@@ -25,11 +25,31 @@ class WorkReminderAdmissionTests(unittest.TestCase):
             ("store.load_org", {"return_value": self.org}),
             ("store.save_org", {}),
             ("store.list_orgs", {"return_value": [{"slug":"reminder-test"}]}),
+            # the fleet passes read the SNAPSHOT pair, never load_org: only a
+            # reservation loads (its transaction's own read)
+            ("store.cached_list", {"return_value": [{"slug":"reminder-test"}]}),
+            ("store.cached_org", {"side_effect": lambda slug: self.org}),
             ("state", {"return_value": self.runtime}),
             ("mail_spark", {}),
             ("_auto_wake_gates_clear", {"return_value": True}),
         ):
             self.stack.enter_context(mock.patch('engine.backend.orgtree.supervisor.'+target, **kwargs))
+        # PG-3w: the reminder reservation is an `org_tx` now. These tests run
+        # on an in-memory Org with `store.load_org` patched, so stand the
+        # transaction in with exactly what it is to this reservation: ONE
+        # fresh load of the org, the body run on it. The load counts and the
+        # locked recheck asserted below keep their meaning; the row locking
+        # itself is proven by tests/test_worktx.py and tests/test_orgtx.py.
+        from engine.backend.orgtree import worktx
+        self.stack.enter_context(mock.patch.object(
+            worktx, 'tx', side_effect=lambda slug, fn, **kw: fn(store.load_org(slug))))
+        # PG-3e-A: the working-checkup reservation is a halt transaction; the
+        # same stand-in — one fresh load, the body run on it.
+        import contextlib, types
+        from engine.backend.orgtree import halt
+        self.stack.enter_context(mock.patch.object(
+            halt, 'txn', side_effect=lambda slug, **kw: contextlib.nullcontext(
+                types.SimpleNamespace(org=store.load_org(slug)))))
 
     def ticket(self, status="open"):
         self.org.work_create("worker", "Required task", "test", owner="worker")
@@ -76,11 +96,13 @@ class WorkReminderAdmissionTests(unittest.TestCase):
                 item['slug']=f'old-ticket-{i}'
                 item['owner']={'node':nid,'generation':1}
                 self.org._work_active().append(item)
-            with mock.patch.object(store,'load_org',return_value=self.org) as reads, \
+            with mock.patch.object(store,'cached_org',return_value=self.org) as snaps, \
+                 mock.patch.object(store,'load_org',return_value=self.org) as reads, \
                  mock.patch.object(supervisor,'_auto_wake_gates_clear',side_effect=lambda org,nid: org.node(nid)['state']=='live'):
                 wake=mock.Mock(return_value={'accepted':True})
                 sweep(wake=wake,now=5000,mode_enabled=True)
-                self.assertEqual(reads.call_count,2,'one snapshot plus one live reservation, regardless of archived count')
+                self.assertEqual(snaps.call_count,1,'one snapshot per org per sweep')
+                self.assertEqual(reads.call_count,1,'one live reservation, regardless of archived count')
                 wake.assert_called_once()
                 self.assertEqual(wake.call_args.args[1],'worker')
 
@@ -90,12 +112,16 @@ class WorkReminderAdmissionTests(unittest.TestCase):
         changed=copy.deepcopy(self.org)
         changed.node('worker')['state']='archived'
         for sweep in (supervisor._working_checkup_pass, supervisor._idle_docket_reminder_pass):
-            with mock.patch.object(store,'load_org',side_effect=[self.org,changed]) as reads, \
+            # the snapshot still says live; the reservation's own load says
+            # archived, and that locked answer is the one that must decide
+            with mock.patch.object(store,'cached_org',return_value=self.org), \
+                 mock.patch.object(store,'load_org',return_value=changed) as reads, \
                  mock.patch.object(supervisor,'_auto_wake_gates_clear',side_effect=lambda org,nid: org.node(nid)['state']=='live') as gate:
                 wake=mock.Mock(return_value={'accepted':True})
                 sweep(wake=wake,now=5000,mode_enabled=True)
-                self.assertEqual(reads.call_count,2)
-                gate.assert_called_once_with(changed,'worker')
+                self.assertEqual(reads.call_count,1)
+                gate.assert_called_with(changed,'worker')
                 wake.assert_not_called()
+                self.assertNotIn('docket_reminder_at',changed.node('worker'))
 
 if __name__ == '__main__': unittest.main()

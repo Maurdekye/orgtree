@@ -16,6 +16,8 @@ import datetime as dt
 from pathlib import Path
 from typing import Any, Iterator
 
+from . import census_contacts
+
 BLOCK = 64 * 1024
 #: chat-window-index paths already switched to WAL this process (review F6)
 _index_wal: set[str] = set()
@@ -331,7 +333,7 @@ def read_page(org, nid, want, before):
     rows = [{**sup._public_row(row), 'event_id': sup._stable_event_id(org, nid, row)} for row in selected]
     # The existing boundary provides a stable right-hand ordering anchor.
     anchor = {'event_id': cursor['id']}
-    order_epoch = transcript_records.order(source_key(org, nid), rows + [anchor])
+    order_epoch = transcript_records.order(source_key(org, nid), rows + [anchor], older=True)
     for row in rows:
         row['row_id'] = row['event_id']
     out = {'messages': rows, 'has_older': more, 'windowed': True, 'window_read': stats,
@@ -374,7 +376,7 @@ def project_tail(org, nid: str, path: str, want: int, stats: dict[str, int], *, 
                               before=before)
     version_before = version()
     database = Path(store.DATA_ROOT) / 'chat-window-index.sqlite3'
-    with contextlib.closing(sqlite3.connect(database, timeout=10)) as conn, conn:
+    with contextlib.closing(sqlite3.connect(database, timeout=10, factory=census_contacts.sidecar("chat_window_index"))) as conn, conn:
         if str(database) not in _index_wal:
             # WAL so a projection being cached never blocks another desk's
             # cache READ of a different conversation (review F6); the pragma
@@ -469,8 +471,9 @@ def read_window(org, nid: str, want: int, *, hold_back=True):
         more = True
     # Assemble the bounded projection before slicing, so withheld prompts do
     # not count as older visible rows and create an endless load-older loop.
-    out = sup._assemble_chat(org, nid, None, hold_back, dynamic, source)
-    visible_count = len(out['messages'])
+    out = sup._assemble_chat(org, nid, None, hold_back, dynamic, source, window=want)
+    # older steered rows the bounded synthetic read left out (1 = some exist)
+    visible_count = len(out['messages']) + out.pop('_synthetic_omitted', 0)
     out['messages'] = out['messages'][-want:]
     from . import transcript_records
     order_epoch = transcript_records.order(source_key(org, nid), out['messages'])

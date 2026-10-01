@@ -290,6 +290,7 @@ class OracleExchange(TypedDict):
 
 class InflightInfo(TypedDict):
     """The turn currently running (supervisor): prompt tail + start stamp."""
+    mail_input: NotRequired[dict[str, Any]]  # private input/replay evidence
     at: str
     text: str
     # Structured human projection of ``text``.  Machine-added context is
@@ -422,10 +423,10 @@ class NodeDoc(TypedDict):
     ui_order: float
     scope: NodeScope
     # external response handles (panel hires — e.g. the in-game Prompt Wizard,
-    # 2026-08-20): outward @mcp:<peer> addresses THIS node may post_mail
-    # directly, at any depth, without the org-inbox audience. Each send is
-    # scoped to exactly these addresses and attributed by=node in the
-    # org_inbox row; the grant rides the seat (survives retire/rehire).
+    # 2026-08-20): outward @mcp:<peer> addresses this node could post_mail
+    # directly. RETIRED with @mcp: on 2026-09-25 — new grants are refused and
+    # a stored value is IGNORED (kept, never cleared on load; an explicit
+    # retool with [] may still clear it).
     external_handles: NotRequired[list[str]]
     # §8 lineage axis — second axis, never an org edge. FR-24's cheap-compact
     # replacement uses the same pair: `predecessor` on the replacement points
@@ -574,6 +575,10 @@ class NodeDoc(TypedDict):
     # retains it. A normal compaction (whose successor carries its own
     # summary) clears it as before.
     cheap_compacted: NotRequired[bool]
+    # when the CURRENT session began: stamped by every in-place split
+    # (cheap/CLI compaction, model switch, reseed). `Org.node_ask` drops an
+    # answered card resolved before it (user report 2026-09-29).
+    session_began_at: NotRequired[str]
     # user bug 2026-08-18: the CURRENT session id was MINTED (cheap_compact,
     # reseed) and has never been handed to the CLI — so no transcript for it
     # exists yet, and that is normal, not damage. №31's startup reconcile
@@ -589,6 +594,34 @@ class NodeDoc(TypedDict):
     # ⭐ the user-override record (ruling 2026-08-06): Org.unstick moves the
     # released freeze here {by, at, was} — evidence, never erasure
     unstuck: NotRequired[dict[str, Any]]
+    # ---- M0a: this seat's mailbox, as an ordering authority ----------------
+    # The high-water of receive ordinals handed out for this mailbox. It lives
+    # HERE, on the node, rather than in a document-level map, because the node
+    # dict is what `rehire`, `reseed` and `cheap_compact` mutate IN PLACE (so
+    # it survives them without anyone remembering to carry it), what `rename`
+    # re-keys along with `mail`/`mail_log` (one mailbox keeps one counter
+    # through an identity rename), and what `delete` and
+    # `drop_phantom_generation` POP alongside those same tables — which is what
+    # makes a later hire at a freed name start from zero instead of inheriting
+    # a stranger's sequence. Allocation never trusts this value alone: see
+    # Org._allocate_recv_seq, which takes the maximum of it and every ordinal
+    # already assigned to a row of this mailbox. Supported domain: a non-bool
+    # int >= 0. Anything else present here is unsupported data, NOT an absent
+    # counter, and the migration refuses the mailbox rather than overwrite it.
+    mail_seq: NotRequired[int]
+    # This MAILBOX's durable identity, minted at its first deposit. Distinct
+    # from `seat_id` (the agent) and from the node name (reusable): it answers
+    # "is the mailbox a cursor was taken against still the mailbox standing
+    # here?", which after a delete-and-rehire at the same name is no.
+    mailbox_id: NotRequired[str]
+    # ⚠ BOTH FIELDS ARE AUTHORITY OVER ONE MAILBOX and are NOT inherited by a
+    # copy of this node stored under a different id. Every lineage split builds
+    # its archived predecessor as `dict(n)` under `nid@gen`; the seat at `nid`
+    # keeps the mailbox, and the bearer — separately addressable, and ordinary
+    # mail does land in it — has these stripped so it mints its own. Without
+    # that, two different messages in two different mailboxes carry the same
+    # (mailbox, recv_seq). Org._strip_mailbox_authority is the one place that
+    # does it, and test_mail_receive_order asserts all four sites call it.
 
 
 class AudienceGrant(TypedDict):
@@ -714,7 +747,117 @@ MailEntry = TypedDict("MailEntry", {
     # the row, restored by decode_row_ev). Unknown/malformed values are kept and reported
     # by events.decode as unsupported/malformed; never raised on load.
     "ev": NotRequired[dict[str, Any]],
+    # ---- M0a: the receiver's own arrival fact (ledger.Org.deposit_mail) ----
+    # The RECEIVING mailbox's ordinal for this message, allocated once at the
+    # deposit door and never re-allocated when the row moves. Position in
+    # `mail[node]` is NOT this: the fold-back paths prepend, so a row that
+    # arrived last can sit first. NotRequired because every row written before
+    # the mechanism has none, and nothing back-fills one implicitly — an
+    # ordinal invented after the fact would be a claim about an arrival order
+    # nobody observed.
+    "recv_seq": NotRequired[int],
+    # HOW that ordinal was obtained, so a reader is never left guessing:
+    #   "deposit"            — minted at a real creation door; the order
+    #                          between two such rows of one mailbox happened.
+    #   "migration_unproven" — assigned by Org.migrate_mail_receive_order's
+    #                          deterministic `(at, id)` enumeration over rows
+    #                          predating the mechanism. A TOTAL order, NOT
+    #                          recovered receive history, and deliberately
+    #                          labelled so nothing downstream can present it
+    #                          as one.
+    #   "unresolved_mailbox" — deposited against a key naming no node, so no
+    #                          mailbox existed to allocate from. The message
+    #                          is kept unstamped rather than dropped.
+    "seq_origin": NotRequired[str],
+    # WHICH mailbox the ordinal belongs to (NodeDoc.mailbox_id). A mailbox
+    # deleted and recreated at the same name is a DIFFERENT mailbox, and this
+    # is what lets a cursor or claim taken against the old one be recognised
+    # as stale instead of read as current.
+    "mailbox": NotRequired[str],
 })
+
+
+class ManualChunk(TypedDict):
+    """One chunk of a manually fetched body: UTF-8 byte offset and length in
+    the journaled body, and the digest of exactly those bytes."""
+    offset: int
+    length: int
+    sha256: str
+
+
+class ManualChunkPlan(TypedDict):
+    """A body's chunk plan, fixed when the manual fetch drained it and never
+    recomputed (inbox.chunk_plan). The chunks concatenate to the whole body,
+    whose digest is `body_sha256`."""
+    body_bytes: int
+    body_sha256: str
+    chunk_total: int
+    chunks: list[ManualChunk]
+
+
+class ManualFetchRecord(TypedDict):
+    """`delivering[<node>][i]["manual"]` on a `mode="manual_fetch"` journal row
+    (M1+M2a, internal; the door is closed). The fetching attempt's registered
+    identity, captured together; the engine process that ran it; the
+    server-minted continuation handle; one chunk plan per message id."""
+    mailbox: str
+    generation: int
+    session: str
+    attempt: str
+    engine: str
+    delivery_id: str
+    plan: dict[str, ManualChunkPlan]
+
+
+class ManualAttemptDigest(TypedDict):
+    chunk_total: int
+    body_sha256: str
+
+
+class ManualChunkCall(TypedDict):
+    """One KEYED chunk call recorded on its delivery's attempt (P06b): which
+    chunk was served, its digest, the call's key and receipt id. The
+    provider's call identity stays null with `call_id_source="unsupplied"`
+    until trusted evidence exists (P08). Never evicted; confirms nothing."""
+    message_id: str
+    chunk_index: int
+    chunk_sha256: str
+    op_key: str
+    op_id: str
+    at: str
+    provider_call_id: str | None
+    call_id_source: str
+
+
+class ManualAttemptRecord(TypedDict):
+    """`manual_attempts[<node>][<delivery_id>]` (P06a, internal; the door is
+    closed): what one manual fetch handed out, written in the fetch's own
+    save and kept after its journal row is gone (inbox.attempt_record). It
+    confirms nothing. `op_key`/`op_id` name the keyed call and its receipt
+    (null when unkeyed); `provider_call_id` stays null with
+    `call_id_source="unsupplied"` until trusted call evidence exists (P08).
+    `resolved` is null while open, then `redelivered`/`confirmed` from a
+    positive transition receipt, else `unknown`. `seat` (P04a-1) is the
+    fetching seat's principal; attempts written before it carry none and keep
+    the mailbox/generation fence."""
+    v: int
+    at: str
+    tok: str
+    mailbox: str
+    generation: int
+    seat: NotRequired[str]
+    session: str
+    attempt: str
+    engine: str
+    delivery_id: str
+    op_key: str | None
+    op_id: str | None
+    mail_ids: list[str]
+    digests: dict[str, ManualAttemptDigest]
+    provider_call_id: str | None
+    call_id_source: str
+    resolved: str | None
+    chunk_calls: NotRequired[list[ManualChunkCall]]
 
 
 class OrgInboxEntry(TypedDict):
@@ -727,8 +870,8 @@ class OrgInboxEntry(TypedDict):
     at: str
     by: NotRequired[str]     # internal attribution — outbound speaks as the org
     # held-handle send (external_handles): the sender spoke to ITS OWN outside
-    # channel, not for the org — _extern_scan exposes `by` to the peer for
-    # exactly these rows and no others
+    # channel, not for the org. HISTORICAL — only rows written before @mcp:
+    # was retired (2026-09-25) carry it; nothing writes or reads it now.
     attributed: NotRequired[bool]
     # ---- F-06 @net: delivery states (outbound rows only) ----
     state: NotRequired[str]         # queued → sent (hub custody = "received")
@@ -922,10 +1065,21 @@ class WorkItem(TypedDict):
     # unwritable because every description change and every ruling appends
     # here. Read the record through `Org._work_scope_all`, never through this
     # field alone.
+    # ⚠ STORAGE IS NOT THE VIEW (docket-history-lazy 2026-09-26). This field
+    # now STORES only the item's newest Org.WORK_SCOPE_INLINE rows; older rows
+    # live in the org's lazy `work_scope_log[slug]`. The complete record is
+    # `scope_archive` (legacy, healed away) + `work_scope_log[slug]` + this,
+    # and the wire's live window / `scope_archive` split is rebuilt from it by
+    # `scope_rolled`, so what a reader sees is unchanged.
     scope: NotRequired[list[WorkScopeRecord]]
-    #: rows that rolled out of the live window, oldest first. UNCAPPED: this is
-    #: what makes the cap above a window rather than a dead end.
+    #: LEGACY: rows that rolled out of the live window, stored inline by the
+    #: build before docket-history-lazy. Read, never written; the heal moves
+    #: them into `work_scope_log` and counts them into `scope_rolled`.
     scope_archive: NotRequired[list[WorkScopeRecord]]
+    #: how many of the oldest rows of the complete record have ROLLED OVER out
+    #: of the live window (the W09 rollover past WORK_SCOPE_MAX). The wire
+    #: serves those as `scope_archive` and the rest as `scope`.
+    scope_rolled: NotRequired[int]
     scope_seq: NotRequired[int]     # monotonic; mints the next row's `seq`
     #: stamped by every scope append this build makes (Org.WORK_SCOPE_GUARD).
     #: Its ABSENCE on an item at the cap is the only evidence that the item
@@ -1039,7 +1193,10 @@ class OrgDoc(TypedDict):
     mail: NotRequired[dict[str, list[MailEntry]]]
     mail_drain_version: NotRequired[int]  # queued-mail upgrade completed
     tool_result_receipts: NotRequired[dict[str, str]]  # atomic tool-result mail outbox receipts
-    mail_log: NotRequired[dict[str, list[MailEntry]]]   # full-body archive, cap 100/node
+    # full-body archive. NOT capped: every deposit door retains until manual
+    # removal (user ruling 2026-09-07; the restart notice's former 100-row
+    # tail trim was removed 2026-09-29).
+    mail_log: NotRequired[dict[str, list[MailEntry]]]
     # Bounded identity/state transitions for mail, child tasks, watchdogs and
     # delivery warnings. Bodies remain in their owning records.
     lifecycle: NotRequired[list[dict[str, Any]]]
@@ -1049,8 +1206,17 @@ class OrgDoc(TypedDict):
     notices: NotRequired[dict[str, list[NoticeEntry]]]
     notice_log: NotRequired[list[NoticeLogEntry]]
     delivering: NotRequired[dict[str, list[dict[str, Any]]]]  # supervisor in-flight mail batches
+    mail_transitions: NotRequired[dict[str, dict[str, dict[str, Any]]]]  # positive atomic reclaim receipts
+    manual_attempts: NotRequired[dict[str, dict[str, ManualAttemptRecord]]]  # per-NODE manual-fetch attempts (P06a)
     steered_log: NotRequired[dict[str, list[dict[str, Any]]]]  # per-NODE steer history, org-keyed
     turn_error_log: NotRequired[dict[str, list[dict[str, Any]]]]  # per-NODE turn failures {at, text, ran_as?} — the durable half of last_error
+    # per-NODE steering attempt journal (store.KEYED_DICT_LOGS); declared here
+    # so the P04a-1 census (ledger.NODE_KEYED_SECTIONS) reads it from the schema
+    steer_attempts: NotRequired[dict[str, dict[str, dict[str, Any]]]]
+    # per-ITEM scope rows older than the item's inline tail (store.DICT_LOGS,
+    # keyed by work item slug); see WorkItem.scope
+    work_scope_log: NotRequired[dict[str, list[WorkScopeRecord]]]
+    watchdog_history: NotRequired[list[dict[str, Any]]]  # retained watchdog events {.., watchdog, node}
     # (`account_token_uuid` — the per-org account selection — lived here
     # until 2026-08-25. Account routing is machine-local and per model tier
     # now (accounts.py); Org.__init__ pops the stale key from old docs.)

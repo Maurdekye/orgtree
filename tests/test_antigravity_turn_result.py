@@ -248,9 +248,15 @@ class AntigravityTurnResultTests(unittest.TestCase):
         the reader never reaches EOF. Text and usage are both present and the
         rc is 0: only the missing EOF separates this from §B1, and it must be
         enough to keep the turn a failure, because a result may yet arrive."""
+        # The join bound is lowered so the test does not wait it out three
+        # times (wait, then both readers in close); the holder still keeps
+        # the pipe open six times longer than that bound.
         holder = ("import subprocess, sys\n"
                   "subprocess.Popen([sys.executable, '-c',"
-                  " 'import time; time.sleep(20)'], stdout=sys.stdout)\n")
+                  " 'import time; time.sleep(3)'], stdout=sys.stdout)\n")
+        join = self.agy.READER_JOIN_TIMEOUT
+        self.agy.READER_JOIN_TIMEOUT = 0.5
+        self.addCleanup(setattr, self.agy, "READER_JOIN_TIMEOUT", join)
         res, turn = self._run([
             INIT,
             _step(text=CLOSING),

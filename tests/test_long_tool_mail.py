@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine/backend'))
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
-from orgtree import ledger, store, supervisor as sup, toolwait, maildrain, halt
+from orgtree import ledger, orgtx, store, supervisor as sup, toolwait, maildrain, halt
 
 assert Path(store.DATA_ROOT).resolve() == Path(_root.name).resolve()
 
@@ -148,7 +148,7 @@ class LongToolTests(unittest.TestCase):
 
     def test_authenticated_http_route_uses_safe_wait(self):
         from orgtree import api
-        request = SimpleNamespace(state=SimpleNamespace(agent_identity=(self.slug, 'worker', 0)))
+        request = SimpleNamespace(state=SimpleNamespace(agent_identity=(self.slug, 'worker', 0, self.caller['seat_id'])))
         body = api.AgentCall(org=self.slug, node='worker', tool='orgtree_staff', args={})
         invoke = toolwait.invoke
         with patch.object(api, 'agent_call', side_effect=lambda *a: self.long_staff()), \
@@ -161,7 +161,9 @@ class LongToolTests(unittest.TestCase):
         from orgtree import api
         from fastapi import HTTPException
         body = api.AgentCall(org=self.slug, node='worker', tool='orgtree_staff', args={})
-        for identity in [(self.slug, 'worker', 99), ('another-org', 'worker', 0)]:
+        seat = self.caller['seat_id']
+        for identity in [(self.slug, 'worker', 99, seat), ('another-org', 'worker', 0, seat),
+                         (self.slug, 'worker', 0, 'another-seat'), (self.slug, 'worker', 0)]:
             request = SimpleNamespace(state=SimpleNamespace(agent_identity=identity))
             with patch.object(api, 'agent_call') as call, self.assertRaises(HTTPException):
                 asyncio.run(api._agent_call_route(body, request))
@@ -170,7 +172,11 @@ class LongToolTests(unittest.TestCase):
 
     def test_halt_preserves_result_without_rearming_delivery(self):
         toolwait.invoke(self.body, self.caller, self.long_staff, wait_s=.01)
-        with patch.object(halt, 'blocked', return_value='halt'):
+        # PG-3r: publication decides halt suspension from its own transaction's
+        # rows (halt._gate_blocked); the lock-free halt.blocked is still patched
+        # for the rest of the delivery path
+        with patch.object(halt, 'blocked', return_value='halt'), \
+                patch.object(halt, '_gate_blocked', return_value='halt'):
             self.finish()
         self.assertFalse(maildrain.pending(store.load_org(self.slug), 'worker'))
         self.assertEqual(self.calls, 1)
@@ -312,7 +318,7 @@ class LongToolTests(unittest.TestCase):
         toolwait.sweep()
         self.assertFalse(toolwait.records())
         toolwait._save(self.result_row('temporarily-unreadable'))
-        with patch.object(store, 'load_org', side_effect=OSError('database temporarily locked')) as load:
+        with patch.object(orgtx, 'org_read', side_effect=OSError('database temporarily locked')) as load:
             toolwait.sweep()
             toolwait.sweep()
             self.assertEqual(load.call_count, 1)  # backoff, not a 1 Hz retry storm
@@ -323,7 +329,7 @@ class LongToolTests(unittest.TestCase):
 
     def test_persistent_publication_failure_has_a_finite_attempt_budget(self):
         toolwait._save(self.result_row('persistent-failure'))
-        with patch.object(store, 'load_org', side_effect=OSError('unreadable database')) as load:
+        with patch.object(orgtx, 'org_read', side_effect=OSError('unreadable database')) as load:
             for _ in range(toolwait.MAX_PUBLISH_FAILURES + 2):
                 self.retry_due()
         self.assertEqual(load.call_count, toolwait.MAX_PUBLISH_FAILURES)
@@ -335,7 +341,7 @@ class LongToolTests(unittest.TestCase):
     def test_old_temporary_failure_expires_even_before_attempt_budget(self):
         toolwait._save(self.result_row('expired-failure',
             first_publish_failure_at=time.time() - toolwait.MAX_PUBLISH_AGE_S - 1))
-        with patch.object(store, 'load_org', side_effect=OSError('still unavailable')):
+        with patch.object(orgtx, 'org_read', side_effect=OSError('still unavailable')):
             toolwait.sweep()
         self.assertFalse(toolwait.records())
         self.assertTrue(any(r['id'] == 'expired-failure' for r in toolwait.dead_letters()))

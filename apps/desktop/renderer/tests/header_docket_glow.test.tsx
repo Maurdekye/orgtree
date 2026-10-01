@@ -1,13 +1,14 @@
 // header_docket_glow.test.tsx — regression tests for header button order
 // (Mail -> Docket -> Presented Documents) and Docket attention glow/pulse behavior.
 import './harness'
-import { flush, inAct, mountView } from './harness'
+import { advance, flush, inAct, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import React from 'react'
 import App, { AskBell } from '../src/App'
 import { DocketToolbarButton } from '../src/canvas/docket'
 import { forgetModalOpenCache, forgetModalPins } from '../src/canvas/modalpin'
+import { TREE_HIDDEN_GAP_MS, TREE_MIN_GAP_MS } from '../src/treepace'
 import type { TreePayload } from '../src/types'
 
 const agent = (id: string) => ({
@@ -30,7 +31,8 @@ const makeTree = (slug: string, over: Partial<TreePayload> = {}): TreePayload =>
   ...over,
 }) as TreePayload
 
-async function setupApp(t: { after: (fn: () => void | Promise<void>) => void }, treePayload: TreePayload) {
+async function setupApp(t: { after: (fn: () => void | Promise<void>) => void }, treePayload: TreePayload,
+                        paced = false) {
   localStorage.clear()
   forgetModalPins()
   forgetModalOpenCache()
@@ -43,8 +45,10 @@ async function setupApp(t: { after: (fn: () => void | Promise<void>) => void }, 
   })
 
   let currentTree = treePayload
+  let treeReads = 0
   const stub = (async (input: RequestInfo | URL) => {
     const path = String(input).replace(/^https?:\/\/[^/]+/, '').split('?')[0]!
+    if (path.startsWith(`/api/orgs/${currentTree.slug}`) && /^\/api\/orgs\/[^/]+(\/foreground-tree)?$/.test(path)) ++treeReads
     if (path === '/api/orgs') return json([{ slug: currentTree.slug, name: currentTree.name, live: 1, seats: 1 }])
     if (path === `/api/orgs/${currentTree.slug}`) return json(currentTree)
     if (path === '/api/providers') return json({ providers: [] })
@@ -104,6 +108,15 @@ async function setupApp(t: { after: (fn: () => void | Promise<void>) => void }, 
         }
         await flush(50)
       })
+      // a same-org read waits the pacer's gap after the previous one
+      // (treepace.ts); jsdom reports document.hidden, so the hidden gap
+      if (paced) {
+        const before = treeReads
+        await advance(100)
+        assert.equal(treeReads, before, 'no tree read inside the gap')
+        await advance((document.hidden ? TREE_HIDDEN_GAP_MS : TREE_MIN_GAP_MS) + 50)
+        assert.ok(treeReads > before, 'the frame is still answered after the gap')
+      }
       await settle()
     },
   }
@@ -278,7 +291,9 @@ test('Header integration: live WebSocket / repoll tree update transitions Docket
   const tree = makeTree('live-glow-test', {
     work_items_summary: { attention: 3, active: 5 },
   })
-  const { view, triggerTreeRefresh } = await setupApp(t, tree)
+  useFakeClock()
+  t.after(() => realClock())
+  const { view, triggerTreeRefresh } = await setupApp(t, tree, true)
 
   const docketBell = view.el.querySelector('button.docket-bell') as HTMLButtonElement
   assert.ok(docketBell, 'Docket button exists in header')

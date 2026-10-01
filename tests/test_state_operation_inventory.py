@@ -5,6 +5,8 @@ separate gate, not an inference from these static tests.
 """
 from __future__ import annotations
 
+import ast
+import asyncio
 import contextlib
 import copy
 import importlib.util
@@ -14,6 +16,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -78,6 +81,35 @@ def agent(tool, action):
         self.assertTrue(any(r["values"] == ["list", "land"] for r in result["dispatch_selectors"]))
         self.assertEqual(len(result["registrations"]), 2)
 
+    def test_card_literals_outside_tools_and_card_less_door_verbs_are_entries(self):
+        # p01-inventory-misses-the-desktop-relaunch-tool-c: a module-level literal of tool cards is a catalogue
+        # whatever it is called, and every name the agent door dispatches on (`body.tool`) is an entry point,
+        # through a literal, a set, a starred constant or another module's constant
+        self.source('''
+from typing import Any
+TOOLS = [{"name": "orgtree_listed", "inputSchema": {}}]
+_SWAPPED: tuple[dict[str, Any], ...] = ({"name": "orgtree_swapped", "inputSchema": {}},)
+''', "mcptool.py")
+        self.source('''OP_CALL = "orgtree_wrapped"
+''', "receipts.py")
+        self.source('''from . import receipts
+_EXTRA = frozenset({"orgtree_starred"})
+def agent_call(body, dynamic):
+    if body.tool == "orgtree_listed": pass
+    if body.tool == "orgtree_hidden": pass
+    if body.tool in ("orgtree_hidden", *_EXTRA): pass
+    if body.tool == receipts.OP_CALL: pass
+    if body.tool == dynamic: pass
+''')
+        result = self.scan()
+        cards = sorted(n for r in result["registrations"] if r["kind"] == "tool" for n in r["names"])
+        verbs = {r["names"][0]: r["resolution"] for r in result["registrations"] if r["kind"] == "tool_verb"}
+        self.assertEqual(cards, ["orgtree_listed", "orgtree_swapped"])
+        self.assertEqual(verbs, {"orgtree_hidden": "literal", "orgtree_starred": "constant",
+                                 "orgtree_wrapped": "constant"})
+        # an operand that is not provably constant is counted, never silently dropped
+        self.assertEqual(result["summary"]["unresolved_tool_refs"], 1)
+
     def test_thread_timer_tasks_and_callback_registration(self):
         self.source('''
 from threading import Thread as Worker, Timer
@@ -91,6 +123,96 @@ def start():
         rows = self.scan()["registrations"]
         self.assertEqual([r["target"] for r in rows], ["receive", "flush", "recover", "work", "finish"])
         self.assertEqual(rows[0]["mechanism"], "threading.Thread")
+
+    def test_asyncio_to_thread_is_a_task_handoff(self):
+        self.source('''
+import asyncio
+async def remove(key):
+ return await asyncio.to_thread(removal.remove_account, key, actor=USER)
+async def recover(repair):
+ await asyncio.to_thread(repair)
+ await asyncio.to_thread(**chosen)
+''')
+        rows = [r for r in self.scan()["registrations"] if r["kind"] == "task"]
+        self.assertEqual([r["mechanism"] for r in rows], ["asyncio.to_thread"] * 3)
+        self.assertEqual([r["source"]["symbol"] for r in rows], ["remove", "recover", "recover"])
+        self.assertEqual([r["target"] for r in rows], ["removal.remove_account", "repair", None])
+        # The dynamic hand-off is kept as an unresolved obligation, not dropped.
+        self.assertEqual([r["resolution"] for r in rows],
+                         ["expression", "expression", "unresolved"])
+
+    def test_to_thread_target_is_the_handler_cpython_actually_calls(self):
+        # `to_thread(func, /, ...)` takes its callable POSITIONAL-ONLY, so
+        # `func=` is forwarded to that callable. Rather than restate what this
+        # scanner believes, run the real asyncio.to_thread and let CPython say
+        # which handler executes, then require the recorded target to be it.
+        called = []
+        def chosen_handler(**forwarded):
+            called.append(("chosen_handler", sorted(forwarded)))
+        def other_handler(**forwarded):  # pragma: no cover - must never run
+            called.append(("other_handler", sorted(forwarded)))
+        asyncio.run(asyncio.to_thread(chosen_handler, func=other_handler))
+        self.assertEqual(called, [("chosen_handler", ["func"])])
+
+        self.source("import asyncio\n"
+                    "async def hand_off():\n"
+                    " await asyncio.to_thread(chosen_handler, func=other_handler)\n")
+        row, = [r for r in self.scan()["registrations"] if r["kind"] == "task"]
+        self.assertEqual(row["target"], called[0][0])
+        self.assertEqual(row["resolution"], "expression")
+
+    def test_to_thread_without_a_determinable_positional_target_stays_unresolved(self):
+        self.source('''
+import asyncio
+async def forms(handlers, chosen, rest):
+ await asyncio.to_thread(*handlers)
+ await asyncio.to_thread(func=only_a_keyword)
+ await asyncio.to_thread(**everything)
+ await asyncio.to_thread(chosen, *rest, func=forwarded)
+''')
+        rows = [r for r in self.scan()["registrations"] if r["kind"] == "task"]
+        # An expansion is not a target, and a forwarded `func=` is not one
+        # either; only the real positional callable is reported.
+        self.assertEqual([r["target"] for r in rows], [None, None, None, "chosen"])
+        self.assertEqual([r["resolution"] for r in rows],
+                         ["unresolved", "unresolved", "unresolved", "expression"])
+
+    def test_anyio_run_sync_is_not_claimed_as_a_to_thread_task(self):
+        # This pass matches call NAMES. `anyio.to_thread.run_sync` is a different
+        # name, so it stays unrecognized rather than being silently counted; the
+        # module fingerprint is still what makes such a site invalidate a snapshot.
+        self.source('''
+import anyio
+async def read(function):
+ return await anyio.to_thread.run_sync(function)
+''')
+        result = self.scan()
+        self.assertEqual([r for r in result["registrations"] if r["kind"] == "task"], [])
+        self.assertEqual(result["summary"]["modules"], 1)
+
+    def test_middleware_and_direct_factory_calls_are_registrations(self):
+        # p01-inventory-misses-middleware-add-middleware-c: installing middleware or a handler by a CALL registers
+        # the same thing its decorator form does
+        self.source('''
+app.add_middleware(Stamp)
+app.add_exception_handler(ValueError, on_value_error)
+app.middleware("http")(Router(root))
+app.get("/direct")(handler)
+@app.middleware("http")
+async def decorated(request, call_next): pass
+''')
+        rows = self.scan()["registrations"]
+        self.assertEqual([(r["kind"], r.get("mechanism") or r.get("method"), r.get("target"), r.get("form"))
+                          for r in rows],
+                         [("registration_call", "app.add_middleware", "Stamp", None),
+                          ("registration_call", "app.add_exception_handler", "on_value_error", None),
+                          ("hook", "middleware", "Router(root)", "direct_call"),
+                          ("http", "get", "handler", "direct_call"),
+                          ("hook", "middleware", None, None)])
+        self.assertEqual(rows[3]["selectors"], ["/direct"])
+        # the decorator form carries no form fact, so its site ids are what they were before the call form counted
+        self.assertNotIn("form", rows[4])
+        self.assertEqual(len({r["site_id"] for r in rows}), 5)
 
     def test_registration_targets_are_endpoints_not_route_names(self):
         self.source('''
@@ -205,6 +327,163 @@ def b():
         baseline = ROOT / "docs/state-system/operation-inventory.json"
         expected = json.loads(baseline.read_text(encoding="utf-8"))
         self.assertTrue(inventory.compare(expected, inventory.scan(ROOT))["matches"])
+
+    def test_committed_inventory_pins_the_real_to_thread_hand_offs(self):
+        # `--check` only proves the snapshot and the source agree. Narrowing the
+        # scanner and refreshing the snapshot with itself would still pass it,
+        # so the exact group totals and both real hand-off sites are pinned here.
+        baseline = json.loads((ROOT / "docs/state-system/operation-inventory.json")
+                              .read_text(encoding="utf-8"))
+        summary = baseline["summary"]
+        # 311 -> 314: P02-A1 adds three operator HTTP routes,
+        # GET/POST /api/diagnostics/operation-census and
+        # POST /api/diagnostics/operation-census/reset.
+        # 314 -> 317: add-agent-tool-and-ui-to-clear-account-limit-mar adds
+        # GET /api/accounts/{id}/marks, POST /api/accounts/{id}/marks/clear
+        # and the orgtree_account_mark tool card.
+        # 317 -> 319: GET/PUT /api/app-settings/charter-template-dirs (docket
+        # add-external-agent-charter-templates-folder), both pending.
+        # 319 -> 333: the scan covers the engine's top-level modules and engine/winservice
+        # (p01-inventory-misses-the-production-routes-mount): engine/launch.py adds 10 routes, its
+        # include_router(desktop_import.router) and the server task; process_lifetime.py and service_host.py
+        # add one worker each.
+        # 333 -> 342: p01-inventory-misses-the-desktop-relaunch-tool-c inventories mcptool's
+        # _DESKTOP_RELAUNCH_CARDS (the orgtree_self_relaunch and orgtree_prime_relaunch cards) and the 7 names the
+        # agent door dispatches without any card (tool_verb), every body.tool operand resolved
+        # 342 -> 335: the external-chat retirement (docket the-external-chat-mcp-server-cannot-reach-the-v2) removes
+        # the three /api/extern routes and externtool.py's four tool cards
+        # 335 -> 334: the retirement's second stage removes the external-chat handle sweeper's worker
+        # 334 -> 339: p01-inventory-misses-middleware-add-middleware-c sees api.py's four add_middleware calls and
+        # p03_door's app.middleware("http")(_Router(root))
+        # 339 -> 351 (P01 re-anchor after PYPG): the change feed's two Hub tasks (Hub.join's writer, Hub._drop's
+        # close), the revision feed's shutdown hook and listener thread (PG-4), the docket list cache's sweeper
+        # timer and GET /api/diagnostics/engine-stats, and six unresolved tool entries for rcdoor.TOOLS (PG-3c's
+        # door tool tuple); unresolved_tool_refs 0 -> 2 since the last anchor is recorded here, not
+        # triaged
+        self.assertEqual(summary["registration_sites"], 351)
+        self.assertEqual(summary["registration_kinds"]["task"], 15)
+        self.assertEqual((summary["registration_kinds"]["tool"], summary["registration_kinds"]["tool_verb"],
+                          summary["unresolved_tool_refs"]), (53, 7, 2))
+        # 225 -> 226: P02-A1 adds one `body.tool == "orgtree_operation_census"`
+        # branch in api.agent_call, routing the agent read door.
+        # 226 -> 227: the same item adds the `orgtree_account_mark` branch.
+        # 227 -> 223: the external-chat retirement removes externtool.py's four tool branches
+        # 223 -> 236 (P01 re-anchor after PYPG): worktx.rows_for's seven action branches, rcdoor's five, and
+        # api._agent_door_tail's remote-control reap
+        self.assertEqual(summary["dispatch_selector_sites"], 236)
+        # 15 -> 18: engine/mailhub_runtime.py's hub store migration opens three connections
+        # 18 -> 25 (P01 re-anchor after PYPG): pgstore's five connects, pgfeed's listener, store.claim_data_root
+        self.assertEqual(summary["connection_sites"], 25)
+        self.assertEqual([(r["source"]["path"], r["source"]["symbol"], r["target"])
+                          for r in baseline["registrations"]
+                          if r.get("mechanism") == "asyncio.to_thread"],
+                         [("engine/backend/orgtree/api.py", "accounts_remove",
+                           "account_removal.remove_account_rebinding_agents"),
+                          ("engine/backend/orgtree/startup.py", "Recovery.start.run", "repair")])
+
+
+    # coordinator ruling on p01-inventory-misses-the-production-routes-mount: nothing added outside the backend
+    # package may go unseen. Any engine .py file outside the inventory's module set that has a route, a hook, a
+    # router include, a task or worker registration, or a connection site fails here.
+    NOT_SCANNED = ("engine/native/", "engine/runtime/")
+
+    def test_no_engine_module_with_sites_is_left_out_of_the_scan(self):
+        scanned = {m["path"] for m in inventory.scan(ROOT)["modules"]}
+        offenders, checked = [], 0
+        for path in sorted((ROOT / "engine").rglob("*.py")):
+            rel = path.relative_to(ROOT).as_posix()
+            if rel in scanned or any(part in inventory.SKIPPED_PARTS for part in path.parts) \
+                    or rel.startswith("engine/runtime/"):
+                continue
+            checked += 1
+            module = inventory.ModuleInventory(rel, path.read_text(encoding="utf-8-sig"))
+            module.visit(module.tree)
+            if module.registrations or module.storage:
+                offenders.append(rel)
+        self.assertEqual(offenders, [])
+        # the files left out are exactly the offline native oracle generators
+        self.assertGreater(checked, 0)
+        for rel in scanned:
+            self.assertFalse(rel.startswith(self.NOT_SCANNED), rel)
+
+    # p01-inventory-misses-the-desktop-relaunch-tool-c: the two relaunch cards lived in a module-level literal the
+    # scanner did not read, and seven dispatchable names had no card at all. These two guards find both shapes by
+    # a DIFFERENT method than the scanner (a walk of every node, not the scanner's assignment and resolution rules),
+    # so a new card literal anywhere, at any depth, or a new body.tool name, fails here until it is inventoried.
+    @staticmethod
+    def _trees():
+        for m in inventory.scan(ROOT)["modules"]:
+            yield m["path"], ast.parse((ROOT / m["path"]).read_text(encoding="utf-8-sig"))
+
+    @staticmethod
+    def _inventoried(kinds):
+        # what the scanner sees NOW, not the committed snapshot: a scanner that went blind would regenerate a
+        # snapshot without the name (test_committed_inventory_matches_current_backend covers the snapshot)
+        return {n for r in inventory.scan(ROOT)["registrations"] if r["kind"] in kinds for n in (r.get("names") or [])}
+
+    def test_every_literal_tool_card_in_the_engine_is_inventoried(self):
+        found = {}
+        for path, tree in self._trees():
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Dict):
+                    keys = {k.value: v for k, v in zip(node.keys, node.values) if isinstance(k, ast.Constant)}
+                    name = keys.get("name")
+                    if "inputSchema" in keys and isinstance(name, ast.Constant) and str(name.value).startswith("orgtree_"):
+                        found.setdefault(name.value, path)
+        self.assertLessEqual({"orgtree_self_relaunch", "orgtree_prime_relaunch", "orgtree_work"}, set(found))
+        self.assertEqual(sorted(set(found) - self._inventoried({"tool"})), [])
+
+    def test_every_name_the_agent_door_dispatches_is_inventoried(self):
+        constants = {}          # (module file stem, NAME) -> (module file stem, its value)
+        trees = dict(self._trees())
+        for path, tree in trees.items():
+            stem = path.rsplit("/", 1)[-1][:-3]
+            for node in tree.body:
+                targets = node.targets if isinstance(node, ast.Assign) else \
+                    [node.target] if isinstance(node, ast.AnnAssign) and node.value is not None else []
+                for t in targets:
+                    if isinstance(t, ast.Name):
+                        constants[(stem, t.id)] = (stem, node.value)
+
+        def strings(stem, operand, seen=frozenset()):
+            # every string literal under the operand, following module constants (and constants of constants,
+            # e.g. api.OP_EPOCH = opreceipts.OP_EPOCH) wherever they lead
+            out = set()
+            for n in ast.walk(operand):
+                key = (stem, n.id) if isinstance(n, ast.Name) else \
+                    (n.value.id, n.attr) if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) else None
+                if isinstance(n, ast.Constant) and isinstance(n.value, str):
+                    out.add(n.value)
+                elif key in constants and key not in seen:
+                    out |= strings(constants[key][0], constants[key][1], seen | {key})
+            return out
+        dispatched = set()
+        for path, tree in trees.items():
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Compare):
+                    parts = [node.left, *node.comparators]
+                    if any(ast.unparse(p) == "body.tool" for p in parts):
+                        for p in parts:
+                            dispatched |= {s for s in strings(path.rsplit("/", 1)[-1][:-3], p)
+                                           if s.startswith("orgtree_")}
+        self.assertLessEqual({"orgtree_self_update", "orgtree_op_epoch", "orgtree_self_relaunch",
+                              "orgtree_send_file_once", "orgtree_account_assign"}, dispatched)
+        self.assertEqual(sorted(dispatched - self._inventoried({"tool", "tool_verb"})), [])
+
+    def test_the_launcher_routes_and_engine_modules_are_inventoried(self):
+        baseline = json.loads((ROOT / "docs/state-system/operation-inventory.json").read_text(encoding="utf-8"))
+        paths = [m["path"] for m in baseline["modules"]]
+        self.assertLessEqual({"engine/launch.py", "engine/mailhub_runtime.py", "engine/process_lifetime.py",
+                              "engine/service_host.py", "engine/winservice/scm.py"}, set(paths))
+        routes = sorted((r["method"], r["selectors"][0]) for r in baseline["registrations"]
+                        if r["source"]["path"] == "engine/launch.py" and r["kind"] == "http")
+        self.assertEqual(routes, [("get", "/api/desktop/hub"), ("get", "/api/desktop/identity"),
+                                  ("get", "/api/desktop/import-v1/{slug}/recovery"),
+                                  ("get", "/api/desktop/notifications"), ("get", "/api/desktop/status"),
+                                  ("post", "/api/desktop/import-v1/{slug}/resolve"),
+                                  ("post", "/api/desktop/maintenance/ack"),
+                                  ("post", "/api/desktop/maintenance/failure"), ("post", "/api/desktop/shutdown"),
+                                  ("put", "/api/desktop/hub")])
 
 
 if __name__ == "__main__":

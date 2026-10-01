@@ -22,6 +22,18 @@ export class Preferences {
   get(): DesktopPreferences { return { ...this.value } }
   set(patch: unknown): DesktopPreferences {
     const normalized = preferencesPatch(patch)
+    // The view lists are changed one org at a time from the live copy, never
+    // replaced from a window's older snapshot (that erased other windows' records).
+    const orgView = normalized.orgView
+    delete normalized.orgView
+    delete normalized.attentionOrgs
+    delete normalized.canvasOrgs
+    if (orgView) {
+      const rest = (l: string[] | undefined) => (l ?? []).filter(s => s !== orgView.slug)
+      const add = (l: string[]) => [...l, orgView.slug].slice(-200)
+      normalized.attentionOrgs = orgView.view === 'attention' ? add(rest(this.value.attentionOrgs)) : rest(this.value.attentionOrgs)
+      normalized.canvasOrgs = orgView.view === 'canvas' ? add(rest(this.value.canvasOrgs)) : rest(this.value.canvasOrgs)
+    }
     if (Object.prototype.hasOwnProperty.call(normalized, 'visualTheme')
         && !Object.prototype.hasOwnProperty.call(normalized, 'visualThemeExplicit')) {
       normalized.visualThemeExplicit = true

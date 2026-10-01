@@ -1,0 +1,1076 @@
+//! Database-backed M1 exit checks (lead rulings §6): the base schema on
+//! PostgreSQL, Q-C4's core cases and Q-RL1, on a WS1 disposable dev cluster.
+//!
+//! Every test is `#[ignore]`: run them ONLY through the P03 run lock, with
+//! `--features qualification -- --ignored --test-threads=1`, and with
+//! `P03_PG_ADMIN_URL` / `P03_PG_RUNTIME_URL` from `devdb.cmd env`. A missing
+//! URL PANICS (a skipped DB test must never read as a pass). Each test
+//! rebuilds the `public` schema, so it refuses unless the server's data
+//! directory is under `artifacts\p03-db\p03-ws2-storecore` — this agent's
+//! own disposable cluster.
+#![cfg(feature = "qualification")]
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use orgtree_store::conn::{Factory, PgConfig};
+use orgtree_store::hooks::{BoxFuture, ControlPlan, EventKind, HookAction, Hooks, PausePoint, PauseHook, TraceEvent, TraceSink};
+use orgtree_store::lookup::{LookupAnswer, LookupReq};
+use orgtree_store::{
+    Binding, CmdError, Command, Decided, ExecConfig, Executor, Family, Isolation, KeyNamespace, OpIdentity, Outcome,
+    Principal, Refusal, Session, Tx, Uuid, Val,
+};
+use tokio::sync::{mpsc, Semaphore};
+
+const OWN_CLUSTER: &str = "\\artifacts\\p03-db\\p03-ws2-storecore\\";
+
+fn url(name: &str) -> String {
+    std::env::var(name).unwrap_or_else(|_| panic!("{name} is not set: this DB test did NOT run (use devdb.cmd env and p03-run.ps1)"))
+}
+
+fn org() -> Uuid {
+    Uuid::from_u128(0x0000_0000_0000_4000_8000_0000_0000_0001)
+}
+fn agent() -> Uuid {
+    Uuid::from_u128(0x0000_0000_0000_4000_8000_0000_0000_00a1)
+}
+fn incarnation() -> Uuid {
+    Uuid::from_u128(0x1c)
+}
+fn beta() -> Uuid {
+    Uuid::from_u128(0x0000_0000_0000_4000_8000_0000_0000_00b2)
+}
+fn svc(n: u128) -> Uuid {
+    Uuid::from_u128(0x5e00 + n)
+}
+
+/// Rebuild the schema from the migrations and seed one org and one agent.
+async fn reset() {
+    let (admin, conn) = tokio_postgres::connect(&url("P03_PG_ADMIN_URL"), tokio_postgres::NoTls).await.expect("admin connect");
+    tokio::spawn(async move {
+        let _ = conn.await;
+    });
+    let dir: String = admin.query_one("SHOW data_directory", &[]).await.unwrap().get(0);
+    assert!(
+        dir.replace('/', "\\").to_ascii_lowercase().contains(&OWN_CLUSTER.to_ascii_lowercase()),
+        "refusing to rebuild a cluster that is not this agent's disposable one: {dir}"
+    );
+    admin.batch_execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;").await.unwrap();
+    for m in orgtree_store_schema::MIGRATIONS {
+        let sql = orgtree_store_schema::normalized(m.sql);
+        admin.batch_execute(&format!("BEGIN;\n{sql}\nCOMMIT;")).await.unwrap_or_else(|e| panic!("{}: {e:?}", m.file));
+    }
+    admin
+        .execute("INSERT INTO store_incarnation (database_id, incarnation) VALUES ($1, $2)", &[&Uuid::from_u128(0xdb), &incarnation()])
+        .await
+        .unwrap();
+    admin
+        .batch_execute(&format!(
+            "INSERT INTO organizations (org_id, slug, created_at) VALUES ('{o}', 'p03-test', now());
+             INSERT INTO agents (org_id, principal_id, name, seat_id, tier, created_at) VALUES ('{o}', '{a}', 'alpha', gen_random_uuid(), 'opus', now());
+             INSERT INTO authority_epoch (org_id, principal_id, lifecycle, generation) VALUES ('{o}', '{a}', 'live', 3);
+             INSERT INTO runtime_state (org_id, principal_id, updated_at) VALUES ('{o}', '{a}', now());
+             INSERT INTO agents (org_id, principal_id, name, seat_id, tier, created_at) VALUES ('{o}', '{b}', 'beta', gen_random_uuid(), 'opus', now());
+             INSERT INTO authority_epoch (org_id, principal_id, lifecycle, generation) VALUES ('{o}', '{b}', 'live', 3);
+             INSERT INTO runtime_state (org_id, principal_id, updated_at) VALUES ('{o}', '{b}', now());
+             INSERT INTO org_controls (org_id, family, version) VALUES ('{o}', 'restriction_epoch', 1);
+             INSERT INTO service_incarnations (incarnation_id, kind, db_incarnation, liveness_pid, liveness_backend_start, started_at)
+               VALUES ('{s1}', 'read-service', '{inc}', 0, now(), now()), ('{s2}', 'read-service', '{inc}', 0, now(), now());",
+            o = org(),
+            a = agent(),
+            b = beta(),
+            s1 = svc(1),
+            s2 = svc(2),
+            inc = incarnation()
+        ))
+        .await
+        .unwrap();
+}
+
+async fn admin_count(sql: &str) -> i64 {
+    let (admin, conn) = tokio_postgres::connect(&url("P03_PG_ADMIN_URL"), tokio_postgres::NoTls).await.unwrap();
+    tokio::spawn(async move {
+        let _ = conn.await;
+    });
+    admin.query_one(sql, &[]).await.unwrap().get(0)
+}
+
+// ---- a real command: set the caller's status and record one causal intent
+
+static STATUS: Family = Family { name: "status", isolation: Isolation::ReadCommitted, retry_unique: &[] };
+static STATUS_SER: Family = Family { name: "status", isolation: Isolation::Serializable, retry_unique: &[] };
+
+struct SetStatus {
+    status: &'static str,
+    serializable: bool,
+}
+
+const ANCHOR: &str = "SELECT lifecycle, generation FROM authority_epoch WHERE org_id = $1 AND principal_id = $2 FOR SHARE";
+const LOCK_OWN: &str = "SELECT version FROM runtime_state WHERE org_id = $1 AND principal_id = $2 FOR NO KEY UPDATE";
+const UPDATE: &str = "UPDATE runtime_state SET busy = ($3 <> ''), version = version + 1, \
+     updated_at = to_timestamp($4::double precision / 1000000) WHERE org_id = $1 AND principal_id = $2 RETURNING version";
+const INTENT: &str = "INSERT INTO outgoing_intents (org_id, intent_id, kind, source_ref, dest_ref, due_at, created_at) \
+     VALUES ($1, gen_random_uuid(), 'notify', $2, NULL, now(), now())";
+
+impl Command for SetStatus {
+    type Output = i64;
+    fn family(&self) -> &'static Family {
+        if self.serializable {
+            &STATUS_SER
+        } else {
+            &STATUS
+        }
+    }
+    fn verb(&self) -> &'static str {
+        "set"
+    }
+    async fn anchor<S: Session>(&self, tx: &mut Tx<'_, S>, b: &Binding) -> Result<(), CmdError> {
+        let Principal::Agent { id, .. } = b.principal else { return Err(CmdError::Defect("agent only".into())) };
+        tx.exec("status.anchor", ANCHOR, &[Val::Uuid(b.op.org), Val::Uuid(id)]).await?;
+        Ok(())
+    }
+    async fn may_disclose<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding, _o: &i64) -> Result<bool, CmdError> {
+        Ok(true)
+    }
+    async fn execute<S: Session>(&self, tx: &mut Tx<'_, S>, b: &Binding) -> Result<Decided<i64>, CmdError> {
+        let Principal::Agent { id, .. } = b.principal else { return Ok(Decided::Refused(Refusal::new("x", "x"))) };
+        tx.exec("status.lock_own", LOCK_OWN, &[Val::Uuid(b.op.org), Val::Uuid(id)]).await?;
+        let now = tx.now().await?;
+        let rows = tx.exec("status.update", UPDATE, &[Val::Uuid(b.op.org), Val::Uuid(id), Val::text(self.status), Val::Int(now)]).await?;
+        tx.exec("status.intent", INTENT, &[Val::Uuid(b.op.org), Val::Uuid(id)]).await?;
+        Ok(Decided::Applied(rows.first().and_then(|r| r.first()).and_then(Val::as_int).unwrap_or(-1)))
+    }
+}
+
+fn key() -> String {
+    let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis();
+    format!("{ms}-{}", &Uuid::new_v4().simple().to_string()[..24])
+}
+
+fn binding(k: &str) -> Binding {
+    binding_for(agent(), k)
+}
+
+fn binding_for(who: Uuid, k: &str) -> Binding {
+    Binding {
+        principal: Principal::Agent { id: who, generation: 3 },
+        acting: None,
+        op: OpIdentity { org: org(), ns: KeyNamespace::Agent { principal: who }, key: k.into(), fingerprint: "fp-status".into(), fingerprint_codec: "legacy-1", caller_keyed: true },
+        db_incarnation: incarnation(),
+        op_tag: None,
+    }
+}
+
+fn lookup_req(k: &str) -> LookupReq {
+    LookupReq {
+        op: binding(k).op,
+        caller: agent(),
+        caller_generation: 3,
+        key_incarnation: incarnation(),
+        coverage: "document".into(),
+        receipted: true,
+        provable_absence: true,
+    }
+}
+
+// ---- a scripted pause hook: per (op key, point) actions; holds report arrival
+
+#[derive(Default)]
+struct Script {
+    actions: Mutex<HashMap<(String, String), HookAction>>,
+    holds: Mutex<HashMap<(String, String), (mpsc::UnboundedSender<()>, Arc<Semaphore>)>>,
+}
+
+impl Script {
+    fn act(&self, key: &str, point: &str, a: HookAction) {
+        self.actions.lock().unwrap().insert((key.into(), point.into()), a);
+    }
+    /// Hold `key` at `point`: returns (arrived receiver, release semaphore).
+    fn hold(&self, key: &str, point: &str) -> (mpsc::UnboundedReceiver<()>, Arc<Semaphore>) {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let sem = Arc::new(Semaphore::new(0));
+        self.holds.lock().unwrap().insert((key.into(), point.into()), (tx, sem.clone()));
+        (rx, sem)
+    }
+}
+
+impl PauseHook for Script {
+    fn at<'a>(&'a self, p: &'a PausePoint<'a>) -> BoxFuture<'a, HookAction> {
+        let point = p.name.rsplit_once(&format!("{}.{}.", p.family, p.verb)).map(|x| x.1.to_string()).unwrap_or_default();
+        let k = (p.op.key.clone(), point);
+        // "*" matches any operation at the FULL point name (internal
+        // transactions such as registration use minted keys)
+        let any = ("*".to_string(), p.name.to_string());
+        let action = {
+            let mut a = self.actions.lock().unwrap();
+            a.remove(&k).or_else(|| a.remove(&any))
+        };
+        let hold = {
+            let mut h = self.holds.lock().unwrap();
+            h.remove(&k).or_else(|| h.remove(&any))
+        };
+        Box::pin(async move {
+            if let Some((arrived, sem)) = hold {
+                let _ = arrived.send(());
+                let _ = sem.acquire().await.map(|p| p.forget());
+            }
+            action.unwrap_or(HookAction::Continue)
+        })
+    }
+}
+
+struct Arm(Vec<&'static str>);
+impl ControlPlan for Arm {
+    fn armed(&self, id: &str, _: &OpIdentity, _: Option<&str>) -> bool {
+        self.0.contains(&id)
+    }
+}
+
+#[derive(Default)]
+struct Events(Mutex<Vec<String>>);
+impl TraceSink for Events {
+    fn event(&self, e: &TraceEvent<'_>) {
+        let s = match &e.kind {
+            EventKind::ControlExecuted { id } => format!("control_executed:{id}"),
+            EventKind::Retry { reason, sqlstate, .. } => format!("retry:{reason}:{}", sqlstate.unwrap_or("-")),
+            EventKind::Statement { label, sqlstate: Some(s), .. } => format!("stmt_err:{label}:{s}"),
+            EventKind::XactStats { tables } => {
+                let mut g = self.0.lock().unwrap();
+                for t in tables.iter() {
+                    g.push(format!("xact:{}:ins={}:upd={}", t.relname, t.n_tup_ins, t.n_tup_upd));
+                }
+                g.push(format!("xact_stats:{}", tables.len()));
+                return;
+            }
+            EventKind::XactLocks { locks } => {
+                let mut g = self.0.lock().unwrap();
+                for l in locks.iter() {
+                    g.push(format!("xact_lock:{}:{}", l.relname, l.mode));
+                }
+                return;
+            }
+            _ => return,
+        };
+        self.0.lock().unwrap().push(s);
+    }
+}
+impl Events {
+    fn has(&self, s: &str) -> bool {
+        self.0.lock().unwrap().iter().any(|e| e == s)
+    }
+    fn any(&self, prefix: &str) -> bool {
+        self.0.lock().unwrap().iter().any(|e| e.starts_with(prefix))
+    }
+}
+
+fn executor(script: Arc<Script>, controls: Vec<&'static str>) -> (Executor<Factory>, Arc<Events>) {
+    let cfg = PgConfig::from_url(&url("P03_PG_RUNTIME_URL")).unwrap();
+    let ev = Arc::new(Events::default());
+    let mut h = Hooks::with_trace(ev.clone());
+    h.pause = Some(script);
+    h.controls = Some(Arc::new(Arm(controls)));
+    let ex = Executor::new(
+        Factory::new(cfg.clone(), "executor", h.clone()),
+        4,
+        Factory::new(cfg, "lookup", h.clone()),
+        2,
+        ExecConfig { max_attempts: 6, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5), lock_timeout_ms: None, statement_timeout_ms: None, idle_in_transaction_timeout_ms: None },
+        h,
+    );
+    (ex, ev)
+}
+
+async fn arrive(rx: &mut mpsc::UnboundedReceiver<()>) {
+    tokio::time::timeout(Duration::from_secs(20), rx.recv()).await.expect("planned point never reached: interleaving not achieved");
+}
+
+// ================================================================ schema
+
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn schema_applies_and_grants_bite() {
+    reset().await;
+    let declared: i64 = orgtree_store_schema::RANGE_DEFS.iter().map(|r| r.tables.len() as i64).sum();
+    assert_eq!(admin_count("SELECT count(*) FROM pg_tables WHERE schemaname = 'public'").await, declared, "every range's declared tables, and nothing else");
+    let (rt, conn) = tokio_postgres::connect(&url("P03_PG_RUNTIME_URL"), tokio_postgres::NoTls).await.unwrap();
+    tokio::spawn(async move {
+        let _ = conn.await;
+    });
+    // runtime is DML-only and receipts are retained: DELETE is refused
+    let e = rt.execute("DELETE FROM operation_receipts", &[]).await.unwrap_err();
+    assert_eq!(e.as_db_error().unwrap().code().code(), "42501");
+    let e = rt.execute("INSERT INTO store_incarnation (database_id, incarnation) VALUES (gen_random_uuid(), gen_random_uuid())", &[]).await.unwrap_err();
+    assert_eq!(e.as_db_error().unwrap().code().code(), "42501");
+    let e = rt.batch_execute("CREATE TABLE sneaky (x int)").await.unwrap_err();
+    assert_eq!(e.as_db_error().unwrap().code().code(), "42501");
+    // the claimed-at-commit trigger refuses a committed 'claimed' receipt
+    rt.batch_execute("BEGIN").await.unwrap();
+    rt.execute(
+        "INSERT INTO operation_receipts (org_id, ns_kind, ns_id, op_key, receipt_id, state, family, verb, fingerprint, principal_kind, db_incarnation, created_at) \
+         VALUES ($1, 'agent', $2, 'k-trigger', gen_random_uuid(), 'claimed', 'status', 'set', 'fp', 'agent', $3, now())",
+        &[&org(), &agent(), &incarnation()],
+    )
+    .await
+    .unwrap();
+    let e = rt.batch_execute("COMMIT").await.unwrap_err();
+    assert_eq!(e.as_db_error().unwrap().code().code(), "OT001");
+    assert_eq!(admin_count("SELECT count(*) FROM operation_receipts").await, 0);
+}
+
+// ================================================================ Q-C4 core
+
+/// Injected 40001, 40P01 and allowlisted 23505 at every executor step, each
+/// on its own key: one outcome, one version bump, one intent, one receipt.
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn q_c4_injected_failures_at_every_step_end_in_one_outcome() {
+    reset().await;
+    let points = ["after_anchor", "after_claim", "stmt.status.lock_own.after", "stmt.status.update.after", "stmt.status.intent.after", "before_commit"];
+    let mut runs = 0;
+    for code in ["40001", "40P01", "23505"] {
+        for point in points {
+            let script = Arc::new(Script::default());
+            let (ex, ev) = executor(script.clone(), vec![]);
+            let k = key();
+            script.act(&k, point, HookAction::FailNext(code.into()));
+            let before = admin_count("SELECT version FROM runtime_state WHERE principal_id = '00000000-0000-4000-8000-0000000000a1'").await;
+            let intents = admin_count("SELECT count(*) FROM outgoing_intents").await;
+            let o = if code == "23505" {
+                // FailNext carries no constraint name: a nameless 23505 is a
+                // defect and must fail fast, never loop.
+                let r = ex.run(&SetStatus { status: "busy", serializable: false }, &binding(&k)).await;
+                assert!(r.is_err(), "{code} at {point}: nameless 23505 must fail fast, got {r:?}");
+                assert_eq!(admin_count("SELECT version FROM runtime_state WHERE principal_id = '00000000-0000-4000-8000-0000000000a1'").await, before, "{code} at {point}");
+                runs += 1;
+                continue;
+            } else {
+                ex.run(&SetStatus { status: "busy", serializable: false }, &binding(&k)).await.unwrap()
+            };
+            assert!(matches!(o, Outcome::Applied(_)), "{code} at {point}: {o:?}");
+            assert!(ev.any(&format!("retry:")), "{code} at {point}: the fault never fired");
+            assert_eq!(admin_count("SELECT version FROM runtime_state WHERE principal_id = '00000000-0000-4000-8000-0000000000a1'").await, before + 1, "{code} at {point}: exactly one bump");
+            assert_eq!(admin_count("SELECT count(*) FROM outgoing_intents").await, intents + 1, "{code} at {point}: exactly one intent");
+            assert_eq!(
+                admin_count(&format!("SELECT count(*) FROM operation_receipts WHERE op_key = '{k}' AND state = 'applied'")).await,
+                1,
+                "{code} at {point}"
+            );
+            runs += 1;
+        }
+    }
+    assert_eq!(runs, 18);
+}
+
+/// A real deadlock (40P01) and a real serialization failure (40001) from
+/// PostgreSQL, forced by holding two operations at their points.
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn q_c4_real_serialization_failure_retries_to_one_outcome() {
+    reset().await;
+    let script = Arc::new(Script::default());
+    let (ex, ev) = executor(script.clone(), vec![]);
+    let ex = Arc::new(ex);
+    let (k1, k2) = (key(), key());
+    // Both SERIALIZABLE, both read the row (anchor) before either writes; the
+    // first writer commits while the second holds a stale snapshot.
+    let (mut a1, r1) = script.hold(&k1, "after_claim");
+    let (mut a2, r2) = script.hold(&k2, "after_claim");
+    let e1 = ex.clone();
+    let k1c = k1.clone();
+    let t1 = tokio::spawn(async move { e1.run(&SetStatus { status: "one", serializable: true }, &binding(&k1c)).await });
+    let e2 = ex.clone();
+    let k2c = k2.clone();
+    let t2 = tokio::spawn(async move { e2.run(&SetStatus { status: "two", serializable: true }, &binding(&k2c)).await });
+    arrive(&mut a1).await;
+    arrive(&mut a2).await;
+    r1.add_permits(1);
+    let o1 = t1.await.unwrap().unwrap();
+    r2.add_permits(1);
+    let o2 = t2.await.unwrap().unwrap();
+    assert!(matches!(o1, Outcome::Applied(_)), "{o1:?}");
+    assert!(matches!(o2, Outcome::Applied(_)), "{o2:?}");
+    assert!(ev.has("retry:serialization_failure:40001"), "no real 40001 occurred: interleaving not achieved; events {:?}", ev.0.lock().unwrap());
+    assert_eq!(admin_count("SELECT version FROM runtime_state WHERE principal_id = '00000000-0000-4000-8000-0000000000a1'").await, 2);
+    assert_eq!(admin_count("SELECT count(*) FROM operation_receipts WHERE state = 'applied'").await, 2);
+}
+
+/// E7: a concurrent duplicate blocks on the uncommitted claim, then replays.
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn q_c4_concurrent_same_key_waits_on_the_claim_then_replays() {
+    reset().await;
+    let script = Arc::new(Script::default());
+    let (ex, _) = executor(script.clone(), vec![]);
+    let ex = Arc::new(ex);
+    let k = key();
+    let (mut arrived, release) = script.hold(&k, "after_claim");
+    let e1 = ex.clone();
+    let kc = k.clone();
+    let first = tokio::spawn(async move { e1.run(&SetStatus { status: "x", serializable: false }, &binding(&kc)).await });
+    arrive(&mut arrived).await;
+    let e2 = ex.clone();
+    let kc = k.clone();
+    let second = tokio::spawn(async move { e2.run(&SetStatus { status: "x", serializable: false }, &binding(&kc)).await });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!second.is_finished(), "the duplicate must WAIT on the uncommitted claim");
+    release.add_permits(1);
+    let o1 = first.await.unwrap().unwrap();
+    let o2 = second.await.unwrap().unwrap();
+    assert_eq!(o1, Outcome::Applied(1));
+    assert_eq!(o2, Outcome::Replayed(1));
+    assert_eq!(admin_count("SELECT version FROM runtime_state WHERE principal_id = '00000000-0000-4000-8000-0000000000a1'").await, 1);
+}
+
+/// A connection dropped before COMMIT: the server rolls back, the executor
+/// retries on a fresh connection with the same key.
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn q_c4_dropped_connection_before_commit_retries_once() {
+    reset().await;
+    let script = Arc::new(Script::default());
+    let (ex, ev) = executor(script.clone(), vec![]);
+    let k = key();
+    script.act(&k, "before_commit", HookAction::DropConn);
+    let o = ex.run(&SetStatus { status: "x", serializable: false }, &binding(&k)).await.unwrap();
+    assert!(matches!(o, Outcome::Applied(_)), "{o:?}");
+    assert!(ev.has("retry:connection_lost:-"));
+    assert_eq!(admin_count("SELECT version FROM runtime_state WHERE principal_id = '00000000-0000-4000-8000-0000000000a1'").await, 1);
+    assert_eq!(admin_count("SELECT count(*) FROM outgoing_intents").await, 1);
+}
+
+/// Q-C4 control: a retry that re-mints the identity duplicates the write when
+/// the first attempt's outcome was lost — here, an attempt dropped AFTER its
+/// commit reached the server is simulated by committing, then failing the
+/// next statement of the same run: the control re-mints and writes again.
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn q_c4_control_remint_identity_runs_twice_on_retry() {
+    reset().await;
+    let script = Arc::new(Script::default());
+    let (ex, ev) = executor(script.clone(), vec!["Q-C4.remint_identity"]);
+    let k = key();
+    // fail AFTER the intent insert: the attempt rolls back; a correct retry
+    // reuses the key, the control re-mints it
+    script.act(&k, "stmt.status.intent.after", HookAction::FailNext("40001".into()));
+    let o = ex.run(&SetStatus { status: "x", serializable: false }, &binding(&k)).await.unwrap();
+    assert!(ev.has("control_executed:Q-C4.remint_identity"), "control did not record that it ran");
+    assert!(matches!(o, Outcome::Applied(_)));
+    assert_eq!(admin_count(&format!("SELECT count(*) FROM operation_receipts WHERE op_key = '{k}'")).await, 0, "the committed receipt is NOT under the caller's key");
+    // the caller's retry with its original key now executes AGAIN
+    let o2 = ex.run(&SetStatus { status: "x", serializable: false }, &binding(&k)).await.unwrap();
+    assert!(matches!(o2, Outcome::Applied(_)), "the unsafe control lets the same call apply twice: {o2:?}");
+    assert_eq!(admin_count("SELECT version FROM runtime_state WHERE principal_id = '00000000-0000-4000-8000-0000000000a1'").await, 2, "duplicate write");
+}
+
+// ---- an ambiguous COMMIT: a loopback proxy forwards the client's COMMIT to
+// the server, then cuts both sockets before the server's reply returns.
+
+struct CutAfterCommit {
+    port: u16,
+    armed: Arc<std::sync::atomic::AtomicBool>,
+    cuts: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+async fn proxy(upstream_port: u16) -> CutAfterCommit {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let l = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let port = l.local_addr().unwrap().port();
+    let armed = Arc::new(AtomicBool::new(false));
+    let cuts = Arc::new(AtomicUsize::new(0));
+    let (a2, c2) = (armed.clone(), cuts.clone());
+    tokio::spawn(async move {
+        loop {
+            let Ok((client, _)) = l.accept().await else { return };
+            let (armed, cuts) = (a2.clone(), c2.clone());
+            tokio::spawn(async move {
+                let Ok(server) = tokio::net::TcpStream::connect(("127.0.0.1", upstream_port)).await else { return };
+                let (mut cr, mut cw) = client.into_split();
+                let (mut sr, mut sw) = server.into_split();
+                let cut = Arc::new(tokio::sync::Notify::new());
+                let cut2 = cut.clone();
+                let up = tokio::spawn(async move {
+                    let mut buf = vec![0u8; 16384];
+                    loop {
+                        let n = match cr.read(&mut buf).await {
+                            Ok(0) | Err(_) => return,
+                            Ok(n) => n,
+                        };
+                        if sw.write_all(&buf[..n]).await.is_err() {
+                            return;
+                        }
+                        // a simple-protocol COMMIT: 'Q' ... "COMMIT\0"
+                        if armed.load(Ordering::SeqCst) && buf[..n].windows(7).any(|w| w == b"COMMIT\0") {
+                            armed.store(false, Ordering::SeqCst);
+                            cuts.fetch_add(1, Ordering::SeqCst);
+                            let _ = sw.flush().await;
+                            cut2.notify_one();
+                            return;
+                        }
+                    }
+                });
+                let mut buf = vec![0u8; 16384];
+                loop {
+                    tokio::select! {
+                        _ = cut.notified() => { break; }
+                        r = sr.read(&mut buf) => match r {
+                            Ok(0) | Err(_) => break,
+                            Ok(n) => if cw.write_all(&buf[..n]).await.is_err() { break },
+                        },
+                    }
+                }
+                up.abort();
+                // dropping cw closes the client side without relaying the reply
+            });
+        }
+    });
+    CutAfterCommit { port, armed, cuts }
+}
+
+fn executor_via(port: u16, controls: Vec<&'static str>) -> (Executor<Factory>, Arc<Events>) {
+    let mut cfg = PgConfig::from_url(&url("P03_PG_RUNTIME_URL")).unwrap();
+    cfg.port = port;
+    let ev = Arc::new(Events::default());
+    let mut h = Hooks::with_trace(ev.clone());
+    h.pause = Some(Arc::new(Script::default()));
+    h.controls = Some(Arc::new(Arm(controls)));
+    let ex = Executor::new(
+        Factory::new(cfg.clone(), "executor", h.clone()),
+        2,
+        Factory::new(cfg, "lookup", h.clone()),
+        1,
+        ExecConfig { max_attempts: 6, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5), lock_timeout_ms: None, statement_timeout_ms: None, idle_in_transaction_timeout_ms: None },
+        h,
+    );
+    (ex, ev)
+}
+
+/// Q-C4: the connection dies DURING COMMIT (the server received it). The
+/// executor resolves the unknown outcome by re-claiming the SAME key: it
+/// finds the committed receipt and replays. One write, not two.
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn q_c4_connection_lost_during_commit_resolves_by_same_key() {
+    reset().await;
+    let real = PgConfig::from_url(&url("P03_PG_RUNTIME_URL")).unwrap().port;
+    let p = proxy(real).await;
+    let (ex, _ev) = executor_via(p.port, vec![]);
+    p.armed.store(true, std::sync::atomic::Ordering::SeqCst);
+    let o = ex.run(&SetStatus { status: "x", serializable: false }, &binding(&key())).await.unwrap();
+    assert_eq!(p.cuts.load(std::sync::atomic::Ordering::SeqCst), 1, "the COMMIT was never cut: the ambiguous case did not happen");
+    assert_eq!(o, Outcome::Replayed(1), "resolved by the same key to the committed outcome");
+    assert_eq!(admin_count("SELECT version FROM runtime_state WHERE principal_id = '00000000-0000-4000-8000-0000000000a1'").await, 1);
+    assert_eq!(admin_count("SELECT count(*) FROM outgoing_intents").await, 1);
+}
+
+/// Q-C4 unsafe control on the same schedule: re-minting the identity on the
+/// retry after an ambiguous COMMIT applies the write twice.
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn q_c4_control_remint_after_lost_commit_duplicates() {
+    reset().await;
+    let real = PgConfig::from_url(&url("P03_PG_RUNTIME_URL")).unwrap().port;
+    let p = proxy(real).await;
+    let (ex, ev) = executor_via(p.port, vec!["Q-C4.remint_identity"]);
+    p.armed.store(true, std::sync::atomic::Ordering::SeqCst);
+    let o = ex.run(&SetStatus { status: "x", serializable: false }, &binding(&key())).await.unwrap();
+    assert_eq!(p.cuts.load(std::sync::atomic::Ordering::SeqCst), 1, "the COMMIT was never cut");
+    assert!(ev.has("control_executed:Q-C4.remint_identity"), "control did not record that it ran");
+    assert!(matches!(o, Outcome::Applied(_)), "{o:?}");
+    assert_eq!(admin_count("SELECT version FROM runtime_state WHERE principal_id = '00000000-0000-4000-8000-0000000000a1'").await, 2, "the unsafe control must produce the duplicate");
+}
+
+// ================================================================ Q-RL1
+
+/// (a) the original claims first: the lookup's fence WAITS on the claim, then
+/// reports `applied`.
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn q_rl1_a_original_first_lookup_waits_then_applied() {
+    reset().await;
+    let script = Arc::new(Script::default());
+    let (ex, _) = executor(script.clone(), vec![]);
+    let ex = Arc::new(ex);
+    let k = key();
+    let (mut arrived, release) = script.hold(&k, "after_claim");
+    let e1 = ex.clone();
+    let kc = k.clone();
+    let original = tokio::spawn(async move { e1.run(&SetStatus { status: "x", serializable: false }, &binding(&kc)).await });
+    arrive(&mut arrived).await;
+    let (mut at_fence, fence_go) = script.hold(&k, "before_fence");
+    let e2 = ex.clone();
+    let kc = k.clone();
+    let lookup = tokio::spawn(async move { e2.lookup(&lookup_req(&kc)).await });
+    arrive(&mut at_fence).await;
+    fence_go.add_permits(1);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!lookup.is_finished(), "the fence must WAIT on the uncommitted original claim");
+    release.add_permits(1);
+    assert_eq!(original.await.unwrap().unwrap(), Outcome::Applied(1));
+    let a = lookup.await.unwrap().unwrap();
+    assert!(matches!(a, LookupAnswer::Applied { .. }), "{a:?}");
+}
+
+/// (b) the lookup fences first: `not_applied`, and the original is refused
+/// with nothing done.
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn q_rl1_b_fence_first_original_refused() {
+    reset().await;
+    let script = Arc::new(Script::default());
+    let (ex, _) = executor(script.clone(), vec![]);
+    let k = key();
+    assert_eq!(ex.lookup(&lookup_req(&k)).await.unwrap(), LookupAnswer::NotApplied);
+    assert_eq!(ex.run(&SetStatus { status: "x", serializable: false }, &binding(&k)).await.unwrap(), Outcome::Fenced);
+    assert_eq!(admin_count("SELECT version FROM runtime_state WHERE principal_id = '00000000-0000-4000-8000-0000000000a1'").await, 0);
+    assert_eq!(admin_count("SELECT count(*) FROM outgoing_intents").await, 0);
+}
+
+/// (c) the original's attempt fails with 40001 while the lookup waits; the
+/// fence then wins, and the original's retry is refused with nothing done.
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn q_rl1_c_original_fails_then_fence_wins() {
+    reset().await;
+    let script = Arc::new(Script::default());
+    let (ex, _) = executor(script.clone(), vec![]);
+    let ex = Arc::new(ex);
+    let k = key();
+    let (mut arrived, release) = script.hold(&k, "after_claim");
+    script.act(&k, "stmt.status.update.after", HookAction::FailNext("40001".into()));
+    let e1 = ex.clone();
+    let kc = k.clone();
+    let original = tokio::spawn(async move { e1.run(&SetStatus { status: "x", serializable: false }, &binding(&kc)).await });
+    arrive(&mut arrived).await;
+    let e2 = ex.clone();
+    let kc = k.clone();
+    let lookup = tokio::spawn(async move { e2.lookup(&lookup_req(&kc)).await });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!lookup.is_finished(), "the fence must wait on the claim");
+    release.add_permits(1);
+    assert_eq!(lookup.await.unwrap().unwrap(), LookupAnswer::NotApplied);
+    assert_eq!(original.await.unwrap().unwrap(), Outcome::Fenced);
+    assert_eq!(admin_count("SELECT version FROM runtime_state WHERE principal_id = '00000000-0000-4000-8000-0000000000a1'").await, 0);
+}
+
+/// Q-RL1 unsafe control: the original writes its receipt only at the end, and
+/// the lookup fences in a transaction separate from its check. With the
+/// original committing between them, the caller is told `not_applied` for a
+/// call that applied.
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn q_rl1_control_late_receipt_and_separate_fence_lies() {
+    reset().await;
+    let script = Arc::new(Script::default());
+    let (ex, ev) = executor(script.clone(), vec!["Q-RL1.late_receipt_separate_fence"]);
+    let ex = Arc::new(ex);
+    let k = key();
+    let (mut at_fence, fence_go) = script.hold(&k, "before_fence");
+    let e2 = ex.clone();
+    let kc = k.clone();
+    let lookup = tokio::spawn(async move { e2.lookup(&lookup_req(&kc)).await });
+    arrive(&mut at_fence).await;
+    // the check has committed; the original now runs to completion
+    let o = ex.run(&SetStatus { status: "x", serializable: false }, &binding(&k)).await.unwrap();
+    assert!(matches!(o, Outcome::Applied(_)), "{o:?}");
+    fence_go.add_permits(1);
+    let a = lookup.await.unwrap().unwrap();
+    assert!(ev.has("control_executed:Q-RL1.late_receipt_separate_fence"), "control did not record that it ran");
+    assert_eq!(a, LookupAnswer::NotApplied, "the unsafe control must produce the lie");
+    assert_eq!(admin_count(&format!("SELECT count(*) FROM operation_receipts WHERE op_key = '{k}' AND state = 'applied'")).await, 1, "yet it applied");
+}
+
+/// Qualification builds run the provisional server-side relation check.
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn xact_stats_reports_the_relations_the_attempt_touched() {
+    reset().await;
+    let script = Arc::new(Script::default());
+    let (ex, ev) = executor(script, vec![]);
+    ex.run(&SetStatus { status: "x", serializable: false }, &binding(&key())).await.unwrap();
+    assert!(ev.0.lock().unwrap().iter().any(|e| e.starts_with("xact_stats:") && e != "xact_stats:0"), "{:?}", ev.0.lock().unwrap());
+    // the anchor's FOR SHARE shows as a RowShareLock on authority_epoch; the
+    // writes show RowExclusiveLock; no index relation is listed
+    assert!(ev.has("xact_lock:authority_epoch:RowShareLock"), "{:?}", ev.0.lock().unwrap());
+    assert!(ev.has("xact_lock:runtime_state:RowExclusiveLock"), "{:?}", ev.0.lock().unwrap());
+    assert!(!ev.0.lock().unwrap().iter().any(|e| e.starts_with("xact_lock:") && e.contains("_pk")), "{:?}", ev.0.lock().unwrap());
+}
+
+// ================================================================ pooled xact_stats
+
+/// On ONE pooled connection, the second operation's server-side counters are
+/// its own, not the sum with the first's (WS7 finding; baseline diff).
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn xact_stats_on_a_reused_connection_are_per_transaction() {
+    reset().await;
+    let script = Arc::new(Script::default());
+    let (ex, ev) = executor(script, vec![]);
+    ex.run(&SetStatus { status: "a", serializable: false }, &binding(&key())).await.unwrap();
+    ev.0.lock().unwrap().clear();
+    ex.run(&SetStatus { status: "b", serializable: false }, &binding(&key())).await.unwrap();
+    let e = ev.0.lock().unwrap().clone();
+    assert!(e.contains(&"xact:outgoing_intents:ins=1:upd=0".to_string()), "{e:?}");
+    assert!(e.contains(&"xact:runtime_state:ins=0:upd=1".to_string()), "{e:?}");
+}
+
+// ================================================================ Q-C1 core
+
+async fn hold_first_then_run_second(controls: Vec<&'static str>) -> (bool, Arc<Events>) {
+    reset().await;
+    let script = Arc::new(Script::default());
+    let (ex, ev) = executor(script.clone(), controls);
+    let ex = Arc::new(ex);
+    let k1 = key();
+    let (mut at, release) = script.hold(&k1, "before_commit");
+    let e1 = ex.clone();
+    let kc = k1.clone();
+    let first = tokio::spawn(async move { e1.run(&SetStatus { status: "a", serializable: false }, &binding_for(agent(), &kc)).await });
+    arrive(&mut at).await;
+    // alpha now holds its row locks, its anchor and its claim; beta needs none of them
+    let e2 = ex.clone();
+    let second = tokio::spawn(async move { e2.run(&SetStatus { status: "b", serializable: false }, &binding_for(beta(), &key())).await });
+    let finished_while_held = tokio::time::timeout(Duration::from_secs(3), async {
+        while !second.is_finished() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .is_ok();
+    release.add_permits(1);
+    assert!(matches!(first.await.unwrap().unwrap(), Outcome::Applied(_)));
+    assert!(matches!(second.await.unwrap().unwrap(), Outcome::Applied(_)));
+    (finished_while_held, ev)
+}
+
+/// Disjoint writers in one organization never wait on each other.
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn q_c1_disjoint_writers_do_not_wait() {
+    let (finished, ev) = hold_first_then_run_second(vec![]).await;
+    assert!(finished, "beta waited on alpha: a disjoint writer blocked");
+    assert!(!ev.any("retry:"), "no serialization failures between disjoint writers: {:?}", ev.0.lock().unwrap());
+}
+
+/// Q-C1 unsafe control: a per-organization lock makes them wait.
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn q_c1_control_org_wide_lock_makes_writers_wait() {
+    let (finished, ev) = hold_first_then_run_second(vec!["Q-C1.org_wide_lock"]).await;
+    assert!(ev.has("control_executed:Q-C1.org_wide_lock"), "control did not record that it ran");
+    assert!(!finished, "the unsafe control must make the disjoint writer wait");
+}
+
+// ================================================================ Q-C6 (durable side)
+
+static NARROW: Family = Family { name: "narrow", isolation: Isolation::ReadCommitted, retry_unique: &[] };
+static NARROW_SER: Family = Family { name: "narrow", isolation: Isolation::Serializable, retry_unique: &[] };
+
+/// A schedule-grade narrowing writer: anchors, then records a restriction
+/// through `restrict::record`.
+struct Narrow {
+    serializable: bool,
+}
+
+impl Command for Narrow {
+    type Output = (i64, Vec<Uuid>, Uuid);
+    fn family(&self) -> &'static Family {
+        if self.serializable {
+            &NARROW_SER
+        } else {
+            &NARROW
+        }
+    }
+    fn verb(&self) -> &'static str {
+        "retire"
+    }
+    async fn anchor<S: Session>(&self, tx: &mut Tx<'_, S>, b: &Binding) -> Result<(), CmdError> {
+        tx.exec("narrow.anchor", ANCHOR, &[Val::Uuid(b.op.org), Val::Uuid(agent())]).await?;
+        Ok(())
+    }
+    async fn may_disclose<S: Session>(&self, _tx: &mut Tx<'_, S>, _b: &Binding, _o: &Self::Output) -> Result<bool, CmdError> {
+        Ok(true)
+    }
+    async fn execute<S: Session>(&self, tx: &mut Tx<'_, S>, b: &Binding) -> Result<Decided<Self::Output>, CmdError> {
+        let r = orgtree_store::restrict::record(tx, b.op.org, "retire").await?;
+        Ok(Decided::Applied((r.epoch, r.obligations, r.restriction_id)))
+    }
+}
+
+async fn installed_epoch(s: Uuid) -> i64 {
+    admin_count(&format!("SELECT installed_epoch FROM read_service_registrations WHERE service_incarnation = '{s}'")).await
+}
+
+/// Registration, a restriction with its obligation, the in-memory claim
+/// withheld, the acknowledgement, Effective.
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn q_c6_restriction_obligation_withholds_the_claim_and_becomes_effective() {
+    use orgtree_store::claims::{ClaimRegistry, Restriction, Withheld};
+    reset().await;
+    let script = Arc::new(Script::default());
+    let (ex, _) = executor(script, vec![]);
+    assert_eq!(ex.register_read_service(org(), svc(1)).await.unwrap(), 2, "registration bumps the epoch and installs it");
+    let reg = ClaimRegistry::new();
+    let claim = reg.register(org(), beta(), 3);
+    let Outcome::Applied((_, obligations, rid)) = ex.run(&Narrow { serializable: false }, &binding(&key())).await.unwrap() else { panic!() };
+    assert_eq!(obligations, vec![svc(1)], "the registered service owes an acknowledgement");
+    assert_eq!(reg.restrict(&Restriction { id: rid, org: org(), principals: None }).await, 1);
+    assert_eq!(claim.emit(|| async { "leak" }).await, Err(Withheld));
+    assert!(ex.ack_restriction(org(), rid, svc(1)).await.unwrap(), "the only ack makes it Effective");
+    assert_eq!(admin_count(&format!("SELECT count(*) FROM restrictions WHERE restriction_id = '{rid}' AND effective_at IS NOT NULL")).await, 1);
+}
+
+/// Register-during-restriction, READ COMMITTED writer: the registration waits
+/// for the capture, then installs a NEWER epoch than the restriction saw.
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn q_c6_registration_during_capture_waits_and_installs_the_new_epoch() {
+    reset().await;
+    let script = Arc::new(Script::default());
+    let (ex, _) = executor(script.clone(), vec![]);
+    let ex = Arc::new(ex);
+    let k = key();
+    let (mut at, release) = script.hold(&k, "stmt.restrict.obligations.after");
+    let e1 = ex.clone();
+    let kc = k.clone();
+    let narrowing = tokio::spawn(async move { e1.run(&Narrow { serializable: false }, &binding(&kc)).await });
+    arrive(&mut at).await;
+    let e2 = ex.clone();
+    let registering = tokio::spawn(async move { e2.register_read_service(org(), svc(2)).await });
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert!(!registering.is_finished(), "registration must wait for the capture holding the epoch row");
+    release.add_permits(1);
+    let Outcome::Applied((epoch, obligations, _)) = narrowing.await.unwrap().unwrap() else { panic!() };
+    let installed = registering.await.unwrap().unwrap();
+    assert!(!obligations.contains(&svc(2)));
+    assert!(installed > epoch, "the late service installs an epoch newer than the restriction ({installed} > {epoch})");
+}
+
+/// Register-during-restriction, SERIALIZABLE writer: it waits on the
+/// registration, gets 40001 because the registration UPDATED the epoch row,
+/// and its retry captures the new service (the case F1 was fixed for).
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn q_c6_serializable_writer_waiting_on_a_registration_retries_and_captures_it() {
+    reset().await;
+    let script = Arc::new(Script::default());
+    let (ex, ev) = executor(script.clone(), vec![]);
+    let ex = Arc::new(ex);
+    let (mut at, release) = script.hold("*", "restrict.register.after_epoch_lock");
+    let e2 = ex.clone();
+    let registering = tokio::spawn(async move { e2.register_read_service(org(), svc(2)).await });
+    arrive(&mut at).await;
+    let k = key();
+    let e1 = ex.clone();
+    let kc = k.clone();
+    let narrowing = tokio::spawn(async move { e1.run(&Narrow { serializable: true }, &binding(&kc)).await });
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert!(!narrowing.is_finished(), "the narrowing writer must wait on the registration's lock");
+    release.add_permits(1);
+    registering.await.unwrap().unwrap();
+    let Outcome::Applied((_, obligations, _)) = narrowing.await.unwrap().unwrap() else { panic!() };
+    assert!(ev.has("retry:serialization_failure:40001"), "no 40001: the serializable writer acted on a stale view; {:?}", ev.0.lock().unwrap());
+    assert!(obligations.contains(&svc(2)), "the retry captured the newly registered service");
+}
+
+/// Q-C6 unsafe control: registration without its lock. Committing during the
+/// capture, the new service misses its obligation AND installs the old epoch.
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn q_c6_control_register_without_lock_serves_under_the_old_epoch() {
+    reset().await;
+    let script = Arc::new(Script::default());
+    let (ex, ev) = executor(script.clone(), vec!["Q-C6.register_without_lock"]);
+    let ex = Arc::new(ex);
+    let k = key();
+    let (mut at, release) = script.hold(&k, "stmt.restrict.obligations.after");
+    let e1 = ex.clone();
+    let kc = k.clone();
+    let narrowing = tokio::spawn(async move { e1.run(&Narrow { serializable: false }, &binding(&kc)).await });
+    arrive(&mut at).await;
+    let installed = tokio::time::timeout(Duration::from_secs(5), ex.register_read_service(org(), svc(2)))
+        .await
+        .expect("without its lock the registration does not wait")
+        .unwrap();
+    assert!(ev.has("control_executed:Q-C6.register_without_lock"), "control did not record that it ran");
+    release.add_permits(1);
+    let Outcome::Applied((epoch, obligations, _)) = narrowing.await.unwrap().unwrap() else { panic!() };
+    assert!(!obligations.contains(&svc(2)));
+    assert_eq!(installed, epoch, "the unsafe control lets the late service serve under the OLD epoch with no obligation");
+    assert_eq!(installed_epoch(svc(2)).await, epoch);
+}
+
+// ================================================================ Q-RL2
+
+/// A lookup of a key held by an uncommitted original beyond the lock timeout
+/// answers `running` and fences nothing; the next lookup finds the outcome.
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn q_rl2_lock_timeout_answers_running_and_fences_nothing() {
+    reset().await;
+    let script = Arc::new(Script::default());
+    let cfg = PgConfig::from_url(&url("P03_PG_RUNTIME_URL")).unwrap();
+    let ev = Arc::new(Events::default());
+    let mut h = Hooks::with_trace(ev.clone());
+    h.pause = Some(script.clone());
+    let ex = Arc::new(Executor::new(
+        Factory::new(cfg.clone(), "executor", h.clone()),
+        2,
+        Factory::new(cfg, "lookup", h.clone()),
+        1,
+        ExecConfig { max_attempts: 6, backoff_base: Duration::from_millis(1), backoff_cap: Duration::from_millis(5), lock_timeout_ms: Some(300), statement_timeout_ms: None, idle_in_transaction_timeout_ms: None },
+        h,
+    ));
+    let k = key();
+    let (mut at, release) = script.hold(&k, "after_claim");
+    let e1 = ex.clone();
+    let kc = k.clone();
+    let original = tokio::spawn(async move { e1.run(&SetStatus { status: "x", serializable: false }, &binding(&kc)).await });
+    arrive(&mut at).await;
+    assert_eq!(ex.lookup(&lookup_req(&k)).await.unwrap(), LookupAnswer::Running);
+    assert!(ev.has("stmt_err:receipt.fence:55P03"), "the fence did not time out: {:?}", ev.0.lock().unwrap());
+    assert_eq!(admin_count("SELECT count(*) FROM operation_receipts WHERE state = 'fenced'").await, 0);
+    release.add_permits(1);
+    assert!(matches!(original.await.unwrap().unwrap(), Outcome::Applied(_)));
+    assert!(matches!(ex.lookup(&lookup_req(&k)).await.unwrap(), LookupAnswer::Applied { .. }));
+}
+
+// ================================================================ Q-RL3
+
+async fn liveness(hooks: &Hooks) -> orgtree_store::lookup::Liveness<orgtree_store::pg::PgSession> {
+    let cfg = PgConfig::from_url(&url("P03_PG_RUNTIME_URL")).unwrap();
+    let f = Factory::new(cfg, "liveness", hooks.clone());
+    orgtree_store::lookup::Liveness::register(&f, hooks, "store-service", incarnation()).await.unwrap()
+}
+
+/// E-D13 as ruled: an admitted call (in-flight row committed, transaction not
+/// started) owned by a LIVE process, this one or another, answers `running`
+/// and fences nothing; after the owning process dies (its liveness connection
+/// is terminated: real pid and backend_start), the row is ignored, the lookup
+/// fences and the call is refused.
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn q_rl3_live_owner_is_running_and_a_dead_owner_is_ignored() {
+    reset().await;
+    let script = Arc::new(Script::default());
+    let (ex, _) = executor(script, vec![]);
+    let hooks = ex.hooks().clone();
+    let this_process = liveness(&hooks).await;
+    let other_process = liveness(&hooks).await;
+    let (k1, k2) = (key(), key());
+    ex.admit_inflight(&binding(&k1).op, this_process.incarnation).await.unwrap();
+    ex.admit_inflight(&binding(&k2).op, other_process.incarnation).await.unwrap();
+    assert_eq!(ex.lookup(&lookup_req(&k1)).await.unwrap(), LookupAnswer::Running, "same process");
+    assert_eq!(ex.lookup(&lookup_req(&k2)).await.unwrap(), LookupAnswer::Running, "another process");
+    assert_eq!(admin_count("SELECT count(*) FROM operation_receipts WHERE state = 'fenced'").await, 0);
+    // the admitted call then applies on its own merits
+    assert!(matches!(ex.run(&SetStatus { status: "x", serializable: false }, &binding(&k1)).await.unwrap(), Outcome::Applied(_)));
+    // kill the OTHER process: terminate its liveness connection
+    let pid = Session::backend_pid(other_process.session()).unwrap();
+    assert_eq!(admin_count(&format!("SELECT count(*) FROM pg_stat_activity WHERE pid = {pid}")).await, 1);
+    assert_eq!(admin_count(&format!("SELECT count(*) FROM (SELECT pg_terminate_backend({pid})) t")).await, 1);
+    let mut gone = false;
+    for _ in 0..100 {
+        if admin_count(&format!("SELECT count(*) FROM pg_stat_activity WHERE pid = {pid}")).await == 0 {
+            gone = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(gone, "the liveness backend never exited: the kill did not happen");
+    assert_eq!(ex.lookup(&lookup_req(&k2)).await.unwrap(), LookupAnswer::NotApplied, "a dead owner's in-flight row is ignored");
+    assert_eq!(ex.run(&SetStatus { status: "y", serializable: false }, &binding(&k2)).await.unwrap(), Outcome::Fenced);
+    drop(this_process);
+}
+
+/// Q-RL3 unsafe control on a real database: skipping the in-flight check
+/// fences a live admitted call, which is then refused at its claim.
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn q_rl3_control_skip_inflight_check_fences_a_live_admitted_call() {
+    reset().await;
+    let script = Arc::new(Script::default());
+    let (ex, ev) = executor(script, vec!["Q-RL3.skip_inflight_check"]);
+    let owner = liveness(&ex.hooks().clone()).await;
+    let k = key();
+    ex.admit_inflight(&binding(&k).op, owner.incarnation).await.unwrap();
+    assert_eq!(ex.lookup(&lookup_req(&k)).await.unwrap(), LookupAnswer::NotApplied);
+    assert!(ev.has("control_executed:Q-RL3.skip_inflight_check"), "control did not record that it ran");
+    assert_eq!(ex.run(&SetStatus { status: "x", serializable: false }, &binding(&k)).await.unwrap(), Outcome::Fenced, "the admitted call was refused");
+}
+
+
+// ================================================================ review findings 2 and 3
+
+/// Review finding 2: a same-key duplicate in the same service is admitted
+/// (its own in-flight row), then waits on the original's claim and replays.
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn a_same_key_duplicate_in_the_same_service_is_admitted_and_replays() {
+    reset().await;
+    let script = Arc::new(Script::default());
+    let (ex, _) = executor(script.clone(), vec![]);
+    let ex = Arc::new(ex);
+    let owner = liveness(&ex.hooks().clone()).await;
+    let svc_inc = owner.incarnation;
+    let k = key();
+    let (mut at, release) = script.hold(&k, "after_claim");
+    let e1 = ex.clone();
+    let kc = k.clone();
+    let first = tokio::spawn(async move { e1.run_keyed(&SetStatus { status: "x", serializable: false }, &binding(&kc), svc_inc).await });
+    arrive(&mut at).await;
+    let e2 = ex.clone();
+    let kc = k.clone();
+    let second = tokio::spawn(async move { e2.run_keyed(&SetStatus { status: "x", serializable: false }, &binding(&kc), svc_inc).await });
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert!(!second.is_finished(), "the duplicate must be admitted and WAIT on the claim, not fail at admission");
+    assert_eq!(admin_count(&format!("SELECT count(*) FROM runtime_inflight WHERE op_key = '{k}'")).await, 2, "one in-flight row per call");
+    release.add_permits(1);
+    assert_eq!(first.await.unwrap().unwrap(), Outcome::Applied(1));
+    assert_eq!(second.await.unwrap().unwrap(), Outcome::Replayed(1));
+    assert_eq!(admin_count(&format!("SELECT count(*) FROM runtime_inflight WHERE op_key = '{k}'")).await, 0, "each call removed its own row");
+    drop(owner);
+}
+
+async fn two_services_ack_concurrently(controls: Vec<&'static str>) -> (bool, Arc<Events>) {
+    reset().await;
+    let script = Arc::new(Script::default());
+    let (ex, ev) = executor(script.clone(), controls);
+    let ex = Arc::new(ex);
+    ex.register_read_service(org(), svc(1)).await.unwrap();
+    ex.register_read_service(org(), svc(2)).await.unwrap();
+    let Outcome::Applied((_, obligations, rid)) = ex.run(&Narrow { serializable: false }, &binding(&key())).await.unwrap() else { panic!() };
+    assert_eq!(obligations.len(), 2);
+    // ack 1 runs up to just before its COMMIT (its NOT EXISTS already saw ack 2 pending)
+    let (mut at, release) = script.hold("*", "restrict.ack.before_commit");
+    let e1 = ex.clone();
+    let a1 = tokio::spawn(async move { e1.ack_restriction(org(), rid, svc(1)).await });
+    arrive(&mut at).await;
+    let e2 = ex.clone();
+    let a2 = tokio::spawn(async move { e2.ack_restriction(org(), rid, svc(2)).await });
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    release.add_permits(1);
+    a1.await.unwrap().unwrap();
+    a2.await.unwrap().unwrap();
+    let effective = admin_count(&format!("SELECT count(*) FROM restrictions WHERE restriction_id = '{rid}' AND effective_at IS NOT NULL")).await == 1;
+    (effective, ev)
+}
+
+/// Review finding 3: concurrent acks of one restriction still make it Effective.
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn q_c6_concurrent_acks_make_the_restriction_effective() {
+    let (effective, _) = two_services_ack_concurrently(vec![]).await;
+    assert!(effective, "all obligations acked, so the restriction must be Effective");
+}
+
+/// ... and without the restriction-row lock it stays un-Effective for good.
+#[tokio::test]
+#[ignore = "needs a WS1 dev cluster; run through p03-run.ps1"]
+async fn q_c6_control_ack_without_lock_never_becomes_effective() {
+    let (effective, ev) = two_services_ack_concurrently(vec!["Q-C6.ack_without_lock"]).await;
+    assert!(ev.has("control_executed:Q-C6.ack_without_lock"), "control did not record that it ran");
+    assert!(!effective, "the unsafe control must leave the restriction un-Effective");
+}

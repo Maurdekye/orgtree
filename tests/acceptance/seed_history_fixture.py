@@ -4,6 +4,7 @@ python seed-history.py --repo E:/Libraries/Desktop/orgtree --root <NEW absolute 
 Run the desktop/engine with the environment printed in manifest.json.
 """
 import argparse
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -31,10 +32,17 @@ def main():
         for key in ['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'ORGTREE_BASE', 'ORGTREE_ORG',
                     'ORGTREE_NODE', 'ORGTREE_AGENT_TOKEN', 'ORGTREE_V2_TOKEN']:
             env.pop(key, None)
+        # The embedded interpreter ignores PYTHONPATH (kept above only for the
+        # manifest's engine environment), so each phase child is started
+        # through tests/child_python.py: this repo's roots first, and a
+        # refusal if orgtree would resolve anywhere else.
+        spec = importlib.util.spec_from_file_location('child_python', repo / 'tests/child_python.py')
+        child_python = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(child_python)
         for phase in ['seed', 'verify']:
-            subprocess.run([sys.executable, str(Path(__file__).resolve()), '--repo', str(repo),
-                            '--root', str(root), '--phase', phase], env=env, cwd=repo,
-                           check=True, timeout=120)
+            subprocess.run(child_python.argv(str(Path(__file__).resolve()), '--repo', str(repo),
+                                             '--root', str(root), '--phase', phase, checkout=repo),
+                           env=env, cwd=repo, check=True, timeout=120)
         print((root / 'manifest.json').read_text(encoding='utf-8'))
         return
 

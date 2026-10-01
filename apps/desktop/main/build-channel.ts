@@ -8,7 +8,13 @@ import fs from 'node:fs'
 export const RELEASE_APP_ID = 'com.maurdekye.orgtree'
 export const DEV_APP_ID = 'com.maurdekye.orgtree.dev'
 
-export type BuildChannel = 'release' | 'dev'
+declare const __ORGTREE_PRIVATE_ALPHA__: string
+// Compiled identity survives absent/corrupt build-info: the 3.0.0-alpha.0
+// build must never turn its updater on, whatever build-info says.
+const privateAlphaBuild = typeof __ORGTREE_PRIVATE_ALPHA__ !== 'undefined'
+  && __ORGTREE_PRIVATE_ALPHA__.endsWith(':enabled')
+
+export type BuildChannel = 'release' | 'dev' | 'private-alpha'
 
 /** ⚠ THE PRERELEASE LABEL IS A CHANNEL NAME, NOT DECORATION, and getting it
  *  wrong is what stranded 2.1.5-RC3.
@@ -59,6 +65,7 @@ export function allowPrereleaseUpdates(version: string): boolean {
  *  Failing toward 'dev' instead would flip an installed release onto the dev
  *  identity (fresh empty data directory, updater off) over a corrupt file. */
 export function readBuildChannel(file: string, io: Pick<typeof fs, 'readFileSync'> = fs): BuildChannel {
+  if (privateAlphaBuild) return 'private-alpha'
   try {
     const parsed: unknown = JSON.parse(io.readFileSync(file, 'utf8'))
     return parsed !== null && typeof parsed === 'object' && (parsed as Record<string, unknown>).channel === 'dev' ? 'dev' : 'release'
@@ -77,6 +84,10 @@ export interface DesktopIdentity {
    *  all, and unpackaged development never had one. Everything update-shaped
    *  in the main process gates on this rather than on app.isPackaged. */
   updatesSupported: boolean
+  /** Only the 3.0.0-alpha.0 build sets it: the backend data root is
+   *  `<userData>\data` and nothing else (see resolveDataRoot). Absent, the
+   *  ORGTREE_V2_DATA development override is obeyed as before. */
+  ownDataRootOnly?: true
 }
 
 /** One place deciding who this process is. A packaged dev-channel build is a
@@ -107,6 +118,15 @@ export interface DesktopIdentity {
  *  closes the composition half of it and no more. */
 export function desktopIdentity(
   packaged: boolean, channel: BuildChannel, updateFixtureComposed = false): DesktopIdentity {
+  if (packaged && (privateAlphaBuild || channel === 'private-alpha')) {
+    // The first v3 build REPLACES 2.1.12 (user decision 2026-09-28): the
+    // installed release's identity exactly, so it installs over 2.1.12 and
+    // uses its data folder (`Orgtree v2`), with the updater compiled off so
+    // it can never "update" itself back to 2.1.x.
+    return { appId: RELEASE_APP_ID, name: 'Orgtree v2',
+      appUserModelId: RELEASE_APP_ID, displayName: 'Orgtree',
+      updatesSupported: false, ownDataRootOnly: true }
+  }
   const dev = packaged && channel === 'dev'
   return {
     appId: dev ? DEV_APP_ID : RELEASE_APP_ID,

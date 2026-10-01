@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { desktop } from '../desktop'
 import type { NativePreferences } from '../desktop'
-import type { UpdateCapability, UpdateStatus } from '../../../../../packages/contracts'
+import type { RunAsAdministratorState, UpdateCapability, UpdateStatus } from '../../../../../packages/contracts'
 import { describeUpdateStatus } from '../update-notice'
 import { SetGroup, SetRow, SetToggle } from './settingskit'
 import { NOTIFICATION_OPTIONS, notificationPreferences } from '../../../../../packages/contracts/notifications'
@@ -16,18 +16,27 @@ export function DesktopSettings() {
   const [capability, setCapability] = useState<UpdateCapability | null>(null)
   useEffect(() => {
     if (!bridge) return
-    let alive = true, changed = false
-    bridge.getPreferences().then(p => { if (alive && !changed) setPrefs(p) })
-      .catch((e: Error) => { if (alive) setError(e.message) })
-    if (bridge.getUpdateStatus) void bridge.getUpdateStatus().then(s => { if (alive) setUpdateStatus(s) }).catch(() => {})
-    // Where this copy is installed cannot change while it runs, so this is
-    // fetched once rather than pushed.
-    if (bridge.getUpdateCapability) void bridge.getUpdateCapability().then(c => { if (alive) setCapability(c) }).catch(() => {})
+    let alive = true, changed = false, updateChanged = false
+    // ⚠ SUBSCRIBE BEFORE READING. The app-wide broadcasts are not held, so an
+    // event that fires while an initial read is in flight is the NEWER truth;
+    // attaching first is what lets the flags below notice it at all.
     const unsubscribe = bridge.onEvent(e => {
       if (!alive) return
       if (e.type === 'preferences') { changed = true; setPrefs(e.data as NativePreferences) }
-      else if (e.type === 'update') setUpdateStatus(e.data as UpdateStatus)
+      else if (e.type === 'update') { updateChanged = true; setUpdateStatus(e.data as UpdateStatus) }
     })
+    bridge.getPreferences().then(p => { if (alive && !changed) setPrefs(p) })
+      // ⚠ THE ERROR COMPLETION IS GUARDED TOO. A read that failed after an
+      // event already delivered good state would otherwise replace a working
+      // panel with an error about a request whose answer is no longer wanted.
+      .catch((e: Error) => { if (alive && !changed) setError(e.message) })
+    // the update status has the same race and had no guard at all: a download
+    // that finished mid-read would revert to its earlier state
+    if (bridge.getUpdateStatus) void bridge.getUpdateStatus()
+      .then(s => { if (alive && !updateChanged) setUpdateStatus(s) }).catch(() => {})
+    // Where this copy is installed cannot change while it runs, so this is
+    // fetched once rather than pushed.
+    if (bridge.getUpdateCapability) void bridge.getUpdateCapability().then(c => { if (alive) setCapability(c) }).catch(() => {})
     return () => { alive = false; unsubscribe() }
   }, [bridge])
   if (!bridge) return null
@@ -79,4 +88,45 @@ export function DesktopSettings() {
       onChange={value => put({ [key]: value })}
       hint={key === 'notifyWhileFocused' ? 'When off, notifications pause while any Orgtree window has focus.' : undefined} />)}
   </SetGroup></>
+}
+
+/** "Run Orgtree as administrator" — whether the background engine and the
+ *  agents it starts keep administrator rights. Off by default. The value
+ *  lives in HKLM, so changing it asks Windows for permission; it applies
+ *  when the background engine next starts, which "Restart now" does at once. */
+export function RunAsAdministratorSetting() {
+  const bridge = desktop()
+  const [state, setState] = useState<RunAsAdministratorState | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  // Changed in this session and not yet applied to the running engine.
+  const [pending, setPending] = useState(false)
+  useEffect(() => {
+    if (!bridge?.getRunAsAdministrator) return
+    let alive = true
+    bridge.getRunAsAdministrator().then(s => { if (alive) setState(s) })
+      .catch((e: Error) => { if (alive) setError(e.message) })
+    return () => { alive = false }
+  }, [bridge])
+  if (!bridge?.getRunAsAdministrator || !bridge.setRunAsAdministrator) return null
+  const set = bridge.setRunAsAdministrator
+  const change = (enabled: boolean, restartNow: boolean) => {
+    setBusy(true)
+    set(enabled, restartNow).then(s => { setState(s); setError(''); setPending(!restartNow) })
+      .catch((e: Error) => setError(e.message)).finally(() => setBusy(false))
+  }
+  return <SetGroup title="Administrator rights">
+    {error && <p role="alert">{error}</p>}
+    <SetToggle label="run Orgtree as administrator" checked={state?.enabled ?? false}
+      disabled={!state || busy || !state.available}
+      title={state && !state.available ? state.reason : undefined}
+      onChange={enabled => change(enabled, false)}
+      hint={state && !state.available ? state.reason
+        : 'Agents get full control of this PC. Windows asks for permission to change this, and it applies when the background engine restarts.'} />
+    {pending && <SetRow label="apply the change" hint="Running agent turns are interrupted.">
+      <button type="button" disabled={busy || !state} onClick={() => state && change(state.enabled, true)}>
+        {busy ? 'Restarting…' : 'Restart the background engine now'}
+      </button>
+    </SetRow>}
+  </SetGroup>
 }

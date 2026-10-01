@@ -55,10 +55,10 @@ def scope_ident(slug, nid):
     stored only if the seq is unchanged across the whole read -- a save
     landing mid-read simply costs one more load next call.
 
-    It reads the SHARED snapshot (`store.cached_org`), not `load_org`: a miss
-    here is a miss for every agent at once, since one save invalidates every
-    entry. Per-agent parsing turned a single save into one full document
-    parse per streaming agent. The snapshot is read-only by contract and
+    A row-backed cache miss reads just the identity fields. Legacy or
+    unminted identities fall back to the SHARED snapshot (`store.cached_org`),
+    not `load_org`: a miss here is a miss for every agent at once, since one
+    save invalidates every entry. The snapshot is read-only by contract and
     nothing below writes to it; `transcript_records.incarnation` already
     refuses to stamp a `_shared_snapshot` and mints on its own copy under
     DOC_LOCK.
@@ -68,8 +68,20 @@ def scope_ident(slug, nid):
     seq = store.org_seq(slug)
     with _scope_lock:
         hit = _scope_cache.get(key)
-    if hit is not None and hit[0] == seq:
+    from . import reply_events
+    if hit is not None and reply_events._still_current(slug, nid, hit[0], seq):
+        with _scope_lock:
+            if _scope_cache.get(key) is hit:
+                _scope_cache[key] = (seq, hit[1])
         return hit[1]
+    # Keep stream cache misses independent of unrelated Org rebuilds.
+    fields = store.read_stream_identity(slug, nid)
+    if fields and fields['transcript']:
+        value = json.dumps([fields['transcript'], fields['session']], separators=(',', ':'))
+        if store.org_seq(slug) == seq:
+            with _scope_lock:
+                _scope_cache[key] = (seq, value)
+        return value
     org = store.cached_org(slug)        # shared read-only snapshot, see below
     if not org.node(nid).get('transcript_incarnation'):
         transcript_records.incarnation(org, nid)   # mints under DOC_LOCK, saves

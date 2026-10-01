@@ -206,10 +206,11 @@ uiTest('§1 a row offers the agent\'s own menu — the same entries, in the same
     // ...and the order itself, written down once. The equality above cannot
     // catch a change made to both surfaces at once; this can.
     assert.deepEqual(have, [
-      'Copy agent name', 'Open desk', 'Open inbox', 'Open docket',
-      'Open team docket', 'Settings',
+      // User 2026-09-30: only Focus and Open desk swap; all other slots stay.
+      'Copy agent name', 'Focus', 'Open desk', 'Open inbox', 'Open docket',
+      'Open team docket',
       'Pin desk as a window', 'Open desk in a new window',
-      'Hire a subordinate…', 'Retire…',
+      'Hire a subordinate…', 'Retire…', 'Settings',
     ], 'the agent menu, in order')
   })
 
@@ -220,7 +221,7 @@ uiTest('§1b the menu opens from the row\'s main line too — the whole row is t
     const main = rowFor(c.el, 'worker')!.querySelector('.tray-main') as HTMLElement
     assert.ok(main, 'the row\'s main line rendered')
     const have = await menuOf(main, 'the main line')
-    assert.ok(have.includes('Open desk') && have.includes('Retire…'),
+    assert.ok(have.includes('Focus') && have.includes('Retire…'),
       `a press on the name/status line raises the row's menu — have ${JSON.stringify(have)}`)
   })
 
@@ -303,7 +304,7 @@ uiTest('§2e a CROWD-piled agent offers no hire on either surface, and a piled-a
     // a piled-AWAY agent has no card at all; the row is the only door it has,
     // and it offers what the card would offer once the row brought it forward
     const away = await menuOf(rowFor(c.el, buried[0]!)!, 'a piled-away agent')
-    assert.ok(away.includes('Open desk') && away.includes('Retire…'),
+    assert.ok(away.includes('Focus') && away.includes('Retire…'),
       `the row is the buried agent's only door — have ${JSON.stringify(away)}`)
     assert.ok(!away.includes('Hire a subordinate…'),
       'it comes to the front of its pile when picked, and a front hires nowhere')
@@ -429,14 +430,14 @@ uiTest('§4 each entry runs the Agents List\'s own handler — the same surfaces
       'Open presentations asked the shell for THIS agent\'s gallery')
   })
 
-uiTest('§4b Open desk glides the camera to the agent, exactly as clicking the row does',
+uiTest('§4b Focus glides the camera to the agent, exactly as clicking the row does',
   async (t) => {
     const c = await mountCanvas(t, [mkNode('worker'), mkNode('other')])
     await openTray(c.el)
     const camera = () => (c.el.querySelector('.space') as HTMLElement).style.transform
     const before = camera()
     await rightClick(rowFor(c.el, 'other')!)
-    await pick('Open desk')
+    await pick('Focus')
     await advance(600, 30)
     assert.notEqual(camera(), before, 'the camera moved to the agent')
   })

@@ -1,4 +1,6 @@
 import { useSyncExternalStore } from 'react'
+import { askHidden } from './asksubmitted'
+import { readLocally } from './mailread'
 import type { DesktopNotification } from '../../../../packages/contracts'
 
 /** WHAT IS STILL WAITING ON THE USER, across every organization.
@@ -29,9 +31,58 @@ export interface PendingAttention {
   /** every qualifying identity, so the native pulse can tell a NEW arrival
    *  from the same set seen again on the next poll */
   ids: string[]
+  /** THE SAME ROWS, WITH THEIR ORGANIZATION SAID OUT LOUD.
+   *
+   *  The user ruled (2026-09-21) that the taskbar pulse flashes the affected
+   *  item's OWN organization window, falling back to the last-used main
+   *  window when that organization has none open, and never every main window
+   *  indiscriminately. Native therefore needs the organization per row.
+   *
+   *  ⚠ IT IS DERIVED FROM THE SAME PASS, NOT FROM A SECOND READ. `ids` already
+   *  carries the pair — each one is `JSON.stringify([org, id])` — but that is
+   *  this module's dedup ENCODING, not a contract, and a native side parsing
+   *  it would be coupled to an implementation detail that exists to make
+   *  strings comparable. This field says the same thing in a shape somebody
+   *  may rely on. Same rows, same order, no extra fetch and no parallel
+   *  state. */
+  items: { org: string; id: string }[]
+  /** THE ROWS BEHIND `mail`, with what the inbox dot needs to judge them.
+   *
+   *  The dot is ORG-SCOPED (user 2026-09-30): a window's dot counts only its
+   *  own organization's rows, because its inbox lists only that organization
+   *  and a request elsewhere lit a dot with nothing visible behind it (docket
+   *  v3-mail-icon-says-a-request-is-waiting-on-the-us). A question the user
+   *  has just submitted stops counting on the click (`waitingNow`). The
+   *  taskbar pulse still reads `items`, which it routes per organization.
+   *  Sorted like `items`; `work-attention` rows are the docket's and are not
+   *  here. */
+  waiting: WaitingRow[]
+  /** THE ROWS BEHIND `docket`: each flagged ticket's organization and slug.
+   *  The Work button's dot counts only its own organization's (user
+   *  2026-09-30, like the inbox dot), less any the user has just dismissed
+   *  (attndismiss.ts). Sorted like `items`. `id` is the notice's own id,
+   *  which names the flag INSTANCE (`work:<slug>:<epoch>`, desktop_notifications
+   *  .py): a flag raised again on the same ticket arrives under a new id, so a
+   *  dismissal of the old one cannot hide it. */
+  flagged: FlaggedRow[]
 }
 
-const EMPTY: PendingAttention = { mail: 0, docket: 0, ids: [] }
+export interface FlaggedRow {
+  org: string; slug: string; id: string
+  /** the raise's `manual_attention.set_rev` (desktop_notifications.py); absent
+   *  from an older engine, when no row can be matched to a dismissal */
+  rev?: number
+}
+
+export interface WaitingRow {
+  org: string
+  id: string
+  kind: Exclude<PendingKind, 'work-attention'>
+  /** a question's ask id, so a card the user just submitted stops counting */
+  source: string | null
+}
+
+const EMPTY: PendingAttention = { mail: 0, docket: 0, ids: [], items: [], waiting: [], flagged: [] }
 let current: PendingAttention = EMPTY
 const listeners = new Set<() => void>()
 
@@ -41,15 +92,32 @@ export function pendingAttention(): PendingAttention { return current }
  *  tests; it takes the rows rather than reading anything itself. */
 export function summarizePending(rows: readonly DesktopNotification[]): PendingAttention {
   let mail = 0, docket = 0
-  const ids: string[] = []
+  const items: { org: string; id: string }[] = []
+  const waiting: WaitingRow[] = []
+  const flagged: FlaggedRow[] = []
   for (const row of rows) {
     if (!PENDING_KINDS.includes(row.kind as PendingKind)) continue
-    ids.push(JSON.stringify([row.org, row.id]))
-    if (row.kind === 'work-attention') docket++
-    else mail++
+    items.push({ org: row.org, id: row.id })
+    if (row.kind === 'work-attention') {
+      docket++
+      // the ticket's slug rides as `item` (desktop_notifications.py)
+      if (row.item) flagged.push({ org: row.org, slug: row.item, id: row.id,
+        ...(typeof row.rev === 'number' ? { rev: row.rev } : {}) })
+    } else {
+      mail++
+      waiting.push({ org: row.org, id: row.id, kind: row.kind as WaitingRow['kind'],
+        source: row.source_id ?? null })
+    }
   }
-  ids.sort()
-  return { mail, docket, ids }
+  // sorted on the SAME key both halves are built from, so `ids[i]` and
+  // `items[i]` always describe the same row
+  const byKey = (a: { org: string; id: string }, b: { org: string; id: string }) =>
+    (a.org === b.org ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : a.org < b.org ? -1 : 1)
+  items.sort(byKey)
+  waiting.sort(byKey)
+  flagged.sort(byKey)
+  return { mail, docket, ids: items.map((i) => JSON.stringify([i.org, i.id])), items, waiting,
+    flagged }
 }
 
 function same(a: PendingAttention, b: PendingAttention): boolean {
@@ -69,6 +137,19 @@ export function publishPending(next: PendingAttention): boolean {
 
 export function resetPending(): void { current = EMPTY }
 
+/** The rows still waiting as THIS window sees them. A question card the user
+ *  has just submitted stops counting on the click, not when the feed next
+ *  drops it (user addendum 2026-09-30: after answering, the icon still
+ *  glowed). A failed submit brings the card back, and the row with it.
+ *  Callers re-render on `useSubmittedAsks`. */
+export function waitingNow(p: PendingAttention): WaitingRow[] {
+  return p.waiting.filter((w) => !(w.kind === 'question' && askHidden(w.org, w.source))
+    // an urgent or failure MAIL the user has just read leaves the dot on the
+    // click too (docket v3-marking-a-mail-as-read-takes-about-half-a-sec);
+    // its source is the mail id. Callers re-render on `useLocalReads`.
+    && !(w.kind !== 'question' && readLocally(w.org, w.source)))
+}
+
 function subscribe(listener: () => void): () => void {
   listeners.add(listener)
   return () => { listeners.delete(listener) }
@@ -76,4 +157,82 @@ function subscribe(listener: () => void): () => void {
 
 export function usePendingAttention(): PendingAttention {
   return useSyncExternalStore(subscribe, pendingAttention, pendingAttention)
+}
+
+// ------------------------------------------------- the cross-window mirror
+//
+// The aggregate is produced by the app-wide notification poll, and in v3 that
+// poll runs in EXACTLY ONE window (`notifications.ts`). Every other window
+// still renders the standing dot, which claims "something is waiting on you in
+// ANY organization" — so without a mirror that dot would be permanently dark
+// in every window but one, which is a worse lie than the one it was added to
+// remove.
+//
+// ⚠ localStorage AND ITS `storage` EVENT, NOT A SECOND POLLER OR A NATIVE
+// REBROADCAST. Every main window is the same origin, so the owner's write
+// reaches the others for free and cannot disagree with what the owner
+// published: there is one producer and the followers only ever copy. A second
+// poller in each window would be exactly the racing all-org read the single
+// owner exists to prevent.
+const MIRROR_KEY = 'orgtree-pending-attention-v1'
+
+const parsePending = (raw: string | null): PendingAttention | null => {
+  if (!raw) return null
+  try {
+    const v: unknown = JSON.parse(raw)
+    if (!v || typeof v !== 'object') return null
+    const { mail, docket, ids, items, waiting, flagged } = v as Partial<PendingAttention>
+    if (typeof mail !== 'number' || typeof docket !== 'number') return null
+    if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string')) return null
+    const rows = Array.isArray(items)
+      ? items.filter((i): i is { org: string; id: string } =>
+        !!i && typeof i === 'object'
+        && typeof (i as { org?: unknown }).org === 'string'
+        && typeof (i as { id?: unknown }).id === 'string')
+      : []
+    // an owner from before `waiting` existed writes none; its rows are then
+    // not listed until the owner next publishes
+    const str = (x: unknown) => typeof x === 'string'
+    const waits = Array.isArray(waiting)
+      ? waiting.filter((w): w is WaitingRow => {
+        if (!w || typeof w !== 'object') return false
+        const r = w as unknown as Record<string, unknown>
+        return str(r.org) && str(r.id) && str(r.kind) && (r.source === null || str(r.source))
+      })
+      : []
+    // an owner from before `id` existed writes none: '' then stands for it
+    const flags = Array.isArray(flagged)
+      ? flagged.filter((f): f is FlaggedRow => !!f && typeof f === 'object'
+        && str((f as { org?: unknown }).org) && str((f as { slug?: unknown }).slug))
+        .map((f) => ({ org: f.org, slug: f.slug, id: str(f.id) ? f.id : '',
+          ...(typeof f.rev === 'number' ? { rev: f.rev } : {}) }))
+      : []
+    return { mail, docket, ids: ids as string[], items: rows, waiting: waits, flagged: flags }
+  } catch { return null }
+}
+
+/** Keep this window's aggregate in step with the app's.
+ *
+ *  The OWNER writes what it publishes. A FOLLOWER seeds from the last write
+ *  and then tracks it. Returns a teardown, and is a no-op without a DOM. */
+export function startPendingMirror(owner: boolean): () => void {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return () => {}
+  if (owner) {
+    const write = () => {
+      try { localStorage.setItem(MIRROR_KEY, JSON.stringify(current)) } catch { /* the dot is still live in this window */ }
+    }
+    write()
+    return subscribe(write)
+  }
+  const seed = parsePending(localStorage.getItem(MIRROR_KEY))
+  if (seed) publishPending(seed)
+  const onStorage = (e: StorageEvent) => {
+    if (e.key !== null && e.key !== MIRROR_KEY) return
+    const next = parsePending(localStorage.getItem(MIRROR_KEY))
+    // a cleared store (key === null) means someone wiped storage; fall back to
+    // empty rather than freezing on the last value we happened to see
+    publishPending(next ?? EMPTY)
+  }
+  window.addEventListener('storage', onStorage)
+  return () => window.removeEventListener('storage', onStorage)
 }

@@ -44,7 +44,7 @@ export const TIER_LETTER: Record<string, string> = {
   'gpt-reserve': 'R', luna: 'L', terra: 'T', sol: 'S', astra: 'A',
   // flash shares F with fable by the same accepted collision as sol/sonnet's
   // S — the chip class carries the family
-  flash: 'F', pro: 'P',
+  flash: 'F', pro: 'P', argon: 'A',
 }
 export const TIERS = ['haiku', 'sonnet', 'opus', 'fable']
 /** seat cost per tier — mirrors ledger.TIERS. One table, four tiers; the
@@ -60,8 +60,8 @@ export const TIER_SEAT: Record<string, number> =
  *  the head, or the menu reads as though the node is pinned to the older
  *  version it is merely listing. */
 export const MODEL_VERSIONS: Record<string, string[]> =
-  { opus: ['5.5', '5', '4.8'], fable: ['5.1', '5'], flash: ['3.8', '3.7', '3.6'],
-    sol: ['6', '5.6'], luna: ['6', '5.6'] }
+  { opus: ['5.5', '5', '4.8'], sonnet: ['5.5', '5'], fable: ['5.1', '5'],
+    flash: ['3.8', '3.7', '3.6'], sol: ['6.1', '6', '5.6'], luna: ['6', '5.6'] }
 /** The codex family (FR-15 preview) — ChatGPT/OpenAI tiers. A
  *  SEPARATE list, never merged into TIERS: every existing surface iterates
  *  TIERS, and a family that cannot be hired yet must not grow chips there by
@@ -70,8 +70,10 @@ export const MODEL_VERSIONS: Record<string, string[]> =
  *  Sol to 2 and Luna to 0.1 credits, across supported model versions.
  *  The legacy reserve tier stays 0.2; fractions remain real seat costs.
  *  The hire surfaces use this family list when the Codex CLI is
- *  available. */
-export const CODEX_ALWAYS_TIERS = ['luna', 'terra', 'sol']
+ *  available. Astra joined it on 2026-09-24 (user: "can you make astra a
+ *  given? not only conditionally present") — it no longer waits for the
+ *  account's live model list. Mirrors providers._CODEX_ALWAYS_TIER_NAMES. */
+export const CODEX_ALWAYS_TIERS = ['luna', 'terra', 'sol', 'astra']
 /** LEGACY Codex tokens (user ruling 2026-09-04, audit item 12): known to the
  *  axis so a node that already wears one keeps its letter, colour, seat and
  *  provider class — but NEVER offered by any hire or switch surface
@@ -81,13 +83,20 @@ export const CODEX_ALWAYS_TIERS = ['luna', 'terra', 'sol']
  *  (`TreeNode.codex_route`) says which one a turn actually ran on. Mirrors
  *  providers.LEGACY_CODEX_TIERS. */
 export const LEGACY_CODEX_TIERS = ['gpt-reserve']
-/** All KNOWN Codex tiers — legacy tokens (for the nodes wearing them), the
- *  stable hireable family, and rollout tiers whose metadata is installed
- *  before their account access exists. A rollout tier is never offered merely
- *  because it is in this list; `codexTierOffer` requires it in the backend's
- *  live account-scoped tier rows. */
-export const CODEX_TIERS = [...LEGACY_CODEX_TIERS, ...CODEX_ALWAYS_TIERS,
-  'astra']
+/** OPT-IN LEGACY tiers (user 2026-09-30: "keep it as a legacy option but
+ *  remove it by default"). Still real, hireable tiers — the backend accepts
+ *  them and a node wearing one keeps its letter, colour and seat — but no
+ *  hire or switch surface offers them unless App settings > Providers >
+ *  "show legacy models" is on, and then they carry a "legacy" mark. Unlike
+ *  LEGACY_CODEX_TIERS, which no surface ever offers. Gemini Pro (the
+ *  antigravity `pro` tier) joined on 2026-09-30 (user: "deprecate and disable
+ *  gemini pro", then: same "show legacy models" checkbox as Terra). */
+export const OPT_IN_LEGACY_TIERS = ['terra', 'pro']
+/** All KNOWN Codex tiers — legacy tokens (for the nodes wearing them) and
+ *  the always-offered hireable family. A future rollout tier would be listed
+ *  here but not in `CODEX_ALWAYS_TIERS`; `codexTierOffer` would then require
+ *  it in the backend's live account-scoped tier rows. None exists today. */
+export const CODEX_TIERS = [...LEGACY_CODEX_TIERS, ...CODEX_ALWAYS_TIERS]
 export const CODEX_TIER_LETTER: Record<string, string> = {
   'gpt-reserve': 'R', luna: 'L', terra: 'T', sol: 'S', astra: 'A' }
 export const CODEX_TIER_SEAT: Record<string, number> = {
@@ -98,9 +107,20 @@ export const CODEX_TIER_SEAT: Record<string, number> = {
  *  codex family. Seats by the standing rule: flash $1.50 standing → 1 (the
  *  $0.75 launch price is a promo), pro $2 → 2 (the >200K long-context
  *  surcharge never sets a seat). */
-export const ANTIGRAVITY_TIERS = ['flash', 'pro']
-export const ANTIGRAVITY_TIER_LETTER: Record<string, string> = { flash: 'F', pro: 'P' }
-export const ANTIGRAVITY_TIER_SEAT: Record<string, number> = { flash: 1, pro: 2 }
+export const ANTIGRAVITY_TIERS = ['flash', 'pro', 'argon']
+export const ANTIGRAVITY_TIER_LETTER: Record<string, string> =
+  { flash: 'F', pro: 'P', argon: 'A' }
+/** argon's 2 is a PLACEHOLDER copied from pro (coordinator ruling
+ *  2026-10-01) — mirrors ledger.TIERS until the user sets Argon's price. */
+export const ANTIGRAVITY_TIER_SEAT: Record<string, number> =
+  { flash: 1, pro: 2, argon: 2 }
+/** CONDITIONAL antigravity tiers — Gemini 4 Argon (`gemini-4-argon`, user
+ *  2026-10-01). Known to the axis (a node wearing one keeps its letter,
+ *  colour and seat) but offered by NO chooser until the backend's providers
+ *  payload lists it among the Antigravity tier rows, which it does only while
+ *  the account's live `agy models` list contains that id. Mirrors
+ *  providers.CONDITIONAL_ANTIGRAVITY_TIERS. */
+export const CONDITIONAL_ANTIGRAVITY_TIERS = ['argon']
 /** Provider-neutral surfaces (for example the live-agent summary) use this;
  * provider-specific controls keep using their family list. */
 export const ALL_TIERS = [...TIERS, ...CODEX_TIERS, ...ANTIGRAVITY_TIERS]
@@ -382,6 +402,14 @@ export const providerOf = (tier: string): ProviderId =>
     : ANTIGRAVITY_TIERS.includes(tier) ? 'google'
       : isOpenRouterTier(tier) ? 'openrouter' : 'claude')
 
+/** D-201 halo class for a live agent card or desk (user ruling 2026-09-28):
+ *  the halo means a CLI process EXISTS for this seat, parked or serving a
+ *  turn (proc_live). It used to follow proc_warm ("parked and ready"), which
+ *  is cleared the moment the process is claimed for a turn, so the halo went
+ *  dark exactly while the process was working. '' for a non-live node. */
+export const procHaloClass = (node: { state: string; proc_live?: boolean }): string =>
+  node.state !== 'live' ? '' : node.proc_live ? 'proc-warm' : 'proc-cold'
+
 /** How a provider is named to the user in prose. The dialog says "Codex",
  *  not "openai" — the user picks tiers by the product name they see on the
  *  chips and in the accounts panel. */
@@ -481,19 +509,58 @@ export const hireOf = (p: ProviderInfo | null | undefined): HireState | null =>
  *  offered — 'hide', unconditionally, whatever the payload says: it is not a
  *  tier any more, and the ruling that removed it ("dont just grey out the
  *  reserve token. remove it entirely", 2026-09-02) already wanted it gone
- *  rather than greyed. Stable tiers preserve the established family
- *  behavior. Any known tier outside that stable set is a conditional
- *  rollout and fails closed unless the backend's fresh account inventory put
- *  it in the provider's tier rows. Missing payload is therefore NOT enough
- *  to light Astra, even though it remains optimistic for the stable family. */
+ *  rather than greyed. Always-offered tiers (Astra included, since
+ *  2026-09-24) follow the family verdict. A known tier outside that set
+ *  would be a conditional rollout and fail closed unless the backend's fresh
+ *  account inventory put it in the provider's tier rows; none exists today. */
 export const codexTierOffer = (
   h: HireState | null | undefined, tier: string,
 ): FamilyOffer => {
-  if (LEGACY_CODEX_TIERS.includes(tier)) return 'hide'
+  if (tierHiddenAsLegacy(tier)) return 'hide'
   const base = familyOffer(h)
   return !CODEX_ALWAYS_TIERS.includes(tier)
     && !h?.offeredTiers?.includes(tier) ? 'hide' : base
 }
+
+/** Offer verdict for one Antigravity tier: an opt-in legacy tier (Gemini Pro)
+ *  hides while "show legacy models" is off, and a CONDITIONAL tier (Argon)
+ *  hides until the payload's tier rows include it — no evidence, no offer.
+ *  Everything else follows the family verdict. */
+export const antigravityTierOffer = (
+  h: HireState | null | undefined, tier: string,
+): FamilyOffer => {
+  if (optInLegacyHidden(tier)) return 'hide'
+  if (CONDITIONAL_ANTIGRAVITY_TIERS.includes(tier)
+    && !h?.offeredTiers?.includes(tier)) return 'hide'
+  return familyOffer(h)
+}
+
+/* ---------------- conditional tiers the payload currently offers (Argon)
+   For surfaces that have no HireState of their own (the bearer rehire list).
+   OrgCanvas feeds it from the same providers poll the hire strips read, so
+   both answer from one payload. Subscribable, so a list re-renders the
+   moment agy starts listing the model. */
+let offeredConditional: string[] = []
+const conditionalSubs = new Set<() => void>()
+export const setOfferedConditionalTiers = (
+  tiers: { tier: string }[] | null | undefined,
+): void => {
+  const next = CONDITIONAL_ANTIGRAVITY_TIERS.filter(
+    (t) => (tiers ?? []).some((r) => r.tier === t))
+  if (next.join(',') === offeredConditional.join(',')) return
+  offeredConditional = next
+  for (const fn of [...conditionalSubs]) fn()
+}
+const subscribeConditional = (fn: () => void): (() => void) => {
+  conditionalSubs.add(fn)
+  return () => { conditionalSubs.delete(fn) }
+}
+const offeredConditionalKey = (): string => offeredConditional.join(',')
+export const useOfferedConditionalTiers = (): string =>
+  useSyncExternalStore(subscribeConditional, offeredConditionalKey)
+/** a conditional tier the payload does not (yet) offer */
+export const conditionalTierHidden = (tier: string): boolean =>
+  CONDITIONAL_ANTIGRAVITY_TIERS.includes(tier) && !offeredConditional.includes(tier)
 
 /** D-202: is this provider part of the product on this machine AT ALL?
  *
@@ -610,11 +677,13 @@ export function availableAutopsyModels(
     const models: AutopsyModelOption[] = []
     for (const t of p.tiers || []) {
       if (t.tier === 'fable') continue // ⚠ FABLE NOT SELECTABLE (ruling 2026-09-03)
-      if (LEGACY_CODEX_TIERS.includes(t.tier)) continue   // not a tier any more
+      // not a tier any more (gpt-reserve), or an opt-in legacy tier with the
+      // toggle off — but a CONFIGURED value is kept, like every other list
+      if (tierHiddenAsLegacy(t.tier) && t.tier !== normCurrent) continue
       if (t.tier === normCurrent) foundCurrent = true
       models.push({
         tier: t.tier,
-        label: t.label ?? tierLabel(t.tier),
+        label: (t.label ?? tierLabel(t.tier)) + legacyMark(t.tier),
         seat: t.seat ?? anyTierSeat(t.tier),
       })
     }
@@ -646,6 +715,10 @@ export function availableAutopsyModels(
 // One structural type covers every card; fields absent on some card kinds
 // are optional and consumers guard (or assert) exactly where the JS did.
 export interface CanvasNode {
+  hidden_retired_children?: number
+  lineage_loaded?: boolean
+  lineage_revision?: string
+  consultable_predecessor?: TreeNode['consultable_predecessor']
   id: string
   state: NodeState | 'draft' | 'user'
   /** null only on the eye root */
@@ -754,6 +827,8 @@ export interface CanvasNode {
   /** FR-01: parked while the user drives this session from another device */
   remote_controlled?: { at?: string } | null
   waiting?: boolean
+  /** queued behind the machine-wide concurrent-turn limit (see TreeNode) */
+  queued_for_slot?: TreeNode['queued_for_slot']
   responding?: boolean
   phase?: string | null
   /** which account actually served the last turn (resolved at spawn) */
@@ -818,7 +893,10 @@ export interface MailEvent { from: string; to: string; t: number }
 // a client-side accumulation, and types.ts may not import from here (this file
 // imports from it). Re-exported so existing importers are untouched.
 export type { ActivityInfo } from '../types'
-export type OpFn = (body: OpRequest) => Promise<OpResult>
+/** `quiet`: the caller reports the failure itself (the bulk cheap-compaction
+ *  summary), so the shared wrapper must not also toast "error: …" for it. */
+export interface OpOptions { quiet?: boolean }
+export type OpFn = (body: OpRequest, opts?: OpOptions) => Promise<OpResult>
 /** a chat chip's mail pointer — routed to whichever box holds the mail */
 export type MailLinkFn = (
   m: { id?: string | null; to?: string | null } | null | undefined,
@@ -887,6 +965,8 @@ export interface Pile {
   kind: 'a' | 'c'
   list: string[]
   front: string
+  /** Includes omitted direct siblings while the picker is closed. */
+  total?: number
 }
 /** a live-feed row: a StreamEvent copy or a folded thought line */
 export interface LiveRow {
@@ -1168,6 +1248,42 @@ const subscribeHideRetired = (fn: () => void): (() => void) => {
 export const useHideRetired = (): boolean =>
   useSyncExternalStore(subscribeHideRetired, hideRetiredOn)
 
+/* --------------------------- show legacy models (user 2026-09-30)
+   OFF BY DEFAULT, same localStorage contract as the toggles above. Off, the
+   OPT_IN_LEGACY_TIERS (Terra, Gemini Pro) leave every hire and tier chooser; on, they
+   come back marked "legacy". A DISPLAY preference only: agents already on a
+   legacy tier show it either way, and the backend accepts it either way.
+   ⚠ Surfaces that read `tierHiddenAsLegacy` (through `codexTierOffer` or
+   directly) must call `useShowLegacyModels()` so a flip re-renders them. */
+export const SHOW_LEGACY_MODELS_KEY = 'orgtree-show-legacy-models'
+export const showLegacyModelsOn = (): boolean => {
+  try { return localStorage.getItem(SHOW_LEGACY_MODELS_KEY) === '1' } catch { return false }
+}
+const showLegacySubs = new Set<() => void>()
+export const setShowLegacyModelsOn = (on: boolean): void => {
+  try {
+    localStorage.setItem(SHOW_LEGACY_MODELS_KEY, on ? '1' : '0')
+  } catch { /* private mode */ }
+  for (const fn of [...showLegacySubs]) fn()
+}
+const subscribeShowLegacy = (fn: () => void): (() => void) => {
+  showLegacySubs.add(fn)
+  window.addEventListener('storage', fn)
+  return () => { showLegacySubs.delete(fn); window.removeEventListener('storage', fn) }
+}
+export const useShowLegacyModels = (): boolean =>
+  useSyncExternalStore(subscribeShowLegacy, showLegacyModelsOn)
+/** Is this tier kept out of choosers as legacy? gpt-reserve always; the
+ *  opt-in legacy tiers unless "show legacy models" is on. */
+export const tierHiddenAsLegacy = (tier: string): boolean =>
+  LEGACY_CODEX_TIERS.includes(tier) || optInLegacyHidden(tier)
+/** only the opt-in half: an opt-in legacy tier while the toggle is off */
+export const optInLegacyHidden = (tier: string): boolean =>
+  OPT_IN_LEGACY_TIERS.includes(tier) && !showLegacyModelsOn()
+/** the " · legacy" mark a chooser appends to an opt-in legacy tier's label */
+export const legacyMark = (tier: string): string =>
+  OPT_IN_LEGACY_TIERS.includes(tier) ? ' · legacy' : ''
+
 // App-wide agent action buttons: off unless explicitly enabled.
 export const AGENT_SHORTCUTS_KEY = 'orgtree-agent-shortcuts'
 export const agentShortcutsOn = (): boolean => {
@@ -1187,6 +1303,29 @@ const subscribeAgentShortcuts = (fn: () => void): (() => void) => {
 }
 export const useAgentShortcuts = (): boolean =>
   useSyncExternalStore(subscribeAgentShortcuts, agentShortcutsOn)
+
+// Pinned-panel edge snapping (user 2026-09-30: "make pinned window snapping
+// an optional toggle in display"): on unless explicitly turned off. Read at
+// the moment of each drag/resize gesture (pins.tsx, modalpin.tsx), so a
+// change applies to the very next gesture in every window.
+export const PIN_SNAP_KEY = 'orgtree-pin-snap'
+export const pinSnapOn = (): boolean => {
+  try { return localStorage.getItem(PIN_SNAP_KEY) !== '0' } catch { return true }
+}
+const pinSnapSubs = new Set<() => void>()
+export const setPinSnapOn = (on: boolean): void => {
+  try {
+    localStorage.setItem(PIN_SNAP_KEY, on ? '1' : '0')
+  } catch { /* private mode */ }
+  for (const fn of [...pinSnapSubs]) fn()    // copy: a listener may detach
+}
+const subscribePinSnap = (fn: () => void): (() => void) => {
+  pinSnapSubs.add(fn)
+  window.addEventListener('storage', fn)
+  return () => { pinSnapSubs.delete(fn); window.removeEventListener('storage', fn) }
+}
+export const usePinSnap = (): boolean =>
+  useSyncExternalStore(subscribePinSnap, pinSnapOn)
 
 /* ------------------------------------------- the startup view (D-228)
    What the canvas shows the moment an org OPENS, and whether it glides there.
@@ -1297,9 +1436,68 @@ export function withDraftTree(tree: TreePayload, draft: DraftState | null): Canv
   })
   return {
     id: USER, title: 'you', tier: null, state: 'user',
+    hidden_retired_children: tree.foreground?.hidden_retired_roots,
     children: draft && draft.parent === null
       ? place(tree.roots.map(mk)) : tree.roots.map(mk),
   }
+}
+
+/** A hand re-parent the server has not confirmed yet: node id → the parent it
+ *  was dropped on (`null` = a top-level root, under you). The canvas shows it
+ *  at once instead of waiting ~a second for the op and the tree read after it
+ *  (user 2026-09-30: "should be nearly instant"); a refused op deletes the
+ *  entry and the card glides back. */
+export type PendingMoves = ReadonlyMap<string, string | null>
+
+/** `tree` with every pending move applied, in order: the node leaves its
+ *  current parent and is appended, subtree and all, under the new one. A move
+ *  the tree cannot honour — an unknown node or parent, or a parent inside the
+ *  node's own subtree — is skipped, so no card is ever lost. The input tree is
+ *  never mutated; untouched branches keep their object identity. */
+export function withPendingMoves(tree: TreePayload, moves: PendingMoves): TreePayload {
+  if (!moves.size) return tree
+  let roots = tree.roots
+  for (const [id, parent] of moves) {
+    const find = (kids: TreeNode[], want: string): TreeNode | null => {
+      for (const k of kids) {
+        if (k.id === want) return k
+        const hit = find(k.children, want)
+        if (hit) return hit
+      }
+      return null
+    }
+    const node = find(roots, id)
+    if (!node || parent === id) continue
+    if (parent !== null && (!find(roots, parent) || find(node.children, parent))) continue
+    const without = (kids: TreeNode[]): TreeNode[] => {
+      if (kids.some((k) => k.id === id)) return kids.filter((k) => k.id !== id)
+      let changed = false
+      const out = kids.map((k) => {
+        const c = without(k.children)
+        if (c === k.children) return k
+        changed = true
+        return { ...k, children: c }
+      })
+      return changed ? out : kids
+    }
+    const into = (kids: TreeNode[]): TreeNode[] => kids.map((k) => k.id === parent
+      ? { ...k, children: [...k.children, node] }
+      : (find(k.children, parent!) ? { ...k, children: into(k.children) } : k))
+    roots = without(roots)
+    roots = parent === null ? [...roots, node] : into(roots)
+  }
+  return roots === tree.roots ? tree : { ...tree, roots }
+}
+
+/** Every node's parent as the tree states it (`null` for a root). */
+export function treeParents(tree: TreePayload): Map<string, string | null> {
+  const out = new Map<string, string | null>()
+  const walk = (n: TreeNode, parent: string | null) => {
+    out.set(n.id, parent)
+    n.children.forEach((c) => walk(c, n.id))
+  }
+  tree.roots.forEach((r) => walk(r, null))
+  return out
 }
 
 /** Print a credit quantity. Seats are FRACTIONAL below $1/M (user ruling
@@ -1347,7 +1545,116 @@ export function flatten(root: CanvasNode, _seats: Record<string, number>): Map<s
   return map
 }
 
-export function layout(root: CanvasNode, hidden: Map<string, string> = new Map()): Map<string, Pt> {
+/* --------------------------- org-chart arrangement (user 2026-09-30)
+   ROW is the default and today's tree; CIRCULAR puts the eye at the centre and
+   each depth on a further outward ring. App-wide like the toggles above:
+   one localStorage value, every org and window. Unset reads as row. */
+export type ChartLayout = 'row' | 'circular'
+export const CHART_LAYOUT_KEY = 'orgtree-chart-layout'
+export const chartLayoutOf = (): ChartLayout => {
+  try { return localStorage.getItem(CHART_LAYOUT_KEY) === 'circular' ? 'circular' : 'row' } catch { return 'row' }
+}
+const chartLayoutSubs = new Set<() => void>()
+export const setChartLayout = (mode: ChartLayout): void => {
+  try { localStorage.setItem(CHART_LAYOUT_KEY, mode) } catch { /* private mode */ }
+  for (const fn of [...chartLayoutSubs]) fn()
+}
+const subscribeChartLayout = (fn: () => void): (() => void) => {
+  chartLayoutSubs.add(fn)
+  window.addEventListener('storage', fn)
+  return () => { chartLayoutSubs.delete(fn); window.removeEventListener('storage', fn) }
+}
+export const useChartLayout = (): ChartLayout =>
+  useSyncExternalStore(subscribeChartLayout, chartLayoutOf)
+
+// 186px chord clears two 124px squares even on the diagonal (124·√2 ≈ 175)
+const RING_PITCH = 190, RING_STEP = 230, RING_FIRST = 260
+
+/** Radial tree. Each node's team takes the slice of its parent's wedge sized
+ *  by leaf count; a depth is one ring whose radius is the larger of "one step
+ *  outside the ring before" and "the chord to its nearest angular neighbour is
+ *  at least one node pitch" — so nothing overlaps at any size. One pass over
+ *  the tree plus one over each ring: O(n). Returns top-left positions like
+ *  `layout`, with the eye anchored at its usual world x. */
+/** Sibling ids in the order their neighbour lines join them: the ring deals a
+ *  wedge out in angular order, so ring siblings keep that order; a row reads
+ *  left to right. */
+export function peerOrder(ids: string[], target: Map<string, Pt>, circular: boolean): string[] {
+  return circular ? ids : [...ids].sort((p, q) => (target.get(p)?.x ?? 0) - (target.get(q)?.x ?? 0))
+}
+
+// Ring view hire-coworker rule (coordinator ruling 2026-09-30): a button means
+// "put the new agent in the gap between this agent and its ring neighbour on the
+// side the arrow points to", judged on screen BEFORE the hire, the seam
+// wrapping. `sibs` are the anchor's visible siblings in ring order. Of the two
+// ring neighbours, the one whose on-screen direction from the anchor is
+// closest to the arrow wins (so at the extremes, where both sit on one side or
+// straight above and below, the nearer-pointing one is used); a tie keeps the
+// button's own order. Returns the order the hire pins (left = before = the
+// previous neighbour, right = after). Row layout returns the side unchanged.
+export function ringInsertSide(side: 'left' | 'right', anchorId: string, sibs: string[],
+  target: Map<string, Pt>, circular: boolean): 'left' | 'right' {
+  const i = sibs.indexOf(anchorId), n = sibs.length, a = target.get(anchorId)
+  if (!circular || i < 0 || n < 3 || !a) return side
+  const fit = (id: string): number => {
+    const p = target.get(id)
+    if (!p) return -Infinity
+    const dx = p.x - a.x, dy = p.y - a.y, len = Math.hypot(dx, dy)
+    return len < 1e-9 ? -Infinity : (side === 'left' ? -dx : dx) / len
+  }
+  const before = fit(sibs[(i + n - 1) % n]!), after = fit(sibs[(i + 1) % n]!)
+  if (before === after) return side
+  return before > after ? 'left' : 'right'
+}
+
+export function layoutCircular(root: CanvasNode, hidden: Map<string, string> = new Map()): Map<string, Pt> {
+  const vis = (n: CanvasNode) => !hidden.has(n.id)
+  const leaves = new Map<string, number>()
+  const count = (n: CanvasNode): number => {
+    let t = 0, any = false
+    for (const c of n.children) if (vis(c)) { any = true; t += count(c) }
+    if (!any) t = 1
+    leaves.set(n.id, t)
+    return t
+  }
+  count(root)
+  const START = -Math.PI / 2
+  const rings: number[][] = []
+  const placed: { id: string; angle: number; depth: number }[] = []
+  const walk = (n: CanvasNode, a0: number, a1: number, depth: number) => {
+    const angle = (a0 + a1) / 2
+    placed.push({ id: n.id, angle, depth })
+    if (depth > 0) (rings[depth] ??= []).push(angle)
+    const total = leaves.get(n.id)!
+    let a = a0
+    for (const c of n.children) {
+      if (!vis(c)) continue
+      const span = (a1 - a0) * leaves.get(c.id)! / total
+      walk(c, a, a + span, depth + 1)
+      a += span
+    }
+  }
+  walk(root, START, START + 2 * Math.PI, 0)
+  const radius: number[] = [0]
+  for (let d = 1; d < rings.length; d++) {
+    const r = rings[d] ?? []
+    let gap = Math.PI * 2
+    for (let i = 1; i < r.length; i++) gap = Math.min(gap, r[i]! - r[i - 1]!)
+    if (r.length > 1) gap = Math.min(gap, r[0]! + 2 * Math.PI - r[r.length - 1]!)
+    const need = r.length > 1 ? RING_PITCH / (2 * Math.sin(Math.min(gap, Math.PI) / 2)) : 0
+    radius[d] = Math.max(need, d === 1 ? RING_FIRST : radius[d - 1]! + RING_STEP)
+  }
+  const out = new Map<string, Pt>()
+  const cx = EYE_ANCHOR_X + NODE_W / 2
+  for (const p of placed) {
+    const r = radius[p.depth]!
+    out.set(p.id, { x: cx + r * Math.cos(p.angle) - NODE_W / 2, y: r * Math.sin(p.angle) - NODE_H / 2 })
+  }
+  return out
+}
+
+export function layout(root: CanvasNode, hidden: Map<string, string> = new Map(), mode: ChartLayout = 'row'): Map<string, Pt> {
+  if (mode === 'circular') return layoutCircular(root, hidden)
   // `hidden`: piled-away retirees (and their subtrees) — they take NO layout
   // space; their positions are assigned afterwards onto their pile's front
   const pos = new Map<string, Pt>()
@@ -2082,8 +2389,14 @@ export function revealFileFromEvent(e: {
   return true
 }
 if (typeof document !== 'undefined') {
-  document.addEventListener('click', copyCodeFromEvent)
-  document.addEventListener('click', revealFileFromEvent)
+  // CAPTURE, not bubble (docket v3-copy-button-on-code-blocks-in-the-agent-chat):
+  // every PinFrame panel — the Attention view's desk, mail, the docket,
+  // presentations — stops click propagation at its panel (modalpin.tsx), so a
+  // bubbling listener never heard a copy click inside one and the button did
+  // nothing. Popped-out windows already listen in capture (popout.tsx).
+  // Local file links had the same fault and take the same fix.
+  document.addEventListener('click', copyCodeFromEvent, true)
+  document.addEventListener('click', revealFileFromEvent, true)
 }
 /** `imgBase` (optional): the node-scoped /file URL prefix relative image
  *  srcs resolve against — pass `fileBase(slug, nid)` where the author's
@@ -2262,13 +2575,82 @@ export function useEsc(close: () => void, enabled = true, within?: Document | nu
  *  the data being refreshed. The fetcher is held in a ref so an inline arrow
  *  does not restart the timer on every render; `deps` decides identity.
  */
-export function usePolled<T>(
+/**
+ * WHAT A POLLED SURFACE KNOWS ABOUT ITS OWN DATA, beyond the data.
+ *
+ * `usePolled` returns a value or `null`, and a caller cannot tell those two
+ * nulls apart: "the first read has not come back yet" and "the first read
+ * FAILED" look identical, and a value retained after a later failure looks
+ * exactly like a value that was just confirmed. For most panels that is fine —
+ * a slightly old list is a slightly old list. For a surface whose whole job is
+ * telling the user what is waiting on them it is not: a queue that last read
+ * successfully as EMPTY and then goes unreadable says "nothing is waiting" with
+ * full confidence, which reads as "nothing needs you" when the truth is
+ * "nothing could be read".
+ *
+ * So the status is published, and the four states are kept distinct rather than
+ * collapsed into a boolean:
+ *
+ *   loading      no value yet, no failure yet — the first read is in flight
+ *   unavailable  no value, and the last attempt FAILED. NOT "loading forever":
+ *                the surface knows it could not read, and must say so
+ *   stale        there IS a value and the last attempt failed, so what is on
+ *                screen may no longer be true
+ *   (none set)   the last attempt succeeded; the value is current as of `at`
+ */
+export interface PolledStatus {
+  /** the first read for this identity has not come back, and none has failed */
+  loading: boolean
+  /** the most recent attempt failed, whatever else is true */
+  failed: boolean
+  /** a value is on screen AND the most recent attempt failed */
+  stale: boolean
+  /** no value at all AND the most recent attempt failed */
+  unavailable: boolean
+  /** `Date.now()` of the last SUCCESSFUL read, for an "as of" */
+  at: number | null
+  /** the last failure's message, for a surface that wants to show why */
+  error: string | null
+}
+
+const POLL_LOADING: PolledStatus = {
+  loading: true, failed: false, stale: false, unavailable: false, at: null, error: null,
+}
+
+interface Polled<T> { value: T | null; status: PolledStatus }
+
+/**
+ * The one polling implementation. `usePolled` is this with the status dropped,
+ * so there is exactly one timer, one livebus subscription and one copy of every
+ * value in the app — adding a second poller beside this one would put two
+ * fetches and two answers behind every panel that wanted to know it had failed.
+ *
+ * ⚠ ORDERING IS PART OF THE CONTRACT, and it was not before. Two ticks can be
+ * in flight at once — the interval and a livebus bump land together routinely —
+ * and the previous implementation wrote whichever RESOLVED last. A slow earlier
+ * request could therefore overwrite a newer answer, and nothing said otherwise.
+ * Each request now carries a sequence number and a completion older than the
+ * last accepted one is dropped, for the STATUS as much as the value: a stale
+ * failure must not mark a freshly-succeeded read as stale either.
+ *
+ * ⚠ AND AN IDENTITY CHANGE INVALIDATES EVERYTHING IN FLIGHT. `deps` is the
+ * identity of the thing being fetched (slug, node, folder), so an answer issued
+ * for the previous organization is not a late answer about this one — it is an
+ * answer about something else. The effect's own `dead` flag already carries
+ * that (see below); what is new is that it now covers the STATUS too, so the
+ * organization the user left failing cannot mark the one they are in as
+ * unreadable.
+ */
+export function usePolledStatus<T>(
   fetcher: () => Promise<T>, deps: DependencyList, ms = 5000,
   refreshKey: unknown = 0,
-): T | null {
-  const [v, setV] = useState<T | null>(null)
+): Polled<T> {
+  const [state, setState] = useState<Polled<T>>({ value: null, status: POLL_LOADING })
   const ref = useRef(fetcher)
   ref.current = fetcher
+  // the ordering counters for the run in flight
+  const issued = useRef(0)
+  const accepted = useRef(0)
   // ⚠ a DEPS change is an IDENTITY change (new folder, new node, new org) —
   // the previous identity's data must not stay on screen until the new fetch
   // lands (redteam finding, render.test §6.10: a slow fetch left folder A's
@@ -2277,13 +2659,49 @@ export function usePolled<T>(
   // state review opens with. `refreshKey` is the OTHER kind of restart: same
   // identity, fetch again now (the read-ack bump, 89fecd9) — resetting there
   // would blank the inbox on every mark-read, so it deliberately does not.
-  useEffect(() => { setV(null) },
+  useEffect(() => {
+    issued.current = 0
+    accepted.current = 0
+    setState({ value: null, status: POLL_LOADING })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [...deps])
+  }, [...deps])
   useEffect(() => {
     let dead = false
+    // ⚠ `dead` IS WHAT INVALIDATES A PRIOR IDENTITY, and no separate generation
+    // counter is needed beside it. A deps change re-runs this effect, whose
+    // cleanup sets `dead` on the closure every in-flight request of the old
+    // identity was issued from — so an answer for the organization the user
+    // just left is dropped because it belongs to a dead run, not because a
+    // counter says so. A generation guard stood here briefly and was removed:
+    // deleting it changed no test, which is the definition of a guard nothing
+    // can be seen failing. `seq` is the part `dead` does NOT cover — two ticks
+    // inside ONE run, which is the routine interval/livebus overlap.
+    const usable = (seq: number) => !dead && seq >= accepted.current
     const tick = () => {
-      void ref.current().then((r) => { if (!dead) setV(r) }).catch(() => {})
+      const seq = ++issued.current
+      void ref.current().then(
+        (r) => {
+          if (!usable(seq)) return
+          accepted.current = seq
+          setState({
+            value: r,
+            status: { loading: false, failed: false, stale: false,
+              unavailable: false, at: Date.now(), error: null },
+          })
+        },
+        (e: unknown) => {
+          if (!usable(seq)) return
+          accepted.current = seq
+          // the VALUE is retained — a failed refresh does not erase what was
+          // last true — and the status is what says it may have moved on
+          setState((prev) => ({
+            value: prev.value,
+            status: { loading: false, failed: true,
+              stale: prev.value !== null, unavailable: prev.value === null,
+              at: prev.status.at,
+              error: e instanceof Error ? e.message : String(e) },
+          }))
+        })
     }
     tick()
     const t = setInterval(tick, ms)
@@ -2298,7 +2716,18 @@ export function usePolled<T>(
     // being fetched (slug, node, folder), which is what should restart it
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, ms, refreshKey])
-  return v
+  return state
+}
+
+/** The value-only reader every existing panel uses. Unchanged in signature and
+ *  in behaviour: same one implementation, same timer, same reset rule — the
+ *  status is simply not returned, so no call site has to migrate. */
+export function usePolled<T>(
+  fetcher: () => Promise<T>, deps: DependencyList, ms = 5000,
+  refreshKey: unknown = 0,
+): T | null {
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return usePolledStatus(fetcher, deps, ms, refreshKey).value
 }
 
 /** A NAVIGATION REQUEST, with an identity of its own.

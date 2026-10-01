@@ -1,11 +1,13 @@
 """Source contract checks and unsafe-control refusals; no live state or PG."""
 from __future__ import annotations
 
+import ast
 import contextlib
 import copy
 import io
 import json
 from pathlib import Path
+import re
 import sys
 import subprocess
 import tempfile
@@ -14,6 +16,22 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 import state_operation_contracts as contracts
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
+
+def site_names(sites):
+    """[(site, (file, function, ordinal))] for inventoried sites. The W1-W8, S2k, launch and middleware pins name a site
+    by its function and its index among that function's sites of the same inventory list (ordered by line) instead of
+    by its line, so an edit elsewhere in the file does not move them. Module-level sites share the function
+    '<module>', so only a new module-level site above a pinned one renumbers it."""
+    groups = {}
+    for s in sites:
+        groups.setdefault((s["source"]["path"], s["source"]["symbol"]), []).append(s)
+    out = []
+    for (path, symbol), same in groups.items():
+        same.sort(key=lambda s: (s["source"]["line"], s["source"].get("end_line", 0), json.dumps(s, sort_keys=True)))
+        out += [(s, (path.rsplit("/", 1)[1], symbol, n)) for n, s in enumerate(same)]
+    return out
 
 
 class ContractCoverage(unittest.TestCase):
@@ -40,8 +58,819 @@ class ContractCoverage(unittest.TestCase):
         self.assertFalse(result["contract_coverage_complete"])
         self.assertGreater(result["summary"]["entries"]["pending"], 0)
         self.assertGreater(result["summary"]["storage"]["pending"], 0)
-        self.assertEqual(result["contracts"], 15)
+        # THE one registry-wide tripwire (review of S3 candidate 1): every candidate
+        # that maps a witness or adds a contract moves these numbers here, and only here.
+        self.assertEqual(result["contracts"], 193)
+        self.assertEqual((result["summary"]["entries"]["mapped"], result["summary"]["dispatch"]["mapped"],
+                          result["summary"]["storage"]["mapped"]), (153, 168, 6))
+        # 571 -> 590 (P01 F1): 19 entries and 19 dispatch witnesses mapped, 57 new open dimension occurrences
+        # (conflicts, wire and instrumentation on each of the 19 lifecycle contracts), as the Q1 ruling expects
+        # 590 -> 608 (P01 F1b): the operator door and 23 of its branches mapped, 42 new open dimension
+        # occurrences (variant-conflicts, wire and variant-instrumentation on each of 14 contracts)
+        # 608 -> 635 (P01 F3): 13 entries and 26 dispatch witnesses mapped, 66 new open dimension
+        # occurrences (conflicts, wire and instrumentation on each of 22 contracts)
+        # 635 -> 663 (P01 F2): 22 entries and 28 dispatch witnesses mapped, 78 new open dimension
+        # occurrences (conflicts, wire and instrumentation on each of 26 contracts)
+        # 663 -> 673 (P01 relaunch-cards item): 9 new entry witnesses (the 2 relaunch cards and 7 card-less tool
+        # verbs), 3 of them mapped and 6 pending with their owners; 11 dispatch witnesses mapped; 15 new open
+        # dimension occurrences (conflicts, wire and instrumentation on each of 5 relaunch contracts)
+        # 673 -> 659 (P01 F1/F1b follow-up): operator-ops.variant-instrumentation closed from P02's rows, 14 open
+        # dimension occurrences fewer (one on each F1b contract); lifecycle.instrumentation only narrowed
+        # 659 -> 645 (P01 F3/F2 instrumentation follow-up): asks.instrumentation and audiences.instrumentation closed
+        # from P02's rows (7 contracts each); watchdogs and control instrumentation only narrowed
+        # 645 -> 664 (P01 F4): 20 entries, 4 dispatch witnesses and 2 storage sites mapped, 45 new open dimension
+        # occurrences (conflicts, wire and instrumentation on each of 15 exchange contracts)
+        # 664 -> 692 (P01 F6): 15 entries and 2 dispatch witnesses mapped, 45 new open dimension occurrences
+        # (conflicts, wire and instrumentation on each of 15 org-read contracts)
+        # 692 -> 714 (P01 F7): 11 entries mapped, 33 new open dimension occurrences (conflicts, wire and
+        # instrumentation on each of 11 org-admin contracts)
+        # 714 -> 705 (the external-chat retirement, docket the-external-chat-mcp-server-cannot-reach-the-v2): the three
+        # exchange.extern-* contracts and their 7 entries left with the routes and the externtool cards, taking their
+        # 9 open dimension occurrences (conflicts, wire and instrumentation on each)
+        # 705 -> 704 (the external-chat retirement's second stage): the handle sweeper's registration and its pending
+        # entry row are gone
+        # 704 -> 742 (P01 F8): 21 entries and 4 dispatch witnesses mapped, 63 new open dimension occurrences
+        # (conflicts, wire and instrumentation on each of 21 git-workspace contracts)
+        # 742 -> 744 (p01-inventory-misses-middleware-add-middleware-c): the scan now sees middleware installed by
+        # add_middleware and by a direct decorator-factory call; of its 5 new entries the two request-wide
+        # admission layers (RecoveryBarrier, FrozenAdminBoundary) stay pending
+        # 744 -> 752 (P01 F9): 6 entries and 4 storage witnesses mapped, 18 new open dimension occurrences
+        # (conflicts, wire and instrumentation on each of 6 desktop-import contracts)
+        # 752 -> 784 (P01 re-anchor after PYPG): 32 new pending rows for the sites PYPG, PG-4 and the change-feed
+        # queue added (12 registrations, 13 dispatch branches, 7 PostgreSQL connection sites)
+        self.assertEqual(len(result["pending"]), 784)
         self.assertEqual(result["qualification"], {"runtime_census": False, "conversion_authorized": False})
+
+    # S2 decision 1 (strict): a facet P01 cannot close carries its owner, the
+    # evidence that would close it, and why the available evidence does not.
+    # The wire facets get theirs with their legacy-parity fixtures.
+    ANNOTATION_PENDING: set[str] = set()
+
+    def test_every_unresolved_facet_names_its_owner_and_closing_evidence(self):
+        unresolved = {k for k, f in self.document["facets"].items() if f["status"] == "unresolved"}
+        self.assertLessEqual(self.ANNOTATION_PENDING, unresolved)
+        for name in sorted(unresolved - self.ANNOTATION_PENDING):
+            with self.subTest(facet=name):
+                notes = [q for q in self.document["facets"][name]["open_questions"] if q.startswith("Owner: ")]
+                self.assertEqual(len(notes), 1)
+                self.assertIn(". Closes with: ", notes[0])
+                self.assertIn(". Not coverable at P01 from available evidence: ", notes[0])
+                self.assertGreater(len(self.document["facets"][name]["open_questions"]), 1)
+
+    def test_s2j_closes_diagnostic_instrumentation_and_narrows_the_sandbox_remainder(self):
+        # coordinator ruling 2026-09-24 21:14Z: P02's reviewed probe-level record meets the clause
+        facets = self.document["facets"]
+        closed = facets["diagnostic.instrumentation"]
+        self.assertEqual((closed["status"], closed["open_questions"]), ("specified", []))
+        narrowed = {"org-view.instrumentation": "token-map rebuild (kiosk_token_scan)",
+                    "material.reads": "DISK-BACKED sandboxed organization",
+                    "material.effects": "SUCCESSFUL sandbox chown_agent"}
+        for name, clause in narrowed.items():
+            with self.subTest(facet=name):
+                self.assertEqual(facets[name]["status"], "unresolved")
+                [owner] = [q for q in facets[name]["open_questions"] if q.startswith("Owner: ")]
+                closes = owner.split(". Closes with: ", 1)[1].split(". Not coverable at P01", 1)[0]
+                self.assertIn(clause, closes)
+                self.assertIn("narrowed by P01 S2j", closes)
+
+    def test_s2k_storage_triage_excludes_only_sites_that_are_not_org_state(self):
+        # P01 S2k (coordinator ruling 2026-09-24 21:14Z), by source reading: four connection candidates are not org
+        # state and are excluded; none is mapped (a shared store maps only once every operation reaching it has a
+        # contract); the other eleven stay pending with a reason that says why
+        sites = {contracts.witness_id("storage", s): s["source"] for s in self.source["connection_sites"]}
+        rows = {r["id"]: r for r in self.document["storage"]}
+        self.assertEqual(set(sites), set(rows))
+
+        def where(i):
+            return sites[i]["path"].rsplit("/", 1)[1] + ":" + sites[i]["symbol"]
+        by = {}
+        for i, r in rows.items():
+            by.setdefault(r["disposition"], []).append(where(i))
+        self.assertEqual(sorted(by["excluded"]), ["antigravity_provenance.py:_Read.__init__",
+                                                  "antigravity_provenance.py:_Read.__init__",
+                                                  "api.py:_share_url", "liveness.py:_observe_port"])
+        # P01 F4 maps the two sidecar sites only its operations reach (rule 1): the file_deliveries write and the
+        # reply_events read-only count. P01 F9 maps the four desktop import sites only its routes reach (rule 1): the
+        # V1 store's private copy and backup (preview and the job) and the V2 candidate store (the job)
+        self.assertEqual(sorted(by["mapped"]), ["desktop_import.py:_read_document"] * 3
+                         + ["desktop_import.py:_write_candidate", "filedelivery.py:snapshot", "reply_events.py:count"])
+        # 11 from S2k, plus the 3 mail hub store migration connections the launch.py item's wider scan found, less
+        # the two P01 F4 mapped, less the four P01 F9 mapped
+        # 8 -> 15 (P01 re-anchor after PYPG): the seven PostgreSQL connection sites (pgstore x5, pgfeed,
+        # store.claim_data_root) stay pending
+        self.assertEqual(len(by["pending"]), 15)
+        self.assertEqual(by["pending"].count("mailhub_runtime.py:MailhubRuntime._migrate_store"), 3)
+        # the org store and every census-observed sidecar stay pending, each with its S2k reason
+        self.assertLessEqual({"store.py:_open_conn", "toolwait.py:_db", "reply_events.py:_connect",
+                              "transcript_records.py:database", "chat_window.py:project_tail"}, set(by["pending"]))
+        for i, r in rows.items():
+            if r["disposition"] == "mapped":
+                self.assertIn("(P01 F9, rule 1)" if where(i).startswith("desktop_import.py:") else "(P01 F4, rule 1)",
+                              r["reason"])
+                continue
+            with self.subTest(site=where(i)):
+                step = "launch.py item" if where(i).startswith("mailhub_runtime.py:") else "S2k"
+                prefix = "Stays pending (P01 " + step + "): " if r["disposition"] == "pending" else "Not "
+                self.assertTrue(r["reason"].startswith(prefix), r["reason"][:60])
+
+    # W1-W8 (coordinator-approved plan 2026-09-24 21:57Z; the rules are decision 1 on the W1 item): map only when
+    # every operation reaching a witness has a contract, exclude only what source reading shows is not an org-state
+    # operation, otherwise stay pending with a reason that names the owner
+    W1_EXCLUDED = {("api.py", "<module>", 1), ("api.py", "<module>", 2), ("api.py", "<module>", 6),
+                   ("api.py", "<module>", 7), ("api.py", "<module>", 8), ("api.py", "_validation_error", 0),
+                   ("api.py", "_unhandled_error", 0), ("api.py", "_cancel_startup", 0), ("disk.py", "create", 0),
+                   ("sandbox.py", "ensure_container", 0), ("sandbox.py", "try_apply_pending_resize", 0),
+                   ("sandbox.py", "try_apply_pending_resize", 1), ("turnread.py", "<module>", 0)}
+    # the 4 stderr pumps feed the failure path, which can freeze a node (W1 review fix)
+    W1_PENDING = {("api.py", "_wire_notify", 0), ("antigravityrun.py", "AntigravityTurn.launch", 0),
+                  ("codexrun.py", "AppServerClient.__init__", 0), ("warmpool.py", "WarmProc.__init__", 0),
+                  ("antigravityrun.py", "AntigravityTurn.launch", 1), ("codexrun.py", "AppServerClient.__init__", 1),
+                  ("warmpool.py", "WarmProc.__init__", 1), ("warmpool.py", "ColdStderr.__init__", 0)}
+
+    def test_w1_plumbing_registrations_are_triaged(self):
+        names = {r["site_id"]: n for r, n in site_names(self.source["registrations"])}
+        rows = {r["id"]: r for r in self.document["entries"]}
+
+        def at(i):
+            return names[i]
+        excluded = {at(i) for i, r in rows.items() if r["disposition"] == "excluded"}
+        self.assertEqual(excluded & (self.W1_EXCLUDED | self.W1_PENDING), self.W1_EXCLUDED)
+        for i, r in rows.items():
+            with self.subTest(site=at(i)):
+                if at(i) in self.W1_EXCLUDED:
+                    self.assertTrue(r["reason"].startswith("Not ") and r["reason"].endswith(" P01 W1."), r["reason"])
+                if at(i) in self.W1_PENDING:
+                    self.assertEqual(r["disposition"], "pending")
+                    self.assertTrue(r["reason"].startswith("Stays pending (P01 W1): "), r["reason"][:60])
+                    self.assertIn("Owner: ", r["reason"])
+
+    # the client-process branches call inventoried routes (coordinator ruling, decision 2 on the W8 item)
+    # (the four externtool.py client branches left with the external-chat server, retired by user ruling)
+    W8_EXCLUDED = {("mcptool.py", "_desktop_relaunch_catalogue", 0), ("mcptool.py", "_desktop_relaunch_catalogue", 1),
+                   ("mcptool.py", "call_api", 0)}
+    # P01 F2 mapped the twelve warmpool process-control rows (the process route is contracted)
+    # P01 F8 mapped the four gitworkspace.py branches (only the contracted git workspace routes reach them)
+    W8_PENDING = ({("desktop_recovery.py", "resolve_import", n) for n in range(7)}
+                  | {("toolwait.py", "tool_name", 0)})    # P01 F6 mapped the two supervisor.py transcript card branches
+    # the EXACT route each client-process exclusion calls (W8 review finding f1: 'a route' is not 'the route')
+    W8_CLIENT_ROUTES = {("mcptool.py", "call_api", 0): (("api.py", "_agent_call_route", 0), "/api/agent")}
+
+    def test_w8_machine_client_and_presentation_dispatch_is_triaged(self):
+        # W1-W8 rules (decision 1 on the W1 item) with rule 2 as sharpened (decision 2 there); an HTTP-client
+        # branch is excluded only when the route it calls is itself inventoried (coordinator ruling, W8 decision 2)
+        names = {contracts.witness_id("dispatch", r): n for r, n in site_names(self.source["dispatch_selectors"])}
+        rows = {r["id"]: r for r in self.document["dispatch"]}
+
+        def at(i):
+            return names[i]
+        self.assertEqual({at(i) for i, r in rows.items() if r["disposition"] == "excluded"}
+                         & (self.W8_EXCLUDED | self.W8_PENDING), self.W8_EXCLUDED)
+        self.assertEqual(len(self.W8_PENDING), 8)
+        # the ruling's condition: a client-process exclusion must cite the inventoried route it calls, and no other
+        routes = {n: r for r, n in site_names(self.source["registrations"]) if r["kind"] == "http"}
+        route_at = {(n[0], r["source"]["line"]): n for n, r in routes.items()}
+        seen = set()
+        for i, r in rows.items():
+            if at(i) in self.W8_EXCLUDED:
+                with self.subTest(site=at(i)):
+                    self.assertTrue(r["reason"].startswith("Not ") and r["reason"].endswith(" P01 W8."), r["reason"])
+                    self.assertEqual(at(i) == ("mcptool.py", "call_api", 0), at(i) in self.W8_CLIENT_ROUTES)
+                    if at(i) in self.W8_CLIENT_ROUTES:
+                        route, url = self.W8_CLIENT_ROUTES[at(i)]
+                        self.assertEqual(routes[route]["selectors"] if route in routes else None, [url])
+                        cited = {route_at[(ref["path"].rsplit("/", 1)[1], n)] for ref in r["source_refs"]
+                                 for n in range(ref["start"], ref["end"] + 1)
+                                 if (ref["path"].rsplit("/", 1)[1], n) in route_at}
+                        self.assertEqual(cited, {route}, r["source_refs"])
+            if at(i) in self.W8_PENDING:
+                seen.add(at(i))
+                with self.subTest(site=at(i)):
+                    self.assertEqual(r["disposition"], "pending")
+                    self.assertTrue(r["reason"].startswith("Stays pending (P01 W8): "), r["reason"][:60])
+                    self.assertIn("Owner: ", r["reason"])
+        self.assertEqual(seen, self.W8_PENDING)
+
+    # antigravity_status fills the provider-status cache the hire gate and the turn launcher read (W2 review fix)
+    W2_EXCLUDED: set[tuple[str, str, int]] = set()
+    W2_PENDING = ({("codexrun.py", f, 0) for f in ("AppServerClient._admit", "CodexTurn.__init__",
+                                                   "CodexTurn.steer._late", "CodexTurn.steer")}
+                  | {("providers.py", "providers_payload", 0)}
+                  | {("gitworkspace.py", "snapshot", n) for n in range(6)}
+                  | {("gitworkspace.py", "FetchScheduler.request", 0)}
+                  | {("net.py", "start_net_client", 0), ("net.py", "start_net_client", 1), ("sandbox.py", "warm", 0)}
+                  | {("supervisor.py", f, 0) for f in (
+                      "workspace_usage_cached", "_spawn_reset_refresh", "start_usage_warm_loop",
+                      "_codex_leg_attempt._on_event", "_codex_leg_attempt", "_codex_leg_attempt._steer_pump",
+                      "_antigravity_leg", "_run_one_turn_recorded._start_cold_mcp_pump", "start_cred_watcher")}
+                  | {("supervisor.py", "_codex_leg_attempt", 1), ("supervisor.py", "_antigravity_leg", 1)}
+                  | {("warmpool.py", f, 0) for f in ("_release_process_control", "_codex_prewarm_events._on_event",
+                                                     "_prewarm_node.run", "start_warm_pool")})
+    S2K_EXCLUDED = {("antigravity_provenance.py", "_Read.__init__", 0), ("antigravity_provenance.py", "_Read.__init__", 1),
+                    ("api.py", "_share_url", 0), ("liveness.py", "_observe_port", 0)}
+
+    def test_w2_provider_and_machine_workers_are_triaged(self):
+        names = {r["site_id"]: n for r, n in site_names(self.source["registrations"])}
+        rows = {r["id"]: r for r in self.document["entries"]}
+
+        def at(i):
+            return names[i]
+        mine = self.W2_EXCLUDED | self.W2_PENDING
+        self.assertEqual(len(mine), 30)
+        self.assertEqual({at(i) for i, r in rows.items() if r["disposition"] == "excluded"} & mine, self.W2_EXCLUDED)
+        seen = set()
+        for i, r in rows.items():
+            if at(i) not in mine:
+                continue
+            seen.add(at(i))
+            with self.subTest(site=at(i)):
+                if at(i) in self.W2_EXCLUDED:
+                    self.assertTrue(r["reason"].startswith("Not ") and r["reason"].endswith(" P01 W2."), r["reason"])
+                else:
+                    self.assertEqual(r["disposition"], "pending")
+                    self.assertTrue(r["reason"].startswith("Stays pending (P01 W2): "), r["reason"][:60])
+                    self.assertIn("Owner: ", r["reason"])
+        self.assertEqual(seen, mine)
+
+    # p01-inventory-misses-the-production-routes-mount: the launcher's router include and server task, and the
+    # guardian and service-host startup readers
+    LAUNCH_EXCLUDED = {("launch.py", "load_app", 0), ("launch.py", "main.serve", 0),
+                       ("process_lifetime.py", "arm_process_lifetime", 0), ("service_host.py", "main", 0)}
+
+    # p01-inventory-misses-middleware-add-middleware-c: middleware installed by a call, not a decorator
+    MIDDLEWARE_EXCLUDED = {("api.py", "<module>", 3), ("api.py", "<module>", 5), ("p03_door.py", "install", 0)}
+    MIDDLEWARE_PENDING = {("api.py", "<module>", 0), ("api.py", "<module>", 4)}
+
+    def test_middleware_registrations_are_triaged(self):
+        registrations = {r["site_id"]: r for r in self.source["registrations"]}
+        names = {r["site_id"]: n for r, n in site_names(self.source["registrations"])}
+        rows = {r["id"]: r for r in self.document["entries"]}
+
+        def at(i):
+            return names[i]
+        found = {at(i): (registrations[i], r) for i, r in rows.items()
+                 if at(i) in self.MIDDLEWARE_EXCLUDED | self.MIDDLEWARE_PENDING}
+        self.assertEqual(set(found), self.MIDDLEWARE_EXCLUDED | self.MIDDLEWARE_PENDING)
+        item = "p01-inventory-misses-middleware-add-middleware-c"
+        for where, (site, r) in found.items():
+            with self.subTest(site=where):
+                if where in self.MIDDLEWARE_PENDING:
+                    self.assertEqual((r["disposition"], site["mechanism"]), ("pending", "app.add_middleware"))
+                    self.assertTrue(r["reason"].startswith("Stays pending (P01 item " + item + "): "), r["reason"])
+                    self.assertIn("Owner: ", r["reason"])
+                else:
+                    self.assertEqual(r["disposition"], "excluded")
+                    self.assertTrue(r["reason"].startswith("Not "), r["reason"])
+                    self.assertIn(item, r["reason"])
+        door = found[("p03_door.py", "install", 0)][0]
+        self.assertEqual((door["kind"], door["method"], door["form"], door["target"]),
+                         ("hook", "middleware", "direct_call", "_Router(root)"))
+        # the door row is excluded only while the door is inert: once SLICE_TOOLS names a verb, _Router is a second
+        # /api/agent dispatch path and this row (and the contracts of the verbs it forwards) must be revisited
+        tree = ast.parse((ROOT / "engine/backend/orgtree/p03_door.py").read_text(encoding="utf-8-sig"))
+        [value] = [n.value for n in tree.body if isinstance(n, ast.AnnAssign)
+                   and isinstance(n.target, ast.Name) and n.target.id == "SLICE_TOOLS"]
+        self.assertEqual(ast.dump(value), ast.dump(ast.parse("frozenset()", mode="eval").body),
+                         "p03_door.SLICE_TOOLS names slice verbs: revisit the door's middleware entry row")
+
+    def test_every_excluded_witness_belongs_to_a_reviewed_triage_step(self):
+        # no exclusion outside S2k (storage) and W1/W2/W3/W8 (their review records hold the source reading)
+        groups = {"entries": ({r["site_id"]: n for r, n in site_names(self.source["registrations"])},
+                              self.W1_EXCLUDED | self.W2_EXCLUDED | self.W3_EXCLUDED | self.LAUNCH_EXCLUDED
+                              | self.MIDDLEWARE_EXCLUDED),
+                  "dispatch": ({contracts.witness_id("dispatch", r): n
+                                for r, n in site_names(self.source["dispatch_selectors"])}, self.W8_EXCLUDED),
+                  "storage": ({contracts.witness_id("storage", r): n
+                               for r, n in site_names(self.source["connection_sites"])}, self.S2K_EXCLUDED)}
+        for group, (sites, reviewed) in groups.items():
+            with self.subTest(group=group):
+                excluded = {sites[r["id"]] for r in self.document[group] if r["disposition"] == "excluded"}
+                self.assertEqual(excluded, reviewed)
+
+    W3_EXCLUDED = {("startup.py", "Recovery.cancel", 0)}
+    # (the external-chat handle sweeper, supervisor.start_extern_sweeper, left with the retirement's second stage)
+    W3_PENDING = ({("api.py", "node_message", 1), ("api.py", "node_compact", 1),
+                   ("assistant_messages.py", "TextBatcher.add", 0), ("desktop_import_jobs.py", "start", 0),
+                   ("desktop_maintenance.py", "_arm_hold_expiry", 0), ("halt.py", "_start_settler", 0),
+                   ("halt.py", "resume_pending", 0), ("maildrain.py", "start", 0), ("staffcache.py", "_spawn_refresh", 0),
+                   ("startup.py", "Recovery.start", 0), ("toolwait.py", "invoke", 0), ("toolwait.py", "start", 0),
+                   ("transcript_ingest.py", "start", 0)}
+                  | {("supervisor.py", f, 0) for f in (
+                      "_launch_working_cache_read", "start_working_cache_keeper", "_arm_deploy_window",
+                      "_start_turn_worker", "_run_one_turn_recorded", "maybe_storage_check", "immediate_command",
+                      "start_storage_watchdog", "resume_frozen", "start_auto_resume_loop", "_fire_prime",
+                      "start_prime_restart_engine", "start_steer_late_watchdog", "wd_smoke", "_wd_cmd_submit",
+                      "_wd_ensure_stream", "start_watchdog_engine")})
+
+    def test_w3_org_state_workers_are_triaged(self):
+        registrations = {r["site_id"]: r for r in self.source["registrations"]}
+        names = {r["site_id"]: n for r, n in site_names(self.source["registrations"])}
+        rows = {r["id"]: r for r in self.document["entries"]}
+
+        def at(i):
+            return names[i]
+        mine = self.W3_EXCLUDED | self.W3_PENDING
+        self.assertEqual(len(mine), 31)     # 32 until the handle sweeper left (retirement stage 2)
+        seen = set()
+        for i, r in rows.items():
+            if at(i) not in mine:
+                continue
+            seen.add(at(i))
+            with self.subTest(site=at(i)):
+                if at(i) in self.W3_EXCLUDED:
+                    self.assertEqual(r["disposition"], "excluded")
+                    self.assertTrue(r["reason"].startswith("Not ") and r["reason"].endswith(" P01 W3."), r["reason"])
+                else:
+                    self.assertEqual(r["disposition"], "pending")
+                    self.assertTrue(r["reason"].startswith("Stays pending (P01 W3): "), r["reason"][:60])
+                    self.assertIn("Owner: ", r["reason"])
+        self.assertEqual(seen, mine)
+        # W1-W3 leave no non-concrete registration with the generic reason (the two post-surface to_thread rows
+        # keep theirs, coordinator: not now)
+        generic = [at(i) for i, r in rows.items() if r["disposition"] == "pending"
+                   and r["reason"].startswith("Requires explicit source review")
+                   and registrations[i]["kind"] not in ("http", "websocket", "tool")]
+        self.assertEqual(generic, [])
+
+    def test_w4_agent_door_tool_branches_name_their_tool_and_owner(self):
+        rows = {r["id"]: r for r in self.document["dispatch"]}
+        branches = [s for s in self.source["dispatch_selectors"]
+                    if s["source"]["symbol"] == "agent_call" and s["selector"] == "body.tool"
+                    and rows[contracts.witness_id("dispatch", s)]["reason"].startswith("Stays pending (P01 W4): ")]
+        # 40 -> 24: P01 F1 mapped the sixteen lifecycle and catalogue tool branches
+        # 24 -> 17: P01 F3 mapped the seven ask, report, scope, watchdog and audience tool branches
+        # 17 -> 9: P01 F2 mapped the eight run-control tool branches
+        # 9 -> 4: the relaunch-cards item mapped the self_relaunch, prime_relaunch and self_update branches
+        # 4 -> 1: P01 F4 mapped the orgtree_send_file and orgtree_send_file_once branches (orgtree_account_assign stays)
+        self.assertEqual(len(branches), 1)
+        for s in branches:
+            r = rows[contracts.witness_id("dispatch", s)]
+            with self.subTest(line=s["source"]["line"]):
+                self.assertEqual(r["disposition"], "pending")
+                for tool in s["values"]:
+                    self.assertIn(tool, r["reason"])
+                self.assertIn("Owner: ", r["reason"])
+
+    W5_SYMBOLS = {"_work_mutate_action": 25, "_work_read_call": 6, "_work_expected_rev_route": 1,
+                  "_work_refuse_unused": 1, "Org._work_status_at": 3}      # _attach_ref mapped in P01 F3
+    # P01 F1 mapped _op_post_expected and coverage's rehire branch, and P01 F1b every org_op, _org_op_locked
+    # and operator-preview _apply branch, so no W6 row is left pending
+    W6_SYMBOLS: dict[str, int] = {}
+
+    def test_w5_w6_docket_and_operator_branches_name_their_owner(self):
+        rows = {r["id"]: r for r in self.document["dispatch"]}
+        for step, symbols in (("W5", self.W5_SYMBOLS), ("W6", self.W6_SYMBOLS)):
+            prefix = "Stays pending (P01 " + step + "): "
+            found = {}
+            for s in self.source["dispatch_selectors"]:
+                r = rows[contracts.witness_id("dispatch", s)]
+                if r["reason"].startswith(prefix):
+                    found[s["source"]["symbol"]] = found.get(s["source"]["symbol"], 0) + 1
+                    with self.subTest(step=step, line=s["source"]["line"]):
+                        self.assertEqual(r["disposition"], "pending")
+                        self.assertIn("Owner: ", r["reason"])
+                        for value in s["values"]:
+                            self.assertIn(value, r["reason"])
+            self.assertEqual(found, symbols, step)
+        # the one branch every reaching operation of which is contracted is MAPPED (rule 1; coordinator 23:04Z)
+        [slice_row] = [rows[contracts.witness_id("dispatch", s)] for s in self.source["dispatch_selectors"]
+                       if s["source"]["symbol"] == "result_slice"
+                       and "orgtree_reservation" in s["values"]]
+        self.assertEqual(slice_row["disposition"], "mapped")
+        reservation = {k for k, c in self.document["contracts"].items()
+                       if set(c["tools"]) == {"orgtree_reservation", "orgtree_resource_reservation"}}
+        self.assertEqual((len(reservation), set(slice_row["contracts"])), (11, reservation))
+
+    # P01 F3 mapped user_audience, Org.watchdog_action and the seven watchdog/audience agent_call branches
+    # P01 F2 mapped remote_control and the prime_restart/restart_wake action branches, and the relaunch-cards
+    # item the prime_relaunch branches, the relaunch option check, the maintenance request and the prime gate
+    W7_SYMBOLS: dict[str, int] = {}
+
+    def test_w7_last_dispatch_branches_name_their_owner_and_none_stays_generic(self):
+        rows = {r["id"]: r for r in self.document["dispatch"]}
+        found = {}
+        for s in self.source["dispatch_selectors"]:
+            r = rows[contracts.witness_id("dispatch", s)]
+            if r["reason"].startswith("Stays pending (P01 W7): "):
+                found[s["source"]["symbol"]] = found.get(s["source"]["symbol"], 0) + 1
+                with self.subTest(line=s["source"]["line"]):
+                    self.assertEqual(r["disposition"], "pending")
+                    self.assertIn("Owner: ", r["reason"])
+                    for value in s["values"]:
+                        self.assertIn(value, r["reason"])
+        self.assertEqual(found, self.W7_SYMBOLS)
+        # the maintenance request IS reached in production: launch.py installs it as the restart hook (W7 fix)
+        [maintenance] = [rows[contracts.witness_id("dispatch", s)] for s in self.source["dispatch_selectors"]
+                         if s["source"]["path"].endswith("/desktop_maintenance.py")
+                         and s["source"]["symbol"] == "request"]
+        self.assertNotIn("only tests", maintenance["reason"])
+        self.assertIn("engine/launch.py", maintenance["reason"])
+        self.assertEqual(maintenance["disposition"], "mapped")
+        # W4-W8 leave no dispatch witness with the generic reason
+        self.assertEqual([r["id"] for r in self.document["dispatch"]
+                          if r["reason"].startswith("Requires explicit source review")], [])
+
+    # p01-put-the-owner-of-the-35-older-pending-rows-i: every pending witness names its owner in the standard
+    # form, except the concrete http, websocket and tool entries still on the generic reason (no owner by rule)
+    # 194 -> 175: P01 F1 contracted 19 of them
+    # 175 -> 162: P01 F3 contracted 13 of them
+    # 162 -> 140: P01 F2 contracted 22 of them
+    # 140 -> 121: P01 F4 contracted 19 of them (its 20th entry, orgtree_send_file_once, had its own reason)
+    # 121 -> 106: P01 F6 contracted 15 of them
+    # 106 -> 95: P01 F7 contracted 11 of them
+    # 95 -> 74: P01 F8 contracted 21 of them
+    # 74 -> 68: P01 F9 contracted 6 of them
+    GENERIC_PENDING_ENTRIES = 68
+
+    def test_every_pending_witness_names_its_owner_or_is_a_generic_entry_point(self):
+        kinds = {s["site_id"]: s["kind"] for s in self.source["registrations"]}
+        generic = 0
+        for group in ("entries", "dispatch", "storage"):
+            for r in self.document[group]:
+                if r["disposition"] != "pending":
+                    continue
+                with self.subTest(group=group, id=r["id"][:8]):
+                    if r["reason"].startswith("Requires explicit source review"):
+                        self.assertEqual(group, "entries")
+                        self.assertIn(kinds[r["id"]], {"http", "websocket", "tool"})
+                        generic += 1
+                    else:
+                        self.assertIn("Owner: ", r["reason"])
+        self.assertEqual(generic, self.GENERIC_PENDING_ENTRIES)
+
+    def test_the_account_removal_and_startup_repair_threads_are_org_state_owned_by_the_runtime(self):
+        rows = {r["id"]: r for r in self.document["entries"]}
+        found = {}
+        for s in self.source["registrations"]:
+            if s.get("mechanism") == "asyncio.to_thread" and s["source"]["symbol"] in ("accounts_remove",
+                                                                                   "Recovery.start.run"):
+                r = rows[s["site_id"]]
+                found[s["source"]["symbol"]] = r["disposition"]
+                self.assertTrue(r["reason"].startswith("Stays pending (P01 owner form): "), r["reason"])
+                self.assertIn("Org state.", r["reason"])
+                self.assertTrue(r["reason"].endswith("Owner: the runtime (P08)."), r["reason"])
+        self.assertEqual(found, {"accounts_remove": "pending", "Recovery.start.run": "pending"})
+        self.assertEqual([r["id"] for r in self.document["entries"]
+                          if r["reason"].startswith("Newly recognized")], [])
+
+    # p01-f1-contracts-for-the-org-lifecycle-and-catal: the dispatch branches every reaching operation of which is
+    # now contracted are mapped (rule 1); the shared read-shaped block keeps waiting on orgtree_send_file
+    F1_MAPPED = {("agent_call", 16), ("_op_post_expected", 1), ("coverage", 1), ("result_slice", 1)}
+
+    def test_f1_maps_the_branches_only_lifecycle_tools_reach(self):
+        rows = {r["id"]: r for r in self.document["dispatch"]}
+        found = {}
+        for s in self.source["dispatch_selectors"]:
+            r = rows[contracts.witness_id("dispatch", s)]
+            if "(P01 F1, rule 1)" in r["reason"] and r["disposition"] == "mapped":
+                found[s["source"]["symbol"]] = found.get(s["source"]["symbol"], 0) + 1
+                with self.subTest(line=s["source"]["line"]):
+                    for c in r["contracts"]:
+                        self.assertIn(c, self.document["contracts"])
+        self.assertEqual(set(found.items()), self.F1_MAPPED)
+        [shared] = [rows[contracts.witness_id("dispatch", s)] for s in self.source["dispatch_selectors"]
+                    if s["source"]["symbol"] == "agent_call" and "orgtree_send_file" in s["values"]
+                    and "orgtree_list_tiers" in s["values"]]
+        # P01 F4 maps the shared read block once orgtree_send_file is contracted: every tool it admits has a contract
+        self.assertEqual(shared["disposition"], "mapped")
+        self.assertLessEqual({"catalogue.list-tiers", "exchange.send-file"}, set(shared["contracts"]))
+
+    # P01 F1b: the operator door's branches and the preview simulations only the operator preview reaches
+    F1B_MAPPED = {"org_op": 5, "_org_op_locked": 12, "_apply": 6}
+
+    def test_f1b_maps_the_operator_door_and_its_branches(self):
+        rows = {r["id"]: r for r in self.document["dispatch"]}
+        found = {}
+        for s in self.source["dispatch_selectors"]:
+            r = rows[contracts.witness_id("dispatch", s)]
+            if "(P01 F1b" in r["reason"]:
+                self.assertEqual(r["disposition"], "mapped")
+                found[s["source"]["symbol"]] = found.get(s["source"]["symbol"], 0) + 1
+        self.assertEqual(found, self.F1B_MAPPED)
+        [door] = [r for r in self.document["entries"] if r["id"].startswith("58c040d3")]
+        self.assertEqual((door["disposition"], len(door["contracts"])), ("mapped", 16))
+
+    # P01 F3: the tool branches, the watchdog and audience action branches, the shared helpers whose callers are
+    # now all contracted
+    F3_MAPPED = {"agent_call": 14, "Org.watchdog_action": 6, "user_audience": 3, "_attach_ref": 1,
+                 "Org.credit_request_action": 2}
+
+    def test_f3_maps_the_request_branches(self):
+        rows = {r["id"]: r for r in self.document["dispatch"]}
+        found = {}
+        for s in self.source["dispatch_selectors"]:
+            r = rows[contracts.witness_id("dispatch", s)]
+            if "(P01 F3" in r["reason"]:
+                self.assertEqual(r["disposition"], "mapped")
+                found[s["source"]["symbol"]] = found.get(s["source"]["symbol"], 0) + 1
+        self.assertEqual(found, self.F3_MAPPED)
+        # the transcript's orgtree_present card waited on the desktop chat route; P01 F6 contracts that route (and
+        # the history chat section), so every reader is contracted and the card maps to asks.present
+        [card] = [rows[contracts.witness_id("dispatch", s)] for s in self.source["dispatch_selectors"]
+                  if s["source"]["symbol"] == "_read_chat_source" and s["values"] == ["orgtree_present"]]
+        self.assertEqual((card["disposition"], card["contracts"]), ("mapped", ["asks.present"]))
+
+    # P01 F2: the run-control tool and action branches, the remote-control route's branches and the warmpool
+    # process control (its status helper also serves the contracted tree and node-detail views)
+    F2_MAPPED = {"agent_call": 14, "remote_control": 2, "process_control": 9, "_control_result": 1,
+                 "process_control_status": 2}
+
+    def test_f2_maps_the_run_control_branches(self):
+        rows = {r["id"]: r for r in self.document["dispatch"]}
+        found = {}
+        for s in self.source["dispatch_selectors"]:
+            r = rows[contracts.witness_id("dispatch", s)]
+            if "(P01 F2, rule 1)" in r["reason"]:
+                self.assertEqual(r["disposition"], "mapped")
+                found[s["source"]["symbol"]] = found.get(s["source"]["symbol"], 0) + 1
+        self.assertEqual(found, self.F2_MAPPED)
+
+    def test_contacts_is_specified_only_with_agent_level_mail_locality(self):
+        # S2b ruling R1: org-store locality is not mail locality. contacts became
+        # specified only once P02 observed agent-level mail locality (6721cad); the
+        # fact that carries it, and its org-wide-row limit, must stay.
+        facet = self.document["facets"]["contacts"]
+        self.assertEqual((facet["status"], facet["open_questions"]), ("specified", []))
+        self.assertTrue(any(f.startswith("Agent-level mail-locality negative control") for f in facet["facts"]))
+        self.assertTrue(any(f.startswith("Limit of that control: the legacy mail QUEUE") for f in facet["facts"]))
+        self.assertEqual(self.document["facets"]["wrapper-reads"]["status"], "specified")
+
+    def test_material_wire_legacy_projector_clause_is_closed(self):
+        # S2 decision 2 (option b) split the legacy projector clause out to
+        # p01-transcript-projector-legacy-fixtures; that item fixtured it, so only
+        # the native/Rust clause may remain open on material.wire.
+        questions = self.document["facets"]["material.wire"]["open_questions"]
+        self.assertFalse([q for q in questions if q.startswith("Fixture the legacy transcript projector")])
+        [note] = [q for q in questions if q.startswith("Owner: ")]
+        self.assertTrue(note.startswith("Owner: the native/Rust conversion"), note)
+        self.assertIn("including the transcript projector (p01-transcript-projector-legacy-fixtures), is fixtured", note)
+
+    # A mapped shared tool selector must not drop the obligation of a tool it admits
+    # that has no contract yet (review of S3 candidate 1): every value an In/Eq
+    # tool selector admits must be a tool of one of the contracts it maps to.
+    # dd72cf1a (widened by P02-A1 with orgtree_operation_census) was the one older
+    # exception; S3 decision 3 returned it to pending, so there are none.
+    EARLY_MAPPED: dict[str, set[str]] = {}
+
+    @staticmethod
+    def selected_tools(contract):
+        """The tools a contract covers: its tool cards, plus a tool its `when` selects with
+        equals(tool, X) on a shared door (S3 decision 9: receipt.lookup on POST /api/agent)."""
+        tools = set(contract["tools"])
+        when = contract["when"]
+        for part in when.get("all", [when]):
+            eq = part.get("equals") if isinstance(part, dict) else None
+            if eq and eq.get("key") == "tool":
+                tools.add(eq["value"])
+        return tools
+
+    def test_a_tool_selected_by_equals_counts_only_itself(self):
+        self.assertEqual(self.selected_tools(self.document["contracts"]["receipt.lookup"]), {"orgtree_op_lookup"})
+        self.assertEqual(self.selected_tools(self.document["contracts"]["operator.hire"]), set())   # key op, not tool
+
+    def uncontracted_selector_values(self, document):
+        selectors = {contracts.witness_id("dispatch", r): r for r in self.source["dispatch_selectors"]}
+        gaps = {}
+        for row in document["dispatch"]:
+            site = selectors[row["id"]]
+            if row["disposition"] != "mapped" or site["kind"] != "tool" or site["operator"] not in ("In", "Eq"):
+                continue
+            tools = {t for c in row["contracts"] for t in self.selected_tools(document["contracts"][c])}
+            missing = set(site["values"]) - tools
+            if missing:
+                gaps[row["id"]] = missing
+        return gaps
+
+    def test_mapped_shared_tool_selectors_admit_only_contracted_tools(self):
+        self.assertEqual(self.uncontracted_selector_values(self.document), self.EARLY_MAPPED)
+
+    def test_mapping_a_shared_selector_early_is_caught(self):
+        # a shared selector still pending (the transcript docket button: orgtree_work is not contracted); the
+        # shared read block S3 candidate 1 used here is mapped since P01 F4
+        document = copy.deepcopy(self.document)
+        row = next(r for r in document["dispatch"] if r["id"].startswith("e8629045"))
+        self.assertEqual(row["disposition"], "pending")
+        site = next(s["source"] for s in self.source["dispatch_selectors"]
+                    if contracts.witness_id("dispatch", s) == row["id"])
+        text = (ROOT / site["path"]).read_text(encoding="utf-8-sig").splitlines(keepends=True)
+        import hashlib
+        cover = {"path": site["path"], "start": site["line"], "end": site["end_line"],
+                 "sha256": hashlib.sha256("".join(text[site["line"] - 1:site["end_line"]]).encode()).hexdigest()}
+        row.update(disposition="mapped", contracts=["staffing.hire"], reason="early", source_refs=[cover])
+        self.assertTrue(self.validate(document)["valid"])     # the validator alone does not see it
+        self.assertIn(row["id"], self.uncontracted_selector_values(document))
+
+    # The approved native conflict/predicate design (docket
+    # design-the-native-conflict-predicate-and-isolati, artifact r7) is cited on every facet the
+    # design owned, one "Native design r7" fact each: answered (still pending on its P03 schedules),
+    # closed (its clause asked for design only), partial, or not covered (item
+    # p01-cite-the-approved-native-conflict-predicate).
+    NATIVE_R7 = "24e86a19f95b47ef2a2acabfbc8d8f4861268f555692167ea019c9c80f160792"
+    NATIVE_CLASSES = {
+        "closed": {"preview.reads", "preview.predicates"},
+        "answered": {"legacy-lock", "material.conflicts", "diagnostic.conflicts", "preview.conflicts"},
+        "partial": {"staffing.conflicts", "operator-ops.conflicts", "agent-mail.conflicts",
+                    "receipt-lookup.conflicts", "funding.conflicts"},
+        "uncovered": {"status.conflicts", "chart.conflicts", "org-view.conflicts", "org-feed.conflicts",
+                      "human-mail.conflicts", "inbox.conflicts", "quick-staff.conflicts", "work-read.conflicts"},
+    }
+
+    # Every r7 section 8 schedule stays named in an unresolved facet's open questions, so closing a
+    # design-only dimension never drops its qualification schedule (coordinator ruling on review
+    # note N1, item p01-s2e-specify-the-org-view-org-feed-mail-and-i). The ids are r7's, sha above.
+    R7_SCHEDULES = ({f"Q-C{n}" for n in range(1, 13)} | {f"Q-D{n}" for n in range(1, 7)}
+                    | {f"Q-M{n}" for n in range(1, 8)} | {f"Q-P{n}" for n in range(1, 7)}
+                    | {f"Q-R{n}" for n in range(1, 12)})
+
+    @staticmethod
+    def anchored_schedules(document):
+        named = set()
+        for facet in document["facets"].values():
+            if facet["status"] != "unresolved":
+                continue
+            for q in facet["open_questions"]:
+                for lo_family, lo, hi_family, hi in re.findall(r"Q-([A-Z]+)(\d+) to Q-([A-Z]+)(\d+)", q):
+                    if lo_family == hi_family:
+                        named |= {f"Q-{lo_family}{n}" for n in range(int(lo), int(hi) + 1)}
+                named |= set(re.findall(r"Q-[A-Z]+\d+(?!\d)", q))
+        return named
+
+    def test_every_r7_schedule_stays_anchored_in_an_open_facet(self):
+        self.assertEqual(len(self.R7_SCHEDULES), 42)
+        self.assertEqual(self.R7_SCHEDULES - self.anchored_schedules(self.document), set())
+
+    def test_dropping_a_carried_schedule_is_caught(self):
+        document = copy.deepcopy(self.document)
+        facet = document["facets"]["preview.conflicts"]
+        facet["open_questions"] = [q.replace("Q-C9", "Q-CX") for q in facet["open_questions"]]
+        self.assertIn("Q-C9", self.R7_SCHEDULES - self.anchored_schedules(document))
+
+    def native_citation_gaps(self, document):
+        gaps = {}
+        for cls, names in self.NATIVE_CLASSES.items():
+            for name in names:
+                facet = document["facets"][name]
+                cites = [f for f in facet["facts"] if f.startswith("Native design r7 (")]
+                ok = len(cites) == 1 and self.NATIVE_R7 in cites[0]
+                if ok and cls == "closed":
+                    ok = facet["status"] == "specified" and facet["open_questions"] == []
+                elif ok:
+                    ok = facet["status"] == "unresolved"
+                    uncovered = "not covered by r7" in cites[0]
+                    ok = ok and (uncovered if cls == "uncovered" else not uncovered)
+                    if cls in ("partial", "uncovered"):
+                        # what r7 left open, the approved extension r3 answers (its own check below)
+                        ok = ok and name in self.R3_FACETS
+                    if cls == "answered":
+                        ok = ok and any(q.startswith("Owner: P03") for q in facet["open_questions"])
+                if not ok:
+                    gaps[name] = cls
+        return gaps
+
+    def test_every_native_design_facet_cites_r7(self):
+        self.assertEqual(self.native_citation_gaps(self.document), {})
+        # no facet is still owned by the design without a citation
+        still = {n for n, f in self.document["facets"].items()
+                 if any(q.startswith(("Owner: the separately staffed native conflict",
+                                      "Owner: the native conflict/predicate design extension"))
+                        for q in f["open_questions"])}
+        self.assertEqual(still, set())
+
+    # The approved extension r3 (docket extend-the-native-conflict-and-predicate-design, artifact r8,
+    # approved by r11) answers the design half of the thirteen S3 conflicts facets; each stays unresolved
+    # on r3's section 7 schedules, all at P03 (E-D18). Item p01-cite-the-approved-native-design-extension-r3.
+    NATIVE_R3 = "f5ee496781b4c2464a3ee723e9a740f5330bb61f516f9279e2e38a3c655af99c"
+    R3_FACETS = {"status.conflicts", "chart.conflicts", "org-view.conflicts", "org-feed.conflicts",
+                 "agent-mail.conflicts", "human-mail.conflicts", "inbox.conflicts", "staffing.conflicts",
+                 "operator-ops.conflicts", "quick-staff.conflicts", "work-read.conflicts",
+                 "receipt-lookup.conflicts", "funding.conflicts"}
+    R3_SCHEDULES = ({f"Q-AM{n}" for n in range(1, 6)} | {"Q-CH1", "Q-CH2", "Q-E1", "Q-E2"}
+                    | {f"Q-F{n}" for n in range(1, 4)} | {f"Q-FD{n}" for n in range(1, 6)}
+                    | {f"Q-HM{n}" for n in range(1, 5)} | {f"Q-IB{n}" for n in range(1, 4)}
+                    | {f"Q-OP{n}" for n in range(1, 5)} | {f"Q-QS{n}" for n in range(1, 5)}
+                    | {f"Q-RL{n}" for n in range(1, 4)} | {f"Q-S{n}" for n in range(1, 4)}
+                    | {f"Q-ST{n}" for n in range(1, 8)} | {f"Q-V{n}" for n in range(1, 4)} | {"Q-W1", "Q-W2"})
+    # each facet's own schedules (r3 section 9.1 "Evidence", plus the r7 ones it carried), so a schedule moved
+    # to the wrong facet fails (review of 2ee0ddb, N5)
+    R3_FACET_SCHEDULES = {
+        "status.conflicts": "Q-S1 Q-S2 Q-S3", "chart.conflicts": "Q-CH1 Q-CH2",
+        "org-view.conflicts": "Q-V1 Q-V2 Q-V3", "org-feed.conflicts": "Q-F1 Q-F2 Q-F3",
+        "agent-mail.conflicts": "Q-AM1 Q-AM2 Q-AM3 Q-AM4 Q-AM5 Q-E1 Q-C7 Q-C3",
+        "human-mail.conflicts": "Q-HM1 Q-HM2 Q-HM3 Q-HM4", "inbox.conflicts": "Q-IB1 Q-IB2 Q-IB3",
+        "staffing.conflicts": "Q-ST1 Q-ST2 Q-ST3 Q-ST4 Q-ST5 Q-ST6 Q-ST7 Q-C8 Q-C10 Q-C11",
+        "operator-ops.conflicts": "Q-OP1 Q-OP2 Q-OP3 Q-OP4 Q-C8", "quick-staff.conflicts": "Q-QS1 Q-QS2 Q-QS3 Q-QS4",
+        "work-read.conflicts": "Q-W1 Q-W2", "receipt-lookup.conflicts": "Q-RL1 Q-RL2 Q-RL3 Q-C4",
+        "funding.conflicts": "Q-FD1 Q-FD2 Q-FD3 Q-FD4 Q-FD5 Q-C8 Q-C12", "preview.conflicts": "Q-E2 Q-C5",
+    }
+    # r3 section 7.1 extends two r7 schedules; each extension is named in an open owner line (review F3)
+    R3_EXTENSIONS = {"agent-mail.conflicts": "Q-C3 as r3 section 7.1 extends it",
+                     "preview.conflicts": "extend Q-C5 to every r3 operation"}
+
+    def r3_citation_gaps(self, document):
+        gaps = set()
+        for name in self.R3_FACETS:
+            facet = document["facets"][name]
+            cites = [f for f in facet["facts"] if f.startswith("Native design extension r3 (")]
+            ok = (len(cites) == 1 and self.NATIVE_R3 in cites[0] and "the design half is answered" in cites[0]
+                  and facet["status"] == "unresolved"
+                  and sum(q.startswith("Owner: P03 qualification of r3 (schedules ") for q in facet["open_questions"]) == 1)
+            if not ok:
+                gaps.add(name)
+        for name in ("preview.conflicts", "preview.predicates"):     # r3's amendments to r7 (E-D17)
+            if not any(f.startswith("Native design extension r3 (") and self.NATIVE_R3 in f
+                       for f in document["facets"][name]["facts"]):
+                gaps.add(name)
+        for name, ids in self.R3_FACET_SCHEDULES.items():
+            if set(ids.split()) - self.anchored_schedules({"facets": {name: document["facets"][name]}}):
+                gaps.add(name)
+        for name, phrase in self.R3_EXTENSIONS.items():
+            if not any(q.startswith("Owner: ") and phrase in q for q in document["facets"][name]["open_questions"]):
+                gaps.add(name)
+        return gaps
+
+    def test_every_s3_conflicts_facet_cites_r3_and_stays_on_its_schedules(self):
+        self.assertEqual(self.r3_citation_gaps(self.document), set())
+        self.assertEqual(len(self.R3_SCHEDULES), 50)
+        self.assertEqual(self.R3_SCHEDULES - self.anchored_schedules(self.document), set())
+
+    def test_a_missing_r3_citation_or_a_dropped_r3_schedule_is_caught(self):
+        document = copy.deepcopy(self.document)
+        document["facets"]["funding.conflicts"]["facts"].pop()
+        self.assertIn("funding.conflicts", self.r3_citation_gaps(document))
+        document = copy.deepcopy(self.document)
+        document["facets"]["staffing.conflicts"].update(status="specified")
+        self.assertIn("staffing.conflicts", self.r3_citation_gaps(document))
+        document = copy.deepcopy(self.document)
+        facet = document["facets"]["funding.conflicts"]
+        facet["open_questions"] = [q.replace("Q-FD1 to Q-FD5", "Q-FD1 to Q-FD4") for q in facet["open_questions"]]
+        self.assertEqual(self.R3_SCHEDULES - self.anchored_schedules(document), {"Q-FD5"})
+        # a schedule moved to another facet still counts as anchored, but not on its own facet (N5)
+        document = copy.deepcopy(self.document)
+        funding, status = document["facets"]["funding.conflicts"], document["facets"]["status.conflicts"]
+        funding["open_questions"] = [q.replace("Q-FD1 to Q-FD5", "Q-FD2 to Q-FD5") for q in funding["open_questions"]]
+        status["open_questions"] = [q.replace("Q-S1 to Q-S3", "Q-S1 to Q-S3, Q-FD1") for q in status["open_questions"]]
+        self.assertEqual(self.R3_SCHEDULES - self.anchored_schedules(document), set())
+        self.assertEqual(self.r3_citation_gaps(document), {"funding.conflicts"})
+        # the Q-C3 extension dropped from the only owner line that carries it (F3)
+        document = copy.deepcopy(self.document)
+        mail = document["facets"]["agent-mail.conflicts"]
+        mail["open_questions"] = [q.replace("Q-C3 as r3 section 7.1 extends it", "Q-C3") for q in mail["open_questions"]]
+        self.assertEqual(self.r3_citation_gaps(document), {"agent-mail.conflicts"})
+
+    def test_a_missing_or_wrong_citation_is_caught(self):
+        for name, edit in (("legacy-lock", lambda f: f["facts"].pop()),
+                           ("status.conflicts", lambda f: f["facts"].__setitem__(
+                               *next((i, x.replace("not covered by r7", "covered")) for i, x in enumerate(f["facts"])
+                                     if x.startswith("Native design r7 (")))),
+                           ("preview.reads", lambda f: f.update(status="unresolved"))):
+            with self.subTest(facet=name):
+                document = copy.deepcopy(self.document)
+                edit(document["facets"][name])
+                self.assertIn(name, self.native_citation_gaps(document))
+
+    # The same rule one level down (S3 decision 5; review of S3 candidate 6): a
+    # witness inside a helper that more than one entry point calls is mapped only
+    # once every one of those entries is. Pinned: the known multi-caller helpers
+    # (by inventory symbol) and the entries that reach them.
+    MULTI_CALLER_HELPERS: dict[str, set[str]] = {
+        # POST /api/orgs/{slug}/credit-requests and the inbox batch submit
+        # (POST /api/orgs/{slug}/nodes/{nid}/batch, Org.resolve_batch)
+        "Org.credit_request_action": {"a1dca24432d9b810d711a3afc1c2bbde140876c0f16b6286bc8012207b20e7ed",
+                                      "16833d38b3e314ae747711a7664e829fdb0af4f1b6dfb928cf63dbefe7abc8b3"},
+        # the orgtree_staff card (agent door) and POST .../work-items/{wid}/quick-staff
+        "_staff_call": {"b77b25e891a35aac05166f56195b7a125fc7cb1017e50709c00ffd4dafd8d69c",
+                        "47f1cc42531f402c39255f7276a6e6f2da0500789978e3294284a9645e34309a"},
+    }
+
+    def early_helper_witnesses(self, document):
+        entries = {r["id"]: r["disposition"] for r in document["entries"]}
+        selectors = {contracts.witness_id("dispatch", r): r for r in self.source["dispatch_selectors"]}
+        early = set()
+        for row in document["dispatch"]:
+            callers = self.MULTI_CALLER_HELPERS.get(selectors[row["id"]]["source"]["symbol"])
+            if callers and row["disposition"] == "mapped" and any(entries[c] != "mapped" for c in callers):
+                early.add(row["id"])
+        return early
+
+    def test_helper_witnesses_wait_for_every_caller(self):
+        # the pins name real helpers and real entries, or the guard guards nothing
+        symbols = {r["source"]["symbol"] for r in self.source["dispatch_selectors"]}
+        self.assertLessEqual(set(self.MULTI_CALLER_HELPERS), symbols)
+        entries = {r["id"] for r in self.document["entries"]}
+        for callers in self.MULTI_CALLER_HELPERS.values():
+            self.assertLessEqual(callers, entries)
+        self.assertEqual(self.early_helper_witnesses(self.document), set())
+
+    def test_mapping_a_helper_witness_early_is_caught(self):
+        document = copy.deepcopy(self.document)
+        # credit_request_action's approve branch is mapped (P01 F3 contracted the inbox batch submit);
+        # were that entry still pending, the mapped helper witness would be early
+        row = next(r for r in document["dispatch"] if r["id"].startswith("11d67edb"))
+        self.assertEqual(row["disposition"], "mapped")
+        batch = next(r for r in document["entries"] if r["id"].startswith("16833d38"))
+        batch.update(disposition="pending", contracts=[], source_refs=[], reason="(control) not contracted")
+        both = {r["id"] for r in document["dispatch"] if r["id"].startswith(("11d67edb", "04bb7a04"))}
+        self.assertEqual(len(both), 2)
+        self.assertEqual(self.early_helper_witnesses(document), both)
 
     def test_each_required_dimension_is_enforced(self):
         for dimension in contracts.DIMENSIONS:
@@ -83,6 +912,22 @@ class ContractCoverage(unittest.TestCase):
         self.rejects(lambda d: d["contracts"]["reservation.acquire"].update(tools=["orgtree_move"]),
                      "entry/tool binding mismatch")
 
+    # P01 relaunch-cards item: a name the agent door dispatches without a card (a tool_verb witness) is an entry
+    # point like a card; it cannot be excluded, and a contract bound to it must name it
+    def test_no_tool_verb_exclusion_escape(self):
+        verb = next(r for r in self.source["registrations"]
+                    if r["kind"] == "tool_verb" and r["names"] == ["orgtree_account_assign"])
+        def edit(d):
+            row = next(r for r in d["entries"] if r["id"] == contracts.witness_id("entries", verb))
+            row.update(disposition="excluded", reason="claim it is only transport",
+                       source_refs=[{"path": verb["source"]["path"], "start": verb["source"]["line"],
+                                     "end": verb["source"]["end_line"], "sha256": "0" * 64}])
+        self.rejects(edit, "concrete entry cannot be excluded")
+
+    def test_tool_verb_binding_is_checked_against_source(self):
+        self.rejects(lambda d: d["contracts"]["relaunch.self-update"].update(tools=["orgtree_self_restart"]),
+                     "entry/tool binding mismatch")
+
     def test_declared_action_cannot_disappear(self):
         def edit(d):
             for c in d["contracts"].values():
@@ -95,11 +940,11 @@ class ContractCoverage(unittest.TestCase):
                      "wrong-dimension facet")
 
     def test_erased_unknown_does_not_create_specified_contract(self):
-        self.rejects(lambda d: d["facets"]["contacts"].update(status="specified"),
+        self.rejects(lambda d: d["facets"]["legacy-lock"].update(status="specified"),
                      "specified facet has open questions")
 
     def test_unknown_without_question_refuses(self):
-        self.rejects(lambda d: d["facets"]["contacts"].update(open_questions=[]),
+        self.rejects(lambda d: d["facets"]["legacy-lock"].update(open_questions=[]),
                      "unresolved facet needs a concrete question")
 
     def test_pending_entry_cannot_pretend_to_have_contract(self):
@@ -145,6 +990,36 @@ class ContractCoverage(unittest.TestCase):
             d["wire_cases"] = [r for r in d["wire_cases"] if r["entry_id"] != alias]
         self.rejects(edit, "contract/entry pairs missing")
 
+    def test_equals_and_all_select_exactly(self):
+        # S3 decision 7: exact equality of one named argument, and a conjunction
+        eq = {"equals": {"key": "op", "value": "hire"}}
+        self.assertTrue(contracts.condition_matches(eq, {"op": "hire"}))
+        for args in ({}, {"op": "Hire"}, {"op": " hire"}, {"op": None}, {"other": "hire"}):
+            with self.subTest(args=args):
+                self.assertFalse(contracts.condition_matches(eq, args))
+        both = {"all": [{"equals": {"key": "op", "value": "reallocate"}},
+                        {"not": {"truthy_text": "preview"}}]}
+        self.assertTrue(contracts.condition_matches(both, {"op": "reallocate"}))
+        self.assertTrue(contracts.condition_matches(both, {"op": "reallocate", "preview": False}))
+        self.assertFalse(contracts.condition_matches(both, {"op": "reallocate", "preview": True}))
+        self.assertFalse(contracts.condition_matches(both, {"op": "hire"}))
+
+    def test_malformed_equals_and_all_refuse(self):
+        for bad in ({"equals": {"key": "op"}}, {"equals": {"key": "", "value": "x"}},
+                    {"equals": {"key": "op", "value": 1}}, {"equals": {"key": "op", "value": "x", "extra": 1}},
+                    {"equals": "op=hire"}, {"all": []}, {"all": [{"always": True}]}, {"all": {"always": True}},
+                    # a malformed LATER part refuses even behind a false first part
+                    {"all": [{"equals": {"key": "op", "value": "x"}}, {"eval": "1"}]}):
+            with self.subTest(condition=bad):
+                with self.assertRaises(ValueError):
+                    contracts.condition_matches(bad, {})
+
+    def test_malformed_equals_in_the_registry_refuses(self):
+        self.rejects(lambda d: d["contracts"]["reservation.acquire"].update(when={"equals": {"key": "op"}}),
+                     "equals requires")
+        self.rejects(lambda d: d["contracts"]["reservation.acquire"].update(when={"all": [{"always": True}]}),
+                     "all requires")
+
     def test_conditions_are_data_not_python_code(self):
         self.rejects(lambda d: d["contracts"]["reservation.acquire"].update(when={"eval": "raise SystemExit"}),
                      "unknown condition")
@@ -155,6 +1030,24 @@ class ContractCoverage(unittest.TestCase):
             code = contracts.main(["--repo", str(ROOT), "--require-complete"])
         self.assertEqual(code, 3)
         self.assertFalse(json.loads(output.getvalue())["contract_coverage_complete"])
+
+    def test_cli_refuses_any_interpreter_but_the_provisioned_minor_version(self):
+        self.assertIsNone(contracts.interpreter_refusal((3, 13, 0)))
+        self.assertIn("requires Python 3.13", contracts.interpreter_refusal((3, 10, 11)))
+        self.assertIsNotNone(contracts.interpreter_refusal((3, 14, 0)))
+        # Negative control: pretend the provisioned runtime is another version.
+        # The CLI must refuse with 4 before checking anything, not report drift.
+        original = contracts.REQUIRED_PYTHON
+        contracts.REQUIRED_PYTHON = (3, 99)
+        try:
+            out, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = contracts.main(["--repo", str(ROOT), "--require-complete"])
+        finally:
+            contracts.REQUIRED_PYTHON = original
+        self.assertEqual(code, 4)
+        self.assertEqual(out.getvalue(), "")
+        self.assertIn("requires Python 3.99", json.loads(err.getvalue())["error"])
 
     def test_real_cli_works_with_the_provisioned_isolated_interpreter(self):
         result = subprocess.run([sys.executable, "-B", str(ROOT / "tools/state_operation_contracts.py"),

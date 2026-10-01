@@ -58,7 +58,7 @@ function savedIdentity(key: string, prefix: string): unknown[] | null {
  *  as never-delivered and reached with Up like anything else. If the agent is
  *  rehired the history is still there, because the history key carries no
  *  generation. */
-export function preserveRemovedDrafts(slug: string, ids: ReadonlyMap<string, unknown>) {
+export function preserveRemovedDrafts(slug: string, ids: Pick<ReadonlyMap<string, unknown>, 'has'>) {
   try {
     const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i))
     for (const key of keys) {

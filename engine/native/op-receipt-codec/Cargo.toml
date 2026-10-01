@@ -1,0 +1,19 @@
+[package]
+name = "orgtree-op-receipt-codec"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Non-authoritative Rust compatibility codec for the legacy operation-receipt key, fingerprint, admission and eviction rules, with Python parity vectors"
+license = "MIT"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "receipt-vectors"
+path = "src/bin/receipt-vectors.rs"
+
+[dependencies]
+# The reviewed backend codec supplies the Python-compatible JSON value model.
+# It is consumed read-only; nothing here changes it.
+orgtree-backend-codec = { path = "../backend-codec" }

@@ -17,6 +17,7 @@ for key in ('ORGTREE_V1_ROOT','ORGTREE_V1_DATA_ROOT','ORGTREE_V2_PORT'):
     os.environ.pop(key,None)
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+import child_python  # a child Python imports THIS checkout's engine (tests/child_python.py)
 
 from engine import launch
 app, _, _, _, _ = launch.load_app()
@@ -46,7 +47,10 @@ assert m.acknowledge(new['id'])['accepted']
 assert m.status()['state']=='acknowledged'
 '''
             for _ in range(3):
-                result=subprocess.run([sys.executable,'-c',code],cwd=Path(__file__).resolve().parents[1]/'engine',
+                # `import launch` needs engine/ itself on the path; the
+                # interpreter's ._pth ignores cwd, so name it as a root.
+                result=subprocess.run(child_python.argv('-c',code,extra_roots=(child_python.CHECKOUT/'engine',)),
+                                      cwd=Path(__file__).resolve().parents[1]/'engine',
                                       env=env,capture_output=True,text=True,timeout=20)
                 self.assertEqual(result.returncode,0,result.stderr)
 

@@ -1,5 +1,6 @@
 import './harness'
 import { advance, flush, inAct, mountView, realClock, useFakeClock } from './harness'
+import { compatibilityWorkFixture } from './workcompat.fixture'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
@@ -42,6 +43,7 @@ async function setup(t: TestContext, items: WorkItem[]) {
         : { items, counts: { attention: 0, active: items.length, archived: 0 }, now: '2026-09-06T12:00:00Z' },
     } as Response
   }) as typeof fetch
+  globalThis.fetch = compatibilityWorkFixture(globalThis.fetch)
   const view = await mountView(<DocketModal slug="org" close={() => {}} tree={{ roots: [], asks: [] } as unknown as TreePayload}
     toast={(lines) => { toasts.push(...(lines ?? [])) }} />, (host) => host)
   t.after(async () => { try { await view.unmount() } finally { realClock() } })
@@ -174,7 +176,11 @@ test('in-flight reply locks recipient and resets to latest observed owner after 
   server.holdReply = new Promise<void>((resolve) => { release = resolve })
   await send(el)
   assert.equal(picker(el).disabled, true)
-  assert.equal(area(el).disabled, true)
+  // the reply leaves the box ON THE CLICK (docket v3-sending-a-reply-to-a-
+  // mail-takes-about-half-a, 7628df6): the box used to stay locked on the
+  // typed text until the server answered. The recipient stays locked, the
+  // text is gone, and with nothing typed there is nothing to send twice
+  assert.equal(area(el).value, '')
   assert.equal(button(el).disabled, true)
   item.owner = { node: 'new-owner', generation: 0 }
   item.reply_recipients![0] = { node: 'new-owner', role: 'owner', state: 'live' }

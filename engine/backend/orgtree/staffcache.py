@@ -295,6 +295,14 @@ def invalidate(reason: str = "") -> None:
             _snapshot["stale"] = True
 
 
+def generation() -> int:
+    """The CURRENT invalidation count (`state()` reports the snapshot's own,
+    which only moves at its refresh): a cache keyed on it drops everything
+    `registry.availability_changed` announces, at once."""
+    with _lock:
+        return _generation
+
+
 def state() -> dict[str, Any]:
     """What the surfaces report and the tests assert on."""
     with _lock:

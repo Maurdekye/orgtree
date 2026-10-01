@@ -1,6 +1,7 @@
 // app-menu-wiring.test.mjs — UI-03: a native macOS App Menu
 // (Orgtree/Edit/Window, no File/Help) that reuses existing conventions:
-// Preferences… broadcasts the same open-settings event App.tsx listens for,
+// Preferences… sends the same open-settings event App.tsx listens for to the
+// last-used window,
 // and Check for Updates… calls the exact same checkForUpdates() the tray's
 // own "Check for updates" row already calls — one implementation, two entry
 // points, never a forked copy.
@@ -23,10 +24,11 @@ const read = file => fs.readFileSync(path.join(root, file), 'utf8')
 
 test('DesktopEvent gains open-settings', () => {
   const contracts = read('packages/contracts/index.ts')
-  // Appended after 'open-org' (not inserted before it) — traylist-wiring.test.mjs
-  // pins 'popout-state' | 'open-org' as directly adjacent; this only adds a
-  // new member, it does not renumber the existing sequence.
-  assert.match(contracts, /'popout-state' \| 'open-org' \| 'open-settings'; data: unknown \}/,
+  // Membership only — the union keeps growing (upstream appends its own
+  // members), so the position of 'open-settings' is deliberately not pinned.
+  const union = /export interface DesktopEvent \{ type: ([^;]*);/.exec(contracts)
+  assert.ok(union, 'could not find the DesktopEvent type union')
+  assert.match(union[1], /'open-settings'/,
     "DesktopEvent['type'] must gain 'open-settings' alongside the existing members")
 })
 
@@ -75,11 +77,11 @@ test('appMenu submenu order: about, prefs, services, hide group, check-for-updat
     'Preferences… must carry the Cmd+, accelerator')
 })
 
-test('Preferences… broadcasts open-settings; Check for Updates… calls the tray\'s own checkForUpdates', () => {
+test('Preferences… sends open-settings to the last-used window; Check for Updates… calls the tray\'s own checkForUpdates', () => {
   const main = read('apps/desktop/main/index.ts')
 
-  assert.match(main, /label: 'Preferences…', accelerator: 'Cmd\+,', click: \(\) => \{ broadcast\(\{ type: 'open-settings', data: null \}\) \} \}/,
-    "Preferences…'s click handler must call the existing broadcast() with { type: 'open-settings', data: null }")
+  assert.match(main, /label: 'Preferences…', accelerator: 'Cmd\+,', click: \(\) => \{ const target = lastUsed\(\); if \(target\) sendTo\(target\.id, \{ type: 'open-settings', data: null \}\) \} \}/,
+    "Preferences…'s click handler must send { type: 'open-settings', data: null } to the last-used window via sendTo(lastUsed().id, …)")
 
   // "one implementation, two entry points": the App Menu's Check for
   // Updates… click handler must be byte-identical to the tray's own

@@ -26,7 +26,7 @@ import threading
 import time
 from typing import Any
 
-from . import gitrunner as gr, gitsettings as settings, store, appsettings
+from . import gitrunner as gr, gitsettings as settings, orgtx, store, appsettings
 
 _locks: dict[str, threading.RLock] = {}
 _guard = threading.RLock()
@@ -91,9 +91,8 @@ def identify(path: str) -> dict[str, Any]:
 
 def org_facts(slug: str) -> dict[str, Any]:
     # Never call supervisor.scratch_dir here: that accessor creates directories.
-    with store.DOC_LOCK:
-        org = store.load_org(slug)
-        return deepcopy(org.d)
+    # PG-3r: a lock-free coherent read; nothing written to it is saved.
+    return deepcopy(orgtx.org_read(slug).d)
 
 
 def roots(slug: str, facts: dict[str, Any] | None = None) -> list[str]:

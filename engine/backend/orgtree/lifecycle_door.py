@@ -1,0 +1,777 @@
+"""PG-3a's door declarations: the topology agent tools on pgdoor.
+
+`pgdoor` (WS3a) is the one shared prologue for agent tools taken off
+DOC_LOCK; each family declares its own tools from its own module (plan
+decision 12). This module declares PG-3a's, using the lock plans and bodies
+in `lifecycle_tx`:
+
+    orgtree_move            one move (`_move_rows`), or a batch
+                            (`_move_batch_rows`, replayed step by step)
+    orgtree_swap            `_swap_rows`
+    orgtree_self_subjugate  `_promote_rows` (the caller descends beneath its
+                            target)
+    orgtree_retire,         `_archive_rows`. The turn interrupt and wait
+    orgtree_dissolve        (`supervisor.interrupt_before_archive`) already
+                            runs in `agent_call` BEFORE the door, with no
+                            lock held; its warnings arrive in `pre`.
+    orgtree_retool          `retool_rows` — `api._retool_seat` (set_scope,
+                            and an account rebind through the door's
+                            `_account_selection`); live effort after commit
+    orgtree_cheap_compact   `_split_rows` — `Org.cheap_compact`; the
+                            transcript copy runs AFTER the commit
+                            (`supervisor.export_after_commit`, S3)
+    orgtree_rehire          `rehire_rows` — the whole `api._rehire_seat`
+                            composite (rehire, scope, audiences, docket
+                            assignment, kickoff, placement). The pre-lock
+                            rename's outcome arrives in `pre`.
+    orgtree_switch_model    `supervisor.switch_rows` — the cycle's switch
+                            branch (provider gate, account rule, busy
+                            queueing, the rebind); transcript copies and
+                            wake-ups after the commit. Also the operator's
+                            `switch_model` op.
+
+Each spec is computed from the door's UNLOCKED snapshot, so it can be stale.
+The body re-derives the plan on the LOCKED document (`lifecycle_tx._need`)
+and, on a gap, raises `lifecycle_tx.Widen`; `_door_body` translates that to
+`pgdoor.Widen`, and the door rolls back and re-runs holding the extra rows.
+Nothing a refused attempt did survives.
+
+The caller's own node row is FOR UPDATE whatever the tool declared (the
+door's rule, `pgdoor.agent_spec`), so a caller that is only share-locked by
+a plan is still correct, only more conservative.
+
+`api` imports this module, which is what registers the tools. Whether a
+declared tool actually runs on the door is `pgdoor.enabled()`: PostgreSQL,
+or ORGTREE_PGDOOR=1.
+"""
+from __future__ import annotations
+
+from typing import Any, Callable, cast
+
+from . import lifecycle_tx as lt
+from . import pgdoor
+from .ledger import LedgerError
+
+
+def parse_moves(batch: Any) -> list[tuple[str, str | None]]:
+    """orgtree_move's `moves` argument, validated. Shared by the DOC_LOCK
+    cycle and the door, so both refuse the same shapes with the same words."""
+    # D-224 ③: several moves as one transaction; the ledger restores its own
+    # doc on a mid-batch refusal.
+    if not isinstance(batch, list):
+        raise LedgerError("`moves` must be a list of {node, new_parent}")
+    # …and so must every ELEMENT (redteam 2026-09-02): the list check alone
+    # let `["abc"]`, `[5]`, `[True]` reach `.get` on a str/int/bool →
+    # AttributeError → a 500 out of the gateway an agent is holding a tool
+    # result open on. An LLM writes ["a","b"] for this shape readily; D-169's
+    # rule is that a bad argument 422s with a reason.
+    out: list[tuple[str, str | None]] = []
+    for i, m in enumerate(cast("list[Any]", batch)):
+        if not isinstance(m, dict):
+            raise LedgerError(
+                f"moves[{i}] must be an object {{node, new_parent}}, not "
+                f"{type(cast('object', m)).__name__}")
+        mm = cast("dict[str, Any]", m)
+        if "new_parent" not in mm:
+            # the schema marks it required, and its absence silently meant
+            # THE TOP LEVEL — a promotion the caller never typed (and one
+            # only the user may make). Say so instead of guessing.
+            raise LedgerError(
+                f"moves[{i}] has no `new_parent` — name the new superior, or "
+                f'pass "" for the top level (user only)')
+        out.append((str(mm.get("node") or ""), mm.get("new_parent") or None))
+    return out
+
+
+def _spec(op: str, rows: Callable[[Any, Any, dict[str, Any]],
+                                  "tuple[set[str], set[str]]"]):
+    """A pgdoor spec function: `op`'s sections from `lt.SPECS`, node rows
+    from `rows(snapshot, call, args)`."""
+    s = lt.SPECS[op]
+
+    def spec(snap: Any, call: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
+        upd, share = rows(snap, call, a)
+        return pgdoor.TxSpec(nodes=tuple(sorted(upd)),
+                             sections=tuple(s.sections),
+                             share_nodes=tuple(sorted(share - upd)),
+                             share_sections=tuple(s.share_sections),
+                             logs=tuple(s.logs))
+    return spec
+
+
+def _door_body(fn: Callable[[Any, Any, Any, pgdoor.AgentTx], Any]):
+    """Adapt a lifecycle_tx body `(org, held_nodes, held_share, ...)` to the
+    door, translating its Widen to the door's."""
+    def body(tx: pgdoor.AgentTx) -> Any:
+        try:
+            return fn(tx.org, tx.spec.nodes, tx.spec.share_nodes, tx)
+        except lt.Widen as w:
+            raise pgdoor.Widen(nodes=tuple(w.nodes),
+                               share_nodes=tuple(w.share_nodes),
+                               sections=tuple(w.sections),
+                               share_sections=tuple(w.share_sections),
+                               logs=tuple(w.logs)) from None
+    return body
+
+
+# ---------------------------------------------------------------- move
+
+
+def _move_args(a: dict[str, Any]) -> "list[tuple[str, str | None]] | None":
+    batch = a.get("moves")
+    return parse_moves(batch) if batch else None
+
+
+def _move_rows(snap: Any, call: Any, a: dict[str, Any]
+               ) -> "tuple[set[str], set[str]]":
+    try:
+        mv = _move_args(a)
+    except LedgerError:
+        return {call.node}, set()        # the body refuses; lock only the caller
+    if mv is not None:
+        return lt._move_batch_rows(snap, call.node, mv)
+    return lt._move_rows(snap, call.node, str(a.get("node") or ""),
+                         a.get("new_parent") or None)
+
+
+def _move(org: Any, hn: Any, hs: Any, tx: pgdoor.AgentTx) -> Any:
+    a, actor = tx.args, tx.node
+    mv = _move_args(a)
+    if mv is not None:
+        return lt.move_batch_body(org, hn, hs, actor, mv)
+    return lt.move_body(org, hn, hs, actor, str(a.get("node") or ""),
+                        a.get("new_parent") or None)
+
+
+# ---------------------------------------------------------------- swap
+
+
+def _swap_rows(snap: Any, call: Any, a: dict[str, Any]
+               ) -> "tuple[set[str], set[str]]":
+    return lt._swap_rows(snap, call.node, str(a.get("a") or ""),
+                         str(a.get("b") or ""))
+
+
+def _swap(org: Any, hn: Any, hs: Any, tx: pgdoor.AgentTx) -> Any:
+    return lt.swap_body(org, hn, hs, tx.node, str(tx.args.get("a") or ""),
+                        str(tx.args.get("b") or ""))
+
+
+# ---------------------------------------------------------------- self-subjugate
+
+
+def _subjugate_rows(snap: Any, call: Any, a: dict[str, Any]
+                    ) -> "tuple[set[str], set[str]]":
+    return lt._promote_rows(snap, call.node, call.node,
+                            str(a.get("target") or ""))
+
+
+def _subjugate(org: Any, hn: Any, hs: Any, tx: pgdoor.AgentTx) -> Any:
+    return lt.promote_body(org, hn, hs, tx.node, tx.node,
+                           str(tx.args.get("target") or ""))
+
+
+# ---------------------------------------------------------------- retire / dissolve
+
+
+def _archive_rows(snap: Any, call: Any, a: dict[str, Any]
+                  ) -> "tuple[set[str], set[str]]":
+    return lt._archive_rows(snap, call.node, str(a.get("node") or ""))
+
+
+def _archive(op_body: Callable[..., Any]):
+    def run(org: Any, hn: Any, hs: Any, tx: pgdoor.AgentTx) -> Any:
+        result = op_body(org, hn, hs, tx.node, str(tx.args.get("node") or ""))
+        warns = tx.pre.get("archive_warnings")
+        if warns:
+            result.setdefault("warnings", []).extend(warns)
+        return result
+    return run
+
+
+# ---------------------------------------------------------------- rehire
+# `api._rehire_seat` is a composite: `Org.rehire`, then `_seat_finish` (the
+# scope fields, audience grants, a docket assignment when `work_item` rides
+# the call, the kickoff mail), then the placement (`move` / `insert_parent`)
+# when `target` / `hire_type` put the seat somewhere else. Its rows are the
+# union of each part's plan. The sections are PG-3b's hire sections (the
+# seat half is the same code) plus rehire's own and the docket:
+#   REHIRE_SECTIONS  lifecycle_tx.SPECS["rehire"] (fable_lock, notices,
+#                    watchdogs) + mail, audiences + work_items;
+#   REHIRE_SHARE     SPECS["rehire"]'s settings = PG-3b's HIRE_SETTINGS less
+#                    fable_lock, which rehire WRITES (agreed with WS3a
+#                    2026-09-26; their staffdoor test pins the equality);
+#   REHIRE_LOGS      events, notice_log, mail_log, lifecycle (a list log:
+#                    S8, decision 38).
+# `orgtree_staff`'s rehire mode starts from `rehire_rows` (WS3a's staffdoor).
+
+REHIRE_SECTIONS = tuple(sorted(set(lt.SPECS["rehire"].sections)
+                               | {"mail", "audiences", "work_items"}))
+REHIRE_SHARE = tuple(lt.SPECS["rehire"].share_sections)
+REHIRE_LOGS = tuple(sorted(set(lt.SPECS["rehire"].logs) | {"mail_log", "lifecycle"}))
+# added when `audiences` rides the call (Org.audience_grant's rows)
+REHIRE_AUDIENCE_SECTIONS = ("audience_requests", "user_inbox")
+REHIRE_AUDIENCE_LOGS = ("user_mail_log",)
+# the scope fields `_seat_finish` applies on a rehire: api._SEAT_SCOPE_REHIRE
+# (api cannot be imported here; tests/test_pg3a_door.py pins the equality)
+_REHIRE_SCOPE = ("permission_mode", "effort", "team_charter", "prefer_reserve",
+                 "account_fallback", "clear_account_fallback", "charter",
+                 "org_visibility", "tools", "add_dirs")
+
+
+def rehire_rows(org: Any, actor: str, a: dict[str, Any]) -> pgdoor.TxSpec:
+    """Every row `api._rehire_seat(org, slug, actor, a, ...)` locks, computed
+    on `org` (the snapshot, or the locked document when a body re-checks)."""
+    nid = str(a.get("node") or "")
+    upd, share = lt._rehire_rows(org, actor, nid)
+    sections, ssecs = set(REHIRE_SECTIONS), set(REHIRE_SHARE)
+    kw = {f: a.get(f) for f in _REHIRE_SCOPE if a.get(f) is not None}
+    if kw:
+        u, s2, sec, ssec, _logs = lt._scope_plan(org, actor, nid, kw, False)
+        upd |= u
+        share |= s2
+        sections |= set(sec)
+        ssecs |= set(ssec)
+    logs = set(REHIRE_LOGS)
+    if a.get("audiences"):
+        # Org.audience_grant, per target: resolves an open request
+        # (audience_requests) and, for the user's ear, writes the user inbox
+        # and its log (review f3). Declared for every target form: the
+        # resolution of a target is itself a decision on the locked doc.
+        sections |= set(REHIRE_AUDIENCE_SECTIONS)
+        logs |= set(REHIRE_AUDIENCE_LOGS)
+    if a.get("account") is not None:
+        # the generic door's account step (supervisor.assign_account, doc
+        # held): its own declared rows, which a provider-crossing rebind
+        # writes (moot asks, folded notices, the docket reconcile)
+        from . import supervisor
+        sections |= set(supervisor._ASSIGN_SECTIONS)
+        ssecs |= set(supervisor._ASSIGN_SHARE)
+        logs |= set(supervisor._ASSIGN_LOGS)
+    dest = str(a.get("target") or "")
+    htype = str(a.get("hire_type") or "subordinate")
+    if dest or htype != "subordinate":
+        dest = dest or actor
+        u, s2 = lt._move_rows(org, actor, nid, dest)
+        upd |= u
+        share |= s2
+        if htype == "superior":
+            u, s2 = lt._insert_rows(org, actor, nid, dest)
+            upd |= u
+            share |= s2
+        ssecs |= set(lt.SPECS["move"].share_sections)
+    return pgdoor.TxSpec(nodes=tuple(sorted(upd)),
+                         sections=tuple(sorted(sections)),
+                         share_nodes=tuple(sorted(share - upd)),
+                         share_sections=tuple(sorted(ssecs - sections)),
+                         logs=tuple(sorted(logs)))
+
+
+def _rehire_spec(snap: Any, call: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
+    return rehire_rows(snap, call.node, a)
+
+
+def _sweep_first(call: Any, a: dict[str, Any]) -> None:
+    """Plan decision 13: a docket write's archive move runs in its OWN
+    transaction first, and the call then runs with the move deferred — a
+    rehire carrying `work_item` assigns a docket item."""
+    from . import worktx
+    worktx.sweep(str(call.org))
+
+
+def rename_stands(e: LedgerError, renamed_to: "str | None") -> LedgerError:
+    """A rehire refused AFTER its pre-lock rename committed (the rename
+    cannot share the rehire's transaction): the refusal must say the rename
+    stands and name the id to retry against, word for word as the DOC_LOCK
+    cycle does. Applied ONCE, by api._agent_door's refusal handler, to any
+    refusal of a door call whose pre carries `renamed_to` (the rehire body,
+    the kiosk cap, the account binding alike) - so a family body must NOT
+    wrap it again (orgtree_staff's rehire mode included)."""
+    if not renamed_to:
+        return e
+    return LedgerError(
+        f'{e}  ⚠ The RENAME already happened and cannot be undone '
+        f'here: the node is still archived, now named '
+        f'"{renamed_to}". Nothing else was applied and it was not '
+        f'started — retry against "{renamed_to}", without `name`.')
+
+
+def rehire_body(tx: pgdoor.AgentTx) -> Any:
+    """`orgtree_rehire` on the door: exactly `api._rehire_seat` on the locked
+    rows, after re-deriving them on the locked document (a gap widens before
+    anything is written). The wake-ups ride `after.drive`."""
+    from . import api     # api imports this module; resolve at call time
+    a = tx.args
+    need = tx.spec.covers(rehire_rows(tx.org, tx.node, a))
+    if need.nodes or need.share_nodes:
+        raise pgdoor.Widen(nodes=need.nodes, share_nodes=need.share_nodes)
+    renamed_to = tx.pre.get("renamed_to")
+    drive: list[str] = []
+    tx.org._work_defer_archive = True
+    try:
+        result = api._rehire_seat(tx.org, tx.call.org, tx.node, a, drive,
+                                  renamed_to,
+                                  list(tx.pre.get("rename_warnings") or []))
+    finally:
+        tx.org._work_defer_archive = False
+    tx.after.drive.extend(drive)
+    return result
+
+
+# ---------------------------------------------------------------- retool
+# `api._retool_seat`: `Org.set_scope` on the target (rows = `_scope_plan`;
+# an agent never raises the kiosk ceiling, so `may_raise` is False), and —
+# when `account` rides the call — the door's generic `_account_selection`
+# step, `supervisor.assign_account` in THIS transaction. A rebind that owes a
+# session boundary splits the seat in place: the new bearer `nid@gen`, the
+# mooted asks and the folded notices. The live-effort send runs after commit
+# (decision 40 (4)).
+
+RETOOL_FIELDS = ("add_dirs", "tools", "org_visibility", "permission_mode",
+                 "charter", "team_charter", "effort", "prefer_reserve",
+                 "account_fallback", "clear_account_fallback")
+
+
+def retool_rows(org: Any, actor: str, a: dict[str, Any]) -> pgdoor.TxSpec:
+    nid = str(a.get("node") or "")
+    kw = {f: a.get(f) for f in RETOOL_FIELDS if a.get(f) is not None}
+    upd, share, secs, ssecs, logs = lt._scope_plan(org, actor, nid, kw, False)
+    secs, logs = set(secs), set(logs)
+    ssecs = set(ssecs)
+    if a.get("account") is not None and nid in org.nodes:
+        # the generic door step's supervisor.assign_account (doc held): the
+        # in-place split rows a provider crossing archives into, and its own
+        # declared sections (a live seat's open asks, credit and scope
+        # requests are mooted; notices folded; the docket reconciled)
+        from . import supervisor
+        u, s2 = lt._split_rows(org, actor, nid)
+        upd |= u
+        share |= s2
+        secs |= set(supervisor._ASSIGN_SECTIONS)
+        ssecs |= set(supervisor._ASSIGN_SHARE)
+        logs |= set(supervisor._ASSIGN_LOGS)
+    return pgdoor.TxSpec(nodes=tuple(sorted(upd)), sections=tuple(sorted(secs)),
+                         share_nodes=tuple(sorted(share - upd)),
+                         share_sections=tuple(sorted(set(ssecs) - secs)),
+                         logs=tuple(sorted(logs, key=str)))
+
+
+def _retool_spec(snap: Any, call: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
+    return retool_rows(snap, call.node, a)
+
+
+def retool_body(tx: pgdoor.AgentTx) -> Any:
+    """`orgtree_retool` on the door: exactly `api._retool_seat` on the locked
+    rows (a gap in the re-derived plan widens first)."""
+    from . import api, supervisor
+    need = tx.spec.covers(retool_rows(tx.org, tx.node, tx.args))
+    if not need.empty():
+        raise pgdoor.Widen(nodes=need.nodes, sections=need.sections,
+                           share_nodes=need.share_nodes,
+                           share_sections=need.share_sections, logs=need.logs)
+    result, effort = api._retool_seat(tx.org, tx.call.org, tx.node, tx.args)
+    if effort is not None:
+        target, before = effort
+        org = tx.org
+
+        def effort_delivery(res: Any) -> None:
+            # the level is committed now, so a running Claude turn may be
+            # sent it (the cycle's `effort_live` tail)
+            if isinstance(res, dict):
+                res["effort_delivery"] = supervisor.send_live_effort(
+                    org, target, previous=before)
+        tx.after.then.append(effort_delivery)
+    return result
+
+
+# ---------------------------------------------------------------- cheap compact
+# `Org.cheap_compact` on `lifecycle_tx._split_rows` (the seat and its new
+# bearer FOR UPDATE; ancestors, actor and a lost bearer's successor FOR
+# SHARE). The cycle copies the predecessor's transcript inside its save
+# window; here the copy is file IO, so it runs AFTER the commit, generation
+# ordered, and a failure is a warning (fence-off S3, lead decision 40(2)).
+
+
+def _split_rows(snap: Any, call: Any, a: dict[str, Any]
+                ) -> "tuple[set[str], set[str]]":
+    return lt._split_rows(snap, call.node, str(a.get("node") or ""))
+
+
+def _cheap_compact(org: Any, hn: Any, hs: Any, tx: pgdoor.AgentTx) -> Any:
+    nid = str(tx.args.get("node") or "")
+    result = lt.cheap_compact_body(org, hn, hs, tx.node, nid)
+    warns = tx.pre.get("archive_warnings")     # background tasks it stopped
+    if warns and isinstance(result, dict):
+        result.setdefault("warnings", []).extend(warns)
+    old_sid = result.get("old_session") if isinstance(result, dict) else None
+    if old_sid:
+        from . import supervisor
+        slug = tx.call.org
+
+        def export(res: Any) -> None:
+            supervisor.export_after_commit(slug, org, nid, str(old_sid),
+                                           "cheap_compact")
+        tx.after.then.append(export)
+    return result
+
+
+pgdoor.declare("orgtree_move", _spec("move", _move_rows), _door_body(_move))
+pgdoor.declare("orgtree_swap", _spec("swap_seats", _swap_rows),
+               _door_body(_swap))
+pgdoor.declare("orgtree_self_subjugate", _spec("move", _subjugate_rows),
+               _door_body(_subjugate))
+pgdoor.declare("orgtree_retire", _spec("retire", _archive_rows),
+               _door_body(_archive(lt.retire_body)))
+pgdoor.declare("orgtree_dissolve", _spec("dissolve", _archive_rows),
+               _door_body(_archive(lt.dissolve_body)))
+pgdoor.declare("orgtree_rehire", _rehire_spec, body=rehire_body,
+               before=_sweep_first)
+pgdoor.declare("orgtree_retool", _retool_spec, body=retool_body)
+pgdoor.declare("orgtree_cheap_compact", _spec("cheap_compact", _split_rows),
+               _door_body(_cheap_compact))
+
+
+# ================================================================ operator ops
+# fence-off S3: the lifecycle ops of `POST /api/orgs/{slug}/ops` on
+# `pgdoor.op_tx` (WS3a's `_op_door` runs them, with the kiosk cap and the
+# shared tail; org_op's archive pre-step and remote_reap stay where they
+# are). Declaring an op name routes it (`pgdoor.routed(op)`). Each spec is
+# `lifecycle_tx`'s plan for the same ledger method, computed from the
+# snapshot; each body re-derives it on the locked document (`_need` /
+# `_plan_gap`, a gap widens). Anything that is file or process work runs
+# after the commit through `OpTx.after` (lock plan S3-LOCK-PLAN.md §4,
+# p01-reviewed 2026-09-26 14:38Z). `switch_model` is declared with the
+# agent tool, at the end of this module.
+
+
+def _op_spec(op: str, rows: Callable[[Any, str, Any], "tuple[set[str], set[str]]"]):
+    """An op spec: `op`'s sections from `lt.SPECS`, node rows from
+    `rows(snapshot, actor, op_body)`."""
+    s = lt.SPECS[op]
+
+    def spec(snap: Any, body: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
+        upd, share = rows(snap, str(body.actor), body)
+        return pgdoor.TxSpec(nodes=tuple(sorted(upd)),
+                             sections=tuple(s.sections),
+                             share_nodes=tuple(sorted(share - upd)),
+                             share_sections=tuple(s.share_sections),
+                             logs=tuple(s.logs))
+    return spec
+
+
+def _op_body(fn: Callable[[pgdoor.OpTx, str, str], Any]):
+    """Adapt a body to the op door: `fn(tx, actor, nid)`, translating
+    lifecycle_tx's Widen to the door's."""
+    def body(tx: pgdoor.OpTx) -> Any:
+        try:
+            return fn(tx, str(tx.body.actor), str(tx.body.node or ""))
+        except lt.Widen as w:
+            raise pgdoor.Widen(nodes=tuple(w.nodes),
+                               share_nodes=tuple(w.share_nodes),
+                               sections=tuple(w.sections),
+                               share_sections=tuple(w.share_sections),
+                               logs=tuple(w.logs)) from None
+    return body
+
+
+def _held(tx: pgdoor.OpTx) -> "tuple[Any, Any]":
+    return tx.spec.nodes, tx.spec.share_nodes
+
+
+# retire / dissolve / rescind: `_archive_rows` (rescind also locks the parent)
+for _op_name, _op_fn, _par in (("retire", lt.retire_body, False),
+                               ("dissolve", lt.dissolve_body, False),
+                               ("rescind", lt.rescind_body, True)):
+    pgdoor.declare(
+        _op_name,
+        _op_spec(_op_name, lambda snap, actor, b, _p=_par:
+                 lt._archive_rows(snap, actor, str(b.node or ""), _p)),
+        body=_op_body(lambda tx, actor, nid, _f=_op_fn:
+                      _f(tx.org, *_held(tx), actor, nid)))
+
+
+# move / promote / demote: all three are `Org._move` to `new_parent`, so the
+# move plan covers them (promote's and demote's extra checks read the moving
+# node's chain and subtree, which `_move_rows` holds)
+def _move_op_rows(snap: Any, actor: str, b: Any) -> "tuple[set[str], set[str]]":
+    return lt._move_rows(snap, actor, str(b.node or ""), b.new_parent or None)
+
+
+def _move_op(method: str):
+    def run(tx: pgdoor.OpTx, actor: str, nid: str) -> Any:
+        new_parent = tx.body.new_parent or None
+        lt._need(tx.org, lambda o: lt._move_rows(o, actor, nid, new_parent),
+                 *_held(tx))
+        if method == "demote" and new_parent is None:
+            raise LedgerError("demote needs new_parent")
+        # the op body's own value, as the cycle passes it
+        return getattr(tx.org, method)(actor, nid, tx.body.new_parent)
+    return run
+
+
+for _op_name in ("move", "promote", "demote"):
+    pgdoor.declare(_op_name, _op_spec("move", _move_op_rows),
+                   body=_op_body(_move_op(_op_name)))
+
+
+# delete: the census-derived plan (sections and per-owner log rows too);
+# the in-memory runtime of the deleted seats is forgotten after the commit
+def _delete_spec(snap: Any, body: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
+    upd, share, secs, logs = lt._delete_plan(snap, str(body.actor),
+                                             str(body.node or ""))
+    return pgdoor.TxSpec(nodes=tuple(sorted(upd)), sections=secs,
+                         share_nodes=tuple(sorted(share)), logs=logs)
+
+
+def _delete_op(tx: pgdoor.OpTx, actor: str, nid: str) -> Any:
+    result = lt.delete_body(tx.tx, actor, nid)
+    slug = tx.slug
+
+    def forget(res: Any) -> None:
+        from . import supervisor
+        supervisor.forget(slug, res["deleted"])
+    tx.after.then.append(forget)
+    return result
+
+
+pgdoor.declare("delete", _delete_spec, body=_op_body(_delete_op))
+
+
+# cheap_compact: `_split_rows`; `if_idle` reads the in-memory busy flag on
+# every attempt; the transcript copy runs after the commit
+def _cc_op(tx: pgdoor.OpTx, actor: str, nid: str) -> Any:
+    from . import supervisor
+    if getattr(tx.body, "if_idle", False):
+        tx.org.node(nid)          # an unknown id is the ordinary 422
+        if supervisor.state(tx.slug, nid).get("busy"):
+            from fastapi import HTTPException
+            raise HTTPException(
+                409, f"{nid} is mid-turn — not cheap-compacted; a running "
+                     "turn is never interrupted for a bulk compaction")
+    result = lt.cheap_compact_body(tx.org, *_held(tx), actor, nid)
+    old_sid = result.get("old_session") if isinstance(result, dict) else None
+    if old_sid:
+        org, slug = tx.org, tx.slug
+
+        def export(res: Any) -> None:
+            supervisor.export_after_commit(slug, org, nid, str(old_sid),
+                                           "cheap_compact")
+        tx.after.then.append(export)
+    return result
+
+
+pgdoor.declare("cheap_compact",
+               _op_spec("cheap_compact",
+                        lambda snap, actor, b: lt._split_rows(snap, actor,
+                                                              str(b.node or ""))),
+               body=_op_body(_cc_op))
+
+
+# reseed: `_split_rows`; the fresh session id is minted BEFORE the
+# transaction, so every attempt (a retry, a widening) uses the same one
+def _reseed_before(body: Any, a: dict[str, Any]) -> dict[str, Any]:
+    import uuid
+    return {"reseed_session": str(uuid.uuid4())}
+
+
+pgdoor.declare("reseed",
+               _op_spec("reseed",
+                        lambda snap, actor, b: lt._split_rows(snap, actor,
+                                                              str(b.node or ""))),
+               body=_op_body(lambda tx, actor, nid: lt.reseed_body(
+                   tx.org, *_held(tx), actor, nid, tx.pre["reseed_session"])),
+               before=_reseed_before)
+
+
+# rehire (the operator's plain rehire): `_rehire_rows`; the provider gate
+# runs on the locked document, exactly as the agent door's rehire does
+def _rehire_op(tx: pgdoor.OpTx, actor: str, nid: str) -> Any:
+    from . import api
+    lt._need(tx.org, lambda o: lt._rehire_rows(o, actor, nid), *_held(tx))
+    b = tx.body
+    if b.tier is not None:
+        api.provider_hire_gate(tx.org, b.tier)
+    else:
+        api.provider_hire_gate(tx.org, str(tx.org.node(nid).get("model") or ""),
+                               user_choice_only=True)
+    return tx.org.rehire(actor, nid, b.grant, tier=b.tier,
+                         raise_ceiling=bool(tx.pre.get("rc")))
+
+
+pgdoor.declare("rehire",
+               _op_spec("rehire",
+                        lambda snap, actor, b: lt._rehire_rows(snap, actor,
+                                                               str(b.node or ""))),
+               body=_op_body(_rehire_op))
+
+
+# revoke_dir: the node and its whole subtree (live or not) have `add_dirs`
+# rewritten FOR UPDATE; the ancestors (authority) and the actor FOR SHARE
+def revoke_dir_rows(org: Any, actor: str, nid: str) -> "tuple[set[str], set[str]]":
+    if nid not in org.nodes:
+        return {nid}, set()
+    upd = {nid, *org.descendants(nid, live_only=False)}
+    share = set(lt._anc(org, nid))
+    if actor in org.nodes:
+        share.add(actor)
+    return upd, share - upd
+
+
+def _revoke_dir_spec(snap: Any, body: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
+    upd, share = revoke_dir_rows(snap, str(body.actor), str(body.node or ""))
+    return pgdoor.TxSpec(nodes=tuple(sorted(upd)),
+                         share_nodes=tuple(sorted(share)), logs=("events",))
+
+
+def _revoke_dir_op(tx: pgdoor.OpTx, actor: str, nid: str) -> Any:
+    lt._need(tx.org, lambda o: revoke_dir_rows(o, actor, nid), *_held(tx))
+    if tx.body.dir is None:
+        raise LedgerError("revoke_dir needs dir")
+    return tx.org.revoke_dir(actor, nid, tx.body.dir)
+
+
+pgdoor.declare("revoke_dir", _revoke_dir_spec, body=_op_body(_revoke_dir_op))
+
+
+# ================================================================ switch model
+# `orgtree_switch_model` (agent) and the `switch_model` op on
+# `supervisor.switch_rows` (pg-supervisor-a, S6 C2-A) — the same rows as the
+# queued switch applied at the turn boundary. The PROVIDER GATE runs BEFORE
+# the transaction, once per call, with no row held: it can make HTTP
+# requests (an OpenRouter tier's key check). It reads the org's kiosk flag
+# from the lock-free snapshot, so the body re-reads that flag under a share
+# lock and refuses if it changed. The account rule runs on the locked
+# document, as the cycle ran it under DOC_LOCK; the busy flag (D-234: a
+# mid-turn seat QUEUES the switch) is the in-memory runtime, read on every
+# attempt. An account riding the switch is bound in this transaction
+# (`finish_switch_binding(export=False)`). After the commit, in this order:
+# the transcript copies a crossing or a rebind owes (generation ordered; a
+# failure is a warning), THEN the account-unpark wake - the cycle's order,
+# so a woken successor finds its handoff already published (review f2).
+
+
+def _switch_gate_first(call: Any, a: dict[str, Any]) -> dict[str, Any]:
+    """before=: `api.provider_hire_gate` on the lock-free snapshot, outside
+    the transaction (review f1). The op refuses a missing tier in its body,
+    as the cycle does, before any gate."""
+    from . import api
+    slug = str(getattr(call, "org", None) or a["org_slug"])
+    tier = a.get("tier")
+    if getattr(call, "org", None) is None and tier is None:
+        return {}
+    snap = pgdoor._snapshot(slug)
+    api.provider_hire_gate(snap, tier)
+    return {"switch_gated_kiosk": bool(snap.d.get("kiosk"))}
+
+
+def switch_spec(org: Any, actor: str, nid: str,
+                account: "str | None") -> pgdoor.TxSpec:
+    from . import supervisor
+    spec = supervisor.switch_rows(org, actor, nid, rebind=bool(account))
+    # + `kiosk` FOR SHARE: the body re-checks the flag the gate read
+    return pgdoor.TxSpec(nodes=spec.nodes, sections=spec.sections,
+                         share_nodes=spec.share_nodes,
+                         share_sections=tuple(sorted(
+                             {*spec.share_sections, "kiosk"}
+                             - set(spec.sections))),
+                         logs=spec.logs)
+
+
+def switch_body(org: Any, slug: str, held: pgdoor.TxSpec, after: pgdoor.After,
+                actor: str, nid: str, tier: str,
+                account: "str | None", gated_kiosk: bool) -> dict[str, Any]:
+    """The cycle's switch_model branch on the locked rows (a gap in the
+    re-derived plan widens first); file IO and wake-ups go to `after`."""
+    from . import supervisor
+    need = held.covers(switch_spec(org, actor, nid, account))
+    if not need.empty():
+        raise pgdoor.Widen(nodes=need.nodes, sections=need.sections,
+                           share_nodes=need.share_nodes,
+                           share_sections=need.share_sections, logs=need.logs)
+    # the gate ran before the transaction on the snapshot's kiosk flag; the
+    # kiosk holdouts are the only part of it that reads the org, so hold the
+    # flag and refuse if it moved since (the gate is not re-run in here)
+    with pgdoor.join(slug, share_sections=["kiosk"]):
+        if bool(org.d.get("kiosk")) != bool(gated_kiosk):
+            raise LedgerError("the org's kiosk setting changed while this "
+                              "switch was being checked - try again")
+    try:
+        supervisor.check_switch_account(org, slug, nid, tier, account)
+    except ValueError as e:
+        raise LedgerError(str(e)) from None
+    result = org.switch_model(
+        actor, nid, tier, account=account,
+        busy=bool(nid and supervisor.state(slug, nid)["busy"]))
+    exports: list[str] = []
+    unparked = False
+    if not result.get("queued") and not result.get("cancelled"):
+        fsb = supervisor.finish_switch_binding(org, slug, nid, account, actor,
+                                               export=False)
+        if fsb.get("export_old_sid"):
+            exports.append(str(fsb["export_old_sid"]))
+        unparked = bool(fsb.get("unparked"))
+    if result.get("old_session"):
+        exports.append(str(result["old_session"]))
+    for sid in exports:
+        def export(res: Any, _sid: str = sid) -> None:
+            supervisor.export_after_commit(slug, org, nid, _sid,
+                                           "switch_model")
+        after.then.append(export)
+    if unparked:
+        # AFTER the exports: the woken successor's first turn reads the
+        # handoff they publish (review f2)
+        def account_unpark(res: Any) -> None:
+            supervisor.drive_account_unpark(slug, nid)
+        after.then.append(account_unpark)
+    return result
+
+
+def _switch_account(a: dict[str, Any]) -> "str | None":
+    return str(a.get("account") or "") or None
+
+
+def _switch_tool_spec(snap: Any, call: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
+    return switch_spec(snap, call.node, str(a.get("node") or ""),
+                       _switch_account(a))
+
+
+def _switch_tool(tx: pgdoor.AgentTx) -> Any:
+    from . import supervisor
+    slug, nid = tx.call.org, str(tx.args.get("node") or "")
+    result = switch_body(tx.org, slug, tx.spec, tx.after, tx.node, nid,
+                         str(tx.args.get("tier") or ""),
+                         _switch_account(tx.args),
+                         bool(tx.pre.get("switch_gated_kiosk")))
+    # a crossing that cleared a stale provider freeze leaves the seat live
+    # but idle: wake it with the accurate message (the cycle's tail step)
+    stale = [str(x) for x in result.pop("resume_stale_freeze", [])]
+    if stale:
+        def unfrozen_by_switch(res: Any) -> None:
+            supervisor.drive_unfrozen_by_switch(slug, stale)
+        tx.after.then.append(unfrozen_by_switch)
+    return result
+
+
+pgdoor.declare("orgtree_switch_model", _switch_tool_spec, body=_switch_tool,
+               before=_switch_gate_first)
+
+
+def _switch_op_spec(snap: Any, body: Any, a: dict[str, Any]) -> pgdoor.TxSpec:
+    return switch_spec(snap, str(body.actor), str(body.node or ""),
+                       str(getattr(body, "account", "") or "") or None)
+
+
+def _switch_op(tx: pgdoor.OpTx) -> Any:
+    b = tx.body
+    if b.tier is None:
+        raise LedgerError("switch_model needs tier")
+    # `resume_stale_freeze` stays in the result: org_op's shared tail wakes
+    # those seats for every op
+    return switch_body(tx.org, tx.slug, tx.spec, tx.after, str(b.actor),
+                       str(b.node or ""), b.tier,
+                       str(getattr(b, "account", "") or "") or None,
+                       bool(tx.pre.get("switch_gated_kiosk")))
+
+
+pgdoor.declare("switch_model", _switch_op_spec, body=_switch_op,
+               before=_switch_gate_first)

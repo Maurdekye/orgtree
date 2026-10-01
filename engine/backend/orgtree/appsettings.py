@@ -106,6 +106,85 @@ def set_openrouter_harness(value: str) -> None:
         _save(doc)
 
 
+#: Bounds on the charter template directory list (docket
+#: add-external-agent-charter-templates-folder). Generous for a hand-kept list
+#: of folders; they exist so one malformed request cannot store an unbounded
+#: record that every hire form then scans.
+CHARTER_TEMPLATE_DIRS_MAX: Final = 32
+CHARTER_TEMPLATE_DIR_CHARS: Final = 1024
+
+
+def _canonical_template_dir(value: object) -> str:
+    if not isinstance(value, str):
+        raise ValueError("charter template directories must be text paths")
+    text = value.strip()
+    if not text:
+        raise ValueError("a charter template directory path may not be blank")
+    if len(text) > CHARTER_TEMPLATE_DIR_CHARS or "\x00" in text:
+        raise ValueError("charter template directory path is not a usable path")
+    if not os.path.isabs(text):
+        raise ValueError(f"charter template directories must be absolute paths: {text}")
+    return os.path.normpath(text)
+
+
+def _refuse_invalid_path_syntax(path: str) -> None:
+    """Refuse a path the OS rejects as SYNTAX (Windows ERROR_INVALID_NAME,
+    e.g. a component holding `<` or a second `:`). A folder that is merely
+    missing, on an absent drive or an unreachable share is still accepted —
+    the reader reports those — and nothing is created. Only on save: the
+    reader must never touch the filesystem to list the setting."""
+    try:
+        os.lstat(path)
+    except ValueError as exc:
+        raise ValueError(f"not a usable folder path: {path} ({exc})") from None
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 123:
+            raise ValueError(f"not a usable folder path: {path}") from None
+
+
+def charter_template_dirs() -> list[str]:
+    """The machine-wide, ordered list of external charter template folders.
+
+    Only the paths are stored; nothing is read, created or checked here, so a
+    folder that is missing today is kept and reported by the reader rather
+    than silently forgotten. Malformed residue in the record is skipped.
+    """
+    raw = load().get("runtime", {}).get("charter_template_dirs")
+    out: list[str] = []
+    for entry in raw if isinstance(raw, list) else []:
+        try:
+            out.append(_canonical_template_dir(entry))
+        except ValueError:
+            continue
+    return out[:CHARTER_TEMPLATE_DIRS_MAX]
+
+
+def set_charter_template_dirs(values: list[str]) -> list[str]:
+    """Replace the whole ordered list. Order is meaningful — it is the
+    precedence between templates with the same name — so the list is stored
+    as given, after normalising each path; a repeated folder is refused rather
+    than silently collapsed so the caller never loses track of an entry."""
+    if not isinstance(values, list):
+        raise ValueError("charter template directories must be a list")
+    if len(values) > CHARTER_TEMPLATE_DIRS_MAX:
+        raise ValueError(
+            f"at most {CHARTER_TEMPLATE_DIRS_MAX} charter template directories")
+    dirs = [_canonical_template_dir(v) for v in values]
+    for d in dirs:
+        _refuse_invalid_path_syntax(d)
+    seen: set[str] = set()
+    for d in dirs:
+        key = os.path.normcase(d)
+        if key in seen:
+            raise ValueError(f"charter template directory listed twice: {d}")
+        seen.add(key)
+    with _LOCK:
+        doc = load(strict=True)
+        doc["runtime"]["charter_template_dirs"] = dirs
+        _save(doc)
+    return dirs
+
+
 class AppSettingsUnreadable(RuntimeError):
     """An existing settings record cannot be safely read or overwritten."""
 
@@ -360,6 +439,40 @@ def set_working_checkups_enabled(enabled: bool) -> None:
         raw = doc.get("runtime")
         runtime: dict[str, Any] = dict(raw) if isinstance(raw, dict) else {}
         runtime["working_checkups"] = bool(enabled)
+        doc["runtime"] = runtime
+        doc["version"] = VERSION
+        _save(doc)
+
+
+#: bounds of the machine-wide concurrent-turn limit (user ruling 2026-09-26:
+#: a SETTING, default 16). The scheduler itself is turnslots.FairSlots.
+MAX_TURNS_MIN: Final = 1
+MAX_TURNS_MAX: Final = 512
+
+
+def max_concurrent_turns() -> int | None:
+    """The stored machine-wide limit on concurrent agent turns, or None when
+    the user never set one (the caller then falls back to ORGTREE_MAX_TURNS,
+    then to 16). A stored value outside the bounds reads as unset rather than
+    being silently clamped into something the user did not choose."""
+    raw = load().get("runtime")
+    runtime = raw if isinstance(raw, dict) else {}
+    value = runtime.get("max_concurrent_turns")
+    if type(value) is int and MAX_TURNS_MIN <= value <= MAX_TURNS_MAX:
+        return value
+    return None
+
+
+def set_max_concurrent_turns(limit: int) -> None:
+    """Persist the machine-wide concurrent-turn limit (refuses out of range)."""
+    if type(limit) is not int or not MAX_TURNS_MIN <= limit <= MAX_TURNS_MAX:
+        raise ValueError(f"max_concurrent_turns must be an integer from "
+                         f"{MAX_TURNS_MIN} to {MAX_TURNS_MAX}")
+    with _LOCK:
+        doc = load(strict=True)
+        raw = doc.get("runtime")
+        runtime: dict[str, Any] = dict(raw) if isinstance(raw, dict) else {}
+        runtime["max_concurrent_turns"] = limit
         doc["runtime"] = runtime
         doc["version"] = VERSION
         _save(doc)

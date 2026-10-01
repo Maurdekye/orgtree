@@ -32,7 +32,8 @@ INT_MAX = 10 ** 15           # a typed count/duration beyond this is null
 LANES = frozenset({"claude", "openrouter", "codex", "antigravity"})
 # ledger.TIERS' keys, copied: this module imports nothing of orgtree
 TIERS = frozenset({"fable", "opus", "sonnet", "haiku", "sol", "terra",
-                   "gpt-reserve", "luna", "astra", "flash", "pro"})
+                   "gpt-reserve", "luna", "astra", "flash", "pro",
+                   "argon"})
 OUTCOMES = frozenset({"completed", "interrupted", "frozen", "killed",
                       "abandoned", "unrecoverable", "redriven", "failed",
                       "crashed", "unknown"})
@@ -76,7 +77,8 @@ PARKED = frozenset({"untrusted", "auth", "balance"})
 SCHEDULES = frozenset({"observed-deadline", "probe", "backoff"})
 DOORS = frozenset({"pre_model", "ran_then_failed", "killed"})
 DISCARDS = frozenset({"limit-frozen", "turn-timeout", "stdin-closed",
-                      "claim-died", "prompt-changed", "identity-changed"})
+                      "claim-died", "prompt-changed", "identity-changed",
+                      "effort-sent-live"})
 CODEX_POOLS = frozenset({"plan", "reserve"})
 CODEX_ROUTES = frozenset({"reserve", "direct"})     # codex_route.Route.route
 CODEX_SELECTIONS = frozenset({"preflight", "retry"})

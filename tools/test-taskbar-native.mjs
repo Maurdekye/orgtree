@@ -23,6 +23,9 @@ app.whenReady().then(async()=>{
  assert.equal(nativeImage.createFromPath(${JSON.stringify(icon)}).isEmpty(),false)
  configureTaskbar(w,process.execPath,${JSON.stringify(icon)},'com.maurdekye.orgtree.native-test')
  const after=await read();assert.equal(after['5'],'com.maurdekye.orgtree.native-test');assert.equal(after['2'],'"'+process.execPath+'"');assert.equal(after['4'],'Orgtree');assert.equal(after['3'],${JSON.stringify(icon)}+',0')
+ const themed=${JSON.stringify(path.resolve('apps/desktop/assets/orgtree-eye-tray-codex.ico'))}
+ configureTaskbar(w,process.execPath,themed,'com.maurdekye.orgtree.native-test')
+ const again=await read();assert.equal(again['3'],themed+',0','a later call (theme change) replaces the taskbar icon property on the live window')
  console.log('PASS native shell relaunch command, display name, app ID and readable unpacked icon; missing-properties control detected')
  w.destroy();app.quit()
 }).catch(e=>{console.error(e);app.exit(1)})

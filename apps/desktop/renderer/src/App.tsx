@@ -1,6 +1,7 @@
 import type { DesktopNotice } from './notifications'
 import { notificationInboxTarget, useNativeNotifications } from './notifications'
-import { usePendingAttention } from './pending-attention'
+import { startPendingMirror, usePendingAttention, waitingNow } from './pending-attention'
+import { ownsNotifications, useWindowIdentity } from './shell/identity'
 import { restoredAgent, restoredWindows, restoreWindowKind } from './windowlayout'
 import { desktop } from './desktop'
 import type { NativeDesktop } from './desktop'
@@ -20,19 +21,64 @@ import {
   getAccountRegistry, getRegisteredAccountUsage,
   getAntigravityUsage, getAntigravityUsagePeek,
   getCodexUsage, getCodexUsagePeek, getOpenRouterUsage, getOpenRouterUsagePeek,
-  getProviders, getTree, invalidateTreeCache,
-  getUsage, getUsagePeek, killAll, listOrgs,
+  getProviders, getAppTree, patchedTreeCache,
+  getUsage, getUsagePeek, killAll,
   markRead, openWs,
   probeHub, putOrgMd,
   resumeFrozen, runOp, saveDefaults, saveHireDefaults, saveSettings,
+  TREE_STALE_EVENT,
 } from './api'
+import { answeredAsk, settleFromTree, useSubmittedAsks } from './asksubmitted'
+import { markReadNow, readLocally, settleReadsFromBox, settleReadsFromTree, unconfirmedReads,
+  useLocalReads } from './mailread'
+import { afterBootGate, openBootGate } from './bootgate'
+import { treeSelections } from './treeselection'
+import { savedTreeSelection } from './canvas/treeselection'
+import { AdvancedOrgModal } from './shell/advancedorg'
+import { OrgRows } from './shell/orgrows'
+export { AdvancedOrgModal, OrgRows }
+import { ShellAction, ShellHeader } from './shell/header'
+import { OrgtreeMenu } from './shell/menu'
+import { OrgStatusBar } from './shell/statusbar'
+import { HomepageView } from './shell/homepage'
+import { CreateOrgView, cancelCreationNatively } from './shell/createorg'
+import { OrgViewToggle } from './shell/modetoggle'
+import { onHeldEvent } from './events/heldbus'
+import { setOrgView, useOrgView } from './attention/mode'
+import { useModeRestore } from './attention/moderestore'
+import { useButtonColours } from './buttoncolours'
+import type { OrgView } from './attention/mode'
+import { AttentionView } from './attention/AttentionView'
+import type { AttentionNotificationFocus } from './attention/AttentionQueue'
+import { openOrgEffect, requestOpenOrg } from './shell/openorg'
+import { identityOrg, identityView } from './shell/identity'
+import { useOpenOrgs } from './shell/openorgs'
+import { readSkippedOrgs, restoreNotice, skippedPanels } from './shell/restorenotice'
+import { treeStatusOf } from './shell/treestatus'
+import type { SkippedPanel } from './shell/restorenotice'
+import { nativeWindows } from './desktop'
+import { DefaultsForm } from './shell/defaults'
+// moved out of this file so the v3 shell's compact header and bottom status
+// strip can both read them without importing App.tsx (which imports them).
+// Re-exported below, so every existing importer is unaffected.
+import {
+  ActiveAgentSummary, activeOrgTitle, costLabel, costTitle, flatNodes, showCost,
+} from './shell/treeinfo'
+export {
+  ActiveAgentSummary, activeOrgTitle, costLabel, costTitle, flatNodes, showCost,
+}
+import { orgFreshnessNote, useOrgStatus } from './orgstatus'
+import type { OrgFreshness } from './orgstatus'
 import { fmtFull, fmtWhen } from './timefmt'
 import { registryPlanName, registryProviderName } from './registrylabels'
 import { primaryEmail, usageIdentity } from './accountidentity'
 import type { HostIdentity } from './accountidentity'
 import { groupByProvider } from './usagegroups'
 import { bumpLive } from './livebus'
+import { applyPrimedAsks, useAskPrimer } from './askprime'
 import { newSync, onBase, onFrame, resetSync } from './treesync'
+import { TreeReadPacer } from './treepace'
+import type { TreeRequest } from './treepace'
 import { AgentNavProvider, agentNavProps } from './canvas/agentnav'
 import { AudienceFold, ConfirmModal, MailFolders, MailList, OrgCanvas, OrgRecord, RetiredFold } from './Canvas'
 import { KillSwitch } from './KillSwitch'
@@ -44,8 +90,10 @@ import {
 } from './icons'
 import { DirList } from './forms'
 import { FolderPickerHost } from './picker'
-import { activeDocCount, ago, ALL_TIERS, attentionPip, availableAutopsyModels, deskDpi, fmtCredits, formatCount, isOpenRouterTier, jumpKey, jumpTo, orgPxc, presenceOfPayload, primedRestartChip, setDeskDpi, TIER_LETTER, tierLabel, unicodeLength, usePolled } from './canvas/shared'
-import { AskCard } from './canvas/asks'
+import { activeDocCount, ago, ALL_TIERS, attentionPip, availableAutopsyModels, deskDpi, fmtCredits, formatCount, isOpenRouterTier, jumpKey, jumpTo, orgPxc, presenceOfPayload, primedRestartChip, setDeskDpi, TIER_LETTER, tierLabel, unicodeLength, usePolled, useShowLegacyModels } from './canvas/shared'
+import { InboxAskCard } from './canvas/asks'
+import { askMailRow, openAsks, submittedCards, submittedOpenCount } from './canvas/openasks'
+import { SenderChip } from './canvas/senderchip'
 import { AgentName } from './canvas/identity'
 import { ObjectMenuBoundary } from './canvas/contextmenu'
 import { AccountsPanel, ProviderSignIn, UsageBars } from './canvas/accounts'
@@ -59,11 +107,13 @@ import { HireDefaultsTab, orgDefaultTools, orgDirHoldings } from './canvas/modal
 import { mailRefTarget, refToken, useRefRoutes } from './canvas/reflinks'
 import type { TypedRef } from './canvas/workrefs'
 import {
-  SetBlock, SetGroup, SetRow, SettingsTabPanel, SettingsTabs, SetToggle,
-  useVisitedTabs,
+  OPEN_APP_SETTINGS_EVENT, SetBlock, SetGroup, SetRow, SettingsTabPanel,
+  SettingsTabs, SetToggle, useVisitedTabs,
 } from './canvas/settingskit'
 import type { SettingsTab } from './canvas/settingskit'
 import { ingestPulse, ingestStream, resetConvos } from './convo'
+import { clearNodeMetadata, metadataPatch, publishNodeMetadata, replaceNodeMetadata } from './nodemetadata'
+import type { NodeStreamFrame } from './nodemetadata'
 import type {
   AccountUsage, AskInfo, AudiencesPayload, CacheForecast, DefaultsPayload, HostPayload, InboxPayload,
   DirGrant, MailEntry, OpRequest, OpResult, OrgEvent, OrgListEntry,
@@ -73,32 +123,8 @@ import type {
   ToastUndo, TreeFrozen, TreeNode, TreePayload, UsageLimit, UsagePayload, UsagePeek,
 } from './types'
 import type { JumpReq, MailRow, ProviderPresence } from './canvas/shared'
+import { EngineDebugPanel, setEngineDebugOn, useEngineDebug } from './canvas/enginedebug'
 
-/** the cost chip's hover split: how much of the org total was served by
- *  API-key accounts vs subscriptions. Attribution is now per TURN, from the
- *  serving account's mode (2026-09-12 redesign), rather than from whether a
- *  fallback window happened to be open. '' when no key account has ever
- *  served this org — the tooltip stays quiet rather than showing a
- *  meaningless $0.00 lane. */
-const costSplitTitle = (tree: TreePayload): string => {
-  const api = tree.api_cost_usd_total ?? 0
-  if (!(api > 0)) return ''
-  return `subscription $${Math.max(0, tree.cost_usd_total - api).toFixed(2)}`
-    + ` · api key $${api.toFixed(2)}`
-}
-export const costLabel = (tree: Pick<TreePayload, 'cost_usd_total' | 'cost_usd_unknown'>): string =>
-  tree.cost_usd_unknown
-    ? (tree.cost_usd_total > 0
-      ? `$${tree.cost_usd_total.toFixed(2)} estimated/incomplete` : '$?')
-    : `$${tree.cost_usd_total.toFixed(2)}`
-const costUnknownTitle = (tree: TreePayload): string => tree.cost_usd_unknown
-  ? 'recorded numeric estimate; unresolved amounts are not accounted for' : ''
-export const showCost = (tree: Pick<TreePayload, 'cost_usd_total' | 'cost_usd_unknown'>): boolean =>
-  tree.cost_usd_total > 0 || Boolean(tree.cost_usd_unknown)
-export const costTitle = (tree: TreePayload, kiosk = false): string => [
-  kiosk ? 'spend / limit' : (costSplitTitle(tree) || 'total spend'),
-  kiosk ? costSplitTitle(tree) : '', costUnknownTitle(tree),
-].filter(Boolean).join(' — ')
 const USER = '@user'       // typed actor sentinels — a node may be NAMED user/system
 const SYSTEM = '@system'
 
@@ -108,13 +134,7 @@ const SYSTEM = '@system'
 // (2026-09-19 base+patch protocol — see treesync.ts); sparks have none.
 type WsEvent =
   | { type: 'mail'; from: string; to: string }
-  | { type: 'node_stream'; rev?: number; event_id?: string; reply_quote?: string; node: string; kind: string; text?: string; sticky?: boolean; id?: string;
-      assistant_row?: unknown;
-      segments?: unknown; delivery?: unknown;
-      count?: number | null; last_turn_count?: number | null; provider?: string;
-      source?: string | null; reason?: string | null; emitted_at_ms?: number;
-      waiting?: boolean; state?: string | null;
-      forecast?: CacheForecast | null }
+  | NodeStreamFrame
   | { type: 'node_event'; rev?: number; node: string; event: string; was?: string;
       renamed?: Record<string, string> }
   | { type: 'changed'; rev?: number }
@@ -147,12 +167,7 @@ export const patchMcpNode = (
   if (node.id !== id) return childChanged ? { ...node, children } : node
   return {
     ...node, children,
-    mcp_tool_count: typeof data.count === 'number' ? data.count : null,
-    last_turn_mcp_tool_count: typeof data.last_turn_count === 'number'
-      ? data.last_turn_count : null,
-    mcp_tool_count_provider: data.provider ?? node.mcp_tool_count_provider,
-    mcp_tool_count_source: data.source ?? null,
-    mcp_tool_count_reason: data.reason ?? null,
+    ...metadataPatch(node, data),
   }
 }
 
@@ -174,9 +189,7 @@ export const patchMcpReadinessNode = (
   if (node.id !== id) return childChanged ? { ...node, children } : node
   return {
     ...node, children,
-    mcp_readiness_waiting: Boolean(data.waiting),
-    mcp_readiness_state: data.state ?? null,
-    mcp_readiness_reason: data.reason ?? null,
+    ...metadataPatch(node, data),
   }
 }
 
@@ -221,97 +234,6 @@ export const usageTitle = (pres: ProviderPresence): string => {
   return `usage — ${label}`
 }
 
-/** The activity chip is scoped to the current tree, but its tooltip answers
- * the wider machine question from the already-polled org list. `working` is
- * supervisor.working_count(), so it describes turns running now rather than
- * durable last_status values. Public org listings intentionally omit it. */
-export const activeOrgTitle = (orgs: Pick<OrgListEntry, 'name' | 'working'>[]): string => {
-  const known = orgs.filter((org) => typeof org.working === 'number')
-  if (!known.length) return 'active agents by organization — unavailable'
-  const active = known.filter((org) => org.working! > 0)
-  return active.length
-    ? `active agents by organization — ${active.map((org) => `${org.name}: ${org.working}`).join(' · ')}`
-    : 'active agents by organization — none'
-}
-
-/** The provider-neutral header summary. It deliberately walks ALL_TIERS:
- * this is an inventory of live agents, not a provider picker.
- * ⚠ D-202 DELIBERATELY LEFT THIS ALONE. It looks like a provider surface and
- * is not: `.filter((tier) => byTier[tier])` means a family appears only when
- * an agent is actually running on it, so an absent provider contributes
- * nothing without being asked. Hiding a live Codex agent's own letter because
- * the CLI went missing would make the header lie about what is running —
- * the count is an inventory, and an inventory reports what is there. */
-export function ActiveAgentSummary({ tree, orgs = [] }: {
-  tree: TreePayload
-  orgs?: Pick<OrgListEntry, 'name' | 'working'>[]
-}) {
-  const nodes = [...flatNodes(tree).values()].filter((n) => n.state === 'live')
-  const busy = nodes.filter((n) => n.busy).length
-  const byTier: Record<string, number> = {}
-  for (const node of nodes) byTier[node.tier] = (byTier[node.tier] ?? 0) + 1
-  const title = activeOrgTitle(orgs)
-  return (
-    <span className="chip agents"
-      role="img" tabIndex={0} aria-label={title} title={title}>
-      {nodes.length} live{busy > 0 ? ` · ${busy} active` : ''}
-      {/* the OpenRouter tiers are runtime-minted, so the inventory takes them
-          from what is actually running rather than from a static list */}
-      {[...ALL_TIERS, ...Object.keys(byTier).filter(isOpenRouterTier).sort()]
-        .filter((tier) => byTier[tier])
-        .map((tier) => (
-          <b key={tier} className={'t-' + tier}>
-            {TIER_LETTER[tier]}{byTier[tier]}
-          </b>
-        ))}
-    </span>
-  )
-}
-
-/** The org list rows — the same columns the tray's primary-click list shows
- * (user spec 2026-09-10): an activity cell (spinner ONLY while that org has a
- * turn executing), the name, and an always-visible n/m count where n = agents
- * active now (`working`, supervisor.working_count()) and m = currently hired
- * agents (`live`). Every row renders every cell so the columns line up when
- * idle; a public listing row (no `working` — deliberately omitted server-side)
- * shows its hired count alone rather than inventing a zero. */
-export function OrgRows({ orgs, slug, onPick, onDelete }: {
-  orgs: OrgListEntry[]; slug: string | null
-  onPick: (slug: string) => void; onDelete: (org: OrgListEntry) => void
-}) {
-  return <>
-    {orgs.map((o) => (
-      <div key={o.slug} role="button" tabIndex={0}
-        className={'org' + (o.slug === slug ? ' current' : '')
-          + (o.kiosk_cfg || o.kiosk ? ' kiosk-org' : '')}
-        onClick={() => onPick(o.slug)}
-        onKeyDown={(e) => { if (e.key === 'Enter') onPick(o.slug) }}>
-        <span className="org-activity">
-          {(o.working ?? 0) > 0 &&
-            <span className="working-ct"
-              title={`${o.working} agent${o.working === 1 ? '' : 's'} active — a turn executing now`}>
-              <AutorenewIcon fontSize="inherit" className="cc-spin" /></span>}
-        </span>
-        <span className="org-name">
-          <span className="org-name-text">{o.name}</span>
-          {(o.kiosk_cfg || o.kiosk) &&
-            <span className="kiosk-badge" title="kiosk org"><PublicIcon fontSize="inherit" /></span>}
-        </span>
-        <span className="org-counts dim" title="active / hired agents">
-          {typeof o.working === 'number' ? `${o.working}/${o.live}` : `${o.live}`}
-        </span>
-        {/* kiosk orgs delete like any other (user report 2026-07-31: the
-            old !o.kiosk gate left NO UI path at all — the server already
-            refuses public deletes, so hiding the trash from the admin
-            protected nothing) */}
-        <button className="org-del"
-          onClick={(e) => { e.stopPropagation(); onDelete(o) }}><DeleteIcon fontSize="inherit" /></button>
-      </div>
-    ))}
-    {!orgs.length && <div className="dim pad">no organizations yet</div>}
-  </>
-}
-
 /** The badge beside the sidebar's 'Orgtree' title (user 2026-09-10): the
  * RUNNING APP VERSION from the desktop shell — e.g. "2.0.0-alpha.8" — in the
  * seat the backend build hash used to hold; that hash stays in the tooltip.
@@ -344,24 +266,45 @@ export function OrgRows({ orgs, slug, onPick, onDelete }: {
  *  "something is waiting on you", all saying it in the same words — the
  *  `glow` class over the `askbell` keyframes. Nothing else may start
  *  glowing without the user asking for it. */
-export function AskBell({ tree, onOpen }: {
-  tree: Parameters<typeof attentionPip>[0]
+export function AskBell({ tree, onOpen, label }: {
+  tree: Parameters<typeof attentionPip>[0] & Partial<Pick<TreePayload, 'roots' | 'asks' | 'slug'>>
   onOpen: () => void
+  /** the v3 compact header's name for this icon-only button: its
+   *  `aria-label`, never visible text (user 2026-09-29). Absent everywhere
+   *  else, so every existing surface is unchanged. */
+  label?: string
 }) {
-  const pip = attentionPip(tree)
-  // The standing dot (user ruling 2026-09-12): an unanswered question or a
-  // piece of urgent mail anywhere, in ANY organization. The badge and glow
-  // above remain the open organization's own counts.
+  // a card the user just submitted leaves the count and the glow on the click
+  // (user addendum 2026-09-30), not on the next tree read
+  useSubmittedAsks()
+  // a mail the user just read leaves the unread count on the click as well
+  // (docket v3-marking-a-mail-as-read-takes-about-half-a-sec): the tree's
+  // counts lag the read until a tree read that began after the save
+  useLocalReads()
+  const answered = tree.roots
+    ? submittedOpenCount(tree, flatNodes(tree as TreePayload).values()) : 0
+  const reads = tree.slug ? unconfirmedReads(tree.slug) : { all: 0, urgent: 0 }
+  const pip = attentionPip(answered || reads.all
+    ? { ...tree, asks_open: Math.max(0, (tree.asks_open ?? 0) - answered),
+        user_inbox_count: Math.max(0, (tree.user_inbox_count ?? 0) - reads.all),
+        urgent_unread: Math.max(0, (tree.urgent_unread ?? 0) - reads.urgent) } : tree)
+  // The standing dot (user ruling 2026-09-12): an unanswered question, urgent
+  // mail or stopped agent still waiting on the user. ORG-SCOPED (user
+  // 2026-09-30, superseding the 2026-09-12 "any organization" reading): a
+  // request in another organization must not light the dot in this one, whose
+  // inbox cannot show it. So only rows of the tree's own organization count.
   // The dot itself is aria-hidden — a coloured mark says nothing to a reader
   // that cannot see it — so the SAME claim is spelled out in the title, which
   // is this icon-only button's accessible name. Otherwise the dot would be a
   // signal only sighted users get.
   const pending = usePendingAttention()
-  const waiting = pending.mail > 0
+  const rows = waitingNow(pending).filter((w) => w.org === tree.slug)
+  const waiting = rows.length > 0
   return (
     <button className={'iconbtn ask-bell' + (pip?.urgent ? ' glow' : '')}
+      aria-label={label}
       title={(pip?.title ?? 'your inbox')
-        + (waiting ? ` — ${pending.mail} request(s) still waiting on you` : '')}
+        + (waiting ? ` — ${rows.length} request(s) still waiting on you` : '')}
       onClick={onOpen}>
       <MailIcon fontSize="inherit" />
       {waiting && <i className="attn-dot" aria-hidden="true" />}
@@ -404,6 +347,16 @@ interface Toast { id: number; lines: string[]; undo: ToastUndo | null }
  *  push is a blink rather than a wedge. */
 const TREE_POLL_MS = 6000
 
+// The window's side readouts, held behind its first tree read (bootgate.ts):
+// six of them used to take every connection the browser would open and
+// leave the tree queued behind /api/providers.
+const bootUsagePeek = afterBootGate(getUsagePeek)
+const bootCodexUsagePeek = afterBootGate(getCodexUsagePeek)
+const bootAntigravityUsagePeek = afterBootGate(getAntigravityUsagePeek)
+const bootOpenRouterUsagePeek = afterBootGate(getOpenRouterUsagePeek)
+const bootProviders = afterBootGate(getProviders)
+const bootHost = afterBootGate(getHost)
+
 const slugFromPath = () => {
   // BASE is the /k/<token> prefix when served from a public kiosk URL
   const m = location.pathname.slice(BASE.length).match(/^\/o\/([a-z0-9@-]+)/)
@@ -413,12 +366,28 @@ const slugFromPath = () => {
 export default function App() {
   // apply the stored desk text size before anything renders a desk
   useEffect(() => { setDeskDpi(deskDpi()) }, [])
-  const [orgs, setOrgs] = useState<OrgListEntry[]>([])
-  // false until the FIRST successful /api/orgs: first-run setup must never
-  // flash at an existing installation whose list simply hasn't loaded yet
-  const [orgsKnown, setOrgsKnown] = useState(false)
-  const [slug, commitSlug] = useState<string | null>(() => slugFromPath() ?? (desktop() ? (() => { try { return localStorage.getItem('orgtree-desktop-last-org') } catch { return null } })() : null))   // /o/<slug> survives refresh
+  const identity = useWindowIdentity()
+  const v3 = nativeWindows()
+  // Developer › engine debug view (App settings); off unless turned on
+  const engineDebug = useEngineDebug()
+  // Native identity owns the organization from the first render. A fresh
+  // Homepage/Create window must not fetch or route to another window's last
+  // organization while waiting for an effect to reconcile its identity.
+  const [slug, commitSlug] = useState<string | null>(() => v3 ? identityOrg(identity)
+    : slugFromPath() ?? (desktop() ? (() => { try { return localStorage.getItem('orgtree-desktop-last-org') } catch { return null } })() : null))   // browser/v2 /o/<slug> survives refresh
   const [tree, setTree] = useState<TreePayload | null>(null)
+  // The view and click handler belong to this window's organization.
+  const viewMode = useOrgView(v3 ? slug : null)
+  const attentionNotification = useRef<AttentionNotificationFocus | null>(null)
+  const registerAttentionNotification = useCallback((focus: AttentionNotificationFocus | null) => {
+    attentionNotification.current = focus
+  }, [])
+  // no organization, no tree read to wait for (bootgate.ts)
+  useEffect(() => { if (!slug) openBootGate() }, [slug])
+  // point 34: the tree on screen, for the new-question primer (askprime.ts)
+  const treeRef = useRef<TreePayload | null>(null)
+  treeRef.current = tree
+  useAskPrimer(slug, treeRef, setTree)
   const { request: setSlug, prompt: orgTransitionPrompt } = useOrgTransition(slug, commitSlug, BASE)
   const [toasts, setToasts] = useState<Toast[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -458,6 +427,19 @@ export default function App() {
   const [doomedOrg, setDoomedOrg] = useState<OrgListEntry | null>(null)   // org row pending deletion
   const [showDefaults, setShowDefaults] = useState(false)   // global new-org defaults
   const [showAccounts, setShowAccounts] = useState(false)   // D-144 account registry
+  // the section a banner asked Application settings to open at (the queued-
+  // for-a-turn-slot banner points at Runtime); the panel follows later asks
+  // itself while it is open
+  const [appSettingsTab, setAppSettingsTab] = useState<'runtime' | undefined>(undefined)
+  useEffect(() => {
+    const open = (e: Event) => {
+      const tab = (e as CustomEvent<{ tab?: string }>).detail?.tab
+      setAppSettingsTab(tab === 'runtime' ? 'runtime' : undefined)
+      setShowAccounts(true)
+    }
+    window.addEventListener(OPEN_APP_SETTINGS_EVENT, open)
+    return () => window.removeEventListener(OPEN_APP_SETTINGS_EVENT, open)
+  }, [])
   // host subscription usage bars. SCOPED, not one boolean: home and each
   // organization are separate places to have this open (user 2026-09-12) -
   // see useScopedOpen in canvas/modalpin.tsx for what went wrong without it.
@@ -539,15 +521,15 @@ export default function App() {
   // able to add an upstream request; the server's warm loop is what keeps
   // that cache worth reading. usePolled also wakes on the livebus, so the
   // interval is only the floor.
-  const usagePeek = usePolled(BASE ? noUsagePeek : getUsagePeek, [], 60000)
-  const codexUsagePeek = usePolled(BASE ? noUsagePeek : getCodexUsagePeek, [], 60000)
+  const usagePeek = usePolled(BASE ? noUsagePeek : bootUsagePeek, [], 60000)
+  const codexUsagePeek = usePolled(BASE ? noUsagePeek : bootCodexUsagePeek, [], 60000)
   // the Antigravity standing is observed from turns (a wall + its reset),
   // never fetched — the same cache-only contract, so it may ride the glow
-  const agyUsagePeek = usePolled(BASE ? noUsagePeek : getAntigravityUsagePeek, [], 60000)
+  const agyUsagePeek = usePolled(BASE ? noUsagePeek : bootAntigravityUsagePeek, [], 60000)
   // OpenRouter: a prepaid credit balance, cache-only here too — see
   // openrouter_limits's module docstring for why a plain key never earns a
   // percentage without a spend cap, which is also why this lane rarely glows
-  const orrUsagePeek = usePolled(BASE ? noUsagePeek : getOpenRouterUsagePeek, [], 60000)
+  const orrUsagePeek = usePolled(BASE ? noUsagePeek : bootOpenRouterUsagePeek, [], 60000)
   const usageAlert = useMemo(
     () => usagePeak(usagePeek, codexUsagePeek, agyUsagePeek, orrUsagePeek),
     [usagePeek, codexUsagePeek, agyUsagePeek, orrUsagePeek])
@@ -555,7 +537,7 @@ export default function App() {
   // label. Polled rather than fetched once so installing a CLI mid-session is
   // picked up; unresolved is ALL_PRESENT, i.e. exactly today's wording.
   const provPresence = presenceOfPayload(
-    usePolled(BASE ? noProviders : getProviders, [], 60000))
+    usePolled(BASE ? noProviders : bootProviders, [], 60000))
   // mobile compact orgbar (D-125 ruling 2026-08-14, 'one row, banner→chip'):
   // the detail chips + resume banner collapse behind a ⋯ toggle
   const [barMore, setBarMore] = useState(false)
@@ -565,23 +547,45 @@ export default function App() {
   // supervisor.build_info)
   const [build, setBuild] = useState<HostPayload['build'] | null>(null)
   const [nativeTarget, setNativeTarget] = useState<DesktopNotice | null>(null)
+  // WHICH WINDOW THIS IS (v3). `null` in a browser and in the shipped
+  // single-window shell, where every branch below reads exactly as it did.
+  // exactly one live window carries the app-wide notification duties; every
+  // window still handles the click aimed at it (see notifications.ts)
+  const notifyOwner = ownsNotifications(identity)
   useNativeNotifications(notice => {
     setNativeTarget(notice)
-    if (notice.org !== slug) setSlug(notice.org)
-  })
+    // ⚠ A v3 WINDOW NEVER RE-AIMS ITSELF. Native delivers an org-scoped
+    // notification only to that organization's own window, so a notice for a
+    // different organization reaching a bound window is not a cue to switch —
+    // it is a bug somewhere else, and switching would hide it while throwing
+    // away this window's organization. One window carrying them all is the v2
+    // world, and that is the only world this line is for.
+    if (!nativeWindows() && notice.org !== slug) setSlug(notice.org)
+  }, notifyOwner)
+  // …and the aggregate behind the standing dot is mirrored from the owner, so
+  // a window that does not poll still says truthfully whether something is
+  // waiting on the user somewhere
+  useEffect(() => startPendingMirror(notifyOwner), [notifyOwner])
   // the tray's org list (primary click on the tray icon): the main process
   // has already shown the window and broadcasts the chosen org; making it
   // the active slug runs the ordinary switch path, which restores that
   // org's own saved pins, popouts and camera
-  useEffect(() => {
-    const bridge = desktop()
-    if (!bridge) return
-    return bridge.onEvent(event => {
-      if ((event.type as string) !== 'open-org') return
-      const org = (event.data as { org?: unknown } | null)?.org
-      if (typeof org === 'string' && org) setSlug(org)
-    })
-  }, [setSlug])
+  // ⚠ THROUGH THE HELD BUS, NOT `bridge.onEvent`. `open-org` is one of the four
+  // types native holds for a renderer that cannot rediscover them, and it
+  // releases that hold the instant ANY listener attaches — which, in this
+  // document, is `startThemeSync()` long before this effect runs. Subscribing
+  // here directly would be subscribing after the event had already been
+  // delivered to nobody. See events/heldbus.ts.
+  useEffect(() => onHeldEvent('open-org', (event) => {
+    const org = (event.data as { org?: unknown } | null)?.org
+    if (typeof org !== 'string' || !org) return
+    // In v3 this event is resolved to its target window before delivery, so
+    // a bound window only ever receives its OWN organization and the event
+    // means "you are the one — come forward", not "become this". Binding a
+    // Homepage window is a `window-identity` change, never this.
+    if (nativeWindows()) return
+    setSlug(org)
+  }), [setSlug])
   // the native App Menu's Preferences… (Cmd+,) - same toggle mechanism the
   // Settings-gear button already uses, never a second settings-opening path
   useEffect(() => {
@@ -597,6 +601,19 @@ export default function App() {
     setShowAccounts((isModalPinned('app-settings') && readModalOpen(null).some(r => r.kind === 'app-settings')) || restoreWindowKind('app-settings', null))
     setShowDefaults((isModalPinned('defaults') && readModalOpen(null).some(r => r.kind === 'defaults')) || restoreWindowKind('defaults', null))
   }, [])
+  // NATIVE'S HALF of the restoration notice: the saved organization windows
+  // it did not open. It originates nothing else — contract v3 made the panel
+  // list always empty, because the renderer holds the saved open-set and is
+  // the only side that can resolve a panel's target. Held rather than
+  // toasted on arrival so it can be said ONCE, together with this window's
+  // own skipped panels, instead of as two notices about one restoration.
+  const [skippedOrgs, setSkippedOrgs] = useState<string[]>([])
+  const [missedPanels, setMissedPanels] = useState<SkippedPanel[]>([])
+  // held, and for the sharpest reason of the four: `restore-skipped` is sent
+  // during startup restoration, which is precisely when a renderer's effects
+  // have not run yet (see events/heldbus.ts)
+  useEffect(() => onHeldEvent('restore-skipped',
+    (event) => { setSkippedOrgs(readSkippedOrgs(event.data)) }), [])
   const restoredOrg = useRef<string | null>(null)
   useEffect(() => {
     if (!tree || tree.slug !== slug || restoredOrg.current === slug) return
@@ -612,9 +629,19 @@ export default function App() {
     const galleryNode = pinnedGallery?.agent ? flatNodes(tree).get(pinnedGallery.agent) : undefined
     setAgentGalleryId(galleryNode && galleryNode.generation === pinnedGallery?.generation ? galleryNode.id
       : restoredAgent(restoredWindows(slug).find(r => r.kind === 'agent-gallery'), flatNodes(tree)))
+    // THE RENDERER'S HALF is COMPUTED here because this is the first moment
+    // both facts exist: the saved open-set has just been read, and the tree
+    // that resolves its targets has just arrived. It is ANNOUNCED lower down,
+    // where `toast` is in scope — one notice for both halves rather than two
+    // about one restoration.
+    setMissedPanels(skippedPanels(restoredWindows(slug), flatNodes(tree)))
   }, [tree, slug])
   useEffect(() => {
     if (!nativeTarget || !tree || tree.slug !== nativeTarget.org || slug !== nativeTarget.org) return
+    if (v3 && viewMode === 'attention' && attentionNotification.current?.(nativeTarget)) {
+      setNativeTarget(null)
+      return
+    }
     if (nativeTarget.kind === 'document' && nativeTarget.source_id) {
       setGalleryJump(jumpTo(nativeTarget.source_id)); setShowGallery(true); raisePinnedModal('gallery', slug)
     } else if (nativeTarget.kind === 'agent-frozen') {
@@ -623,8 +650,8 @@ export default function App() {
     } else if (nativeTarget.item) { setDocketJump(jumpTo(nativeTarget.item)); setShowDocket(true); raisePinnedModal('docket', slug) }
     else { setShowInbox(true); setInboxJump(jumpTo(notificationInboxTarget(nativeTarget))); raisePinnedModal('inbox', slug) }
     setNativeTarget(null)
-  }, [nativeTarget, tree, slug])
-  useEffect(() => { getHost().then((h) => setBuild(h.build)).catch(() => {}) }, [])
+  }, [nativeTarget, tree, slug, v3, viewMode])
+  useEffect(() => { bootHost().then((h) => setBuild(h.build)).catch(() => {}) }, [])
   // The running APP version, shown beside the sidebar title (user 2026-09-10,
   // e.g. "2.0.0-alpha.8"). It comes from the desktop shell's own bridge —
   // packaging is what has a version, not the backend's git state — via the
@@ -654,6 +681,21 @@ export default function App() {
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 12000)
   }, [])
 
+  // ONE NOTICE FOR THE WHOLE RESTORATION, once both halves are known.
+  //
+  // ⚠ `restoreNotice` returns null when nothing was skipped, and that is the
+  // common case by a long way. A restoration notice that appears every launch
+  // is furniture; the point of this one is that seeing it means something
+  // really did not come back.
+  const restoreSaid = useRef(false)
+  useEffect(() => {
+    if (restoreSaid.current) return
+    const notice = restoreNotice(skippedOrgs, missedPanels)
+    if (!notice) return
+    restoreSaid.current = true
+    toast([notice])
+  }, [skippedOrgs, missedPanels, toast])
+
   // the error banner used to have no clearer at all: a transient fetch
   // failure set it and it sat there until F5, even once polling (below)
   // had long since started succeeding again. Asymmetric on purpose — slow
@@ -668,21 +710,49 @@ export default function App() {
     errStreak.current += 1
     if (errStreak.current >= ERROR_STREAK) setError(e.message)
   }, [])
-  const refreshOrgs = useCallback(() =>
-    listOrgs().then((o) => { setOrgs(o); setOrgsKnown(true); fetchOk() }).catch(fetchErr), [fetchOk, fetchErr])
+  // THE ONE ORG-LIST POLLER (`orgstatus.ts`). It replaces a `setInterval` with
+  // no leading call that was also switched off whenever an organization window
+  // had the list closed — the pair that made opening the list paint minutes-old
+  // counts and correct them three seconds later
+  // (`show-current-organization-statuses-immediately`). `active` is simply
+  // "the list is on screen": the browser's welcome page, or the drawer.
+  // the compact menu's organization list counts as a list on screen: see
+  // OrgtreeMenu's `onOrgListOpen`
+  const [menuOrgsOpen, setMenuOrgsOpen] = useState(false)
+  const orgListOpen = !slug || drawer || menuOrgsOpen
+  const orgStatus = useOrgStatus({ active: orgListOpen, onOk: fetchOk, onError: fetchErr })
+  const orgs = orgStatus.orgs
+  // false until the FIRST successful /api/orgs: first-run setup must never
+  // flash at an existing installation whose list simply hasn't loaded yet
+  const orgsKnown = orgStatus.known
+  const refreshOrgs = orgStatus.refresh
   // desktop preferences, only for the first-run gate below; the onboarding
   // card manages its own live copy once shown
   const [deskPrefs, setDeskPrefs] = useState<NativePreferences | null>(null)
+  const persistAttentionOrgs = useCallback((slug: string, view: OrgView) => {
+    // a bridge without setPreferences (an older preload, a test double) must
+    // not throw out of the effect that restores the view
+    desktop()?.setPreferences?.({ orgView: { slug, view } })?.catch(() => {})
+  }, [])
   useEffect(() => {
     const bridge = desktop()
     if (!bridge) return
     let alive = true
-    bridge.getPreferences().then(p => { if (alive) setDeskPrefs(p) }).catch(() => {})
+    // ⚠ A NEWER BROADCAST MUST WIN OVER AN OLDER READ — see the same guard in
+    // agentcolors.tsx, contrast.tsx and themes.tsx. Without it a `preferences`
+    // event arriving while the initial read is in flight is overwritten by the
+    // older value, and the first-run gate below decides on stale state.
+    let revision = 0
     const unsubscribe = bridge.onEvent(e => {
-      if (e.type === 'preferences' && alive) setDeskPrefs(e.data as NativePreferences)
+      if (e.type === 'preferences' && alive) { revision++; setDeskPrefs(e.data as NativePreferences) }
     })
+    const initial = revision
+    bridge.getPreferences()
+      .then(p => { if (alive && initial === revision) setDeskPrefs(p) })
+      .catch(() => {})
     return () => { alive = false; unsubscribe() }
   }, [])
+  useModeRestore(v3 ? slug : null, viewMode, deskPrefs, persistAttentionOrgs)
   // G1b — ONE TREE FETCH IN FLIGHT, AND NEVER A LOST ONE.
   //
   // `refreshTree` is called from two unthrottled sources: the 6 s heartbeat
@@ -701,59 +771,125 @@ export default function App() {
   // mid-flight therefore sets `pending`, and the settle handler runs exactly
   // one more fetch, which starts AFTER the change landed. Any number of
   // frames during one fetch collapse into that single trailing refetch.
-  const treeBusy = useRef(false)
-  const treePending = useRef<string | null>(null)
+  // ── THE TREE READ'S OWN FRESHNESS, for Attention's completeness gate.
+  //
+  // Its question rows come out of THIS tree, not from its own feeds, so a gate
+  // that knew only about work and mail could print "nothing is waiting" with a
+  // question actually waiting — the one claim that gate exists to protect, and
+  // the reassuring one.
+  //
+  // ⚠ DERIVED FROM THE ACCEPTED READ, NOT FROM THE SHARED BANNER. `fetchOk`
+  // and `fetchErr` are shared with the organization-list poller and the error
+  // banner deliberately waits for TWO consecutive failures, so neither can
+  // stand in for this: an organization-list SUCCESS would clear a failed tree,
+  // and here the FIRST failure already matters. This rides the same single
+  // coalesced fetch — no second poller, no copied tree state.
+  const [treeRead, setTreeRead] = useState<{ at: number | null; error: string | null }>(
+    { at: null, error: null })
+  // a different organization is a different identity: its predecessor's
+  // success certifies nothing about it
+  useEffect(() => { setTreeRead({ at: null, error: null }) }, [slug])
   // …and the slug the app actually wants right now, for the guard below.
   // A ref rather than a dep so coalescing never re-creates this callback
   // (which would restart the heartbeat interval on every org switch).
   const wantSlug = useRef(slug)
   useEffect(() => { wantSlug.current = slug }, [slug])
-  const refreshTree = useCallback((s: string | null) => {
-    if (!s) return
-    if (treeBusy.current) { treePending.current = s; return }
-    const run = (want: string) => {
-      treeBusy.current = true
-      getTree(want).then((t) => {
-        // ⚠ an ORG SWITCH mid-flight: this payload is the PREVIOUS org's
-        // tree and painting it would show the old org under the new org's
-        // header until the next poll. Not new caution — before coalescing,
-        // the two fetches raced and the loser was whichever the network
-        // happened to settle last, so the stale one could win. Now the
-        // ordering is deterministic and the stale one is simply not applied;
-        // the switch has already queued its own fetch as `pending`.
-        //
-        // BASE+PATCH RECONCILE (2026-09-19, treesync.ts): the fetched body
-        // is ALWAYS applied — the old wholesale-discard resolved null when
-        // a fetch raced any ws patch invalidation, and under a working
-        // swarm's continuous patch traffic every bounded attempt raced
-        // one, refreshes starved, and lifecycle state sat visibly stale
-        // for over a minute while the backend was already correct. Any
-        // buffered patch frames NEWER than the body's sync_rev replay on
-        // top of it in rev order; replaying values the body already
-        // carries is an idempotent overwrite. With zero newer frames the
-        // body is applied by reference, so an unchanged 304 keeps React's
-        // Object.is render bail.
-        if (t && wantSlug.current === want) {
-          const replay = onBase(syncRef.current,
-            (t as TreePayload & { sync_rev?: number }).sync_rev)
-          setTree(replay.length
-            ? replay.reduce((acc, f) => applyPatchFrame(
-                acc, f as Extract<WsEvent, { type: 'node_stream' }>), t)
-            : t)
-        }
-        fetchOk()
-      }).catch(fetchErr).finally(() => {
-        treeBusy.current = false
-        const next = treePending.current
-        treePending.current = null
-        if (next) run(next)
-      })
+  // One read in flight, one trailing read, and a gap after a read of the same
+  // org (treepace.ts: at N1000 the trailing read otherwise ran back to back).
+  const readTree = useRef<(want: string) => Promise<unknown>>(() => Promise.resolve())
+  const treePacer = useRef<TreeReadPacer | null>(null)
+  treePacer.current ??= new TreeReadPacer(want => readTree.current(want))
+  useEffect(() => () => treePacer.current?.dispose(), [])
+  const refreshTree = useCallback((s: string | null, how?: TreeRequest) => {
+    if (s) treePacer.current!.request(s, how)
+  }, [])
+  readTree.current = (want: string) => {
+    // THE SELECTED TREE: what mounted surfaces registered, or — before any
+    // registers — what the saved windows, pins and piles will need. An
+    // answer for a selection that changed in flight is still one coherent
+    // snapshot, so it is applied; one trailing read then catches up.
+    // Rejecting it instead would starve the tree while the camera moves.
+    const { version, selection } = treeSelections.read(want, savedTreeSelection(want))
+    // point 34: a question the primer put on screen after this read started
+    // is re-applied to its answer (askprime.applyPrimedAsks)
+    const readStartedAt = Date.now()
+    return getAppTree(want, selection).then((t) => {
+      if (treeSelections.version(want) !== version) refreshTree(want, { urgent: true, keep: true })
+      // ⚠ an ORG SWITCH mid-flight: this payload is the PREVIOUS org's
+      // tree and painting it would show the old org under the new org's
+      // header until the next poll. Not new caution — before coalescing,
+      // the two fetches raced and the loser was whichever the network
+      // happened to settle last, so the stale one could win. Now the
+      // ordering is deterministic and the stale one is simply not applied;
+      // the switch has already queued its own fetch as `pending`.
+      //
+      // BASE+PATCH RECONCILE (2026-09-19, treesync.ts): the fetched body
+      // is ALWAYS applied — the old wholesale-discard resolved null when
+      // a fetch raced any ws patch invalidation, and under a working
+      // swarm's continuous patch traffic every bounded attempt raced
+      // one, refreshes starved, and lifecycle state sat visibly stale
+      // for over a minute while the backend was already correct. Any
+      // buffered patch frames NEWER than the body's sync_rev replay in
+      // rev order onto its metadata snapshots before desks are notified.
+      // The structural body is applied by reference, so an unchanged 304
+      // keeps React's Object.is render bail even during metadata traffic.
+      // ⚠ THE SAME APPLICABILITY TEST THAT DECIDES WHETHER TO PAINT IT IS
+      // WHAT CERTIFIES IT. A null body, or one for the organization we have
+      // since left, is not evidence about the tree on screen — so it must
+      // not refresh the freshness stamp either. A 304 that yields the
+      // applicable cached body IS a successful revalidation and does.
+      if (t && wantSlug.current === want) {
+        const replay = onBase(syncRef.current,
+          (t as TreePayload & { sync_rev?: number }).sync_rev)
+        replaceNodeMetadata(want, t.roots,
+          replay as Extract<WsEvent, { type: 'node_stream' }>[])
+        const shown = applyPrimedAsks(want, t, readStartedAt)
+        setTree(shown)
+        // point 31: forget submitted cards this tree has caught up with
+        settleFromTree(want, shown)
+        // and mail reads it counts (a read saved before this read began)
+        settleReadsFromTree(want, readStartedAt)
+        setTreeRead({ at: Date.now(), error: null })
+      }
+      openBootGate()
+      fetchOk()
+    }).catch((e: Error) => {
+      openBootGate()
+      // a LATE failure for an organization we have left says nothing about
+      // the one we are looking at now
+      if (wantSlug.current === want) {
+        setTreeRead((r) => ({ ...r, error: e.message || 'unavailable' }))
+      }
+      fetchErr(e)
+    })
+  }
+  // A user's own save through a direct route (scope, account) re-reads the
+  // tree urgently too -- see markTreeStale in api.ts.
+  useEffect(() => {
+    const onStale = (e: Event) => {
+      const org = (e as CustomEvent<{ slug?: string }>).detail?.slug
+      if (org && org === wantSlug.current) refreshTree(org, { urgent: true })
     }
-    run(s)
-  }, [fetchOk, fetchErr])
+    window.addEventListener(TREE_STALE_EVENT, onStale)
+    return () => window.removeEventListener(TREE_STALE_EVENT, onStale)
+  }, [refreshTree])
+  // A mounted surface changing what it needs (a picker, a pin, a pending
+  // jump) asks for the tree again. Debounced: camera focus moves publish
+  // often, and the coalescing above already allows only one read in flight.
+  // Urgent: the user is waiting on it, so it skips the pacer's gap.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const off = treeSelections.subscribe((org) => {
+      if (org !== wantSlug.current) return
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => { timer = null; refreshTree(org, { urgent: true }) }, 150)
+    })
+    return () => { off(); if (timer) clearTimeout(timer) }
+  }, [refreshTree])
 
-  useEffect(() => { refreshOrgs() }, [refreshOrgs])
-  useEffect(() => { const imported = () => { void refreshOrgs() }; window.addEventListener('orgtree:organizations-imported', imported); return () => window.removeEventListener('orgtree:organizations-imported', imported) }, [refreshOrgs])
+  // the mount fetch lives in useOrgStatus now — it refreshes on mount and on
+  // every change of visibility, so a second one here would only double the
+  // first request of the session
   // G1 — THE TREE HEARTBEAT. Everything on screen that is not the conversation
   // — every card, credit meter, occupancy bar, roster row, resume timer and
   // inbox badge — is rendered from this one payload, and until now it was
@@ -795,7 +931,7 @@ export default function App() {
     }
     const t = setInterval(tick, TREE_POLL_MS)
     const onVisible = () => {
-      if (!document.hidden) { last = Date.now(); refreshTree(slug) }
+      if (!document.hidden) { last = Date.now(); refreshTree(slug, { urgent: true }) }
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => {
@@ -803,12 +939,9 @@ export default function App() {
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [slug, refreshTree])
-  useEffect(() => {          // the org list/dashboard is LIVE while visible —
-    // kiosk spend/storage/caps move under it (agent turns, admin edits)
-    if (slug && !drawer) return
-    const t = setInterval(refreshOrgs, 3000)
-    return () => clearInterval(t)
-  }, [slug, drawer, refreshOrgs])
+  // the org list/dashboard stays LIVE while visible — kiosk spend/storage/caps
+  // move under it (agent turns, admin edits). That interval is `useOrgStatus`'s
+  // now, along with the leading call it used to be missing.
   useEffect(() => {          // kiosk: the single org IS the app — PUBLIC
     // builds only (BASE = /k/<token>). On the admin side orgs[0] can be a
     // kiosk org too (list_orgs carries the flag now), and a kiosk sorting
@@ -827,9 +960,10 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
   useEffect(() => {                    // the active org lives in the path
-    const want = BASE + (slug ? `/o/${slug}` : '/')
+    const routeOrg = v3 ? identityOrg(identity) : slug
+    const want = BASE + (routeOrg ? `/o/${routeOrg}` : '/')
     if (location.pathname !== want) history.pushState(null, '', want)
-  }, [slug])
+  }, [slug, v3, identity])
   useEffect(() => {                    // №38: the tab title carries the unread
     // ⚠ the USER's inbox only. Org-inbox mail is addressed to the organization
     // and answered by its agents, so counting it here billed the user for
@@ -844,6 +978,7 @@ export default function App() {
   // a conversation belongs to ONE org — dropping the store on an org switch
   // keeps a stale chat from ever being shown under a different tree
   useEffect(() => { resetConvos() }, [slug])
+  useEffect(() => () => { if (slug) clearNodeMetadata(slug) }, [slug])
   // ⚠ STAFFING AVAILABILITY LOADS HERE, WHEN THE ORG DOES (user requirement
   // 2026-09-15). Every staffing surface — the ticket context menus, the hire
   // modal's model/account/effort selects — reads this one answer, and none of
@@ -851,12 +986,22 @@ export default function App() {
   // must not delay the org opening, and a failure leaves the surfaces to show
   // their own recoverable state rather than breaking the app. The previous org's
   // copy is dropped so a switch cannot render one org's availability for another.
+  // It starts once the window's first tree read settles (bootgate.ts): its
+  // first answer per engine loads the whole organization, which on a large org
+  // competed with the tree read for the engine. A surface opened earlier than
+  // that still starts the load itself, so nothing waits on the gate.
   useEffect(() => {
     if (!slug) return
     invalidateStaffingOptions()
-    void prefetchStaffingOptions(slug).catch(() => {})
+    let alive = true
+    void afterBootGate(async () => {
+      if (alive) await prefetchStaffingOptions(slug)
+    })().catch(() => {})
+    return () => { alive = false }
   }, [slug])
-  useEffect(() => { if (desktop()) { try { if (slug) localStorage.setItem('orgtree-desktop-last-org', slug); else localStorage.removeItem('orgtree-desktop-last-org') } catch {} } }, [slug])
+  // The v2 last-org key is neither native window identity nor the native
+  // restore set. Homepage/Create must not overwrite another window's seed.
+  useEffect(() => { if (desktop() && !v3) { try { if (slug) localStorage.setItem('orgtree-desktop-last-org', slug); else localStorage.removeItem('orgtree-desktop-last-org') } catch {} } }, [slug, v3])
   useEffect(() => {
     if (!slug) return
     // the WS must SURVIVE backend restarts (updates, redeploys): without
@@ -887,15 +1032,16 @@ export default function App() {
         if (data.kind === 'cache_forecast'
             || data.kind === 'mcp_tool_count'
             || data.kind === 'mcp_readiness') {
-          // Live patch: applied in place immediately (these are
-          // hard-realtime process facts); the frame is also buffered by
+          // Live metadata goes straight to subscribed desks. It cannot
+          // replace chart roots or rebuild layout; the frame is buffered by
           // onFrame above so a fetch racing it converges by replay
-          // instead of being discarded. The cache entry is still dropped:
-          // a 304 must not revalidate a pre-patch body for the CACHE —
-          // the render itself no longer depends on that.
-          invalidateTreeCache(slug)
+          // instead of being discarded. The full-tree cache entry is still
+          // dropped (a 304 must not revalidate a pre-patch body for that
+          // CACHE); the selected tree keeps its ETag, because its server
+          // moved the runtime stamp before sending this frame.
+          patchedTreeCache(slug)
           const frame = data
-          setTree((old) => old ? applyPatchFrame(old, frame) : old)
+          publishNodeMetadata(slug, frame)
           if (frame.kind === 'mcp_tool_count') {
             window.dispatchEvent(new CustomEvent('orgtree:mcp-tool-count-applied', {
               detail: {
@@ -956,7 +1102,7 @@ export default function App() {
   }, [slug, refreshTree])
 
   // op fires only from the active-org canvas — slug is set there (hence !)
-  const op = useCallback((body: OpRequest) =>
+  const op = useCallback((body: OpRequest, opts?: { quiet?: boolean }) =>
     runOp(slug!, body)
       .then((r) => {
         if ((r as { renamed?: unknown; was?: unknown; node?: unknown }).renamed) {
@@ -977,9 +1123,12 @@ export default function App() {
               .then((r2) => { toast(r2.warnings); refreshTree(slug); refreshOrgs() })
               .catch((e: Error) => toast([`error: ${e.message}`])) })
         } else toast(r.warnings)
-        refreshTree(slug); refreshOrgs(); return r
+        // urgent: the user just changed something and is looking for it, so
+        // this read skips the pacer's gap (it still waits for one in flight)
+        refreshTree(slug, { urgent: true }); refreshOrgs(); return r
       })
-      .catch((e: Error) => { toast([`error: ${e.message}`]); throw e }),
+      // `quiet`: the caller reports this failure itself (OpOptions)
+      .catch((e: Error) => { if (!opts?.quiet) toast([`error: ${e.message}`]); throw e }),
     [slug, toast, refreshTree, refreshOrgs])
 
   // ⚠ NO `setShowSettings(false)` HERE ANY MORE. It existed so that opening
@@ -988,6 +1137,72 @@ export default function App() {
   // the source, and the blunt close was doing active harm: it also closed a
   // settings window PINNED in the organization you were returning TO.
   // scopedmodals.test.tsx section §3.
+
+  // ------------------------------------------------------------ the v3 shell
+  //
+  // ⚠ GATED ON THE NATIVE WINDOW MODEL, NOT ON "IS THIS THE DESKTOP APP".
+  // Today's shipped preload exposes a bridge and knows nothing about window
+  // identity, so a `desktop()` check would turn the four-view shell on inside a
+  // shell that can neither open a Homepage window nor bind one. `requestOrg` is
+  // the capability, and where it is absent every branch below falls through to
+  // the sidebar-and-drawer app exactly as it is on main today.
+  const shellView = identityView(identity)
+  // In a v3 window the bound organization IS the identity's, and nothing else
+  // may set it: a bound window never changes organization, so this commits
+  // straight past `setSlug`'s switch prompt, which exists for a world where one
+  // window carried them all.
+  useEffect(() => {
+    if (!v3) return
+    const bound = identityOrg(identity)
+    if (bound !== slug) commitSlug(bound)
+  }, [v3, identity, slug])
+  const buttonNodes = useMemo(() => tree ? flatNodes(tree) : null, [tree])
+  const buttonColours = useButtonColours(v3 ? slug : null, buttonNodes)
+  const setViewMode = useCallback((m: OrgView) => setOrgView(v3 ? slug : null, m),
+    [v3, slug])
+  // The freshness of the tree Attention reads its question rows out of. Owned
+  // here because the fetch is owned here, and handed to the view through the
+  // canvas owner's slot closure below. Absent means unknown on their side,
+  // which is safe for a stage and wrong as a shipped experience — so this is
+  // supplied rather than left to the default.
+  const treeStatus = treeStatusOf(treeRead, tree, slug)
+  // which organizations already hold a window, so a Homepage row can say
+  // "Already open" before it is clicked. A LABEL ONLY — `requestOrg` decides
+  // atomically in the native registry either way (shell/openorgs.ts).
+  const openOrgs = useOpenOrgs()
+  const openElsewhere = useCallback((want: string) =>
+    openOrgs.has(want) && want !== slug, [openOrgs, slug])
+  const openOrgFromShell = useCallback((want: string) => {
+    const name = orgs.find((o) => o.slug === want)?.name ?? want
+    void requestOpenOrg(want, name).then((effect) => {
+      // `bind` is the ONLY outcome that changes this window; focused/opened/
+      // pending are native's business and this window does nothing at all
+      if (effect.bind) commitSlug(effect.bind)
+      if (effect.notice) toast([effect.notice])
+      if (effect.error) toast([effect.error])
+    })
+  }, [orgs, toast])
+  const newWindow = useCallback(() => {
+    void desktop()?.openHomepageWindow?.().catch((e: Error) =>
+      toast([`could not open a window: ${e.message}`]))
+  }, [toast])
+  // A Homepage window becomes the Create view itself; only a window with an
+  // organization open gets a separate one (user 2026-09-29). Native decides,
+  // and a switched window re-renders from its new `window-identity`.
+  const createWindow = useCallback(() => {
+    void desktop()?.openCreateOrgWindow?.().catch((e: Error) =>
+      toast([`could not open the creation window: ${e.message}`]))
+  }, [toast])
+  const shellMenu = (
+    <OrgtreeMenu orgs={orgs} freshness={orgStatus.freshness} ageMs={orgStatus.ageMs}
+      error={orgStatus.error} currentOrg={slug}
+      onOpenOrg={openOrgFromShell} onNewWindow={newWindow} onCreateOrg={createWindow}
+      onUsage={toggleUsage}
+      isOpenElsewhere={openElsewhere}
+      onOrgListOpen={setMenuOrgsOpen}
+      onAppSettings={() => setShowAccounts(v => isModalPinned('app-settings') ? !v : true)} />
+  )
+
   const pick = (s: string) => { setSlug(s); setDrawer(false) }
   const goHome = () => { setSlug(null); setDrawer(false) }
 
@@ -1018,8 +1233,15 @@ export default function App() {
         {showControls && <UpdateNotice />}
         {showControls && <WindowControls />}</h1>
       {slug && <button className="home" onClick={goHome}><HomeIcon fontSize="inherit" /> All organizations</button>}
+      {/* the list says how old its own numbers are, and says nothing at all
+          while they are current (`orgFreshnessNote`) */}
+      {orgFreshnessNote(orgStatus.freshness, orgStatus.ageMs, orgStatus.error) &&
+        <div className="dim org-freshness" role="status">
+          {orgFreshnessNote(orgStatus.freshness, orgStatus.ageMs, orgStatus.error)}
+        </div>}
       <nav>
         <OrgRows orgs={orgs} slug={slug} onPick={pick}
+          freshness={orgStatus.freshness} ageMs={orgStatus.ageMs}
           onDelete={(o) => setDoomedOrg(o)} />
       </nav>
       {!BASE && <NewOrg onCreate={(name, dirs, netAuto, netHubs) =>
@@ -1036,11 +1258,65 @@ export default function App() {
   )
 
   return (
-    <CurrentOrg.Provider value={slug}><AgentNavProvider><ObjectMenuBoundary className="app" toast={toast}>
+    <CurrentOrg.Provider value={slug}><AgentNavProvider><ObjectMenuBoundary className="app" style={buttonColours} toast={toast}>
       <RestartNotice />
+      {/* Developer › engine debug view: off by default; while off nothing polls */}
+      {!BASE && engineDebug && <EngineDebugPanel onClose={() => setEngineDebugOn(false)} />}
       {orgTransitionPrompt}
+      {/* ------------------------------------------------- the v3 four views
+          Homepage and Create are WINDOWS, not states of one window: which of
+          them this is comes from the native identity, so a reload lands on the
+          same view and no window ever flashes another one. */}
+      {v3 && shellView === 'homepage' && (
+        <main className="shell-window">
+          <ShellHeader menu={shellMenu} title="Home" version={appVersion} />
+          <HomepageView orgs={orgs} freshness={orgStatus.freshness}
+            ageMs={orgStatus.ageMs} error={orgStatus.error}
+            onOpenOrg={openOrgFromShell} onCreateOrg={createWindow}
+            isOpenElsewhere={openElsewhere}
+            onDelete={(o) => setDoomedOrg(o)}
+            onboarding={!BASE && showOnboarding(deskPrefs, orgs.length, orgsKnown) ? (
+              /* FIRST RUN OPENS THE DEDICATED CREATION WINDOW. The setup card
+                 used to embed the creation form inline; in v3 creation has its
+                 own window and its own identity, and an inline form here would
+                 be a second creation path with none of the window rules. The
+                 charter-population step travels with it — see the Create view
+                 below, which wraps its create in `onboardingCreate`. */
+              <Onboarding>
+                <button type="button" className="primary shell-create-btn"
+                  onClick={createWindow}>Create your first organization</button>
+              </Onboarding>
+            ) : null} />
+        </main>
+      )}
+      {v3 && shellView === 'create' && (
+        <main className="shell-window">
+          <ShellHeader menu={shellMenu} title="New organization" version={appVersion} />
+          <CreateOrgView
+            wrapCreate={!BASE && showOnboarding(deskPrefs, orgs.length, orgsKnown)
+              ? ((create) => onboardingCreate(create,
+                (m) => toast([`setup: charter documents were not populated — ${m}`])))
+              : undefined}
+            // ⚠ NATIVE, NOT A LOCAL RESET: see cancelCreationNatively
+            onRequestClose={() => cancelCreationNatively()}
+            onCreated={async (created) => {
+              void refreshOrgs()
+              const bridge = desktop()
+              // this window becomes the new organization's Canvas; other
+              // windows are untouched either way
+              if (bridge?.bindCreatedOrg) {
+                const outcome = await bridge.bindCreatedOrg(created)
+                const effect = openOrgEffect(outcome, created)
+                if (effect.bind) commitSlug(effect.bind)
+                // a refusal is thrown so the form keeps everything entered and
+                // shows what went wrong, which is the settled failure rule
+                if (effect.error) throw new Error(effect.error)
+              } else commitSlug(created)
+            }} />
+        </main>
+      )}
       {/* no active org: the org list IS the screen */}
-      {!slug && (
+      {!v3 && !slug && (
         <div className="welcome">
           {/* One window header for both first-run setup and the org list. */}
           {desktop() && <header className="orgbar native-header home-header">
@@ -1064,8 +1340,9 @@ export default function App() {
         </div>
       )}
 
-      {/* active org: full foreground; the list hides in a drawer */}
-      {slug && (
+      {/* active org: full foreground; the list hides in a drawer (v2), or the
+          compact header and bottom strip take over (v3) */}
+      {(!v3 || shellView === 'org') && slug && (
         <main className="solo">
           {/* the tree hasn't loaded at all yet — no header, no canvas, nothing
               to shift, so the plain pre-header banner is harmless here. Once
@@ -1082,6 +1359,40 @@ export default function App() {
           </>}
           {tree ? (
             <>
+              {v3 ? (
+                <ShellHeader menu={shellMenu} title={tree.name}
+                  modes={<OrgViewToggle mode={viewMode} setMode={setViewMode} />}
+                  actions={<>
+                    {/* the familiar action buttons, unchanged in behaviour,
+                        badge and glow — icons only, named by aria-label */}
+                    <DocketToolbarButton label="Work" org={tree.slug}
+                      summary={tree.work_items_summary}
+                      onClick={() => toggleSurface('docket', showDocket, setShowDocket)} />
+                    <AskBell tree={tree} label="Inbox" onOpen={() => {
+                      setInboxJump(null)
+                      toggleSurface('inbox', showInbox, setShowInbox)
+                    }} />
+                    <ShellAction label="Presentations"
+                      title={activeDocCount(tree.roots) > 0
+                        ? `presented documents — ${activeDocCount(tree.roots)} from currently-hired agents`
+                        : 'presented documents'}
+                      icon={<DocIcon fontSize="inherit" />}
+                      badge={activeDocCount(tree.roots) > 0
+                        ? <b className="eye-count">{activeDocCount(tree.roots)}</b> : undefined}
+                      onClick={() => toggleSurface('gallery', showGallery, setShowGallery)} />
+                    {/* no Usage button here (user 2026-09-28): usage covers
+                        the whole app, not this organization, so it opens only
+                        from the Orgtree menu's "Usage…", with no near-limit
+                        warning anywhere ("we can do without the warning") */}
+                    {!tree.public && <ShellAction label="Org settings"
+                      icon={<SettingsIcon fontSize="inherit" />}
+                      onClick={() => toggleSurface('org-settings', showSettings, setShowSettings)} />}
+                  </>}
+                  /* LEFT of the action row (user 2026-09-29): arming STOP ALL
+                     grows into the gap and never moves the buttons above */
+                  guard={<KillSwitch slug={slug} toast={toast} refreshTree={refreshTree}
+                    latched={!!tree.killswitch} />} />
+              ) : (
               <header className={'orgbar' + (desktop() ? ' native-header' : '')}>
                 <div className="native-header-main">
                 {!tree.public &&
@@ -1241,7 +1552,7 @@ export default function App() {
                     per user ruling 2026-09-12, so required attention is adjacent to mail).
                     Badge counts ride the tree poll: glowing and pulsating when items need
                     attention, else muted active count (zero hidden). */}
-                <DocketToolbarButton
+                <DocketToolbarButton org={tree.slug}
                   summary={tree.work_items_summary}
                   onClick={() => toggleSurface('docket', showDocket, setShowDocket)} />
                 {/* the presented-document gallery sits beside the docket — same
@@ -1295,10 +1606,39 @@ export default function App() {
                 <UpdateNotice />
                 <WindowControls />
               </header>
+              )}
               <div className="canvas-stage">
               {desktop() && <div className="window-drag-margin" aria-hidden="true" />}
               <OrgCanvas tree={tree} op={op} slug={slug} toast={toast}
                 mailEvt={mailEvt}
+                /* ⚠ THE SHELL SAYS WHICH VIEW IS PRESENTED; THE HOST DOES THE
+                   HIDING. This must never become `display: none` on the canvas
+                   or on `.viewport` here — `adoptPinLayer` appends the pin
+                   layer INSIDE `.viewport`, so hiding either takes every
+                   pinned window in the organization with it. `canvasContent`
+                   is the host's own seam and it hides only the world, which
+                   also preserves the camera, the springs and `posOf`. */
+                canvasContent={v3 && viewMode === 'attention' ? 'hidden' : 'shown'}
+                /* ⚠ RENDERED UNCONDITIONALLY IN A v3 WINDOW, not only while
+                   Attention is the view on screen. The view keeps exactly
+                   those of its panels that are pinned, popped out or awaiting
+                   a window restore MOUNTED across a switch back to the canvas,
+                   and a subtree that unmounts takes its child window with it.
+                   It hides its own stage when it is not the presented view —
+                   that decision is `useOrgView`'s, inside the view, and not
+                   this closure's to duplicate. */
+                renderOrgSlot={v3 ? (ctx) => (
+                  <AttentionView slug={ctx.slug} tree={ctx.tree} op={ctx.op}
+                    toast={ctx.toast} map={ctx.map} posOf={ctx.posOf}
+                    onOpenItem={ctx.onOpenItem} onFocusAgent={ctx.onFocusAgent}
+                    onOpenDoc={ctx.onOpenDoc} onOpenMail={ctx.onOpenMail}
+                    onNotificationFocus={registerAttentionNotification}
+                    deskExtras={ctx.deskExtras}
+                    /* the freshness of the ONE tree read this component
+                       already makes — not a second poller and not a copy of
+                       the tree, which is the whole reason it can be believed */
+                    treeStatus={treeStatus} />
+                ) : undefined}
                 focusAgent={focusAgent}
                 onFocusAgentHandled={() => setFocusAgent(null)}
                 openMailAt={mailJump}
@@ -1347,6 +1687,15 @@ export default function App() {
                 }} />
               {desktop() && <div className="window-drag-margin" aria-hidden="true" />}
               </div>
+              {/* the approved bottom strip: the whole chip run that used to
+                  live in the header's `.bar-detail`, with every visibility
+                  rule, tooltip and click-through intact (shell/statusbar.tsx) */}
+              {v3 && <OrgStatusBar tree={tree} orgs={orgs} error={error}
+                appVersion={appVersion}
+                onOpenConnections={() => {
+                  setSettingsInitialTab('mailserver')
+                  if (!showSettings) toggleSurface('org-settings', showSettings, setShowSettings)
+                }} />}
               {/* hard-full is a STATE, not an event: the alert persists (and
                   survives reloads) until usage drops; it never auto-opens
                   the browser — it carries the button (user refinement) */}
@@ -1456,7 +1805,8 @@ export default function App() {
           close={() => { setDocketJump(null); setShowDocket(false) }} />
       )}
       {showAccounts && (
-        <AccountsPanel toast={toast} close={() => setShowAccounts(false)} />
+        <AccountsPanel toast={toast} initialTab={appSettingsTab}
+          close={() => { setShowAccounts(false); setAppSettingsTab(undefined) }} />
       )}
       {doomedOrg && (
         <ConfirmModal title={`permanently delete ${doomedOrg.name}?`}
@@ -1509,43 +1859,9 @@ export default function App() {
   )
 }
 
-/** F-07 (user ruling 2026-08-04: "both, one modal"): the ONE advanced-org
- *  modal shell. The create form's advanced disclosure and the ⚙ settings
- *  panel both open this same surface; each pours in its own sections, and
- *  creation-only facts (kiosk, sandbox, disk type) render as LOCKED chips
- *  outside creation — visible, never editable, so the modal can't offer to
- *  change what cannot change after birth. No save button of its own: the
- *  create form submits, and the settings panel keeps its ONE bottom save
- *  (three save surfaces was a user-reported failure once already). */
-export function AdvancedOrgModal({ title, close, children, tabs }: {
-  title: string
-  close: () => void
-  children?: ReactNode
-  /** tabbed form (user amendment 2026-08-05): categories as a tab strip —
-   *  presentation only; both callers keep their own save flow */
-  tabs?: { label: string; content: ReactNode }[]
-}) {
-  const [tab, setTab] = useState(0)
-  return (
-    <PinFrame kind="advanced-org" title={`${title} advanced`} panel="settings" close={close} pinnable={false}>
-      <h3><SettingsIcon fontSize="inherit" /> {title} — advanced</h3>
-        {tabs && (
-          <div className="adv-tabs">
-            {tabs.map((t, i) => (
-              <button key={t.label} type="button"
-                className={'adv-tab' + (i === tab ? ' on' : '')}
-                onClick={() => setTab(i)}>{t.label}</button>
-            ))}
-          </div>
-        )}
-        {tabs ? tabs[Math.min(tab, tabs.length - 1)]?.content : children}
-        <div className="row">
-          <button className="primary" type="button" onClick={close}>done</button>
-        </div>
-    </PinFrame>
-  )
-}
-
+/** One provider's live readout. The modal has four independent upstream
+ * routes; keeping the in-flight latch here means a manual refresh cannot
+ * start a second request while the initial poll or the interval is pending. */
 /** the header usage modal: the host subscription's rate-limit bars — the
  *  same session / weekly / weekly-scoped readout Claude Code shows under
  *  /usage (user feature 2026-08-18). The backend proxies the account usage
@@ -1645,9 +1961,6 @@ type UsageReadoutState = {
   refresh: (force?: boolean) => Promise<void>
 }
 
-/** One provider's live readout. The modal has four independent upstream
- * routes; keeping the in-flight latch here means a manual refresh cannot
- * start a second request while the initial poll or the interval is pending. */
 function useUsageReadout<T extends UsageReadout>(fetcher: (force?: boolean) => Promise<T>): {
   value: T | null
   pending: boolean
@@ -2113,13 +2426,6 @@ function AutonomyTab({ tree, toast }: {
   )
 }
 
-function flatNodes(tree: TreePayload): Map<string, TreeNode> {
-  const map = new Map<string, TreeNode>()
-  const walk = (n: TreeNode) => { map.set(n.id, n); n.children.forEach(walk) }
-  ;(tree.roots ?? []).forEach(walk)   // total: settings fixtures pass partial trees
-  return map
-}
-
 /** The nodes ▶ resume will ACTUALLY act on — the banner's count, its title
  *  list and its wording all read from this and nothing else.
  *
@@ -2150,41 +2456,9 @@ export function resumableFrozen(
       n.resumable && n.frozen != null)
 }
 
-export function SenderChip({ id, nodes, onFocusAgent }: {
-  id: string
-  nodes: Map<string, TreeNode>
-  onFocusAgent?: (agentId: string) => void
-}) {
-  if (id === SYSTEM || id === 'system') return <b className="dim">system</b>
-  if (id === USER) return <b>you</b>
-  const n = nodes.get(id)
-  // ⚠ ONLY AN ESTABLISHED LOCAL NODE NAVIGATES: a name this tree does not hold
-  // stays readable and loses a route that was never there.
-  if (!n) return <b>{id}</b>
-  const chip = (
-    <span data-copy-agent-name={id} className={'sender ' + (n?.state ?? '')} title={n ? `${tierLabel(n.tier)} · ${n.state}` : id}>
-      {n && <span className={'tier t-' + n.tier}>{TIER_LETTER[n.tier] ?? '?'}</span>}
-      <b>{id}</b>
-    </span>
-  )
-  if (onFocusAgent) {
-    return (
-      /* ⚠ stopPropagation is load-bearing since this chip moved into the mail
-         LIST ROW as well as the reading pane: the row's own onClick toggles
-         selection, so without it clicking a sender's name would jump AND
-         select (or, on the open mail, deselect the thing you were reading).
-         `AgentName` stops it for the same reason; the two must not drift.
-         type="button" for the same reason `AgentName` carries one — this is
-         rendered inside forms, where the default submit would be wrong. */
-      <button type="button" {...agentNavProps(id)}
-        className="cc-name cc-name-jump" title={`focus ${id}'s desk`}
-        onClick={(e) => { e.stopPropagation(); onFocusAgent(id) }}>
-        {chip}
-      </button>
-    )
-  }
-  return chip
-}
+// moved to canvas/senderchip.tsx so the Attention view can draw the inbox's
+// own sender chip without importing the app shell; re-exported for callers
+export { SenderChip }
 
 
 // audience requests parked at the user (fields the inbox reads) —
@@ -2219,7 +2493,7 @@ function useShellRefs(slug: string, tree: TreePayload | null, routes: {
   // one is running
   const tierOf = useCallback(
     (id: string) => nodes?.get(id)?.tier, [nodes])
-  return useRefRoutes(slug, nodes, { ...routes, tierOf })
+  return useRefRoutes(slug, nodes, { ...routes, tierOf, view: tree?.foreground })
 }
 
 export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
@@ -2270,6 +2544,17 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   // null (identity changed — §6.10), and blanking the inbox on every
   // mark-read would regress the instant-ack this bump exists to provide
   const box = usePolled(() => getInbox(slug), [slug], 5000, readBump)
+  // a mail read here shows read ON THE CLICK (docket v3-marking-a-mail-as-
+  // read-takes-about-half-a-sec): out of the unread group and the unread
+  // count at once, saved in the background, back to unread if refused
+  useLocalReads()
+  useEffect(() => {
+    if (box) settleReadsFromBox(slug, box.pending.map((m) => m.id))
+  }, [box, slug])
+  const readNow = (m: MailEntry) => markReadNow(slug, m, () => markRead(slug, [m.id]))
+    .then(() => { setReadBump((n) => n + 1); refresh?.() })
+  const unreadMail = (box?.pending ?? []).filter((m) => !readLocally(slug, m.id))
+  const readHere = (box?.pending ?? []).filter((m) => readLocally(slug, m.id))
   // the exact question for a reference that landed outside this window —
   // one id, asked once, never on the poll
   const userLookup = useCallback(
@@ -2360,41 +2645,40 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   // reading pane shows the response UI as the body instead of a reply box.
   // Open asks join the unread group; resolved ones sit in the flow wearing
   // their nulled state (grey answered/denied, orange interrupted).
-  const askRow = (a: AskInfo): MailRow => ({
-    id: 'ask:' + a.id, from: a.node, at: a.at,
-    kind: a.kind === 'batch' ? 'request batch'
-      : (a.kind === 'credit' || a.old != null) ? 'credit request'
-      : a.kind === 'scope' ? 'scope request' : 'question',
-    body: a.kind === 'batch'
-      ? `${(a.tabs ?? []).length} request(s) awaiting one submit`
-      : a.kind === 'scope'
-        ? 'requests scope: ' + (a.items ?? [])
-          .map((it) => it.kind === 'dir' ? it.path
-            : it.kind === 'permission_mode' ? `mode ${it.mode}`
-            : it.tool ?? it.server ?? it.kind).join(', ')
-        : a.question ?? `asks for credits: ${a.old} → ${a.new}`,
-    _ask: a,
-  } as MailRow)
+  const askRow = askMailRow
   const askOpen = (a: AskInfo) => a.status === 'open' || a.status === 'pending'
   const asks = tree.asks ?? []
   // FR-14: an agent's OPEN requests render as its ONE composed batch card
   // (node.ask, kind 'batch') — never as separate per-kind rows. The raw
   // per-store entries keep feeding the resolved history below.
-  const askPending = [...nodes.values()]
-    .filter((n) => n.ask && askOpen(n.ask)).map((n) => askRow(n.ask!))
-  const askDone = asks.filter((a) => !askOpen(a)).slice(-8).map(askRow)
+  // ⚠ openAsks, NOT `node.ask` alone: the v3 tree is a selected read, and an
+  // agent outside the selection carries no `node.ask` — its open question
+  // was missing from this inbox (canvas/openasks.ts). The Attention view
+  // lists from the same helper, so the two cannot disagree.
+  // point 31: re-render when a card is submitted (openAsks drops it)
+  useSubmittedAsks()
+  const askPending = openAsks(tree, nodes.values()).map(askRow)
+  // the EIGHT MOST RECENTLY RESOLVED, not the eight most recently created:
+  // an older question answered now must not drop out of the list because
+  // later-created requests resolved before it (docket v3-an-answered-
+  // question-vanishes-from-the-inbox). ⚠ `.slice(-8)` is read by
+  // tests/test_tree_render_cost.py §9 against ledger.ASK_HISTORY_KEEP.
+  const resolvedAt = (a: AskInfo) => String(a.resolved_at ?? a.at ?? '')
+  const askDone = asks.filter((a) => !askOpen(a))
+    .sort((a, b) => (resolvedAt(a) < resolvedAt(b) ? -1 : resolvedAt(a) > resolvedAt(b) ? 1 : 0))
+    .slice(-8).map(askRow)
+  // a card the user just submitted leaves the waiting group but NOT the list
+  // (user 2026-09-30: "the respective mail vanished completely"): it stays
+  // where it was, as the answered card with the user's answer, until the
+  // tree's own resolved row for it arrives in `askDone`
+  const doneIds = new Set(askDone.map((m) => m._ask?.id))
+  const askAnswered = submittedCards(tree, nodes.values())
+    .filter((a) => !doneIds.has(a.id))
+    .flatMap((a) => { const r = answeredAsk(slug, a); return r ? [askRow(r)] : [] })
   const renderAskBody = (m: MailRow) => {
     if (!m._ask) return null
-    const n = nodes.get(m._ask.node)
-    return (
-      <AskCard ask={m._ask} slug={slug} toast={toast}
-        seat={n?.seat ?? 0}
-        committed={(n?.grant ?? 0) - (n?.free ?? 0)}
-        segments={(n?.children ?? []).filter((c) => c.state === 'live')
-          .map((c) => ({ seat: c.seat, grant: c.grant }))}
-        pxc={orgPxc(tree)}
-        maxTop={tree.max_top_grant ?? 1000} />
-    )
+    return <InboxAskCard ask={m._ask} slug={slug} tree={tree}
+      node={nodes.get(m._ask.node)} toast={toast} />
   }
   return (
     <PinFrame kind="inbox" title="Your inbox" panel="settings wide"
@@ -2431,7 +2715,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
         )}
         <MailFolders folder={folder} setFolder={setFolder}
           folders={['inbox', 'sent', 'record']}
-          unread={(box?.pending.length ?? 0) + askPending.length} />
+          unread={unreadMail.length + askPending.length} />
         <div className="mailpane">
           {folder === 'record'
             ? <OrgRecord events={events} query={recordQuery}
@@ -2439,9 +2723,9 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
             : box == null
             ? <div className="dim">loading…</div>
             : folder === 'inbox'
-              ? <MailList pending={[...box.pending, ...askPending]}
+              ? <MailList pending={[...unreadMail, ...askPending]}
                   collapsible
-                  delivered={[...box.delivered, ...askDone]}
+                  delivered={[...box.delivered, ...readHere, ...askDone, ...askAnswered]}
                   renderBody={renderAskBody}
                   // FR-21: this was the ONE MailList call site without
                   // fileHref, which is why the node inbox's attachments were
@@ -2456,9 +2740,8 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
                      request, not a mail, and gets none */
                   refOf={(m) => m.id && !m._ask
                     ? refToken({ kind: 'mail', org: slug, box: 'user', id: m.id }) : null}
-                  onRead={(m: MailEntry) => markRead(slug, [m.id])
-                    .then(() => { setReadBump((n) => n + 1); refresh?.() })
-                    .catch(() => {})}
+                  onRead={(m: MailEntry) => readNow(m)
+                    .catch((e: Error) => toast([`could not mark read: ${e.message}`]))}
                   onReply={(m: MailEntry, text: string, attachments?: string[], notice?: boolean) => {
                     return sendLinkedReply(slug, m.from, text, { kind: 'mail', org: slug, box: 'user', id: m.id },
                       attachments, notice)
@@ -2468,9 +2751,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
                         // durable reply, using the captured original identity.
                         if (!receipt.id) return
                         try {
-                          await markRead(slug, [m.id])
-                          setReadBump((n) => n + 1)
-                          refresh?.()
+                          await readNow(m)
                         } catch {
                           // The reply already exists: do not retain its draft
                           // as though sending failed and invite a duplicate.
@@ -2508,19 +2789,20 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
                   sender={(id: string) => <SenderChip id={id} nodes={nodes}
                     onFocusAgent={onFocusAgent ? (agentId) => { close(); onFocusAgent(agentId) } : undefined} />} />}
         </div>
-        <div className="row">
+        {/* No footer `close` button (user 2026-09-28): Escape, a backdrop
+            click, the title bar's menu and — when pinned — its ✕ close it. */}
+        {folder === 'inbox' && (box?.pending.length ?? 0) > 0 && <div className="row">
           {/* ⚠ the bump is not optional here. These rows come from getInbox,
               and the server's own `changed` broadcast only makes clients
               refetch the TREE — a different payload that does not carry them.
               So without this the button's effect waited for the 5 s poll: the
               per-mail path was fixed first and this sibling call site was
               missed, which is the same bug reported twice (2026-08-07/08). */}
-          {folder === 'inbox' && (box?.pending.length ?? 0) > 0 && <button onClick={() =>
+          <button onClick={() =>
             clearInbox(slug)
               .then(() => { setReadBump((n) => n + 1); refresh?.() })
-              .catch((e: Error) => toast([`error: ${e.message}`]))}>Mark all read</button>}
-          <button className="primary" onClick={close}>close</button>
-        </div>
+              .catch((e: Error) => toast([`error: ${e.message}`]))}>Mark all read</button>
+        </div>}
     </PinFrame>
   )
 }
@@ -2529,141 +2811,11 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
 // org is born with these values — the same knobs as a single org's settings
 // panel, saved once in <data>/defaults.json.
 export function DefaultsPanel({ toast, close }: { toast: ToastFn; close: () => void }) {
-  // Partial: the error fallback seeds {} and every read has its own default
-  const [d, setD] = useState<Partial<DefaultsPayload> | null>(null)
-  useEffect(() => { getDefaults().then(setD).catch(() => setD({})) }, [])
-  const provPayload = usePolled(getProviders, [], 60000)
-  const autopsyGroups = useMemo(
-    () => availableAutopsyModels(provPayload, d?.fable_filter_model ?? 'opus'),
-    [provPayload, d?.fable_filter_model])
-  if (d == null) {
-    return (
-      <PinFrame kind="defaults" title="Default org settings"
-        panel="settings" close={close}>
-        <div className="dim pad">loading…</div>
-      </PinFrame>
-    )
-  }
-  const set = (k: string, v: unknown) => setD({ ...d, [k]: v })
   return (
     <PinFrame kind="defaults" title="Default org settings"
       panel="settings" close={close}>
-        <h3><SettingsIcon fontSize="inherit" /> Default org settings</h3>
-        {/* WHICH ORGS THIS APPLIES TO is the panel's most load-bearing
-            sentence, and it used to live inside the h3 — where a pinned window
-            hides it along with the duplicated heading. Outside it, visible in
-            both modes (Astra 2026-09-06). */}
-        <div className="dim modalpin-subtitle">applied to every NEW
-          organization</div>
-        <div className="field-label">top-level grant cap</div>
-        <input type="number" min="1" step="1" style={{ width: '8em' }}
-          value={d.max_top_grant ?? 1000}
-          onChange={(e) => set('max_top_grant', +e.target.value)} />
-        <div className="field-label">default top-level grant (pre-filled on new hires)</div>
-        <input type="number" min="0" step="1" style={{ width: '8em' }}
-          value={d.default_top_grant ?? 50}
-          onChange={(e) => set('default_top_grant', +e.target.value)} />
-        <div className="field-label">compaction threshold % (50–95)</div>
-        <input type="number" min="50" max="95" step="1" style={{ width: '8em' }}
-          value={Math.round((d.compact_at ?? 0.8) * 100)}
-          onChange={(e) => set('compact_at', (+e.target.value || 80) / 100)} />
-        <div className="field-label">default thinking effort (agents without
-          their own setting inherit this, live)</div>
-        <select value={d.default_effort ?? ''}
-          onChange={(e) => set('default_effort', e.target.value)}>
-          <option value="">CLI default (no flag)</option>
-          <option value="low">low</option>
-          <option value="medium">medium</option>
-          <option value="high">high</option>
-          <option value="xhigh">xhigh</option>
-          <option value="max">max</option>
-        </select>
-        <div className="field-label">fable weekly-limit policy</div>
-        <select value={d.fable_limit_policy ?? 'halt'}
-          onChange={(e) => set('fable_limit_policy', e.target.value)}>
-          <option value="halt">halt (default)</option>
-          <option value="opus">switch to opus</option>
-          <option value="dissolve">dissolve subtree</option>
-        </select>
-        <div className="field-label">fable content-filter policy</div>
-        <select value={d.fable_filter_policy ?? 'halt'}
-          onChange={(e) => set('fable_filter_policy', e.target.value)}>
-          <option value="halt">halt (default)</option>
-          <option value="opus">switch to opus + retry</option>
-          <option value="auto-autopsy">auto-autopsy</option>
-        </select>
-        {(d.fable_filter_policy ?? 'halt') === 'auto-autopsy' && (
-          <>
-            <div className="field-label">autopsy model (fable not selectable)</div>
-            <select value={d.fable_filter_model ?? 'opus'} aria-label="autopsy model"
-              onChange={(e) => set('fable_filter_model', e.target.value)}>
-              {autopsyGroups.map((g) => (
-                <optgroup key={g.label} label={g.label}>
-                  {g.models.map((m) => (
-                    <option key={m.tier} value={m.tier}>
-                      {m.label}{m.seat != null ? ` · seat ${fmtCredits(m.seat)}` : ''}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-          </>
-        )}
-        <div className="field-label">credit cost bubbling</div>
-        <label className="checkline">
-          <input type="checkbox" checked={d.cascade_hire !== false}
-            onChange={(e) => set('cascade_hire', e.target.checked)} />
-          hires bubble their cost up the chain
-        </label>
-        <label className="checkline">
-          <input type="checkbox" checked={d.cascade_alloc !== false}
-            onChange={(e) => set('cascade_alloc', e.target.checked)} />
-          allocations &amp; model upgrades bubble their cost up the chain
-        </label>
-        <label className="checkline">
-          <input type="checkbox" checked={!!d.auto_resume}
-            onChange={(e) => set('auto_resume', e.target.checked)} />
-          auto-resume usage-limit-frozen agents after the reset time
-        </label>
-        <label className="checkline">
-          <input type="checkbox" checked={!!d.auto_resume_compact}
-            onChange={(e) => set('auto_resume_compact', e.target.checked)} />
-          cheap-compact limit-frozen agents before auto-resume wakes them
-        </label>
-        <div className="field-label">app-wide Luna reserve default</div>
-        <label className="checkline">
-          <input type="checkbox" checked={d.prefer_reserve !== false}
-            onChange={(e) => set('prefer_reserve', e.target.checked)} />
-          prefer reserve capacity first when no individual preference is set
-        </label>
-        <div className="hint">
-          Other defaults apply only when creating an organization. The
-          app-wide Luna reserve default also reaches existing agents that have
-          no individual preference; an explicit agent preference always wins.
-        </div>
-        <div className="row">
-          <button className="primary" onClick={() =>
-            saveDefaults({
-              max_top_grant: d.max_top_grant,
-              default_top_grant: d.default_top_grant,
-              compact_at: Math.round((d.compact_at ?? 0.8) * 100),
-              fable_limit_policy: d.fable_limit_policy,
-              fable_filter_policy: d.fable_filter_policy,
-              fable_filter_model: d.fable_filter_policy === 'auto-autopsy'
-                ? (d.fable_filter_model ?? 'opus') : undefined,
-              default_effort: d.default_effort ?? '',
-              cascade_hire: d.cascade_hire !== false,
-              cascade_alloc: d.cascade_alloc !== false,
-              auto_resume: !!d.auto_resume,
-              auto_resume_compact: !!d.auto_resume_compact,
-              prefer_reserve: d.prefer_reserve !== false,
-            }).then(() => {
-              toast(['default org settings and app-wide Luna default saved'])
-              close()
-            })
-              .catch((e: Error) => toast([`error: ${e.message}`]))}>save</button>
-          <button onClick={close}>cancel</button>
-        </div>
+      <h3><SettingsIcon fontSize="inherit" /> Default org settings</h3>
+      <DefaultsForm toast={toast} onDone={close} />
     </PinFrame>
   )
 }
@@ -2757,9 +2909,10 @@ export function SettingsPanel({ tree, toast, close, initialTab }: {
   const filterModel = val('filterModel', tree.fable_filter_model ?? 'opus')
   const setFilterModel = set('filterModel', filterModel)
   const provPayload = usePolled(getProviders, [], 60000)
+  const showLegacy = useShowLegacyModels()
   const autopsyGroups = useMemo(
     () => availableAutopsyModels(provPayload, filterModel),
-    [provPayload, filterModel])
+    [provPayload, filterModel, showLegacy])
   const defEffort = val('defEffort', tree.default_effort ?? '')
   const setDefEffort = set('defEffort', defEffort)
   const cascadeHire = val('cascadeHire', tree.cascade_hire !== false)

@@ -1,0 +1,44 @@
+# WS2 (p03-ws2-storecore): the base schema, migrations 0001-0099.
+# Format (read by build.rs): `key = value`; list keys take space-separated
+# names and may repeat (values append). A range lists ONLY its own entries;
+# the crate's public lists are the union over every ranges/*.range file.
+# Checksums of this range's migrations: ranges/ws2.sha256.
+
+name = WS2
+first = 1
+last = 99
+
+# every table this range's migrations CREATE (checked against the DDL)
+tables = store_incarnation organizations org_controls agents agent_names authority_epoch
+tables = topology_edges scope_rows runtime_state audience_grants operation_receipts
+tables = service_incarnations runtime_inflight read_service_registrations restrictions restriction_obligations
+tables = catalog_current price_catalog issuer_capacity funding_edges kiosk_pool
+tables = work_items work_item_versions work_participants active_work_names legacy_work_names
+tables = resource_reservations
+tables = mailboxes mail_sent mail_pair_highwater mailbox_messages outgoing_intents transport_intents
+tables = request_batches charter_versions charter_heads runtime_claims folder_move_intents
+tables = publication_catalog
+
+# publication (CONTRACT-M1 §7); operation_receipts only through the safe columns
+published = organizations org_controls agents agent_names authority_epoch
+published = topology_edges scope_rows runtime_state audience_grants operation_receipts
+published = catalog_current price_catalog issuer_capacity funding_edges kiosk_pool
+published = work_items work_item_versions work_participants active_work_names
+published = resource_reservations
+published = mailboxes mail_sent mail_pair_highwater mailbox_messages outgoing_intents transport_intents
+published = request_batches charter_heads charter_versions runtime_claims folder_move_intents
+excluded = store_incarnation service_incarnations runtime_inflight
+excluded = read_service_registrations restrictions restriction_obligations
+excluded = legacy_work_names publication_catalog
+receipt_published_columns = org_id ns_kind ns_id op_key receipt_id family verb state decided_at
+
+# lint inputs (R1, R9, R10)
+installation = store_incarnation service_incarnations publication_catalog
+org_wide = organizations
+high_rate = operation_receipts runtime_inflight mail_sent outgoing_intents transport_intents mailbox_messages work_item_versions
+receiver_heads = mailboxes
+source_side = mail_sent outgoing_intents transport_intents
+
+# server-side statements no labelled Tx statement covers (lead note N1)
+server_side = trigger operation_receipts_claimed_at_commit | operation_receipts | at COMMIT of any transaction that inserted or updated operation_receipts: one indexed read of the same key
+server_side = function resource_reservations_paths_ok |  | CHECK on insert/update of resource_reservations.paths: pure, reads no relation

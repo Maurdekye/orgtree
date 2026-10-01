@@ -1,0 +1,19 @@
+[package]
+name = "orgtree-funding-core"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Non-authoritative pure Rust planner for the legacy credit-funding rules (hire, rehire, reallocate funding steps), checked against Python-oracle parity vectors"
+license = "MIT"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "funding-vectors"
+path = "src/bin/funding-vectors.rs"
+
+[dependencies]
+# The reviewed backend codec supplies the Python-compatible JSON value model
+# and the exact round(x, 2). It is consumed read-only; nothing here changes it.
+orgtree-backend-codec = { path = "../backend-codec" }

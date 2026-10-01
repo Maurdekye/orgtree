@@ -32,6 +32,7 @@ import {
   advance, FakeServer, flush, inAct, installFetch, mountView, realClock,
   useFakeClock,
 } from './harness'
+import { compatibilityWorkFixture } from './workcompat.fixture'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
@@ -382,7 +383,7 @@ uiTest('§B1 agent card: right-click opens the card menu and does NOT move the c
   await advance(400, 50)
   assert.equal(camera(v.el), before, 'a right-click is not a click: the camera did not move')
   const have = labels()
-  for (const l of ['Open desk', 'Open inbox', 'Open docket', 'Open presentations', 'Show lineage',
+  for (const l of ['Focus', 'Open inbox', 'Open docket', 'Open presentations', 'Show lineage',
     'Settings', 'Pin desk as a window', 'Hire a subordinate…', 'Retire…']) {
     assert.ok(have.includes(l), `entry "${l}" — have ${JSON.stringify(have)}`)
   }
@@ -606,6 +607,12 @@ uiTest('§B3c org gallery row: Close closes the OPEN document and nothing else �
   assert.equal(rows().length, 2, 'positive control: both rows rendered')
   const pane = () => v.el.querySelector('.mailer-read')!.textContent ?? ''
 
+  assert.ok(rows()[0]!.classList.contains('on'), 'the newest document opens automatically')
+  await rightClick(rows()[0]!)
+  assert.equal(labels()[0], 'Close', 'the automatic selection offers Close')
+  await pick('Close')
+  await flush(3)
+  assert.ok(!rows()[0]!.classList.contains('on'), 'the automatically opened row stays closed')
   await rightClick(rows()[0]!)
   assert.equal(labels()[0], 'Open', 'an unselected row offers Open')
   await pick('Open')
@@ -654,6 +661,7 @@ function mockWork(items: WorkItem[]): { method: string; url: string }[] {
       : String(url).includes('/inbox') ? { pending: [], delivered: [], sent: [] } : {}
     return Promise.resolve({ ok: true, status: 200, headers: new Headers(), json: () => Promise.resolve(body) })
   }) as unknown as typeof fetch
+  globalThis.fetch = compatibilityWorkFixture(globalThis.fetch)
   return calls
 }
 const docketTree = (): TreePayload => ({

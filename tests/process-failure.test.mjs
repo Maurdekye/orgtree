@@ -227,9 +227,9 @@ test('the application starts Electron\'s crash reporter, locally, before it is r
 
 test('the application attaches both process-failure handlers and no longer discards the details', () => {
   const main = read('apps/desktop/main/index.ts')
-  assert.match(main, /attachRendererFailureHandlers\(main\.webContents, \{/)
+  assert.match(main, /attachRendererFailureHandlers\(window\.webContents, \{/)
   assert.match(main, /attachChildProcessFailureHandler\(app, \{ record: recordProcessFailure \}\)/)
-  assert.match(main, /reload: \(\) => \{ if \(main && !main\.isDestroyed\(\)\) main\.webContents\.reload\(\) \}/)
+  assert.match(main, /reload: \(\) => \{ if \(!window\.isDestroyed\(\)\) window\.webContents\.reload\(\) \}/)
   assert.doesNotMatch(main, /on\('render-process-gone', \(\) =>/, 'the argument-less handler is gone')
 })
 

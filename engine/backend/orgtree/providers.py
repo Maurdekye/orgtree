@@ -33,6 +33,7 @@ argv would not, so the resolver learns the safe habit now.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 import datetime as _dt
 import glob
@@ -44,6 +45,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from typing import Any, Final, TypedDict, cast
 
 from . import appsettings, openrouter
@@ -81,8 +83,14 @@ _CODEX_LETTER: Final[dict[str, str]] = {
 #: views derive from them so there is exactly one copy to drift. User ruling
 #: 2026-09-22 sets Sol to 2 and Luna to 0.1 credits across model versions;
 #: Terra stays 2 and the legacy reserve tier stays 0.2.
-_CODEX_ALWAYS_TIER_NAMES: Final = ("gpt-reserve", "luna", "terra", "sol")
-_CODEX_TIER_NAMES: Final = _CODEX_ALWAYS_TIER_NAMES + ("astra",)
+#: Astra is ALWAYS offered (user 2026-09-24: "can you make astra a given? not
+#: only conditionally present"). It used to be offered only when the live
+#: `model/list` inventory named `gpt-6-astra`, and a stale CLI pin hid it that
+#: way on 2026-09-04. An account that really cannot run it now fails the TURN
+#: with the provider's own error, like every other Codex tier.
+_CODEX_ALWAYS_TIER_NAMES: Final = ("gpt-reserve", "luna", "terra", "sol",
+                                   "astra")
+_CODEX_TIER_NAMES: Final = _CODEX_ALWAYS_TIER_NAMES
 # Context limits were not supplied with the GPT-6 release/pricing ruling.
 # Keep using observed CLI context instead of inheriting GPT-5.6's ceiling.
 CODEX_UNPINNED_CONTEXT_TIERS: Final = frozenset({"sol", "luna"})
@@ -98,9 +106,11 @@ LEGACY_CODEX_TIERS: Final = frozenset({"gpt-reserve"})
 _CODEX_HIREABLE_TIER_NAMES: Final = tuple(
     t for t in _CODEX_ALWAYS_TIER_NAMES if t not in LEGACY_CODEX_TIERS)
 #: Known Codex tiers whose metadata may exist in the ledger while their offer
-#: is controlled by the signed-in account's live model inventory. New rollout
-#: tiers belong here; stable tiers do not. The model id itself lives only in
-#: ledger.MODELS, so an upstream rename is a one-line data correction.
+#: is controlled by the signed-in account's live model inventory. EMPTY since
+#: 2026-09-24, when Astra became always-offered; the seam stays so a future
+#: rollout tier can be added to `_CODEX_TIER_NAMES` without joining the
+#: always-offered set. The model id itself lives only in ledger.MODELS, so an
+#: upstream rename is a one-line data correction.
 CONDITIONAL_CODEX_TIERS: Final = frozenset(
     set(_CODEX_TIER_NAMES) - set(_CODEX_ALWAYS_TIER_NAMES))
 #: float, not int: this is THE table the codex fractions live in.
@@ -115,14 +125,19 @@ CODEX_MODELS: Final[dict[str, str]] = {
 #: thread hundreds of thousands of tokens early.  As with Claude's 1M tiers,
 #: the pinned model capability wins over a CLI-side observation.
 CODEX_CONTEXT: Final[int] = 1_050_000
+#: Published context windows of individual Codex models, where the tier's
+#: GPT-6 default has none (see CODEX_UNPINNED_CONTEXT_TIERS). GPT-6.1 Sol:
+#: 1,050,000 (OpenAI model page, relayed by coordinator-opus 2026-09-29).
+CODEX_MODEL_CONTEXT: Final[dict[str, int]] = {"gpt-6.1-sol": 1_050_000}
 
 #: API prices per M tokens — (input, cached input, output) — for turn-cost
-#: accounting. The Sol/Luna tier keys carry GPT-6 default rates; explicit
-#: GPT-5.6 model keys retain their own rates. Seat costs are independent of
-#: a node's selected model version by the user's 2026-09-22 ruling.
+#: accounting. The Sol/Luna tier keys carry their default model's rates
+#: (GPT-6.1 Sol, GPT-6 Luna); explicit model keys keep their own rates. Seat
+#: costs are independent of a node's selected model version by the user's
+#: 2026-09-22 ruling.
 CODEX_PRICES: Final[dict[str, tuple[float, float, float]]] = {
     "astra": (10.00, 1.00, 50.00),
-    "sol": (2.00, 0.20, 10.00),
+    "sol": (2.00, 0.10, 10.00),
     "terra": (2.00, 0.20, 12.00),
     "gpt-reserve": (0.20, 0.02, 1.20),
     "luna": (0.10, 0.01, 0.60),
@@ -131,6 +146,11 @@ CODEX_PRICES: Final[dict[str, tuple[float, float, float]]] = {
     # User-confirmed release pricing, 2026-09-22; half each 5.6 rate.
     "gpt-6-sol": (2.00, 0.20, 10.00),
     "gpt-6-luna": (0.10, 0.01, 0.60),
+    # OpenAI's model page for gpt-6.1-sol (relayed by coordinator-opus,
+    # 2026-09-29): only the cached rate differs from GPT-6 Sol. The page's
+    # long-prompt surcharge (over 272K input tokens) is not modelled, as for
+    # every other row here.
+    "gpt-6.1-sol": (2.00, 0.10, 10.00),
 }
 
 
@@ -139,7 +159,8 @@ CODEX_PRICES: Final[dict[str, tuple[float, float, float]]] = {
 # chip letters for the antigravity family. `flash` shares F with fable by
 # collision of English, the same accepted collision as sol/sonnet's S — the
 # chip class (t-flash) carries the family.
-_ANTIGRAVITY_LETTER: Final[dict[str, str]] = {"flash": "F", "pro": "P"}
+_ANTIGRAVITY_LETTER: Final[dict[str, str]] = {"flash": "F", "pro": "P",
+                                               "argon": "A"}
 
 #: which tier names belong to the antigravity provider — the AXIS, nothing
 #: more. Seats and model ids live in ledger.TIERS / ledger.MODELS; these
@@ -148,7 +169,14 @@ _ANTIGRAVITY_LETTER: Final[dict[str, str]] = {"flash": "F", "pro": "P"}
 #: 1 — pro $2 (the ≤200K band; the long-context surcharge never sets a
 #: seat), flash $1.50 standing (3.8-flash's $0.75 is launch pricing through
 #: 2026-12-31, and a promo never sets a seat) → 1.
-_ANTIGRAVITY_TIER_NAMES: Final = ("flash", "pro")
+_ANTIGRAVITY_TIER_NAMES: Final = ("flash", "pro", "argon")
+#: Antigravity tiers that are known to the axis (an existing node keeps its
+#: lane, price and colour) but OFFERED and ADMITTED only while the live
+#: `agy models` registry lists the tier's pinned model id. Argon (user
+#: 2026-10-01: "when it is selectable ...") is Google's conditional rollout:
+#: the registry is server-side per account, so the account itself says when
+#: it may run. Same seam as CONDITIONAL_CODEX_TIERS, one lane over.
+CONDITIONAL_ANTIGRAVITY_TIERS: Final = frozenset({"argon"})
 #: float for the same reason CODEX_TIERS is, even though neither antigravity
 #: seat is fractional today: the type follows ledger.TIERS, not the values
 #: that happen to be in it.
@@ -273,6 +301,10 @@ ANTIGRAVITY_PRICES: Final[dict[str, tuple[float, float, float]]] = {
     "gemini-3.7-flash": (0.75, 0.075, 3.75),
     "gemini-3.6-flash": (0.75, 0.075, 3.75),
     "gemini-3.1-pro": (2.00, 0.20, 12.00),
+    # ⚠ PLACEHOLDER (coordinator ruling 2026-10-01): copies gemini-3.1-pro.
+    # Google's announcement quoted Argon API pricing but the user has not
+    # confirmed which rate Orgtree should use; correct this row when they do.
+    "gemini-4-argon": (2.00, 0.20, 12.00),
 }
 #: a model id with no row above (a version the registry grows later) is
 #: priced at the PRO row: overstating a stranger's cost is recoverable, a
@@ -283,7 +315,8 @@ ANTIGRAVITY_PRICE_FALLBACK: Final[tuple[float, float, float]] = (2.00, 0.20, 12.
 #: ratio every listed row of both this provider and codex publishes.
 ANTIGRAVITY_PRO_LONG: Final[tuple[float, float, float]] = (4.00, 0.40, 18.00)
 ANTIGRAVITY_LONG_THRESHOLD: Final[int] = 200_000
-_ANTIGRAVITY_PRO_IDS: Final = ("gemini-3.1-pro",)
+#: ⚠ gemini-4-argon is here as a PLACEHOLDER copy of pro's long-context rule
+_ANTIGRAVITY_PRO_IDS: Final = ("gemini-3.1-pro", "gemini-4-argon")
 
 #: orgtree's effort vocabulary (ledger EFFORTS: low·medium·high·xhigh·max)
 #: → the CLI's `--effort`, per tier. Measured 2026-09-02 (agy 1.1.24): the
@@ -298,6 +331,10 @@ _ANTIGRAVITY_EFFORT: Final[dict[str, dict[str, str]]] = {
               "xhigh": "high", "max": "high"},
     "pro": {"low": "low", "medium": "high", "high": "high",
             "xhigh": "high", "max": "high"},
+    # ⚠ PLACEHOLDER (coordinator ruling 2026-10-01): a copy of pro's map,
+    # unmeasured — no agy build has listed gemini-4-argon yet
+    "argon": {"low": "low", "medium": "high", "high": "high",
+              "xhigh": "high", "max": "high"},
 }
 
 
@@ -413,10 +450,10 @@ def codex_tiers(available_models: set[str] | frozenset[str] | None = None
                 ) -> list[TierInfo]:
     """Codex tier rows safe to OFFER for one account-inventory snapshot.
 
-    Stable tiers are part of the established lane. Conditional rollout tiers
-    appear only when their exact pinned model id is in a successfully fetched
-    full inventory. ``None`` therefore means no evidence and fails closed for
-    those rows; it is never an optimistic default.
+    Every hireable tier (Astra included) is offered whatever the inventory
+    says. Only a tier in `CONDITIONAL_CODEX_TIERS` — none today — would need
+    its exact pinned model id in a successfully fetched full inventory, and
+    for such a tier ``None`` means no evidence and fails closed.
     """
     # HIREABLE rows only: a legacy token (gpt-reserve) is on the axis for the
     # nodes that already wear it, never in the offer
@@ -575,8 +612,10 @@ def codex_status(force: bool = False) -> dict[str, Any]:
 # REPORTING CLIENT VERSION, measured on this host 2026-09-04: the pinned CLI
 # 0.150.1 (installed Aug 28) returned 9 model ids and the newer 0.153.0 on PATH
 # returned the same 9 PLUS `gpt-6-astra` — same account, same auth, same code.
-# So a stale pin makes a live tier invisible, and the failure presents as "your
-# account does not have it", which is a lie about the wrong subsystem.
+# While Astra was offered only from that list, a stale pin made a live tier
+# invisible, and the failure presented as "your account does not have it",
+# which was a lie about the wrong subsystem. Astra no longer depends on the
+# list (2026-09-24), but the pin still decides which models a turn can reach.
 #
 # This does NOT auto-upgrade. Swapping the CLI underneath running agents is its
 # own hazard; the job here is to make the drift VISIBLE and let a person act.
@@ -828,6 +867,10 @@ def conditional_codex_availability(
         status: dict[str, Any] | None = None) -> dict[str, Any]:
     """Availability of one conditional Codex tier from exact live membership.
 
+    No tier is conditional today (see `CONDITIONAL_CODEX_TIERS`), so every
+    current tier answers ``not-conditional``. Astra went through here until
+    2026-09-24.
+
     ⚠ THE `model-missing` MESSAGE USED TO BLAME THE ACCOUNT: "the signed-in
     Codex account does not offer model 'gpt-6-astra'". On 2026-09-04 that was
     FALSE — the account offered astra in both Codex and ChatGPT; the PINNED CLI
@@ -854,12 +897,64 @@ def conditional_codex_availability(
     return {"enabled": True, "evidence": "model-present", "reason": None}
 
 
-def antigravity_tiers() -> list[TierInfo]:
+#: the effort suffixes `agy models` prints on registry ids
+#: (`gemini-3.1-pro-high`, measured agy 1.2.14)
+_AGY_EFFORT_SUFFIXES: Final = ("-low", "-medium", "-high", "-max")
+
+
+def antigravity_model_listed(model_id: str,
+                             registry: Iterable[str] | None) -> bool:
+    """Does the `agy models` registry list `model_id` (a BASE id)?
+
+    The registry prints ids WITH an effort suffix (`gemini-3.1-pro-high`)
+    and the CLI takes the base id on `--model`, so the base id counts as
+    listed when it appears bare or with one of those suffixes. Nothing else
+    matches: no label, no substring (user ruling 2026-10-01 for Argon)."""
+    if not model_id:
+        return False
+    for raw in registry or ():
+        mid = str(raw)
+        if mid == model_id:
+            return True
+        for suffix in _AGY_EFFORT_SUFFIXES:
+            if mid == model_id + suffix:
+                return True
+    return False
+
+
+def antigravity_tiers(registry: Iterable[str] | None = None
+                      ) -> list[TierInfo]:
+    """Antigravity tier rows safe to OFFER. Every unconditional tier always;
+    a CONDITIONAL_ANTIGRAVITY_TIERS row only while `registry` (the live
+    `agy models` ids) lists its pinned id. No registry = no evidence = the
+    conditional rows stay out."""
     return [
         {"tier": t, "provider": "google", "seat": seat,
          "model": ANTIGRAVITY_MODELS[t], "letter": _ANTIGRAVITY_LETTER[t]}
         for t, seat in sorted(ANTIGRAVITY_TIERS.items(), key=lambda kv: kv[1])
+        if t not in CONDITIONAL_ANTIGRAVITY_TIERS
+        or antigravity_model_listed(ANTIGRAVITY_MODELS[t], registry)
     ]
+
+
+def conditional_antigravity_availability(
+        tier: str, *, status: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Is a conditional Antigravity tier (Argon) runnable on this account
+    right now? Asks the registry the connect probe already read; when the
+    cached read does not list the model, probes once more FRESH before
+    saying no, so a model Google switched on a minute ago is not refused on
+    a stale list. Unconditional tiers answer `not-conditional`."""
+    if tier not in CONDITIONAL_ANTIGRAVITY_TIERS:
+        return {"enabled": True, "reason": None, "evidence": "not-conditional"}
+    model_id = ANTIGRAVITY_MODELS[tier]
+    st = status if status is not None else antigravity_status()
+    if not antigravity_model_listed(model_id, st.get("models")):
+        st = antigravity_status(force=True)
+    if antigravity_model_listed(model_id, st.get("models")):
+        return {"enabled": True, "reason": None, "evidence": "model-present"}
+    return {"enabled": False, "evidence": "model-missing", "reason":
+            (f"model '{model_id}' is not in the model list the Antigravity "
+             "CLI returns for this account yet")}
 
 
 # ── antigravity CLI detection ──────────────────────────────────────────────
@@ -1128,13 +1223,20 @@ def _antigravity_account(exe: str) -> dict[str, Any]:
     out: dict[str, Any] = {"connected": False, "email": None, "kind": None,
                            "models": []}
     log_dir = antigravity_probe_dir()
-    log_path = os.path.join(log_dir, "models-probe.log")
+    # ⚠ ONE LOG FILE PER PROBE (docket v3-usage-board-says-account-changed-
+    # during-the-u). Every caller of `antigravity_status` can probe at once
+    # and nothing serializes them. They all used to share models-probe.log:
+    # the second probe's delete failed (the first CLI held the file) and both
+    # CLIs wrote into it, and in 2 of 10 overlapping pairs (measured
+    # 2026-09-30) the log held no email although `models` listed the
+    # registry. That read as signed-in-but-unidentified, and the usage board
+    # called it an account change. So each probe writes its own file, and the
+    # finished one is moved onto models-probe.log for the tier fallback in
+    # antigravity_limits._account and for anyone reading it by hand.
+    log_path = os.path.join(
+        log_dir, f"models-probe.{os.getpid()}.{uuid.uuid4().hex[:12]}.log")
     try:
         os.makedirs(log_dir, exist_ok=True)
-        try:
-            os.remove(log_path)
-        except OSError:
-            pass
         r = subprocess.run(
             antigravity_argv(exe) + ["--log-file", log_path, "models"],
             capture_output=True, text=True, timeout=45, cwd=log_dir,
@@ -1142,6 +1244,7 @@ def _antigravity_account(exe: str) -> dict[str, Any]:
             creationflags=(subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
                            if os.name == "nt" else 0))
     except (OSError, subprocess.TimeoutExpired):
+        _retire_probe_log(log_path, None)
         return out
     models: list[str] = []
     for line in (r.stdout or "").splitlines():
@@ -1167,7 +1270,24 @@ def _antigravity_account(exe: str) -> dict[str, Any]:
                 out["plan"] = tier
         except OSError:
             pass
+    _retire_probe_log(log_path, os.path.join(log_dir, "models-probe.log"))
     return out
+
+
+def _retire_probe_log(log_path: str, keep_as: str | None) -> None:
+    """Move a finished probe's private log onto `keep_as` (the latest probe
+    wins), or delete it. Best effort: a concurrent reader can hold the target
+    open on Windows, and then this probe's log is simply dropped."""
+    if keep_as is not None:
+        try:
+            os.replace(log_path, keep_as)
+            return
+        except OSError:
+            pass
+    try:
+        os.remove(log_path)
+    except OSError:
+        pass
 
 
 _antigravity_status_cache: tuple[float, dict[str, Any]] | None = None
@@ -1481,15 +1601,15 @@ def providers_payload(claude_status: dict[str, Any], force: bool = False,
             # name; tier words luna/terra/sol carry everywhere else.
             "label": PROVIDER_LABEL["openai"],
             "cli": "Codex CLI",
-            # Stable rows are always described; rollout rows require exact
-            # membership in the full account-scoped model list. The picker is
-            # convenience only — provider_hire_gate re-queries before mutate.
+            # Every hireable row (Astra included) is always described; only a
+            # CONDITIONAL_CODEX_TIERS row — none today — would need exact
+            # membership in the full account-scoped model list.
             "tiers": codex_tiers(codex_models),
             "status": codex,
             # ⚠ the pin never self-refreshes (see codex_cli_version_status) and
-            # a stale CLI silently HIDES rollout tiers, so the drift belongs on
-            # the panel beside the tiers it suppresses — not only in the
-            # refusal message of whoever trips over it later. Carries `path`
+            # a stale CLI is not offered newer models, so the drift belongs on
+            # the panel beside the tiers it affects — not only in the error
+            # of whoever trips over it later. Carries `path`
             # and `source`: the backend's build is not necessarily the build a
             # differently-rooted process would run.
             "cli_version": codex_cli_version_status(codex),
@@ -1536,7 +1656,9 @@ def providers_payload(claude_status: dict[str, Any], force: bool = False,
             # label: the CLI's own product name, not the vendor's.
             "label": PROVIDER_LABEL["google"],
             "cli": "Antigravity CLI",
-            "tiers": antigravity_tiers(),
+            # Argon (a conditional row) only while the registry this same
+            # probe read lists its id
+            "tiers": antigravity_tiers(antigravity.get("models")),
             "status": antigravity,
             "hire_enabled": bool(antigravity_on
                                  and antigravity.get("installed")
@@ -1639,6 +1761,12 @@ def tier_availability(tier: str) -> tuple[bool, str | None]:
             return False, f"Antigravity CLI is not installed — {install_hint('google')}"
         if not ast.get("connected") and not antigravity_key_available():
             return False, "Antigravity CLI is not signed in — run `agy` and sign in"
+        if tier in CONDITIONAL_ANTIGRAVITY_TIERS:
+            availability = conditional_antigravity_availability(
+                tier, status=ast)
+            if not availability.get("enabled"):
+                return False, (f"tier '{tier}' is not available: "
+                               f"{availability.get('reason')}")
         return True, None
 
     if openrouter.is_tier(tier):

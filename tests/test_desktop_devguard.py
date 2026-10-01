@@ -8,6 +8,7 @@ import tempfile
 import unittest
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+import child_python  # a child Python imports THIS checkout's engine (tests/child_python.py)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -23,10 +24,10 @@ class DevGuardTests(unittest.TestCase):
             self.env.pop(key, None)
         self.env.update(ORGTREE_DATA=str(self.live), HOME=str(self.home),
                         USERPROFILE=str(self.home), ORGTREE_DESKTOP_MANAGED='1',
-                        ORGTREE_STORE='sqlite', PYTHONPATH=str(ROOT/'engine'/'backend'))
+                        ORGTREE_STORE='sqlite')
 
     def run_code(self, code, env=None):
-        return subprocess.run([sys.executable, '-c', code], env=env or self.env,
+        return subprocess.run(child_python.argv('-c', code, checkout=ROOT), env=env or self.env,
                               cwd=self.root, capture_output=True, text=True, timeout=25)
 
     def child(self, provider):

@@ -20,6 +20,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'tools'))
 import state_operation_contracts as contracts
+import inventory_scan_cache  # noqa: E402,F401 -- one shared source scan per suite run
 
 _temp = tempfile.TemporaryDirectory(prefix='p01-state-diagnostic-')
 _data, _home = Path(_temp.name)/'data', Path(_temp.name)/'home'
@@ -32,7 +33,7 @@ for _key in ('ORGTREE_V1_ROOT','ORGTREE_V1_DATA_ROOT','ORGTREE_V2_PORT',
              'ORGTREE_AGENT_PARENT_DATA','ORGTREE_AGENT_LEGACY_DATA'):
     os.environ.pop(_key,None)
 
-import import_provenance  # noqa: E402,F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 from engine.launch import load_app  # noqa: E402
 app, *_ = load_app()
 from fastapi.testclient import TestClient  # noqa: E402
@@ -53,6 +54,13 @@ SHAPES = {
 }
 NATIVE = {'effective_output_fence','generation_revalidation','invalid_visibility_refusal',
           'indexed_visibility_and_funding_reads','complete_contacts','full_wire_parity','receipt_classification'}
+def family_mapped(registry, prefix):
+    """(entries, dispatch) mapped rows that bind at least one of this family's contracts."""
+    def count(group):
+        return sum(1 for r in registry[group] if r['disposition'] == 'mapped'
+                   and any(c.startswith(prefix) for c in r['contracts']))
+    return count('entries'), count('dispatch')
+
 
 def boundary(document=None):
     d = document if document is not None else contracts.load(ROOT/'docs/state-system/state-diagnostic-boundary.json')
@@ -92,10 +100,9 @@ class DiagnosticBinding(unittest.TestCase):
         self.assertTrue(result['valid'],result['errors'])
         self.assertFalse(result['contract_coverage_complete'])
         self.assertEqual(result['qualification'],contracts.GATES)
-        self.assertEqual(result['summary']['entries']['mapped'],6)
-        self.assertEqual(result['summary']['dispatch']['mapped'],18)
-        self.assertEqual(result['summary']['storage']['mapped'],0)
-        self.assertEqual(result['contracts'],15)
+        # this family's own witnesses; the registry-wide totals live in test_state_operation_contracts
+        self.assertEqual(family_mapped(registry,'diagnostic.'),(2,2))   # dd72cf1a pending since S3 decision 3
+        self.assertEqual({k for k in registry['contracts'] if k.startswith('diagnostic.')},set(TOOLS.values()))
 
     def test_omissions_private_fields_stale_binding_and_gate_forgery_refuse(self):
         for edit in [lambda d:d['tools'].pop(CAPABILITIES),lambda d:d['visibility'].pop(),
@@ -355,6 +362,65 @@ class DiagnosticBoundary(DiagnosticFixture,unittest.TestCase):
         self.visibility('invalid-fixture-value')
         self.assertIn('outside',self.ids())
         self.assertIn('invalid_visibility_refusal',self.spec['native_obligations'])
+
+    # Legacy malformed stored state (S2 candidate 3, diagnostic.wire). One
+    # corrupt node can fail the WHOLE-org inspection; these are recorded legacy
+    # behaviours, not an approved native fallback.
+    CORRUPT_NODE = [
+        # (field path, stored value, status for node=deep, status for the whole org, projected value or 500 type)
+        ('generation','x',500,500,'ValueError'),
+        ('generation',[1],500,500,'TypeError'),
+        ('generation',None,200,200,0),
+        ('grant','x',500,500,'TypeError'),
+        ('grant',None,500,500,'TypeError'),
+        ('grant',-5,200,200,-5),
+        ('model',None,500,500,'KeyError'),
+        ('model',5,500,500,'KeyError'),
+        ('scope','bad',500,500,'AttributeError'),
+        ('scope.tools','bad',500,500,'AttributeError'),
+        ('scope.org_visibility',5,200,200,5),
+        ('state','weird',422,200,None),     # an unknown state leaves the visible universe
+        ('parent','ghost',422,200,None),    # so does a dangling parent
+        ('frozen','bad',200,200,None),      # malformed optional maps project as null
+        ('frozen',[1],200,200,None),
+        ('pending_switch','bad',200,200,None),
+        ('last_status','bad',200,200,None),
+        ('title',5,200,200,'5'),
+    ]
+
+    def test_malformed_stored_node_fields_pin_legacy_projection_or_failure(self):
+        for path,value,one,whole,expected in self.CORRUPT_NODE:
+            with self.subTest(field=path,value=value):
+                saved = {}
+                def corrupt(org):
+                    node = org.node('deep')
+                    saved['node'] = copy.deepcopy(dict(node))
+                    *parents,leaf = path.split('.')
+                    target = node
+                    for part in parents:
+                        target = target[part]
+                    target[leaf] = value
+                self.mutate(corrupt)
+                try:
+                    response = self.call(args={'node':'deep'})
+                    self.assertEqual(response.status_code,one,response.text)
+                    self.assertEqual(self.call().status_code,whole)
+                    if one == 500:
+                        self.assertEqual(response.json()['error']['type'],expected)
+                    elif one == 422:
+                        self.refused(response,'state inspection is outside your visible scope: deep')
+                        self.assertNotIn('deep',self.ids())   # silently absent from the whole org
+                    else:
+                        row = response.json()['nodes'][0]
+                        key = path.split('.')[0]
+                        shown = row[key] if path.count('.') == 0 else row['scope']['org_visibility']
+                        self.assertEqual(shown,expected)
+                finally:
+                    def restore(org):
+                        node = org.node('deep')
+                        node.clear()
+                        node.update(saved['node'])
+                    self.mutate(restore)
 
     def test_repeated_diagnostics_use_fresh_scope_without_receipt_replay(self):
         epoch = self.okay(self.call(opreceipts.OP_EPOCH))['epoch']

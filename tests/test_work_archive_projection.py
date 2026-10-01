@@ -595,6 +595,53 @@ class ProjectionCannotGoStale(ArchiveProjectionBase):
         self.assertEqual(org._work_archive_proj(), [])
 
 
+class SnapshotRefreshCarriesTheProjection(ArchiveProjectionBase):
+    """The shared snapshot's section-granular refresh keeps a projection of a
+    section no save changed, and drops it for one that did.
+
+    Docket v3-moving-an-agent-to-a-new-parent-by-hand-takes: every commit — a
+    hand re-parent included — used to hand readers a fresh snapshot with no
+    projections, so the tree read right after it re-scanned the whole archive
+    for the docket badge (MEASURED ~118 ms of a 184 ms view build at 100
+    agents). Each test first proves the refresh really was section-granular
+    (no full reload), or a pass would only show a fresh load starting empty.
+    """
+    def refreshed(self, slug, write):
+        prev = store.cached_org(slug)
+        prev._work_archive_proj()
+        key = next(k for k in prev.d._proj if k[0] == "work_items_archive")
+        loads = sum(store.full_load_counts.values())
+        org = store.load_org(slug)
+        write(org)
+        store.save_org(org)
+        snap = store.cached_org(slug)
+        self.assertIsNot(snap, prev, "no refresh happened")
+        self.assertEqual(sum(store.full_load_counts.values()), loads,
+                         "the refresh was a full reload, not a carry")
+        return prev, snap, key
+
+    def test_a_move_keeps_the_archive_projection(self):
+        slug = self.mixed("Carry Move")
+        prev, snap, key = self.refreshed(
+            slug, lambda org: org.move(USER, "helper", "boss"))
+        self.assertIs(snap.d._proj.get(key), prev.d._proj[key],
+                      "the unchanged archive's projection was not carried")
+        self.assertEqual(snap.node("helper")["parent"], "boss")
+        now = time.time()
+        self.assertEqual(snap.work_counts(now), oracle_counts(store.load_org(slug), now))
+
+    def test_a_changed_archive_is_projected_again(self):
+        slug = self.mixed("Carry Changed")
+
+        def edit_archive(org):
+            it = next(i for i in org._work_archive() if i["slug"] == "phys-done-0")
+            it["status"] = "dropped"
+        prev, snap, key = self.refreshed(slug, edit_archive)
+        self.assertNotIn(key, snap.d._proj, "a changed section's projection was carried")
+        rows = {p["slug"]: p for p in snap._work_archive_proj()}
+        self.assertEqual(rows["phys-done-0"]["status"], "dropped")
+
+
 class ProjectApiContract(ArchiveProjectionBase):
     def test_one_field_is_refused_rather_than_guessed(self):
         """`json_extract` with a single path returns a bare value that cannot be

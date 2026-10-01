@@ -106,6 +106,10 @@ class ApiProvidersForceTests(unittest.TestCase):
     """Through the actual /api/providers route handler, end to end."""
 
     def setUp(self):
+        # each case composes its own document (the route's short cache would
+        # otherwise answer from the previous case's)
+        api._providers_invalidate()
+        self.addCleanup(api._providers_invalidate)
         self._orig_claude_install_state = api.supervisor.claude_install_state
         self._orig_codex_status = api.providers.codex_status
         self._orig_antigravity_status = api.providers.antigravity_status

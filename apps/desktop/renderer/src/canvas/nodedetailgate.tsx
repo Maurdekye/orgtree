@@ -14,12 +14,13 @@ import type { ReactNode } from 'react'
 import type { Summarisable } from '../archived'
 import { useNodeDetail } from '../nodedetail'
 
-export function NodeDetailGate<T extends Summarisable>({ slug, node, children }: {
+export function NodeDetailGate<T extends Summarisable>({ slug, node, children, lineage = false }: {
   slug: string
   node: T
+  lineage?: boolean
   children: (node: T) => ReactNode
 }) {
-  const { node: resolved, ready, error } = useNodeDetail(slug, node)
+  const { node: resolved, ready, error } = useNodeDetail(slug, node, lineage)
   if (error) {
     // the seat can be deleted between the tree that listed it and this click
     return (

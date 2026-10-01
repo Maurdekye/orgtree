@@ -155,7 +155,10 @@ class RelocatedRolloutTests(unittest.TestCase):
         self.root = Path(self.tmp.name).resolve()
         self.addCleanup(self.tmp.cleanup)
         stub = type("Store", (), {"DATA_ROOT": str(self.root)})
-        patcher = patch.object(desktop_import, "_store", lambda: stub)
+        # same signature as the real _store: db91f39 (PG-0) added the
+        # keyword-only writes_orgs, and desktop_native passes writes_orgs=False
+        patcher = patch.object(desktop_import, "_store",
+                               lambda *, writes_orgs=True: stub)
         patcher.start()
         self.addCleanup(patcher.stop)
 

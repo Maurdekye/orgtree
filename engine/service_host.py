@@ -31,18 +31,82 @@ import subprocess
 import sys
 import threading
 import time
-from typing import Any
+from typing import Any, Callable
 import urllib.error
 import urllib.request
 
 try:
     from .startup_progress import parse_progress
+    from .unelevated import popen_unelevated, process_is_elevated, repair_user_access, run_as_administrator_enabled
 except ImportError:  # script entrypoint
-    from startup_progress import parse_progress
+    # The packaged runtime's python313._pth never puts the script's own
+    # folder on sys.path (it lists resources\ instead), so a bare
+    # `from startup_progress` fails there and the boot host exits 1 before
+    # doing anything. Import through the package root, as launch.py does.
+    _PACKAGE_ROOT = str(Path(__file__).resolve().parent.parent)
+    if _PACKAGE_ROOT not in sys.path:
+        sys.path.insert(0, _PACKAGE_ROOT)
+    from engine.startup_progress import parse_progress
+    from engine.unelevated import popen_unelevated, process_is_elevated, repair_user_access, run_as_administrator_enabled
 
 READY_TIMEOUT = 120.0  # boot is contended; the desktop's 60s is too tight
+#: Between two checkpoints of the first-launch conversion (phases starting
+#: ``database-convert``): copying or reading back one large org is ONE step.
+CONVERT_READY_TIMEOUT = 900.0
+CONVERT_PHASE = "database-convert"
 SHUTDOWN_WAIT = 10.0
 DESCRIPTOR = "engine-attach.json"
+# Exit when another engine or host already owns the data root (a lost boot
+# race, or the desktop's engine during a handover). The Windows service
+# retries this without counting it as a crash; everything else is 1.
+EXIT_ROOT_OWNED = 75
+# Under the Windows service, the handle value of an inheritable manual-reset
+# event the service sets to ask for an orderly stop. Absent under the task.
+STOP_EVENT_ENV = "ORGTREE_V2_SERVICE_STOP_EVENT"
+# LIVENESS (v3-orgtree-froze-and-crashed-around-09-40-09-50z). On 2026-09-30 the
+# engine stopped answering every request for ten minutes while its process
+# stayed alive, so it kept the root lock: the desktop could neither attach nor
+# start its own engine, and nothing restarted it. After readiness the host
+# probes the engine's liveness route from its own thread; once no probe has
+# succeeded for LIVENESS_DEADLINE the engine is HUNG: the host records it,
+# kills the engine tree, proves the root lock released and starts a fresh
+# engine in place. The Task Scheduler's restart-on-failure does not fire on an
+# exit code, so the restart is the host's own. A probe waits a full minute: the
+# same storm that preceded the hang still answered in under one.
+LIVENESS_INTERVAL = 30.0
+LIVENESS_PROBE_TIMEOUT = 60.0
+LIVENESS_DEADLINE = 300.0
+LIVENESS_MIN_FAILURES = 3
+HUNG_RELEASE_WAIT = 30.0
+# More hung engines than this inside the window and the host stops trying.
+HUNG_RESTART_LIMIT = 3
+HUNG_RESTART_WINDOW = 3600.0
+EXIT_ENGINE_HUNG = 76
+LIVENESS_LOG = Path("diagnostics") / "engine-liveness.jsonl"
+
+
+def service_stop_probe(env: dict[str, str]) -> "Callable[[], bool] | None":
+    """Return a non-blocking 'has the service asked us to stop?' check.
+
+    Consumes the variable so the engine and its agents never inherit a
+    handle number that means nothing in their process. A malformed value is
+    an error, never silently ignored: the host would otherwise be unstoppable
+    except by killing its job.
+    """
+    raw = env.pop(STOP_EVENT_ENV, "").strip()
+    if not raw:
+        return None
+    if os.name != "nt" or not raw.isdigit() or int(raw) == 0:
+        raise RuntimeError(f"invalid {STOP_EVENT_ENV}")
+    import ctypes
+    from ctypes import wintypes as w
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.WaitForSingleObject.argtypes = [w.HANDLE, w.DWORD]
+    kernel.WaitForSingleObject.restype = w.DWORD
+    handle = w.HANDLE(int(raw))
+    if kernel.WaitForSingleObject(handle, 0) == 0xFFFFFFFF:  # WAIT_FAILED
+        raise RuntimeError(f"{STOP_EVENT_ENV} is not a usable handle: {ctypes.WinError(ctypes.get_last_error())}")
+    return lambda: kernel.WaitForSingleObject(handle, 0) == 0  # WAIT_OBJECT_0
 
 
 def resolve_data_root() -> Path:
@@ -376,7 +440,162 @@ def request_shutdown(port: int, token: str) -> bool:
         return False
 
 
+def probe_engine(port: int, token: str, root: Path, pid: int,
+                 timeout: float = LIVENESS_PROBE_TIMEOUT) -> str | None:
+    """None when the engine answered as ITSELF (pid and root), else why not."""
+    request = urllib.request.Request(f"http://127.0.0.1:{port}/api/desktop/alive",
+                                     headers={"X-Orgtree-Desktop-Token": token})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            identity = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        return f"{type(exc).__name__}: {exc}"[:300]
+    if not isinstance(identity, dict) or identity.get("pid") != pid \
+            or not isinstance(identity.get("dataRootId"), str) \
+            or _canon(identity["dataRootId"]) != _canon(root):
+        return "the engine answered with another identity"
+    return None
+
+
+class LivenessWatch:
+    """Probes on its own thread, so a probe that waits out its whole timeout
+    never delays the host's stop handling. HUNG needs BOTH a long silence and
+    several failed probes: one slow answer is contention, not a hang."""
+
+    def __init__(self, probe: Callable[[], "str | None"], *, interval: float = LIVENESS_INTERVAL,
+                 deadline: float = LIVENESS_DEADLINE, min_failures: int = LIVENESS_MIN_FAILURES,
+                 clock: Callable[[], float] = time.monotonic) -> None:
+        self._probe, self._clock = probe, clock
+        self.interval, self.deadline, self.min_failures = interval, deadline, min_failures
+        self.last_ok = clock()
+        self.failures = 0
+        self.last_error: str | None = None
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+
+    def start(self) -> None:
+        threading.Thread(target=self._run, daemon=True, name="engine-liveness").start()
+
+    def stop(self) -> None:
+        self._stop.set()
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            self.check_once()
+            self._stop.wait(self.interval)
+
+    def check_once(self) -> bool:
+        error = self._probe()
+        with self._lock:
+            if error is None:
+                self.last_ok, self.failures, self.last_error = self._clock(), 0, None
+            else:
+                self.failures += 1
+                self.last_error = error
+        return error is None
+
+    def silent_for(self) -> float:
+        with self._lock:
+            return self._clock() - self.last_ok
+
+    def hung(self) -> bool:
+        with self._lock:
+            return self.failures >= self.min_failures and self._clock() - self.last_ok >= self.deadline
+
+
+def record_liveness(root: Path, event: dict[str, Any]) -> None:
+    """The engine writes no log of its own death; this line is the record of
+    a hang the host ended. Best effort: a full disk must not stop the kill."""
+    path = root / LIVENESS_LOG
+    line = json.dumps({"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), **event},
+                      separators=(",", ":"))
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as stream:
+            stream.write(line + "\n")
+    except OSError:
+        pass
+    print(f"service host: {line}", file=sys.stderr, flush=True)
+
+
+def end_hung_engine(child: "subprocess.Popen[Any]", root: Path, watch: LivenessWatch) -> int:
+    """Kill a hung engine's tree and prove the root is free again. Only a
+    PROVEN release lets the host start another engine (never two engines);
+    an unproven one exits 1 and leaves the descriptor for the guardian sweep."""
+    record_liveness(root, {"event": "hung", "enginePid": child.pid,
+                           "silentSeconds": round(watch.silent_for(), 1),
+                           "failedProbes": watch.failures, "lastError": watch.last_error})
+    released = failed_start_cleanup(child, root, timeout=HUNG_RELEASE_WAIT)
+    record_liveness(root, {"event": "killed", "enginePid": child.pid, "released": released})
+    return EXIT_ENGINE_HUNG if released else 1
+
+
+def packaged_postgres_environment(engine_dir: Path) -> dict[str, str]:
+    """What the packaged desktop sets for its engine (postgres-runtime.ts):
+    the bundled custodian and PostgreSQL, and ``ORGTREE_PG_BOOTSTRAP=1``, so
+    a fresh root starts on PostgreSQL and an existing SQLite root is
+    converted on this first start whichever process starts the engine first.
+    Only for an INSTALLED app (``resources/app.asar`` beside ``engine``); a
+    source checkout gets nothing, as the desktop's development build does
+    not. A missing bundled file raises, as the desktop does."""
+    if not (engine_dir.parent / "app.asar").is_file():
+        return {}
+    custodian = engine_dir / "pg-custodian.exe"
+    bin_dir = engine_dir / "postgresql" / "bin"
+    # Keep aligned with postgres-runtime.ts and PgBin::locate in pg-custodian.
+    for target in [custodian, *(bin_dir / n for n in ("postgres.exe", "pg_ctl.exe", "initdb.exe", "psql.exe",
+                                                       "pg_controldata.exe"))]:
+        if not target.is_file():
+            raise RuntimeError(f"packaged PostgreSQL executable is missing: {target}")
+    return {"ORGTREE_PG_CUSTODIAN": str(custodian), "ORGTREE_P03_PG_BIN": str(bin_dir), "ORGTREE_PG_BOOTSTRAP": "1"}
+
+
+def checkpoint_window(line: str) -> float:
+    """How long the host waits for the NEXT checkpoint after this one."""
+    try:
+        value = json.loads(line)
+    except ValueError:
+        return READY_TIMEOUT
+    phase = value.get("phase") if isinstance(value, dict) else None
+    return CONVERT_READY_TIMEOUT if isinstance(phase, str) and phase.startswith(CONVERT_PHASE) else READY_TIMEOUT
+
+
+def engine_spawner() -> "Callable[..., subprocess.Popen[Any]]":
+    """How launch.py is started.
+
+    The boot task's S4U logon hands an administrator account its FULL token
+    even at RunLevel Limited, so by default an elevated host starts the engine
+    as the normal user: PostgreSQL refuses admin rights, and no agent the
+    engine spawns should inherit them (engine/unelevated.py). The app setting
+    "Run Orgtree as administrator" (HKLM, admin-writable only) keeps the
+    host's own token for the engine and its agents instead.
+    """
+    if run_as_administrator_enabled():
+        print("service host: 'Run Orgtree as administrator' is on; the engine keeps this host's rights",
+              file=sys.stderr, flush=True)
+        return subprocess.Popen
+    return popen_unelevated
+
+
+def run_host() -> int:
+    """Run the engine; start a fresh one in place when the last one HUNG and
+    its tree was proven gone, unless it keeps hanging."""
+    hangs: list[float] = []
+    while True:
+        code = main()
+        if code != EXIT_ENGINE_HUNG:
+            return code
+        now = time.monotonic()
+        hangs = [at for at in hangs if now - at < HUNG_RESTART_WINDOW] + [now]
+        if len(hangs) > HUNG_RESTART_LIMIT:
+            print(f"service host: {len(hangs)} hung engines within {HUNG_RESTART_WINDOW:.0f}s; not restarting again",
+                  file=sys.stderr, flush=True)
+            return code
+        print("service host: starting a fresh engine after a hung one", file=sys.stderr, flush=True)
+
+
 def main() -> int:
+    """Run ONE engine until it exits, is stopped, or hangs (EXIT_ENGINE_HUNG)."""
     root = resolve_data_root()
     ui = resolve_ui_dir()
     root.mkdir(parents=True, exist_ok=True)
@@ -384,9 +603,14 @@ def main() -> int:
         clear_stale_descriptor(root)
     except RuntimeError as exc:
         print(f"service host: {exc}", file=sys.stderr, flush=True)
-        return 1
+        return EXIT_ROOT_OWNED
     token = secrets.token_hex(32)
     env = pin_profile_environment({**os.environ})
+    try:
+        stop_requested = service_stop_probe(env) or (lambda: False)
+    except RuntimeError as exc:
+        print(f"service host: {exc}", file=sys.stderr, flush=True)
+        return 1
     env.update({"ORGTREE_DATA": str(root), "ORGTREE_V2_TOKEN": token,
                 "ORGTREE_V2_UI_DIR": str(ui), "PYTHONUNBUFFERED": "1",
                 # Pin THIS host as the guardian-watched parent: if the host is
@@ -394,16 +618,35 @@ def main() -> int:
                 # guardian terminates the engine tree instead of orphaning it
                 # behind a stale descriptor.
                 "ORGTREE_V2_PARENT_PID": str(os.getpid())})
-    for key in ("ORGTREE_PORT", "ORGTREE_BASE"):
+    for key in ("ORGTREE_PORT", "ORGTREE_BASE", "ORGTREE_PG_BOOTSTRAP"):
         env.pop(key, None)
+    try:
+        env.update(packaged_postgres_environment(Path(__file__).resolve().parent))
+    except RuntimeError as exc:
+        print(f"service host: {exc}", file=sys.stderr, flush=True)
+        return 1
     launcher = Path(__file__).resolve().parent / "launch.py"
-    child = subprocess.Popen([sys.executable, str(launcher)], cwd=str(launcher.parent),
-                             env=env, stdout=subprocess.PIPE, stderr=sys.stderr,
-                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    spawn = engine_spawner()
+    if spawn is popen_unelevated and process_is_elevated():
+        # An earlier engine ran elevated and may have left folders only an
+        # administrator can open; give the user back its access while this
+        # host still can.
+        try:
+            for path in repair_user_access(root):
+                print(f"service host: gave the user back its access to {path}", file=sys.stderr, flush=True)
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            print(f"service host: {exc}", file=sys.stderr, flush=True)
+    try:
+        child = spawn([sys.executable, str(launcher)], cwd=str(launcher.parent),
+                      env=env, stdout=subprocess.PIPE, stderr=sys.stderr,
+                      creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except OSError as exc:
+        print(f"service host: could not start the engine: {exc}", file=sys.stderr, flush=True)
+        return 1
 
     ready: dict[str, Any] = {}
     failure: list[str] = []
-    checkpoints = {"sequence": 0, "at": time.monotonic(), "refused": False}
+    checkpoints = {"sequence": 0, "at": time.monotonic(), "refused": False, "window": READY_TIMEOUT}
     def read_stdout() -> None:
         assert child.stdout is not None
         while True:
@@ -416,13 +659,18 @@ def main() -> int:
             line = raw.decode("utf-8", "replace").strip()
             sequence = parse_progress(line, child.pid, root, checkpoints["sequence"])
             if sequence > checkpoints["sequence"]:
-                checkpoints.update(sequence=sequence, at=time.monotonic())
+                checkpoints.update(sequence=sequence, at=time.monotonic(), window=checkpoint_window(line))
                 continue
             try:
                 refusal = json.loads(line)
                 if isinstance(refusal, dict) and refusal.get("type") == "refused" and refusal.get("code") == "root-owned":
                     checkpoints["refused"] = True
                     failure.append("another engine owns this data root")
+                    break
+                if isinstance(refusal, dict) and refusal.get("type") == "refused" \
+                        and refusal.get("code") == "conversion-failed":
+                    # not a lost race: report it (the reason is written for the user)
+                    failure.append(f"conversion failed: {refusal.get('reason')}")
                     break
             except ValueError:
                 pass
@@ -444,7 +692,15 @@ def main() -> int:
     # a file carrying OUR pid, so pre-write failures are a safe no-op and a
     # newer host's file can never be taken down by a dying older one.
     try:
-        while not ready and not failure and child.poll() is None and time.monotonic() - checkpoints["at"] < READY_TIMEOUT:
+        while not ready and not failure and child.poll() is None \
+                and time.monotonic() - checkpoints["at"] < checkpoints["window"]:
+            if stop_requested():
+                # Stopped before readiness: no descriptor exists yet, so
+                # take the tree down and report an orderly stop.
+                if not failed_start_cleanup(child, root):
+                    print("service host: engine tree release could not be verified", file=sys.stderr, flush=True)
+                print("service host: stopped by the service before readiness", file=sys.stderr, flush=True)
+                return 0
             time.sleep(0.05)
         if not ready:
             reason = failure[0] if failure else (
@@ -454,7 +710,7 @@ def main() -> int:
             if not released:
                 reason += "; engine tree release could not be verified"
             print(f"service host: {reason}", file=sys.stderr, flush=True)
-            return 1
+            return EXIT_ROOT_OWNED if checkpoints["refused"] else 1
 
         port = int(ready["port"])
         try:
@@ -479,16 +735,27 @@ def main() -> int:
             if hasattr(signal, name):
                 signal.signal(getattr(signal, name), stop)
 
-        while child.poll() is None:
-            if stopping["value"]:
-                try:
-                    child.wait(timeout=SHUTDOWN_WAIT)
-                except subprocess.TimeoutExpired:
-                    if not confirmed_exit(child):
-                        print("service host: engine did not confirm exit after kill; leaving the descriptor for the guardian sweep",
-                              file=sys.stderr, flush=True)
-                break
-            time.sleep(0.2)
+        watch = LivenessWatch(lambda: probe_engine(port, token, root, child.pid, LIVENESS_PROBE_TIMEOUT),
+                              interval=LIVENESS_INTERVAL, deadline=LIVENESS_DEADLINE,
+                              min_failures=LIVENESS_MIN_FAILURES)
+        watch.start()
+        try:
+            while child.poll() is None:
+                if not stopping["value"] and stop_requested():
+                    stop()
+                if stopping["value"]:
+                    try:
+                        child.wait(timeout=SHUTDOWN_WAIT)
+                    except subprocess.TimeoutExpired:
+                        if not confirmed_exit(child):
+                            print("service host: engine did not confirm exit after kill; leaving the descriptor for the guardian sweep",
+                                  file=sys.stderr, flush=True)
+                    break
+                if watch.hung():
+                    return end_hung_engine(child, root, watch)
+                time.sleep(0.2)
+        finally:
+            watch.stop()
         if stopping["value"]:
             # A requested stop exits 0 so a restart-on-failure task setting
             # does not resurrect an engine that was deliberately stopped.
@@ -504,4 +771,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(run_host())

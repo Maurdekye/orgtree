@@ -11,8 +11,8 @@ import { DocumentDownload } from './download'
 // the left with their titles, submitted agent, and submission time, and a
 // the scrollable document viewer on the right"). It wears mail's own
 // classes — `.mailer` / `.mailer-list` / `.mailrow` / `.mailer-read` — and
-// mail's rules: selection BY IDENTITY (the list repolls under you), nothing
-// selected on open, the filter box only once a list is worth filtering.
+// selection BY IDENTITY (the list repolls under you), the newest visible
+// document selected on open, the filter box only once a list is worth filtering.
 // It does NOT reuse MailList itself: that component is built on MailRow
 // (sender, kind, an inline body, replies, notice piles) and a document row
 // is a title + agent + time whose body is fetched on click. Sharing the
@@ -367,6 +367,21 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
   // selection is BY ID, not index — the list repolls, and the filter above
   // narrows it, so an index would silently address a different document
   const [selId, setSelId] = useState<string | null>(null)
+  const opening = useRef({ slug, pending: true })
+  useEffect(() => {
+    if (opening.current.slug !== slug) {
+      opening.current = { slug, pending: true }
+      setSelId(null)
+      return // useDocWindow clears the previous organization's rows too
+    }
+    if (!opening.current.pending) return
+    // An explicit document reference owns selection, even if its lookup is
+    // still loading. Clearing the handled jump must not select the newest.
+    if (jumpTo) { opening.current.pending = false; return }
+    if (!rows?.length) return
+    opening.current.pending = false
+    setSelId(rows[0].id)
+  }, [slug, rows, jumpTo])
   // A JUMP IS ANSWERED BY THE RESPONSE THAT CARRIED IT, which is why the latch
   // compares the request's own `seq` (shared.ts JumpReq) and not the id: a
   // repeat click on the same reference is a new request, an unrelated poll is

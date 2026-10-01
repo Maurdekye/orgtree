@@ -65,7 +65,9 @@ _observed: dict[str, dict[str, float]] = {}
 #: notifications REFUSED because they belonged to another account than the
 #: board (see `observe`); a counter so a test can prove the refusal happened
 #: rather than infer it from an unchanged board
-_refused: dict[str, int] = {"foreign": 0, "race": 0}
+_refused: dict[str, int] = {"foreign": 0, "race": 0, "unconfirmed": 0}
+#: namespaces that name no account: auth.json unreadable, or no id in it
+_UNOBSERVED: Final = frozenset({"unobserved", "codex-account-unobserved"})
 
 
 def account_namespace() -> str:
@@ -252,19 +254,42 @@ def fetch(force: bool = False) -> dict[str, Any]:
     """Read Codex usage, cached for the modal's polling cadence."""
     now = time.time()
     acct = account_namespace()
+    if acct in _UNOBSERVED:
+        # ⚠ UNIDENTIFIED IS NOT CHANGED, on the first read too (review-sol,
+        # docket v3-usage-board-says-account-changed-during-the-u): ask once
+        # more. If it still names nobody, the cached board is kept and the
+        # status check below decides (signed out, or signed in unnamed).
+        acct = account_namespace()
+    unnamed = acct in _UNOBSERVED
+    hit: dict[str, Any] | None = None
     with _lock:
         cached = _cache.get("data")
         # a cached board describes ONE login: if the account moved under it
         # (`codex login` as someone else), it is not this account's evidence
         # and is dropped rather than served
-        if cached is not None and _cache.get("account") not in (None, acct):
+        if unnamed:
+            cached = None
+        elif cached is not None and _cache.get("account") not in (None, acct):
             _cache.update(at=0.0, data=None, complete_at=0.0, account=None)
             _snapshots.clear()
             _observed.clear()
             cached = None
         if not force and cached is not None and now - float(_cache["at"]) <= CACHE_TTL:
-            return _account(dict(cached))
+            hit = dict(cached)
+    # ⚠ `_account` runs OUTSIDE `_lock`: it calls providers.*_status(), which can
+    # read files and run the CLI. `peek()` takes `_lock` on the event loop
+    # (api.py, the async usage peeks), so no I/O may ever run under it
+    # (review n1-review-astra 2026-09-28; tests/test_usage_peek_async.py).
+    if hit is not None:
+        return _account(hit)
     status = providers.codex_status()
+    if unnamed and not (status.get("installed") and status.get("connected")):
+        # nobody named because nobody is signed in: the board is not this
+        # machine's evidence any more, exactly as before
+        with _lock:
+            _cache.update(at=0.0, data=None, complete_at=0.0, account=None)
+            _snapshots.clear()
+            _observed.clear()
     if not status.get("installed"):
         return _account({"available": False, "error": "Codex CLI is not installed"})
     if not status.get("connected"):
@@ -286,14 +311,25 @@ def fetch(force: bool = False) -> dict[str, Any]:
             "available": False,
             "error": "subscription usage is not available for an API-key login",
         })
+    if unnamed:
+        with _lock:
+            _refused["unconfirmed"] += 1
+        return _account({
+            "available": False,
+            "error": ("Codex could not confirm which account is signed in; "
+                      "usage was not read"),
+        })
 
     with _fetch_lock:
         now = time.time()
+        hit = None
         with _lock:
             cached = _cache.get("data")
             if (not force and cached is not None
                     and now - float(_cache["at"]) <= CACHE_TTL):
-                return _account(dict(cached))
+                hit = dict(cached)
+        if hit is not None:
+            return _account(hit)                 # outside _lock: see above
         exe, _source = providers.codex_path()
         if not exe:
             return _account({"available": False, "error": "Codex CLI is not installed"})
@@ -314,6 +350,23 @@ def fetch(force: bool = False) -> dict[str, Any]:
             raw = client.request("account/rateLimits/read", {}, FETCH_TIMEOUT)
             _now = time.time()
             acct_after = account_namespace()
+            # ⚠ UNIDENTIFIED IS NOT CHANGED (docket v3-usage-board-says-
+            # account-changed-during-the-u). A namespace read that names no
+            # account (auth.json missing, unreadable or half-written at that
+            # instant) is asked once more. If a side still names nobody, say
+            # so: the answer is served once and not cached, like a real race,
+            # but it no longer claims an account change that nobody made.
+            if acct_before in _UNOBSERVED:
+                acct_before = account_namespace()
+            if acct_after in _UNOBSERVED:
+                acct_after = account_namespace()
+            if acct_before in _UNOBSERVED or acct_after in _UNOBSERVED:
+                with _lock:
+                    _refused["unconfirmed"] += 1
+                data = _normalize(raw, None)
+                data["error"] = ("Codex could not confirm the account around "
+                                 "the usage read; not cached")
+                return _account(dict(data))
             if acct_before != acct_after or acct_before != acct:
                 with _lock:
                     _refused["race"] += 1
@@ -640,4 +693,4 @@ def invalidate() -> None:
         _cache.update(at=0.0, data=None, complete_at=0.0, account=None)
         _snapshots.clear()
         _observed.clear()
-        _refused.update(foreign=0, race=0)
+        _refused.update(foreign=0, race=0, unconfirmed=0)

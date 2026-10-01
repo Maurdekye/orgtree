@@ -10,3 +10,6 @@ typing_extensions>=4.8
 httpx>=0.27
 Pillow>=10
 psutil>=7
+# PG-0 (PYPG): the PostgreSQL driver for ORGTREE_STORE=postgres (LGPL-3.0;
+# engine/backend/orgtree/DEPENDENCIES.md). The binary wheel bundles libpq.
+psycopg[binary]>=3.2,<3.4

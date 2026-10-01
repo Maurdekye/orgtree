@@ -47,11 +47,11 @@ import { agentNavProps } from './agentnav'
 import { contextMenuBelongsTo, useContextMenu } from './contextmenu'
 import { DeskChat } from './desk'
 import { AgentName } from './identity'
-import { providerOf, TIER_LETTER } from './shared'
+import { pinSnapOn, providerOf, TIER_LETTER, usePinSnap } from './shared'
 import type { CanvasNode, MailLinkFn, OpFn, WorkLinkFn } from './shared'
 import type { ToastFn } from '../types'
 import { createPortal } from 'react-dom'
-import { pinLayerFor, usePinSurfaces, usePinSurface, raisePinSurface, pinSurfaceKey, pinSnapId, readPinSurfaces, useDeskOverlap } from './pinspace'
+import { pinLayerFor, usePinSurfaces, usePinSurface, raisePinSurface, pinSurfaceKey, pinSnapId, readPinSurfaces, useDeskOverlap, onViewportGeometry } from './pinspace'
 import { useModalOverlap } from './pinoverlap'
 import { findPinSnap, validPinSnap } from './pinSnap'
 import type { PinSnap } from './pinSnap'
@@ -379,10 +379,10 @@ export function PinLayer(props: PinLayerProps) {
   const [, setVpTick] = useState(0)
   useEffect(() => {
     const bump = () => setVpTick((n) => n + 1)
-    window.addEventListener('resize', bump)
+    const unwatch = onViewportGeometry(window, bump)
     const observer = new ResizeObserver(bump)
     if (viewportRef.current) observer.observe(viewportRef.current)
-    return () => { window.removeEventListener('resize', bump); observer.disconnect() }
+    return () => { unwatch(); observer.disconnect() }
   }, [viewportRef])
 
   const unpin = useCallback((id: string, from: PinRect) => {
@@ -452,6 +452,7 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast, pub,
   // pointer move); the store is written ONCE, at pointer-up, via commitRect
   const [live, setLive] = useState<PinRect | null>(null)
   const [freePlacement, setFreePlacement] = useState(false)
+  const snapOn = usePinSnap()
   const gesture = useRef<Gesture | null>(null)
   const pulse = usePulse(slug, pin.id)
   const [flash, setFlash] = useState(0)
@@ -531,10 +532,12 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast, pub,
     if (h < PIN_MIN_H) { if (g.edge.includes('n')) y = g.o.y + g.o.h - PIN_MIN_H; h = PIN_MIN_H }
     return clampRect({ x, y, w, h }, size)
   }
-  const candidate = (r: PinRect, disabled: boolean) => {
+  const candidate = (r: PinRect, disabled: boolean, g: GestureShape | null = gesture.current) => {
     const size = vpSize(viewportRef)
-    return disabled ? null : findPinSnap(pin.id, r,
-      readPinSurfaces().filter(p => p.org === slug).map(p => ({id:pinSnapId(p), rect:clampRect(p.rect,size)})), size)
+    // Display > "snap pinned panels to edges" off: no gesture ever snaps
+    return disabled || !pinSnapOn() ? null : findPinSnap(pin.id, r,
+      readPinSurfaces().filter(p => p.org === slug).map(p => ({id:pinSnapId(p), rect:clampRect(p.rect,size)})), size,
+      g?.kind === 'size' ? { edge: g.edge, minWidth: PIN_MIN_W, minHeight: PIN_MIN_H } : undefined)
   }
   const move = (e: ReactPointerEvent<HTMLElement>) => {
     const g = gesture.current
@@ -563,11 +566,11 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast, pub,
     // Recompute at release. A target may have moved/closed since the preview,
     // and the last pointermove may not contain the pointerup coordinates.
     const final = gestureRect(g, e)
-    const snap = g.kind === 'move' ? candidate(final, e.shiftKey) : null
+    const snap = candidate(final, e.shiftKey, g)
     commitRect(slug, pin.id, snap?.rect ?? final, vpSize(viewportRef), snap?.snap ?? null)
   }
 
-  const preview = live && gesture.current?.kind === 'move' ? candidate(rect, freePlacement) : null
+  const preview = live && gesture.current ? candidate(rect, freePlacement) : null
   // THE TITLE BAR'S CONTEXT MENU (contextmenu.tsx, 2026-09-07): the name's
   // jump and the ✕'s unpin, by name. Nothing else — the desk inside carries
   // its own controls, and its rows their own menus.
@@ -605,7 +608,9 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast, pub,
          re-enable list there; KEEP THEM IN STEP) */
       onPointerDown={(e) => e.stopPropagation()}>
       <div className="pinwin-title" data-copy-agent-name={node.id}
-        title="Drag to move; release near an edge to snap. Hold Shift for free placement. Escape cancels."
+        title={snapOn
+          ? 'Drag to move; release near an edge to snap. Hold Shift for free placement. Escape cancels.'
+          : 'Drag to move. Escape cancels.'}
         onPointerDown={(e) => {
           nameDown.current = Boolean(
             (e.target as HTMLElement).closest?.('.pinwin-name'))

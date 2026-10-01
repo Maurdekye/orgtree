@@ -1,0 +1,8 @@
+.sq.user.first-use-hire > .hsof { opacity: 1; pointer-events: auto; }
+.first-use-guide { position: fixed; inset: 0; z-index: 500; pointer-events: none; }
+.first-use-guide svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.first-use-guide path { stroke: var(--accent, #b89474); stroke-width: 2; fill: none; }
+.first-use-ring { position: absolute; border: 2px solid var(--accent, #b89474); border-radius: 7px; box-sizing: border-box; }
+.first-use-card { position: absolute; box-sizing: border-box; padding: 12px 14px; background: var(--panel, #242424); color: var(--text, #eee); border: 1px solid var(--accent, #b89474); border-radius: 8px; box-shadow: 0 6px 24px #0005; font-size: 14px; line-height: 1.4; }
+.first-use-card span { font-size: 11px; opacity: .75; }
+.first-use-card p { margin: 5px 0 0; }

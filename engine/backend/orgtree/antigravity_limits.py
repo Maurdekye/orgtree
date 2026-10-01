@@ -320,10 +320,15 @@ def _reconcile_unlocked(account: str | None,
 def _reconcile_observed_status_unlocked() -> dict[str, Any] | None:
     """Reconcile with status another surface observed, without a CLI call."""
     status = providers.antigravity_cached_status()
-    if status is not None:
+    if status is not None and not (_account_key(status) is None and _unnamed(status)):
         _reconcile_unlocked(_account_key(status),
                             capability.version_key(status.get("version")))
     return status
+
+
+def _unnamed(status: dict[str, Any]) -> bool:
+    """Signed in, but the probe did not say as whom: no evidence either way."""
+    return bool(status.get("installed") and status.get("connected"))
 
 
 def _read_only(result: dict[str, Any]) -> bool:
@@ -585,9 +590,17 @@ def fetch(force: bool = False) -> dict[str, Any]:
     now = time.time()
     status = providers.antigravity_status(force=force)
     account = _account_key(status)
+    if account is None and _unnamed(status):
+        # ⚠ UNIDENTIFIED IS NOT CHANGED, on the first read too (review-sol,
+        # docket v3-usage-board-says-account-changed-during-the-u). Ask once
+        # more before anything is attributed, dropped or read.
+        status = providers.antigravity_status(force=True)
+        account = _account_key(status)
     version = capability.version_key(status.get("version"))
+    unnamed = account is None and _unnamed(status)
     with _lock:
-        cached = _reconcile_unlocked(account, version)
+        # an unnamed read is no evidence against the cached board's account
+        cached = None if unnamed else _reconcile_unlocked(account, version)
 
     if not status.get("installed"):
         with _lock:
@@ -613,17 +626,30 @@ def fetch(force: bool = False) -> dict[str, Any]:
                       "update the Antigravity CLI to enable it"),
             "capability": _capability(status, supported=False),
         }, status)
+    if unnamed:
+        return _account({
+            "available": False,
+            "error": ("Antigravity could not confirm which account is signed "
+                      "in; usage was not read and the next read will retry"),
+        }, status)
     if (not force and isinstance(cached, dict)
             and now - float(_cache.get("at") or 0) <= CACHE_TTL):
         return _account(dict(cached), status)
 
     with _fetch_lock:
         now = time.time()
+        hit: dict[str, Any] | None = None
         with _lock:
             cached = _reconcile_unlocked(account, version)
             if (not force and isinstance(cached, dict)
                     and now - float(_cache.get("at") or 0) <= CACHE_TTL):
-                return _account(dict(cached), status)
+                hit = dict(cached)
+        # ⚠ `_account` runs OUTSIDE `_lock`: it calls providers.*_status(), which can
+        # read files and run the CLI. `peek()` takes `_lock` on the event loop
+        # (api.py, the async usage peeks), so no I/O may ever run under it
+        # (review n1-review-astra 2026-09-28; tests/test_usage_peek_async.py).
+        if hit is not None:
+            return _account(hit, status)
         exe = status.get("path")
         if not isinstance(exe, str) or not exe:
             return _account({"available": False,
@@ -648,8 +674,25 @@ def fetch(force: bool = False) -> dict[str, Any]:
                 data["error"] = "Antigravity reported no usage-limit windows"
             after = providers.antigravity_status(force=True)
             after_account = _account_key(after)
+            if after_account is None:
+                # ⚠ UNIDENTIFIED IS NOT CHANGED (docket v3-usage-board-says-
+                # account-changed-during-the-u). A recheck that names no
+                # account (a slow or failed `agy models`) used to be reported
+                # as an account change, though nothing had changed. Ask once
+                # more; if the account still cannot be named, say exactly
+                # that, cache nothing, and leave the earlier confirmed cache
+                # alone: the next read retries.
+                after = providers.antigravity_status(force=True)
+                after_account = _account_key(after)
+            if after_account is None:
+                return _account({
+                    "available": False,
+                    "error": ("Antigravity could not confirm the account after "
+                              "the usage read; the result was not cached and "
+                              "the next read will retry"),
+                }, after)
             after_version = capability.version_key(after.get("version"))
-            if after_account is None or after_account != account:
+            if after_account != account:
                 with _lock:
                     _clear_unlocked()
                 return _account({

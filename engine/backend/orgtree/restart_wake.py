@@ -27,6 +27,7 @@ from . import events
 from . import events_render
 from . import build_identity
 from . import store
+from . import orgtx
 from . import supervisor
 
 _WAKES_FILE: Final = "restart-wakes.json"
@@ -206,6 +207,17 @@ def status_restart_wake(slug: str, nid: str) -> dict[str, Any]:
     }
 
 
+def _notice_rows(nids: list[str]) -> dict[str, Any]:
+    """PG-3r: the org_tx names for depositing the passive restart notice to
+    `nids`: their node rows and mail archives plus the org's mail rows. These
+    are PG-3d's `mailtx.send_rows(*nids)`, written out until that module
+    lands; use send_rows here once it does."""
+    return {"nodes": list(nids),
+            "sections": ["mail", "notices", "audiences"],
+            "logs": ["events", "lifecycle", "notice_log", "user_mail_log", "user_outbox", "org_inbox",
+                     *[("mail_log", n) for n in nids]]}
+
+
 def on_backend_startup(*, dry_run: bool = False) -> dict[str, Any]:
     """Execute on backend process startup.
 
@@ -256,50 +268,69 @@ def on_backend_startup(*, dry_run: bool = False) -> dict[str, Any]:
 
         for o in store.list_orgs():
             slug = o["slug"]
-            changed = False
             try:
-                with store.DOC_LOCK:
-                    org = store.load_org(slug)
-                    for nid, node in list(org.nodes.items()):
-                        key = f"{slug}:{nid}"
-                        # Archived or deleted nodes cannot receive wakes or notices
-                        if node.get("state") != "live":
-                            if key in wakes:
-                                dropped.append(wakes.pop(key))
-                            continue
+                # PG-3r: a lock-free read decides who is woken and who is
+                # notified; a wake goes through supervisor.send_message (its
+                # own door, never inside a transaction here); the passive
+                # notices land in ONE row transaction per org over the notified
+                # nodes' mail rows, each node re-checked live under its lock.
+                # the live seats, plus any seat holding an armed wake (a
+                # non-live one is dropped below): on on-demand rows no other
+                # row of the retired history is decoded (engine-startup-cost-
+                # must-not-grow-with-retired-h)
+                org = store.load_runtime_org(slug)
+                armed = [k[len(slug) + 1:] for k in wakes if k.startswith(slug + ":")]
+                notice_nids: list[str] = []
+                for nid in dict.fromkeys(store.live_node_ids(org) + armed):
+                    node = org.nodes.get(nid)
+                    if node is None:
+                        continue
+                    key = f"{slug}:{nid}"
+                    # Archived or deleted nodes cannot receive wakes or notices
+                    if node.get("state") != "live":
+                        if key in wakes:
+                            dropped.append(wakes.pop(key))
+                        continue
 
-                        wake_rec = wakes.get(key)
-                        if wake_rec and isinstance(wake_rec, dict):
-                            # WAKE TOGGLE PATH: full waking turn
-                            reason = wake_rec.get("reason")
-                            armed_was_pid = wake_rec.get("armed_by_pid") or previous_pid
-                            wake_pid_text = f"{current_pid}" + (f" (was: {armed_was_pid})" if armed_was_pid and armed_was_pid != current_pid else "")
-                            reason_line = f"\nReason armed: {reason}" if reason else ""
-                            ancestry_line = (
-                                "Ancestry check unavailable: running build identity is unknown."
-                                if current_commit == "unknown" else
-                                f"Ancestry check: git merge-base --is-ancestor <your-commit> {current_commit}"
-                            )
-                            wake_text = (
-                                f"[ORGTREE RESTART WAKE] orgtree has restarted and your one-shot wake toggle has fired.\n\n"
-                                f"Running build:\n"
-                                f"{version_line}\n"
-                                f"- Commit: {current_commit} (short: {current_short}){dirty_info}\n"
-                                f"- Identity provenance: {boot.get('provenance') or 'unknown'}\n"
-                                f"- Backend PID: {wake_pid_text}\n"
-                                f"- Started at: {started_at}{branch_info}{reason_line}\n\n"
-                                f"{ancestry_line}\n"
-                                f"(Your wake toggle was one-shot and has cleared. To wake on a subsequent restart, re-arm with orgtree_restart_wake.)"
-                            )
-                            supervisor.send_message(slug, nid, wake_text, wake=True)
-                            woken.append({"org": slug, "node": nid, "reason": reason, "mode": "one_shot"})
-                            wakes.pop(key, None)
-                        else:
+                    wake_rec = wakes.get(key)
+                    if wake_rec and isinstance(wake_rec, dict):
+                        # WAKE TOGGLE PATH: full waking turn
+                        reason = wake_rec.get("reason")
+                        armed_was_pid = wake_rec.get("armed_by_pid") or previous_pid
+                        wake_pid_text = f"{current_pid}" + (f" (was: {armed_was_pid})" if armed_was_pid and armed_was_pid != current_pid else "")
+                        reason_line = f"\nReason armed: {reason}" if reason else ""
+                        ancestry_line = (
+                            "Ancestry check unavailable: running build identity is unknown."
+                            if current_commit == "unknown" else
+                            f"Ancestry check: git merge-base --is-ancestor <your-commit> {current_commit}"
+                        )
+                        wake_text = (
+                            f"[ORGTREE RESTART WAKE] orgtree has restarted and your one-shot wake toggle has fired.\n\n"
+                            f"Running build:\n"
+                            f"{version_line}\n"
+                            f"- Commit: {current_commit} (short: {current_short}){dirty_info}\n"
+                            f"- Identity provenance: {boot.get('provenance') or 'unknown'}\n"
+                            f"- Backend PID: {wake_pid_text}\n"
+                            f"- Started at: {started_at}{branch_info}{reason_line}\n\n"
+                            f"{ancestry_line}\n"
+                            f"(Your wake toggle was one-shot and has cleared. To wake on a subsequent restart, re-arm with orgtree_restart_wake.)"
+                        )
+                        supervisor.send_message(slug, nid, wake_text, wake=True)
+                        woken.append({"org": slug, "node": nid, "reason": reason, "mode": "one_shot"})
+                        wakes.pop(key, None)
+                    else:
+                        notice_nids.append(nid)
+                if notice_nids:
+                    with orgtx.org_tx(slug, **_notice_rows(notice_nids)) as tx:
+                        org = tx.org
+                        done: list[dict[str, Any]] = []
+                        for nid in notice_nids:
+                            if (org.nodes.get(nid) or {}).get("state") != "live":
+                                continue
                             # PASSIVE NOTICE PATH: live agent without toggle.
                             # Typed (family runtime_recovery): runtime.restart_notice
                             # on the BuildRef; the body is its frozen rendering —
                             # byte for byte the former literal (test_events_producers §R).
-                            box = org.d.setdefault("mail", {}).setdefault(nid, [])
                             ev = events.mint(
                                 "runtime.restart_notice",
                                 {"kind": "system", "id": "@system"},
@@ -324,32 +355,29 @@ def on_backend_startup(*, dry_run: bool = False) -> dict[str, Any]:
                             # Supersede an existing unread restart notice: the typed
                             # variant first, then the durable flag; the body test is
                             # the pre-typed rows' shape and stays for them only.
-                            existing_idx = None
-                            for idx, m in enumerate(box):
-                                if (events.decode(m.get("ev"), m).get("ev") or {}).get(
-                                        "variant") == "runtime.restart_notice" \
-                                        or m.get("restart_notice") or (
-                                    m.get("from") == "orgtree"
-                                    and m.get("kind") == "notice"
-                                    and "[ORGTREE RESTART" in m.get("body", "")
-                                ):
-                                    existing_idx = idx
-                                    break
-                            if existing_idx is not None:
-                                box[existing_idx] = entry
-                            else:
-                                box.append(entry)
+                            def supersedes(m: Any) -> bool:
+                                return bool(
+                                    (events.decode(m.get("ev"), m).get("ev") or {}
+                                     ).get("variant") == "runtime.restart_notice"
+                                    or m.get("restart_notice") or (
+                                        m.get("from") == "orgtree"
+                                        and m.get("kind") == "notice"
+                                        and "[ORGTREE RESTART" in m.get("body", "")))
 
-                            # Also mirror into mail_log
-                            log = org.d.setdefault("mail_log", {}).setdefault(nid, [])
-                            log.append(dict(entry))
-                            del log[:-100]
-
-                            changed = True
-                            notified.append({"org": slug, "node": nid})
-
-                    if changed:
-                        store.save_org(org)
+                            # M0a — ONE DEPOSIT DOOR. This notice is a fresh
+                            # creation, so it takes a receive ordinal like any
+                            # other created message. When it SUPERSEDES an
+                            # unread predecessor it is still a new message with
+                            # a new id: it takes a NEW ordinal and merely
+                            # occupies the old row's position. No other row's
+                            # identity or ordinal is touched, and the mail_log
+                            # archive gains the notice and loses nothing: the
+                            # former 100-row tail trim deleted every older
+                            # mail of the agent on each restart, against the
+                            # 2026-09-07 retention ruling (removed 2026-09-29).
+                            org.deposit_mail(nid, entry, supersede=supersedes)
+                            done.append({"org": slug, "node": nid})
+                    notified.extend(done)
             except Exception as e:                               # noqa: BLE001
                 print(f"[orgtree] {slug}: restart notification failed ({e})", flush=True)
 

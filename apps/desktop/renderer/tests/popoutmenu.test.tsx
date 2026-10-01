@@ -300,6 +300,7 @@ uiTest('§1 the org gallery popped out: a row menu opens in THAT window, never o
   await popOut(v.el, child, '.gallery-modal')
   const row = child.doc.querySelector('.doc-gallery-row') as HTMLElement
   assert.ok(row, 'POSITIVE CONTROL: the rows came with the panel')
+  assert.ok(row.classList.contains('on'), 'the automatic selection remains open in the popped-out gallery')
   t.after(spanning(row))
 
   const took = await rightClick(row, { x: 260, y: 180 })
@@ -310,7 +311,7 @@ uiTest('§1 the org gallery popped out: a row menu opens in THAT window, never o
   assert.equal(menu!.parentElement, child.doc.body, "in that window's own body")
   assert.deepEqual(at(menu), ['260px', '180px'], 'at the pointer, in that window')
   assert.deepEqual(labelsIn(child.doc),
-    ['Open', 'Copy title', 'Copy reference', 'Download as Markdown', 'Dismiss'],
+    ['Close', 'Copy title', 'Copy reference', 'Download as Markdown', 'Dismiss'],
     'and it is the row\'s real menu, not a stub')
   // the reported symptom, stated as an assertion
   assert.equal(menuIn(document), null,

@@ -14,16 +14,19 @@ from pathlib import Path
 import stat
 import subprocess
 import sys
+import shutil
 import tempfile
 import threading
 import time
 import unittest
 from unittest import mock
+import uuid
 from unittest.mock import patch
 import urllib.error
 import urllib.request
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+import hub_isolation
 
 from engine import service_host
 from engine.service_host import (DESCRIPTOR, clear_stale_descriptor, parse_ready,
@@ -31,6 +34,26 @@ from engine.service_host import (DESCRIPTOR, clear_stale_descriptor, parse_ready
                                  resolve_data_root, resolve_ui_dir, write_descriptor)
 
 READY = {"type": "ready", "protocol": 1, "port": 12345, "pid": 77, "dataRootId": ""}
+
+
+class user_accessible_temp:
+    """A throwaway folder the engine can use when this test runs ELEVATED.
+
+    An elevated service_host starts the engine as the normal user
+    (engine/unelevated.py). tempfile's folders are mkdir(mode=0o700), which on
+    Windows is a protected DACL of SYSTEM, Administrators and OWNER RIGHTS;
+    under a token whose default owner is Administrators that engine has no
+    access at all (review-astra, measured in a boot-task shell). A plain
+    mkdir inherits %TEMP%'s entry for the user instead.
+    """
+
+    def __enter__(self) -> str:
+        self.path = Path(tempfile.gettempdir()) / f"orgtree-host-{uuid.uuid4().hex}"
+        self.path.mkdir()
+        return str(self.path)
+
+    def __exit__(self, *_exc) -> None:
+        shutil.rmtree(self.path, ignore_errors=True)
 
 
 class ServiceHostUnitTests(unittest.TestCase):
@@ -399,6 +422,25 @@ class StaleDescriptorTests(unittest.TestCase):
                 clear_stale_descriptor(root)
             self.assertTrue(path.exists(), "a live host's descriptor must never be deleted")
 
+    def test_host_exits_root_owned_when_a_live_host_serves_the_root(self):
+        # The whole host process, but it stops at the stale-descriptor check,
+        # before any engine is launched. The data root is a temp directory.
+        repo = Path(__file__).resolve().parent.parent
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "data"; root.mkdir()
+            ui = Path(temp) / "ui"; ui.mkdir()
+            (ui / "index.html").write_text("<!doctype html>", encoding="utf-8")
+            port = self._serve_identity(root)
+            path = self._descriptor(root, port, self.TOKEN)
+            hub_isolation.isolate_data_root(root)  # refused before launch; a regression must still miss the live hub
+            env = {**os.environ, "ORGTREE_V2_DATA": str(root), "ORGTREE_V2_UI_DIR": str(ui)}
+            hub_isolation.scrub_inherited_hub(env)
+            result = subprocess.run([sys.executable, str(repo / "engine" / "service_host.py")],
+                                    cwd=str(repo), env=env, capture_output=True, text=True, timeout=60)
+            self.assertEqual(result.returncode, service_host.EXIT_ROOT_OWNED, result.stderr[-2000:])
+            self.assertIn("already serves", result.stderr)
+            self.assertTrue(path.exists(), "the live host's descriptor must survive")
+
     def test_wrong_token_or_foreign_root_descriptor_is_stale(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -413,6 +455,86 @@ class StaleDescriptorTests(unittest.TestCase):
             self.assertFalse(path2.exists())
 
 
+def _kernel_event(inheritable: bool = False):
+    """A real manual-reset, initially clear Win32 event: (handle, set, close)."""
+    import ctypes
+    from ctypes import wintypes as w
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateEventW.argtypes = [ctypes.c_void_p, w.BOOL, w.BOOL, w.LPCWSTR]
+    kernel.CreateEventW.restype = w.HANDLE
+    kernel.SetEvent.argtypes = [w.HANDLE]
+    kernel.CloseHandle.argtypes = [w.HANDLE]
+    handle = kernel.CreateEventW(None, True, False, None)
+    if not handle:
+        raise ctypes.WinError(ctypes.get_last_error())
+    if inheritable:
+        os.set_handle_inheritable(handle, True)
+    return handle, (lambda: kernel.SetEvent(handle)), (lambda: kernel.CloseHandle(handle))
+
+
+class ServiceStopProbeTests(unittest.TestCase):
+    def test_absent_variable_means_no_service(self):
+        env = {"A": "b"}
+        self.assertIsNone(service_host.service_stop_probe(env))
+        self.assertEqual(env, {"A": "b"})
+
+    def test_malformed_values_are_refused(self):
+        for raw in ("abc", "-4", "0", "12x"):
+            with self.subTest(raw=raw), self.assertRaises(RuntimeError):
+                service_host.service_stop_probe({service_host.STOP_EVENT_ENV: raw})
+
+    def test_a_dead_handle_is_refused(self):
+        if os.name != "nt":
+            raise unittest.SkipTest("Windows-only")
+        handle, _set, close = _kernel_event()
+        close()
+        with self.assertRaisesRegex(RuntimeError, "not a usable handle"):
+            service_host.service_stop_probe({service_host.STOP_EVENT_ENV: str(handle)})
+
+    def test_probe_follows_the_event_and_consumes_the_variable(self):
+        if os.name != "nt":
+            raise unittest.SkipTest("Windows-only")
+        handle, set_event, close = _kernel_event()
+        self.addCleanup(close)
+        env = {service_host.STOP_EVENT_ENV: str(handle), "KEEP": "1"}
+        probe = service_host.service_stop_probe(env)
+        self.assertEqual(env, {"KEEP": "1"}, "the engine must never inherit the handle number")
+        self.assertFalse(probe())
+        set_event()
+        self.assertTrue(probe())
+
+
+class ScriptEntrypointImportTests(unittest.TestCase):
+    """The packaged runtime's python313._pth leaves the script's own folder
+    off sys.path, exactly like isolated mode (-I). The 2.1.12 boot task died
+    on that: `from startup_progress import ...` raised before the host did
+    anything, so every boot ended in exit 1."""
+
+    PROBE = "import runpy, sys; runpy.run_path(sys.argv[1], run_name='service_host_probe')"
+
+    def _load(self, script: Path, cwd: Path) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, "-I", "-c", self.PROBE, str(script)], cwd=str(cwd),
+                              capture_output=True, text=True, timeout=60)
+
+    def test_isolated_mode_drops_the_script_folder(self):
+        # Control: proves the premise, so the positive test below cannot pass
+        # merely because this interpreter happens to add the script folder.
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            (folder / "sibling_module.py").write_text("VALUE = 1\n", encoding="utf-8")
+            script = folder / "uses_sibling.py"
+            script.write_text("from sibling_module import VALUE\n", encoding="utf-8")
+            result = self._load(script, folder)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("No module named 'sibling_module'", result.stderr)
+
+    def test_host_module_loads_without_its_folder_on_sys_path(self):
+        host = Path(__file__).resolve().parent.parent / "engine" / "service_host.py"
+        with tempfile.TemporaryDirectory() as temp:
+            result = self._load(host, Path(temp))
+        self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+
+
 class LaunchRefusalTests(unittest.TestCase):
     """The engine tells its parent WHY it refused, so a lost boot race is
     distinguishable from a broken engine (redteam-opus F4)."""
@@ -424,8 +546,12 @@ class LaunchRefusalTests(unittest.TestCase):
             root = Path(temp)
             lock = RootLock(root)
             try:
+                # HUB ISOLATION: the engine refuses before its hub starts; a
+                # regression that let it boot must still not reach the live hub
+                hub_isolation.isolate_data_root(root)
                 env = {**os.environ, "ORGTREE_DATA": str(root), "ORGTREE_V2_TOKEN": "ee" * 32,
                        "ORGTREE_V2_UI_DIR": str(root)}
+                hub_isolation.scrub_inherited_hub(env)
                 result = subprocess.run([sys.executable, str(repo / "engine" / "launch.py")],
                                         cwd=str(repo / "engine"), env=env, capture_output=True,
                                         timeout=60)
@@ -447,8 +573,10 @@ class LaunchRefusalTests(unittest.TestCase):
         repo = Path(__file__).resolve().parent.parent
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
+            hub_isolation.isolate_data_root(root)  # as above: refused before the hub starts
             env = {**os.environ, "ORGTREE_DATA": str(root), "ORGTREE_V2_TOKEN": "ee" * 32,
                    "ORGTREE_V2_UI_DIR": str(root), "ORGTREE_V2_PARENT_PID": "-5"}
+            hub_isolation.scrub_inherited_hub(env)
             result = subprocess.run([sys.executable, str(repo / "engine" / "launch.py")],
                                     cwd=str(repo / "engine"), env=env, capture_output=True,
                                     timeout=60)
@@ -482,13 +610,17 @@ class ServiceHostIntegrationTests(unittest.TestCase):
 
     def test_descriptor_identity_and_graceful_stop(self):
         repo = Path(__file__).resolve().parent.parent
-        with tempfile.TemporaryDirectory() as temp:
+        with user_accessible_temp() as temp:
             data = Path(temp) / "data"; data.mkdir()
+            # HUB ISOLATION (tests/hub_isolation.py): the real chain hosts a hub
+            # of its own on a free port, never the live one on 7370
+            hub = hub_isolation.isolate_data_root(data)
             ui = Path(temp) / "ui"; (ui / "assets").mkdir(parents=True)
             (ui / "index.html").write_text("<!doctype html>", encoding="utf-8")
             env = {**os.environ, "ORGTREE_V2_DATA": str(data), "ORGTREE_V2_UI_DIR": str(ui)}
             for key in ("ORGTREE_DATA", "ORGTREE_PORT", "ORGTREE_BASE", "ORGTREE_V2_PORT", "ORGTREE_V2_TOKEN"):
                 env.pop(key, None)
+            hub_isolation.scrub_inherited_hub(env)
             host = subprocess.Popen([sys.executable, str(repo / "engine" / "service_host.py")],
                                     cwd=str(repo), env=env, stderr=subprocess.PIPE)
             try:
@@ -516,6 +648,25 @@ class ServiceHostIntegrationTests(unittest.TestCase):
                 self.assertEqual(status, 401)
                 status, _ = _request(base + "/api/desktop/identity", "0" * 64)
                 self.assertEqual(status, 401)
+                # The liveness route both hang watches ask: the engine as
+                # itself, token-gated like every other route.
+                status, alive = _request(base + "/api/desktop/alive", token)
+                self.assertEqual(status, 200)
+                self.assertEqual(alive["pid"], value["enginePid"])
+                self.assertEqual(Path(alive["dataRootId"]).resolve(), data.resolve())
+                self.assertIsNone(service_host.probe_engine(port, token, data, value["enginePid"], 10))
+                status, _ = _request(base + "/api/desktop/alive", None)
+                self.assertEqual(status, 401)
+                # The engine's stall watch started with the engine; an engine
+                # that answers keeps its dump file empty.
+                stall_dump = data / "diagnostics" / "engine-stall-stacks.txt"
+                self.assertTrue(stall_dump.exists(), "the stall watch did not start")
+                self.assertEqual(stall_dump.stat().st_size, 0)
+                # HUB ISOLATION proof: the engine's own hub is the rig's, by
+                # address and by the unique name its /healthz answered
+                status, hosted = _request(base + "/api/desktop/hub", token)
+                self.assertEqual(status, 200)
+                self.assertEqual(hub_isolation.hub_status_problems(hosted["status"], hub), [])
 
                 status, body = _request(base + "/api/desktop/shutdown", token, method="POST")
                 self.assertEqual(status, 200)
@@ -529,6 +680,102 @@ class ServiceHostIntegrationTests(unittest.TestCase):
                     host.wait(timeout=15)
                 if host.stderr:
                     host.stderr.close()
+
+    def test_service_stop_event_shuts_the_engine_down_cleanly(self):
+        # The service's stop path: an inherited event, set once the engine
+        # is up, must end in an orderly exit 0 with the descriptor removed.
+        repo = Path(__file__).resolve().parent.parent
+        handle, set_event, close = _kernel_event(inheritable=True)
+        self.addCleanup(close)
+        with user_accessible_temp() as temp:
+            data = Path(temp) / "data"; data.mkdir()
+            # HUB ISOLATION (tests/hub_isolation.py): as in the integration test
+            hub = hub_isolation.isolate_data_root(data)
+            ui = Path(temp) / "ui"; (ui / "assets").mkdir(parents=True)
+            (ui / "index.html").write_text("<!doctype html>", encoding="utf-8")
+            env = {**os.environ, "ORGTREE_V2_DATA": str(data), "ORGTREE_V2_UI_DIR": str(ui),
+                   service_host.STOP_EVENT_ENV: str(handle)}
+            for key in ("ORGTREE_DATA", "ORGTREE_PORT", "ORGTREE_BASE", "ORGTREE_V2_PORT", "ORGTREE_V2_TOKEN"):
+                env.pop(key, None)
+            hub_isolation.scrub_inherited_hub(env)
+            startup = subprocess.STARTUPINFO(lpAttributeList={"handle_list": [handle]})
+            host = subprocess.Popen([sys.executable, str(repo / "engine" / "service_host.py")],
+                                    cwd=str(repo), env=env, stderr=subprocess.PIPE, startupinfo=startup)
+            try:
+                descriptor = data / DESCRIPTOR
+                deadline = time.monotonic() + 90
+                while not descriptor.exists() and host.poll() is None and time.monotonic() < deadline:
+                    time.sleep(0.2)
+                if host.poll() is not None:
+                    self.fail(f"host exited early: {host.stderr.read().decode('utf-8', 'replace')[-2000:]}")
+                self.assertTrue(descriptor.exists(), "descriptor was not written after readiness")
+                value = json.loads(descriptor.read_text(encoding="utf-8"))
+                status, hosted = _request(f"http://127.0.0.1:{value['port']}/api/desktop/hub", value["token"])
+                self.assertEqual(status, 200)
+                self.assertEqual(hub_isolation.hub_status_problems(hosted["status"], hub), [])
+                set_event()
+                host.wait(timeout=45)
+                self.assertEqual(host.returncode, 0, host.stderr.read().decode("utf-8", "replace")[-2000:])
+                self.assertFalse(descriptor.exists(), "descriptor must be removed on a service stop")
+            finally:
+                if host.poll() is None:
+                    host.kill()
+                    host.wait(timeout=15)
+                if host.stderr:
+                    host.stderr.close()
+
+
+class PackagedPostgresTests(unittest.TestCase):
+    """The boot host starts the engine BEFORE the desktop on an all-users
+    install with the boot task (the v3 installer starts that task at once), so
+    it must give the engine what the packaged desktop gives it: the bundled
+    PostgreSQL and ORGTREE_PG_BOOTSTRAP=1, so the first-launch conversion runs
+    in whichever process starts the engine first (p03-ws4 finding 2026-09-28)."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="orgtree-host-pg-"))
+        self.engine = self.tmp / "resources" / "engine"
+        (self.engine / "postgresql" / "bin").mkdir(parents=True)
+        (self.engine / "pg-custodian.exe").write_bytes(b"")
+        for name in ("postgres.exe", "pg_ctl.exe", "initdb.exe", "psql.exe", "pg_controldata.exe"):
+            (self.engine / "postgresql" / "bin" / name).write_bytes(b"")
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_an_installed_app_gets_the_bundled_postgres_and_bootstrap(self) -> None:
+        (self.tmp / "resources" / "app.asar").write_bytes(b"")
+        env = service_host.packaged_postgres_environment(self.engine)
+        self.assertEqual(env, {"ORGTREE_PG_CUSTODIAN": str(self.engine / "pg-custodian.exe"),
+                               "ORGTREE_P03_PG_BIN": str(self.engine / "postgresql" / "bin"),
+                               "ORGTREE_PG_BOOTSTRAP": "1"})
+
+    def test_a_source_checkout_gets_nothing(self) -> None:
+        self.assertEqual(service_host.packaged_postgres_environment(self.engine), {})
+
+    def test_a_missing_bundled_file_fails_the_start(self) -> None:
+        (self.tmp / "resources" / "app.asar").write_bytes(b"")
+        (self.engine / "postgresql" / "bin" / "psql.exe").unlink()
+        with self.assertRaisesRegex(RuntimeError, "packaged PostgreSQL executable is missing: .*psql.exe"):
+            service_host.packaged_postgres_environment(self.engine)
+
+    def test_the_conversion_phases_get_the_long_window(self) -> None:
+        line = json.dumps({"type": "startup-progress", "phase": "database-convert: copying acme (1 of 2)"})
+        self.assertEqual(service_host.checkpoint_window(line), service_host.CONVERT_READY_TIMEOUT)
+        self.assertGreaterEqual(service_host.CONVERT_READY_TIMEOUT, 600)
+        for other in (json.dumps({"type": "startup-progress", "phase": "database-start"}), "not json", "[]"):
+            self.assertEqual(service_host.checkpoint_window(other), service_host.READY_TIMEOUT)
+
+    def test_the_host_never_inherits_the_bootstrap_switch(self) -> None:
+        source = Path(service_host.__file__).read_text(encoding="utf-8")
+        main = source[source.index("def main()"):]
+        self.assertIn('"ORGTREE_PG_BOOTSTRAP"', main[:main.index("packaged_postgres_environment(")])
+
+    def test_a_failed_conversion_is_reported_not_retried_as_a_lost_race(self) -> None:
+        source = Path(service_host.__file__).read_text(encoding="utf-8")
+        reader = source[source.index("def read_stdout()"):source.index("reader = threading.Thread")]
+        self.assertIn('"conversion-failed"', reader)
+        self.assertIn("conversion failed: ", reader)
 
 
 if __name__ == "__main__":

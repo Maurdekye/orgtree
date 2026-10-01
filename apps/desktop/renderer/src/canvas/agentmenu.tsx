@@ -21,7 +21,7 @@
 // from `op`/`slug`, because contextmenu.tsx's rule is that a menu item may
 // never do something the object's visible controls cannot — each caller hands
 // over the very callback its own buttons already call. That is also what lets
-// "Open desk" mean the right thing in each place: the card re-centres the
+// "Focus" mean the right thing in each place: the card re-centres the
 // camera on itself, the list row glides to the agent (and brings it to the
 // front of its pile first). A handler a surface cannot offer is simply absent,
 // and its entry disappears — the same way the card's own menu already dropped
@@ -35,6 +35,7 @@
 import { continueOnAccount } from '../api'
 import { lineageCount } from '../archived'
 import type { ToastFn } from '../types'
+import { BulkCompactConfirm, subtreeAgents } from './bulkcompact'
 import type { MenuEntry } from './contextmenu'
 import { ConfirmModal } from './modals'
 import { fmtCredits } from './shared'
@@ -42,13 +43,16 @@ import type { CanvasNode, OpFn } from './shared'
 
 /** Which lifecycle confirm the menu decided on. The choice is the BUILDER's
  *  (a node with live reports dissolves, one without retires) so no caller has
- *  to write that rule a second time — it is handed the answer. */
-export type RetireKind = 'retire' | 'dissolve' | 'retire-all'
+ *  to write that rule a second time — it is handed the answer.
+ *  `cheap-compact-subtree` rides the same plumbing so that every surface that
+ *  already hosts the retire confirm hosts the bulk compaction confirm too,
+ *  without a second piece of state per surface (canvas/bulkcompact.tsx). */
+export type RetireKind = 'retire' | 'dissolve' | 'retire-all' | 'cheap-compact-subtree'
 
 export interface AgentMenuHandlers {
   /** open this agent's desk — the card re-centres the camera on itself, the
    *  Agents List row glides to it. Absent leaves the entry disabled rather
-   *  than dropping it: "Open desk" is the first thing a reader looks for, and
+   *  than dropping it: "Focus" is the first thing a reader looks for, and
    *  a gap where it should be reads as a broken menu. */
   onOpenDesk?: () => void
   onInbox: () => void
@@ -72,6 +76,17 @@ export interface AgentMenuHandlers {
    *  and the per-agent pin and popout buttons left the Agents List with it) */
   onPopout?: () => void
   onShowWindow?: () => void
+  /** OPEN THIS AGENT'S DESK TEMPORARILY, in a modal, for a quick look.
+   *
+   *  ⚠ THE POINT IS THAT IT LEAVES NOTHING BEHIND. Reading another agent's
+   *  desk previously meant changing the tree's focus, pinning it, or opening a
+   *  window — each of which rearranges the workspace for a glance. This
+   *  changes no focus, pins nothing, opens no window and persists no layout,
+   *  and dismissing it puts everything back exactly as it was. It is offered
+   *  for EVERY agent, including one whose desk is pinned or popped out: it
+   *  borrows the canonical desk and returns it to the same placement, rather
+   *  than drawing a second read-only imitation. */
+  onOpenTemporary?: () => void
   /** reveal the card's bottom hire chips. There is no single "hire" handler —
    *  the tier choice and its provider gating live in SpawnChips — so this
    *  opens the chips the way a bottom-edge hover does. */
@@ -81,6 +96,10 @@ export interface AgentMenuHandlers {
   /** presentation-layer authority gate for bulk retirement. The backend still
    *  rechecks authority for every normal retire operation. */
   canRetireAll?: boolean
+  /** presentation-layer gate for the bulk cheap-compaction entry, the same
+   *  shape as `canRetireAll` (a kiosk viewer passes false). Every target still
+   *  goes through the normal `cheap_compact` op and its backend checks. */
+  canBulkCompact?: boolean
   /** hide an explicitly revealed retired agent again (hide-retired setting) */
   onDismiss?: () => void
   /** ⭐ continue this FROZEN agent on another account (user requirement
@@ -115,10 +134,20 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   const canRetire = live && !node.isBearerOf && !node.bearer_state
   const canHire = canRetire && !s.piled
   const liveKids = node.children.some((c) => c.state === 'live')
-  const entries: MenuEntry[] = [
-    { label: 'Open desk', onSelect: () => h.onOpenDesk?.(), disabled: !h.onOpenDesk },
+  const entries: MenuEntry[] = []
+  // User 2026-09-30: swap Focus and Open desk. The copy entry still precedes
+  // these, and every other entry keeps its existing position.
+  entries.push({ label: 'Focus', onSelect: () => h.onOpenDesk?.(), disabled: !h.onOpenDesk })
+  const temporary = h.onOpenTemporary
+  if (temporary) entries.push({
+    label: 'Open desk',
+    title: `read ${node.id}'s desk in a modal without changing the focused `
+      + 'agent, pinning it, or opening a window — closing puts everything back',
+    onSelect: () => temporary(),
+  })
+  entries.push(
     { label: 'Open inbox', onSelect: () => h.onInbox() },
-  ]
+  )
   const docket = h.onDocket
   if (docket) entries.push({ label: 'Open docket', onSelect: () => docket() })
   // …and the same docket widened to this agent's REPORTS. It sits next to
@@ -167,15 +196,13 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
       })
     }
   }
-  entries.push({ label: 'Settings', onSelect: () => h.onSettings() })
   const pin = h.onPin, showPin = h.onShowPin
   if (pin && !s.pinned) entries.push({ label: 'Pin desk as a window', onSelect: () => pin() })
   if (s.pinned && showPin) entries.push({ label: 'Show pinned window', onSelect: () => showPin() })
   // …and the OS window beside the in-app one. "Open desk in a new window" and
   // not the bare "Open in new window" every pinnable panel uses (modalpin.tsx,
   // popout.tsx): there the object IS the surface, here the object is an agent
-  // and what pops out is its desk — and the menu already says "Open desk" for
-  // the camera.
+  // and what pops out is its desk.
   const popout = h.onPopout, showWindow = h.onShowWindow
   if (popout && !s.detached) {
     entries.push({ label: 'Open desk in a new window', onSelect: () => popout() })
@@ -192,6 +219,18 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
     })
   }
   const ask = h.onRetireAsk
+  // Bulk cheap compaction of this agent AND everyone below it. Offered only
+  // with live reports — without them it is the single action, which already
+  // has its door on the desk's context wheel. Not `danger`: it retires no one
+  // and interrupts nothing; the confirm names every target and every skip.
+  if (canRetire && ask && liveKids && h.canBulkCompact !== false) {
+    entries.push({
+      label: 'Cheap-compact subtree…',
+      title: `give ${node.id} and every agent below it a fresh session; `
+        + 'old sessions stay consultable, mid-turn agents are skipped',
+      onSelect: () => ask('cheap-compact-subtree'),
+    })
+  }
   if (canRetire && ask) {
     if (liveKids && h.canRetireAll !== false) entries.push({
       label: 'Retire all subordinates…', danger: true,
@@ -209,6 +248,8 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
       onSelect: () => dismiss(),
     })
   }
+  // LAST, below the lifecycle actions (user 2026-09-30: "put settings at the bottom")
+  entries.push('sep', { label: 'Settings', onSelect: () => h.onSettings() })
   return entries
 }
 
@@ -229,6 +270,13 @@ export function AgentRetireConfirm({ kind, node, op, toast, close }: {
   toast: ToastFn
   close: () => void
 }) {
+  if (kind === 'cheap-compact-subtree') {
+    return (
+      <BulkCompactConfirm title={`cheap-compact ${node.id} and its subtree?`}
+        scope={`subtree of ${node.id}`} targets={subtreeAgents(node)}
+        op={op} toast={toast} close={close} />
+    )
+  }
   if (kind === 'retire-all') {
     const direct = node.children.filter((child) => child.state === 'live')
     const nested = direct.reduce((count, child) => {

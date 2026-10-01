@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { NodeSquare } from '../src/canvas/cards'
 import { DestinationBusy, ProcessLifecycleMark } from '../src/canvas/desk'
+import { procHaloClass } from '../src/canvas/shared'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { OpResult } from '../src/types'
 
@@ -19,15 +20,15 @@ const seats = { haiku: 1, sonnet: 2, opus: 5, fable: 10,
   'gpt-reserve': 0.2, luna: 0.2, terra: 2, sol: 5, flash: 1, pro: 2 }
 const hire = { enabled: true, installed: true, reason: null }
 
-function node(warm: boolean): CanvasNode {
-  return { id: warm ? 'warm' : 'cold', state: 'live', tier: 'terra', model_id: 'terra',
-    proc_warm: warm, proc_live: warm, proc_relaunch: false,
+function node(warm: boolean, live = warm, busy = false): CanvasNode {
+  return { id: `n-${warm}-${live}-${busy}`, state: 'live', tier: 'terra', model_id: 'terra',
+    proc_warm: warm, proc_live: live, busy, proc_relaunch: false,
     proc_relaunch_reason: null, children: [], seat: 2, grant: 0, free: 0,
     scope: { tools: {}, add_dirs: [] } }
 }
 
-function card(warm: boolean) {
-  const n = node(warm)
+function card(warm: boolean, live = warm, busy = false) {
+  const n = node(warm, live, busy)
   return mountView(<NodeSquare node={n} pos={{ x: 0, y: 0 }} lod="norm" focused={false}
     dragging={false} isDrop={false} seats={seats} codexHire={hire} antigravityHire={hire} claudeHire={hire}
     map={new Map([[n.id, n]])} op={op} slug="org" toast={noop} pxc={1} zoom={1} compactAt={.8}
@@ -50,6 +51,39 @@ test('live cards retain warm-cache styling while using the unified cue', async (
       'idle agents do not show spinning arrow')
     assert.equal(root.querySelectorAll('.proc-mark').length, 0)
   }
+})
+
+// User ruling 2026-09-28: the halo means a CLI process EXISTS (proc_live),
+// parked or serving a turn. proc_warm ("parked") is cleared while the process
+// works, so following it made the halo vanish exactly while the agent worked.
+test('the halo follows a live process, parked or serving a turn, not parked-only warmth', async (t) => {
+  for (const [warm, live, busy, halo] of [
+    [false, true, true, true],     // serving a turn: claimed, so not warm, but the process exists
+    [true, true, false, true],     // parked and ready
+    [true, false, false, false],   // a stale warm flag with no process never glows
+    [false, false, false, false],  // cold: no process
+  ] as const) {
+    const view = await card(warm, live, busy)
+    t.after(() => view.unmount())
+    const root = view.el.querySelector('.sq')!
+    assert.equal(root.classList.contains('proc-warm'), halo,
+      `warm=${warm} live=${live} busy=${busy}: halo should be ${halo}`)
+    assert.equal(root.classList.contains('proc-cold'), !halo)
+  }
+  assert.equal(procHaloClass({ state: 'live', proc_live: true }), 'proc-warm')
+  assert.equal(procHaloClass({ state: 'live', proc_live: false }), 'proc-cold')
+  assert.equal(procHaloClass({ state: 'retired', proc_live: true }), '')
+})
+
+test('card and desk both take the halo from the one shared rule, and a working process glows stronger', () => {
+  for (const file of ['canvas/cards.tsx', 'canvas/desk.tsx']) {
+    const src = readFileSync(path.join(__SRC_DIR__, file), 'utf8')
+    assert.match(src, /procHaloClass\(node\)/, `${file} no longer uses procHaloClass`)
+    assert.doesNotMatch(src, /proc_warm \? .proc-warm/, `${file} re-derives the halo from proc_warm`)
+  }
+  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+  assert.match(css, /\.sq\.norm\.proc-warm\.busy::before\s*\{[^}]*box-shadow/s,
+    'the stronger working-process halo is gone')
 })
 
 test('the desk header collapses live and warm into one accessible process cue', async () => {

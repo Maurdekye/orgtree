@@ -4,6 +4,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { prerequisites, isolatedRoot, phaseResult, runtimeManifest } from './run.mjs'
+import { acceptanceEnvironment, assertIsolatedEnvironment } from './isolation.mjs'
+import { readRigHub, LIVE_HUB_PORTS } from '../hub_isolation.mjs'
 
 test('missing runtime is inert; complete fixture enables preflight and removing a member disables it', () => {
   const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-acceptance-preflight-'))
@@ -23,7 +25,32 @@ test('each acceptance run gets fresh real data/profile/project directories outsi
   assert.notEqual(first, second)
   for (const root of [first, second]) {
     assert.equal(fs.realpathSync.native(root), root)
-    for (const name of ['data', 'profile', 'project', 'home']) assert.deepEqual(fs.readdirSync(path.join(root, name)), [])
+    for (const name of ['profile', 'project', 'home']) assert.deepEqual(fs.readdirSync(path.join(root, name)), [])
+    // the data root holds only the hub isolation (tests/hub_isolation.mjs):
+    // its own hub on a free non-live port, and an unroutable default hub
+    assert.deepEqual(fs.readdirSync(path.join(root, 'data')).sort(), ['defaults.json', 'mailhub-hosting.json'])
+    const hub = readRigHub(path.join(root, 'data'))
+    assert.ok(!LIVE_HUB_PORTS.includes(hub.port))
+  }
+  assert.notEqual(readRigHub(path.join(first, 'data')).name, readRigHub(path.join(second, 'data')).name)
+})
+
+test('acceptance environments drop the inherited hub address and refuse one passed in', () => {
+  const root = isolatedRoot()
+  const saved = process.env.ORGTREE_LOCAL_HUB_ADDRESS
+  process.env.ORGTREE_LOCAL_HUB_ADDRESS = 'http://127.0.0.1:7370'
+  try {
+    const env = acceptanceEnvironment(root)
+    assert.equal('ORGTREE_LOCAL_HUB_ADDRESS' in env, false)
+    assert.equal(assertIsolatedEnvironment(env, root), true)
+    assert.throws(() => acceptanceEnvironment(root, { env: { ORGTREE_LOCAL_HUB_ADDRESS: 'http://127.0.0.1:7370' } }), /may not set ORGTREE_LOCAL_HUB_ADDRESS/)
+    assert.throws(() => assertIsolatedEnvironment({ ...env, ORGTREE_LOCAL_HUB_ADDRESS: 'http://127.0.0.1:7370' }, root), /inherited ORGTREE_LOCAL_HUB_ADDRESS/)
+    // a data root the isolation did not prepare is refused
+    fs.rmSync(path.join(root, 'data', 'mailhub-hosting.json'))
+    assert.throws(() => assertIsolatedEnvironment(env, root), /not an isolated rig root/)
+  } finally {
+    if (saved === undefined) delete process.env.ORGTREE_LOCAL_HUB_ADDRESS
+    else process.env.ORGTREE_LOCAL_HUB_ADDRESS = saved
   }
 })
 

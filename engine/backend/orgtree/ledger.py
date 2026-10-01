@@ -34,14 +34,17 @@ but it catches you after the fact, and one grep catches you before.
 
 from __future__ import annotations
 
+import contextlib
+import sys
 import copy
+import itertools
 import json
 import math
 import os
 import re
 import time as _time
 import uuid
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping, MutableMapping
 from datetime import datetime, timedelta, timezone
 from typing import Any, Final, Literal, cast
 
@@ -103,7 +106,13 @@ from .schema import (AudienceGrant, DirGrant, FrozenInfo, MailEntry, NodeDoc,
 TIERS: Final[dict[str, float]] = {"fable": 10, "opus": 4, "sonnet": 2, "haiku": 1,
                                   "sol": 2, "terra": 2, "gpt-reserve": 0.2,
                                   "luna": 0.1, "astra": 10,
-                                  "flash": 1, "pro": 2}
+                                  "flash": 1, "pro": 2,
+                                  # ⚠ PLACEHOLDER SEAT (coordinator ruling
+                                  # 2026-10-01): Google has published no
+                                  # standing price for Gemini 4 Argon, so it
+                                  # copies the top Gemini tier (pro) until
+                                  # the user corrects it
+                                  "argon": 2}
 
 # The credit grid. Every seat is quantised to 0.01 and every credit quantity
 # is re-quantised after each mutation, which is what makes float arithmetic
@@ -144,6 +153,12 @@ OPEN_ASK_STATUS: Final = frozenset({"open", "pending"})
 #: ⚠ Open asks are NOT capped by this — see `tree`.
 ASK_HISTORY_KEEP: Final = 12
 
+#: How many of a node's newest `turns` ride the tree payload. The foreground
+#: store trims the ring to this many in SQL (a live node carries hundreds, and
+#: they were ~90% of the bytes a foreground rebuild read), so the tree and the
+#: store must agree on it.
+TREE_TURNS: Final = 8
+
 #: How many org-inbox rows ride the tree payload. The canvas renders only the
 #: newest; the modal fetches the rest. See `tree`.
 ORG_INBOX_PREVIEW: Final = 3
@@ -161,11 +176,19 @@ MODELS: Final[dict[str, str]] = {
     # Official Anthropic model overview and Claude Code 2.1.280 registry,
     # 2026-09-22. The Opus tier now costs four credits by the user's ruling.
     "opus": "claude-opus-5-5",
-    "sonnet": "claude-sonnet-5",
+    # Sonnet 5.5 (2026-09-28): the Claude Code 2.1.284 model catalog lists
+    # `claude-sonnet-5-5` as the latest Sonnet, at Sonnet 5's price
+    # (tier_2_10, $2/M input) and window (1M). Existing Sonnet agents are
+    # pinned to 5 by the migration below; 5 stays a model VERSION.
+    "sonnet": "claude-sonnet-5-5",
     "haiku": "claude-haiku-4-5",
     # the codex family — exact IDs from the installed CLI's model inventory;
-    # Sol and Luna default to GPT-6, with 5.6 available below as versions.
-    "sol": "gpt-6-sol",
+    # Luna defaults to GPT-6, with 5.6 available below as a version.
+    # GPT-6.1 Sol (2026-09-29): `model/list` through Codex CLI 0.159.0 names
+    # `gpt-6.1-sol` ("GPT-6.1-Sol", the CLI's default model); 0.155.1 did not
+    # list it (codexpin.PIN moved with it). Existing Sol agents are pinned to
+    # their current version by the migration below; 6 and 5.6 stay VERSIONS.
+    "sol": "gpt-6.1-sol",
     "terra": "gpt-5.6-terra",
     "gpt-reserve": "gpt-reserve",
     "luna": "gpt-6-luna",
@@ -186,6 +209,12 @@ MODELS: Final[dict[str, str]] = {
     # reachable as model VERSIONS below.
     "flash": "gemini-3.8-flash",
     "pro": "gemini-3.1-pro",
+    # Gemini 4 Argon — the id is the USER'S RULING (2026-10-01), not yet a
+    # measurement: agy 1.2.14 did not list it for the user's account that
+    # day. The tier is CONDITIONAL (providers.CONDITIONAL_ANTIGRAVITY_TIERS):
+    # nothing offers or admits it until the live `agy models` registry lists
+    # this id. If Google ships a different id, this is the one correction.
+    "argon": "gemini-4-argon",
 }
 
 # A TIER is a price band — four of them, four chips. A model VERSION is a
@@ -203,10 +232,11 @@ MODELS: Final[dict[str, str]] = {
 # ⚠ ids verified against the pinned CLI with a real call (2026-08-04):
 # `claude-opus-4-8` answers; `claude-opus-4.8` and `opus-4-8` are refused.
 MODEL_VERSIONS: Final[dict[str, dict[str, str]]] = {
-    "sol": {"6": "gpt-6-sol", "5.6": "gpt-5.6-sol"},
+    "sol": {"6.1": "gpt-6.1-sol", "6": "gpt-6-sol", "5.6": "gpt-5.6-sol"},
     "luna": {"6": "gpt-6-luna", "5.6": "gpt-5.6-luna"},
     "opus": {"5.5": "claude-opus-5-5", "5": "claude-opus-5",
              "4.8": "claude-opus-4-8"},
+    "sonnet": {"5.5": "claude-sonnet-5-5", "5": "claude-sonnet-5"},
     # Fable 5.1 is the tier default; 5.0 stays selectable in the gear for the
     # same reason Opus 4.8 does — a version is a subcategory inside the band,
     # never a chip, and never a different price.
@@ -233,6 +263,32 @@ EXTERN: Final = "@extern"  # the ORG INBOX: the org's single face to the outside
 #: independent silent truncations of the same list is how a caller loses a
 #: file twice over without either layer admitting to it.
 ATTACHMENT_MAX: Final = 10
+
+
+def file_read_mail(log: list[Any], entries: Iterable[Mapping[str, Any]]) -> None:
+    """File `entries` into the user's read archive (`user_mail_log`), keeping
+    it CHRONOLOGICAL: the reader renders by list position, so a mail read
+    second must not outrank one sent later (user bug 2026-08-02). `at` is
+    ISO-8601 Z, so a string compare is a time compare.
+
+    ⚠ NOT `log.extend(...)` + `log.sort(...)`. On the row store the archive is
+    an `AppendLog`, and `sort()` gives up row identity: the save then DELETEs
+    and re-INSERTs EVERY row of the archive. Measured on a copy of the orgtree
+    org (PostgreSQL, 488 read mails): one mark-read cost ~990 statements and
+    125-175 ms of SQL, and it grew by one row per mail ever read (docket
+    v3-marking-a-mail-as-read-takes-about-half-a-sec). Here only the entries
+    NEWER than the one being filed are lifted off and put back (pop and
+    append are tracked incrementally), so the cost is the number of mails
+    read after it, not the size of the archive. On an archive that is already
+    in order the result is exactly what the stable sort gave: an entry lands
+    after every existing entry with the same `at`."""
+    for entry in sorted(entries, key=lambda m: m.get("at") or ""):
+        at = entry.get("at") or ""
+        later: list[Any] = []
+        while log and (log[-1].get("at") or "") > at:
+            later.append(log.pop())
+        log.append(entry)
+        log.extend(reversed(later))
 
 
 def undeliverable_note(raw: str) -> str:
@@ -458,6 +514,14 @@ _ORDINARY_OF: Final[dict[str, str]] = {
 }
 
 
+#: The refusal for a NEW send to an @mcp: address (user ruling 2026-09-25:
+#: the external-chat MCP server is retired; outside chats use the mail hub
+#: exclusively). One string for every door — the agent send in `post_mail`
+#: and the user's outside-mail compose route — so they cannot drift.
+MCP_RETIRED: Final = ("the @mcp: address form is retired — reach outside "
+                      "chats through the mail hub (@net:<slug>)")
+
+
 def actor_of(who: str) -> dict[str, str]:
     """The canonical `actor` for a validated sender id (design I3): the user, the
     engine's own hand, an outside peer, or an agent node."""
@@ -588,6 +652,281 @@ _PROVIDER_SCOPED_FREEZE_FLAGS: Final = ("limit", "connection", "on_fallback",
                                         "untrusted")
 
 
+def retag_legacy_spend_freeze(fz: Any) -> bool:
+    """Re-tag a pre-№41 spend freeze (the usage-limit keys `error` with no
+    `until` and no True kind flag) as `spend`, so clear_hard_freeze("spend")
+    actually clears it. Every `Org` load applies it; a writer that leaves a
+    record in this shape (the invariant sweep's quarantine) applies it too, so
+    the row it commits is already at the load-heal fixed point. True if it
+    changed the record.
+
+    ⚠ `until_ts` is checked as well as `until`: the CLI's usual wording
+    carries only an epoch, so a genuine usage-limit freeze routinely has a
+    machine time and no human one. Together with the `limit` kind flag
+    (FrozenInfo) this stops the retag eating a real usage-limit freeze and
+    making it permanently unresumable."""
+    if (isinstance(fz, dict) and fz.get("error") and not fz.get("until")
+            and not fz.get("until_ts") and not fz.get("resume_texts")
+            and not any(v is True for v in fz.values())):
+        fz["spend"] = True
+        fz["spend_error"] = fz.pop("error")
+        fz.pop("until", None)
+        return True
+    return False
+
+
+#: the short-lived GPT-6 tier spellings folded into Sol/Luna's version pin
+_GPT6_ALIASES: tuple[tuple[str, str], ...] = (("sol", "gpt-6-sol"), ("luna", "gpt-6-luna"))
+
+
+def _heal_node_basics(n: Any, i: int, d: Any) -> None:
+    """One node's share of `Org._normalize_display_basics` (the load heal)."""
+    sc = n.setdefault("scope", {})
+    sc["add_dirs"] = norm_dirs(sc.get("add_dirs"))
+    if "tools" not in sc:
+        sc["tools"] = norm_tools({"bash": sc.pop("bash", True), "mcp": []})
+    else:
+        sc["tools"] = norm_tools(sc["tools"])
+    # Cache-aware compaction replaced the editable idle timeout. A
+    # node row that contained only the legacy timeout becomes a clean
+    # inherit; enabled/off and the occupancy threshold survive.
+    _node_acc = sc.get("auto_cheap_compact")
+    if isinstance(_node_acc, dict):
+        _node_acc.pop("idle_s", None)
+        if not _node_acc:
+            sc.pop("auto_cheap_compact", None)
+    # default leans toward visibility, not opaque invisibility (user ruling)
+    sc.setdefault("org_visibility", "full")
+    sc.setdefault("permission_mode", d.get("permission_mode", "acceptEdits"))
+    n.setdefault("ui_order", float(i))
+    # user ruling 2026-07-31: `purpose` is dropped — charter is the one
+    # role statement. Migration folds an old purpose into an empty
+    # charter (dropping it silently would strip live agents' identity)
+    old_purpose = n.pop("purpose", None)
+    if old_purpose and not n.get("charter"):
+        n["charter"] = old_purpose
+    n.setdefault("charter", None)
+    # pre-unification relic: queued texts now persist as mailbox mail
+    n.pop("queued_msgs", None)
+
+
+def _fold_gpt6_node(n: Any, tier: str, six: str) -> None:
+    if n.get("model") == six:
+        n["model"] = tier
+        n.setdefault("scope", {})["model_version"] = "6"
+
+
+def heal_decoded_node(d: Any, nid: str, n: Any, index: int | None) -> bool:
+    """Every per-node load heal of `Org.__init__`, for ONE node row decoded
+    on demand (store.LazyNodesMap, ORGTREE_LAZY_ROWS) -- the same functions
+    the whole-table loops call, so the two cannot drift. `index` is the
+    row's position in the table, or None for a point fetch: then a row the
+    heals cannot finish alone (no `ui_order`, whose default is the position;
+    no `seat_id`, which is shared along a lineage) returns False and the
+    caller decodes the whole table instead. Doc-level heals are not here:
+    they run in `Org.__init__` against the document as always."""
+    if not isinstance(n, dict):
+        return True
+    if index is None and ("ui_order" not in n or not n.get("seat_id")):
+        return False
+    doc = d if d is not None else {}
+    if nid not in (getattr(doc, "_normalized_nodes", None) or ()):
+        _heal_node_basics(n, index if index is not None else 0, doc)
+    for tier, six in _GPT6_ALIASES:
+        _fold_gpt6_node(n, tier, six)
+    n.pop("gemini_session", None)
+    retag_legacy_spend_freeze(n.get("frozen"))
+    if not doc.get("fable_lock"):
+        n.pop("limit_locked", None)
+    return True
+
+
+def backfill_seat_ids(nodes: Any, d: Any) -> None:
+    """`Org._backfill_seat_ids` on a node table and its document."""
+    missing = [k for k, n in nodes.items() if not n.get("seat_id")]
+    migs = d.setdefault("_migrations", {})
+    if not missing:
+        migs.setdefault(Org.SEAT_ID_MIGRATION, {"at": now(), "minted": 0, "shared": 0})
+        return
+    minted = shared = 0
+    for k in sorted(missing, key=lambda k: ("@" in k, k)):
+        head = k.split("@", 1)[0]
+        stack = [head] + sorted(s for s in nodes if s.startswith(head + "@"))
+        seat = next((nodes[s].get("seat_id") for s in stack
+                     if s in nodes and nodes[s].get("seat_id")), None)
+        if seat:
+            shared += 1
+        else:
+            seat = Org.legacy_seat_id(head, nodes.get(head) or nodes[k])
+            minted += 1
+        nodes[k]["seat_id"] = seat
+    prev = cast("dict[str, Any]", migs.get(Org.SEAT_ID_MIGRATION) or {})
+    migs[Org.SEAT_ID_MIGRATION] = {
+        "at": prev.get("at") or now(),
+        "minted": int(prev.get("minted") or 0) + minted,
+        "shared": int(prev.get("shared") or 0) + shared}
+
+
+def heal_decoded_box(sect: str, box: Any) -> bool:
+    """The per-owner load heal for ONE split-section row decoded on demand:
+    the mail-id backfill of `Org.__init__` (see MAIL IDS there). True if it
+    changed the box."""
+    changed = False
+    if sect == "mail" and isinstance(box, list):
+        for m in box:
+            if isinstance(m, dict) and "id" not in m:
+                m["id"] = uuid.uuid4().hex[:12]
+                changed = True
+    return changed
+
+
+#: ORGTREE_TURN_LOG (ON by default; 0/false/off/no turns it off): a node's full
+#: `turns` history lives in the `turn_log` dict log (one row per turn, owner =
+#: node id); the node row keeps only its newest TREE_TURNS entries, each with a
+#: turn number `n`, plus `turn_seq` (turns logged so far) and the running sums
+#: the killed-turn estimate needs (`turn_est_cost` / `turn_est_toks`). A ring
+#: entry WITHOUT `n` has not been logged yet: legacy history, or a turn an older
+#: engine appended after a rollback. `convert_turns` logs those in ring order and
+#: trims the ring, so converting is idempotent and a roll-forward loses and
+#: duplicates nothing. Nothing is ever deleted from `turn_log` except by a user
+#: delete of the node itself, which purges its rows like every other
+#: `on_delete: purged` section (DELETE_PURGE_SECTIONS).
+#: Converting runs in the whole-load heal (committed by its own save) and in
+#: `record_turn` (whose transaction names `turn_log`), never when one row is
+#: decoded on demand: that transaction may not have named the log. Until then
+#: readers count the un-logged entries themselves (`turn_estimate_sums`,
+#: history.py), so the answer is the same either way.
+TURN_LOG = (os.environ.get("ORGTREE_TURN_LOG") or "").strip().lower() not in ("0", "false", "off", "no")
+
+
+def _turn_pair(e: Any) -> tuple[Any, Any] | None:
+    """(cost, toks) when this ring entry counts for the killed-turn estimate —
+    `_charge_killed_turn`'s own filter: priced, with tokens, not killed."""
+    if isinstance(e, dict) and e.get("cost") and e.get("toks") and not e.get("killed"):
+        return (e.get("cost") or 0.0, e.get("toks") or 0)
+    return None
+
+
+#: A running sum that ends EXACTLY where builtin `sum()` over the whole ring
+#: would (CPython 3.12+ adds floats with Neumaier compensation, so a plain
+#: running total drifts in the last bits): ["i", total] while every term was
+#: an int, then ["f", total, compensation]. None: a term was not a number, and
+#: the old whole-ring `sum()` would have raised — so does the estimate.
+_SUM_ZERO: Final[list[Any]] = ["i", 0]
+
+
+def _sum_add(state: Any, x: Any) -> Any:
+    """`state` plus one term, the way builtin_sum_impl adds it."""
+    if not isinstance(state, list) or type(x) not in (int, float, bool):
+        return None
+    if state[0] == "i":
+        if type(x) is not float:
+            return ["i", state[1] + int(x)]
+        return ["f", state[1] + x, 0.0]          # leaves the int path: one plain add
+    f, c = state[1], state[2]
+    if type(x) is not float:
+        return ["f", f + float(x), c]            # an int term: no compensation
+    t = f + x
+    c += ((f - t) + x) if abs(f) >= abs(x) else ((x - t) + f)
+    return ["f", t, c]
+
+
+def _sum_value(state: Any) -> Any:
+    if not isinstance(state, list):
+        raise TypeError("a turn's cost or tokens is not a number")
+    if state[0] == "i":
+        return state[1]
+    f, c = state[1], state[2]
+    return f + c if c and math.isfinite(c) else f
+
+
+def _sum_pairs(cost: Any, toks: Any, entries: Any) -> tuple[Any, Any]:
+    for pair in map(_turn_pair, entries):
+        if pair is not None:
+            cost = _sum_add(cost, pair[0])
+            toks = _sum_add(toks, pair[1])
+    return cost, toks
+
+
+def _turn_log_append(d: Any, nid: str, entry: dict[str, Any]) -> None:
+    from . import store                              # noqa: PLC0415 — cycle
+    store.turn_log_append(d, nid, dict(entry))
+
+
+def convert_turns(d: Any, nid: str, n: Any) -> bool:
+    """Log every ring entry that is not logged yet (no `n`), in ring order,
+    add them to the running sums, trim the ring to the newest TREE_TURNS.
+    True if it changed anything. Idempotent."""
+    if d is None or not isinstance(n, dict):
+        return False
+    ring = n.get("turns")
+    ring = ring if isinstance(ring, list) else []
+    # Only a converted node (one with `turn_seq`) has logged entries: on any
+    # other node every entry is legacy history, whatever keys it carries.
+    converted = "turn_seq" in n
+    pending = [e for e in ring if isinstance(e, dict) and not (converted and "n" in e)]
+    if not pending and len(ring) <= TREE_TURNS and (converted or not ring):
+        # a node with no turns is left as it is: stamping it would rewrite
+        # every idle node's row once, for nothing (`record_turn` stamps it)
+        return False
+    seq = int(n.get("turn_seq") or 0)
+    for e in pending:
+        seq += 1
+        e["n"] = seq
+        _turn_log_append(d, nid, e)
+    if "turn_seq" in n:
+        cost, toks = n.get("turn_est_cost"), n.get("turn_est_toks")
+    else:
+        cost, toks = list(_SUM_ZERO), list(_SUM_ZERO)
+    n["turn_est_cost"], n["turn_est_toks"] = _sum_pairs(cost, toks, pending)
+    n["turn_seq"] = seq
+    if len(ring) > TREE_TURNS:
+        n["turns"] = ring[-TREE_TURNS:]
+    return True
+
+
+def record_turn(d: Any, nid: str, n: Any, entry: dict[str, Any]) -> None:
+    """Append one turn to node `nid` — THE ring writer. Off: the old ring
+    append. On: log it, keep the newest TREE_TURNS in the ring, update sums."""
+    if not TURN_LOG:
+        n.setdefault("turns", []).append(entry)
+        return
+    convert_turns(d, nid, n)           # an older engine's appends first
+    if "turn_seq" not in n:            # its first turn
+        n["turn_est_cost"], n["turn_est_toks"] = list(_SUM_ZERO), list(_SUM_ZERO)
+    seq = int(n.get("turn_seq") or 0) + 1
+    entry["n"] = seq
+    _turn_log_append(d, nid, entry)
+    n["turn_est_cost"], n["turn_est_toks"] = _sum_pairs(
+        n.get("turn_est_cost"), n.get("turn_est_toks"), [entry])
+    n["turn_seq"] = seq
+    ring = n.setdefault("turns", [])
+    ring.append(entry)
+    if len(ring) > TREE_TURNS:
+        del ring[:len(ring) - TREE_TURNS]
+
+
+def turn_estimate_sums(n: Any) -> tuple[Any, Any]:
+    """(Σcost, Σtoks) over every turn the killed-turn estimate counts, equal
+    to the old `sum()` over the whole ring: the running sums of the logged
+    turns plus the ring entries not logged yet — all of the ring on a node
+    never converted. Read whatever the switch says: a converted node's ring
+    is only its tail. Raises TypeError where that `sum()` would have."""
+    ring = (n.get("turns") or []) if isinstance(n, dict) else []
+    if isinstance(n, dict) and "turn_seq" in n:
+        cost, toks = n.get("turn_est_cost"), n.get("turn_est_toks")
+        ring = [e for e in ring if not (isinstance(e, dict) and "n" in e)]
+    else:
+        cost, toks = list(_SUM_ZERO), list(_SUM_ZERO)
+    cost, toks = _sum_pairs(cost, toks, ring)
+    return (_sum_value(cost), _sum_value(toks))
+
+
+def _lazy_rows(nodes: Any) -> bool:
+    """Is this node table decoded on demand (heals run per row)?"""
+    return bool(getattr(nodes, "lazy_rows", False))
+
+
 def freeze_describes_provider(fz: FrozenInfo) -> bool:
     """Is this freeze ABOUT the node's provider/session — a usage limit, a
     network drop, or an auth rejection (`cause` is a string, never a flag, so
@@ -630,7 +969,12 @@ _SUSPICIOUS_ASK_MARKUP_RE = re.compile(
     r'<(?:\w+:)?parameter\s+name="|<(?:\w+:)?invoke\s+name="', re.IGNORECASE)
 
 
-MAX_EXTERN_HANDLES: Final = 8
+#: The refusal for a NEW response-handle grant (coordinator ruling
+#: 2026-09-25, stage 2 of the @mcp: retirement). A handle was an
+#: @mcp:<peer> address, and that transport no longer exists.
+HANDLES_RETIRED: Final = ("external_handles are retired with the @mcp: "
+                          "address form — outside chats reach orgs through "
+                          "the mail hub (@net:<slug>)")
 
 
 def stamp_handles(n: Any, handles: list[str]) -> None:
@@ -648,31 +992,18 @@ def stamp_handles(n: Any, handles: list[str]) -> None:
 
 
 def norm_extern_handles(raw: Iterable[Any] | None, *, where: str) -> list[str]:
-    """Validate + dedupe a set of @mcp:<peer> response handles canonically.
+    """The one gate for @mcp:<peer> response handles, shared by hire() and
+    set_scope() so the grant paths cannot drift. `where` names the calling op
+    in refusals ("hire" / "retool").
 
-    Shared by hire() and set_scope() so the two grant paths cannot drift: a
-    handle is a per-address post_mail bypass, and a rule enforced at hire but
-    not at attach would be a hole in exactly the same privilege. Only the
-    @mcp: form is grantable — it names ONE concrete extern peer, so the bypass
-    stays scoped to a single mailbox rather than "speak for the org anywhere".
-    `where` names the calling op in refusals ("hire" / "retool")."""
-    handles: list[str] = []
-    for h in raw or []:
-        h = str(h).strip()
-        if not (h.startswith("@mcp:")
-                and re.fullmatch(r"[A-Za-z0-9._-]{1,64}", h[5:])):
-            raise LedgerError(
-                f"external_handles entries must be @mcp:<peer> addresses "
-                f"(got {h!r}) — each scopes this {where}'s outbound mail to "
-                f"that exact extern peer")
-        if h not in handles:
-            handles.append(h)
-    if len(handles) > MAX_EXTERN_HANDLES:
-        raise LedgerError(
-            f"at most {MAX_EXTERN_HANDLES} external_handles per {where}")
-    # Handle order grants no mail authority and controls no routing. It does
-    # render into identity_prompt, so retain a stable set representation.
-    return sorted(handles)
+    RETIRED with @mcp: (coordinator ruling 2026-09-25, stage 2): every NEW
+    grant — any entry at all — is refused. An EMPTY list still returns [] so
+    an explicit retool can clear what a node stored before the retirement;
+    that removes data only on request. Otherwise stored handles stay on the
+    node and are IGNORED: no mail bypass, no prompt line, no sweeper."""
+    if list(raw or []):
+        raise LedgerError(f"{HANDLES_RETIRED} (refused on {where})")
+    return []
 
 
 def slugify(name: str) -> str:
@@ -702,6 +1033,80 @@ def app_prefer_reserve_default() -> bool:
         return True
 
 
+# ------------------------------------------------------ P04a-1 identity census
+#: EVERY top-level section an org document can carry, classified by what a
+#: seat's RENAME does to it (P04a-1, scope-p04 r2 §5). `test_principal_identity`
+#: enumerates `schema.OrgDoc`, store's section lists and a synthetic
+#: hire/mail/steer/manual-fetch/receipt document, and fails on any key missing
+#: here — a new per-node record cannot appear without a rename/delete decision.
+#:
+#: value = (class, shape, on_delete)
+#:   class    `rekey`       storage ownership follows the renamed seat
+#:            `delete_only` per-node, removed by delete but never re-keyed
+#:            `keep`        authored history: keeps the name it was written with
+#:            `org`         org-level; not addressed by a node id
+#:   shape    `by_node`     a dict keyed by node id (`rename` moves the entry)
+#:            `row_field`   rows name a node in a field (moved by its own code)
+#:            `none`        no node address
+#:   on_delete what `delete` does TODAY. Since P04a-2 (seat-bound credential)
+#:            every per-node section is `purged` (`DELETE_PURGE_SECTIONS`),
+#:            `marked` or `kept`. Rows EARLIER deletes left under a freed key
+#:            stay where they are (or under `#orphan` keys) and `orphans()`
+#:            reports them; nothing here ever purges those.
+NODE_KEYED_SECTIONS: Final[dict[str, tuple[str, str, str]]] = {
+    "nodes": ("rekey", "by_node", "purged"),
+    "mail": ("rekey", "by_node", "purged"),
+    "mail_log": ("rekey", "by_node", "purged"),
+    "notices": ("rekey", "by_node", "purged"),
+    "steered_log": ("rekey", "by_node", "purged"),
+    "delivering": ("rekey", "by_node", "purged"),
+    "turn_error_log": ("rekey", "by_node", "purged"),
+    "turn_log": ("rekey", "by_node", "purged"),
+    "mail_transitions": ("rekey", "by_node", "purged"),
+    "steer_attempts": ("rekey", "by_node", "purged"),
+    "manual_attempts": ("rekey", "by_node", "purged"),
+    "op_receipts": ("rekey", "row_field", "purged"),
+    "documents": ("rekey", "row_field", "purged"),
+    "asks": ("rekey", "row_field", "purged"),
+    "credit_requests": ("rekey", "row_field", "purged"),
+    "scope_requests": ("rekey", "row_field", "purged"),
+    "watchdogs": ("rekey", "row_field", "purged"),
+    "watchdog_tombs": ("rekey", "row_field", "purged"),
+    "audiences": ("rekey", "row_field", "purged"),
+    "audience_requests": ("rekey", "row_field", "purged"),
+    "work_items": ("rekey", "row_field", "marked"),
+    "work_items_archive": ("rekey", "row_field", "marked"),
+    "events": ("keep", "row_field", "kept"),
+    "lifecycle": ("keep", "row_field", "kept"),
+    "notice_log": ("keep", "row_field", "kept"),
+    "watchdog_history": ("keep", "row_field", "kept"),
+    "org_inbox": ("keep", "row_field", "kept"),
+    "user_inbox": ("keep", "row_field", "kept"),
+    "user_outbox": ("keep", "row_field", "kept"),
+    "user_mail_log": ("keep", "row_field", "kept"),
+    "orphan_keys": ("keep", "row_field", "kept"),
+    **{k: ("org", "none", "kept") for k in (
+        "_actors_typed", "_migrations", "account_fallback_default", "account_token_uuid",
+        "api_cost_usd", "default_account", "desktop_import", "reply_incarnation",
+        "whole_grants_v1", "work_deleted_names", "work_scope_log",
+        "api_fallback", "api_fallback_since", "api_fallback_until", "api_key",
+        "auto_cheap_compact", "auto_resume", "auto_resume_compact", "auto_resume_last",
+        "bridge_credential_generation", "bridge_credential_rotated_at", "cascade_alloc",
+        "cascade_hire", "compact_at", "created", "cred_warned_at", "default_dirs",
+        "default_effort", "default_tools", "default_top_grant", "default_visibility",
+        "deleted_cost_usd", "deleted_cost_usd_unknown", "dirs", "disk",
+        "external_inbox_multi_holder", "fable_api_fallback", "fable_filter_model",
+        "fable_filter_policy", "fable_limit_policy", "fable_lock", "headless", "killswitch",
+        "kiosk", "mail_drain_version", "max_children", "max_depth", "max_top_grant",
+        "models", "name", "net_autoconnect", "net_hubs", "net_identity", "net_spool",
+        "net_state", "op_receipts_meta", "org_inbox_multi_holder", "org_inbox_read",
+        "permission_mode", "reservations", "sandbox", "sandbox_vols_base", "slug",
+        "spend_frozen", "storage_blocked", "storage_frozen", "storage_full",
+        "storage_warned", "tiers", "tool_result_receipts", "version", "work_identity",
+        "workspace")},
+}
+
+
 class Org:
     """One organization: a node tree, its audiences/notices, and an event log.
 
@@ -711,91 +1116,33 @@ class Org:
     """
 
     def __init__(self, doc: OrgDoc) -> None:
+        from .readonly_projection import reject_projection
+        reject_projection(doc)
         self.d: OrgDoc = doc
-        # migrate older docs in place: dir grants gain modes; scopes gain tool sets
-        # (pre-schema docs — the loop handles keys NodeDoc no longer declares)
-        #
-        # `_normalized_nodes` is the section-granular snapshot rebuild's seam
-        # (store._assemble_snapshot): those node dicts are the SAME objects a
-        # previous construction already normalized in this process, so
-        # re-deriving their scopes would only spend the milliseconds the
-        # rebuild exists to save. Everything below the loop still runs — the
-        # once-per-document migrations are marker-gated and the rest is cheap.
-        _normalized: set[str] = getattr(doc, "_normalized_nodes", None) or set()
-        for i, (_nid, n) in enumerate(cast("dict[str, dict[str, Any]]",
-                                           self.d.get("nodes", {})).items()):
-            if _nid in _normalized:
-                continue
-            sc = n.setdefault("scope", {})
-            sc["add_dirs"] = norm_dirs(sc.get("add_dirs"))
-            if "tools" not in sc:
-                sc["tools"] = norm_tools({"bash": sc.pop("bash", True), "mcp": []})
-            else:
-                sc["tools"] = norm_tools(sc["tools"])
-            # Cache-aware compaction replaced the editable idle timeout. A
-            # node row that contained only the legacy timeout becomes a clean
-            # inherit; enabled/off and the occupancy threshold survive.
-            _node_acc = sc.get("auto_cheap_compact")
-            if isinstance(_node_acc, dict):
-                _node_acc.pop("idle_s", None)
-                if not _node_acc:
-                    sc.pop("auto_cheap_compact", None)
-            # default leans toward visibility, not opaque invisibility (user ruling)
-            sc.setdefault("org_visibility", "full")
-            sc.setdefault("permission_mode", self.d.get("permission_mode", "acceptEdits"))
-            n.setdefault("ui_order", float(i))
-            # user ruling 2026-07-31: `purpose` is dropped — charter is the one
-            # role statement. Migration folds an old purpose into an empty
-            # charter (dropping it silently would strip live agents' identity)
-            old_purpose = n.pop("purpose", None)
-            if old_purpose and not n.get("charter"):
-                n["charter"] = old_purpose
-            n.setdefault("charter", None)
-            # pre-unification relic: queued texts now persist as mailbox mail
-            n.pop("queued_msgs", None)
-        if self.d.get("fable_limit_policy") in (None, "retire"):
-            self.d["fable_limit_policy"] = "halt"   # 'retire' dropped by user ruling
-        # machine-local account routing (user redesign 2026-08-25): the
-        # per-org account selection is gone — routing is per model tier,
-        # machine-global (accounts.py). Old docs shed the stale key here so
-        # nothing can appear selected while nothing reads it.
-        self.d.pop("account_token_uuid", None)
-        _org_acc = self.d.get("auto_cheap_compact")
-        if isinstance(_org_acc, dict):
-            # Migration is deliberately ignore-and-remove: old idle duration
-            # is not converted into a TTL because only an authoritative
-            # provider/auth receipt may start the new expiry clock.
-            _org_acc.pop("idle_s", None)
-        if self.d.get("fable_filter_policy") not in ("halt", "opus", "auto-autopsy"):
-            self.d["fable_filter_policy"] = "halt"  # content-filter flags (user spec)
-        if "fable_filter_model" not in self.d or self.d.get("fable_filter_model") == "fable":
-            self.d["fable_filter_model"] = "opus"
-        # V1 org-key fields are RETIRED (user redesign 2026-09-12): API keys
-        # are registry ACCOUNTS now, their consent machine-level. No default
-        # is seeded and no heal runs here — the startup cutover
-        # (registry_migration.run_apikey_cutover) is what moves a stored key
-        # into the account registry and pops the org's V1 fields, and it
-        # needs to READ them first, so the load path leaves them untouched.
-        # org-wide agent defaults for hires that don't state them (user hires):
-        # every capability enabled — all switches + all MCP servers + full org
-        # visibility + the org's folders (user ruling)
-        self.d["default_tools"] = norm_tools(
-            self.d.get("default_tools", {"mcp": ["*"]}))
-        if self.d.get("default_visibility") not in VIS_LEVELS:
-            self.d["default_visibility"] = "full"
-        self.d.pop("default_dirs", None)   # superseded: org dirs carry modes now
-        self.d.setdefault("default_top_grant", 50)   # user ruling: 50 by default
-        # §4.6 cost-bubbling toggles (user spec, both ON by default): hires /
-        # allocations may pull shortfalls up the chain; off = the payer must
-        # afford the action from its own free credits
-        self.d.setdefault("cascade_hire", True)
-        self.d.setdefault("cascade_alloc", True)
-        self.d.setdefault("credit_requests", [])     # top-level asks to the user
-        self.d.setdefault("compact_at", 0.80)        # compaction ratio, ≤ 0.95 hard
-        # kiosk v2 (user vision): per-org public exposure via a preauthenticated
-        # secret-URL token; caps live here, not in env vars. None = never a kiosk.
-        self.d.setdefault("kiosk", None)             # {enabled, token, credits,
-                                                     #  spend_limit, storage_limit_mb}
+        nodes = dict.get(doc, "nodes")
+        construction = getattr(nodes, "construction", contextlib.nullcontext)
+        with construction():
+            self._initialize_doc(doc)
+
+    def __del__(self) -> None:
+        # free this copy's lazy row maps with it instead of leaving the
+        # document and its maps to the cyclic GC (store._DocLink) — but only
+        # when the DOCUMENT dies with this Org: held by nothing but this Org,
+        # `d`, getrefcount's argument and its own maps' back-pointers. A
+        # document someone else still holds keeps every pointer strong, so a
+        # map taken from it later is as safe as it always was.
+        try:
+            d = self.__dict__.get("d")
+            if d is None:
+                return
+            from . import store
+            if sys.getrefcount(d) == 3 + store.strong_doc_links(d):
+                store.release_doc_links(d)
+        except Exception:                                  # noqa: BLE001
+            pass
+
+    def _initialize_doc(self, doc: OrgDoc) -> None:
+        self._normalize_display_basics()
         # kiosk permission ceiling (consensus spec §3): pre-ceiling kiosk docs
         # get one MINTED = "what this org already does" — the union of every
         # node's scope ∪ the org's dirs ∪ default_tools. Nothing running is
@@ -884,7 +1231,9 @@ class Org:
         for m in self.d.get("user_inbox", []):       # per-mail read tracking needs ids
             m.setdefault("id", uuid.uuid4().hex[:8])
         # non-literal key → cast; the box holds {node: [entry, ...]}
-        for ms in cast("dict[str, list[Any]]", self.d.get("mail") or {}).values():
+        _mail = self.d.get("mail")
+        for ms in (() if _lazy_rows(_mail)       # healed per box on decode
+                   else cast("dict[str, list[Any]]", _mail or {}).values()):
             for m in ms:
                 if isinstance(m, dict):
                     # cast: isinstance narrows Any to dict[Unknown, Unknown]
@@ -893,7 +1242,245 @@ class Org:
         self._backfill_mail_log_ids()
         self._strip_settled_steer_views()
         self._migrate_extern_multi_holder()
+        self._backfill_seat_ids()
 
+        self._normalize_display_models()
+        _doc = cast("dict[str, Any]", self.d)
+        # ☞ …and the GRANTS THEMSELVES, for the same reason every migration
+        # above exists: the forward fix in `_chain_acquire` reaches only new
+        # cascades, and the operator's own coordinator is sitting on 104.2
+        # RIGHT NOW with a credit bar it cannot move. A doc that already
+        # carries a fractional grant is not repaired by anything else, so it
+        # is repaired here (user ruling 2026-09-04: a fractional grant is an
+        # invalid state; round UP to the next whole credit).
+        #
+        # ⚠ UP, NEVER DOWN, and never at spend time. Rounding a grant down
+        # would silently take back capacity somebody was granted, which is the
+        # one outcome worse than an operation that refuses. Nothing here
+        # touches a SEAT: `seat_cost` still reads the tier table, gpt-reserve
+        # and luna still cost 0.2, and `free` is still whatever the seats
+        # leave over — routinely a fraction, and correct as one.
+        #
+        # DEEPEST FIRST, and `max(grant, committed)` rather than plain ceil:
+        # rounding a child up raises its parent's commitment by the same
+        # fraction, so the parent is measured AFTER its children have moved
+        # and is lifted to cover them. That keeps `free() >= 0` — the audit
+        # invariant — true through the migration instead of merely before it.
+        #
+        # ⚠ ONCE PER DOCUMENT, and the flag is the whole point — this is the
+        # one migration in this hook that must NOT stand as a rule. A
+        # `switch_model` MELT still lands a seat difference in a grant, on
+        # purpose, so the node's total holding does not move (opus 5 → or-free
+        # 0.1 on a 0-grant node leaves grant 0.1 and holding 0.2). Rounding
+        # that up costs the PARENT the difference — harmless once, but as a
+        # standing rule every switch-and-reload cycle would add up to a credit
+        # out of nowhere, which is exactly the slow mint a one-way rounding
+        # rule produces. `Org.create` runs this same hook on an empty doc, so
+        # a new org is stamped immediately and only documents written before
+        # the ruling are ever touched. The melt itself is reported, not
+        # changed: it is not mine to redesign.
+        #
+        # ⚠ AND IT MUST NOT EXPLODE ON A MALFORMED DOCUMENT. This hook runs on
+        # EVERY load, including the synthetic and half-written docs the store
+        # suites feed it, and `committed`/`seat_cost`/`ancestors` all assume a
+        # well-formed node table (a node with no `parent` key raised KeyError
+        # out of `Org.__init__` and took `load_org` with it — caught by
+        # test_sqlite_store before this landed). So the precondition is stated
+        # and checked rather than caught: if any node is missing a field this
+        # needs, the repair is SKIPPED AND NOT STAMPED, so a later load of a
+        # sound document still performs it.
+        if not _doc.get("whole_grants_v1"):
+            _sound = all(
+                isinstance(_v, dict) and "parent" in _v and "grant" in _v
+                and _v.get("model") in (_doc.get("tiers") or {})
+                for _v in self.nodes.values())
+
+            def _rank(k: str) -> int:        # depth, cycle-safe, no node() calls
+                d, seen = 0, {k}
+                cur = self.nodes[k].get("parent")
+                while isinstance(cur, str) and cur in self.nodes and cur not in seen:
+                    seen.add(cur)
+                    d += 1
+                    cur = self.nodes[cur].get("parent")
+                return -d
+
+            if _sound:
+                for _nid in sorted(self.nodes, key=_rank):
+                    _n = self.nodes[_nid]
+                    _want = math.ceil(_q(max(float(_n.get("grant") or 0),
+                                             self.committed(_nid))))
+                    if _want != _n.get("grant"):
+                        _n["grant"] = _want
+                _doc["whole_grants_v1"] = True
+        # pre-№41 spend freezes wrote the usage-limit keys (error, until=None);
+        # re-tag them so clear_hard_freeze("spend") actually clears them
+        # instead of leaving a stale-reason freeze the API reports as cleared
+        _lazy = _lazy_rows(self.d.get("nodes"))
+        if not _lazy:
+            for n in self.nodes.values():
+                retag_legacy_spend_freeze(n.get("frozen"))
+        # FABLE-2 (redteam + user report 2026-08-06): a fable_lock that
+        # recorded a reset time releases itself once it passes — the same
+        # rule the per-node freeze follows. (The timeless-waits-for-the-user
+        # rule lasted one commit — see STUCK-1 below: timeless now MEANS
+        # artifact.) FABLE-3: the halt was LOUD (parent asked to
+        # cover the work, peers and the node told), so the release
+        # announces itself to the same parties. Announcing from a load hook
+        # is safe for the same reason the release is: the TRIGGER (the
+        # lock) is consumed in the same mutation, so once any save persists
+        # this copy no later load re-announces, and unsaved copies die with
+        # their load and re-derive identically — every reader sees exactly
+        # one announcement. (Redteam-measured 2026-08-06: five unsaved
+        # reads move nothing on disk; the first save persists exactly one
+        # copy; later save cycles add nothing.)
+        # ※ An unsaved reader's release being INVISIBLE on disk is the
+        # property that makes this safe, not a bug — do NOT "fix" it by
+        # saving from this hook, which would turn every read into a write.
+        # STUCK-1 (user report 2026-08-06: already-halted fable agents could
+        # not be unfrozen — the d40dd82 fix was forward-only). A TIMELESS
+        # lock is by construction a pre-fix artifact: since d40dd82 the
+        # escalation always stamps until_ts (the freeze parses a reset or
+        # takes the 300 s probe floor BEFORE fable_limit_hit runs), so no
+        # new lock can be timeless — and most on-disk timeless locks were
+        # written by the misread itself (a session limit recorded as weekly
+        # exhaustion). Release them rather than back-date: back-dating keeps
+        # agents halted for a limit that was never hit.
+        # ⚠ …EXCEPT a lock that positively says its reset time is UNKNOWN
+        # (`no_reset`). Added 2026-08-07 with the captured Fable-tier message
+        # (neoja, live): "You've reached your Fable 5 limit. Run
+        # /usage-credits to continue or switch models with /model." — it
+        # carries NO horizon at all, so the assumption above ("no new lock
+        # can be timeless") stopped being true the moment the escalation
+        # started firing on it. Without this marker such a lock is
+        # indistinguishable from a pre-fix artifact and gets released on the
+        # very next load. `no_reset` is the difference between "nobody told
+        # this lock when it ends" and "this lock predates the field": the
+        # first waits for the user, who now HAS controls for it (the ⚙ clear
+        # and the per-node unstick override) — which is what the original
+        # timeless-waits-for-the-user rule assumed and did not yet have.
+        _fl = self.d.get("fable_lock") or {}
+        if _fl and not _fl.get("no_reset") and (
+                not _fl.get("until_ts")
+                or _time.time() >= float(_fl["until_ts"])):
+            _freed = [k for k, v in self.nodes.items()
+                      if v.get("limit_locked")]
+            self.d.pop("fable_lock", None)
+            for n in self.nodes.values():
+                n.pop("limit_locked", None)
+            for k in _freed:
+                _p = self.nodes[k]["parent"]
+                # typed (family lifecycle): policy.limit_reset per audience
+                self._notify_ev([_p], self._limit_reset_ev(k, "report", []))
+                self._notify_ev(self._peers_of(_p, k), self._limit_reset_ev(k, "peer", []))
+                self._notify_ev([k], self._limit_reset_ev(k, "self", []))
+            if _freed:
+                uev = self._limit_reset_ev(sorted(_freed)[0], "user", sorted(_freed))
+                self.to_user_inbox({
+                    "from": SYSTEM, "kind": "notice", "at": now(),
+                    "body": events.render_agent(uev)}, uev)
+        # …and ORPHANED node flags (redteam 2026-08-06, the neoja card): a
+        # limit_locked with NO fable_lock behind it is the same artifact
+        # class as the timeless lock — the org lock went away without the
+        # node sweep, and resume_frozen skips flagged nodes forever, so a
+        # healthy freeze underneath advertised a reset that could never
+        # fire ("resumes 3pm", waits past 3pm, nothing). No announcement:
+        # the freeze underneath resumes through its own machinery.
+        if not self.d.get("fable_lock") and not _lazy:
+            for n in self.nodes.values():
+                n.pop("limit_locked", None)
+        if TURN_LOG and not _lazy:
+            for _tid, _tn in self.nodes.items():
+                convert_turns(self.d, _tid, _tn)
+        # org holdings carry RW/RO modes (user ruling — configured on the eye's
+        # gear, mirroring per-agent folder access); legacy string lists migrate
+        self.d["dirs"] = norm_dirs(self.d.get("dirs"))
+        # migrate pre-typed-actor docs: bare 'user'/'system' sentinels → @-forms
+        # (safe exactly once, before any agent may be NAMED user/system)
+        if not self.d.get("_actors_typed"):
+            for a in self.d.get("audiences", []):
+                if a.get("grantor") == "user":
+                    a["grantor"] = USER
+            for r in self.d.get("audience_requests", []):
+                for f in ("target", "currently_at"):
+                    if r.get(f) == "user":
+                        r[f] = USER
+            for m in self.d.get("user_inbox", []):
+                if m.get("from") in ("system", "user"):
+                    m["from"] = SYSTEM if m["from"] == "system" else USER
+            self.d["_actors_typed"] = True
+
+        from .notification_state import reconcile_attention
+        # The store defers only an exact content fingerprint previously
+        # checked to contain attention metadata on every work item. Unknown
+        # content still decodes and runs this legacy initialization normally.
+        if "work_items" not in getattr(self.d, "_deferred_doc", {}):
+            reconcile_attention(self.d, initialize_only=True)
+
+    def _normalize_display_basics(self) -> None:
+        """Pure selected-node/small-settings normalization shared with read views."""
+        # migrate older docs in place: dir grants gain modes; scopes gain tool sets
+        # (pre-schema docs — the loop handles keys NodeDoc no longer declares)
+        #
+        # `_normalized_nodes` is the section-granular snapshot rebuild's seam
+        # (store._assemble_snapshot): those node dicts are the SAME objects a
+        # previous construction already normalized in this process, so
+        # re-deriving their scopes would only spend the milliseconds the
+        # rebuild exists to save. Everything below the loop still runs — the
+        # once-per-document migrations are marker-gated and the rest is cheap.
+        _normalized: set[str] = getattr(self.d, "_normalized_nodes", None) or set()
+        _nodes = cast("dict[str, dict[str, Any]]", self.d.get("nodes", {}))
+        # on-demand rows heal as each row is decoded (heal_decoded_node)
+        if not _lazy_rows(_nodes):
+            for i, (_nid, n) in enumerate(_nodes.items()):
+                if _nid in _normalized:
+                    continue
+                _heal_node_basics(n, i, self.d)
+        if self.d.get("fable_limit_policy") in (None, "retire"):
+            self.d["fable_limit_policy"] = "halt"   # 'retire' dropped by user ruling
+        # machine-local account routing (user redesign 2026-08-25): the
+        # per-org account selection is gone — routing is per model tier,
+        # machine-global (accounts.py). Old docs shed the stale key here so
+        # nothing can appear selected while nothing reads it.
+        self.d.pop("account_token_uuid", None)
+        _org_acc = self.d.get("auto_cheap_compact")
+        if isinstance(_org_acc, dict):
+            # Migration is deliberately ignore-and-remove: old idle duration
+            # is not converted into a TTL because only an authoritative
+            # provider/auth receipt may start the new expiry clock.
+            _org_acc.pop("idle_s", None)
+        if self.d.get("fable_filter_policy") not in ("halt", "opus", "auto-autopsy"):
+            self.d["fable_filter_policy"] = "halt"  # content-filter flags (user spec)
+        if "fable_filter_model" not in self.d or self.d.get("fable_filter_model") == "fable":
+            self.d["fable_filter_model"] = "opus"
+        # V1 org-key fields are RETIRED (user redesign 2026-09-12): API keys
+        # are registry ACCOUNTS now, their consent machine-level. No default
+        # is seeded and no heal runs here — the startup cutover
+        # (registry_migration.run_apikey_cutover) is what moves a stored key
+        # into the account registry and pops the org's V1 fields, and it
+        # needs to READ them first, so the load path leaves them untouched.
+        # org-wide agent defaults for hires that don't state them (user hires):
+        # every capability enabled — all switches + all MCP servers + full org
+        # visibility + the org's folders (user ruling)
+        self.d["default_tools"] = norm_tools(
+            self.d.get("default_tools", {"mcp": ["*"]}))
+        if self.d.get("default_visibility") not in VIS_LEVELS:
+            self.d["default_visibility"] = "full"
+        self.d.pop("default_dirs", None)   # superseded: org dirs carry modes now
+        self.d.setdefault("default_top_grant", 50)   # user ruling: 50 by default
+        # §4.6 cost-bubbling toggles (user spec, both ON by default): hires /
+        # allocations may pull shortfalls up the chain; off = the payer must
+        # afford the action from its own free credits
+        self.d.setdefault("cascade_hire", True)
+        self.d.setdefault("cascade_alloc", True)
+        self.d.setdefault("credit_requests", [])     # top-level asks to the user
+        self.d.setdefault("compact_at", 0.80)        # compaction ratio, ≤ 0.95 hard
+        # kiosk v2 (user vision): per-org public exposure via a preauthenticated
+        # secret-URL token; caps live here, not in env vars. None = never a kiosk.
+        self.d.setdefault("kiosk", None)             # {enabled, token, credits,
+                                                     #  spend_limit, storage_limit_mb}
+
+    def _normalize_display_models(self) -> None:
+        """Additive model vocabulary and local node aliases; no history reads."""
         # ☞ NEW TIERS REACH EXISTING ORGS. `Org.create` COPIES the module
         # tables into the doc (`"tiers": dict(TIERS)`), so every org carries
         # its own frozen set and adding a tier to the constant does nothing for
@@ -1022,22 +1609,63 @@ class Org:
         # verbatim to the CLI, never silently substituted with Opus 5.
         if _m.get("opus") == "claude-opus-5":
             _m["opus"] = MODELS["opus"]
+        # Sonnet 5.5 becomes the default for NEW hires and switches, while
+        # every existing Sonnet agent keeps running Sonnet 5: it is pinned to
+        # version "5" once, when the shipped 5.0 default is upgraded (the
+        # trigger cannot fire twice). A custom organization id is never
+        # overwritten and its agents are not pinned. EVERY Sonnet node is
+        # pinned, even one that already carries a version: before 2.1.13 no
+        # Sonnet version could be chosen (set_scope refused one) and a tier
+        # switch never cleared the field, so any version on a Sonnet node is
+        # a leftover from its previous tier (Opus "5.5", "4.8", ...) that
+        # would otherwise now resolve against Sonnet's own versions.
+        # ⚠ v3 on-demand rows: the pin must reach EVERY node in the load that
+        # flips the default, or an undecoded agent silently moves to 5.5. It
+        # does: editing this file changes store.heal_epoch, so the first load
+        # after an upgrade is a whole load, and the epoch is stamped only once
+        # a whole load needs no heal (the flip is committed). A lazy table
+        # still seeing the old default therefore cannot happen; if it ever
+        # does, both halves wait for the next whole load rather than one.
+        if (_m.get("sonnet") == "claude-sonnet-5"
+                and not _lazy_rows(self.d.get("nodes"))):
+            for _node in self.nodes.values():
+                if _node.get("model") == "sonnet":
+                    _node.setdefault("scope", {})["model_version"] = "5"
+            _m["sonnet"] = MODELS["sonnet"]
         # Fold the short-lived GPT-6 tier spelling into Sol/Luna's version
         # selector. Existing unpinned Sol/Luna nodes advance with the default;
         # explicitly pinned choices keep their selected version. A former
         # GPT-6-tier node keeps its exact model.
         # Custom organization model IDs are never overwritten.
-        for _tier, _six in (("sol", "gpt-6-sol"), ("luna", "gpt-6-luna")):
+        _lazy = _lazy_rows(self.d.get("nodes"))
+        for _tier, _six in _GPT6_ALIASES:
             _old = f"gpt-5.6-{_tier}"
-            for _node in self.nodes.values():
-                if _node.get("model") == _six:
-                    _node["model"] = _tier
-                    _node.setdefault("scope", {})["model_version"] = "6"
+            if not _lazy:
+                for _node in self.nodes.values():
+                    _fold_gpt6_node(_node, _tier, _six)
             if _m.get(_tier) == _old:
-                _m[_tier] = MODELS[_tier]
+                # to GPT-6 itself, not today's default: a Sol org this old
+                # then takes the GPT-6.1 step below like every other
+                _m[_tier] = _six
             # The alias is no longer a tier, including in old saved orgs.
             _m.pop(_six, None)
             _t.pop(_six, None)
+        # GPT-6.1 Sol becomes the default for NEW hires and switches, while
+        # every existing Sol agent keeps the model it runs now: one pin, when
+        # the shipped GPT-6 default is upgraded (the trigger cannot fire
+        # twice). A node already on a Sol version keeps it; any other value is
+        # a leftover from an earlier tier that resolves to the old default
+        # today, so it is pinned to "6" too. A custom organization id is
+        # never overwritten and its agents are not pinned. Lazy rows: the
+        # same rule and reasoning as the Sonnet 5.5 step above — both halves
+        # happen in one whole load, or neither does.
+        if _m.get("sol") == "gpt-6-sol" and not _lazy:
+            for _node in self.nodes.values():
+                if (_node.get("model") == "sol"
+                        and (_node.get("scope") or {}).get("model_version")
+                        not in ("6", "5.6")):
+                    _node.setdefault("scope", {})["model_version"] = "6"
+            _m["sol"] = MODELS["sol"]
         # ☞ the flash/pro rows moved with the provider lane (2026-09-02: the
         # Antigravity CLI replaced the previous Google lane, and the ids its
         # registry knows are not the ones the old lane pinned). Same rule:
@@ -1054,179 +1682,9 @@ class Org:
         # taken for a live handle by nothing — dropped so the doc carries no
         # stale marker (the antigravity leg only ever resumes a conversation
         # id it harvested ITSELF, under its own marker).
-        for _n in self.nodes.values():
-            _n.pop("gemini_session", None)
-        # ☞ …and the GRANTS THEMSELVES, for the same reason every migration
-        # above exists: the forward fix in `_chain_acquire` reaches only new
-        # cascades, and the operator's own coordinator is sitting on 104.2
-        # RIGHT NOW with a credit bar it cannot move. A doc that already
-        # carries a fractional grant is not repaired by anything else, so it
-        # is repaired here (user ruling 2026-09-04: a fractional grant is an
-        # invalid state; round UP to the next whole credit).
-        #
-        # ⚠ UP, NEVER DOWN, and never at spend time. Rounding a grant down
-        # would silently take back capacity somebody was granted, which is the
-        # one outcome worse than an operation that refuses. Nothing here
-        # touches a SEAT: `seat_cost` still reads the tier table, gpt-reserve
-        # and luna still cost 0.2, and `free` is still whatever the seats
-        # leave over — routinely a fraction, and correct as one.
-        #
-        # DEEPEST FIRST, and `max(grant, committed)` rather than plain ceil:
-        # rounding a child up raises its parent's commitment by the same
-        # fraction, so the parent is measured AFTER its children have moved
-        # and is lifted to cover them. That keeps `free() >= 0` — the audit
-        # invariant — true through the migration instead of merely before it.
-        #
-        # ⚠ ONCE PER DOCUMENT, and the flag is the whole point — this is the
-        # one migration in this hook that must NOT stand as a rule. A
-        # `switch_model` MELT still lands a seat difference in a grant, on
-        # purpose, so the node's total holding does not move (opus 5 → or-free
-        # 0.1 on a 0-grant node leaves grant 0.1 and holding 0.2). Rounding
-        # that up costs the PARENT the difference — harmless once, but as a
-        # standing rule every switch-and-reload cycle would add up to a credit
-        # out of nowhere, which is exactly the slow mint a one-way rounding
-        # rule produces. `Org.create` runs this same hook on an empty doc, so
-        # a new org is stamped immediately and only documents written before
-        # the ruling are ever touched. The melt itself is reported, not
-        # changed: it is not mine to redesign.
-        #
-        # ⚠ AND IT MUST NOT EXPLODE ON A MALFORMED DOCUMENT. This hook runs on
-        # EVERY load, including the synthetic and half-written docs the store
-        # suites feed it, and `committed`/`seat_cost`/`ancestors` all assume a
-        # well-formed node table (a node with no `parent` key raised KeyError
-        # out of `Org.__init__` and took `load_org` with it — caught by
-        # test_sqlite_store before this landed). So the precondition is stated
-        # and checked rather than caught: if any node is missing a field this
-        # needs, the repair is SKIPPED AND NOT STAMPED, so a later load of a
-        # sound document still performs it.
-        if not _doc.get("whole_grants_v1"):
-            _sound = all(
-                isinstance(_v, dict) and "parent" in _v and "grant" in _v
-                and _v.get("model") in (_doc.get("tiers") or {})
-                for _v in self.nodes.values())
-
-            def _rank(k: str) -> int:        # depth, cycle-safe, no node() calls
-                d, seen = 0, {k}
-                cur = self.nodes[k].get("parent")
-                while isinstance(cur, str) and cur in self.nodes and cur not in seen:
-                    seen.add(cur)
-                    d += 1
-                    cur = self.nodes[cur].get("parent")
-                return -d
-
-            if _sound:
-                for _nid in sorted(self.nodes, key=_rank):
-                    _n = self.nodes[_nid]
-                    _want = math.ceil(_q(max(float(_n.get("grant") or 0),
-                                             self.committed(_nid))))
-                    if _want != _n.get("grant"):
-                        _n["grant"] = _want
-                _doc["whole_grants_v1"] = True
-        # pre-№41 spend freezes wrote the usage-limit keys (error, until=None);
-        # re-tag them so clear_hard_freeze("spend") actually clears them
-        # instead of leaving a stale-reason freeze the API reports as cleared
-        for n in self.nodes.values():
-            fz = n.get("frozen")
-            # ⚠ `until_ts` is checked as well as `until`: the CLI's usual
-            # wording carries only an epoch, so a genuine usage-limit freeze
-            # routinely has a machine time and no human one. Together with the
-            # `limit` kind flag (FrozenInfo) this stops the retag eating a real
-            # usage-limit freeze and making it permanently unresumable.
-            if (isinstance(fz, dict) and fz.get("error") and not fz.get("until")
-                    and not fz.get("until_ts") and not fz.get("resume_texts")
-                    and not any(v is True for v in fz.values())):
-                fz["spend"] = True
-                fz["spend_error"] = fz.pop("error")
-                fz.pop("until", None)
-        # FABLE-2 (redteam + user report 2026-08-06): a fable_lock that
-        # recorded a reset time releases itself once it passes — the same
-        # rule the per-node freeze follows. (The timeless-waits-for-the-user
-        # rule lasted one commit — see STUCK-1 below: timeless now MEANS
-        # artifact.) FABLE-3: the halt was LOUD (parent asked to
-        # cover the work, peers and the node told), so the release
-        # announces itself to the same parties. Announcing from a load hook
-        # is safe for the same reason the release is: the TRIGGER (the
-        # lock) is consumed in the same mutation, so once any save persists
-        # this copy no later load re-announces, and unsaved copies die with
-        # their load and re-derive identically — every reader sees exactly
-        # one announcement. (Redteam-measured 2026-08-06: five unsaved
-        # reads move nothing on disk; the first save persists exactly one
-        # copy; later save cycles add nothing.)
-        # ※ An unsaved reader's release being INVISIBLE on disk is the
-        # property that makes this safe, not a bug — do NOT "fix" it by
-        # saving from this hook, which would turn every read into a write.
-        # STUCK-1 (user report 2026-08-06: already-halted fable agents could
-        # not be unfrozen — the d40dd82 fix was forward-only). A TIMELESS
-        # lock is by construction a pre-fix artifact: since d40dd82 the
-        # escalation always stamps until_ts (the freeze parses a reset or
-        # takes the 300 s probe floor BEFORE fable_limit_hit runs), so no
-        # new lock can be timeless — and most on-disk timeless locks were
-        # written by the misread itself (a session limit recorded as weekly
-        # exhaustion). Release them rather than back-date: back-dating keeps
-        # agents halted for a limit that was never hit.
-        # ⚠ …EXCEPT a lock that positively says its reset time is UNKNOWN
-        # (`no_reset`). Added 2026-08-07 with the captured Fable-tier message
-        # (neoja, live): "You've reached your Fable 5 limit. Run
-        # /usage-credits to continue or switch models with /model." — it
-        # carries NO horizon at all, so the assumption above ("no new lock
-        # can be timeless") stopped being true the moment the escalation
-        # started firing on it. Without this marker such a lock is
-        # indistinguishable from a pre-fix artifact and gets released on the
-        # very next load. `no_reset` is the difference between "nobody told
-        # this lock when it ends" and "this lock predates the field": the
-        # first waits for the user, who now HAS controls for it (the ⚙ clear
-        # and the per-node unstick override) — which is what the original
-        # timeless-waits-for-the-user rule assumed and did not yet have.
-        _fl = self.d.get("fable_lock") or {}
-        if _fl and not _fl.get("no_reset") and (
-                not _fl.get("until_ts")
-                or _time.time() >= float(_fl["until_ts"])):
-            _freed = [k for k, v in self.nodes.items()
-                      if v.get("limit_locked")]
-            self.d.pop("fable_lock", None)
-            for n in self.nodes.values():
-                n.pop("limit_locked", None)
-            for k in _freed:
-                _p = self.nodes[k]["parent"]
-                # typed (family lifecycle): policy.limit_reset per audience
-                self._notify_ev([_p], self._limit_reset_ev(k, "report", []))
-                self._notify_ev(self._peers_of(_p, k), self._limit_reset_ev(k, "peer", []))
-                self._notify_ev([k], self._limit_reset_ev(k, "self", []))
-            if _freed:
-                uev = self._limit_reset_ev(sorted(_freed)[0], "user", sorted(_freed))
-                self.to_user_inbox({
-                    "from": SYSTEM, "kind": "notice", "at": now(),
-                    "body": events.render_agent(uev)}, uev)
-        # …and ORPHANED node flags (redteam 2026-08-06, the neoja card): a
-        # limit_locked with NO fable_lock behind it is the same artifact
-        # class as the timeless lock — the org lock went away without the
-        # node sweep, and resume_frozen skips flagged nodes forever, so a
-        # healthy freeze underneath advertised a reset that could never
-        # fire ("resumes 3pm", waits past 3pm, nothing). No announcement:
-        # the freeze underneath resumes through its own machinery.
-        if not self.d.get("fable_lock"):
-            for n in self.nodes.values():
-                n.pop("limit_locked", None)
-        # org holdings carry RW/RO modes (user ruling — configured on the eye's
-        # gear, mirroring per-agent folder access); legacy string lists migrate
-        self.d["dirs"] = norm_dirs(self.d.get("dirs"))
-        # migrate pre-typed-actor docs: bare 'user'/'system' sentinels → @-forms
-        # (safe exactly once, before any agent may be NAMED user/system)
-        if not self.d.get("_actors_typed"):
-            for a in self.d.get("audiences", []):
-                if a.get("grantor") == "user":
-                    a["grantor"] = USER
-            for r in self.d.get("audience_requests", []):
-                for f in ("target", "currently_at"):
-                    if r.get(f) == "user":
-                        r[f] = USER
-            for m in self.d.get("user_inbox", []):
-                if m.get("from") in ("system", "user"):
-                    m["from"] = SYSTEM if m["from"] == "system" else USER
-            self.d["_actors_typed"] = True
-
-        from .notification_state import reconcile_attention
-        reconcile_attention(self.d, initialize_only=True)
+        if not _lazy:
+            for _n in self.nodes.values():
+                _n.pop("gemini_session", None)
 
     # ---------------------------------------------------------------- factory
     @staticmethod
@@ -1325,8 +1783,17 @@ class Org:
         # `index` (see `children_index`) only supplies the candidates — the
         # same ones the scan would have found, partitioned by the same key.
         # Everything that DECIDES anything is below it and runs either way.
-        cand = (index.get(nid, ()) if index is not None
-                else [k for k, v in self.nodes.items() if v["parent"] == nid])
+        # Without an index on on-demand rows, the candidates come from one
+        # statement (`store.lazy_children_of`) rather than decoding the whole
+        # table — a settings save or model switch decoded every row through
+        # here (agent-settings-save); the same rule then filters and sorts.
+        if index is not None:
+            cand = index.get(nid, ())
+        else:
+            from . import store                          # noqa: PLC0415 — cycle
+            lazy = store.lazy_children_of(self, nid)
+            cand = (lazy if lazy is not None
+                    else [k for k, v in self.nodes.items() if v["parent"] == nid])
         kids = [k for k in cand
                 if self.nodes[k]["state"] != "archived" or not live_only]
         kids.sort(key=lambda k: (self.nodes[k].get("ui_order", 0), self.nodes[k]["created"]))
@@ -2037,24 +2504,21 @@ class Org:
 
         `outward` (post_mail only — user ruling 2026-08-05, relayed): a bare
         name that is NO node here auto-resolves to the fewest-hop outside
-        transport. @org: (a local org) and @mcp: (a polling external chat)
-        are MUTUALLY EXCLUSIVE tiers and either outranks the hub; only when
-        neither matches does the name go out as @net:. Ambiguity — two
-        candidates anywhere short of the hub tier, or two hub clients —
-        REFUSES and names the candidates; it never guesses. Explicit
-        prefixes keep working as disambiguators. Internal names always win:
-        an agent addressing a colleague is never hijacked by an org that
-        happens to share the name."""
+        transport. @org: (a local org) outranks the hub; only when it does
+        not match does the name go out as @net:. @mcp: is no longer a tier
+        (user ruling 2026-09-25: outside chats use the mail hub exclusively),
+        so an old @mcp: correspondent in the org inbox never captures a bare
+        name. Ambiguity — two candidates anywhere short of the hub tier, or
+        two hub clients — REFUSES and names the candidates; it never guesses.
+        Explicit prefixes keep working as disambiguators. Internal names
+        always win: an agent addressing a colleague is never hijacked by an
+        org that happens to share the name."""
         if to == "user" and "user" not in self.nodes:
             return USER
         if (outward and to and not to.startswith("@")
                 and to != USER and to not in self.nodes):
             cand = external_candidates(to)
             near = [f"@org:{s}" for s in cand.get("org") or []]
-            near += sorted({
-                e["peer"] for e in self.d.get("org_inbox") or []
-                if str(e.get("peer", "")).startswith("@mcp:")
-                and e["peer"][5:] == to})
             hub = [f"@net:{s}" for s in cand.get("net") or []]
             if len(near) == 1:
                 return near[0]
@@ -2170,6 +2634,173 @@ class Org:
                         fixed += 1
         migs[self.MAIL_LOG_ID_MIGRATION] = {"at": now(), "repaired": fixed}
 
+    SEAT_ID_MIGRATION = "principal_seat_ids"
+
+    @staticmethod
+    def legacy_seat_id(nid: str, node: Mapping[str, Any]) -> str:
+        """The seat id a legacy (pre-`seat_id`) node is given, DETERMINISTICALLY.
+
+        Deterministic because the backfill runs in the constructor and reaches
+        disk only on the next save: every construction in between (a shared
+        read snapshot, the next write cycle) must give the same seat, or a
+        cursor or record stamped from one would read as another seat's. The
+        name (`uuid5`) is taken over the node's own uuid4 `session_id` — the
+        entropy — together with its key and creation time. Nothing that
+        changes those three writes without a save first, and that save
+        persists the value derived before the change."""
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, "orgtree:legacy-seat:v1\0" + "\0".join(
+            str(x) for x in (nid, node.get("session_id"), node.get("created")))))
+
+    def _backfill_seat_ids(self) -> None:
+        """Give every node a `seat_id` at load (P04a-1): the principal every
+        cursor and manual record is bound to must exist before either relies
+        on it, not only after a durable call (`api._agent_identity`'s lazy
+        mint, kept as a defence).
+
+        A lineage predecessor `nid@g` is the SAME principal as its lineage
+        head (v6 SCHEMA-CATALOG: archived copies of `seat_id` are not assumed
+        unique): it takes the head's seat, and a head without one adopts the
+        first seat found on its stack before a new one is derived. A present
+        id is never changed. Idempotent: a second construction finds nothing
+        to do and leaves the marker as it is, so a clean load is still clean.
+        The marker records how many were given, once, and adds to that count
+        if an imported or restored node ever arrives without one."""
+        if _lazy_rows(self.d.get("nodes")) and self.SEAT_ID_MIGRATION in (
+                self.d.get("_migrations") or {}):
+            return      # per row at decode: a row with no seat_id decodes all
+        backfill_seat_ids(self.nodes, self.d)
+
+    #: the row-shaped sections whose rows name their owning node, and the field
+    ORPHAN_ROW_FIELDS: Final = {"op_receipts": "node", "documents": "node",
+                                "watchdog_tombs": "owner"}
+
+    def _freed_key_holdings(self, base: str) -> dict[str, list[str]]:
+        """`{key: [section, ...]}` for every per-node record filed under `base`
+        or one of its lineage keys (`base@g`) that NO node holds — rows a
+        deleted seat (or a seat renamed away before P04a-1) left behind
+        (`on_delete: left`). Pure."""
+        def ours(k: Any) -> bool:
+            return (isinstance(k, str) and (k == base or k.startswith(base + "@"))
+                    and k not in self.nodes)
+        held: dict[str, list[str]] = {}
+        for key, (cls, shape, _) in NODE_KEYED_SECTIONS.items():
+            if cls != "rekey" or shape != "by_node" or key == "nodes" or key not in self.d:
+                continue            # never touch (materialise) any other section
+            sec = self.d.get(key)
+            if isinstance(sec, Mapping):
+                # owner ids only: a lazy dict log (mail_log, steer_attempts,
+                # ...) lists its owners without loading their rows, so a hire
+                # does not pull a multi-MB archive into memory
+                present = getattr(sec, "_present", None)
+                # a row-backed receipt section names its owners without
+                # reading their receipts (iterating it reads every row)
+                owner_keys = getattr(sec, "owner_keys", None)
+                owners = (owner_keys() if owner_keys is not None else
+                          list(sec) if present is None else
+                          [*dict.keys(sec), *(o for o in present
+                                              if o not in getattr(sec, "_dropped", ())
+                                              and not dict.__contains__(sec, o))])
+                for k in owners:
+                    if ours(k):
+                        held.setdefault(k, []).append(key)
+        for key, field in self.ORPHAN_ROW_FIELDS.items():
+            if key in self.d:
+                for r in cast("list[Any]", self.d.get(key) or []):
+                    if isinstance(r, Mapping) and ours(r.get(field)) \
+                            and key not in held.setdefault(r[field], []):
+                        held[r[field]].append(key)
+        return {k: v for k, v in held.items() if v}
+
+    def _quarantine_freed_key(self, base: str, *, cause: str, seat: Any) -> list[str]:
+        """Move every record `_freed_key_holdings(base)` finds OUT of the way
+        before a seat takes `base` (P04a-1 review F1, decision2): a rename onto
+        a freed name, or a hire that reuses one. Without this the new seat's
+        rows overwrite them (a purge) or, where it has none, they read as its
+        own (a reattribution).
+
+        Each held key `k` moves, whole and unchanged, to `k#orphan-<12 hex>`.
+        `#` is outside the slug alphabet, so that key can never be a node's:
+        nothing delivers to it, claims it or looks a receipt up under it.
+        Receipt, document and tomb rows keep `orphaned_from` = `k` (a receipt
+        also its `fp_node`). `orphan_keys` records each move durably: where
+        from, when, why, which seat was arriving — and `owner: None`, because
+        which deleted seat wrote the rows is not known and is not guessed.
+        Nothing is purged, re-attributed or aged out; `orphans()` reports them,
+        and the P04 cutover maps them as a closed legacy corpus. Cannot raise
+        on a well-formed document; returns the quarantine keys."""
+        held = self._freed_key_holdings(base)
+        index = cast("dict[str, Any]", self.d.setdefault("orphan_keys", {})) if held else {}
+        made = []
+        for k in sorted(held):
+            q = f"{k}#orphan-{uuid.uuid4().hex[:12]}"
+            for key in held[k]:
+                field = self.ORPHAN_ROW_FIELDS.get(key)
+                if field is None:
+                    box = cast("dict[str, Any]", self.d[key])
+                    box[q] = box.pop(k)
+                    continue
+                for r in cast("list[Any]", self.d.get(key) or []):
+                    if isinstance(r, dict) and r.get(field) == k:
+                        if key == "op_receipts":
+                            r.setdefault("fp_node", k)
+                        r["orphaned_from"] = k
+                        r[field] = q
+            index[q] = {"from": k, "at": now(), "cause": cause, "arriving_seat": seat,
+                        "owner": None, "sections": sorted(held[k])}
+            made.append(q)
+        return made
+
+    def orphans(self) -> list[dict[str, Any]]:
+        """REPORT-ONLY (P04a-1): per-node records no current seat can claim.
+
+        `missing_node` — filed under a key with no node (left behind by a
+        delete, or by a rename before P04a-1). `stamp_mismatch` — a journal
+        batch's manual record or a manual attempt whose mailbox or seat stamp
+        is not the current node's (a same-name successor's key). Reads only:
+        nothing is attributed, purged, folded or delivered here. Such rows stay
+        protected by their stamps until a reviewed P04a-2 purge (future
+        deletes) or the P04 cutover map (rows that exist today) decides them."""
+        out: list[dict[str, Any]] = []
+        for key, (_cls, shape, _) in NODE_KEYED_SECTIONS.items():
+            if key == "nodes":
+                continue
+            sec = self.d.get(key)
+            if shape == "by_node" and isinstance(sec, Mapping):
+                for owner in sec:
+                    if owner not in self.nodes:
+                        v = sec[owner]
+                        out.append({"section": key, "key": owner, "reason": "missing_node",
+                                    "rows": len(v) if isinstance(v, (list, dict, Mapping)) else 1})
+        rows = self.d.get("op_receipts")
+        for row in rows if isinstance(rows, list) else ():
+            if isinstance(row, Mapping) and row.get("node") not in self.nodes:
+                out.append({"section": "op_receipts", "key": row.get("node"),
+                            "reason": "missing_node", "id": row.get("id")})
+        for doc in cast("list[Any]", self.d.get("documents") or []):
+            if isinstance(doc, Mapping) and doc.get("node") not in self.nodes:
+                out.append({"section": "documents", "key": doc.get("node"),
+                            "reason": "missing_node", "id": doc.get("id")})
+
+        def stamps(section: str, owner: str, ident: str, rec: Any) -> None:
+            node = self.nodes.get(owner)
+            if node is None or not isinstance(rec, Mapping):
+                return
+            bad = [f for f, have in (("mailbox", node.get("mailbox_id")),
+                                     ("seat", node.get("seat_id")))
+                   if f in rec and rec.get(f) != have]
+            if bad:
+                out.append({"section": section, "key": owner, "reason": "stamp_mismatch",
+                            "id": ident, "fields": bad})
+
+        for owner, batches in cast("dict[str, Any]", self.d.get("delivering") or {}).items():
+            for b in batches if isinstance(batches, list) else ():
+                if isinstance(b, Mapping) and isinstance(b.get("manual"), Mapping):
+                    stamps("delivering", owner, str(b.get("tok")), b["manual"])
+        for owner, atts in cast("dict[str, Any]", self.d.get("manual_attempts") or {}).items():
+            for did, att in atts.items() if isinstance(atts, Mapping) else ():
+                stamps("manual_attempts", owner, str(did), att)
+        return out
+
     def to_user_inbox(self, entry: UserMailEntry,
                       ev: Mapping[str, Any] | None = None) -> UserMailEntry:
         """Put one entry in the user's mailbox, on the right side of the read
@@ -2227,12 +2858,9 @@ class Org:
                 e["body"] = events.render_agent(ev)
             e["ev"] = events.encode_row_ev(ev, e)
         if entry.get("kind") == "notice":
-            log = self.d.setdefault("user_mail_log", [])
-            log.append(entry)
-            # the archive's own invariants, mirrored from the read endpoint:
-            # CHRONOLOGICAL (the reader renders by list position).
-            # `at` is ISO-8601 Z, so a string sort is a time sort.
-            log.sort(key=lambda m: m.get("at") or "")
+            # the archive's own invariant, shared with the read endpoint:
+            # CHRONOLOGICAL, filed without rewriting the archive
+            file_read_mail(self.d.setdefault("user_mail_log", []), [entry])
 
         else:
             self.d.setdefault("user_inbox", []).append(entry)
@@ -2250,6 +2878,767 @@ class Org:
         """
         return [*self.d.get("user_inbox", []),
                 *self.d.get("user_mail_log", [])]
+
+    # ---- M0a: durable receiver-owned receive order, and ONE deposit door ----
+    #
+    # WHY THIS EXISTS. A mailbox's pending list is not a receive order. The
+    # fold-back paths PREPEND drained rows back onto it, so array position
+    # reads as "arrived first" for a row that arrived last; a drain empties the
+    # list entirely and the archive keeps only what was archived. Anything that
+    # needs to say "B arrived after A" therefore needs an ordinal minted once,
+    # by the RECEIVER's mailbox, at the moment the message is created there —
+    # one that survives the drain, the journal, the fold-back and every
+    # lifecycle operation that keeps the same mailbox.
+    #
+    # THREE FACTS, kept deliberately separate:
+    #   • `recv_seq`   — the ordinal. Allocated ONCE, never re-allocated when
+    #                    the row MOVES.
+    #   • `seq_origin` — how it was obtained: "deposit" (minted at a real
+    #                    creation door, so the order is one that happened) or
+    #                    "migration_unproven" (assigned by the enumeration
+    #                    below over rows predating this mechanism — a TOTAL
+    #                    order, NOT recovered history).
+    #   • `mailbox`    — which mailbox identity the ordinal belongs to, so a
+    #                    cursor taken against a deleted-and-recreated same-name
+    #                    mailbox cannot be read as current.
+    #
+    # WHERE THE HIGH-WATER LIVES. On the NODE dict, not in a side table. That
+    # is not a filing preference. The node dict is what `rehire`, `reseed` and
+    # `cheap_compact` mutate IN PLACE (so the counter survives them for free),
+    # what `rename` re-keys along with the mailbox (so an identity rename keeps
+    # ONE mailbox with ONE counter), and what `delete` and
+    # `drop_phantom_generation` POP in the same breath as `mail`/`mail_log` (so
+    # a later hire at a freed name gets a fresh node, a fresh `mailbox_id` and
+    # a fresh counter). The recreation FENCING invariant therefore holds by
+    # construction. A document-level map would have needed all of those edited
+    # by hand, and would have drifted the first time one was missed.
+    #
+    # ⚠ WHAT THIS STAGE DOES NOT DO, deliberately: nothing reads `recv_seq` to
+    # decide delivery order, no inbox action is exposed, and no carrier or
+    # reclaim behaviour changes. This mints and preserves the fact; consuming
+    # it is a later stage.
+
+    MAIL_SEQ_ORIGIN_DEPOSIT: Final = "deposit"
+    MAIL_SEQ_ORIGIN_MIGRATION: Final = "migration_unproven"
+    #: deposited into a key that is not a node — see `deposit_mail`
+    MAIL_SEQ_ORIGIN_UNRESOLVED: Final = "unresolved_mailbox"
+    #: the SUPPORTED domain of a row's `seq_origin`: exactly what this class
+    #: mints. An origin from a future version is stored evidence this version
+    #: cannot interpret, so it refuses the mailbox instead of relabelling it.
+    MAIL_SEQ_ORIGINS: Final = (MAIL_SEQ_ORIGIN_DEPOSIT,
+                               MAIL_SEQ_ORIGIN_MIGRATION,
+                               MAIL_SEQ_ORIGIN_UNRESOLVED)
+    #: a row's ordering fields, and the conflict each raises when it is PRESENT
+    #: and outside its domain — see `_unsupported_order_fields`
+    UNSUPPORTED_ORDER_REASONS: Final = (
+        ("recv_seq", "unsupported_ordinal"),
+        ("seq_origin", "unsupported_origin"),
+        ("mailbox", "unsupported_mailbox_stamp"))
+
+    def mailbox_identity(self, to: str) -> str | None:
+        """This mailbox's durable identity, minted on first use.
+
+        None when `to` names no node: there is no mailbox for the identity to
+        BE the identity of, and minting one anyway would put identity into the
+        document on behalf of something that does not exist."""
+        n = self.nodes.get(to)
+        if n is None:
+            return None
+        mid = n.get("mailbox_id")
+        if not mid:
+            mid = uuid.uuid4().hex[:12]
+            n["mailbox_id"] = mid
+        return str(mid)
+
+    #: node fields carrying MAILBOX AUTHORITY — see `_strip_mailbox_authority`
+    MAILBOX_AUTHORITY_FIELDS: Final = ("mailbox_id", "mail_seq")
+
+    @staticmethod
+    def _strip_mailbox_authority(node: Any) -> None:
+        """Remove the mailbox identity and its high-water from a node dict that
+        was COPIED to a NEW, separately addressable id.
+
+        The lineage splits (`_archive_session_in_place`, `_compact_split_apply`,
+        the CLI compaction registration and `reseed`) each build their archived
+        predecessor as `dict(n)` — every field of the live node, under a new
+        `nid@gen` key. The SEAT survives at `nid`, so `nid` rightly keeps the
+        mailbox and the counter. The predecessor is a DIFFERENT mailbox: it has
+        its own key, it can be messaged, and ordinary deposits land in it. If it
+        inherited `mailbox_id` and `mail_seq` it would mint ordinals under the
+        successor's identity from the successor's counter, and two genuinely
+        different messages in two genuinely different mailboxes would carry the
+        same `(mailbox, recv_seq)` — which is precisely the pair everything
+        downstream is meant to be able to treat as unique. Owner preflight of
+        b8efd35 reproduced that with cheap_compact.
+
+        Popped, not zeroed: absent is what a mailbox that has never received
+        anything looks like, and the predecessor has not. Its first deposit
+        mints a fresh identity and starts at 1. Historical rows are NOT touched
+        — they stay in the successor's `mail`/`mail_log` under the successor's
+        key and keep the ids, ordinals and stamps they were given."""
+        for field in Org.MAILBOX_AUTHORITY_FIELDS:
+            node.pop(field, None)
+
+    @staticmethod
+    def _recv_ordinal(value: Any) -> int | None:
+        """The SUPPORTED domain of a `recv_seq`, or None for "not an ordinal".
+
+        None NEVER means "absent" — a caller that must tell an absent field
+        from a present unsupported one checks for the key itself. Two traps
+        this closes, both reproduced in owner preflight: `bool` IS an `int` in
+        Python, so a plain `isinstance(v, int)` reads `recv_seq: True` as
+        ordinal 1 and sorts a row by it; and ordinals are allocated from 1
+        upward, so 0 and negatives are outside the domain rather than early."""
+        if isinstance(value, bool) or not isinstance(value, int):
+            return None
+        return value if value >= 1 else None
+
+    @staticmethod
+    def _stored_high_water(value: Any) -> int | None:
+        """The SUPPORTED domain of a stored `mail_seq`: a non-bool int >= 0.
+
+        Same rule as `_recv_ordinal` and the same warning: None here means
+        "outside the domain", and the caller decides whether that is an absent
+        field (fine, a legacy mailbox) or present unsupported data (not fine —
+        refuse and report it, never normalise it into an absence)."""
+        if isinstance(value, bool) or not isinstance(value, int):
+            return None
+        return value if value >= 0 else None
+
+    @classmethod
+    def _unsupported_order_fields(cls, copy: Any) -> list[tuple[str, Any]]:
+        """Every ordering field PRESENT on one physical copy and outside its
+        supported domain, as `(field, value)` pairs. Reads only.
+
+        ⚠ PRESENCE IS THE KEY, NOT THE VALUE. This is the rule `mail_seq_state`
+        already applies to the stored counter, applied to the ROWS that counter
+        counts — the place it was missing. A field that is absent is the
+        pre-M0a legacy row this migration exists for and stays eligible. A
+        field that is THERE holding something outside its domain is stored
+        evidence, and normalising it into an absence is what gives the
+        migration permission to overwrite it with an order nobody observed.
+
+        Reviewer finding f1 (2026-09-22) reproduced exactly that against this
+        candidate: `recv_seq: None` was excluded from the domain check by an
+        `is not None` guard and was then allocated ordinal 1; `seq_origin` and
+        `mailbox` were filtered by TRUTHINESS and coerced with `str()`, so
+        `seq_origin: 'future-unsupported'`, `seq_origin: None`, `mailbox: False`
+        and `mailbox: ''` were each replaced with `migration_unproven` and a
+        freshly minted identity, with no conflict and no refusal reported.
+
+        The three domains. `recv_seq` is `_recv_ordinal`'s — a non-bool int >= 1.
+        `seq_origin` is exactly `MAIL_SEQ_ORIGINS`. `mailbox` is a NON-EMPTY
+        string, because an identity is minted as twelve hex characters and is
+        never `''`, `False` or a number; an empty stamp is not an unstamped
+        row, it is a stamp that lost its value."""
+        if not isinstance(copy, dict):
+            return []
+        bad: list[tuple[str, Any]] = []
+        if "recv_seq" in copy and cls._recv_ordinal(copy["recv_seq"]) is None:
+            bad.append(("recv_seq", copy["recv_seq"]))
+        if "seq_origin" in copy and copy["seq_origin"] not in cls.MAIL_SEQ_ORIGINS:
+            bad.append(("seq_origin", copy["seq_origin"]))
+        if "mailbox" in copy and cls._mailbox_stamp(copy["mailbox"]) is None:
+            bad.append(("mailbox", copy["mailbox"]))
+        return bad
+
+    @staticmethod
+    def _mailbox_stamp(value: Any) -> str | None:
+        """The SUPPORTED domain of a row's `mailbox` stamp, or None for "not a
+        stamp". An identity is minted as twelve hex characters, so the domain
+        is a NON-EMPTY string.
+
+        Same rule as `_recv_ordinal` and the same warning: None here means
+        OUTSIDE THE DOMAIN, never absent. `False`, `None`, `''`, `0`, `[]` and
+        `{}` are all present data that this is not able to read as an identity,
+        and every one of them is a different thing from a row that carries no
+        stamp at all — which is the supported legacy case, a row numbered
+        before stamping existed. Both readers below check the key themselves
+        and then ask this what the value is."""
+        return value if isinstance(value, str) and value else None
+
+    def _assigned_recv_max(self, to: str, *, bounded: bool = False) -> int:
+        """The largest ordinal ALREADY assigned anywhere this mailbox's rows
+        can still be seen: pending box, archive, and the delivery journal.
+
+        Decision 9 is explicit that this is a SECOND quantity and not a
+        substitute for the stored high-water. A stored counter can sit BEHIND
+        its own rows (a document written before this mechanism, a half-applied
+        migration, a restored snapshot), and allocating from it alone would
+        hand out an ordinal already in use. It can also sit AHEAD of them, and
+        allocating from this value alone would let those rows silently rewind
+        the counter. Allocation takes the maximum of both."""
+        from . import store
+        archived = store.mail_archive_max(self.d, to) if bounded else None
+        best = archived or 0
+        sources = [((self.d.get("mail") or {}).get(to) or [])]
+        if archived is None:
+            sources.append((self.d.get("mail_log") or {}).get(to) or [])
+        for rows in sources:
+            for m in rows:
+                if isinstance(m, dict):
+                    seq = self._recv_ordinal(m.get("recv_seq"))
+                    best = max(best, seq or 0)
+        for b in ((self.d.get("delivering") or {}).get(to) or []):
+            if isinstance(b, dict):
+                for m in (b.get("mail") or []):
+                    if isinstance(m, dict):
+                        seq = self._recv_ordinal(m.get("recv_seq"))
+                        best = max(best, seq or 0)
+        return best
+
+    def mail_seq_state(self, to: str) -> dict[str, Any]:
+        """PURE READ of one mailbox's ordering state. Mints nothing, allocates
+        nothing, writes nothing — `mailbox` is whatever is already stored, or
+        None for a mailbox never deposited into. This is the value a caller
+        observes and then hands back as `expect_stored`.
+
+        `stored` is the counter when it is in the supported domain. It is None
+        both for a mailbox that has none and for one holding something that is
+        not a counter at all, so `stored_present` and `stored_supported` say
+        which: a mailbox reading `stored=None, stored_present=True,
+        stored_supported=False` is holding unsupported data, and handing its
+        None back as `expect_stored` is NOT an observation of absence — the
+        migration refuses it rather than overwriting.
+
+        ⚠ PRESENCE IS THE KEY, NOT THE VALUE. `mail_seq: None` is PRESENT data
+        outside the declared domain (a non-bool int >= 0); a MISSING key is the
+        legacy mailbox this whole migration exists for. Asking `.get()` alone
+        collapses the two, and the collapse is not cosmetic: it made an honest
+        `expect_stored=None` — "I observed no counter" — match a stored null and
+        admit a write over it. Owner preflight of 3d45fd5 reproduced that."""
+        n = self.nodes.get(to) or {}
+        present = "mail_seq" in n
+        raw = n.get("mail_seq")
+        stored = self._stored_high_water(raw) if present else None
+        assigned = self._assigned_recv_max(to)
+        return {"mailbox": (str(n["mailbox_id"]) if n.get("mailbox_id")
+                            else None),
+                "node_exists": to in self.nodes,
+                "stored": stored,
+                "stored_present": present,
+                "stored_supported": (not present) or stored is not None,
+                "stored_type": (type(raw).__name__
+                                if present and stored is None else None),
+                "assigned_max": assigned,
+                "base": max(stored or 0, assigned)}
+
+    def _allocate_recv_seq(self, to: str, count: int = 1) -> list[int]:
+        """Hand out `count` consecutive ordinals for one mailbox and advance
+        its stored high-water, as ONE read-modify-write.
+
+        Every deposit door runs inside a caller that holds `store.DOC_LOCK`
+        over a freshly loaded document, so nothing interleaves between the read
+        and the write here. The migration entry point additionally compares
+        against the value ITS caller observed, because that caller may have
+        read the document at some earlier point — see
+        `migrate_mail_receive_order`.
+
+        A stored value OUTSIDE the supported domain is tolerated here and
+        allocation proceeds from the assigned maximum, because the alternative
+        is refusing a DEPOSIT — and losing a message to bookkeeping is a far
+        worse failure than an unordered one. The migration is the opposite
+        case: it is explicitly invoked, it rewrites nothing that would be lost
+        by stopping, and it REFUSES such a mailbox instead.
+
+        ⚠ `count=0` WRITES NOTHING. Asking for no ordinals stores no
+        high-water, which is right for a caller that wanted none — but it
+        means this is NOT where a caller goes to durably record a floor it
+        merely computed. `migrate_mail_receive_order` persists that itself."""
+        n = self.nodes.get(to)
+        if n is None:
+            return []
+        base = max(self._stored_high_water(n.get("mail_seq")) or 0,
+                   self._assigned_recv_max(to, bounded=True))
+        seqs = list(range(base + 1, base + 1 + max(0, int(count))))
+        if seqs:
+            n["mail_seq"] = seqs[-1]
+        return seqs
+
+    def deposit_mail(self, to: str, entry: Mapping[str, Any], *,
+                     archive: bool = True,
+                     supersede: Callable[[Any], bool] | None = None
+                     ) -> dict[str, Any]:
+        """THE ONE DOOR a newly created message goes through to enter an agent
+        mailbox: stamp the receive ordinal, append the pending copy, mirror the
+        archive copy.
+
+        Every fresh-creation site calls this. MOVEMENT does not — that is
+        `reinsert_mail`. The split is the whole point of the audit: "what can
+        mint a receive ordinal?" is answered by this method's call sites rather
+        than by surveying every `d["mail"]` subscript in the backend.
+
+        Each producer's own policy stays visible AT ITS CALL SITE rather than
+        being hand-rolled beside a raw append:
+        • `archive=False` — the one producer that deliberately keeps no
+          `mail_log` copy (the self-heal invariant announcement).
+        • `supersede` — a producer whose new message REPLACES an unread one in
+          place instead of stacking (the restart notice again: one unread
+          "orgtree restarted" row, not one per restart). The replacement is a
+          NEW message with a new id, so it takes a NEW ordinal; it simply
+          occupies the superseded row's position. At most the first match is
+          replaced, and no other row is touched.
+
+        Returns the stamped row. The caller's `entry` is stamped IN PLACE, so a
+        sender-side copy taken afterwards (post_mail's user Sent row) carries
+        the same ordinal — it is a copy of the same message.
+
+        A `to` naming no node is deposited UNSTAMPED and MARKED, never dropped
+        and never raised on. Losing a message to bookkeeping is a far worse
+        failure than an unordered one, and an honest marker beats an ordinal
+        invented against a mailbox that does not exist."""
+        row = cast("dict[str, Any]", entry)
+        if to in self.nodes:
+            seqs = self._allocate_recv_seq(to, 1)
+            if seqs:
+                row["recv_seq"] = seqs[0]
+                row["seq_origin"] = self.MAIL_SEQ_ORIGIN_DEPOSIT
+                mid = self.mailbox_identity(to)
+                if mid:
+                    row["mailbox"] = mid
+        else:
+            row["seq_origin"] = self.MAIL_SEQ_ORIGIN_UNRESOLVED
+        box = cast("dict[str, list[dict[str, Any]]]",
+                   self.d.setdefault("mail", {})).setdefault(to, [])
+        at = (next((i for i, m in enumerate(box)
+                    if isinstance(m, dict) and supersede(m)), None)
+              if supersede is not None else None)
+        if at is None:
+            box.append(row)
+        else:
+            box[at] = row
+        if archive:
+            from . import store
+            # NO archive is trimmed (user ruling 2026-09-07: mail is kept
+            # until manual removal; the restart notice's 100-row tail was a
+            # leftover, removed 2026-09-29). `supersede` edits the pending box
+            # only, so it takes the same bounded append door: the restart
+            # notice no longer loads every live agent's archive at startup
+            # (1.5 GB at N1000 with 10x history, engine-startup-cost-must-
+            # not-grow-with-retired-h).
+            if store.mail_archive_append(self.d, to, dict(row)):
+                return row
+            log = cast("dict[str, list[dict[str, Any]]]",
+                       self.d.setdefault("mail_log", {})).setdefault(to, [])
+            log.append(dict(row))
+        return row
+
+    def reinsert_mail(self, to: str, rows: Iterable[Mapping[str, Any]], *,
+                      front: bool = True) -> int:
+        """MOVEMENT, not creation: put rows that were ALREADY received back
+        into the pending box (turn-end fold-back, restart reconciliation).
+
+        Allocates nothing and mints nothing. A transfer keeps the ordinal the
+        message was given when it actually arrived, and a row predating the
+        mechanism keeps having none — a recovery path is the worst imaginable
+        place to invent an order nobody observed. No archive copy either: these
+        rows were archived at deposit, and a second copy would show up twice in
+        the inbox tab.
+
+        Returns how many rows were reinserted."""
+        seq = [cast("dict[str, Any]", r) for r in rows]
+        if not seq:
+            return 0
+        target = cast("dict[str, list[dict[str, Any]]]",
+                      self.d.setdefault("mail", {})).setdefault(to, [])
+        if front:
+            target[0:0] = seq
+        else:
+            target.extend(seq)
+        return len(seq)
+
+    def mailbox_in_receive_order(self, to: str) -> list[dict[str, Any]]:
+        """PURE READ: this mailbox's pending rows in receive order.
+
+        A row is ORDERED here only when its ordinal is in the supported domain
+        AND its `mailbox` stamp is this mailbox's own identity (or absent, for
+        a row numbered before stamping existed). Everything else keeps its
+        relative position and sorts AFTER every ordered row — "unordered" is a
+        different claim from "newest", and a caller can tell which it is
+        looking at because `recv_seq` is absent, out of domain, or stamped for
+        somebody else.
+
+        THE STAMP CHECK IS THE POINT. An ordinal is only meaningful inside the
+        mailbox that minted it; a row carrying `mailbox: old-mailbox` in a
+        mailbox whose identity is `new-mailbox` is evidence of an unresolved
+        document, not a position in this order. Owner preflight of b8efd35
+        found this view presenting exactly that row as ordinary ordered data.
+        `mailbox_receive_order_anomalies` names such rows explicitly.
+
+        ⚠ AND A STAMP THAT IS THERE BUT UNREADABLE IS NOT AN ABSENT ONE. The
+        absent stamp is a SUPPORTED exception — a row numbered before stamping
+        existed — and it is the only one. `False`, `None`, `''`, `0`, `[]` and
+        `{}` are present data outside the domain, and this used to collapse all
+        of them into "absent" with `r.get("mailbox") or None`, which put them in
+        the ordered partition and sorted them AHEAD of correctly stamped mail
+        on the strength of an ordinal nothing could attribute. Reviewer finding
+        f2 (2026-09-22) measured it: `[legacy, good(2, own stamp),
+        subject(1, mailbox=False)]` read back as `[subject, good, legacy]`
+        while `mailbox_receive_order_anomalies` was simultaneously reporting
+        `subject` as `unsupported_mailbox_stamp`. The two helpers have to agree
+        about what this document says.
+
+        Unsupported and FOREIGN stamps land in the same unordered tail. They
+        are not the same finding — the anomaly report distinguishes them — but
+        they make the same claim here: this ordinal is not a position in this
+        mailbox's order.
+
+        Repairs nothing. A row is classified, never rewritten, and no identity
+        is minted: `mine` is read straight off the node rather than through
+        `mailbox_identity`, which would write one.
+
+        Nothing live reads this yet. It exists so the ordering this stage
+        establishes is inspectable and testable without a consumer, and so the
+        stage that does consume it has one definition to consume."""
+        mine = self._mailbox_stamp((self.nodes.get(to) or {}).get("mailbox_id"))
+        rows = list((self.d.get("mail") or {}).get(to) or [])
+        keyed: list[tuple[tuple[int, int, int], dict[str, Any]]] = []
+        for i, r in enumerate(rows):
+            if not isinstance(r, dict):
+                keyed.append(((1, 0, i), r))
+                continue
+            seq = self._recv_ordinal(r.get("recv_seq"))
+            if "mailbox" in r:
+                # PRESENT: ordered only when it reads as this mailbox's own
+                # identity. An unsupported value fails the same way a foreign
+                # one does, and a mailbox with no identity of its own can match
+                # nothing at all.
+                own = (mine is not None
+                       and self._mailbox_stamp(r["mailbox"]) == mine)
+            else:
+                own = True                  # ABSENT: the one legacy exception
+            keyed.append(((0, seq, i) if seq is not None and own
+                          else (1, 0, i), r))
+        return [r for _, r in sorted(keyed, key=lambda p: p[0])]
+
+    def _scan_receive_order(self, to: str) -> dict[str, Any]:
+        """PURE READ of every physical copy of every message one mailbox can
+        still see — pending box, archive, delivery journal — together with the
+        UNRESOLVED state found among them. Mints nothing and writes nothing.
+
+        Copies are correlated by message id, which is the only durable handle
+        that survives a row being in three tables at once. What the scan is
+        really for is the difference between two things that look alike from a
+        single copy: a mailbox whose ordering is merely INCOMPLETE (some copies
+        stamped, some not — reconcilable, and the migration does reconcile it)
+        and one whose ordering CONTRADICTS itself (two ordinals for one
+        message, one ordinal for two messages, an ordinal outside the domain,
+        a stamp belonging to another mailbox). The second kind cannot be
+        resolved by guessing, so every case is reported with its reason and its
+        evidence and the migration refuses the mailbox.
+
+        A field that is PRESENT and outside its domain belongs to the second
+        kind, not the first — `_unsupported_order_fields` draws that line for
+        all three row fields, and an absent field stays the ordinary legacy
+        case. The distinction is the same one `mail_seq_state` draws for the
+        stored counter, and it was missing here until reviewer finding f1."""
+        mine = (self.nodes.get(to) or {}).get("mailbox_id") or None
+        copies: dict[str, list[dict[str, Any]]] = {}
+        order: list[str] = []
+        undated: set[str] = set()
+        unidentified = 0
+        conflicts: list[dict[str, Any]] = []
+
+        def see(m: Any) -> None:
+            nonlocal unidentified
+            if not isinstance(m, dict):
+                return
+            mid = str(m.get("id") or "")
+            if not mid:
+                # no durable identity to enumerate BY: this row cannot be
+                # correlated across box, archive and journal, so giving it an
+                # ordinal risks handing a second copy of the same message a
+                # second one. Counted, left alone.
+                unidentified += 1
+                return
+            if mid not in copies:
+                copies[mid] = []
+                order.append(mid)
+            copies[mid].append(m)
+            if not isinstance(m.get("at"), str) or not m["at"]:
+                undated.add(mid)
+
+        for m in ((self.d.get("mail") or {}).get(to) or []):
+            see(m)
+        for m in ((self.d.get("mail_log") or {}).get(to) or []):
+            see(m)
+        for b in ((self.d.get("delivering") or {}).get(to) or []):
+            if isinstance(b, dict):
+                for m in (b.get("mail") or []):
+                    see(m)
+
+        assigned: dict[str, int] = {}
+        origins: dict[str, str | None] = {}
+        for mid in order:
+            ms = copies[mid]
+            # PRESENT-BUT-UNSUPPORTED COMES FIRST, on all three fields at once.
+            # Every one of them is reported — a row holding both a null ordinal
+            # and a `False` stamp names both, because the point of refusing is
+            # to hand back the evidence, and stopping at the first field hides
+            # half of it. See `_unsupported_order_fields` for the domains and
+            # for what the previous filters did instead.
+            unsupported: dict[str, list[Any]] = {}
+            for c in ms:
+                for field, value in self._unsupported_order_fields(c):
+                    unsupported.setdefault(field, []).append(value)
+            if unsupported:
+                for field, reason in self.UNSUPPORTED_ORDER_REASONS:
+                    if field in unsupported:
+                        conflicts.append(
+                            {"mailbox": to, "message": mid, "reason": reason,
+                             "field": field,
+                             "values": [repr(v)[:60]
+                                        for v in unsupported[field]]})
+                continue
+            # past that check every PRESENT value is in its domain, so these
+            # read the key rather than testing the value: `.get()` and
+            # truthiness are exactly what could not tell the two apart.
+            seqs = sorted({c["recv_seq"] for c in ms if "recv_seq" in c})
+            if len(seqs) > 1:
+                conflicts.append({"mailbox": to, "message": mid,
+                                  "reason": "conflicting_ordinals",
+                                  "values": seqs})
+                continue
+            found = sorted({c["seq_origin"] for c in ms if "seq_origin" in c})
+            if len(found) > 1:
+                conflicts.append({"mailbox": to, "message": mid,
+                                  "reason": "conflicting_origin",
+                                  "values": found})
+                continue
+            stamps = sorted({c["mailbox"] for c in ms if "mailbox" in c})
+            foreign = [s for s in stamps if s != mine]
+            if foreign:
+                conflicts.append({"mailbox": to, "message": mid,
+                                  "reason": "foreign_mailbox",
+                                  "values": foreign, "expected": mine})
+                continue
+            if seqs:
+                assigned[mid] = seqs[0]
+                origins[mid] = found[0] if found else None
+
+        holders: dict[int, list[str]] = {}
+        for mid, seq in assigned.items():
+            holders.setdefault(seq, []).append(mid)
+        for seq, mids in sorted(holders.items()):
+            if len(mids) > 1:
+                conflicts.append({"mailbox": to, "reason": "duplicate_ordinal",
+                                  "values": [seq], "messages": sorted(mids)})
+        return {"mailbox": mine, "copies": copies, "order": order,
+                "undated": undated, "unidentified": unidentified,
+                "assigned": assigned, "origins": origins,
+                "conflicts": conflicts}
+
+    def mailbox_receive_order_anomalies(self, to: str) -> dict[str, Any]:
+        """PURE READ: the unresolved ordering state in one mailbox, named.
+
+        `conflicts` is the list the migration refuses on, each entry carrying
+        its `reason` and the offending values; `unidentified` counts rows with
+        no message id and `undated` names messages with no `at` stamp, neither
+        of which blocks anything but both of which bound what the enumeration
+        can honestly claim. An empty `conflicts` means the mailbox's existing
+        ordering state is self-consistent — NOT that it is complete."""
+        scan = self._scan_receive_order(to)
+        return {"mailbox": scan["mailbox"],
+                "conflicts": scan["conflicts"],
+                "unidentified": scan["unidentified"],
+                "undated": sorted(scan["undated"]),
+                "assigned": dict(sorted(scan["assigned"].items()))}
+
+    def migrate_mail_receive_order(
+            self, nodes: Iterable[str] | None = None, *,
+            expect_stored: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        """The EXPLICITLY INVOKED transition that gives pre-existing rows a
+        total order. Never runs on load, never runs from a read.
+
+        WHAT IT DOES NOT CLAIM. The enumeration is `(at, id)` ascending over
+        every distinct message the mailbox can still see — pending box, archive
+        and journal batches. `at` is a send-side stamp and the box can have
+        been reordered by a fold, so this is a DETERMINISTIC TOTAL ORDER and
+        nothing more. Every ordinal it assigns is labelled
+        `migration_unproven` and counted in the report, precisely so no later
+        reader can mistake the enumeration for recovered receive history.
+
+        IDENTITY IS NEVER TOUCHED. A row that already has an ordinal keeps it,
+        whatever this enumeration would have given it; ids, senders, stamps and
+        bodies are not rewritten. So a second pass assigns nothing and an empty
+        pass changes nothing, and the report says so in `allocated`.
+
+        PARTIAL COPIES ARE RECONCILED, NOT RE-ALLOCATED. A message whose
+        pending copy carries an ordinal while its archive and journal copies do
+        not has ONE assigned identity, merely recorded in one place; the
+        migration carries that same ordinal, origin and stamp onto the other
+        copies and counts them in `reconciled_copies`. It never allocates a
+        second ordinal for a message that already has one, and never invents an
+        origin the existing copies do not state.
+
+        THE SEQUENCE FLOOR IS PERSISTED EVEN WHEN NOTHING IS ALLOCATED. A pass
+        over a mailbox whose messages all already have ordinals stores the
+        maximum of the confirmed counter and every assigned ordinal, so the
+        floor survives the rows being retained away. It never lowers a counter
+        that is already ahead, and a mailbox with no floor at all is left
+        exactly as it was. `floor_persisted` in the report says which happened.
+
+        UNRESOLVED STATE IS REFUSED, NOT GUESSED. `_scan_receive_order` decides
+        whether a mailbox's existing ordering contradicts itself — two ordinals
+        for one message, one ordinal for two messages, an ordinal outside the
+        supported domain, disagreeing origins, a stamp naming another mailbox,
+        or any of the three row fields PRESENT and holding something outside
+        its domain (`unsupported_ordinal`, `unsupported_origin`,
+        `unsupported_mailbox_stamp`, each naming its `field` and the exact
+        values found). Any of those and the WHOLE mailbox is refused: nothing
+        is allocated,
+        nothing is stamped, the counter is not moved, and the mailbox is listed
+        in `refused` with every conflict and its evidence. A total order laid
+        over a document that already disagrees with itself would be a claim
+        about receive history that nobody can stand behind, and quietly
+        overwriting one of the two conflicting values destroys the evidence
+        needed to work out which was right.
+
+        COMPARE-AND-SET. `expect_stored` maps mailbox -> the `mail_seq` the
+        caller OBSERVED (None meaning observed-absent). A mailbox whose stored
+        value has since moved is refused and listed in `stale`, untouched; the
+        other mailboxes still run. Allocation then starts above the maximum of
+        that observed value and every already-assigned ordinal, so a counter
+        BEHIND its rows cannot cause a collision and one AHEAD of them cannot
+        make the pass fail forever.
+
+        A STORED VALUE OUTSIDE THE DOMAIN IS NOT AN ABSENT ONE. `mail_seq`
+        holding a string, a float or a bool is refused as `unsupported_stored`
+        and left exactly as found. It must never be normalised to None, because
+        then an `expect_stored` of None — an honest claim of "I observed no
+        counter" — would compare equal to it and the CAS would admit a write
+        over data it never actually observed."""
+        report: dict[str, Any] = {"mailboxes": {}, "stale": [], "refused": [],
+                                  "allocated": 0, "unproven": 0,
+                                  "reconciled_copies": 0, "conflicts": 0,
+                                  "floors_persisted": 0,
+                                  "ambiguous": 0, "skipped_no_node": []}
+
+        def refuse(to: str, reason: str, **detail: Any) -> None:
+            report["refused"].append({"mailbox": to, "reason": reason,
+                                      **detail})
+
+        targets = (list(nodes) if nodes is not None
+                   else sorted({*(self.d.get("mail") or {}),
+                                *(self.d.get("mail_log") or {}),
+                                *(self.d.get("delivering") or {})}))
+        for to in targets:
+            if to not in self.nodes:
+                report["skipped_no_node"].append(to)
+                continue
+            n = self.nodes[to]
+            # KEY PRESENCE, not value — see mail_seq_state. A stored null is
+            # present unsupported data and is refused; a missing key is the
+            # legacy mailbox this migration exists for and stays eligible.
+            present = "mail_seq" in n
+            stored_now = n.get("mail_seq")
+            observed = self._stored_high_water(stored_now) if present else None
+            if present and observed is None:
+                refuse(to, "unsupported_stored",
+                       stored_type=type(stored_now).__name__,
+                       stored_repr=repr(stored_now)[:120])
+                continue
+            if expect_stored is not None and to in expect_stored:
+                want = expect_stored[to]
+                want_int = self._stored_high_water(want)
+                if want is not None and want_int is None:
+                    refuse(to, "unsupported_expectation",
+                           expected_type=type(want).__name__,
+                           expected_repr=repr(want)[:120])
+                    continue
+                if observed != want_int:
+                    report["stale"].append({"mailbox": to, "expected": want,
+                                            "observed": observed})
+                    continue
+
+            scan = self._scan_receive_order(to)
+            if scan["conflicts"]:
+                refuse(to, "unresolved_order", conflicts=scan["conflicts"])
+                report["conflicts"] += len(scan["conflicts"])
+                continue
+
+            copies = cast("dict[str, list[dict[str, Any]]]", scan["copies"])
+            order = cast("list[str]", scan["order"])
+            assigned = cast("dict[str, int]", scan["assigned"])
+            origins = cast("dict[str, str | None]", scan["origins"])
+            undated = cast("set[str]", scan["undated"])
+            pending = [mid for mid in order if mid not in assigned]
+
+            def sort_key(mid: str) -> tuple[str, str]:
+                at = next((str(c["at"]) for c in copies[mid]
+                           if isinstance(c.get("at"), str) and c["at"]), "")
+                return (at, mid)
+
+            pending.sort(key=sort_key)
+            seqs = self._allocate_recv_seq(to, len(pending))
+            mailbox_id = (self.mailbox_identity(to)
+                          if (pending or assigned) else None)
+            for mid, seq in zip(pending, seqs):
+                for c in copies[mid]:
+                    c["recv_seq"] = seq
+                    c["seq_origin"] = self.MAIL_SEQ_ORIGIN_MIGRATION
+                    if mailbox_id:
+                        c["mailbox"] = mailbox_id
+            reconciled = 0
+            for mid, seq in assigned.items():
+                # the one consistent assignment this message already has,
+                # written onto every copy that was missing part of it. The
+                # ordinal is NOT re-allocated and the origin is NOT invented:
+                # a message whose copies state no origin keeps stating none.
+                origin = origins.get(mid)
+                for c in copies[mid]:
+                    was = (c.get("recv_seq"), c.get("seq_origin"),
+                           c.get("mailbox"))
+                    c["recv_seq"] = seq
+                    if origin is not None:
+                        c["seq_origin"] = origin
+                    if mailbox_id:
+                        c["mailbox"] = mailbox_id
+                    if was != (c.get("recv_seq"), c.get("seq_origin"),
+                               c.get("mailbox")):
+                        reconciled += 1
+            # ⭐ THE FLOOR HAS TO OUTLIVE THE ROWS IT WAS READ FROM.
+            #
+            # When the pass allocates nothing — every message already had an
+            # ordinal — `_allocate_recv_seq` computes the floor and then writes
+            # nothing, because it only stores a high-water when it hands one
+            # out. That looks harmless while the rows are there: the next
+            # deposit re-derives the floor from them. It stops being harmless
+            # the moment retention clears the box and the archive, because the
+            # ordinals were the ONLY record of how far this mailbox had
+            # counted. Owner preflight of 3d45fd5 measured it: a mailbox whose
+            # surviving row was ordinal 9 and whose counter was missing (or 1)
+            # migrated cleanly, lost its rows to retention, and then handed the
+            # next real message ordinal 1 (or 2) — the same mailbox reusing
+            # positions it had already used.
+            #
+            # So persist it. Never LOWERS a counter: the floor is the maximum
+            # of the value the CAS just confirmed and every ordinal still
+            # assigned, so a stored counter already ahead of its rows is kept
+            # as it is. A truly empty mailbox has no floor and is left
+            # untouched, and a stale or refused mailbox never reaches here.
+            floor_persisted = False
+            if not seqs:
+                floor = max(observed or 0, self._assigned_recv_max(to))
+                if floor > 0 and (not present or (observed or 0) < floor):
+                    n["mail_seq"] = floor
+                    floor_persisted = True
+            ambiguous = len(undated & set(pending)) + scan["unidentified"]
+            report["mailboxes"][to] = {
+                "mailbox": mailbox_id,
+                "stored_before": observed,
+                "preserved": len(assigned),
+                "allocated": len(seqs),
+                "reconciled_copies": reconciled,
+                "floor_persisted": floor_persisted,
+                "ambiguous": ambiguous,
+                "high_water_after": n.get("mail_seq")}
+            report["allocated"] += len(seqs)
+            report["unproven"] += len(seqs)
+            report["reconciled_copies"] += reconciled
+            report["floors_persisted"] += int(floor_persisted)
+            report["ambiguous"] += ambiguous
+        return report
 
     def post_mail(self, sender: str, to: str, body: str, kind: str = "message",
                   attachments: list[dict[str, Any]] | None = None,
@@ -2356,11 +3745,16 @@ class Org:
                 "the mail hub: @net:<slug> (orgtree_list_orgs shows hub "
                 "peers) — or just the bare name; transport resolves "
                 "automatically")
-        if to.startswith(("@org:", "@mcp:", "@net:")):
-            # outbound to the OUTSIDE WORLD — another
-            # org's inbox (@org:), a polling external chat on the extern MCP
-            # server (@mcp: — no push transport; the peer reads the org inbox),
-            # or an org on another machine via the mail hub (@net: — spooled
+        if to.startswith("@mcp:"):
+            # user ruling 2026-09-25: the external-chat MCP server (externtool)
+            # is RETIRED and outside chats use the mail hub exclusively. Its
+            # read routes are gone, so an @mcp: row could never be collected —
+            # refuse loudly, exactly as @ext: above. Historical @mcp: rows
+            # stay readable; only NEW sends refuse.
+            raise LedgerError(MCP_RETIRED)
+        if to.startswith(("@org:", "@net:")):
+            # outbound to the OUTSIDE WORLD — another org's inbox (@org:), or
+            # an org on another machine via the mail hub (@net: — spooled
             # and shipped by the net daemon; the row below carries delivery
             # states).
             # Org-inbox model (user spec): the reply speaks for the ORG as a
@@ -2375,13 +3769,11 @@ class Org:
             # with the cross-gaps auto-bridge: a top-level agent COULD grant
             # itself the audience, so a top-level send without one is granted
             # and succeeds in the same call rather than being refused.
-            # External-handle bypass (user feature 2026-08-20): a node that
-            # HOLDS this exact address (hire-time external_handles — e.g. the
-            # in-game Prompt Wizard's response panel) answers it from ANY
-            # depth. The bypass is per-address, and the row below carries
-            # by=sender — a handle send never speaks broadly for the org.
-            held_handle = to in (self.node(sender).get("external_handles") or [])
-            if not held_handle and not self._has_audience(sender, EXTERN):
+            # (The external-handle bypass — a node holding an @mcp: address
+            # answering it from any depth — went with @mcp: on 2026-09-25.
+            # Stored handles are ignored; every outside send needs the
+            # audience.)
+            if not self._has_audience(sender, EXTERN):
                 if self.node(sender)["parent"] is None:
                     if not self.multi_holder_enabled:
                         for h in [a for a in self.d["audiences"] if a["grantor"] == EXTERN]:
@@ -2417,11 +3809,8 @@ class Org:
                 raise LedgerError("that network address is this organization "
                                   "itself")
             # actual delivery rides the bridge (supervisor/api) — the ledger
-            # authorizes and records the correspondence. A held-handle send is
-            # `attributed`: the peer is the sender's own channel, so unlike
-            # org-voice mail its `by` IS exposed on the extern read surface.
-            oid = self._org_inbox_log("out", to, body, by=sender,
-                                      attributed=held_handle)
+            # authorizes and records the correspondence.
+            oid = self._org_inbox_log("out", to, body, by=sender)
             self._log("mail", sender, {"to": to, "kind": kind,
                       "gist": body.strip().splitlines()[0][:80] if body.strip()
                       else ""}, [])
@@ -2517,7 +3906,7 @@ class Org:
         # ⚠ It names ONLY the address the sender itself supplied and
         # enumerates nothing: "no agent by that name" must not become a way
         # to probe an org's membership. `_resolve_recipient(outward=True)`
-        # has already had its chance at @org:/@mcp:/@net:, so by here the
+        # has already had its chance at @org:/@net:, so by here the
         # name is neither a node here nor a resolvable outside party.
         if to not in self.nodes:
             raise LedgerError(
@@ -2527,7 +3916,7 @@ class Org:
                 f"read it: this is a failed send, not a deferred one. Check "
                 f"the name with orgtree_chart (include_archived=true also "
                 f"lists retired agents), or address an outside party with an "
-                f"explicit @org: / @mcp: / @net: prefix.")
+                f"explicit @org: / @net: prefix.")
         target = self.node(to)
         if target["state"] == "unrecoverable":
             # A REFUSAL, not a deferral: unlike an archived node there is no
@@ -2603,7 +3992,6 @@ class Org:
                     "grantee": to, "grantor": sender, "granted_at": now(),
                     "reason": f"{sender} messaged directly"})
                 warnings.append(f"audience granted: {to} may now reply to {sender} directly")
-        box = self.d.setdefault("mail", {})
         entry: MailEntry = {
             # parity №11/№17: node mail carries an id — pending bubbles render
             # from the durable server copy, retraction targets one entry, and
@@ -2679,11 +4067,12 @@ class Org:
                 }
                 entry["reply_to"]["quoted_context"] = str(
                     reply_to.get("quoted_context") or "")[:4000]
-        box.setdefault(to, []).append(entry)
-        # full-body archive for the node's inbox view (the event log keeps only
-        # a gist) — retained until manual removal
-        log = self.d.setdefault("mail_log", {}).setdefault(to, [])
-        log.append(cast(MailEntry, dict(entry)))  # dict() copy loses the TypedDict
+        # M0a — ONE DEPOSIT DOOR: the receive ordinal, the pending copy and
+        # the full-body archive copy for the node's inbox view (the event log
+        # keeps only a gist; this copy is retained until manual removal),
+        # together. `entry` itself is what lands in the box, exactly as before,
+        # so the user Sent copy taken below is still a copy of that same row.
+        self.deposit_mail(to, entry)
 
         if sender == USER:
             # the user's Sent folder: every user message IS mail (user ruling —
@@ -2748,10 +4137,12 @@ class Org:
         if model_only:
             entry["model_only"] = True
         entry["ev"] = events.encode_row_ev(ev, entry)
-        box = self.d.setdefault("mail", {})
-        box.setdefault(to, []).append(cast(MailEntry, dict(entry)))
-        log = self.d.setdefault("mail_log", {}).setdefault(to, [])
-        log.append(cast(MailEntry, dict(entry)))
+        # M0a — ONE DEPOSIT DOOR. A COPY is deposited and the stamped result
+        # copied back onto `entry`, keeping the pre-existing property that the
+        # returned entry is a DIFFERENT object from the boxed row (a caller
+        # mutating what it got back must not reach into the mailbox).
+        entry = cast(MailEntry, dict(self.deposit_mail(
+            to, cast("dict[str, Any]", dict(entry)))))
 
         lifecycle.record(self.d, operation_id=entry["operation_id"],
                          kind="mail", state="accepted", at=entry["at"],
@@ -2795,7 +4186,6 @@ class Org:
             first = self._bootstrap_extern_holder()
             if first:
                 tops = [first]
-        box = self.d.setdefault("mail", {})
         for t in tops:
             entry: MailEntry = {"id": uuid.uuid4().hex[:12],
                      "from": peer, "kind": "message", "body": body,
@@ -2825,9 +4215,11 @@ class Org:
             if net_id:
                 # F-06: the hub message id — _confirm_delivered reports READ
                 entry["net_id"] = net_id
-            box.setdefault(t, []).append(entry)
-            log = self.d.setdefault("mail_log", {}).setdefault(t, [])
-            log.append(cast(MailEntry, dict(entry)))  # dict() copy loses the TypedDict
+            # M0a — ONE DEPOSIT DOOR. Per recipient: each org-inbox holder's
+            # mailbox numbers this message for ITSELF, because a receive
+            # ordinal is the receiver's fact and the holders are separate
+            # mailboxes that happen to have been handed the same body.
+            self.deposit_mail(t, entry)
 
         if not tops:
             # nobody to receive it: surface to the user instead of losing it
@@ -2845,61 +4237,6 @@ class Org:
     def _has_audience(self, grantee: str, grantor: str) -> bool:
         return any(a["grantee"] == grantee and a["grantor"] == grantor
                    for a in self.d["audiences"])
-
-    def handle_attached_at(self, nid: str, handle: str) -> str:
-        """D-166: when this handle was bound to this node.
-
-        Attach time lives on the NODE, not in the machine-wide sightings file,
-        because that is whose fact it is — and because inferring it from the
-        peer store cannot tell a handle that has sat there for a week from one
-        re-attached a second ago, which made re-attached handles get swept on
-        the next tick.
-
-        A handle with no stamp predates D-166; it is stamped on first sight so
-        it gets a full grace period rather than being detached on the strength
-        of no evidence at all. Mutates when it stamps — the caller saves."""
-        n = self.node(nid)
-        at = (n.get("external_handles_at") or {}).get(handle)
-        if not at:
-            at = now()
-            n.setdefault("external_handles_at", {})[handle] = at
-        return str(at)
-
-    def detach_extern_handle(self, nid: str, handle: str, *,
-                             last_seen: str | None,
-                             silent_s: float, threshold_s: float) -> bool:
-        """D-166: drop a response handle whose peer has gone silent. Returns
-        False if it was already gone (the sweep races nothing, but a retool
-        between load and save would otherwise raise).
-
-        The detach IS the whole fix. The identity prompt is a pure function of
-        the node doc and is rebuilt every turn, so removing the handle here
-        removes the line from the agent's next prompt — and that is the only
-        thing that works: a compacted agent knows the channel only through
-        that line, so it cannot be TOLD the channel died. It can miss a
-        notice; it cannot read a line that is gone.
-
-        The event is the operator's answer to "why did my channel drop" — a
-        detach nobody can explain afterwards is its own small phantom, so it
-        carries the handle, the last sighting and the threshold that fired."""
-        n = self.node(nid)
-        handles = list(n.get("external_handles") or [])
-        if handle not in handles:
-            return False
-        handles.remove(handle)
-        if handles:
-            n["external_handles"] = handles
-        else:
-            n.pop("external_handles", None)
-        # the stamp goes with the handle, so a re-attach starts a fresh clock
-        stamp_handles(n, handles)
-        self._log("extern_handle_detached", SYSTEM, {
-            "node": nid, "handle": handle,
-            "last_seen": last_seen or "never",
-            "silent_s": round(silent_s),
-            "threshold_s": round(threshold_s),
-        }, [])
-        return True
 
     # ------------------------------------------------ the org inbox (user spec)
     # Outside parties (chatq sessions, other orgs) see ONE recipient: the org.
@@ -2964,14 +4301,12 @@ class Org:
         return first
 
     def _org_inbox_log(self, direction: Literal["in", "out"], peer: str, body: str,
-                       by: str | None = None, attributed: bool = False) -> str:
+                       by: str | None = None) -> str:
         log = self.d.setdefault("org_inbox", [])
         e: OrgInboxEntry = {"id": uuid.uuid4().hex[:8], "dir": direction, "peer": peer,
                             "body": body[:20000], "at": now()}
         if by:
             e["by"] = by      # internal attribution only — outbound speaks as the org
-        if attributed:
-            e["attributed"] = True  # held-handle send: the peer MAY see `by`
         log.append(e)
 
         return e["id"]
@@ -3891,11 +5226,15 @@ class Org:
         while nid in self.nodes:
             nid, i = f"{base}-{i}", i + 1
         sibs = self.children(parent, live_only=False)
+        seat = str(uuid.uuid4())
+        # a reused (freed) key may still hold a deleted seat's rows: set them
+        # aside so the new seat neither overwrites nor inherits them (F1)
+        self._quarantine_freed_key(nid, cause="hire_onto_freed_key", seat=seat)
         self.nodes[nid] = {
             "session_id": str(uuid.uuid4()),
             # the agent's own mint id — see NodeDoc. Distinct from
             # `session_id`, which this agent replaces every time it compacts.
-            "seat_id": str(uuid.uuid4()),
+            "seat_id": seat,
             "model": tier,
             "parent": parent,
             "grant": grant,
@@ -3944,11 +5283,8 @@ class Org:
             # design motto: asking for what's already true is a no-op, not an error
             return {"freed": 0,
                     "warnings": [f"{nid} was already archived — nothing to do"]}
-        if self.node(nid).get("bg_open"):
-            raise LedgerError(
-                f"{nid} still owns open background tasks — wait for their "
-                "terminal notification (or provider-loss recovery) before "
-                "retiring it")
+        # Open background tasks do not refuse this (user ruling 2026-09-29):
+        # the door stops them first — `supervisor.interrupt_before_archive`.
         live_kids = self.children(nid)
         if live_kids:
             if actor == nid:
@@ -4129,9 +5465,13 @@ class Org:
         # clears, rehire included (redteam 2026-08-18). Kept because the
         # record is TRUE, and because the exemption should not rest on
         # one clause. reseed's bearer is the opposite case and pops it.)
+        # The SEAT keeps its mailbox; this separately addressable bearer must
+        # not inherit authority over it (see _strip_mailbox_authority).
+        self._strip_mailbox_authority(pred)
         self.nodes[pred_id] = pred
         n["session_id"] = str(uuid.uuid4())
         n["generation"] = gen + 1
+        n["session_began_at"] = now()   # node_ask's per-session linger bound
         n["predecessor"] = pred_id
         # Evidence belongs to the archived predecessor generation. The fresh
         # successor starts unobserved and cannot inherit a positive receipt.
@@ -4273,10 +5613,8 @@ class Org:
         if n["state"] != "live":
             raise LedgerError(f"{nid} is {n['state']} — cheap-compact "
                               f"replaces a LIVE agent's session")
-        if n.get("bg_open"):
-            raise LedgerError(
-                f"{nid} still owns open background tasks — cheap compaction "
-                "would replace the only session observing their outcome")
+        # Open background tasks do not refuse this (user ruling 2026-09-29):
+        # the door stops them first — `supervisor.stop_background`.
         standing = self._open_request_kinds(nid)
         pred_id, old_sid = self._archive_session_in_place(nid)
         # The unread NOTICE backlog is still folded: a notice is a diff, and
@@ -4458,6 +5796,9 @@ class Org:
         if tier is not None:
             if tier not in self.d["tiers"]:
                 raise LedgerError(f"unknown tier {tier!r}")
+            if tier != n["model"]:
+                # a version belongs to one tier (see switch_model)
+                cast("dict[str, Any]", n.setdefault("scope", {})).pop("model_version", None)
             n["model"] = tier
         if own_bearer and n["parent"] != actor:
             # user ruling: a self-hired bearer is the node's OWN subordinate —
@@ -4584,16 +5925,32 @@ class Org:
         the stranded seats were then committed by nobody — the parent's free
         jumped by their holding); `delete` removed the bearer outright and left
         a DANGLING parent id, so `ancestors()` raised KeyError instead of a
-        LedgerError. Found 2026-08-04 by the authority suite's property test."""
+        LedgerError. Found 2026-08-04 by the authority suite's property test.
+
+        Walked one generation at a time so that on on-demand rows each
+        generation's children come from ONE statement
+        (`store.lazy_children_index`) instead of `children()` decoding the
+        whole table — the agent-settings save paid 13 MB for that per save.
+        On whole rows one `children_index` serves the walk: `children()`
+        without one scans every node per call, which made a large subtree
+        quadratic (0.4 s per plan for a 1095-node org)."""
+        from . import store                              # noqa: PLC0415 — cycle
         out: set[str] = set()
         frontier = [nid]
+        whole: dict[str | None, list[str]] | None = None
         while frontier:
-            k = frontier.pop()
-            if k in out or k not in self.nodes:
-                continue
-            out.add(k)
-            frontier.extend(self.children(k, live_only=False))
-            frontier.extend(self.lineage_stack(k))
+            gen = [k for k in dict.fromkeys(frontier)
+                   if k not in out and k in self.nodes]
+            if not gen:
+                break
+            out.update(gen)
+            index = store.lazy_children_index(self, gen)
+            if index is None:
+                whole = index = self.children_index() if whole is None else whole
+            frontier = []
+            for k in gen:
+                frontier.extend(self.children(k, live_only=False, index=index))
+                frontier.extend(self.lineage_stack(k))
         return out
 
     # --------------------------------------------------------------- dissolve
@@ -4603,12 +5960,6 @@ class Org:
         parent = self.node(nid)["parent"]
         # §8.5: dissolve takes each node's ENTIRE lineage stack with it
         order = sorted(self._taken_with(nid), key=self.depth, reverse=True)
-        open_nodes = [k for k in order if self.nodes[k].get("bg_open")]
-        if open_nodes:
-            raise LedgerError(
-                "cannot dissolve while background tasks are open on: "
-                + ", ".join(open_nodes)
-                + " — wait for terminal notification/provider-loss recovery")
         freed = 0.0
         for k in order:
             n = self.nodes[k]
@@ -4635,9 +5986,16 @@ class Org:
         deleting agents shrank the total — undercounting the dashboard and,
         worse, walking the enforced kiosk SPEND LIMIT backwards). Cost is
         history, not a node property; the tombstone accumulator keeps every
-        dollar ever burned."""
-        return round(sum(float(v.get("cost_usd") or 0.0)
-                         for v in self.nodes.values())
+        dollar ever burned.
+
+        On on-demand rows the costs come from `store.lazy_node_costs` — the
+        same values in the same order, without decoding every row into this
+        copy (ORGTREE_LAZY_COST_TOTAL)."""
+        from . import store                              # noqa: PLC0415 — cycle
+        costs = store.lazy_node_costs(self.d)
+        if costs is None:
+            costs = [v.get("cost_usd") for v in self.nodes.values()]
+        return round(sum(float(c or 0.0) for c in costs)
                      + float(self.d.get("deleted_cost_usd") or 0.0), 4)
 
     def delete(self, actor: str, nid: str) -> dict[str, Any]:
@@ -4653,13 +6011,6 @@ class Org:
         parent = n["parent"]
         peers = self._peers_of(parent, nid)
         doomed_set = self._taken_with(nid)
-        open_nodes = [k for k in sorted(doomed_set)
-                      if self.nodes[k].get("bg_open")]
-        if open_nodes:
-            raise LedgerError(
-                "cannot delete while background tasks are open on: "
-                + ", ".join(open_nodes)
-                + " — wait for terminal notification/provider-loss recovery")
         # bank the burn BEFORE the nodes go — cost is history (see cost_total)
         lost = round(sum(float((self.nodes.get(k) or {}).get("cost_usd") or 0.0)
                          for k in doomed_set), 6)
@@ -4676,6 +6027,7 @@ class Org:
             (self.d.get("mail_log") or {}).pop(k, None)
             (self.d.get("notices") or {}).pop(k, None)
             (self.d.get("steered_log") or {}).pop(k, None)
+        purged = self._purge_deleted_seat_records(doomed_set)
         self.d["audiences"] = [
             a for a in self.d["audiences"]
             if a["grantee"] not in doomed_set and a["grantor"] not in doomed_set
@@ -4724,8 +6076,60 @@ class Org:
         self._notify_ev([parent], _deleted("report"))
         self._notify_ev(peers, _deleted("peer"))
         self._log("delete", actor, {"node": nid, "removed": sorted(doomed_set),
-                                    **({"cost_usd": lost} if lost else {})}, [])
+                                    **({"cost_usd": lost} if lost else {}),
+                                    **({"purged": purged} if purged else {})}, [])
         return {"deleted": sorted(doomed_set), "warnings": []}
+
+    #: the per-node records a user delete purges beyond mail/mail_log/notices/
+    #: steered_log (P04a-2, scope-p04 r2 §4.2): every `on_delete: purged`
+    #: section of NODE_KEYED_SECTIONS that `delete` did not already clear.
+    #: A row section names its owner in the given field.
+    DELETE_PURGE_SECTIONS: Final[dict[str, str | None]] = {
+        "delivering": None, "turn_error_log": None, "turn_log": None,
+        "mail_transitions": None,
+        "steer_attempts": None, "manual_attempts": None,
+        "op_receipts": "node", "documents": "node", "watchdog_tombs": "owner"}
+
+    def _purge_deleted_seat_records(self, doomed: set[str]) -> dict[str, int]:
+        """Remove the deleted seats' own private records (P04a-2): inbound
+        batches in flight to the closed mailbox, its diagnostic log, its
+        transition/steer/manual journals, its operation receipts, its
+        presented cards and its spent-watchdog tombs. `{section: count}`.
+
+        ⚠ RECEIPTS GO ONLY BECAUSE THE CREDENTIAL IS SEAT-BOUND in the same
+        change (v6 I05, TRANSACTIONS:68): a missing receipt is fresh execution
+        authority only inside a valid namespace, and a delayed call from the
+        deleted seat now fails `api._agent_identity` (no node, or a
+        namesake's different `seat_id`) before any receipt is looked up.
+
+        Only keys in `doomed` — the exact nodes and lineage keys this delete
+        removes — are touched. Records filed under `#orphan` keys and rows
+        earlier deletes left under freed keys are NOT (they are the protected
+        corpus P04a-1 reports; D-U2). Events, lifecycle, the docket, costs and
+        the user's inbox/outbox are history and stay. A section the document
+        does not carry is never created or materialised."""
+        purged: dict[str, int] = {}
+        for key, field in self.DELETE_PURGE_SECTIONS.items():
+            if key not in self.d:
+                continue
+            sec = self.d.get(key)
+            n = 0
+            if field is None and isinstance(sec, MutableMapping):
+                for k in doomed:
+                    if k in sec:
+                        sec.pop(k, None)
+                        n += 1
+            elif field is not None and isinstance(sec, list):
+                rows = cast("list[Any]", sec)
+                for i in range(len(rows) - 1, -1, -1):
+                    r = rows[i]
+                    if (isinstance(r, Mapping) and isinstance(r.get(field), str)
+                            and r[field] in doomed):
+                        del rows[i]
+                        n += 1
+            if n:
+                purged[key] = n
+        return purged
 
     # ------------------------------------------------------------- reallocate
     def switch_model(self, actor: str, nid: str, tier: str, *,
@@ -4813,8 +6217,11 @@ class Org:
             # is listening. Run the real switch on a COPY of the doc: the
             # same code path, so the queue cannot drift from the immediate
             # switch (D-182), and no reservation machinery — a queue rarely
-            # outlives one turn, and the boundary re-checks anyway.
-            Org(json.loads(json.dumps(self.d))).switch_model(
+            # outlives one turn, and the boundary re-checks anyway. The copy
+            # leaves unread sections unread (`store.dry_run_copy`): a JSON
+            # round trip of a row-backed document loaded every log first.
+            from . import store                          # noqa: PLC0415 — cycle
+            Org(store.dry_run_copy(self.d)).switch_model(
                 actor, nid, tier, _queued={"at": now(), "by": actor})
             replaced = pend["tier"] if pend else None
             # R1a-upgrade (round 3): a pre-seq queued rebind was ACCEPTED
@@ -4895,6 +6302,12 @@ class Org:
                                         cascade=bool(self.d.get("cascade_alloc", True)))
             n["model"] = tier
             n["grant"] = _q(n["grant"] - own)  # holding grows by exactly the shortfall
+        # A model VERSION belongs to one tier (the gear resets it on a tier
+        # change too). Tiers now share version keys — "5" is Opus 5 and
+        # Sonnet 5 — so a pin carried across a switch would silently pick the
+        # other tier's old version instead of its default.
+        if tier != old:
+            cast("dict[str, Any]", n.setdefault("scope", {})).pop("model_version", None)
         # D-196: a switch that CROSSES PROVIDERS cannot keep the session, and
         # must not pretend to. `session_id` holds a provider-owned handle — a
         # codex threadId, an antigravity conversation id, a Claude session uuid — and
@@ -6378,6 +7791,22 @@ class Org:
                 f"the org's top-level grant cap of {cap} — raise the cap in "
                 f"the org settings, or lower the ask")
 
+    def _lazy_subtree_index(self, nid: str
+                            ) -> dict[str | None, list[str]] | None:
+        """`children_index` for nid's org subtree, fetched one generation per
+        statement (`store.lazy_children_index`) — or the whole-org
+        `children_index` when the nodes are not on on-demand rows."""
+        from . import store                              # noqa: PLC0415 — cycle
+        out: dict[str | None, list[str]] = {}
+        gen = [nid]
+        while gen:
+            index = store.lazy_children_index(self, gen)
+            if index is None:
+                return self.children_index()
+            out.update(index)
+            gen = [c for p in gen for c in index.get(p, ()) if c not in out]
+        return out
+
     def _sweep_dirs(self, nid: str, clamp_root: bool = True,
                     sweep_pm: bool = True) -> list[str]:
         """After a move or scope shrink: clamp the subtree's dirs, tools,
@@ -6399,6 +7828,10 @@ class Org:
         the mode ITSELF is lowered (that is what revoking means) and on a
         move (relocation is not an exception, it is a new chain)."""
         dropped: list[str] = []
+        # on on-demand rows: the subtree's children from one statement per
+        # generation, not `children()` decoding the whole table (the sweep
+        # only rewrites scopes, so the index stays true for the whole walk)
+        index = self._lazy_subtree_index(nid)
 
         def clamp(k: str, allowed: dict[str, str] | None,
                   ptools: ToolGrant | None, pvis: str | None,
@@ -6431,7 +7864,7 @@ class Org:
                 sc["permission_mode"] = ppm
                 dropped.append(f"permission_mode:{k}→{ppm}")
             own: dict[str, str] = {d["path"]: d["mode"] for d in kept}
-            for ch in self.children(k, live_only=False):
+            for ch in self.children(k, live_only=False, index=index):
                 clamp(ch, own, tkept, sc.get("org_visibility", "full"),
                       sc.get("permission_mode", "acceptEdits"))
 
@@ -6446,7 +7879,7 @@ class Org:
                                                       "acceptEdits"))
         else:
             own = self.node(nid)["scope"]
-            for ch in self.children(nid, live_only=False):
+            for ch in self.children(nid, live_only=False, index=index):
                 clamp(ch, self.effective_dirs(nid), own["tools"],
                       own.get("org_visibility", "full"),
                       own.get("permission_mode", "acceptEdits"))
@@ -6594,10 +8027,10 @@ class Org:
                 # is an explicit attempt to clear an individual override.
                 ("clear_prefer_reserve",
                  True if clear_prefer_reserve else None),
-                # a handle is an outbound-mail PRIVILEGE (the post_mail
-                # per-address bypass), so self-granting one would let a node
-                # hand itself a channel out of the org — the exact thing the
-                # audience system exists to gate. Superior-only, always.
+                # external_handles are retired (norm_extern_handles refuses
+                # any entry; [] may still clear a pre-retirement value). Kept
+                # superior-only, so a node cannot clear its own record.
+                # (Retired with the external-chat MCP server, 2026-09-25.)
                 ("external_handles", external_handles)) if v is not None]
             if offered:
                 raise LedgerError(
@@ -6902,8 +8335,8 @@ class Org:
         if want_handles is not None:
             # REPLACE, like the other list-valued scope fields — [] clears.
             # The grant lives on the NODE (not `sc`) to match hire(), which is
-            # also what makes it ride the seat across retire/rehire, and what
-            # `post_mail`'s bypass and the supervisor's handles_line both read.
+            # also what makes it ride the seat across retire/rehire. Nothing
+            # reads it for authority since the 2026-09-25 retirement.
             if want_handles:
                 n["external_handles"] = want_handles
             else:
@@ -7892,16 +9325,19 @@ class Org:
         entry["operation_id"] = lifecycle.identity("mail", entry["id"])
         if ev is not None:
             entry["ev"] = events.encode_row_ev(ev, entry)
-        box = cast("dict[str, list[dict[str, Any]]]",
-                   self.d.setdefault("mail", {}))
-        box.setdefault(owner, []).append(dict(entry))
-        # mirror into mail_log like every other sender: the inbox tab shows
-        # DELIVERED mail from the archive, and `mail` is only the pending
-        # queue — a fired dog's mail vanished from the panel the moment the
-        # owner's turn drained it (user bug 2026-08-14). Same `at`/body as
-        # the queued copy, or node_inbox's (at, from, body) dedup breaks.
-        log = self.d.setdefault("mail_log", {}).setdefault(owner, [])
-        log.append(cast(MailEntry, dict(entry)))
+        # M0a — ONE DEPOSIT DOOR, and it changes nothing about D-200 above:
+        # this is still one statement inside this one method, still inside the
+        # caller's single `save_org`, so the mail, the `fired` bump, the
+        # one-shot removal and the tombstone remain one transaction that lands
+        # whole or not at all.
+        # The archive mirror is what makes a fired dog's mail outlive the
+        # drain: the inbox tab shows DELIVERED mail from `mail_log` and `mail`
+        # is only the pending queue, so without it a fired dog's mail vanished
+        # from the panel the moment the owner's turn drained it (user bug
+        # 2026-08-14). Same `at`/body as the queued copy, or node_inbox's
+        # (at, from, body) dedup breaks.
+        entry = cast(MailEntry, dict(self.deposit_mail(
+            owner, cast("dict[str, Any]", dict(entry)))))
 
         self._log("watchdog_fire", owner, {"id": wid, "gist": gist[:80],
                                            **({"once": True} if one_shot
@@ -8018,14 +9454,13 @@ class Org:
         entry["operation_id"] = lifecycle.identity("mail", entry["id"])
         if ev is not None:
             entry["ev"] = events.encode_row_ev(ev, entry)
-        box = cast("dict[str, list[dict[str, Any]]]",
-                   self.d.setdefault("mail", {}))
-        box.setdefault(owner, []).append(dict(entry))
-        # same mirror as a fire, for the same reason: `mail` is the pending
-        # queue and the inbox tab reads `mail_log`, so an alert the owner's
-        # turn drains would otherwise vanish from the panel entirely
-        log = self.d.setdefault("mail_log", {}).setdefault(owner, [])
-        log.append(cast(MailEntry, dict(entry)))
+        # M0a — ONE DEPOSIT DOOR; same mirror as a fire, for the same reason:
+        # `mail` is the pending queue and the inbox tab reads `mail_log`, so an
+        # alert the owner's turn drains would otherwise vanish from the panel
+        # entirely. Sharing the deposit MECHANICS changes nothing about the
+        # distinction this method exists for — `fired` is still not
+        # incremented and the archive-pause path is still not taken.
+        self.deposit_mail(owner, cast("dict[str, Any]", dict(entry)))
 
         self._log("watchdog_alert", owner, {"id": wid, "why": body[:80]}, [])
         return owner
@@ -8035,8 +9470,12 @@ class Org:
         changes and the whole doc re-keys — nodes (lineage generations
         included: `old@g` → `new@g`, they share the scratch dir), parent/
         predecessor/successor pointers, audiences and their requests, the
-        mailbox and every per-node dict (delivering, steered_log,
-        turn_error_log, notices), open asks and credit requests. Authority =
+        mailbox and every per-node dict the census classifies `rekey`
+        (NODE_KEYED_SECTIONS: mail, mail_log, notices, delivering, steered_log,
+        turn_error_log, mail_transitions, steer_attempts, manual_attempts),
+        open asks and credit requests. Records a deleted agent left under the
+        target name are set aside first (`_quarantine_freed_key`), never
+        overwritten or handed to the renamed seat. Authority =
         the user, the superior, or any ancestor (never self). Validate-all-
         then-mutate (§4.7). HISTORICAL records — mail bodies, sender fields
         in archives, the event log — deliberately keep the old name; the
@@ -8061,6 +9500,10 @@ class Org:
             if tgt in self.nodes:
                 raise LedgerError(f"the name {tgt!r} is already taken")
         # ---- mutate (nothing below may raise) ----
+        # a freed target may still hold a deleted seat's rows: set them aside
+        # first (F1) — never overwritten, never read as this seat's
+        quarantined = self._quarantine_freed_key(
+            new, cause="rename_onto_freed_key", seat=n.get("seat_id"))
         for old_k, new_k in renamed.items():
             self.nodes[new_k] = self.nodes.pop(old_k)
         for v in self.nodes.values():
@@ -8076,13 +9519,32 @@ class Org:
             for f in ("from", "target", "currently_at"):
                 if r.get(f) in renamed:
                     r[f] = renamed[r[f]]
-        for key in ("mail", "delivering", "steered_log", "turn_error_log",
-                    "notices"):
+        # EVERY per-node dict the census classifies `rekey` (P04a-1): storage
+        # ownership follows the seat. Left under the old key, a record would
+        # attach to the next agent hired under the freed name. The CONTENT
+        # keeps the name it was written with (mail bodies, senders) — only
+        # the owner key moves.
+        for key, (cls, shape, _) in NODE_KEYED_SECTIONS.items():
+            if cls != "rekey" or shape != "by_node" or key == "nodes":
+                continue
             box = cast("dict[str, Any] | None", self.d.get(key))
-            if isinstance(box, dict):
+            if isinstance(box, MutableMapping):
                 for old_k, new_k in renamed.items():
                     if old_k in box:
                         box[new_k] = box.pop(old_k)
+        # a transition receipt also names its node, and the settle/compact
+        # readers require that name to equal the key it is filed under
+        transitions = self.d.get("mail_transitions") or {}
+        naming = getattr(transitions, "owners_naming", None)
+        # a row-backed section finds the owners holding such receipts in the
+        # database instead of materialising every owner's history
+        owners = (naming(list(renamed)) if naming is not None
+                  else list(cast("dict[str, Any]", transitions)))
+        for owner in owners:
+            receipts = transitions.get(owner)
+            for receipt in receipts.values() if isinstance(receipts, Mapping) else ():
+                if isinstance(receipt, dict) and receipt.get("node") in renamed:
+                    receipt["node"] = renamed[receipt["node"]]
         for a in self.d.get("asks", []):
             if a.get("node") in renamed:
                 a["node"] = renamed[a["node"]]
@@ -8092,7 +9554,7 @@ class Org:
         for r in self.d.get("scope_requests", []):
             if r.get("node") in renamed:
                 r["node"] = renamed[r["node"]]
-        for w in self.d.get("watchdogs", []):
+        for w in [*self.d.get("watchdogs", []), *self.d.get("watchdog_tombs", [])]:
             if w.get("owner") in renamed:
                 w["owner"] = renamed[w["owner"]]
         # Presented documents are live identity records, not historical event
@@ -8135,7 +9597,8 @@ class Org:
                                      old=nid, new=new, by=actor))
         _ = n
         return {"node": new, "was": nid, "renamed": renamed,
-                "warnings": warnings}
+                "warnings": warnings,
+                **({"quarantined": quarantined} if quarantined else {})}
 
     #: the work-item fields that name WHO HOLDS AN ITEM NOW. Everything else
     #: on an item that carries a node id records who did something THEN, and
@@ -9629,6 +11092,24 @@ class Org:
         boot_at = self._boot_at()
         if boot_at and boot_at > cutoff:
             cutoff = boot_at
+        # …AND PER SESSION, for the same reason (user report 2026-09-29: an
+        # answered card came back at full size in coordinator-opus's chat
+        # right after a cheap compaction, and stayed until the 15 minutes
+        # ran out). Replacing the session needs no restart, so the boot
+        # bound above never fires — but the desk follows the node to its
+        # NEW session and loses its in-page record exactly as a reload does,
+        # and the new session's rows cannot contain the answer mail that was
+        # handed to the old one. An answer resolved before this session
+        # began was handed off to its predecessor; one still queued then
+        # renders as its own bubble (see above). Every in-place split
+        # (cheap compaction, CLI compaction, model switch, reseed) stamps
+        # `session_began_at` on the LIVE node, so this reads the row both
+        # the whole Org and the foreground context already hold. No stamp
+        # (a node never split, or split before the stamp existed) means no
+        # bound, as before.
+        began = str((self.nodes.get(nid) or {}).get("session_began_at") or "")
+        if began > cutoff:
+            cutoff = began
         if (best.get("resolved_at") or best["at"]) < cutoff:
             return None
         return best
@@ -9990,10 +11471,6 @@ class Org:
         is retired IN PLACE as an archived knowledge bearer at 0 credits, locked
         read-only. Lineage is a second axis — the predecessor is NOT a child."""
         n = self.node(nid)
-        if n.get("bg_open"):
-            raise LedgerError(
-                f"{nid} still owns open background tasks — compaction would "
-                "replace the session observing their outcome")
         gen = n.get("generation", 0)
         pred_id = f"{nid}@{gen}"
         pred = cast(NodeDoc, dict(n))  # dict() copy loses the TypedDict
@@ -10027,9 +11504,11 @@ class Org:
         # transcript is real (and its loss is real damage), and the
         # successor's id comes from the CLI's fork, which writes one.
         pred.pop("session_unrun", None)
+        self._strip_mailbox_authority(pred)
         self.nodes[pred_id] = pred
         n["session_id"] = new_session_id
         n["generation"] = gen + 1
+        n["session_began_at"] = now()   # node_ask's per-session linger bound
         n["predecessor"] = pred_id
         n.pop("session_unrun", None)
         # ⚠ The counter counts boundaries in ONE session file, so it is
@@ -10151,8 +11630,10 @@ class Org:
             # points at the wrong boundary — cutting a bearer from the wrong
             # moment, which looks like success and is not.
             pred["cli_boundary_offset"] = int(boundary_offset)
+        self._strip_mailbox_authority(pred)
         self.nodes[pred_id] = pred
         n["generation"] = gen + 1
+        n["session_began_at"] = now()   # node_ask's per-session linger bound
         n["predecessor"] = pred_id
         imported = n.get("desktop_import") or {}
         native = imported.get("native_continuity") or {}
@@ -10385,6 +11866,7 @@ class Org:
         # true (redteam 2026-08-18). cheap_compact's bearer is the
         # opposite case and keeps it.
         pred.pop("session_unrun", None)
+        self._strip_mailbox_authority(pred)
         self.nodes[pred_id] = pred
         # A RETIRED import binding describes this seat, not the dead session:
         # left pointing at the session re-seed just buried it would hold the
@@ -10394,6 +11876,7 @@ class Org:
         follow_session(n, new_session_id, generation=gen + 1)
         n["session_id"] = new_session_id
         n["generation"] = gen + 1
+        n["session_began_at"] = now()   # node_ask's per-session linger bound
         n["predecessor"] = pred_id
         n["cli_compactions"] = None      # new session, new count (see above)
         # same mint, same exemption as cheap_compact (user bug 2026-08-18):
@@ -10446,6 +11929,196 @@ class Org:
         }
 
     # ------------------------------------------------------------------- view
+    def tree_node(self, nid: str, *, children_index: dict | None = None,
+                  descend: bool = True, lineage: bool = True) -> dict[str, Any]:
+        """The shared display projection; bounded readers select its children separately."""
+        if children_index is None:
+            children_index = self.children_index()
+        n = self.nodes[nid]
+        _cc = n.get("cache_continuity")
+        _cc_public = (_cc.get("public") if isinstance(_cc, dict) else None)
+        return {
+            "id": nid,
+            "title": n["title"],
+            "tier": n["model"],
+            "model_id": self.d["models"].get(n["model"], n["model"]),
+            # multi-account: the node's bound account id (or the
+            # missing:<provider> park sentinel) — the UI resolves tint
+            # and label from /api/accounts; absent pre-cutover
+            "account": n.get("account"),
+            "state": n["state"],
+            "seat": self.d["tiers"][n["model"]],
+            "grant": n["grant"],
+            "free": None if n["state"] != "live" else self.free(nid, index=children_index),
+            "session_id": n["session_id"],
+            "scope": n["scope"],
+            # what a turn would ACTUALLY launch with — scope.effort is
+            # only half the answer (the org default supplies the rest)
+            "effort_effective": self.effective_effort(nid),
+            "ui_order": n.get("ui_order", 0),
+            "cost_usd": round(float(n.get("cost_usd") or 0.0), 4),
+            "cost_usd_unknown": bool(n.get("cost_usd_unknown")),
+            "occupancy": n.get("occupancy"),
+            # a compaction fills this in before anything has measured the
+            # new session — the card says so rather than implying precision
+            "occupancy_est": bool(n.get("occupancy_est")),
+            # …and this one is why the compact button is not offered: the
+            # session holds only its summary until the next turn
+            "compacted_unrun": bool(n.get("compacted_unrun")),
+            "context_window": n.get("context_window"),
+            # Safe atomic forecast only. Private fingerprints, provider
+            # account/session evidence and component hashes never cross
+            # this view boundary.
+            "cache_forecast": (dict(_cc_public)
+                               if isinstance(_cc_public, dict) else None),
+            "charter": n.get("charter"),
+            "team_charter": n.get("team_charter"),
+            "mail_pending": len((self.d.get("mail") or {}).get(nid, [])),
+            "limit_locked": bool(n.get("limit_locked")),
+            "halt": ({k: n["halt"][k] for k in ("phase", "requested_at", "at", "by")
+                      if k in n["halt"]} if n.get("halt") else None),
+            "halt_queued": len(n.get("halt_queue") or []),
+            "last_status": n.get("last_status"),
+            "prev_status": n.get("prev_status"),
+            "inflight_at": (n.get("inflight") or {}).get("at"),
+            # D-234: a switch queued behind the running turn — the card
+            # wears it until the boundary applies (or a cancel clears) it
+            "pending_switch": n.get("pending_switch"),
+            # account rebind queued behind the running turn; applied by
+            # the same boundary finalizer as pending_switch
+            "pending_account": n.get("pending_account"),
+            "last_denials": n.get("last_denials") or [],
+            # codex lane (2026-09-05): approvals the seam answered
+            # "accept". Absent when the lane cannot report it — a `[]`
+            # here would read as "seam ran, approved nothing"
+            **({"last_approvals": n["last_approvals"]}
+               if "last_approvals" in n else {}),
+            "turns": (n.get("turns") or [])[-TREE_TURNS:],
+            # the `if n.get("frozen")` guard proves the key present — the
+            # Any view sidesteps pyright's NotRequired-[] access flag
+            "frozen": ({**{k: cast(Any, n)["frozen"].get(k)
+                           for k in ("at", "until", "until_ts",
+                                     # the badge label needs the KIND
+                                     # (a network freeze is not a
+                                     # "usage limit", 2026-08-06);
+                                     # `limit` rides along for D-122 —
+                                     # the banner promises "retrying
+                                     # automatically" only for a PURE
+                                     # connection freeze, and a record
+                                     # carrying both flags waits on the
+                                     # auto_resume toggle
+                                     "connection", "limit",
+                                     # D-241: the API projection needs the
+                                     # freeze-time pool and deadline source
+                                     # to avoid erasing a valid retry when
+                                     # an unmarked fallback is merely
+                                     # eligible. These are non-secret
+                                     # scheduling facts.
+                                     "pool", "schedule_kind", "reset_src",
+                                     # user ruling 2026-09-12: the frozen
+                                     # badge must AGREE WITH THE USAGE
+                                     # MODAL, which prints "(inferred)"
+                                     # beside a mark it did not measure.
+                                     # `cards.tsx` and `desk.tsx` both
+                                     # render this and both were dead —
+                                     # the filter below dropped it, so a
+                                     # ride-along guess wore the same
+                                     # words as a provider-stated time.
+                                     # `account` rides with it because the
+                                     # badge's title names WHOSE lane the
+                                     # wait belongs to — the same registry
+                                     # id already projected on the node
+                                     # itself for the account tint.
+                                     "provenance", "account",
+                                     # review round 5: the deadline this
+                                     # freeze was already PROMISED
+                                     # (`supervisor._committed_wake`). The
+                                     # badge and the wake timer both read
+                                     # it off the record so they cannot
+                                     # disagree once it comes due — which
+                                     # only works if it survives this
+                                     # key-by-key rebuild.
+                                     "wake",
+                                     # D-156: WHY, when the answer is not
+                                     # "capacity ran out". "auth" = the
+                                     # credential was rejected, so the
+                                     # record is a usage-limit freeze in
+                                     # SHAPE only — the count includes it
+                                     # (▶ really will act on it) but the
+                                     # words "usage limit" do not describe
+                                     # it. A reader that cannot see this
+                                     # field cannot help over-claiming.
+                                     # the kiosk SPEND kind. It rode the
+                                     # org-level `spend_frozen` flag alone
+                                     # for a long time, which is why the
+                                     # org banner was right and the NODE
+                                     # BADGE was not: the badge has no
+                                     # org flag to consult, so a
+                                     # spend-frozen agent wore the words
+                                     # "usage limit" (2026-08-26).
+                                     "spend",
+                                     "cause")},
+                        # ⚠⚠ THIS LIST IS A FILTER, AND WHAT IT OMITS IT
+                        # DESTROYS SILENTLY. `frozen` is rebuilt key by
+                        # key, so a kind flag or qualifier added to
+                        # FrozenInfo does NOT reach the client until it is
+                        # named HERE — and the symptom is never a crash or
+                        # a blank. It is a display confidently saying the
+                        # wrong thing, because every reader falls to the
+                        # `else` branch of a test it cannot make.
+                        # It has now cost exactly that twice in one day:
+                        # `cause` (auth freezes labelled "usage limit hit"
+                        # — and `_rederive_freeze_reset` additionally
+                        # OVERWROTE their "replace the credential" text
+                        # with "capacity available", the opposite of the
+                        # fix) and `spend` (the node badge above).
+                        # ⚠ IF YOU ADD A FREEZE KIND, ADD IT HERE IN THE
+                        # SAME COMMIT, and give it a label branch in
+                        # App.tsx's resume-note, desk.tsx's badge and
+                        # cards.tsx's compact badge — all three fall
+                        # through to "usage limit" by default.
+                        # №41: freeze kinds are commutative — surface
+                        # whichever reason(s) exist without overwriting
+                        "error": " · ".join(
+                            x for x in (cast(Any, n)["frozen"].get("error"),
+                                        cast(Any, n)["frozen"].get("spend_error"))
+                            if x) or None}
+                       if n.get("frozen") else None),
+            "audiences_held": [a["grantor"] for a in self.d["audiences"]
+                               if a["grantee"] == nid],
+            # @mcp: response handles STORED on this node before @mcp:
+            # was retired (2026-09-25). Served as stored data only —
+            # nothing honours them any more — and never cleared on load
+            # (no silent data rewrite). ⚠ _scrub_public still drops this
+            # for kiosk visitors: a peer id is an outside channel's name.
+            "external_handles": n.get("external_handles") or [],
+            # F-04/F-05: the ask card this node's desk shows — open, or
+            # freshly nulled (the nulled card carries its reason)
+            "ask": self.node_ask(nid),
+            # FR-01: parked under user remote control (supervisor sets it)
+            "remote_controlled": n.get("remote_controlled") or None,
+            # FR-03: presented documents — METADATA only (the reader
+            # fetches the body on open; bodies are up to 64 KB and would
+            # bloat every tree payload)
+            "documents_count": sum(1 for x in self.d.get("documents", []) if x["node"] == nid),
+            "documents": [{"id": x["id"], "title": x["title"],
+                           "at": x["at"],
+                           "format": x.get("format") or "markdown"}
+                          for x in self.d.get("documents", [])
+                          if x["node"] == nid][-10:] or None,
+            "bearer_state": n["bearer_state"],
+            "generation": n["generation"],
+            "children": ([self.tree_node(c, children_index=children_index, lineage=lineage)
+                          for c in self.org_children(nid, children_index)] if descend else []),
+            "lineage": ([{
+                "id": k,
+                "generation": self.nodes[k].get("generation", 0),
+                "state": self.nodes[k]["state"],
+                "bearer_state": self.nodes[k].get("bearer_state"),
+                "tier": self.nodes[k]["model"],
+            } for k in self.lineage_stack(nid)] if lineage else []),
+        }
+
     def tree(self) -> dict[str, Any]:
         """Derived view for the API/UI: nested nodes with computed fields."""
         # ONE parent partition for the whole walk. `build` recurses over
@@ -10454,190 +12127,11 @@ class Org:
         _kids = self.children_index()
 
         def build(nid: str) -> dict[str, Any]:
-            n = self.nodes[nid]
-            _cc = n.get("cache_continuity")
-            _cc_public = (_cc.get("public") if isinstance(_cc, dict) else None)
-            return {
-                "id": nid,
-                "title": n["title"],
-                "tier": n["model"],
-                "model_id": self.d["models"].get(n["model"], n["model"]),
-                # multi-account: the node's bound account id (or the
-                # missing:<provider> park sentinel) — the UI resolves tint
-                # and label from /api/accounts; absent pre-cutover
-                "account": n.get("account"),
-                "state": n["state"],
-                "seat": self.d["tiers"][n["model"]],
-                "grant": n["grant"],
-                "free": None if n["state"] != "live" else self.free(nid, index=_kids),
-                "session_id": n["session_id"],
-                "scope": n["scope"],
-                # what a turn would ACTUALLY launch with — scope.effort is
-                # only half the answer (the org default supplies the rest)
-                "effort_effective": self.effective_effort(nid),
-                "ui_order": n.get("ui_order", 0),
-                "cost_usd": round(float(n.get("cost_usd") or 0.0), 4),
-                "cost_usd_unknown": bool(n.get("cost_usd_unknown")),
-                "occupancy": n.get("occupancy"),
-                # a compaction fills this in before anything has measured the
-                # new session — the card says so rather than implying precision
-                "occupancy_est": bool(n.get("occupancy_est")),
-                # …and this one is why the compact button is not offered: the
-                # session holds only its summary until the next turn
-                "compacted_unrun": bool(n.get("compacted_unrun")),
-                "context_window": n.get("context_window"),
-                # Safe atomic forecast only. Private fingerprints, provider
-                # account/session evidence and component hashes never cross
-                # this view boundary.
-                "cache_forecast": (dict(_cc_public)
-                                   if isinstance(_cc_public, dict) else None),
-                "charter": n.get("charter"),
-                "team_charter": n.get("team_charter"),
-                "mail_pending": len((self.d.get("mail") or {}).get(nid, [])),
-                "limit_locked": bool(n.get("limit_locked")),
-                "halt": ({k: n["halt"][k] for k in ("phase", "requested_at", "at", "by")
-                          if k in n["halt"]} if n.get("halt") else None),
-                "halt_queued": len(n.get("halt_queue") or []),
-                "last_status": n.get("last_status"),
-                "prev_status": n.get("prev_status"),
-                "inflight_at": (n.get("inflight") or {}).get("at"),
-                # D-234: a switch queued behind the running turn — the card
-                # wears it until the boundary applies (or a cancel clears) it
-                "pending_switch": n.get("pending_switch"),
-                # account rebind queued behind the running turn; applied by
-                # the same boundary finalizer as pending_switch
-                "pending_account": n.get("pending_account"),
-                "last_denials": n.get("last_denials") or [],
-                # codex lane (2026-09-05): approvals the seam answered
-                # "accept". Absent when the lane cannot report it — a `[]`
-                # here would read as "seam ran, approved nothing"
-                **({"last_approvals": n["last_approvals"]}
-                   if "last_approvals" in n else {}),
-                "turns": (n.get("turns") or [])[-8:],
-                # the `if n.get("frozen")` guard proves the key present — the
-                # Any view sidesteps pyright's NotRequired-[] access flag
-                "frozen": ({**{k: cast(Any, n)["frozen"].get(k)
-                               for k in ("at", "until", "until_ts",
-                                         # the badge label needs the KIND
-                                         # (a network freeze is not a
-                                         # "usage limit", 2026-08-06);
-                                         # `limit` rides along for D-122 —
-                                         # the banner promises "retrying
-                                         # automatically" only for a PURE
-                                         # connection freeze, and a record
-                                         # carrying both flags waits on the
-                                         # auto_resume toggle
-                                         "connection", "limit",
-                                         # D-241: the API projection needs the
-                                         # freeze-time pool and deadline source
-                                         # to avoid erasing a valid retry when
-                                         # an unmarked fallback is merely
-                                         # eligible. These are non-secret
-                                         # scheduling facts.
-                                         "pool", "schedule_kind", "reset_src",
-                                         # user ruling 2026-09-12: the frozen
-                                         # badge must AGREE WITH THE USAGE
-                                         # MODAL, which prints "(inferred)"
-                                         # beside a mark it did not measure.
-                                         # `cards.tsx` and `desk.tsx` both
-                                         # render this and both were dead —
-                                         # the filter below dropped it, so a
-                                         # ride-along guess wore the same
-                                         # words as a provider-stated time.
-                                         # `account` rides with it because the
-                                         # badge's title names WHOSE lane the
-                                         # wait belongs to — the same registry
-                                         # id already projected on the node
-                                         # itself for the account tint.
-                                         "provenance", "account",
-                                         # review round 5: the deadline this
-                                         # freeze was already PROMISED
-                                         # (`supervisor._committed_wake`). The
-                                         # badge and the wake timer both read
-                                         # it off the record so they cannot
-                                         # disagree once it comes due — which
-                                         # only works if it survives this
-                                         # key-by-key rebuild.
-                                         "wake",
-                                         # D-156: WHY, when the answer is not
-                                         # "capacity ran out". "auth" = the
-                                         # credential was rejected, so the
-                                         # record is a usage-limit freeze in
-                                         # SHAPE only — the count includes it
-                                         # (▶ really will act on it) but the
-                                         # words "usage limit" do not describe
-                                         # it. A reader that cannot see this
-                                         # field cannot help over-claiming.
-                                         # the kiosk SPEND kind. It rode the
-                                         # org-level `spend_frozen` flag alone
-                                         # for a long time, which is why the
-                                         # org banner was right and the NODE
-                                         # BADGE was not: the badge has no
-                                         # org flag to consult, so a
-                                         # spend-frozen agent wore the words
-                                         # "usage limit" (2026-08-26).
-                                         "spend",
-                                         "cause")},
-                            # ⚠⚠ THIS LIST IS A FILTER, AND WHAT IT OMITS IT
-                            # DESTROYS SILENTLY. `frozen` is rebuilt key by
-                            # key, so a kind flag or qualifier added to
-                            # FrozenInfo does NOT reach the client until it is
-                            # named HERE — and the symptom is never a crash or
-                            # a blank. It is a display confidently saying the
-                            # wrong thing, because every reader falls to the
-                            # `else` branch of a test it cannot make.
-                            # It has now cost exactly that twice in one day:
-                            # `cause` (auth freezes labelled "usage limit hit"
-                            # — and `_rederive_freeze_reset` additionally
-                            # OVERWROTE their "replace the credential" text
-                            # with "capacity available", the opposite of the
-                            # fix) and `spend` (the node badge above).
-                            # ⚠ IF YOU ADD A FREEZE KIND, ADD IT HERE IN THE
-                            # SAME COMMIT, and give it a label branch in
-                            # App.tsx's resume-note, desk.tsx's badge and
-                            # cards.tsx's compact badge — all three fall
-                            # through to "usage limit" by default.
-                            # №41: freeze kinds are commutative — surface
-                            # whichever reason(s) exist without overwriting
-                            "error": " · ".join(
-                                x for x in (cast(Any, n)["frozen"].get("error"),
-                                            cast(Any, n)["frozen"].get("spend_error"))
-                                if x) or None}
-                           if n.get("frozen") else None),
-                "audiences_held": [a["grantor"] for a in self.d["audiences"]
-                                   if a["grantee"] == nid],
-                # outward @mcp: channels this node may answer directly. Read
-                # so a client that OWNS a handle (the in-game panel) can find
-                # the one already bound to an agent instead of minting a
-                # second. ⚠ _scrub_public drops this: the peer id is the only
-                # credential /api/extern/{peer}/messages asks for, so handing
-                # it to a kiosk visitor would hand them the conversation.
-                "external_handles": n.get("external_handles") or [],
-                # F-04/F-05: the ask card this node's desk shows — open, or
-                # freshly nulled (the nulled card carries its reason)
-                "ask": self.node_ask(nid),
-                # FR-01: parked under user remote control (supervisor sets it)
-                "remote_controlled": n.get("remote_controlled") or None,
-                # FR-03: presented documents — METADATA only (the reader
-                # fetches the body on open; bodies are up to 64 KB and would
-                # bloat every tree payload)
-                "documents_count": sum(1 for x in self.d.get("documents", []) if x["node"] == nid),
-                "documents": [{"id": x["id"], "title": x["title"],
-                               "at": x["at"],
-                               "format": x.get("format") or "markdown"}
-                              for x in self.d.get("documents", [])
-                              if x["node"] == nid][-10:] or None,
-                "bearer_state": n["bearer_state"],
-                "generation": n["generation"],
-                "children": [build(c) for c in self.org_children(nid, _kids)],
-                "lineage": [{
-                    "id": k,
-                    "generation": self.nodes[k].get("generation", 0),
-                    "state": self.nodes[k]["state"],
-                    "bearer_state": self.nodes[k].get("bearer_state"),
-                    "tier": self.nodes[k]["model"],
-                } for k in self.lineage_stack(nid)],
-            }
+            return self.tree_node(nid, children_index=_kids)
+        return self.tree_header([build(c) for c in self.org_children(None, _kids)])
+
+    def tree_header(self, roots: list[dict[str, Any]]) -> dict[str, Any]:
+        """Shared header projection for the full tree and a prepared foreground."""
         # F-04 history, capped by what the DESK ACTUALLY RENDERS. The full
         # list was shipped at `[-60:]` and measured 122,692 B on the live org
         # — 15% of an 844 KB payload refetched every 6 s and on every save —
@@ -10670,7 +12164,14 @@ class Org:
                         if r["status"] != "withdrawn"])
         _keep = {i for i, a in enumerate(_asks_all)
                  if a.get("status") not in OPEN_ASK_STATUS}
-        _keep = set(sorted(_keep)[-ASK_HISTORY_KEEP:])
+        # the MOST RECENTLY RESOLVED, not the most recently created: an older
+        # question answered just now must stay in the inbox history however
+        # many later-created requests resolved first (docket v3-an-answered-
+        # question-vanishes-from-the-inbox). foreground_store and migration
+        # 0018 serve the same order on PostgreSQL.
+        _keep = set(sorted(_keep, key=lambda i: (
+            str(_asks_all[i].get("resolved_at") or _asks_all[i].get("at") or ""), i))
+            [-ASK_HISTORY_KEEP:])
         _asks = [a for i, a in enumerate(_asks_all)
                  if a.get("status") in OPEN_ASK_STATUS or i in _keep]
         return {
@@ -10714,7 +12215,7 @@ class Org:
             # a favorite that was since DESELECTED has no other source for it
             "models": self.d.get("models", {}),
             "audiences": self.d["audiences"],
-            "roots": [build(c) for c in self.org_children(None, _kids)],
+            "roots": roots,
             "audit": self.audit(),
             "cost_usd_total": self.cost_total(),
             "cost_usd_unknown": bool(
@@ -10786,8 +12287,12 @@ class Org:
             # the docket toolbar badge (docket-final-spec.md): two counts over
             # the FULL item set, always present - the modal fetches the list
             # from GET /api/orgs/{slug}/work-items when it opens
-            "work_items_summary": {k: v for k, v in self.work_counts().items()
-                                   if k in ("attention", "active")},
+            "work_items_summary": {**{k: v for k, v in self.work_counts().items()
+                                      if k in ("attention", "active")},
+                                   # [slug, set_rev] per manual raise, so a
+                                   # dismissed raise leaves the glow at once
+                                   # and a new one never hides behind it
+                                   "raises": self.work_attention_raises()},
             # the org inbox panel (user spec): hidden until the org receives
             # its first outside mail OR an inbox audience is granted
             "org_inbox": {
@@ -10891,6 +12396,13 @@ class Org:
     # the complete record reads as archive-then-live in one unbroken sequence.
     # Raising the number instead would only have moved the day this happens.
     WORK_SCOPE_MAX: Final = 100
+    # ⚠ STORAGE, NOT THE WINDOW (docket-history-lazy 2026-09-26). An item keeps
+    # only its newest WORK_SCOPE_INLINE scope rows inside `work_items`; older
+    # rows spill into the org's lazy `work_scope_log[slug]`. `work_items` is
+    # one eager value that every whole-org copy decodes, and scope was 72% of
+    # its 11.8 MB on the live org. The live window a reader sees is still
+    # WORK_SCOPE_MAX rows: the split is rebuilt on read (`_work_scope_live`).
+    WORK_SCOPE_INLINE: Final = 5
     # Stamped onto an item by every scope append this build performs. Its
     # ABSENCE on an item already at the cap is the only evidence that the item
     # passed through the frozen window of the refusing build — see
@@ -11272,11 +12784,16 @@ class Org:
         an id first: a slug equal to some other item's id would have been
         permanently shadowed. There are no ids to shadow anything now.)"""
         names: set[str] = set()
-        for it in self._work_active() + self._work_archive():
+        archived = self._work_archive_identity()
+        for it in (self._work_active() if archived is not None
+                   else self._work_active() + self._work_archive()):
             if it is skip:
                 continue
             if it.get("slug"):
                 names.add(str(it["slug"]))
+        # the index path: `skip` can only be an archived item a caller is
+        # holding whole, and then the section is resident and this is None
+        names.update(name for name, _ in archived or ())
         # a DELETED item's name stays taken (user 2026-09-07): the record is
         # gone, but an old chip, closed ask or mail row may still carry the
         # name, and minting it again would make that reference point at a
@@ -11304,10 +12821,18 @@ class Org:
         make `GET` a writer, race two viewers, and dirty documents nobody
         edited. Until the first mutation an old item simply has no slug and
         the UI shows its id; the backfill is not a migration and never runs
-        against a document this process is not already about to save."""
+        against a document this process is not already about to save.
+
+        When the docket index answers for the archive every archived item has
+        a name (`archive_identity` is refused otherwise), so only the active
+        list can need one; and when nothing needs a name, nothing else is read."""
+        pool = (self._work_active() if self._work_archive_identity() is not None
+                else self._work_active() + self._work_archive())
+        if all(it.get("slug") for it in pool):
+            return []
         taken = self._work_names_in_use()
         done: list[str] = []
-        for it in self._work_active() + self._work_archive():
+        for it in pool:
             if it.get("slug"):
                 continue
             s = self._work_unique_slug(str(it.get("title") or ""), taken)
@@ -11372,18 +12897,50 @@ class Org:
         key, an item with no name, or two items answering to the same name.
         The last one must be caught here, or a duplicate reaches
         `work_identity_migrate`'s refusal only by luck. No items at all is
-        `slug`."""
+        `slug`.
+
+        The ARCHIVE is judged from the docket index when the store can answer
+        from it (`LazyDoc.archive_identity`: the same three facts per item,
+        without reading a body — at N1000 this walk was ~109 MB per
+        `orgtree_work` call); otherwise from the rows, exactly as before."""
         names: set[str] = set()
-        for it in self._work_all():
-            if "id" in it:
+        archived = self._work_archive_identity()
+
+        def rows(items: list[WorkItem]) -> Iterator[tuple[str, bool]]:
+            for it in items:             # `id` first, as it always was
+                yield ("", True) if "id" in it else (str(it.get("slug") or ""), False)
+        facts: Iterable[tuple[str, bool]] = rows(
+            self._work_all() if archived is None else self._work_active())
+        if archived is not None:
+            facts = itertools.chain(facts, archived)
+        for name, has_old_id in facts:
+            if has_old_id:
                 return "legacy"          # old identity, definitively
-            name = str(it.get("slug") or "")
             if not name:
                 return "legacy"          # unnamed: nothing can reference it
             if name in names:
                 return "legacy"          # ambiguous: two items answer to one
             names.add(name)
         return self.WORK_IDENTITY_SLUG
+
+    def _work_archive_statuses(self) -> list[Any]:
+        """The stored `status` of the archived items — distinct values from
+        the docket index when the store can answer that way (see
+        `store.LazyDoc.archive_statuses`), else from the projection (no
+        whole bodies), else from the rows."""
+        indexed = getattr(self.d, "archive_statuses", None)
+        got = indexed() if indexed is not None else None
+        if got is not None:
+            return got
+        return [it.get("status") for it in self._work_archive_rows()]
+
+    def _work_archive_identity(self) -> list[tuple[str, bool]] | None:
+        """`(slug, has_old_id)` per archived item from the docket index, or
+        None when the store cannot answer that way (see
+        `store.LazyDoc.archive_identity`) and the caller must walk the rows.
+        Every slug it returns is non-empty."""
+        indexed = getattr(self.d, "archive_identity", None)
+        return indexed() if indexed is not None else None
 
     def _work_require_current_identity(self) -> None:
         """Refuse a docket WRITE while the document still holds old-style
@@ -11720,6 +13277,15 @@ class Org:
             # asked for. So the cut is the same for everybody — a holder reads
             # what came before its own stretch, and a participant or reviewer,
             # which holds no stretch at all, reads exactly the same rows.
+            #
+            # ⚠ "NOT THE CURRENT HOLDER" IS AN IDENTITY TEST, NOT A POSITION.
+            # The roster keeps every stretch, so an item that went A -> B -> A
+            # still has A's FIRST row after the last one is cut, and the cut
+            # alone let everyone listed read A's live material while A works
+            # the item again. The current holder is refused outright, whatever
+            # earlier stretches it has; B's stretch stays readable.
+            if self._work_actor_node(it.get("owner")) == whom:
+                continue
             roster = self._work_holders(it)[:-1]
             row = next((r for r in reversed(roster)
                         if self._work_actor_node(r) == whom), None)
@@ -11738,7 +13304,6 @@ class Org:
                              f"any other item and nothing about any other "
                              f"agent, and it ends when you stop being listed "
                              f"on the item or the item closes.")}
-        return None
         return None
 
     def _work_can_accept(self, actor: str, it: WorkItem) -> bool:
@@ -11968,7 +13533,26 @@ class Org:
         if named:
             self._log("work_slugs", "orgtree",
                       {"slugs": named, "why": "backfilled on the next write"}, [])
+        # PG-3w (plan decision 13): under `org_tx` the ARCHIVE MOVE runs as its
+        # own transaction (`worktx.sweep`) before the action's, so an edit to
+        # one item does not have to lock the archive and every other item's
+        # outcome. The action transaction sets this flag and skips the move;
+        # the identity check and the slug backfill above still run here.
+        if getattr(self, "_work_defer_archive", False):
+            return []
+        return self._work_archive_eligible(now_ts)
+
+    def _work_archive_eligible(self, now_ts: float | None = None) -> list[str]:
+        """The archive move of `_work_sweep`, on its own. The caller holds
+        the `work_items` row, so eligibility is re-checked under that lock and
+        a reopen or update that committed first is honoured (decision 13 a)."""
+        now_ts = _time.time() if now_ts is None else now_ts
         active = self._work_active()
+        # the one-time heal of docket-history-lazy, under the same lock: an
+        # item still carrying its whole scope inline (or a legacy inline
+        # `scope_archive`) spills it to `work_scope_log`. A no-op once healed.
+        for it in active:
+            self._work_scope_spill(it)
         moved: list[str] = []
         # ⚠ THE OUTCOME IS RECORDED PER ITEM, not asserted once for the batch.
         # This line used to say "done for over an hour" for everything it
@@ -12293,7 +13877,7 @@ class Org:
         — so a long objective rode along twice on every read. Only that one
         row is folded: every other before/after in the record is text no other
         field holds, and stays verbatim."""
-        rows = list(it.get("scope") or [])
+        rows = self._work_scope_live(it)
         cur = it.get("objective")
         for n in range(len(rows) - 1, -1, -1):
             row = rows[n]
@@ -12408,7 +13992,7 @@ class Org:
             # "nothing is erased" is worth nothing if nothing can read it. A
             # docket LIST serves every readable item at once and refreshes on a
             # timer, so it carries the summary and points at `get`.
-            **({"scope_archive": list(it.get("scope_archive") or [])}
+            **({"scope_archive": self._work_scope_arch(it)}
                if scope_archive else {}),
             "scope_archive_summary": self._work_scope_archive_summary(it),
             # W08 artifacts: immutable, and `named` ones are filtered BY THE
@@ -12842,6 +14426,18 @@ class Org:
         return {"attention": attention, "active": active,
                 "archived": archived, "backlogged": backlogged}
 
+    def work_attention_raises(self) -> list[list[Any]]:
+        """Every manually flagged ticket as [slug, set_rev] — one identity per
+        raise, served beside the toolbar counts (workread.attention_raises_raw
+        is the indexed reader; this is the exact path). The same item set as
+        `work_counts`: an item holding attention is never archived."""
+        out: list[list[Any]] = []
+        for it in list(self._work_active()) + list(self._work_archive_rows()):
+            flag = it.get("manual_attention")
+            if flag:
+                out.append([str(it.get("slug")), int(flag.get("set_rev") or 0)])
+        return sorted(out)
+
     def _work_deploy_recipient(self, it: WorkItem) -> str | None:
         """Return the live actor authorized to take a release-stage action.
 
@@ -13183,7 +14779,23 @@ class Org:
                     back.append(v)
                 else:
                     items.append(v)
+        return self._work_list_payload(
+            viewer, items, arch, back, arch_n, now_ts,
+            include_archived=include_archived,
+            include_backlogged=include_backlogged, compact=compact,
+            proj=proj, sel=sel)
 
+    def _work_list_payload(self, viewer: str, items: list[dict[str, Any]],
+                           arch: list[dict[str, Any]],
+                           back: list[dict[str, Any]], arch_n: int,
+                           now_ts: float, *, include_archived: bool,
+                           include_backlogged: bool, compact: bool,
+                           proj: str, sel: list[str] | None) -> dict[str, Any]:
+        """`work_list` from its three classified groups of whole views: order,
+        counts, `groups`, projection and the hoisted declarations. Shared with
+        the indexed agent list (`worklist.agent_list`), which selects the same
+        rows from the PostgreSQL docket index -- one assembly, so the two
+        answers cannot drift apart."""
         def key(v: dict[str, Any]) -> tuple[str, str]:
             # `reverse=True` applies to the WHOLE tuple, so a docket_at tie
             # breaks on the NAME descending. Which direction it runs does not
@@ -13330,12 +14942,13 @@ class Org:
         end can be reproduced rather than only described. Nothing in the
         product passes it.
         """
-        rows = cast("list[WorkScopeRecord]", it.setdefault("scope", []))
+        it.setdefault("scope", [])
+        live_n = self._work_scope_live_n(it)
         room = max(0, self.WORK_SCOPE_MAX - max(1, int(adding)))
-        if len(rows) <= room:
+        if live_n <= room:
             return
         if not relief:
-            have = len(rows)
+            have = live_n
             raise LedgerError(
                 f"this item already holds {have} scope record(s) (cap "
                 f"{self.WORK_SCOPE_MAX}) and nothing here is ever truncated or "
@@ -13360,13 +14973,13 @@ class Org:
         this rollover drops the row count below the cap, so it is written down
         once, here, and read back by `_work_objective_notice`.
         """
-        rows = cast("list[WorkScopeRecord]", it.get("scope") or [])
-        move = len(rows) - max(0, int(keep))
+        live_n = self._work_scope_live_n(it)
+        move = live_n - max(0, int(keep))
         if move <= 0:
             return
         if not it.get("scope_guard") and not it.get("scope_frozen"):
             it["scope_frozen"] = {
-                "at": now(), "rows": len(rows), "cap": self.WORK_SCOPE_MAX,
+                "at": now(), "rows": live_n, "cap": self.WORK_SCOPE_MAX,
                 "note": ("this item stood at the scope cap under a build that "
                          "REFUSED every description change and every ruling. "
                          "Anything decided during that window was not recorded "
@@ -13374,13 +14987,75 @@ class Org:
                          "description below is therefore not guaranteed to be "
                          "the complete scope. Look for it in `evidence`, in "
                          "the item's mail, or ask whoever ruled it")}
-        arch = cast("list[WorkScopeRecord]",
-                    it.setdefault("scope_archive", []))
-        arch.extend(rows[:move])
-        it["scope"] = rows[move:]
+        # a COUNT, not a move: which list a row is SERVED in is rebuilt on read
+        # from this, independent of where the row is STORED (inline or log)
+        it["scope_rolled"] = int(it.get("scope_rolled") or 0) + move
 
-    @staticmethod
-    def _work_scope_all(it: WorkItem) -> list[WorkScopeRecord]:
+    def _work_scope_log_rows(self, it: WorkItem,
+                             create: bool = False) -> list[WorkScopeRecord]:
+        """This item's spilled rows in the lazy `work_scope_log`, loaded for
+        THIS item only (a SectionMap owner) and only when a caller needs the
+        rows themselves. Counts come from `scope_logged` without loading."""
+        slug = str(it.get("slug") or "")
+        if create:
+            logs = self.d.setdefault("work_scope_log", {})
+            return cast("list[WorkScopeRecord]", logs.setdefault(slug, []))
+        if not int(it.get("scope_logged") or 0):
+            return []
+        logs = self.d.get("work_scope_log") or {}
+        return cast("list[WorkScopeRecord]", logs.get(slug) or [])
+
+    def _work_scope_rolled(self, it: WorkItem) -> int:
+        """Rows of the complete record that have rolled out of the live
+        window: the counted ones plus a not-yet-healed inline archive."""
+        return (int(it.get("scope_rolled") or 0)
+                + len(cast("list[Any]", it.get("scope_archive") or [])))
+
+    def _work_scope_live_n(self, it: WorkItem) -> int:
+        """Length of the live window WITHOUT loading the log."""
+        total = (len(cast("list[Any]", it.get("scope_archive") or []))
+                 + int(it.get("scope_logged") or 0)
+                 + len(cast("list[Any]", it.get("scope") or [])))
+        return max(0, total - self._work_scope_rolled(it))
+
+    def _work_scope_live(self, it: WorkItem) -> list[WorkScopeRecord]:
+        """The live window as served (what `it["scope"]` held before the
+        storage split). The row objects are the stored ones."""
+        return self._work_scope_all(it)[self._work_scope_rolled(it):]
+
+    def _work_scope_arch(self, it: WorkItem) -> list[WorkScopeRecord]:
+        """The rolled-over rows as served (the old `scope_archive`)."""
+        rolled = self._work_scope_rolled(it)
+        return self._work_scope_all(it)[:rolled] if rolled else []
+
+    def _work_scope_spill(self, it: WorkItem) -> None:
+        """Move all but the newest WORK_SCOPE_INLINE inline rows into the lazy
+        log, and heal a legacy inline `scope_archive` into it. STORAGE ONLY:
+        the complete record, its order, every row's content and what a reader
+        is served are unchanged; `_work_scope_all` reads across all three."""
+        legacy = cast("list[WorkScopeRecord]", it.get("scope_archive") or [])
+        inline = cast("list[WorkScopeRecord]", it.get("scope") or [])
+        spill = max(0, len(inline) - self.WORK_SCOPE_INLINE)
+        if not legacy and not spill:
+            return
+        log = self._work_scope_log_rows(it, create=True)
+        if legacy:
+            # legacy rows are the OLDEST: they go before anything logged
+            if log:
+                slug = str(it.get("slug") or "")
+                logs = self.d.setdefault("work_scope_log", {})
+                logs[slug] = [*legacy, *list(log)]
+                log = cast("list[WorkScopeRecord]", logs[slug])
+            else:
+                log.extend(legacy)
+            it["scope_rolled"] = int(it.get("scope_rolled") or 0) + len(legacy)
+            it.pop("scope_archive", None)
+        if spill:
+            log.extend(inline[:spill])
+            it["scope"] = inline[spill:]
+        it["scope_logged"] = len(log)
+
+    def _work_scope_all(self, it: WorkItem) -> list[WorkScopeRecord]:
         """THE COMPLETE RECORD, oldest first: archive then live window.
 
         ⚠ EVERY READER OF THE SCOPE RECORD GOES THROUGH HERE, not through
@@ -13390,6 +15065,7 @@ class Org:
         guarantee failing at the reader rather than at the writer.
         """
         return (cast("list[WorkScopeRecord]", it.get("scope_archive") or [])
+                + self._work_scope_log_rows(it)
                 + cast("list[WorkScopeRecord]", it.get("scope") or []))
 
     def _work_scope_seq(self, it: WorkItem, seq: int) -> WorkScopeRecord | None:
@@ -13446,6 +15122,7 @@ class Org:
                 # record shows both what was ruled and that it was replaced.
                 prior["superseded_by"] = seq
         rows.append(row)
+        self._work_scope_spill(it)
         return row
 
     def _work_scope_archive_summary(self, it: WorkItem) -> dict[str, Any]:
@@ -13455,7 +15132,7 @@ class Org:
         whole. This exists so a docket LIST — which serves every readable item
         at once — can say that more of the record exists without shipping all
         of it on every five-second poll."""
-        arch = cast("list[WorkScopeRecord]", it.get("scope_archive") or [])
+        arch = self._work_scope_arch(it)
         if not arch:
             return {"count": 0, "first_seq": None, "last_seq": None,
                     "first_at": None, "last_at": None}
@@ -13501,8 +15178,8 @@ class Org:
         the reader.
         """
         frozen = it.get("scope_frozen")
-        live = len(cast("list[Any]", it.get("scope") or []))
-        arch = len(cast("list[Any]", it.get("scope_archive") or []))
+        live = self._work_scope_live_n(it)
+        arch = self._work_scope_rolled(it)
         if not frozen and not it.get("scope_guard") and live >= self.WORK_SCOPE_MAX:
             # AN ITEM STILL SITTING IN THE FROZEN WINDOW. No append has been
             # made to it by this build, so nothing has yet had the chance to
@@ -15473,6 +17150,21 @@ class Org:
                 return str(row["ref"])
         return None
 
+    def _work_review_mail_owners(self, it: WorkItem) -> list[str] | None:
+        """Every node a review request for `it` can have been mailed to: each
+        reviewer its history names, plus the current one. None when the
+        history was folded past WORK_HISTORY_MAX (an older naming may be
+        gone), and the caller must then read every box, as before."""
+        hist = it.get("history") or []
+        if any(isinstance(h, dict) and h.get("kind") == "folded" for h in hist):
+            return None
+        owners = {n for h in hist if isinstance(h, dict) and h.get("op") == "reviewer"
+                  for n in (self._work_actor_node(h.get("to")),) if n}
+        current = self._work_actor_node(it.get("reviewer"))
+        if current:
+            owners.add(current)
+        return sorted(owners)
+
     def _work_mark_review_requests_stale(self, it: WorkItem) -> None:
         """Mark older review-request mail when the item advances.
 
@@ -15486,13 +17178,26 @@ class Org:
         slug = str(it.get("slug") or "")
         sections: list[Iterable[dict[str, Any]]] = []
         mail = self.d.get("mail") or {}
-        if isinstance(mail, dict):
-            sections.extend(cast(Iterable[dict[str, Any]], rows)
-                            for rows in mail.values() if isinstance(rows, list))
         mail_log = self.d.get("mail_log") or {}
-        if isinstance(mail_log, dict):
-            sections.extend(cast(Iterable[dict[str, Any]], rows)
-                            for rows in mail_log.values() if isinstance(rows, list))
+        owners = self._work_review_mail_owners(it)
+        if owners is not None:
+            # a review request is mailed to the reviewer being named, and every
+            # naming is in the item's history: only those boxes can hold one,
+            # so only they are read, not every agent's whole mail history
+            # (N1000 item desk-chat-read-and-other-request-paths-still-loa)
+            for box in (mail, mail_log):
+                if isinstance(box, dict):
+                    for owner in owners:
+                        rows = box.get(owner)
+                        if isinstance(rows, list):
+                            sections.append(cast(Iterable[dict[str, Any]], rows))
+        else:
+            if isinstance(mail, dict):
+                sections.extend(cast(Iterable[dict[str, Any]], rows)
+                                for rows in mail.values() if isinstance(rows, list))
+            if isinstance(mail_log, dict):
+                sections.extend(cast(Iterable[dict[str, Any]], rows)
+                                for rows in mail_log.values() if isinstance(rows, list))
         for rows in sections:
             for row in rows:
                 ev = row.get("ev")
@@ -15722,6 +17427,57 @@ class Org:
             self.post_mail(USER, want, "", "request", ev=_ev(True))
         return want
 
+    def _work_abandoned_candidates(self, now_ts: float | None,
+                                   threshold_s: float | None
+                                   ) -> Iterator[tuple[WorkItem, float, str]]:
+        """(item, age, owner state) for each stale nonterminal item whose
+        OWNER is gone, in docket order -- the selection both the dry check
+        and the reassignment make. Reads the active items, the archive only
+        when a non-closed row is there, and ONE node row per stale item: no
+        walk of the node table, whose retired history grows without bound
+        (abandoned-ticket-check-decodes-every-node-row-of)."""
+        self._work_require_current_identity()
+        now_ts = _time.time() if now_ts is None else now_ts
+        threshold = (self.WORK_ABANDONED_AFTER_S
+                     if threshold_s is None else float(threshold_s))
+        if threshold < 0:
+            raise LedgerError("abandoned-ticket threshold must be nonnegative")
+        # The archive is classified by STATUS ALONE, and read whole only when
+        # a non-closed row is actually there (archiving requires a closed
+        # status, so normally never). The 20 s keeper runs this dry pass on a
+        # fresh snapshot: walking `_work_all()` decoded every archived body per
+        # tick — MEASURED +220 MB private for 2000 x 55 KB archived items.
+        items = list(self._work_active())
+        if any(self._work_status({"status": st}) not in self.WORK_CLOSED
+               for st in self._work_archive_statuses()):
+            items += self._work_archive()
+        for it in items:
+            if self._work_status(it) in self.WORK_CLOSED:
+                continue
+            age = self._work_recovery_age_s(it, now_ts)
+            if age is None or age <= threshold:
+                continue
+            current, owner_state = self._work_owner_state(it)
+            if current or owner_state is None:
+                continue
+            yield it, age, owner_state
+
+    def _work_live_tops(self) -> list[str]:
+        """The live top-level node ids, sorted: where abandoned work goes.
+        A walk of the node table, so it runs only once a candidate exists."""
+        return sorted(str(nid) for nid, node in self.nodes.items()
+                      if node.get("state") == "live"
+                      and not str(node.get("parent") or "").strip())
+
+    def work_abandoned_pending(self, now_ts: float | None = None,
+                               threshold_s: float | None = None) -> bool:
+        """Would `work_reassign_abandoned` move anything? Read-only: the 20 s
+        keeper asks this of a lock-free runtime view and takes the
+        transaction only on True. Stops at the first candidate."""
+        for _ in self._work_abandoned_candidates(now_ts, threshold_s):
+            return bool(self._work_live_tops())
+        return False
+
     def work_reassign_abandoned(self, now_ts: float | None = None,
                                 threshold_s: float | None = None
                                 ) -> list[dict[str, Any]]:
@@ -15733,27 +17489,14 @@ class Org:
         advance on the same live node is the same agent, so nothing here fires
         for it: no reassignment, no assignment-history row, no status change
         and no mail claiming the item moved."""
-        self._work_require_current_identity()
-        now_ts = _time.time() if now_ts is None else now_ts
-        threshold = (self.WORK_ABANDONED_AFTER_S
-                     if threshold_s is None else float(threshold_s))
-        if threshold < 0:
-            raise LedgerError("abandoned-ticket threshold must be nonnegative")
-        tops = sorted(str(nid) for nid, node in self.nodes.items()
-                      if node.get("state") == "live"
-                      and not str(node.get("parent") or "").strip())
-        if not tops:
-            return []
         moved: list[dict[str, Any]] = []
-        for it in list(self._work_all()):
-            if self._work_status(it) in self.WORK_CLOSED:
-                continue
-            age = self._work_recovery_age_s(it, now_ts)
-            if age is None or age <= threshold:
-                continue
-            current, owner_state = self._work_owner_state(it)
-            if current or owner_state is None:
-                continue
+        tops: list[str] | None = None
+        # list() first: the reassignment edits the items being selected
+        for it, age, owner_state in list(self._work_abandoned_candidates(now_ts, threshold_s)):
+            if tops is None:
+                tops = self._work_live_tops()
+            if not tops:
+                return []
             result = self._work_assign_core(SYSTEM, it, tops[0], True,
                                             "abandoned-owner")
             result["previous_owner_state"] = owner_state
@@ -16247,7 +17990,7 @@ class Org:
                             if supersedes is not None else {})})
         return {"decision": int(row["seq"]), "rev": it["rev"],
                 "supersedes": (int(supersedes) if supersedes is not None else None),
-                "scope": len(it.get("scope") or [])}
+                "scope": self._work_scope_live_n(it)}
 
     def work_attach(self, actor: str, wid: str, name: str, nbytes: int,
                     stored: str) -> dict[str, Any]:
@@ -17923,6 +19666,10 @@ class Org:
                 cleared.append({"item": str(other["slug"]),
                                 "field": "superseded_by"})
         (self._work_archive() if phys else self._work_active()).remove(it)
+        if int(it.get("scope_logged") or 0):
+            # the spilled part of its scope record goes with it: delete erases
+            # the ticket record for good, and a name is never reused
+            (self.d.get("work_scope_log") or {}).pop(me, None)
         reserved = self.d.setdefault("work_deleted_names", [])   # type: ignore[typeddict-item]
         if me not in reserved:
             reserved.append(me)

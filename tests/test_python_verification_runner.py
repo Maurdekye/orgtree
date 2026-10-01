@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 from pathlib import Path
@@ -312,6 +313,81 @@ if __name__ == '__main__':
         # the module must still get a verdict rather than taking the run down.
         self.assertNotEqual(result.stdout, "")
         self.assertIn(result.phase, {"pass", "execution_failure"})
+
+    def execute_cached(self, path: str, pycache: Path):
+        interpreter = runner.select_interpreter(ROOT, os.environ.get("ORGTREE_V2_PYTHON") or os.sys.executable)
+        run_root, _ = runner.make_data_root(ROOT, str(self.data))
+        return runner.run_modules([path], repo_root=ROOT, interpreter=interpreter, data_root=run_root,
+                                  pycache_dir=pycache)
+
+    def test_pycache_dir_keeps_bytecode_out_of_the_sources_and_recompiles_an_edit(self):
+        pycache = self.fixture / "pycache"
+        helper = self.module("cached_helper.py", "VALUE = 'first'\n")
+        settled = time.time() - 60   # a source edited under 2 s ago is never cached
+        os.utime(helper, (settled, settled))
+        path = self.module("uses_helper.py",
+                           "from cached_helper import VALUE\nprint('VALUE=' + VALUE)\n")
+        [result] = self.execute_cached(path, pycache)
+        self.assertEqual(result.phase, "pass", result.stderr)
+        self.assertIn("VALUE=first", result.stdout)
+        cached = list(pycache.rglob("cached_helper.*.pyc"))
+        self.assertEqual(len(cached), 1, "the imported helper is compiled into the prefix tree")
+        self.assertFalse(list(self.fixture.glob("__pycache__")), "nothing is written beside the sources")
+        # An edit of a different size must be recompiled, never served stale.
+        Path(helper).write_text("VALUE = 'second, and longer'\n", encoding="utf-8")
+        [result] = self.execute_cached(path, pycache)
+        self.assertEqual(result.phase, "pass", result.stderr)
+        self.assertIn("VALUE=second, and longer", result.stdout)
+
+    def test_a_same_size_edit_in_the_same_second_is_never_served_stale(self):
+        # The mutation-testing shape: edit, run, edit again within the second
+        # the first edit carries, same size. A pyc keys on (mtime in whole
+        # seconds, size), so if the first run had cached bytecode the second
+        # would silently run the old code. The mtime is pinned into the
+        # future so "edited within the last 2 s" holds however slow the run.
+        pycache = self.fixture / "pycache"
+        helper = Path(self.module("mutant.py", "VALUE = 'AAAA'\n"))
+        pinned = time.time() + 30
+        os.utime(helper, (pinned, pinned))
+        path = self.module("uses_mutant.py", "from mutant import VALUE\nprint('VALUE=' + VALUE)\n")
+        [result] = self.execute_cached(path, pycache)
+        self.assertIn("VALUE=AAAA", result.stdout, result.stderr)
+        self.assertFalse(list(pycache.rglob("mutant.*.pyc")), "a just-edited source was cached")
+        helper.write_text("VALUE = 'BBBB'\n", encoding="utf-8")
+        os.utime(helper, (pinned, pinned))
+        [result] = self.execute_cached(path, pycache)
+        self.assertIn("VALUE=BBBB", result.stdout, result.stderr)
+
+    def test_the_shared_pycache_drops_stale_entries(self):
+        cache = self.fixture / "prune"
+        old, new = cache / "a" / "old.cpython-313.pyc", cache / "a" / "new.cpython-313.pyc"
+        old.parent.mkdir(parents=True)
+        old.write_bytes(b"x")
+        new.write_bytes(b"x")
+        aged = time.time() - runner.PYCACHE_MAX_AGE_S - 60
+        os.utime(old, (aged, aged))
+        runner.pycache_root(ROOT, str(cache))
+        self.assertFalse(old.exists())
+        self.assertTrue(new.exists())
+        with patch.object(runner, "PYCACHE_MAX_BYTES", 0):
+            runner.pycache_root(ROOT, str(cache))
+        self.assertTrue(cache.is_dir())
+        self.assertFalse(new.exists(), "past the size cap the cache is dropped whole")
+
+    def test_without_a_pycache_dir_nothing_is_compiled_to_disk(self):
+        self.module("plain_helper.py", "VALUE = 1\n")
+        [result] = self.execute(self.module("uses_plain.py", "from plain_helper import VALUE\n"))
+        self.assertEqual(result.phase, "pass", result.stderr)
+        self.assertFalse(list(self.fixture.rglob("*.pyc")))
+
+    def test_pycache_dir_is_refused_inside_the_checkout_and_off_means_none(self):
+        self.assertIsNone(runner.pycache_root(ROOT, "off"))
+        self.assertIsNone(runner.pycache_root(ROOT, None))
+        with self.assertRaisesRegex(ValueError, "outside the checkout"):
+            runner.pycache_root(ROOT, str(ROOT / "build" / "pycache"))
+        with self.assertRaisesRegex(ValueError, "outside the checkout"):
+            runner.pycache_root(ROOT, str(ROOT.parent))
+        self.assertEqual(runner.pycache_root(ROOT, str(self.fixture / "p")), runner._canonical(self.fixture / "p"))
 
 
 if __name__ == "__main__":

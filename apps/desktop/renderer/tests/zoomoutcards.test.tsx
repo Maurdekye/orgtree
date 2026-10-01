@@ -133,7 +133,7 @@ test('§4 right-clicking it raises no menu of its own', async (t) => {
   assert.deepEqual(labels.slice(0, 2),
     // the CARD's menu may legitimately open (the event bubbles to it); what
     // must not appear is the presentation card's own "Open"/"Copy"/"Download"
-    ['Copy agent name', 'Open desk'],
+    ['Copy agent name', 'Focus'],
     'the chip raised its own menu instead of letting the card have the press')
 })
 

@@ -1,0 +1,1478 @@
+"""PG-0: ORGTREE_STORE=postgres behind the seam, and org_tx on PostgreSQL.
+
+Needs a DISPOSABLE PostgreSQL (never a live one):
+  ORGTREE_TEST_PG_ADMIN_URL  a superuser URL; the test creates and drops its
+                             own database `orgtree_pg0_t<pid>` on that server
+  ORGTREE_TEST_PYDEPS        (optional) a folder holding psycopg, until the
+                             packaged runtime carries it
+Without the URL every test SKIPS — a skip is not a pass.
+
+What it proves:
+  * migrations: 0001 applies once, a re-run is a no-op, an edited applied
+    file and an unknown applied migration both refuse (MigrationDrift);
+  * the seam: create/save/load round-trips small sections, nodes and a lazy
+    log; a delete moves the marker to the trash and the org is gone;
+  * every changing save bumps orgs.revision by one and NOTIFYs
+    org_rev '<slug>:<revision>'; a no-change save does neither;
+  * org_tx: named writes commit, an unlocked write refuses and nothing lands,
+    FOR UPDATE blocks the same row and not another, FOR SHARE admits sharers
+    and blocks a writer, 4 racing incrementers lose nothing, a receipt
+    replays, and RT6: a connection lost after COMMIT, retried with the same
+    op_key, has exactly one outcome.
+
+Run:  python tools/run-python-verification.py tests/test_pgstore.py
+"""
+
+import os
+from pathlib import Path
+import shutil
+import sqlite3
+import sys
+import tempfile
+import threading
+import time
+import unittest
+from unittest.mock import patch
+from urllib.parse import urlsplit, urlunsplit
+
+ADMIN = os.environ.get('ORGTREE_TEST_PG_ADMIN_URL', '').strip()
+DEPS = os.environ.get('ORGTREE_TEST_PYDEPS', '').strip()
+#: optional: the engine's non-superuser role on the same server (PG-1's
+#: `orgtree_runtime`), to prove the grants migration
+RUNTIME = os.environ.get('ORGTREE_TEST_PG_RUNTIME_URL', '').strip()
+if DEPS:
+    sys.path.insert(0, DEPS)
+
+_temp = tempfile.TemporaryDirectory(prefix='v3-pgstore-', ignore_cleanup_errors=True)
+data = Path(_temp.name) / 'data'
+data.mkdir()
+home = Path(_temp.name) / 'home'
+home.mkdir()
+DBNAME = f'orgtree_pg0_t{os.getpid()}'
+
+
+def _with_db(url: str, db: str) -> str:
+    p = urlsplit(url)
+    return urlunsplit((p.scheme, p.netloc, '/' + db, p.query, p.fragment))
+
+
+if ADMIN:
+    import psycopg
+    with psycopg.connect(ADMIN, autocommit=True) as c:
+        c.execute(f'DROP DATABASE IF EXISTS {DBNAME}')
+        c.execute(f'CREATE DATABASE {DBNAME}')
+    os.environ['ORGTREE_PG_URL'] = _with_db(ADMIN, DBNAME)
+
+os.environ.update(ORGTREE_DATA=str(data), HOME=str(home), USERPROFILE=str(home),
+                  ORGTREE_STORE='postgres')
+os.environ.pop('ORGTREE_ORGTX_TEST_HOOKS', None)
+
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+
+from orgtree import orgtx, pgstore, store  # noqa: E402
+
+# These suites prove ROW-lock behaviour, which the transition fence (every
+# org_tx behind DOC_LOCK, plan decision 19) would serialize away; the fence
+# has its own tests, which turn it back on.
+orgtx.TRANSITION_FENCE = False
+
+
+def tearDownModule() -> None:
+    if ADMIN:
+        import psycopg
+        with psycopg.connect(ADMIN, autocommit=True) as c:
+            c.execute(f'DROP DATABASE IF EXISTS {DBNAME} WITH (FORCE)')
+
+
+def _fresh_org(name: str) -> str:
+    org = store.create_org(name)
+    slug = org.d['slug']
+    for nid in ('a', 'b', 'c'):
+        org.d['nodes'][nid] = {'id': nid, 'name': nid, 'parent': None, 'children': []}
+    org.d['killswitch'] = {'on': False}
+    org.d['settings_x'] = {'v': 0}
+    store.save_org(org)
+    store.save_org(store.load_org(slug))
+    return slug
+
+
+def _node(slug: str, nid: str) -> dict:
+    return store.load_org(slug).d['nodes'][nid]
+
+
+def _rev(slug: str) -> int:
+    with pgstore.connect() as c:
+        return int(c.execute('SELECT revision FROM orgs WHERE slug=%s', (slug,)).fetchone()[0])
+
+
+@unittest.skipUnless(ADMIN, 'ORGTREE_TEST_PG_ADMIN_URL not set: NOT RUN')
+class Migrations(unittest.TestCase):
+    def test_applies_once_and_refuses_drift(self) -> None:
+        res = pgstore.migrate(os.environ['ORGTREE_PG_URL'])     # conninfo form (PG-1)
+        self.assertEqual(Path(res['folder']), pgstore.MIGRATIONS_DIR.resolve())
+        self.assertIn('0002_runtime_grants.sql', res['current'])
+        with pgstore.connect() as c:
+            self.assertEqual(pgstore.migrate(c)['applied'], [])
+            self.assertEqual({r[0] for r in c.execute(
+                'SELECT name FROM schema_migrations').fetchall()}, set(res['current']))
+            d = Path(tempfile.mkdtemp(dir=_temp.name))
+            shutil.copy(pgstore.MIGRATIONS_DIR / '0001_base.sql', d / '0001_base.sql')
+            (d / '0001_base.sql').write_bytes((d / '0001_base.sql').read_bytes() + b'\n-- edit\n')
+            with self.assertRaises(pgstore.MigrationDrift):
+                pgstore.migrate(c, d)
+            (d / '0001_base.sql').unlink()
+            with self.assertRaises(pgstore.MigrationDrift):
+                pgstore.migrate(c, d)            # the db has ones this dir lacks
+
+    @unittest.skipUnless(RUNTIME, 'ORGTREE_TEST_PG_RUNTIME_URL not set: NOT RUN')
+    def test_engine_role_can_create_write_and_org_tx(self) -> None:
+        with pgstore.connect() as c:
+            pgstore.migrate(c)
+            c.execute(f'GRANT CONNECT, TEMP ON DATABASE {DBNAME} TO orgtree_runtime')
+        store.claim_data_root()
+        old = os.environ['ORGTREE_PG_URL']
+        os.environ['ORGTREE_PG_URL'] = _with_db(RUNTIME, DBNAME)
+        try:
+            with pgstore.connect() as c:
+                self.assertEqual(c.execute('SELECT current_user').fetchone()[0], 'orgtree_runtime')
+                with self.assertRaises(Exception):
+                    c.execute('CREATE TABLE public.nope (x int)')
+            slug = _fresh_org('runtime-role')          # schema via SECURITY DEFINER
+            with orgtx.org_tx(slug, nodes=['a']) as tx:
+                tx.d['nodes']['a']['name'] = 'rt'
+            self.assertEqual(_node(slug, 'a')['name'], 'rt')
+        finally:
+            os.environ['ORGTREE_PG_URL'] = old
+
+    def test_json_extract(self) -> None:
+        with pgstore.connect() as c:
+            pgstore.migrate(c)
+            one = c.execute("SELECT json_extract('{\"a\":{\"b\":\"x\"},\"n\":3}', '$.a.b')").fetchone()[0]
+            many = c.execute("SELECT json_extract('{\"a\":1,\"b\":\"y\"}', '$.a', '$.b')").fetchone()[0]
+        self.assertEqual(one, 'x')
+        self.assertEqual(many.replace(' ', ''), '[1,"y"]')
+
+
+@unittest.skipUnless(ADMIN, 'ORGTREE_TEST_PG_ADMIN_URL not set: NOT RUN')
+class Seam(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        store.claim_data_root()          # migrates
+
+    def test_round_trip_and_delete(self) -> None:
+        slug = _fresh_org('seam-rt')
+        org = store.load_org(slug)
+        store.log_append(org.d, 'events', {'kind': 'hello', 'at': '2026-09-25T00:00:00Z'})
+        org.d['nodes']['b']['name'] = 'Bee'
+        store.save_org(org)
+        again = store.load_org(slug)
+        self.assertEqual(again.d['nodes']['b']['name'], 'Bee')
+        self.assertEqual(again.d['settings_x'], {'v': 0})
+        self.assertIn('hello', [e.get('kind') for e in again.d['events']])
+        self.assertTrue(os.path.exists(store.org_path(slug)))
+        self.assertTrue(store.org_path(slug).endswith('.pg'))
+        self.assertIn(slug, [o['slug'] for o in store.list_orgs()])
+        store.delete_org(slug)
+        self.assertNotIn(slug, [o['slug'] for o in store.list_orgs()])
+        with self.assertRaises(Exception):
+            store.load_org(slug)
+        # the name is free again, and a new org under it starts empty
+        slug2 = _fresh_org('seam-rt')
+        self.assertEqual(slug2, slug)
+        self.assertEqual(_node(slug, 'b')['name'], 'b')
+
+    def _pg(self, sql: str, *args):
+        with psycopg.connect(os.environ['ORGTREE_PG_URL'], autocommit=True) as c:
+            return c.execute(sql, args).fetchall()
+
+    def test_create_is_atomic_marker_after_commit(self) -> None:
+        from unittest.mock import patch
+        schemas_before = {r[0] for r in self._pg(
+            "SELECT nspname FROM pg_namespace WHERE nspname LIKE 'org_%%'")}
+        real = store._write_doc
+
+        def boom(*a, **k):
+            real(*a, **k)
+            raise RuntimeError('crash after the rows, before COMMIT')
+        with patch.object(store, '_write_doc', boom):
+            with self.assertRaises(Exception):
+                store.create_org('atomic-one')
+        self.assertFalse(os.path.exists(store.org_path('atomic-one')), 'no marker')
+        self.assertEqual(self._pg("SELECT count(*) FROM orgs WHERE slug = %s", 'atomic-one')[0][0], 0)
+        schemas_after = {r[0] for r in self._pg(
+            "SELECT nspname FROM pg_namespace WHERE nspname LIKE 'org_%%'")}
+        self.assertEqual(schemas_after, schemas_before, 'no half-made schema')
+        slug = _fresh_org('atomic-one')                   # and the name still works
+        self.assertEqual(_node(slug, 'a')['name'], 'a')
+
+    def test_same_name_creates_racing_retire_nothing(self) -> None:
+        # review N1 (probe C1): the advisory lock ends at COMMIT, before the
+        # marker is written; a second same-name create in that gap saw no
+        # marker and retired the org just committed
+        import threading
+        from unittest.mock import patch
+        real = pgstore._write_marker
+        first = threading.Event()
+        slow = [True]
+
+        def slow_marker(*a, **k):
+            if slow[0]:
+                slow[0] = False
+                first.set()
+                time.sleep(0.8)                    # the gap the race needs
+            real(*a, **k)
+        errors: list[BaseException] = []
+
+        def create() -> None:
+            try:
+                store.create_org('race-slow')
+            except store.LedgerError:
+                pass                               # "already exists" is a fine answer
+            except BaseException as e:             # pragma: no cover - asserted below
+                errors.append(e)
+        with patch.object(pgstore, '_write_marker', slow_marker):
+            t1 = threading.Thread(target=create)
+            t1.start()
+            self.assertTrue(first.wait(10), 'the first create never reached its marker')
+            t2 = threading.Thread(target=create)
+            t2.start()
+            t1.join(20)
+            t2.join(20)
+        self.assertEqual(errors, [])
+        rows = self._pg("SELECT org_id, slug FROM orgs WHERE slug LIKE 'race-slow%%'")
+        self.assertEqual([s for _, s in rows], ['race-slow'], f'retired or duplicated: {rows}')
+        self.assertEqual(pgstore.read_marker(store.org_path('race-slow')), rows[0][0])
+
+    def test_claim_retires_a_live_row_without_a_marker(self) -> None:
+        slug = _fresh_org('unmarked-one')
+        os.remove(store.org_path(slug))                    # the marker is lost
+        retired = pgstore.retire_unmarked(os.path.join(str(data), 'orgs'))
+        self.assertIn(slug, retired)
+        self.assertEqual(self._pg("SELECT count(*) FROM orgs WHERE slug = %s AND deleted_at IS NULL",
+                                  slug)[0][0], 0)
+        again = _fresh_org('unmarked-one')                 # the name is free, and empty
+        self.assertEqual(_node(again, 'a')['name'], 'a')
+
+    # docket postgresql-delete-org-leaves-the-org-s-schema-ro: a delete retires
+    # the registry row AT ONCE and keeps the rows; putting the trash marker
+    # back revives it at the next claim with its data.
+    def _trash_marker(self, slug: str) -> str:
+        trash = os.path.join(str(data), 'deleted')
+        names = sorted(n for n in os.listdir(trash)
+                       if n.startswith(slug + '-') and n.endswith(pgstore.MARKER_EXT))
+        return os.path.join(trash, names[-1])
+
+    def _claim_sweep(self) -> list:
+        orgs = os.path.join(str(data), 'orgs')
+        pgstore.retire_unmarked(orgs)
+        return pgstore.revive_marked(orgs)
+
+    def test_delete_retires_the_row_now_and_keeps_the_rows(self) -> None:
+        slug = _fresh_org('del-now')
+        org_id = pgstore.read_marker(store.org_path(slug))
+        store.delete_org(slug)
+        row = self._pg('SELECT slug, deleted_at IS NOT NULL FROM orgs WHERE org_id = %s', org_id)
+        self.assertEqual(row, [(f'{slug}@deleted-{org_id}', True)], 'retired at the delete, not later')
+        self.assertEqual(self._pg('SELECT count(*) FROM orgs WHERE slug = %s', slug)[0][0], 0)
+        self.assertEqual(self._pg(f'SELECT count(*) FROM org_{org_id}.nodes')[0][0], 3, 'rows kept')
+        self.assertEqual(pgstore.read_marker(self._trash_marker(slug)), org_id)
+
+    def test_restore_from_trash_revives_the_org_with_its_data(self) -> None:
+        slug = _fresh_org('del-back')
+        org = store.load_org(slug)
+        org.d['nodes']['b']['name'] = 'Kept'
+        store.save_org(org)
+        org_id = pgstore.read_marker(store.org_path(slug))
+        store.delete_org(slug)
+        os.replace(self._trash_marker(slug), store.org_path(slug))     # the restore
+        self.assertEqual(self._claim_sweep(), [slug])
+        self.assertEqual(self._pg('SELECT slug, deleted_at FROM orgs WHERE org_id = %s', org_id),
+                         [(slug, None)])
+        self.assertEqual(_node(slug, 'b')['name'], 'Kept')
+        self.assertEqual(self._claim_sweep(), [], 'a second claim changes nothing')
+
+    def test_the_real_claim_revives_a_restored_org(self) -> None:
+        # the wiring in store.claim_data_root, not just the pgstore helpers:
+        # drop this process's claim so the next claim runs its PG sweep again
+        slug = _fresh_org('del-claim')
+        org_id = pgstore.read_marker(store.org_path(slug))
+        store.delete_org(slug)
+        os.replace(self._trash_marker(slug), store.org_path(slug))
+        os.close(store._owner_fd)
+        store._owner_fd = None
+        store.claim_data_root()
+        self.assertEqual(self._pg('SELECT slug, deleted_at FROM orgs WHERE org_id = %s', org_id),
+                         [(slug, None)])
+
+    def test_restore_an_older_org_after_its_name_was_reused(self) -> None:
+        slug = _fresh_org('del-old')
+        org = store.load_org(slug)
+        org.d['nodes']['a']['name'] = 'First'
+        store.save_org(org)
+        first = pgstore.read_marker(store.org_path(slug))
+        # both deletes get ONE trash stamp, as inside one real second: without
+        # this the test only caught the overwrite when the clock cooperated
+        from unittest.mock import patch
+        same_second = patch.object(store.time, 'strftime', return_value='20260926T000000')
+        with same_second:
+            store.delete_org(slug)
+        old_marker = self._trash_marker(slug)
+        self.assertEqual(_fresh_org('del-old'), slug)                  # a new org, same name
+        second = pgstore.read_marker(store.org_path(slug))
+        self.assertNotEqual(first, second)
+        self.assertEqual(_node(slug, 'a')['name'], 'a', 'the new org does not meet the old rows')
+        with same_second:
+            store.delete_org(slug)
+        # the same second: the second delete must not overwrite the first's marker
+        self.assertEqual(pgstore.read_marker(old_marker), first, 'trash marker overwritten')
+        trash = os.path.join(str(data), 'deleted')
+        ids = sorted(pgstore.read_marker(os.path.join(trash, n)) for n in os.listdir(trash)
+                     if n.startswith(slug + '-') and n.endswith(pgstore.MARKER_EXT))
+        self.assertEqual(ids, sorted([first, second]))
+        os.replace(old_marker, store.org_path(slug))                   # restore the FIRST
+        self.assertEqual(self._claim_sweep(), [slug])
+        live = self._pg("SELECT org_id FROM orgs WHERE slug = %s AND deleted_at IS NULL", slug)
+        self.assertEqual(live, [(first,)])
+        self.assertEqual(_node(slug, 'a')['name'], 'First')
+        self.assertEqual(self._pg('SELECT deleted_at IS NOT NULL FROM orgs WHERE org_id = %s', second),
+                         [(True,)])
+
+    def _reclaim(self) -> None:
+        os.close(store._owner_fd)
+        store._owner_fd = None
+        store.claim_data_root()
+
+    def test_two_markers_for_one_org_refuse_only_that_pair(self) -> None:
+        # review p01-current-gap-opus55 (a): a copied marker must not take the
+        # whole engine down; only the pair refuses, and clears once resolved
+        slug = _fresh_org('del-dup')
+        other = _fresh_org('del-dup-other')
+        twin = store.org_path('del-dup-twin')
+        shutil.copyfile(store.org_path(slug), twin)
+        try:
+            self._reclaim()                                   # startup completes
+            for s in (slug, other, 'del-dup-twin'):
+                store._invalidate_snapshot(s)                 # as after a restart
+            self.assertEqual(_node(other, 'a')['name'], 'a', 'other orgs open')
+            for s, peer in ((slug, 'del-dup-twin'), ('del-dup-twin', slug)):
+                with self.assertRaises(pgstore.DuplicateMarker) as cm:
+                    store.load_org(s)
+                self.assertIn(peer + pgstore.MARKER_EXT, str(cm.exception))
+                self.assertIn('back to the trash', str(cm.exception))
+            with self.assertRaises(pgstore.DuplicateMarker):
+                with orgtx.org_tx(slug, nodes=['a']) as tx:
+                    tx.d['nodes']['a']['name'] = 'shared'
+        finally:
+            os.remove(twin)
+        self.assertEqual(_node(slug, 'a')['name'], 'a', 'the one left opens, untouched')
+        self._reclaim()
+        self.assertEqual(pgstore._duplicates, {})
+
+    def test_a_failed_retire_does_not_fail_the_delete(self) -> None:
+        from unittest.mock import patch
+        slug = _fresh_org('del-fail')
+        org_id = pgstore.read_marker(store.org_path(slug))
+
+        def boom(_org_id):
+            raise RuntimeError('server went away')
+        with patch.object(pgstore, 'retire_deleted', boom):
+            store.delete_org(slug)
+        self.assertFalse(os.path.exists(store.org_path(slug)))
+        self.assertEqual(self._pg('SELECT deleted_at FROM orgs WHERE org_id = %s', org_id), [(None,)])
+        self._claim_sweep()                                            # the next start
+        self.assertEqual(self._pg('SELECT deleted_at IS NOT NULL FROM orgs WHERE org_id = %s', org_id),
+                         [(True,)])
+
+    def test_a_locked_registry_row_bounds_the_delete(self) -> None:
+        # review p01: retire_deleted runs under the org's exclusive lock, so a
+        # registry row locked elsewhere must cost ~5 s, not hang the delete
+        from unittest.mock import patch
+        slug = _fresh_org('del-locked')
+        org_id = pgstore.read_marker(store.org_path(slug))
+        holder = psycopg.connect(os.environ['ORGTREE_PG_URL'])
+        logged: list = []
+        done = threading.Event()
+        errors: list = []
+
+        def delete() -> None:
+            try:
+                store.delete_org(slug)
+            except BaseException as e:             # pragma: no cover - asserted below
+                errors.append(e)
+            finally:
+                done.set()
+        try:
+            holder.execute('SELECT 1 FROM orgs WHERE org_id = %s FOR UPDATE', (org_id,))
+            t0 = time.monotonic()
+            with patch.object(store, '_log', side_effect=logged.append):
+                t = threading.Thread(target=delete)
+                t.start()
+                finished = done.wait(15)
+            took = time.monotonic() - t0
+        finally:
+            holder.rollback()                      # lets a hung mutant finish
+            holder.close()
+            t.join(20)
+        self.assertTrue(finished, 'delete_org hung behind the locked registry row')
+        self.assertEqual(errors, [])
+        self.assertLess(took, 12, f'took {took:.1f}s')
+        self.assertFalse(os.path.exists(store.org_path(slug)), 'the delete happened')
+        self.assertEqual(pgstore.read_marker(self._trash_marker(slug)), org_id)
+        self.assertTrue(any('not retired now' in m for m in logged), logged)
+        self.assertEqual(self._pg('SELECT deleted_at FROM orgs WHERE org_id = %s', org_id), [(None,)])
+        self._claim_sweep()                        # the next start retires it
+        self.assertEqual(self._pg('SELECT deleted_at IS NOT NULL FROM orgs WHERE org_id = %s', org_id),
+                         [(True,)])
+
+    def test_many_orgs_share_a_bounded_connection_pool(self) -> None:
+        slugs = [_fresh_org(f'pool-{i}') for i in range(30)]
+        for s in slugs:
+            store.load_org(s).d['events']            # a lazy read, too
+        with psycopg.connect(ADMIN, autocommit=True) as c:
+            n = c.execute('SELECT count(*) FROM pg_stat_activity WHERE datname = %s',
+                          (DBNAME,)).fetchone()[0]
+        self.assertLessEqual(n, pgstore._IDLE_CAP + 2, f'{n} server connections for 30 orgs')
+
+    def test_revision_and_notify(self) -> None:
+        slug = _fresh_org('seam-rev')
+        listen = psycopg.connect(os.environ['ORGTREE_PG_URL'], autocommit=True)
+        try:
+            listen.execute('LISTEN org_rev')
+            r0 = _rev(slug)
+            org = store.load_org(slug)
+            org.d['nodes']['a']['name'] = 'A'
+            store.save_org(org)
+            store.save_org(store.load_org(slug))          # no change
+            self.assertEqual(_rev(slug), r0 + 1)
+            got = [n.payload for n in listen.notifies(timeout=2, stop_after=1)]
+            self.assertEqual(got, [f'{slug}:{r0 + 1}'])
+            self.assertEqual(list(listen.notifies(timeout=0.5)), [])
+        finally:
+            listen.close()
+
+
+@unittest.skipUnless(ADMIN, 'ORGTREE_TEST_PG_ADMIN_URL not set: NOT RUN')
+class OrgTxOnPostgres(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        store.claim_data_root()
+        orgtx.use_backend(orgtx.PgBackend())
+
+    def setUp(self) -> None:
+        self.slug = _fresh_org(f'pg-{self._testMethodName}'[:60])
+
+    def test_named_write_commits_unlocked_refused(self) -> None:
+        r0 = _rev(self.slug)
+        with orgtx.org_tx(self.slug, nodes=['a'], sections=['killswitch']) as tx:
+            tx.d['nodes']['a']['name'] = 'A'
+            tx.d['killswitch']['on'] = True
+        self.assertEqual(tx.revision, r0 + 1)
+        self.assertEqual(_node(self.slug, 'a')['name'], 'A')
+        with self.assertRaises(orgtx.UnlockedWrite):
+            with orgtx.org_tx(self.slug, nodes=['a']) as tx:
+                tx.d['nodes']['a']['name'] = 'AA'
+                tx.d['nodes']['b']['name'] = 'BB'
+        self.assertEqual(_node(self.slug, 'a')['name'], 'A')
+        self.assertEqual(_node(self.slug, 'b')['name'], 'b')
+        self.assertEqual(_rev(self.slug), r0 + 1)
+
+    def _hold(self, entered, release, **names):
+        def run():
+            with orgtx.org_tx(self.slug, **names):
+                entered.set()
+                release.wait(10)
+        t = threading.Thread(target=run)
+        t.start()
+        self.assertTrue(entered.wait(10))
+        return t
+
+    def _try(self, **names) -> str:
+        try:
+            with orgtx.org_tx(self.slug, lock_timeout=0.3, **names):
+                return 'got'
+        except orgtx.LockTimeout:
+            return 'blocked'
+
+    def test_update_and_share_blocking(self) -> None:
+        e, r = threading.Event(), threading.Event()
+        t = self._hold(e, r, nodes=['a'], share_sections=['killswitch'])
+        try:
+            self.assertEqual(self._try(nodes=['a']), 'blocked')
+            self.assertEqual(self._try(nodes=['b']), 'got')
+            self.assertEqual(self._try(share_sections=['killswitch']), 'got')
+            self.assertEqual(self._try(sections=['killswitch']), 'blocked')
+            self.assertEqual(self._try(nodes=['zz-new']), 'got')     # a missing row
+        finally:
+            r.set()
+            t.join()
+        self.assertEqual(self._try(nodes=['a'], sections=['killswitch']), 'got')
+
+    def test_all_nodes_excludes_node_writers_and_creators(self) -> None:
+        e, r = threading.Event(), threading.Event()
+        t = self._hold(e, r, nodes=orgtx.ALL)
+        try:
+            self.assertEqual(self._try(nodes=['b']), 'blocked')
+            self.assertEqual(self._try(nodes=['brand-new']), 'blocked')
+            self.assertEqual(self._try(sections=['killswitch']), 'got')
+        finally:
+            r.set()
+            t.join()
+        with orgtx.org_tx(self.slug, nodes=orgtx.ALL) as tx:
+            for n in tx.d['nodes'].values():
+                n['swept'] = True
+        self.assertTrue(all(_node(self.slug, x).get('swept') for x in ('a', 'b', 'c')))
+
+    def test_whole_holds_every_existing_row_and_writes_anything(self) -> None:
+        with orgtx.org_tx(self.slug, logs=[('mail_log', 'a')]) as tx:
+            tx.d.setdefault('mail_log', {})['a'] = [{'m': 1}]
+        e, r = threading.Event(), threading.Event()
+        t = self._hold(e, r, whole=True)
+        try:
+            for names in (dict(nodes=['b']), dict(nodes=['brand-new']),
+                          dict(sections=['killswitch']), dict(share_sections=['killswitch']),
+                          dict(logs=[('mail_log', 'a')]), dict(logs=['events']),
+                          dict(sections=['not_there_yet']),
+                          dict(sections=[('mail', 'brand-new')])):
+                with self.subTest(names=names):
+                    self.assertEqual(self._try(**names), 'blocked')
+        finally:
+            r.set()
+            t.join()
+        e, r = threading.Event(), threading.Event()
+        t = self._hold(e, r, sections=['killswitch'])
+        try:
+            self.assertEqual(self._try(whole=True), 'blocked')
+        finally:
+            r.set()
+            t.join()
+        r0 = _rev(self.slug)
+        with orgtx.org_tx(self.slug, whole=True) as tx:
+            self.assertIn('killswitch', tx.lock_sections)
+            self.assertIn(('mail_log', 'a'), tx.logs)
+            tx.d['nodes']['a']['name'] = 'W'
+            tx.d['nodes']['d'] = {'id': 'd', 'name': 'd', 'parent': None, 'children': []}
+            tx.d['killswitch']['on'] = True
+            tx.d['brand_new'] = {'x': 1}
+            tx.d['mail_log']['a'][0]['m'] = 2
+        self.assertEqual(tx.revision, r0 + 1)
+        d = store.load_org(self.slug).d
+        self.assertEqual((d['nodes']['a']['name'], d['nodes']['d']['name'],
+                          d['killswitch']['on'], d['brand_new'], d['mail_log']['a']),
+                         ('W', 'd', True, {'x': 1}, [{'m': 2}]))
+
+    def test_multi_org_is_one_atomic_transaction(self) -> None:
+        other = _fresh_org(f'pg2-{self._testMethodName}'[:60])
+        r0a, r0b = _rev(self.slug), _rev(other)
+        listen = psycopg.connect(os.environ['ORGTREE_PG_URL'], autocommit=True)
+        try:
+            listen.execute('LISTEN org_rev')
+            with orgtx.org_tx_multi({self.slug: dict(nodes=['a']),
+                                     other: dict(sections=['killswitch'])}) as t:
+                t[self.slug].d['nodes']['a']['name'] = 'mA'
+                t[other].d['killswitch']['on'] = True
+            got = sorted(n.payload for n in listen.notifies(timeout=2, stop_after=2))
+        finally:
+            listen.close()
+        self.assertEqual(got, sorted([f'{self.slug}:{r0a + 1}', f'{other}:{r0b + 1}']))
+        self.assertEqual(_node(self.slug, 'a')['name'], 'mA')
+        self.assertTrue(store.load_org(other).d['killswitch']['on'])
+        # atomic: an unlocked write in the SECOND org leaves the first unwritten
+        with self.assertRaises(orgtx.UnlockedWrite):
+            with orgtx.org_tx_multi({self.slug: dict(nodes=['a']),
+                                     other: dict(nodes=['a'])}) as t:
+                t[self.slug].d['nodes']['a']['name'] = 'lost'
+                t[other].d['nodes']['b']['name'] = 'unlocked'
+        self.assertEqual(_node(self.slug, 'a')['name'], 'mA')
+        self.assertEqual(_node(other, 'b')['name'], 'b')
+        self.assertEqual((_rev(self.slug), _rev(other)), (r0a + 1, r0b + 1))
+
+    # ---- review 42d445a (native-design-review): B1-B3, N1, N2 -------------
+
+    def _seed_mail(self) -> None:
+        org = store.load_org(self.slug)
+        org.d.setdefault('mail_log', {})['a'] = [{'id': 'm1', 'body': 'one'}, {'id': 'm2', 'body': 'two'}]
+        store.save_org(org)
+
+    def _mail_ids(self) -> list:
+        return [m['id'] for m in store.load_org(self.slug).d['mail_log'].get('a', [])]
+
+    def test_b1_owner_log_lock_edits_and_blocks(self) -> None:
+        self._seed_mail()
+        with orgtx.org_tx(self.slug, logs=[('mail_log', 'a')]) as tx:
+            tx.d['mail_log']['a'][0]['body'] = 'edited'
+        self.assertEqual(store.load_org(self.slug).d['mail_log']['a'][0]['body'], 'edited')
+        e, r = threading.Event(), threading.Event()
+        t = self._hold(e, r, logs=[('mail_log', 'a')])
+        try:
+            self.assertEqual(self._try(logs=[('mail_log', 'a')]), 'blocked')
+            self.assertEqual(self._try(logs=[('mail_log', 'b')]), 'got')
+        finally:
+            r.set()
+            t.join()
+
+    def test_b2_stale_legacy_save_cannot_drop_or_overwrite_log_rows(self) -> None:
+        self._seed_mail()
+        legacy = store.load_org(self.slug)
+        seen = list(legacy.d['mail_log']['a'])          # the owner is READ (a baseline)
+        legacy.d['mail_log']['a'] = seen[:1]            # then replaced
+        # (a replace of an owner never read has no baseline and stays a blind
+        # overwrite, as on SQLite: a documented limit of the compare-and-set)
+        with orgtx.org_tx(self.slug, logs=['mail_log']) as tx:
+            tx.d['mail_log']['a'].append({'id': 'm-tx', 'body': 'tx'})
+        with self.assertRaises(store.StaleWrite):
+            store.save_org(legacy)
+        self.assertEqual(self._mail_ids(), ['m1', 'm2', 'm-tx'])
+        # an in-place edit racing an org_tx edit of the same row
+        legacy = store.load_org(self.slug)
+        legacy.d['mail_log']['a'][0]['body'] = 'legacy'
+        with orgtx.org_tx(self.slug, logs=[('mail_log', 'a')]) as tx:
+            tx.d['mail_log']['a'][0]['body'] = 'tx-edit'
+        with self.assertRaises(store.StaleWrite):
+            store.save_org(legacy)
+        self.assertEqual(store.load_org(self.slug).d['mail_log']['a'][0]['body'], 'tx-edit')
+        # control: a legacy incremental APPEND keeps both rows and saves
+        legacy = store.load_org(self.slug)
+        legacy.d['mail_log']['a'].append({'id': 'm-legacy'})
+        with orgtx.org_tx(self.slug, logs=['mail_log']) as tx:
+            tx.d['mail_log']['a'].append({'id': 'm-tx2'})
+        store.save_org(legacy)
+        self.assertEqual(sorted(self._mail_ids()[-2:]), ['m-legacy', 'm-tx2'])
+
+    def test_b3_lock_timeout_does_not_leak_into_later_saves(self) -> None:
+        with orgtx.org_tx(self.slug, nodes=['c'], lock_timeout=0.3):
+            pass                                    # returns its connection
+        e, r = threading.Event(), threading.Event()
+        t = self._hold(e, r, nodes=['a'])
+        threading.Timer(1.5, r.set).start()
+        try:
+            legacy = store.load_org(self.slug)
+            legacy.d['nodes']['a']['name'] = 'after-wait'
+            t0 = time.monotonic()
+            store.save_org(legacy)                  # waits for the holder, then saves
+            waited = time.monotonic() - t0
+        finally:
+            r.set()
+            t.join()
+        self.assertGreater(waited, 1.0)
+        self.assertEqual(_node(self.slug, 'a')['name'], 'after-wait')
+
+    def test_p2_legacy_writer_waits_on_the_row_then_refuses(self) -> None:
+        os.environ['ORGTREE_ORGTX_TEST_HOOKS'] = '1'
+        paused, go = threading.Event(), threading.Event()
+
+        def hook(point, tx):
+            if point == 'before_commit' and tx.slug == self.slug:
+                paused.set()
+                go.wait(10)
+        errs: list = []
+
+        def body():
+            try:
+                with orgtx.org_tx(self.slug, nodes=['b']) as tx:
+                    tx.d['nodes']['b']['name'] = 'from-tx'
+            except BaseException as ex:            # noqa: BLE001
+                errs.append(ex)
+        legacy = store.load_org(self.slug)
+        legacy.d['nodes']['b']['name'] = 'from-legacy'
+        orgtx.set_pause_hook(hook)
+        try:
+            t = threading.Thread(target=body)
+            t.start()
+            self.assertTrue(paused.wait(10))
+            out: list = []
+
+            def save():
+                try:
+                    store.save_org(legacy)
+                    out.append('saved')
+                except store.StaleWrite:
+                    out.append('stale')
+            s = threading.Thread(target=save)
+            s.start()
+            s.join(0.5)
+            self.assertTrue(s.is_alive(), 'the legacy UPDATE must wait on the row lock')
+            go.set()
+            t.join(10)
+            s.join(10)
+        finally:
+            go.set()
+            orgtx.set_pause_hook(None)
+            os.environ.pop('ORGTREE_ORGTX_TEST_HOOKS')
+        self.assertEqual(errs, [])
+        self.assertEqual(out, ['stale'])
+        self.assertEqual(_node(self.slug, 'b')['name'], 'from-tx')
+
+    def test_same_new_node_id_creators_exclude_each_other(self) -> None:
+        e, r = threading.Event(), threading.Event()
+        t = self._hold(e, r, nodes=['new-x'])
+        try:
+            self.assertEqual(self._try(nodes=['new-x']), 'blocked')
+        finally:
+            r.set()
+            t.join()
+
+    def test_n1_same_op_key_in_flight_waits_then_replays(self) -> None:
+        entered, release = threading.Event(), threading.Event()
+
+        def first():
+            with orgtx.org_tx(self.slug, logs=['events'], op_key='n1', fingerprint='f') as tx:
+                entered.set()
+                release.wait(10)
+                tx.append('events', {'kind': 'n1'})
+                tx.result = {'done': 1}
+        t = threading.Thread(target=first)
+        t.start()
+        self.assertTrue(entered.wait(10))
+        threading.Timer(0.5, release.set).start()
+        with orgtx.org_tx(self.slug, logs=['events'], op_key='n1', fingerprint='f') as tx2:
+            replayed, result = tx2.replayed, tx2.result
+            if not tx2.replayed:
+                tx2.append('events', {'kind': 'n1'})
+        t.join(10)
+        self.assertEqual((replayed, result), (True, {'done': 1}))
+        kinds = [e.get('kind') for e in store.load_org(self.slug).d['events']]
+        self.assertEqual(kinds.count('n1'), 1)
+
+    def test_pg_errors_map_to_orgtx_errors(self) -> None:
+        class E(Exception):
+            def __init__(self, st): self.sqlstate = st
+        self.assertIsInstance(orgtx._pg_error(E('40P01')), orgtx.DeadlockDetected)
+        self.assertIsInstance(orgtx._pg_error(E('40001')), orgtx.SerializationFailure)
+        self.assertIsInstance(orgtx._pg_error(E('55P03')), orgtx.LockTimeout)
+
+    def test_racing_increments_are_not_lost(self) -> None:
+        errs: list[BaseException] = []
+
+        def bump():
+            try:
+                for _ in range(5):
+                    with orgtx.org_tx(self.slug, nodes=['a']) as tx:
+                        n = tx.d['nodes']['a']
+                        n['n'] = n.get('n', 0) + 1
+            except BaseException as e:           # noqa: BLE001
+                errs.append(e)
+        ts = [threading.Thread(target=bump) for _ in range(4)]
+        for t in ts:
+            t.start()
+        for t in ts:
+            t.join(120)
+        self.assertEqual(errs, [])
+        self.assertEqual(_node(self.slug, 'a')['n'], 20)
+
+    def test_legacy_save_cannot_overwrite_an_org_tx_commit(self) -> None:
+        legacy = store.load_org(self.slug)            # baselines taken now
+        with orgtx.org_tx(self.slug, nodes=['a']) as tx:
+            tx.d['nodes']['a']['name'] = 'from-tx'
+        legacy.d['nodes']['a']['name'] = 'from-legacy'
+        legacy.d['nodes']['b']['name'] = 'also-legacy'
+        with self.assertRaises(store.StaleWrite):
+            store.save_org(legacy)
+        self.assertEqual(_node(self.slug, 'a')['name'], 'from-tx')
+        self.assertEqual(_node(self.slug, 'b')['name'], 'b')     # rolled back whole
+        other = store.load_org(self.slug)
+        other.d['nodes']['b']['name'] = 'fresh'
+        store.save_org(other)                                    # fresh baseline: fine
+        self.assertEqual(_node(self.slug, 'b')['name'], 'fresh')
+
+    def test_rt6_lost_commit_retry_has_one_outcome(self) -> None:
+        os.environ['ORGTREE_ORGTX_TEST_HOOKS'] = '1'
+        lost = {'armed': True}
+
+        def cut(point, tx):
+            if point == 'after_commit' and lost['armed']:
+                lost['armed'] = False
+                raise ConnectionError('connection lost after COMMIT')
+
+        def credit(tx):
+            n = tx.d['nodes']['c']
+            n['credits'] = n.get('credits', 0) + 10
+            return {'credits': n['credits']}
+        try:
+            orgtx.set_pause_hook(cut)
+            with self.assertRaises(ConnectionError):
+                orgtx.org_tx_call(self.slug, credit, nodes=['c'], op_key='rt6', fingerprint='f1')
+            out = orgtx.org_tx_call(self.slug, credit, nodes=['c'], op_key='rt6', fingerprint='f1')
+        finally:
+            orgtx.set_pause_hook(None)
+            os.environ.pop('ORGTREE_ORGTX_TEST_HOOKS')
+        self.assertEqual(out, {'credits': 10})
+        self.assertEqual(_node(self.slug, 'c')['credits'], 10)
+        with self.assertRaises(orgtx.ReceiptConflict):
+            orgtx.org_tx_call(self.slug, credit, nodes=['c'], op_key='rt6', fingerprint='other')
+
+
+@unittest.skipUnless(ADMIN, 'ORGTREE_TEST_PG_ADMIN_URL not set: NOT RUN')
+class TransitionFence(unittest.TestCase):
+    # plan decision 19: (a) an unconverted DOC_LOCK load->save cycle racing an
+    # org_tx on the same row loses nothing with the fence ON, and loses the
+    # update (or raises StaleWrite) with it OFF; (b) a DOC_LOCK holder may
+    # call org_tx (re-entry, no deadlock)
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        store.claim_data_root()
+
+    def setUp(self) -> None:
+        orgtx.use_backend(orgtx.PgBackend())
+        self.slug = _fresh_org(f'fence-{self._testMethodName}'[:60])
+        with orgtx.org_tx(self.slug, nodes=['a']):
+            pass                                  # heal before racing
+
+    def tearDown(self) -> None:
+        orgtx.TRANSITION_FENCE = False
+
+    def _race(self, fence: bool) -> tuple:
+        orgtx.TRANSITION_FENCE = fence
+        loaded, go = threading.Event(), threading.Event()
+        stale: list = []
+
+        def legacy() -> None:
+            try:
+                with store.DOC_LOCK:
+                    org = store.load_org(self.slug)
+                    node = org.d['nodes']['a']            # the baseline is read
+                    loaded.set()
+                    go.wait(10)
+                    node['legacy'] = 1
+                    store.save_org(org)
+            except store.StaleWrite as e:
+                stale.append(e)
+
+        def converted() -> None:
+            with orgtx.org_tx(self.slug, nodes=['a']) as tx:
+                tx.d['nodes']['a']['tx'] = 1
+        lt = threading.Thread(target=legacy)
+        lt.start()
+        self.assertTrue(loaded.wait(10))
+        ct = threading.Thread(target=converted)
+        ct.start()
+        ct.join(1.0)
+        tx_done_early = not ct.is_alive()
+        go.set()
+        lt.join(10)
+        ct.join(10)
+        node = _node(self.slug, 'a')
+        return tx_done_early, node.get('legacy'), node.get('tx'), bool(stale)
+
+    def test_a_fence_on_loses_nothing(self) -> None:
+        early, legacy, tx, stale = self._race(True)
+        self.assertFalse(early, 'the org_tx must wait for the DOC_LOCK holder')
+        self.assertEqual((legacy, tx, stale), (1, 1, False))
+
+    def test_a_fence_off_loses_the_update_or_refuses(self) -> None:
+        early, legacy, tx, stale = self._race(False)
+        self.assertTrue(early, 'without the fence the org_tx does not wait')
+        self.assertFalse(legacy == 1 and tx == 1, 'both writes survived: no race was exercised')
+        self.assertTrue(stale or legacy is None or tx is None)
+
+    def test_a2_org_tx_holds_the_fence_until_commit(self) -> None:
+        orgtx.TRANSITION_FENCE = True
+        inside, release = threading.Event(), threading.Event()
+        got_lock = threading.Event()
+
+        def converted() -> None:
+            with orgtx.org_tx(self.slug, nodes=['a']) as tx:
+                inside.set()
+                release.wait(10)
+                tx.d['nodes']['a']['tx2'] = 1
+
+        def legacy() -> None:
+            with store.DOC_LOCK:
+                got_lock.set()
+        ct = threading.Thread(target=converted)
+        ct.start()
+        self.assertTrue(inside.wait(10))
+        lt = threading.Thread(target=legacy)
+        lt.start()
+        self.assertFalse(got_lock.wait(0.5), 'a DOC_LOCK cycle ran inside an open org_tx')
+        release.set()
+        ct.join(10)
+        lt.join(10)
+        self.assertTrue(got_lock.is_set())
+        self.assertEqual(_node(self.slug, 'a').get('tx2'), 1)
+
+    def test_b_doc_lock_holder_reenters(self) -> None:
+        orgtx.TRANSITION_FENCE = True
+        done: list = []
+
+        def run() -> None:
+            with store.DOC_LOCK:
+                with orgtx.org_tx(self.slug, nodes=['b']) as tx:
+                    tx.d['nodes']['b']['name'] = 'reentered'
+                done.append(1)
+        t = threading.Thread(target=run)
+        t.start()
+        t.join(10)
+        self.assertFalse(t.is_alive(), 'deadlocked')
+        self.assertEqual(done, [1])
+        self.assertEqual(_node(self.slug, 'b')['name'], 'reentered')
+
+
+@unittest.skipUnless(ADMIN, 'ORGTREE_TEST_PG_ADMIN_URL not set: NOT RUN')
+class PG0bPostgres(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        store.claim_data_root()
+
+    def setUp(self) -> None:
+        orgtx.use_backend(orgtx.PgBackend())
+        self.slug = _fresh_org(f'pg0b-{self._testMethodName}'[:60])
+
+    def _row(self, key: str):
+        with pgstore.connect() as c:
+            oid = c.execute('SELECT org_id FROM orgs WHERE slug=%s', (self.slug,)).fetchone()[0]
+            r = c.execute(f'SELECT val FROM org_{oid}.doc WHERE key=%s', (key,)).fetchone()
+        return None if r is None else r[0]
+
+    def test_load_heal_recurs_on_postgres(self) -> None:
+        for _ in range(2):
+            org = store.load_org(self.slug)
+            self.assertIsNotNone(dict.pop(org.d, '_migrations', None))
+            store.save_org(org)
+            with orgtx.org_tx(self.slug, nodes=['a']) as tx:
+                tx.d['nodes']['a']['name'] = 'healed'
+            self.assertIn('_migrations', store.load_org(self.slug).d)
+
+    def test_incremental_delete_is_compare_and_set(self) -> None:
+        org = store.load_org(self.slug)
+        org.d.setdefault('mail_log', {})['a'] = [{'id': 'm1'}, {'id': 'm2'}]
+        store.save_org(org)
+        legacy = store.load_org(self.slug)
+        legacy.d['mail_log']['a'].pop()            # an incremental delete of m2
+        with orgtx.org_tx(self.slug, logs=[('mail_log', 'a')]) as tx:
+            tx.d['mail_log']['a'][1]['body'] = 'edited-by-tx'
+        with self.assertRaises(store.StaleWrite):
+            store.save_org(legacy)
+        self.assertEqual(store.load_org(self.slug).d['mail_log']['a'][1].get('body'), 'edited-by-tx')
+
+    def test_receipt_only_commit_bumps_revision_and_notifies(self) -> None:
+        r0 = _rev(self.slug)
+        listen = psycopg.connect(os.environ['ORGTREE_PG_URL'], autocommit=True)
+        try:
+            listen.execute('LISTEN org_rev')
+            with orgtx.org_tx(self.slug, nodes=['a'], op_key='only-receipt', fingerprint='f') as tx:
+                tx.result = {'ok': True}           # no row changes
+            got = [n.payload for n in listen.notifies(timeout=2, stop_after=1)]
+        finally:
+            listen.close()
+        self.assertEqual(_rev(self.slug), r0 + 1)
+        self.assertEqual(got, [f'{self.slug}:{r0 + 1}'])
+
+    def test_killswitch_row_present_null_after_release_and_backfilled(self) -> None:
+        with orgtx.org_tx(self.slug, sections=['killswitch']) as tx:
+            tx.d['killswitch'] = {'on': True}
+        with orgtx.org_tx(self.slug, sections=['killswitch']) as tx:
+            tx.d.pop('killswitch')
+        self.assertEqual(self._row('killswitch'), 'null')
+        with orgtx.org_tx(self.slug, sections=['killswitch']) as tx:
+            tx.d['killswitch'] = None
+        self.assertEqual(self._row('killswitch'), 'null')
+        with pgstore.connect() as c:                # an org from before the rule
+            oid = c.execute('SELECT org_id FROM orgs WHERE slug=%s', (self.slug,)).fetchone()[0]
+            c.execute(f"DELETE FROM org_{oid}.doc WHERE key='killswitch'")
+        self.assertIsNone(self._row('killswitch'))
+        self.assertGreaterEqual(pgstore.backfill_always_rows(store.ALWAYS_ROWS), 1)
+        self.assertEqual(self._row('killswitch'), 'null')
+
+    def test_share_on_present_killswitch_blocks_the_latch(self) -> None:
+        entered, release = threading.Event(), threading.Event()
+
+        def door() -> None:
+            with orgtx.org_tx(self.slug, share_sections=['killswitch']):
+                entered.set()
+                release.wait(10)
+        t = threading.Thread(target=door)
+        t.start()
+        self.assertTrue(entered.wait(10))
+        try:
+            with self.assertRaises(orgtx.LockTimeout):
+                with orgtx.org_tx(self.slug, sections=['killswitch'], lock_timeout=0.3):
+                    pass
+        finally:
+            release.set()
+            t.join()
+
+    def test_mixed_replay_is_refused(self) -> None:
+        other = _fresh_org(f'pg0b-o-{self._testMethodName}'[:60])
+        with orgtx.org_tx(self.slug, nodes=['a'], op_key='mk1', fingerprint='f'):
+            pass
+        with self.assertRaises(orgtx.MixedReplay):
+            with orgtx.org_tx_multi({self.slug: dict(nodes=['a'], op_key='mk1', fingerprint='f'),
+                                     other: dict(nodes=['b'], op_key='mk2', fingerprint='f')}) as t:
+                t[other].d['nodes']['b']['name'] = 'x'
+        self.assertEqual(_node(other, 'b')['name'], 'b')
+
+
+@unittest.skipUnless(ADMIN, 'ORGTREE_TEST_PG_ADMIN_URL not set: NOT RUN')
+class DeleteOrgExclusiveOnPostgres(unittest.TestCase):
+    """S8: delete_org runs under orgtx.org_exclusive, which on PostgreSQL is
+    the org pseudo-row's advisory lock EXCLUSIVE (PgBackend.exclusive). The
+    SQLite twin with pause hooks is tests/test_delete_org_exclusive.py."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        store.claim_data_root()
+        orgtx.use_backend(orgtx.PgBackend())
+
+    def setUp(self) -> None:
+        self.slug = _fresh_org(f'pgdx-{self._testMethodName}'[:60])
+        self.errors: list[BaseException] = []
+
+    def _thread(self, fn, name: str = '') -> threading.Thread:
+        def run() -> None:
+            try:
+                fn()
+            except BaseException as e:            # noqa: BLE001  reported by the test
+                self.errors.append(e)
+        t = threading.Thread(target=run, name=name or None, daemon=True)
+        t.start()
+        return t
+
+    def test_open_tx_blocks_the_delete(self) -> None:
+        inside, go = threading.Event(), threading.Event()
+
+        def write() -> None:
+            with orgtx.org_tx(self.slug, nodes=['a']) as tx:
+                tx.d['nodes']['a']['name'] = 'late'
+                inside.set()
+                self.assertTrue(go.wait(10))
+
+        w = self._thread(write)
+        self.assertTrue(inside.wait(10))
+        deleted = threading.Event()
+        d = self._thread(lambda: (store.delete_org(self.slug), deleted.set()))
+        time.sleep(0.5)
+        self.assertFalse(deleted.is_set(), 'delete ran while a transaction held the org')
+        go.set()
+        w.join(10)
+        d.join(10)
+        self.assertEqual(self.errors, [])
+        self.assertTrue(deleted.is_set())
+        self.assertNotIn(self.slug, [o['slug'] for o in store.list_orgs()])
+
+    def test_delete_blocks_a_new_tx_which_then_finds_no_org(self) -> None:
+        from unittest.mock import patch
+
+        from orgtree.ledger import LedgerError
+        in_delete, go = threading.Event(), threading.Event()
+        real = store._ensure_migrated
+
+        def slow_ensure(slug: str) -> None:
+            if threading.current_thread().name == 'deleter':
+                in_delete.set()
+                self.assertTrue(go.wait(10))
+            return real(slug)
+
+        def write() -> None:
+            with orgtx.org_tx(self.slug, nodes=['a'], lock_timeout=10) as tx:
+                tx.d['nodes']['a']['name'] = 'resurrected'
+
+        org_id = pgstore.read_marker(store._db_path(self.slug))
+        with patch.object(store, '_ensure_migrated', slow_ensure):
+            d = self._thread(lambda: store.delete_org(self.slug), name='deleter')
+            self.assertTrue(in_delete.wait(10))
+            w = self._thread(write)
+            time.sleep(0.5)                     # the writer is waiting on the advisory lock
+            self.assertTrue(w.is_alive(), 'the writer did not wait for the delete')
+            go.set()
+            d.join(10)
+            w.join(15)
+        self.assertEqual(len(self.errors), 1, self.errors)
+        self.assertIsInstance(self.errors[0], LedgerError)
+        self.assertIn('no such org', str(self.errors[0]))
+        self.assertNotIn(self.slug, [o['slug'] for o in store.list_orgs()])
+        with self.assertRaises(LedgerError):
+            orgtx.org_read(self.slug)
+        # p01 review B1: the writer read the marker BEFORE queueing, and the
+        # schema rows outlive the delete. (Here the load's marker-exists check
+        # refuses too; the re-created-slug test below needs the re-check.)
+        with psycopg.connect(os.environ['ORGTREE_PG_URL'], autocommit=True) as c:
+            rows = c.execute(f'SELECT * FROM org_{int(org_id)}.nodes').fetchall()
+        self.assertTrue(rows, 'the schema rows were expected to remain (row-leak item)')
+        self.assertNotIn('resurrected', repr(rows), 'the queued tx wrote into the deleted org')
+
+    def test_slug_recreated_before_a_queued_tx_gets_the_lock(self) -> None:
+        """p01 review B1, second case. Deleted-only is also refused by the
+        load's own marker-exists check; this one is not: the slug is
+        re-created (a NEW org_id, a new marker) while the writer still waits
+        on the OLD org_id's lock. Without the post-lock marker re-check the
+        writer commits into the old org's orphaned rows."""
+        from unittest.mock import patch
+
+        from orgtree import reply_events
+        from orgtree.ledger import LedgerError
+        in_delete, go = threading.Event(), threading.Event()
+        name = f'pgdx-{self._testMethodName}'[:60]
+        old_id = pgstore.read_marker(store._db_path(self.slug))
+        real_ensure, real_clear = store._ensure_migrated, reply_events.clear_org
+
+        def slow_ensure(slug: str) -> None:
+            if threading.current_thread().name == 'deleter':
+                in_delete.set()
+                self.assertTrue(go.wait(10))
+            return real_ensure(slug)
+
+        def clear_then_recreate(slug: str) -> None:
+            real_clear(slug)
+            if threading.current_thread().name == 'deleter':
+                self.assertEqual(_fresh_org(name), self.slug)   # still inside org_exclusive
+
+        def write() -> None:
+            with orgtx.org_tx(self.slug, nodes=['a'], lock_timeout=10) as tx:
+                tx.d['nodes']['a']['name'] = 'resurrected'
+
+        with patch.object(store, '_ensure_migrated', slow_ensure), \
+                patch.object(reply_events, 'clear_org', clear_then_recreate):
+            d = self._thread(lambda: store.delete_org(self.slug), name='deleter')
+            self.assertTrue(in_delete.wait(10))
+            w = self._thread(write)
+            time.sleep(0.5)                     # the writer holds old_id, waits on its lock
+            self.assertTrue(w.is_alive(), 'the writer did not wait for the delete')
+            go.set()
+            d.join(10)
+            w.join(15)
+        new_id = pgstore.read_marker(store._db_path(self.slug))
+        self.assertNotEqual(new_id, old_id)
+        self.assertEqual(len(self.errors), 1, self.errors)
+        self.assertIsInstance(self.errors[0], LedgerError)
+        self.assertIn('no such org', str(self.errors[0]))
+        with psycopg.connect(os.environ['ORGTREE_PG_URL'], autocommit=True) as c:
+            old_rows = c.execute(f'SELECT * FROM org_{int(old_id)}.nodes').fetchall()
+        self.assertNotIn('resurrected', repr(old_rows), 'the queued tx wrote into the old org')
+        self.assertEqual(_node(self.slug, 'a')['name'], 'a')
+
+
+@unittest.skipUnless(ADMIN, 'ORGTREE_TEST_PG_ADMIN_URL not set: NOT RUN')
+class HealExclusiveOnPostgres(unittest.TestCase):
+    """S9 (lead decision 44 (1), p01's landing condition): the org_tx
+    load-heal commits inside orgtx.org_exclusive on PostgreSQL, where the
+    exclusive is an advisory xact lock held on one pooled connection while
+    the heal's load and save use another. Fence OFF. The SQLite twin is
+    tests/test_orgtx_heal_exclusive.py."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        store.claim_data_root()
+        orgtx.use_backend(orgtx.PgBackend())
+
+    def setUp(self) -> None:
+        orgtx.TRANSITION_FENCE = False
+        self.slug = _fresh_org(f'pgheal-{self._testMethodName}'[:60])
+
+    def _unheal(self) -> None:
+        org = store.load_org(self.slug)
+        self.assertIsNotNone(dict.pop(org.d, '_migrations', None))
+        store.save_org(org)
+
+    def test_a_heal_completes_under_the_advisory_exclusive(self) -> None:
+        self._unheal()
+        heals: list[str] = []
+        real = orgtx._heal
+        from unittest.mock import patch
+        with patch.object(orgtx, '_heal', lambda s, *a: (heals.append(s), real(s, *a))[1]):
+            with orgtx.org_tx(self.slug, nodes=['a'], lock_timeout=10) as tx:
+                tx.d['nodes']['a']['name'] = 'after-heal'
+        self.assertEqual(heals, [self.slug], 'the heal path really ran')
+        self.assertIn('_migrations', store.load_org(self.slug).d)
+        self.assertEqual(_node(self.slug, 'a')['name'], 'after-heal')
+
+    def test_two_writers_healing_together_make_one_heal_save(self) -> None:
+        import sys
+        from unittest.mock import patch
+        self._unheal()
+        both_loaded = threading.Barrier(2, timeout=10)
+        heal_race = threading.Barrier(2, timeout=1.5)
+        first = threading.local()
+        heal_saves: list[str] = []
+        real_check, real_load, real_save = orgtx._check_heal, store._load_sqlite_org, store._save_org
+
+        def check(tx):
+            if not getattr(first, 'done', False):
+                first.done = True
+                both_loaded.wait()
+            return real_check(tx)
+
+        def load(slug, *a, **k):
+            org = real_load(slug, *a, **k)
+            if sys._getframe(1).f_code.co_name == '_heal':
+                try:
+                    heal_race.wait()
+                except threading.BrokenBarrierError:
+                    pass
+            return org
+
+        def save(org):
+            if sys._getframe(1).f_code.co_name == '_heal':
+                heal_saves.append(org.d.get('slug'))
+            return real_save(org)
+
+        errors: list[BaseException] = []
+
+        def writer(nid: str) -> None:
+            try:
+                with orgtx.org_tx(self.slug, nodes=[nid], lock_timeout=10) as tx:
+                    tx.d['nodes'][nid]['name'] = f'written-{nid}'
+            except BaseException as e:            # noqa: BLE001  reported below
+                errors.append(e)
+
+        with patch.object(orgtx, '_check_heal', check), \
+                patch.object(store, '_load_sqlite_org', load), \
+                patch.object(store, '_save_org', save):
+            ts = [threading.Thread(target=writer, args=(n,), daemon=True) for n in 'ab']
+            for t in ts:
+                t.start()
+            for t in ts:
+                t.join(30)
+        self.assertEqual(errors, [])
+        self.assertEqual(heal_saves, [self.slug], 'exactly one heal save; the waiter re-checks')
+        self.assertIn('_migrations', store.load_org(self.slug).d)
+        self.assertEqual(_node(self.slug, 'a')['name'], 'written-a')
+        self.assertEqual(_node(self.slug, 'b')['name'], 'written-b')
+
+    def test_tripwire_records_no_save_for_a_heal(self) -> None:
+        self._unheal()
+        try:
+            with store.doc_lock_tripwire(raising=True) as counts:
+                with orgtx.org_tx(self.slug, nodes=['a'], lock_timeout=10) as tx:
+                    tx.d['nodes']['a']['name'] = 'after-heal'
+                self.assertEqual((counts['save'], counts['legacy']), ({}, {}))
+        finally:
+            store.arm_doc_lock_tripwire('off')
+        self.assertIn('_migrations', store.load_org(self.slug).d)
+
+
+@unittest.skipUnless(ADMIN, 'ORGTREE_TEST_PG_ADMIN_URL not set: NOT RUN')
+class LockBlockOnPostgres(unittest.TestCase):
+    """S-F: an org's row locks are ONE DO block, in the lock plan's order."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        store.claim_data_root()
+        orgtx.use_backend(orgtx.PgBackend())
+
+    def setUp(self) -> None:
+        orgtx.TRANSITION_FENCE = False
+        self.slug = _fresh_org(f'pglb-{self._testMethodName}'[:60])
+
+    def _recording(self):
+        """Every statement the transaction's raw connection runs."""
+        from unittest.mock import patch
+        seen: list[str] = []
+        real_checkout, real_release = pgstore._checkout, pgstore._release
+
+        class Rec:
+            def __init__(self, raw):
+                object.__setattr__(self, '_raw', raw)
+
+            def execute(self, q, *a, **k):
+                seen.append(q if isinstance(q, str) else str(q))
+                return self._raw.execute(q, *a, **k)
+
+            def __getattr__(self, n):
+                return getattr(self._raw, n)
+
+        def release(raw):
+            return real_release(getattr(raw, '_raw', raw))
+        return seen, patch.multiple(pgstore, _checkout=lambda: Rec(real_checkout()),
+                                    _release=release)
+
+    def test_two_lock_statements_per_org(self) -> None:
+        seen, p = self._recording()
+        with p:
+            with orgtx.org_tx(self.slug, nodes=['a', 'b'], sections=['settings_x'],
+                              share_nodes=['c']) as tx:
+                tx.d['nodes']['a']['name'] = 'A'
+        locks = [q for q in seen if 'pg_advisory' in q]
+        self.assertEqual(len(locks), 2, locks)          # org pseudo-row + ONE block
+        self.assertTrue(locks[1].startswith('DO $orgtx_'), locks[1][:40])
+        rows = [q for q in seen if (' FOR UPDATE' in q or ' FOR SHARE' in q)
+                and not q.startswith('DO ')]
+        self.assertEqual(rows, [], 'a row lock ran outside the block')
+        self.assertEqual(_node(self.slug, 'a')['name'], 'A')
+
+    def test_the_block_locks_in_plan_order(self) -> None:
+        # _lock_plan's documented order: the node pseudo-row (shared unless
+        # all_nodes), nodes by ascending id, then sections by ascending key
+        import re
+        seen, p = self._recording()
+        with p:
+            with orgtx.org_tx(self.slug, nodes=['c', 'a'], sections=['settings_x', 'killswitch'],
+                              share_nodes=['b']) as tx:
+                tx.d['nodes']['a']['name'] = 'A'
+        block = next(q for q in seen if q.startswith('DO '))
+        got = [(m.group(2), 'S' if m.group(1) else 'X') for m in
+               re.finditer(r"pg_advisory_xact_lock(_shared)?\(\d+, hashtext\('([^']*)'\)\)", block)]
+        self.assertEqual(got, [(f'node:{orgtx._ALL_NODES_KEY}', 'S'), ('node:a', 'X'),
+                               ('node:b', 'S'), ('node:c', 'X'),
+                               ('section:killswitch', 'X'), ('section:settings_x', 'X')])
+
+    def test_opposite_request_orders_never_deadlock(self) -> None:
+        errors: list[BaseException] = []
+        deadlocks: list[int] = []
+        real = orgtx._pg_error
+
+        def spy(e):
+            out = real(e)
+            if isinstance(out, orgtx.DeadlockDetected):
+                deadlocks.append(1)
+            return out
+
+        def worker(order: list[str]) -> None:
+            try:
+                for i in range(15):
+                    with orgtx.org_tx(self.slug, nodes=order, lock_timeout=10) as tx:
+                        for n in order:
+                            tx.d['nodes'][n]['name'] = f'{n}{i}'
+                        time.sleep(0.002)
+            except BaseException as e:            # noqa: BLE001  reported below
+                errors.append(e)
+        from unittest.mock import patch
+        with patch.object(orgtx, '_pg_error', spy):
+            ts = [threading.Thread(target=worker, args=(o,), daemon=True)
+                  for o in (['a', 'b', 'c'], ['c', 'b', 'a'], ['b', 'c', 'a'])]
+            for t in ts:
+                t.start()
+            for t in ts:
+                t.join(60)
+        self.assertEqual(errors, [])
+        self.assertEqual(deadlocks, [])
+
+    def test_a_name_that_looks_like_quoting_is_locked_and_written(self) -> None:
+        odd = "q'x$orgtx_ab$y"
+        with orgtx.org_tx(self.slug, nodes=[odd]) as tx:
+            tx.d['nodes'][odd] = {'id': odd, 'name': 'odd', 'parent': None, 'children': []}
+        self.assertEqual(_node(self.slug, odd)['name'], 'odd')
+
+
+
+@unittest.skipUnless(ADMIN, 'ORGTREE_TEST_PG_ADMIN_URL not set: NOT RUN')
+class SessionRoundTrips(unittest.TestCase):
+    """S-B (pg-per-call-cost, ruling (b)): RESET ALL still runs on every
+    release (review B3 by construction), sent with a SET of the org the
+    connection named in one round trip, so a checkout of the same org again
+    runs no SET; PgConn.executemany is one batched call."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        store.claim_data_root()
+        cls.a = _fresh_org('sess-a')
+        cls.b = _fresh_org('sess-b')
+
+    def setUp(self) -> None:
+        pgstore.close_idle()
+        self.sql: list[str] = []
+        real = pgstore._session
+
+        def spy(raw, sql):
+            self.sql.append(sql)
+            return real(raw, sql)
+        p = patch.object(pgstore, '_session', spy)
+        p.start()
+        self.addCleanup(p.stop)
+        self.addCleanup(pgstore.close_idle)
+
+    def _open(self, slug: str) -> pgstore.PgConn:
+        return pgstore.open_conn(slug, store.org_path(slug))
+
+    def _path(self, slug: str) -> str:
+        return f'org_{int(pgstore.read_marker(store.org_path(slug)))}, public'
+
+    @staticmethod
+    def _show(raw, name: str) -> str:
+        return str(raw.execute(f'SHOW {name}').fetchone()[0])
+
+    def test_same_org_again_runs_no_set(self) -> None:
+        c = self._open(self.a)
+        raw = c.raw
+        c.close()
+        self.sql.clear()
+        c = self._open(self.a)
+        self.assertIs(c.raw, raw, 'the idle pool handed out another connection')
+        self.assertEqual(self.sql, [], 'a same-org checkout still ran SET search_path')
+        self.assertEqual(self._show(raw, 'search_path'), self._path(self.a))
+        self.assertGreater(c.execute('SELECT count(*) FROM doc').fetchone()[0], 0)
+        c.close()
+        self.assertEqual(self.sql, [f'RESET ALL; SET search_path TO {self._path(self.a)}'])
+
+    def test_another_org_repoints_the_search_path(self) -> None:
+        c = self._open(self.a)
+        raw = c.raw
+        c.close()
+        self.sql.clear()
+        c = self._open(self.b)
+        self.assertIs(c.raw, raw)
+        self.assertEqual(self.sql, [f'SET search_path TO {self._path(self.b)}'])
+        self.assertEqual(self._show(raw, 'search_path'), self._path(self.b))
+        c.close()
+
+    def test_every_release_resets(self) -> None:
+        c = self._open(self.a)
+        c.execute('SELECT 1')
+        c.close()
+        self.assertTrue(self.sql[-1].startswith('RESET ALL'), self.sql)
+        pgstore.close_idle()
+        raw = pgstore.connect()               # a connection that never named an org
+        pgstore._release(raw)
+        self.assertEqual(self.sql[-1], 'RESET ALL')
+
+    def test_b3_a_session_set_never_reaches_the_next_checkout(self) -> None:
+        for stmt, name, value in (("SET lock_timeout = '123ms'", 'lock_timeout', '123ms'),
+                                  ("set statement_timeout to 4567", 'statement_timeout', '4567ms'),
+                                  ("SELECT set_config('lock_timeout', '77ms', false)", 'lock_timeout', '77ms'),
+                                  ("SET search_path TO public", 'search_path', 'public')):
+            with self.subTest(stmt=stmt):
+                c = self._open(self.a)
+                raw = c.raw
+                default = self._path(self.a) if name == 'search_path' else self._show(raw, name)
+                raw.execute(stmt)
+                self.assertEqual(self._show(raw, name), value)
+                c.close()
+                c = self._open(self.a)
+                self.assertIs(c.raw, raw)
+                self.assertEqual(self._show(raw, name), default, f'{stmt!r} leaked')
+                self.assertEqual(self._show(raw, 'search_path'), self._path(self.a))
+                c.close()
+
+    def test_a_path_set_inside_a_rolled_back_transaction_is_not_trusted(self) -> None:
+        c = self._open(self.a)
+        raw = c.raw
+        raw.execute('BEGIN')
+        pgstore._point_at(raw, int(pgstore.read_marker(store.org_path(self.b))))   # a multi-org switch
+        raw.execute('ROLLBACK')                          # ... undone by the server
+        self.assertEqual(self._show(raw, 'search_path'), self._path(self.a))
+        pgstore._point_at(raw, int(pgstore.read_marker(store.org_path(self.b))))   # again, outside
+        self.assertEqual(self._show(raw, 'search_path'), self._path(self.b),
+                         'the rolled-back SET was trusted, so the real one was skipped')
+        c.close()
+        c = self._open(self.b)
+        self.assertIs(c.raw, raw)
+        self.assertEqual(self._show(raw, 'search_path'), self._path(self.b))
+        c.close()
+
+    def test_a_failed_statement_forgets_the_path(self) -> None:
+        c = self._open(self.a)
+        raw = c.raw
+        with self.assertRaises(sqlite3.OperationalError):
+            c.execute('SELECT * FROM no_such_table')
+        self.assertIsNone(raw._ot_path)
+        c.close()
+
+    def test_executemany_is_one_batched_call(self) -> None:
+        c = self._open(self.a)
+        try:
+            before = c.total_changes
+            with patch.object(pgstore.PgConn, 'execute', side_effect=AssertionError('one execute per row')):
+                c.executemany('INSERT INTO meta(key, val) VALUES (?, ?)',
+                              [(f'sb-{i}', 'v') for i in range(3)])
+            self.assertEqual(c.total_changes - before, 3)
+            self.assertEqual(c.execute("SELECT count(*) FROM meta WHERE key LIKE 'sb-%'").fetchone()[0], 3)
+            with self.assertRaises(sqlite3.IntegrityError):
+                c.executemany('INSERT INTO meta(key, val) VALUES (?, ?)', [('sb-0', 'dup')])
+            c.executemany('INSERT INTO meta(key, val) VALUES (?, ?)', [])      # no rows, no call
+            self.assertEqual(c.total_changes - before, 3)
+        finally:
+            c.execute("DELETE FROM meta WHERE key LIKE 'sb-%'")
+            c.close()
+
+if __name__ == '__main__':
+    unittest.main()

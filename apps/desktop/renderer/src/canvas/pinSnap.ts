@@ -10,6 +10,7 @@ export interface PinSnap {
 export interface SnapCandidate { rect: PinRect; snap: PinSnap; label: string }
 export interface SnapWindow { id: string; rect: PinRect }
 export interface PinViewport { w: number; h: number }
+export interface PinSnapResize { edge: string; minWidth: number; minHeight: number }
 export const PIN_SNAP_DISTANCE = 20
 const CORNER_DISTANCE = 12
 const EPS = 0.01
@@ -26,16 +27,22 @@ export const rectsOverlap = (a: PinRect, b: PinRect): boolean =>
 const inside = (r: PinRect, vp: PinViewport): boolean =>
   r.x >= 0 && r.y >= 0 && r.x + r.w <= vp.w + EPS && r.y + r.h <= vp.h + EPS
 
-/** Drag magnetism only: no resizing, neighbour motion, or camera coordinates.
+/** Shared drag/resize magnetism: no neighbour motion or camera coordinates.
  * Inputs are the CURRENT displayed rectangles, already clamped to viewport.
  * A rejected candidate is never clamped into a different, misleading snap. */
 export function findPinSnap(id: string, r: PinRect, windows: SnapWindow[],
-  vp: PinViewport | null): SnapCandidate | null {
+  vp: PinViewport | null, resize?: PinSnapResize): SnapCandidate | null {
   if (!vp || vp.w <= 0 || vp.h <= 0) return null
   const others = windows.filter((w) => w.id !== id)
   const candidates: (SnapCandidate & { distance: number; order: string })[] = []
   const offer = (target: string | null, t: PinRect, edge: SnapEdge) => {
     const vertical = edge === 'left' || edge === 'right'
+    // A neighbour's left edge touches our east edge (and vice versa);
+    // screen edges touch the same named edge of our window.
+    const movedEdge = target === null
+      ? ({ left: 'w', right: 'e', top: 'n', bottom: 's' } as const)[edge]
+      : ({ left: 'e', right: 'w', top: 's', bottom: 'n' } as const)[edge]
+    if (resize && !resize.edge.includes(movedEdge)) return
     const p = vertical ? 'y' : 'x', size = vertical ? 'h' : 'w'
     const next = { ...r }
     if (edge === 'left') next.x = target === null ? 0 : t.x - r.w
@@ -46,13 +53,28 @@ export function findPinSnap(id: string, r: PinRect, windows: SnapWindow[],
     if (distance > PIN_SNAP_DISTANCE) return
     // Align nearby corners too, so equal desks form a clean row or column.
     const starts = Math.abs(r[p] - t[p]), ends = Math.abs(r[p] + r[size] - t[p] - t[size])
-    const align = Math.min(starts, ends) <= CORNER_DISTANCE ? (starts <= ends ? 'start' : 'end') : undefined
+    const canStart = !resize || resize.edge.includes(vertical ? 'n' : 'w')
+    const canEnd = !resize || resize.edge.includes(vertical ? 's' : 'e')
+    const startDistance = canStart ? starts : Infinity
+    const endDistance = canEnd ? ends : Infinity
+    const align = Math.min(startDistance, endDistance) <= CORNER_DISTANCE
+      ? (startDistance <= endDistance ? 'start' : 'end') : undefined
     if (align) next[p] = align === 'start' ? t[p] : t[p] + t[size] - r[size]
-    if (target !== null && Math.min(next[p] + r[size], t[p] + t[size]) - Math.max(next[p], t[p]) < 16) return
+    const dx = next.x - r.x, dy = next.y - r.y
+    if (resize) {
+      // Turn the shared alignment offset into size changes, keeping every
+      // edge outside the active handle fixed. Validate after this conversion.
+      if (resize.edge.includes('e')) { next.x = r.x; next.w = r.w + dx }
+      if (resize.edge.includes('w')) next.w = r.w - dx
+      if (resize.edge.includes('s')) { next.y = r.y; next.h = r.h + dy }
+      if (resize.edge.includes('n')) next.h = r.h - dy
+      if (next.w < resize.minWidth || next.h < resize.minHeight) return
+    }
+    if (target !== null && Math.min(next[p] + next[size], t[p] + t[size]) - Math.max(next[p], t[p]) < 16) return
     if (!inside(next, vp) || others.some((w) => rectsOverlap(next, w.rect))) return
     candidates.push({ rect: next, snap: { target, edge, ...(align ? { align } : {}) },
       label: target === null ? `Snap to screen ${edge}` : `Snap ${edge} of ${target}`,
-      distance: Math.hypot(next.x - r.x, next.y - r.y),
+      distance: Math.hypot(dx, dy),
       order: `${target === null ? '1' : '0' + target}:${edges.indexOf(edge)}` })
   }
   for (const w of others) for (const edge of edges) offer(w.id, w.rect, edge)

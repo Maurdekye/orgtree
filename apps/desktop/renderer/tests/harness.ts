@@ -17,6 +17,7 @@
 //     desk uses, so subscription-gated liveness is exercised rather than faked
 
 import { JSDOM } from 'jsdom'
+import { compatibilityWorkFixture } from './workcompat.fixture'
 import { mock } from 'node:test'
 import type { ChatMessage, ChatPayload, LiveRowPayload, PendingMail } from '../src/types'
 
@@ -301,7 +302,7 @@ export function installFetch(server: FakeServer): Transport {
       if (f) f()
     },
   }
-  g.fetch = (url: string, _init?: unknown): Promise<unknown> => {
+  g.fetch = compatibilityWorkFixture((url: string, _init?: unknown): Promise<unknown> => {
     const u = new URL(String(url), 'http://localhost')
     t.requests++
     const last = u.searchParams.get('last')
@@ -328,9 +329,17 @@ export function installFetch(server: FakeServer): Transport {
         : /\/history$/.test(u.pathname) ? { items: [] }
           : /\/documents$/.test(u.pathname)
             ? { documents: server.documents, total: server.documents.length, next_offset: null }
-          : /\/work-items$/.test(u.pathname)
+          : /\/work-items\/[^/]+$/.test(u.pathname)
+            ? { item: [...server.workItems, ...server.workArchived, ...server.workBacklogged]
+                .find((item: any) => item.slug === u.pathname.split('/').pop()) }
+          : /\/work-items(?:-view)?$/.test(u.pathname)
             ? {
               items: server.workItems,
+              references: [...server.workItems, ...server.workArchived, ...server.workBacklogged]
+                .map(({ slug, title, parent, archived, status, rev }: any) =>
+                  ({ slug, title, parent, archived, status, rev })),
+              attention: [...server.workItems, ...server.workArchived, ...server.workBacklogged]
+                .filter((item: any) => item.manual_attention),
               // the two groups are served only when their flag is set, the
               // same contract the real endpoint keeps
               ...(u.searchParams.get('archived') ? { archived: server.workArchived } : {}),
@@ -381,7 +390,7 @@ export function installFetch(server: FakeServer): Transport {
       else go()
       void reject
     })
-  }
+  })
   return t
 }
 

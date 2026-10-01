@@ -10,7 +10,9 @@ from pathlib import Path
 # Setup paths for tests
 root = tempfile.TemporaryDirectory(prefix="orgtree-inbox-holders-")
 os.environ["ORGTREE_DATA"] = root.name
-os.environ["ORGTREE_STORE"] = "json"
+# PYPG: org_tx (PG-0) refuses the JSON store, and POST /settings now runs
+# in one — so this file runs on the SQLite seam like the rest of the suite
+os.environ["ORGTREE_STORE"] = "sqlite"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine/backend"))
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
@@ -177,6 +179,10 @@ class InboxHoldersTests(unittest.TestCase):
         org.d["audiences"].append({"grantee": "alice", "grantor": EXTERN, "granted_at": 0, "reason": ""})
         org.d["audiences"].append({"grantee": "bob", "grantor": EXTERN, "granted_at": 0, "reason": ""})
         self.store.save_org(org)
+        # the fixture writes raw node rows; a load normalizes them, so save once
+        # more to reach the fixed point stored orgs sit at (an org_tx locks only
+        # the rows its operation names)
+        self.store.save_org(self.store.load_org("settings-change"))
 
         body = self.api.Settings(org_inbox_multi_holder=False)
         from fastapi import HTTPException
@@ -184,6 +190,7 @@ class InboxHoldersTests(unittest.TestCase):
             self.api._org_settings_locked("settings-change", body)
 
         # After revoking down to 1 holder, it should succeed
+        org = self.store.load_org("settings-change")
         org.audience_revoke(USER, "bob", EXTERN)
         self.store.save_org(org)
         self.api._org_settings_locked("settings-change", body)

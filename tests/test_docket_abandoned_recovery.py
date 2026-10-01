@@ -68,6 +68,30 @@ class AbandonedDocketRecoveryTests(unittest.TestCase):
         org.nodes["aaa"]["state"] = "archived"
         self.assertEqual(org.work_reassign_abandoned(now_ts=100000), [])
 
+    def test_every_stale_item_of_a_gone_owner_moves_in_one_pass(self):
+        # pg-supervisor-a's review of 3db8272 (mutant Y8): a reassignment
+        # that stopped after its first candidate passed every test, since
+        # none had two stale tickets at once
+        org, root, old = self._org()
+        items = {}
+        for title, owner in (("Ticket A", old), ("Ticket B", root), ("Ticket C", "missing"),
+                             ("Ticket D", old)):
+            org.work_create("root", title, "test", owner="root")
+            it = org._work_active()[-1]
+            it["owner"] = {"node": owner, "generation": org.nodes.get(owner, {}).get("generation", 1)}
+            it["docket_at"] = it["updated_at"] = "1970-01-01T00:16:40Z"
+            items[title] = it
+        self.assertTrue(org.work_abandoned_pending(now_ts=100000))
+        moved = org.work_reassign_abandoned(now_ts=100000)
+        self.assertEqual(sorted(row["assigned"] for row in moved),
+                         sorted(items[t]["slug"] for t in ("Ticket A", "Ticket C", "Ticket D")))
+        for t in ("Ticket A", "Ticket C", "Ticket D"):
+            self.assertEqual(items[t]["owner"]["node"], "aaa", t)
+        self.assertEqual(items["Ticket B"]["owner"]["node"], root)
+        # nothing is left to move
+        self.assertFalse(org.work_abandoned_pending(now_ts=100000))
+        self.assertEqual(org.work_reassign_abandoned(now_ts=100000), [])
+
     def test_recovery_pass_is_durable_and_does_not_repeat(self):
         from engine.backend.orgtree import store, supervisor
         org, root, old = self._org()

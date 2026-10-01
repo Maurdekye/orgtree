@@ -202,7 +202,7 @@ test('reply navigation is a compact unbordered link with visible focus and state
   const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
   assert.match(css, /\.reply-preview-jump\s*\{[^}]*min-height:\s*0;[^}]*padding:\s*2px 4px;[^}]*border:\s*0;[^}]*background:\s*transparent;/s)
   assert.match(css, /\.reply-preview-jump:hover:not\(:disabled\)\s*\{[^}]*color:[^}]*background:/s)
-  assert.match(css, /\.reply-preview-jump:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--accent\)/s)
+  assert.match(css, /\.reply-preview-jump:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--button-accent\)/s)
   assert.match(css, /\.reply-preview-jump:disabled\s*\{[^}]*cursor:\s*default;/s)
 })
 

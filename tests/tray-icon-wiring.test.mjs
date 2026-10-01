@@ -77,10 +77,14 @@ test('only the two tray-specific call sites use trayIcon(); window icons stay on
   assert.match(main, /tray\?\.setImage\(trayIcon\(\)\)\s*\n\s*const image = runtimeIcon\(\)/,
     "rebuildTray()'s all-windows setIcon loop must use its own runtimeIcon() call, not the tray's trayIcon() image")
   assert.match(main, /window\.setIcon\(image\)/)
-  for (const call of ['viewer.setIcon(runtimeIcon())', 'main.setIcon(runtimeIcon())', 'child.setIcon(runtimeIcon())']) {
+  for (const call of ['viewer.setIcon(runtimeIcon())', 'window.setIcon(runtimeIcon())', 'child.setIcon(runtimeIcon())']) {
     assert.match(main, new RegExp(call.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
       `${call} must be unchanged — window icons never go through trayIcon()`)
   }
+  assert.match(main, /const applyWindowIcon = \(window: BrowserWindow, image = runtimeIcon\(\)\)/,
+    'applyWindowIcon() must default to runtimeIcon()')
+  assert.doesNotMatch(main, /setIcon\(\s*trayIcon\(\)/,
+    'no window setIcon() call may take trayIcon()')
 
   // trayIcon() itself must only be CALLED from those two call sites (strip
   // // line comments first — the doc comments above legitimately mention

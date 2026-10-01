@@ -2,6 +2,7 @@ import { flush, inAct, mountView, StrictMode } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { AskCard } from '../src/canvas/asks'
+import { resetSubmittedAsks } from '../src/asksubmitted'
 import type { AskInfo, AskQuestion, AskTab } from '../src/types'
 
 const first: AskQuestion = { question: 'Choose transport', header: 'Transport', multi: true,
@@ -34,7 +35,7 @@ for(const modern of [true,false]) {
     const saved=globalThis.fetch;const sent:unknown[]=[]
     globalThis.fetch=(async(_,init)=>{sent.push(JSON.parse(String(init?.body)));return new Response('{}',{status:200})}) as typeof fetch
     const view=await mountView(card(base(modern)),e=>e)
-    t.after(async()=>{await view.unmount();globalThis.fetch=saved})
+    t.after(async()=>{await view.unmount();globalThis.fetch=saved;resetSubmittedAsks()})
     await click(view.el,'.ask-row','TrainRail');await click(view.el,'.ask-row','Other');await type(view.el,'Also walk')
     await click(view.el,'.ask-tabbtn','Timing');await type(view.el,'After lunch')
     await view.render(card(base(modern,[first,second,third],2)))
@@ -107,7 +108,7 @@ test('optionless questions use a labeled free-response field without an Other ro
     return new Response('{}', { status: 200 })
   }) as typeof fetch
   const view = await mountView(card(base(false, [second])), e => e)
-  t.after(async () => { await view.unmount(); globalThis.fetch = saved })
+  t.after(async () => { await view.unmount(); globalThis.fetch = saved; resetSubmittedAsks() })
 
   const field = input(view.el)
   assert.ok(field)

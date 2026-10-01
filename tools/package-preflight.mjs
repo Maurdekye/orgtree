@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { assertMailhubSubmodule, assertNoUpdateFixture, assertPackageInputsPresent, assertPackageInputsPresentMac, assertReleaseProvenance } from './preflight-lib.mjs'
 import { assertRuntimeLayout, assertRuntimeLayoutMac } from './runtime-layout.mjs'
+import { assertPostgresRuntime } from './postgres-layout.mjs'
 
 if (process.platform === 'darwin') {
   assertPackageInputsPresentMac()
@@ -15,6 +16,8 @@ if (process.platform === 'darwin') {
   // input list with its site-packages staged one level above where the
   // interpreter's ._pth looks, and shipped an app that could not start.
   assertRuntimeLayout('engine/runtime', { label: 'engine/runtime' })
+  // The bundled PostgreSQL runtime is Windows-only (.exe binaries).
+  assertPostgresRuntime('engine', { sourceRoot: process.cwd() })
 }
 console.log('Standalone engine/runtime/UI inputs present; runtime package layout verified')
 

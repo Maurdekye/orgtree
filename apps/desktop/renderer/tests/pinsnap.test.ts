@@ -59,3 +59,50 @@ test('metadata validates targets, old malformed data and changed geometry withou
   assert.ok(validPinSnap('b', { ...moving, x: 1080 }, screen, [], vp))
   assert.equal(validPinSnap('b', moving, screen, [], vp), null)
 })
+
+test('resize snaps each moved edge to neighbours and preserves the opposite edge', () => {
+  for (const [edge, r, expected] of [
+    ['e', { x: 50, y: 350, w: 389, h: 260 }, { x: 50, y: 350, w: 400, h: 260 }],
+    ['w', { x: 780, y: 350, w: 420, h: 260 }, { x: 770, y: 350, w: 430, h: 260 }],
+    ['s', { x: 480, y: 30, w: 320, h: 280 }, { x: 480, y: 30, w: 320, h: 290 }],
+    ['n', { x: 480, y: 570, w: 320, h: 300 }, { x: 480, y: 560, w: 320, h: 310 }],
+  ] as const) {
+    const result = findPinSnap('b', r, [target], vp, { edge, minWidth: 320, minHeight: 240 })
+    assert.ok(result, `resize ${edge} finds the same neighbour as dragging`)
+    assert.deepEqual(result.rect, expected)
+    assert.ok(validPinSnap('b', result.rect, result.snap, [target], vp))
+  }
+})
+
+test('resize snaps all screen edges and corners; only active edges move', () => {
+  for (const [edge, r, expected] of [
+    ['w', { x: 10, y: 50, w: 400, h: 300 }, { x: 0, y: 50, w: 410, h: 300 }],
+    ['n', { x: 50, y: 10, w: 400, h: 300 }, { x: 50, y: 0, w: 400, h: 310 }],
+    ['e', { x: 900, y: 50, w: 490, h: 300 }, { x: 900, y: 50, w: 500, h: 300 }],
+    ['s', { x: 50, y: 500, w: 400, h: 440 }, { x: 50, y: 500, w: 400, h: 450 }],
+    ['nw', { x: 10, y: 8, w: 400, h: 300 }, { x: 0, y: 0, w: 410, h: 308 }],
+    ['ne', { x: 900, y: 8, w: 490, h: 300 }, { x: 900, y: 0, w: 500, h: 308 }],
+    ['sw', { x: 10, y: 500, w: 400, h: 440 }, { x: 0, y: 500, w: 410, h: 450 }],
+    ['se', { x: 900, y: 500, w: 490, h: 440 }, { x: 900, y: 500, w: 500, h: 450 }],
+  ] as const) {
+    assert.deepEqual(findPinSnap('b', r, [], vp,
+      { edge, minWidth: 320, minHeight: 240 })?.rect, expected, edge)
+  }
+  const nearLeft = { x: 10, y: 50, w: 400, h: 300 }
+  assert.equal(findPinSnap('b', nearLeft, [], vp,
+    { edge: 'e', minWidth: 320, minHeight: 240 }), null, 'a stationary west edge must not snap')
+})
+
+test('resize reuses thresholds, corner alignment, collision and minimum-size rules', () => {
+  const resize = { edge: 'ne', minWidth: 320, minHeight: 240 }
+  const r = { x: 50, y: 325, w: 389, h: 300 }
+  assert.deepEqual(findPinSnap('b', r, [target], vp, resize)?.rect,
+    { x: 50, y: 320, w: 400, h: 305 }, 'corner aligns by resizing, without moving south/west')
+  assert.deepEqual(findPinSnap('b', r, [target], vp, { ...resize, edge: 'e' })?.rect,
+    { x: 50, y: 325, w: 400, h: 300 }, 'single-edge resize cannot align a stationary corner')
+  assert.equal(findPinSnap('b', { ...r, w: 370 }, [target], vp, resize), null, 'same 20px threshold')
+  assert.equal(findPinSnap('b', r, [target], vp, { ...resize, minWidth: 410 }), null, 'never snap below minimum')
+  assert.equal(findPinSnap('b', r, [target, { id: 'c', rect: { x: 300, y: 500, w: 320, h: 240 } }], vp, resize),
+    null, 'never snap through a third window')
+  assert.equal(findPinSnap('b', r, [target], null, resize), null, 'unmeasured viewport remains unsnappable')
+})

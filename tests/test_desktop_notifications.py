@@ -75,6 +75,10 @@ class NotificationsTests(unittest.TestCase):
         work=next(r for r in rows if r['kind']=='work-attention')
         self.assertEqual((work['org'],work['agent'],work['item'],work['body']),
                          ('two','owner','needs-decision','Review this choice'))
+        # the raise's own identity, matched by the Work button against the
+        # raises the user dismissed
+        self.assertEqual(work['rev'],3)
+        self.assertNotIn('rev',next(r for r in rows if r['kind']=='question'))
         self.assertEqual([r['kind'] for r in rows],['question','urgent-mail','work-attention'])
         self.assertEqual(rows,desktop_notifications.notices()['notices'])
         self.assertTrue(desktop_notifications.notices(limit=1)['truncated'])

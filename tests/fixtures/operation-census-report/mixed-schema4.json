@@ -1,0 +1,547 @@
+{
+  "schema_version": 4,
+  "instance": "synthetic-process-01",
+  "enabled": true,
+  "capacity": 64,
+  "window_generation": 7,
+  "window_started_at": "2026-09-22T00:00:00Z",
+  "window_ms": 20000,
+  "counters": {
+    "observed": 12,
+    "skipped_disabled": 2,
+    "skipped_self": 1,
+    "recorded": 6,
+    "evicted": 0,
+    "rejected": 1,
+    "dropped_stale_window": 2,
+    "dropped_capture_off": 1,
+    "nonterminal": 1,
+    "no_response_start": 1,
+    "unclassified_tool": 0,
+    "unclassified_action": 0,
+    "unclassified_scope": 1,
+    "unclassified_method": 1,
+    "db_unbound": 1,
+    "db_unattributed": 5,
+    "db_late": 2,
+    "db_hidden_unattributed": 0,
+    "db_self_recursion": 0,
+    "db_observe_failed": 0
+  },
+  "evicted_derived": 0,
+  "served": 6,
+  "truncated_by_limit": 0,
+  "oldest_seq": 1,
+  "newest_seq": 6,
+  "vocabulary": {
+    "rw": [
+      "read",
+      "write",
+      "mixed",
+      "unknown"
+    ],
+    "scope": [
+      "self",
+      "other_agent",
+      "subtree",
+      "org",
+      "resource",
+      "external",
+      "none",
+      "unknown"
+    ],
+    "scope_src": [
+      "declared",
+      "table",
+      "route_shape",
+      "unknown"
+    ],
+    "outcome": [
+      "ok",
+      "client_error",
+      "auth_denied",
+      "not_found",
+      "server_error",
+      "unknown"
+    ],
+    "method": [
+      "GET",
+      "HEAD",
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE",
+      "OPTIONS",
+      "TRACE",
+      "CONNECT",
+      "other"
+    ],
+    "nonterminal_reason": [
+      "managed_yield"
+    ],
+    "db_store": [
+      "sqlite",
+      "json",
+      "unknown"
+    ],
+    "db_kind": [
+      "select",
+      "with",
+      "insert",
+      "update",
+      "delete",
+      "replace",
+      "begin",
+      "commit",
+      "rollback",
+      "savepoint",
+      "release",
+      "pragma",
+      "ddl",
+      "maintenance",
+      "attach",
+      "other"
+    ],
+    "db_secondary_store": [
+      "transcript_records",
+      "reply_events",
+      "chat_window_index",
+      "tool_waits",
+      "file_deliveries"
+    ]
+  },
+  "provenance": {
+    "scope_src_counts": {
+      "declared": 0,
+      "table": 1,
+      "route_shape": 4,
+      "unknown": 1
+    },
+    "declared_coverage": 0.0,
+    "measures_storage_contacts": "primary_and_listed_sidecar_sqlite_stores",
+    "rows_with_contact_evidence": 5,
+    "rows_without_contact_evidence": 1,
+    "unit": "attempt",
+    "note": "scope is a source-based candidate classification (table), a route-template shape (route_shape), or a handler's own statement (declared) - never an observed storage contact. The db block is observed contact on the primary SQLite store's connections, and db.secondary on the listed sidecar stores' connections only, which is incomplete coverage of storage. No handler declares at this schema, so declared_coverage is 0.0. This instrument proves no locality proportion and publishes no denominator of logical operations."
+  },
+  "contact_coverage": {
+    "primary_store": "sqlite",
+    "instrumented": [
+      {
+        "path": "engine/backend/orgtree/store.py",
+        "symbol": "_open_conn"
+      }
+    ],
+    "uninstrumented": [
+      {
+        "path": "engine/backend/orgtree/antigravity_provenance.py",
+        "symbol": "_Read.__init__"
+      },
+      {
+        "path": "engine/backend/orgtree/desktop_import.py",
+        "symbol": "_read_document"
+      },
+      {
+        "path": "engine/backend/orgtree/desktop_import.py",
+        "symbol": "_write_candidate"
+      },
+      {
+        "path": "engine/mailhub_runtime.py",
+        "symbol": "MailhubRuntime._migrate_store"
+      }
+    ],
+    "other_processes": [
+      {
+        "path": "engine/mailhub/mailhub/db.py",
+        "symbol": "connect",
+        "process": "mailhub"
+      },
+      {
+        "path": "engine/mailhub/hubtool.py",
+        "symbol": "_db",
+        "process": "mailhub"
+      }
+    ],
+    "secondary_stores": [
+      {
+        "path": "engine/backend/orgtree/transcript_records.py",
+        "symbol": "database",
+        "label": "transcript_records"
+      },
+      {
+        "path": "engine/backend/orgtree/reply_events.py",
+        "symbol": "_connect",
+        "label": "reply_events"
+      },
+      {
+        "path": "engine/backend/orgtree/reply_events.py",
+        "symbol": "count",
+        "label": "reply_events"
+      },
+      {
+        "path": "engine/backend/orgtree/chat_window.py",
+        "symbol": "project_tail",
+        "label": "chat_window_index"
+      },
+      {
+        "path": "engine/backend/orgtree/toolwait.py",
+        "symbol": "_db",
+        "label": "tool_waits"
+      },
+      {
+        "path": "engine/backend/orgtree/filedelivery.py",
+        "symbol": "snapshot",
+        "label": "file_deliveries"
+      }
+    ],
+    "complete": false,
+    "kinds": [
+      "select",
+      "with",
+      "insert",
+      "update",
+      "delete",
+      "replace",
+      "begin",
+      "commit",
+      "rollback",
+      "savepoint",
+      "release",
+      "pragma",
+      "ddl",
+      "maintenance",
+      "attach",
+      "other"
+    ],
+    "fields": [
+      "connects",
+      "connect_failed",
+      "checkouts",
+      "statements",
+      "statement_failed",
+      "statement_busy",
+      "engine_steps",
+      "hidden_steps",
+      "linked_threads"
+    ]
+  },
+  "limits": [
+    "One record is one HTTP ATTEMPT (unit=attempt), not one logical operation.",
+    "terminal=false means the operation had not finished when this row was written; its real result, including a refusal, is not in this sink.",
+    "Non-HTTP work - workers, tasks, callbacks, hooks, websockets and restart recovery - is not observed at all.",
+    "Storage contact is measured ONLY in the db block and ONLY for the primary store's and the listed sidecar stores' SQLite connections (see contact_coverage and the db limits below); lock_* is the in-process document lock, not a database.",
+    "bytes is the HTTP response size, never a storage rows-or-bytes figure.",
+    "Overhead is measured only by an offline single-machine microbenchmark (tools/census_contact_overhead.py), never in the product; the default is off because of that.",
+    "Census read doors are excluded from the ring (counters.skipped_self), so records do not include the act of reading them.",
+    "db contact evidence covers ONLY connections made by store._open_conn (the primary store, db fields) and the listed sidecar stores (contact_coverage.secondary_stores, db.secondary). Every path in contact_coverage.uninstrumented, the bundled mail hub's store (contact_coverage.other_processes), PostgreSQL, the Rust engine and any other process are not observed.",
+    "db.secondary carries a sidecar label only when that sidecar was contacted during the attempt; an absent label is no contact observed, and a sidecar's checkouts and linked_threads are always zero (it is not pooled).",
+    "db is present only on attempts that began while capture was on; its absence means not observed, never zero contacts.",
+    "statements counts API-level attempts; engine_steps counts statements SQLite began to execute. They are not expected to be equal.",
+    "No rows examined, pages read, physical IO or lock wait is measured, and no duration is kept from which one could be inferred.",
+    "Contacts on threads that were not handed the attempt are counted in counters.db_unattributed; contacts after an attempt's record was built (for example a managed tool's work after its yield) in counters.db_late. Neither is joined to any record.",
+    "hidden_steps and counters.db_hidden_unattributed count statements SQLite ran on an observed connection outside any observed call; they can only be seen on a connection whose trace was installed while capture was on."
+  ],
+  "records": [
+    {
+      "v": 4,
+      "unit": "attempt",
+      "seq": 1,
+      "t_ms": 100,
+      "method": "GET",
+      "route": "/api/orgs/{slug}",
+      "op": "GET /api/orgs/{slug}",
+      "rw": "read",
+      "scope": "org",
+      "scope_src": "route_shape",
+      "outcome": "ok",
+      "terminal": true,
+      "status": 200,
+      "handler_ms": 10,
+      "total_ms": 12,
+      "bytes": 100,
+      "inflight": 1,
+      "tree_ms": 4,
+      "unattributed_ms": 6,
+      "db": {
+        "store": "sqlite",
+        "connects": 1,
+        "connect_failed": 0,
+        "checkouts": 1,
+        "statements": 26,
+        "statement_failed": 0,
+        "statement_busy": 0,
+        "engine_steps": 26,
+        "hidden_steps": 0,
+        "linked_threads": 0,
+        "kinds": {
+          "select": 22,
+          "begin": 1,
+          "commit": 1,
+          "pragma": 2
+        },
+        "kind_failed": {},
+        "secondary": {
+          "transcript_records": {
+            "connects": 1,
+            "connect_failed": 0,
+            "checkouts": 0,
+            "statements": 3,
+            "statement_failed": 0,
+            "statement_busy": 0,
+            "engine_steps": 4,
+            "hidden_steps": 0,
+            "linked_threads": 0,
+            "kinds": {
+              "pragma": 1,
+              "select": 1,
+              "commit": 1
+            },
+            "kind_failed": {}
+          },
+          "chat_window_index": {
+            "connects": 1,
+            "connect_failed": 0,
+            "checkouts": 0,
+            "statements": 2,
+            "statement_failed": 0,
+            "statement_busy": 0,
+            "engine_steps": 2,
+            "hidden_steps": 0,
+            "linked_threads": 0,
+            "kinds": {
+              "select": 1,
+              "commit": 1
+            },
+            "kind_failed": {}
+          }
+        }
+      }
+    },
+    {
+      "v": 4,
+      "unit": "attempt",
+      "seq": 2,
+      "t_ms": 120,
+      "method": "GET",
+      "route": "/api/orgs/{slug}",
+      "op": "GET /api/orgs/{slug}",
+      "rw": "read",
+      "scope": "org",
+      "scope_src": "route_shape",
+      "outcome": "unknown",
+      "terminal": true,
+      "status": 0,
+      "handler_ms": null,
+      "total_ms": 18,
+      "bytes": 0,
+      "inflight": 1,
+      "no_response_start": true
+    },
+    {
+      "v": 4,
+      "unit": "attempt",
+      "seq": 3,
+      "t_ms": 15000,
+      "method": "POST",
+      "route": "/api/agent",
+      "op": "tool:orgtree_watchdog:list",
+      "tool": "orgtree_watchdog",
+      "action": "list",
+      "action_of": "action",
+      "rw": "read",
+      "scope": "self",
+      "scope_src": "table",
+      "outcome": "unknown",
+      "terminal": false,
+      "status": 200,
+      "nonterminal_reason": "managed_yield",
+      "handler_ms": 10000,
+      "total_ms": 10005,
+      "bytes": 256,
+      "inflight": 3,
+      "targets": 0,
+      "targets_self": false,
+      "unattributed_ms": 10000,
+      "db": {
+        "store": "sqlite",
+        "connects": 0,
+        "connect_failed": 0,
+        "checkouts": 1,
+        "statements": 4,
+        "statement_failed": 0,
+        "statement_busy": 0,
+        "engine_steps": 4,
+        "hidden_steps": 0,
+        "linked_threads": 1,
+        "kinds": {
+          "select": 2,
+          "begin": 1,
+          "commit": 1
+        },
+        "kind_failed": {},
+        "secondary": {
+          "tool_waits": {
+            "connects": 1,
+            "connect_failed": 0,
+            "checkouts": 0,
+            "statements": 5,
+            "statement_failed": 0,
+            "statement_busy": 0,
+            "engine_steps": 6,
+            "hidden_steps": 0,
+            "linked_threads": 0,
+            "kinds": {
+              "pragma": 1,
+              "ddl": 2,
+              "insert": 1,
+              "commit": 1
+            },
+            "kind_failed": {}
+          }
+        }
+      }
+    },
+    {
+      "v": 4,
+      "unit": "attempt",
+      "seq": 4,
+      "t_ms": 15001,
+      "method": "GET",
+      "route": "/api/diagnostics/slow-requests",
+      "op": "GET /api/diagnostics/slow-requests",
+      "rw": "read",
+      "scope": "none",
+      "scope_src": "route_shape",
+      "outcome": "ok",
+      "terminal": true,
+      "status": 200,
+      "diagnostic": true,
+      "handler_ms": 2,
+      "total_ms": 3,
+      "bytes": 20,
+      "inflight": 1,
+      "unattributed_ms": 2,
+      "db": {
+        "store": "sqlite",
+        "connects": 0,
+        "connect_failed": 0,
+        "checkouts": 0,
+        "statements": 0,
+        "statement_failed": 0,
+        "statement_busy": 0,
+        "engine_steps": 0,
+        "hidden_steps": 0,
+        "linked_threads": 0,
+        "kinds": {},
+        "kind_failed": {}
+      }
+    },
+    {
+      "v": 4,
+      "unit": "attempt",
+      "seq": 5,
+      "t_ms": 14900,
+      "method": "other",
+      "route": "<unmatched>",
+      "op": "other <unmatched>",
+      "rw": "unknown",
+      "scope": "unknown",
+      "scope_src": "unknown",
+      "outcome": "auth_denied",
+      "terminal": true,
+      "status": 403,
+      "handler_ms": 5,
+      "total_ms": null,
+      "bytes": null,
+      "inflight": null,
+      "unattributed_ms": 5,
+      "db": {
+        "store": "sqlite",
+        "connects": 0,
+        "connect_failed": 0,
+        "checkouts": 0,
+        "statements": 0,
+        "statement_failed": 0,
+        "statement_busy": 0,
+        "engine_steps": 0,
+        "hidden_steps": 0,
+        "linked_threads": 0,
+        "kinds": {},
+        "kind_failed": {}
+      }
+    },
+    {
+      "v": 4,
+      "unit": "attempt",
+      "seq": 6,
+      "t_ms": 15500,
+      "method": "GET",
+      "route": "/api/orgs/{slug}",
+      "op": "GET /api/orgs/{slug}",
+      "rw": "read",
+      "scope": "org",
+      "scope_src": "route_shape",
+      "outcome": "ok",
+      "terminal": true,
+      "status": 200,
+      "handler_ms": 30,
+      "total_ms": 33,
+      "bytes": 300,
+      "inflight": 1,
+      "tree_ms": 40,
+      "unattributed_ms": -10,
+      "db": {
+        "store": "sqlite",
+        "connects": 2,
+        "connect_failed": 1,
+        "checkouts": 1,
+        "statements": 3,
+        "statement_failed": 1,
+        "statement_busy": 1,
+        "engine_steps": 3,
+        "hidden_steps": 1,
+        "linked_threads": 0,
+        "kinds": {
+          "select": 2,
+          "insert": 1
+        },
+        "kind_failed": {
+          "insert": 1
+        },
+        "secondary": {
+          "reply_events": {
+            "connects": 1,
+            "connect_failed": 1,
+            "checkouts": 0,
+            "statements": 0,
+            "statement_failed": 0,
+            "statement_busy": 0,
+            "engine_steps": 0,
+            "hidden_steps": 0,
+            "linked_threads": 0,
+            "kinds": {},
+            "kind_failed": {}
+          },
+          "file_deliveries": {
+            "connects": 1,
+            "connect_failed": 0,
+            "checkouts": 0,
+            "statements": 2,
+            "statement_failed": 1,
+            "statement_busy": 1,
+            "engine_steps": 1,
+            "hidden_steps": 0,
+            "linked_threads": 0,
+            "kinds": {
+              "insert": 1,
+              "commit": 1
+            },
+            "kind_failed": {
+              "insert": 1
+            }
+          }
+        }
+      }
+    }
+  ]
+}

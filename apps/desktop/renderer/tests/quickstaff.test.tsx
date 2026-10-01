@@ -1,4 +1,5 @@
 import { flush, inAct, mountView, advance, useFakeClock, realClock } from './harness'
+import { compatibilityWorkFixture } from './workcompat.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createPortal } from 'react-dom'
@@ -379,6 +380,7 @@ test('real docket rows load Staff only for backlog and submit the previewed sele
       items: [active], backlogged: [backlog], counts: { active: 1, backlogged: 1, archived: 0, attention: 0 }, now: '2026-09-01T00:00:00Z',
     } : { pending: [], delivered: [], sent: [] }))
   }
+  globalThis.fetch = compatibilityWorkFixture(globalThis.fetch)
   const tree = { slug: 'org1', name: 'Org', epoch: 1, rev: 1, roots: [], asks: [],
     work_items_summary: { active: 1, attention: 0 } } as unknown as TreePayload
   const v = await mountView(<DocketModal slug="org1" tree={tree} close={() => {}} toast={() => {}} jumpTo={null} />, h => h)

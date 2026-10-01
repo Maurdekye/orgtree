@@ -45,8 +45,38 @@ to re-check when something changes:
 from __future__ import annotations
 
 import base64
+import contextlib
+import contextvars
 import os
-from typing import Any
+from typing import Any, Iterator
+
+#: turn-tx merge S2 (review f1): image blocks loaded AHEAD of a transaction,
+#: keyed by (path, size, mtime_ns). Inside `preloaded(cache)` a load finds
+#: its file's block here instead of probing, reading and encoding it again —
+#: so the disk and decode work never runs under the admission row locks.
+_PRELOAD: "contextvars.ContextVar[dict[tuple[str, int, int], tuple[Any, Any]] | None]" = \
+    contextvars.ContextVar("imgblock_preload", default=None)
+
+
+@contextlib.contextmanager
+def preloaded(cache: dict[tuple[str, int, int], tuple[Any, Any]]) -> Iterator[None]:
+    """Loads inside this block read and fill `cache`. A file changed since
+    it was cached (another size or mtime) misses and is loaded as before."""
+    token = _PRELOAD.set(cache)
+    try:
+        yield
+    finally:
+        _PRELOAD.reset(token)
+
+
+def push(cache: dict[tuple[str, int, int], tuple[Any, Any]]) -> Any:
+    """`preloaded` for a span a `with` cannot wrap: returns the token `pop`
+    takes. The caller pops on every exit path."""
+    return _PRELOAD.set(cache)
+
+
+def pop(token: Any) -> None:
+    _PRELOAD.reset(token)
 
 # ── the three caps ────────────────────────────────────────────────────────
 # Three constants and not one, deliberately (ruling, coordinator 2026-08-27):
@@ -186,6 +216,24 @@ def load_image_block(path: str, budget_left: int) -> tuple[
             f"{human_bytes(max(0, budget_left))} image budget — open it "
             f"yourself with Read if you need it")
 
+    cache = _PRELOAD.get()
+    key: tuple[str, int, int] | None = None
+    if cache is not None:
+        try:
+            st = os.stat(path)
+            key = (path, int(st.st_size), int(st.st_mtime_ns))
+        except OSError:
+            key = None
+        if key is not None and key in cache:
+            return cache[key]
+    result = _load_image_io(path)
+    if cache is not None and key is not None:
+        cache[key] = result
+    return result
+
+
+def _load_image_io(path: str) -> tuple[dict[str, Any] | None, str | None]:
+    """The disk and decode half of `load_image_block`: probe, read, encode."""
     media, _dims, problem = _probe(path)
     if media is None:
         return None, f"{problem} — open it with Read if you want to try"

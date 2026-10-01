@@ -53,17 +53,21 @@ DOCUMENT = {"providers": [
         {"tier": "luna", "seat": .2}, {"tier": "terra", "seat": 2},
         {"tier": "sol", "seat": 5}, {"tier": "astra", "seat": 10}]},
     {"id": "google", "hire_enabled": True, "tiers": [
-        {"tier": "flash", "seat": 1}, {"tier": "pro", "seat": 2}]},
+        {"tier": "flash", "seat": 1}, {"tier": "pro", "seat": 2},
+        # Argon is in the document only while agy lists gemini-4-argon; this
+        # fixture is a machine where it does
+        {"tier": "argon", "seat": 2}]},
 ]}
 #: The organization stores its tiers in a DIFFERENT order — this is the shape
 #: the user photographed: fable first, the Codex family interleaved, the
 #: Antigravity pair in the middle. If the menu simply walked `org.d["tiers"]`
 #: this is the order it would print, and that is exactly what it used to do.
 SCRAMBLED = {"fable": 10, "opus": 5, "flash": 1, "luna": .2, "haiku": 1,
-             "astra": 10, "pro": 2, "sonnet": 2, "terra": 2, "sol": 5}
+             "astra": 10, "pro": 2, "sonnet": 2, "terra": 2, "sol": 5,
+             "argon": 2}
 #: The same tiers in the order `DOCUMENT` lists them.
 CATALOG = ["haiku", "sonnet", "opus", "fable", "luna", "terra", "sol", "astra",
-           "flash", "pro"]
+           "flash", "pro", "argon"]
 
 
 class LogTouched(Exception):
@@ -326,7 +330,7 @@ class StaffingMenuOrderTests(unittest.TestCase):
             snap = staffcache.read()
             models = quickstaff.preview(self.org, self.item, snap=snap)["models"]
         self.assertEqual([m["tier"] for m in models],
-                         ["flash", "pro", "luna", "terra", "sol", "astra",
+                         ["flash", "pro", "argon", "luna", "terra", "sol", "astra",
                           "haiku", "sonnet", "opus", "fable"])
 
     # ------------------------------------------------------------------ §6

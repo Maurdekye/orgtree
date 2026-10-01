@@ -1,4 +1,5 @@
 import { useSurfaceDocument } from '../popout'
+import { lineageCount } from '../archived'
 // canvas/modals.tsx — the config modals: the in-page ConfirmModal, the
 // pre-hire permissions modal (DraftScopeModal), the per-node ⚙ config
 // (NodeConfig) with the shared MCP checklist, and the retired/crowd pile
@@ -16,7 +17,7 @@ import type {
   ChatInit, DirGrant, ProviderInfo, ToastFn, ToolGrant, TreePayload, Watchdog,
 } from '../types'
 import {
-  assignAccount, dissolveAll, getChat, getMcpServers, removeReplyEvents,
+  assignAccount, dissolveAll, getChat, getCompleteTree, getMcpServers, removeReplyEvents,
   req, saveScope, watchdogAction,
 } from '../api'
 import { pickFolder } from '../picker'
@@ -24,7 +25,7 @@ import {
   CloseIcon, DeleteIcon, FolderIcon, LayersIcon, SettingsIcon,
 } from '../icons'
 import { agentNavProps } from './agentnav'
-import { ago, ALL_PRESENT, anyTierSeat, codexTierOffer, CODEX_TIERS, ANTIGRAVITY_TIERS, fmtCredits, hireOf, isOpenRouterTier, MODEL_VERSIONS, openrouterTierIds, pileOrder, PROVIDER_LABEL, providerOf, stateLabel, TIER_LETTER, tierCapabilityNotes, tierLabel, TIERS, tierShown, USER, useEsc } from './shared'
+import { ago, ALL_PRESENT, antigravityTierOffer, anyTierSeat, codexTierOffer, CODEX_TIERS, ANTIGRAVITY_TIERS, fmtCredits, hireOf, isOpenRouterTier, legacyMark, MODEL_VERSIONS, optInLegacyHidden, openrouterTierIds, pileOrder, PROVIDER_LABEL, providerOf, stateLabel, TIER_LETTER, tierCapabilityNotes, tierLabel, TIERS, tierShown, USER, useEsc, useShowLegacyModels } from './shared'
 import type { ProviderPresence } from './shared'
 import type { CanvasNode, DraftScope, DraftState, OpFn, Pile } from './shared'
 import { ProcessLifecycleMark } from './desk'
@@ -958,6 +959,8 @@ interface NodeConfigProps {
 
 export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   antigravityProvider, openrouterProvider, presence = ALL_PRESENT, close }: NodeConfigProps) {
+  // re-render on the "show legacy models" flip — `codexTierOffer` reads it
+  useShowLegacyModels()
   // Escape belongs to PinFrame now: a CENTRED surface still closes on it, a
   // PINNED window ignores it the way an agent window does.
   const [asking, setAsking] =
@@ -1094,6 +1097,22 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   // cannot drift from the unconfirmed one — and so CANCEL is simply "never
   // call this", which is what makes cancelling total rather than partial.
   const acctChanged = acct !== (node.account ?? '')
+  // the capability fields ride only when EDITED: omitted means unchanged on
+  // the wire, and any capability field makes the save lock and re-clamp the
+  // node's whole subtree — re-sending untouched folders and tools made an
+  // effort-only save on a large manager take about 2 s (agent-settings-save)
+  const scopeBody = {
+    ...('dirs' in edit ? { add_dirs: dirs } : {}),
+    ...('tools' in edit ? { tools } : {}),
+    ...('vis' in edit ? { org_visibility: vis } : {}),
+    ...('pm' in edit ? { permission_mode: pm } : {}),
+    charter, team_charter: teamCharter, effort,
+    auto_cheap_compact: accMode === '' ? {}
+      : { enabled: accMode === 'on',
+          occ: (+accOcc || 50) / 100 },
+    model_version: versions.includes(modelVersion)
+      ? modelVersion : '',
+    ...reservePayload, ...fallbackPayload }
   const doSave = () =>
     (model !== node.tier
       ? op({ op: 'switch_model', node: node.id, tier: model,
@@ -1115,15 +1134,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
           })
         : Promise.resolve())
       .then(() => saveScope(slug, node.id,
-        { add_dirs: dirs, tools, org_visibility: vis,
-          permission_mode: pm,
-          charter, team_charter: teamCharter, effort,
-          auto_cheap_compact: accMode === '' ? {}
-            : { enabled: accMode === 'on',
-                occ: (+accOcc || 50) / 100 },
-          model_version: versions.includes(modelVersion)
-            ? modelVersion : '',
-          ...reservePayload, ...fallbackPayload }))
+        scopeBody))
       .then((r) => {
         const lines = savePopups(r)
         if (r?.bridge?.raise_ceiling) {
@@ -1132,16 +1143,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
             : ['clamped to the kiosk permission ceiling'],
           { label: 'raise ceiling & apply',
             fn: () => saveScope(slug, node.id,
-              { add_dirs: dirs, tools, org_visibility: vis,
-                permission_mode: pm,
-                charter, team_charter: teamCharter, effort,
-                auto_cheap_compact: accMode === '' ? {}
-                  : { enabled: accMode === 'on',
-                      occ: (+accOcc || 50) / 100 },
-                model_version: versions.includes(modelVersion)
-                  ? modelVersion : '',
-                ...reservePayload, ...fallbackPayload,
-                raise_ceiling: true })
+              { ...scopeBody, raise_ceiling: true })
               .then((r2) => {
                 const lines2 = savePopups(r2)
                 toast(lines2.length ? lines2 : ['ceiling raised — applied'])
@@ -1215,10 +1217,17 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
   // the truthful selected no-op, or the select would silently read as some
   // other model. Moving it to luna is the offered way off the token.
   const codexHire = hireOf(codexProvider)
+  const antigravityHire = hireOf(antigravityProvider)
   const shownTiers = (fam: readonly string[]) =>
     fam.filter((t) => tierShown(presence, t, node.tier)
       && !(CODEX_TIERS.includes(t) && codexTierOffer(codexHire, t) === 'hide'
-        && t !== node.tier))
+        && t !== node.tier)
+      // Gemini Pro (legacy toggle) and Argon (only once agy lists it), same
+      // keep rule: a node already on the tier still sees its own value
+      && !(ANTIGRAVITY_TIERS.includes(t)
+        && antigravityTierOffer(antigravityHire, t) === 'hide' && t !== node.tier)
+      // an opt-in legacy tier of another family, same keep rule
+      && !(optInLegacyHidden(t) && t !== node.tier))
   const modelOption = (t: string) => {
     const why = unavailable(t)
     // the OpenRouter catalog's declarations — tools, image input, the
@@ -1230,7 +1239,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
     const tools = tierCapabilityNotes(t)
     return (
       <option key={t} value={t} disabled={!!why}>
-        {tierLabel(t)} · seat {fmtCredits(tierSeat(t))}{tools ? ` · ${tools}` : ''}{why ? ` — ${why}` : ''}
+        {tierLabel(t)} · seat {fmtCredits(tierSeat(t))}{legacyMark(t)}{tools ? ` · ${tools}` : ''}{why ? ` — ${why}` : ''}
       </option>
     )
   }
@@ -1238,7 +1247,7 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
     // pointerdown must not reach the viewport: its pan pointer-CAPTURE retargets
     // the click, so backdrop-close and every button in here silently broke
     <PinFrame kind="node-config" restore={{ agent: node.id, generation: node.generation }} title={`${node.id} · configuration`}
-      panel="settings cfg" close={close}>
+      panel={'settings cfg prov-' + providerOf(node.tier ?? '')} close={close}>
         <h3 data-copy-agent-name={node.id}><SettingsIcon fontSize="inherit" /> {node.id}</h3>
         {/* ⚠ THE LIFECYCLE MARK IS LIVE STATE, NOT A TITLE — whether this
             agent's process is warm, relaunching or mid-turn is the reason to
@@ -1663,24 +1672,70 @@ export function NodeConfig({ node, map, tree, slug, op, toast, codexProvider,
             .then(close).catch(() => {})}
           close={() => setAsking(null)} />
       )}
-      {asking === 'delete' && (() => {
-        const count = (function c(n: CanvasNode): number {
-          return n.children.reduce((a, k) => a + 1 + c(k), 0)
-        })(node)
-        const gens = (node.lineage ?? []).length
-        return <ConfirmModal title={`permanently delete ${node.id}?`}
-          body={'Erased from the organization — seats, records, mail and lineage'
-            + (count ? `, plus ${count} descendant(s)` : '')
-            + (gens ? ` and ${gens} prior generation(s)` : '')
-            + '. Session transcripts remain on disk. This cannot be undone.'}
-          confirmLabel="delete permanently"
-          onConfirm={() => op({ op: 'delete', node: node.id }).then(close).catch(() => {})}
-          close={() => setAsking(null)} />
-      })()}
+      {asking === 'delete' && <DeleteNodeConfirm node={node} tree={tree} slug={slug}
+        onConfirm={() => op({ op: 'delete', node: node.id }).then(close).catch(() => {})}
+        close={() => setAsking(null)} />}
       </ModalOverPins>}
     </PinFrame>
   )
 }
+/** Destructive confirmation needs the complete subtree count. The explicit
+ * dialog owns this full read; it never replaces or caches the canvas graph. */
+export function DeleteNodeConfirm({ node, tree, slug, onConfirm, close }: {
+  node: CanvasNode; tree: TreePayload; slug: string; onConfirm: () => void; close: () => void
+}) {
+  const identity = JSON.stringify([slug, node.id, node.generation, tree.foreground?.catalog_revision])
+  const [attempt, setAttempt] = useState(0)
+  const [answer, setAnswer] = useState<{ identity: string; count?: number; gens?: number; error?: string } | null>(null)
+  useEffect(() => {
+    if (!tree.foreground) return
+    let current = true
+    setAnswer(null)
+    getCompleteTree(slug).then(full => {
+      if (!current) return
+      const stack = [...full.roots]
+      let found: typeof full.roots[number] | undefined
+      while (stack.length) {
+        const next = stack.pop()!
+        if (next.id === node.id) { found = next; break }
+        // Lineage rows are identity summaries, not complete deletion scopes.
+        // Only an actual org-tree node can authorize this dialog.
+        stack.push(...next.children)
+      }
+      if (!found || found.generation !== node.generation) {
+        throw new Error('This agent changed or is no longer available. Close this dialog and open it again.')
+      }
+      setAnswer({ identity, count: descendantCount(found), gens: lineageCount(found) })
+    }).catch(error => {
+      if (current) setAnswer({ identity, error: error instanceof Error ? error.message : 'Could not read the full subtree.' })
+    })
+    return () => { current = false }
+  }, [identity, attempt, Boolean(tree.foreground)])
+  const resolved: { count?: number; gens?: number; error?: string } | null =
+    tree.foreground ? answer?.identity === identity ? answer : null
+    : { count: descendantCount(node), gens: lineageCount(node) }
+  useEsc(close, !resolved || !!resolved.error)
+  if (!resolved || resolved.error) return <div className="overlay" onClick={close}>
+    <div className="settings content-height" role="dialog" aria-label="Read deletion scope"
+      onClick={event => event.stopPropagation()}>
+      <div role={resolved?.error ? 'alert' : 'status'}>{resolved?.error ?? 'Loading full deletion scope…'}</div>
+      <div className="row"><button onClick={close}>cancel</button>
+        {resolved?.error && <button onClick={() => setAttempt(value => value + 1)}>retry</button>}</div>
+    </div>
+  </div>
+  return <ConfirmModal title={`permanently delete ${node.id}?`}
+    body={'Erased from the organization — seats, records, mail and lineage'
+      + (resolved.count ? `, plus ${resolved.count} descendant(s)` : '')
+      + (resolved.gens ? ` and ${resolved.gens} prior generation(s)` : '')
+      + '. Session transcripts remain on disk. This cannot be undone.'}
+    confirmLabel="delete permanently" onConfirm={onConfirm} close={close} />
+}
+
+type DescendantTree = { children: readonly DescendantTree[] }
+function descendantCount(node: DescendantTree): number {
+  return node.children.reduce((count, child) => count + 1 + descendantCount(child), 0)
+}
+
 // the RETIRED-PILE menu (user spec): pick which retiree sits in front — the
 // front card is the one you zoom in on, message, read and can rehire; the
 // rest wait stacked beneath it. The current front is highlighted.
@@ -1692,17 +1747,21 @@ interface PilePickerProps {
   /** optional: the delete-all row only renders when an op channel exists */
   op?: OpFn
   toast?: ToastFn
+  /** No row action may use a partially loaded retired cohort. */
+  ready?: boolean
 }
 
-export function PilePicker({ pile, map, onPick, close, op, toast }: PilePickerProps) {
+export function PilePicker({ pile, map, onPick, close, op, toast, ready = true }: PilePickerProps) {
   useEsc(close)
   const crowd = pile.kind === 'c'
   const [asking, setAsking] = useState(false)
+  useEffect(() => { if (!ready) setAsking(false) }, [ready])
   // "delete all" (user spec 2026-07-31): clear the whole retired pile at
   // once — permanent, so it sits behind the same confirm as any delete.
   // Sequential ops; each failure is already toasted by op(), the summary
   // counts what actually went through.
   const wipeAll = async () => {
+    if (!ready) return
     let ok = 0
     for (const id of pile.list) {
       try {
@@ -1717,7 +1776,7 @@ export function PilePicker({ pile, map, onPick, close, op, toast }: PilePickerPr
     <ModalOverPins><div className="overlay" onClick={close} onPointerDown={(e) => e.stopPropagation()}>
       <div className="settings content-height pile-picker" onClick={(e) => e.stopPropagation()}>
         <h3><LayersIcon fontSize="inherit" /> {crowd ? 'Team stack' : 'Retired pile'}
-          <span className="dim"> · {pile.list.length} agents</span></h3>
+          <span className="dim"> · {pile.total ?? pile.list.length} agents</span></h3>
         <div className="hint">
           {crowd
             ? 'A wide team stacks its leaf agents into one place. The one in '
@@ -1731,7 +1790,8 @@ export function PilePicker({ pile, map, onPick, close, op, toast }: PilePickerPr
             `pileOrder`, which also carries why "touched" means the last turn
             rather than the retire time. The pile's own stack order is
             untouched: this is the list, not the deck. */}
-        {pileOrder(pile.list, map).map((id) => {
+        {!ready && <div role="status" className="hint">Loading retired agents…</div>}
+        {ready && pileOrder(pile.list, map).map((id) => {
           const n = map.get(id)
           if (!n) return null
           // the same TurnStat the card badge reads. Absent when the agent
@@ -1760,7 +1820,7 @@ export function PilePicker({ pile, map, onPick, close, op, toast }: PilePickerPr
             </button>
           )
         })}
-        {!crowd && op && (
+        {ready && !crowd && op && (
           <div className="row">
             <span className="spacer" />
             <button className="danger" onClick={() => setAsking(true)}>
@@ -1768,7 +1828,7 @@ export function PilePicker({ pile, map, onPick, close, op, toast }: PilePickerPr
             </button>
           </div>
         )}
-        {asking && (
+        {ready && asking && (
           <ConfirmModal
             title={`permanently delete all ${pile.list.length} archived agents?`}
             body="Every agent in this pile is removed for good, along with each one's knowledge-bearer lineage — no rehire, no consulting, records erased from the org. Transcript files on disk are kept. This cannot be undone."

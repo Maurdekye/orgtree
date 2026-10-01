@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import import_provenance  # noqa: F401
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 _root = tempfile.TemporaryDirectory(prefix="orgtree-opus55-")
 os.environ["ORGTREE_DATA"] = _root.name
@@ -32,7 +32,7 @@ class Opus55Tests(unittest.TestCase):
         self.assertEqual((row["model"], row["provider"], row["seat"]),
                          ("claude-opus-5-5", "claude", 4))
         self.assertEqual(org.seat_cost("agent"), 4)
-        self.assertEqual(clipin.PIN, "2.1.280")
+        self.assertEqual(clipin.PIN, "2.1.284")
 
     def test_saved_default_migrates_without_changing_account_or_grant(self):
         original = self.org()

@@ -1,7 +1,7 @@
 import type { ModalDimensions, WindowRestore } from './windowlayout'
-import { captureWindow, closeSavedWindow, popupFeatures, restoredWindows, useRestoreWindows, windowLayoutKey } from './windowlayout'
+import { captureWindow, closeSavedWindow, popupFeatures, restoredWindows, savedWindows, useRestoreWindows, windowLayoutKey } from './windowlayout'
 import { openLightboxIfEligibleImage } from './canvas/lightbox'
-import { copyCodeFromEvent } from './canvas/shared'
+import { copyCodeFromEvent, revealFileFromEvent } from './canvas/shared'
 import { ObjectMenuBoundary } from './canvas/contextmenu'
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode, SyntheticEvent } from 'react'
@@ -11,6 +11,7 @@ import type { PopoutWindowState } from '../../../../packages/contracts'
 import { createPortal } from 'react-dom'
 import { isMobile } from './mobile'
 import { initiatingDocument, keepWorking, noteActionDocument, openSurfaces, pendingRestart, registerWindow, reloadWindows, returnWindows, subscribeWindows, windowRevision } from './windowlife'
+import type { BorrowedSurface } from './windowlife'
 
 interface SurfaceContextValue {
   document: Document
@@ -24,11 +25,15 @@ interface SurfaceContextValue {
   error: string
 }
 const SurfaceContext = createContext<SurfaceContextValue | null>(null)
+// Rows only need their owning document and overlay container. Subscribe to
+// those stable nodes without also subscribing to each new set of controls.
+const SurfaceDocumentContext = createContext<Document | null>(null)
+const SurfaceOverlayContext = createContext<HTMLElement | null>(null)
 export const CurrentOrg = createContext<string | null>(null)
 export const useCurrentOrg = () => useContext(CurrentOrg)
 export const useSurface = () => useContext(SurfaceContext)
-export const useSurfaceDocument = () => useSurface()?.document ?? document
-export const useOverlayRoot = () => useSurface()?.overlays ?? document.body
+export const useSurfaceDocument = () => useContext(SurfaceDocumentContext) ?? document
+export const useOverlayRoot = () => useContext(SurfaceOverlayContext) ?? document.body
 const stop = (e: SyntheticEvent) => e.stopPropagation()
 // Native document ownership and React propagation are DIFFERENT boundaries.
 // This helper also belongs on an ancestor capture handler, before any action.
@@ -85,6 +90,14 @@ export function useOrgTransition(slug: string | null, commit: (slug: string | nu
  *  existing window with the same name, and two surfaces must never collide onto
  *  one window. */
 let popoutSeq = 0
+
+/** What a failed pop-out tells the user. See `recover` in MovableSurface.
+ *  ⚠ "WILL NOT", NOT "WAS ERASED": `closeSavedWindow` keeps the row's rect and
+ *  only marks it closed, so the coordinates still exist — what the user loses
+ *  is that nothing uses them any more (`popupFeatures` ignores a closed row
+ *  unless restoring, and startup restores only open rows). */
+const STYLING_FAILED = 'Window styling failed. Your surface was returned.'
+const NOT_RESTORED = 'Its window will not reopen automatically, and popping it out again will not use its previous position.'
 
 /** The window controls for a popped-out desk or modal, placed in that surface's
  *  OWN header because the popout window is frameless and has no title bar to
@@ -286,12 +299,33 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
     // Dialogs follow the document, outside any pin stacking context.
     target.ownerDocument.body.appendChild(parts.overlays)
   }
-  const redock = () => {
+  /** Bring this surface back into the document.
+   *
+   *  ⚠ NOT EXPOSED WITH ITS PARAMETER, and the parameter is why. `redock` is
+   *  wired straight to `onClick` in two places, so a public
+   *  `(transient = false)` would receive a MouseEvent as its first argument —
+   *  truthy — and every "Return here" click would silently become a borrow
+   *  that never clears the saved row. The typechecker caught exactly that
+   *  when this was one function. Keeping the flag on an internal helper makes
+   *  the mistake unreachable rather than merely fixed at today's call sites.
+   *
+   *  `transient` is a TEMPORARY BORROW rather than a dismissal — see `borrow`
+   *  below. Everything else about the path is identical, so a borrow cannot
+   *  drift away from the ordinary return. */
+  const returnHome = (transient: boolean) => {
     const restore = pendingRestore.current ?? preservePosition(parts.container)
     pendingRestore.current = null
     epoch.current++
     const w = child.current; child.current = null
-    closeSavedWindow(layoutKey)
+    // ⚠ THE ONE LINE A BORROW MUST NOT RUN. `closeSavedWindow` flips the saved
+    // row to `open: false`, which is right when the user has returned or
+    // dismissed the surface and wrong when it is coming straight back. Left to
+    // run on a borrow it breaks TWO settled rules at once: the arrangement is
+    // not restored when the organization is reopened, and — less obviously —
+    // the return itself lands in the wrong place, because `popupFeatures` only
+    // consults the saved rect when `restoring || saved.open`, so clearing
+    // `open` makes the re-detach compute a fresh position instead.
+    if (!transient) closeSavedWindow(layoutKey)
     for (const fn of cleanups.current.splice(0).reverse()) { try { fn() } catch { /* cleanup is idempotent */ } }
     place(claimDestination())
     initialOwner.current = document
@@ -300,6 +334,127 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
     latest.current.onDetached?.(false)
     restore()
     try { if (w && !w.closed) w.close() } catch { /* user navigated */ }
+  }
+  /** The ordinary return: safe to hand to an event handler, because it takes
+   *  no arguments and therefore cannot be told to borrow by one. */
+  const redock = () => returnHome(false)
+
+  /** FAILURE RECOVERY: the pop-out broke, the user did not close it. Four
+   *  routes come here — (1) a later style sync thrown from the MutationObserver,
+   *  (2) the same from the 500 ms CSSOM poll, (3) `restoreWhenStyled` giving up
+   *  on a stylesheet, (4) the `open()` catch: blocked window, a throw while
+   *  adopting the document, or the surface failing to enter it. The two
+   *  DELIBERATE-close routes (the child's `pagehide`, the owner document going
+   *  away) call `redock` directly and are not failures.
+   *
+   *  ⚠ ALL FOUR CLEAR THE SAVED ROW — the ordinary `redock`, NEVER
+   *  `returnHome(true)` — and that is a decision, not an oversight (docket item
+   *  a-failed-pop-out-forgets-the-window-the-user-had). The borrow keeps the
+   *  row open because it is coming straight back AND the borrower holds the
+   *  closure that ends the claim. A failure has neither, so keeping
+   *  `open: true` would leave a row claiming a window that does not exist,
+   *  with nothing to correct it — and the renderer ACTS on that claim live:
+   *   · `useAwaitingRestore` (attention/AttentionView.tsx) keeps a hidden
+   *     panel subtree mounted for it — for the Desk panel a live `DeskSlot`
+   *     competing for the agent the user is looking at;
+   *   · OrgCanvas reads an open `agent-list` row as "the tray is detached" and
+   *     stops closing the docked tray on an outside click or Escape;
+   *   · on the next launch the restore runs again, and a deterministic failure
+   *     (a stylesheet that never loads, pop-ups blocked) would repeat the same
+   *     error at every start instead of once.
+   *  The cost is the one the item names: the row keeps its rect, but
+   *  `popupFeatures` ignores a closed row's rect, so the next pop-out opens in
+   *  a fresh place. Keeping the rect IN USE without claiming the window is
+   *  open would need a new row state in windowlayout.ts, outside this item.
+   *
+   *  So the error says what happened to the window — and the rule for WHEN is
+   *  exactly the one the code follows: the row was open at the moment of
+   *  failure and is closed after the redock. That includes a row THIS pop-out
+   *  recorded: routes (1)-(3) can only fire after the commit point's
+   *  `captureWindow(..., true)` (and the 250 ms poll) has marked the window
+   *  open, so even a first-ever pop-out that fails there gets the sentence.
+   *  That is deliberate, not a leak: the user may have moved and used that
+   *  window for a long time before a later style sync broke, and it is true
+   *  that it will not reopen and its position will not be reused. Gating on
+   *  the row's state BEFORE this `open()` instead would silence exactly that
+   *  case. Only a failure before the window was recorded — a blocked window,
+   *  a throw before the commit point, over a row that was closed or absent —
+   *  or a browser with no saved layout, or an app exit (where
+   *  `closeSavedWindow` does nothing) omits it, because nothing changed. */
+  const recover = (message: string) => {
+    const savedOpen = () => savedWindows().some(r => r.key === layoutKey && r.open)
+    const had = savedOpen()
+    redock()
+    setError(had && !savedOpen() ? `${message} ${NOT_RESTORED}` : message)
+  }
+
+  /** Take this surface out of its native window WITHOUT recording it as
+   *  closed, and hand back the function that puts it where it was.
+   *
+   *  This is the seam for TEMPORARY BORROWING — a detached desk pulled into a
+   *  modal for the length of that modal's life and then given back. The user
+   *  rule is that a borrow must never persist as a permanent close, and the
+   *  ordinary `redock` does exactly that.
+   *
+   *  ⚠ LEAVING THE SAVED ROW `open: true` IS WHAT MAKES THE RETURN CORRECT,
+   *  not merely what avoids the wrong record. `popupFeatures` consults the
+   *  saved rect when `restoring || saved.open`, so an untouched row carries
+   *  the geometry home with no extra plumbing at all. The two halves of
+   *  "restore exact prior placement" are the same one line.
+   *
+   *  ⚠ A CLOSURE RATHER THAN A `transient` FLAG ON `redock`, because of the
+   *  MIRROR failure a borrow creates: a saved row left `open: true` with no
+   *  window behind it, which makes startup restoration reopen a window for a
+   *  panel nobody left open. Handing back the way home ties the return to the
+   *  borrower's own lifetime — it holds the closure and calls it when it
+   *  unregisters — instead of leaving "remember to put it back" as prose.
+   *
+   *  ⚠ WHAT THIS DOES NOT GUARANTEE, stated rather than implied. A borrow
+   *  that is never returned WHILE THIS SURFACE STAYS MOUNTED cannot be
+   *  detected from here: the surface is docked and mounted, which is exactly
+   *  what it looks like when borrowed, so there is no moment at which this
+   *  file could conclude anything. It self-corrects at every boundary that
+   *  does exist — an ordinary `redock` or dismissal clears the row, and the
+   *  unmount effect below clears it too — so the lie is bounded by the
+   *  surface's life rather than permanent. Closing the remaining case is the
+   *  borrower's, and it is why the return is a closure it must hold.
+   *
+   *  Borrowing a surface that is NOT detached is a no-op returning a no-op:
+   *  no native window and no saved row are in play, ownership alone moves,
+   *  and this file has nothing to say about it. The returned function is
+   *  idempotent, so calling it twice is harmless. */
+  const borrow = (): BorrowedSurface => {
+    const w = child.current
+    const inert: BorrowedSurface = { restore: () => {}, release: () => {} }
+    if (!w || w.closed) return inert
+    // ⚠ CAPTURE THE LIVE GEOMETRY BEFORE THE WINDOW GOES. The saved rect is
+    // sampled on a 250 ms poll, so a move or resize in the moment before a
+    // borrow has not been recorded yet — and `returnHome` closes the child,
+    // after which the real bounds are unrecoverable and the return would
+    // restore the previous SAMPLE instead of where the window actually was.
+    // The unmount path already does exactly this, for exactly this reason.
+    captureWindow(layoutKey, kind, org, w, true, latest.current.restore)
+    returnHome(true)
+    // ⚠ THE EPOCH AFTER THE BORROW'S OWN INCREMENT IS WHAT MAKES A STALE
+    // HANDLE INERT. A `done` flag alone only stops this handle being used
+    // twice; it says nothing about the world moving on underneath it. An
+    // ordinary redock, an unmount and any other `open` all bump the epoch —
+    // and each of those has already cleared or reconciled the saved row — so
+    // a handle used past one of those boundaries would otherwise resurrect a
+    // window the user had closed, at geometry that is no longer recorded.
+    // Comparing the epoch is how this file already guards every other
+    // asynchronous continuation in it.
+    const mine = epoch.current
+    let done = false
+    const claim = (): boolean => {
+      if (done || epoch.current !== mine) return false
+      done = true
+      return true
+    }
+    return {
+      restore: () => { if (claim()) open(true) },
+      release: () => { if (claim()) closeSavedWindow(layoutKey) },
+    }
   }
 
   /** Bring an already-open popout back into view.
@@ -404,21 +559,24 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       syncStyles()
       const observer = new MutationObserver(() => {
         if (transaction !== epoch.current) return
-        try { syncStyles() } catch { setError('Window styling failed. Your surface was returned.'); redock() }
+        try { syncStyles() } catch { recover(STYLING_FAILED) }   // failure route (1)
       })
       observer.observe(document.head, { childList: true, subtree: true, characterData: true, attributes: true })
       observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class'] })
       cleanups.current.push(() => observer.disconnect())
       const cssom = window.setInterval(() => {
         if (transaction !== epoch.current) return
-        try { syncStyles() } catch { setError('Window styling failed. Your surface was returned.'); redock() }
+        try { syncStyles() } catch { recover(STYLING_FAILED) }   // failure route (2)
       }, 500)
       cleanups.current.push(() => window.clearInterval(cssom))
       d.body.className = 'popout-document'
       const mount = d.createElement('div'); mount.className = 'popout-mount'; d.body.appendChild(mount)
       const note = () => noteActionDocument(d)
       const documentClick = (e: MouseEvent) => {
-        copyCodeFromEvent(e); openLightboxIfEligibleImage(e)
+        // the main document's delegated click actions, in the same capture
+        // phase: code copy, local file links (these were missing here, so a
+        // file link in a popped-out window did nothing) and the image viewer
+        copyCodeFromEvent(e); revealFileFromEvent(e); openLightboxIfEligibleImage(e)
       }
       d.addEventListener('pointerdown', note, true); d.addEventListener('keydown', note, true)
       d.addEventListener('click', documentClick, true)
@@ -432,18 +590,18 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       if (w.closed || parts.container.ownerDocument !== d || !mount.contains(parts.container)) throw new Error('The surface could not enter the new window.')
       parts.container.classList.add('detached')
       cleanups.current.push(registerWindow({ id: `${kind}:${transaction}:${Math.random()}`, kind, org,
-        editable, window: w, redock, reveal, identity: () => latest.current.restore,
+        editable, window: w, redock, reveal, borrow, identity: () => latest.current.restore,
         flush: () => { captureWindow(layoutKey, kind, org, w!, true, latest.current.restore); latest.current.flush?.() } }))
       captureWindow(layoutKey, kind, org, w, true, latest.current.restore)
       setOwner(d); setDetached(true); setError(''); latest.current.onDetached?.(true)
       restore(); w.focus()
       pendingRestore.current = restore
       cleanups.current.push(restoreWhenStyled(w, () => epoch.current === transaction && !w!.closed, restore, () => { pendingRestore.current = null },
-        () => { setError('Window styling failed. Your surface was returned.'); redock() }))
+        () => recover(STYLING_FAILED)))   // failure route (3)
     } catch (e) {
-      redock()
+      // failure route (4)
+      recover(e instanceof Error ? e.message : 'Could not open a window. Your surface was returned.')
       try { w?.close() } catch { /* inaccessible */ }
-      setError(e instanceof Error ? e.message : 'Could not open a window. Your surface was returned.')
     }
   }
 
@@ -502,7 +660,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
         <button onClick={redock}>Return here</button>
       </DetachedNotice>}
     </div>
-    {ready && createPortal(<SurfaceContext.Provider value={{ document: owner, overlays: parts.overlays, detached, name: popoutName.current, open, redock, error }}>
+    {ready && createPortal(<SurfaceDocumentContext.Provider value={owner}><SurfaceOverlayContext.Provider value={parts.overlays}><SurfaceContext.Provider value={{ document: owner, overlays: parts.overlays, detached, name: popoutName.current, open, redock, error }}>
       <ObjectMenuBoundary className="movable-events" onPointerDown={detached ? stop : undefined}
         onPointerMove={detached ? stop : undefined} onPointerUp={detached ? stop : undefined}
         onPointerCancel={detached ? stop : undefined} onClick={detached ? stop : undefined}
@@ -516,6 +674,6 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
         {error && <div role="alert" className="popout-error">{error}</div>}
         {children}
       </ObjectMenuBoundary>
-    </SurfaceContext.Provider>, parts.content)}
+    </SurfaceContext.Provider></SurfaceOverlayContext.Provider></SurfaceDocumentContext.Provider>, parts.content)}
   </>
 }

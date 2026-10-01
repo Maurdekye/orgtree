@@ -92,6 +92,36 @@ test('continuous patch traffic can no longer starve refreshes', async () => {
   assert.equal(pending.length, 0)               // one request per call, no tail
 })
 
+test('field deltas use the unhydrated captured base and preserve every detail field', async () => {
+  const first = getTree('delta-org')
+  respond(200, { format: 'orgtree.tree/v1', revision: 'one', tree: {
+    roots: [{ id: 'a', charter: 'whole charter', scope: { tools: { edit: true } }, children: [] }],
+  } }, 'W/"tree-one"')
+  await first
+  const next = getTree('delta-org')
+  respond(200, { format: 'orgtree.tree/v1', revision: 'two', base: 'one',
+    top: { set: { sync_rev: 8 }, remove: [] }, removed: [],
+    nodes: { a: { set: { last_status: { summary: 'working' } }, remove: [] } },
+  }, 'W/"tree-two"')
+  const tree = await next
+  assert.equal(tree?.roots[0].charter, 'whole charter')
+  assert.equal(tree?.roots[0].scope.tools.edit, true)
+  assert.equal(tree?.roots[0].last_status?.summary, 'working')
+  assert.equal(tree?.sync_rev, 8)
+})
+
+test('unchanged content can advance the safe patch replay watermark with 304', async () => {
+  const first = getTree('watermarks')
+  respond(200, { roots: [], sync_rev: 1 }, 'stable')
+  const old = await first
+  const next = getTree('watermarks')
+  pending.shift()!.resolve({ status: 304, ok: false,
+    headers: { get: (name: string) => name === 'X-Orgtree-Sync-Rev' ? '9' : null } })
+  const refreshed = await next
+  assert.equal(refreshed?.sync_rev, 9)
+  assert.equal(old?.sync_rev, 1, 'previous consumers keep their immutable snapshot')
+})
+
 test('the hidden tree heartbeat is paused, not slowed', () => {
   // accepted requirement (perf-review round 3): hidden windows PAUSE the
   // G1 beat — the ws 'changed' handler covers real changes, and becoming

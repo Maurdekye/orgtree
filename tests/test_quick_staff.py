@@ -108,6 +108,32 @@ class QuickStaffTests(unittest.TestCase):
                 self.assertEqual("Suggested effort:" in all_text, effort is not None)
                 self.assertEqual(receipt["result"]["requested_from"], self.owner)
 
+    def test_refused_request_is_undone_even_when_the_ticket_had_no_progress(self):
+        """The undo restores the STORED state, and a ticket may store no
+        progress at all. Before the fix the restore went through
+        work_update's 'both empty says nothing' rule, so the undo raised: a
+        500, the ticket left at Open and the request left in the inbox."""
+        org = self.loaded()
+        bare = org.work_create(self.owner, "Bare ticket", "Broken. Fix it.",
+                               status="backlogged")["slug"]
+        store.save_org(org)
+        item = self.loaded()._work_find(bare)[0]
+        self.assertEqual((item.get("done_so_far") or [], item.get("working_on_next") or []),
+                         ([], []))
+        self.path = f"/api/orgs/{self.org.d['slug']}/work-items/{bare}/quick-staff"
+        self.drive.return_value = {"accepted": False, "error": "halted"}
+        r = self.send(self.selection())
+        self.assertEqual(r.status_code, 422, r.text)
+        self.assertIn("back where it was", r.text)
+        current = self.loaded()
+        item = current._work_find(bare)[0]
+        self.assertEqual(item["status"], "backlogged")
+        self.assertEqual((item.get("done_so_far") or [], item.get("working_on_next") or []),
+                         ([], []))
+        self.assertEqual(item.get("quick_staff_receipts") or {}, {})
+        box = (current.d.get("mail") or {}).get(self.owner) or []
+        self.assertFalse([m for m in box if "Please staff" in str(m.get("text") or m)])
+
     def test_immediate_modes_and_effort_omission(self):
         for mode in ("under_assignee", "top_level"):
             for effort in (None, "high"):

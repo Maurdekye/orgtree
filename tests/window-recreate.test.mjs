@@ -1,7 +1,8 @@
-// window-recreate.test.mjs — UI-02: show() must recreate a destroyed main
-// window through the SAME construction path used at startup, never a second
-// divergent one, then fall through to its existing show/restore/maximize/
-// focus/broadcast logic unchanged.
+// window-recreate.test.mjs — UI-02: after every window is closed the app stays
+// alive in the Dock, and activating it (Dock click, tray, second launch) must
+// bring a window back through showLastUsedOrHomepage — restoring the last-used
+// window, or creating a Homepage through the shared createMainWindow path when
+// none exists.
 //
 // index.ts requires Electron and runs an application, so — same idiom as
 // lifetime-wiring.test.mjs and updater-wiring.test.mjs — this asserts the
@@ -17,51 +18,44 @@ import test from 'node:test'
 const root = path.resolve(import.meta.dirname, '..')
 const read = file => fs.readFileSync(path.join(root, file), 'utf8')
 
-test('show() guards a destroyed/missing main window and recreates it before falling through', () => {
+test('UI-02: app.on(activate) routes to showLastUsedOrHomepage', () => {
   const main = read('apps/desktop/main/index.ts')
 
-  assert.match(main, /const show = async \(\) => \{/,
-    'show() must be async to await the recreate path')
-  assert.match(main, /if \(\(!main \|\| main\.isDestroyed\(\)\) && createMainWindow\) await createMainWindow\(\)/,
-    'show() must guard on a destroyed/missing main window and recreate through the shared helper')
-
-  // The guard must run BEFORE the existing show/restore/maximize/focus/
-  // broadcast body, so a recreated window still gets shown — not just built.
-  const showBody = main.slice(main.indexOf('const show = async () => {'))
-  const guardAt = showBody.indexOf('if ((!main || main.isDestroyed()) && createMainWindow) await createMainWindow()')
-  const fallthroughAt = showBody.indexOf("restoreWindows = true; main.show();")
-  assert.ok(guardAt > -1 && fallthroughAt > guardAt,
-    'the recreate guard must precede the unchanged show/restore/maximize/focus/broadcast body')
+  assert.match(main, /app\.on\('activate', \(\) => \{\s*void showLastUsedOrHomepage\(\)\s*\}\)/,
+    'activate must call showLastUsedOrHomepage(), which restores the last-used window or recreates a Homepage')
 })
 
-test('createMainWindow is declared once in outer scope and assigned exactly once', () => {
+test('UI-02: window-all-closed does not quit the app', () => {
   const main = read('apps/desktop/main/index.ts')
 
-  assert.match(main, /let createMainWindow: \(\(\) => Promise<void>\) \| undefined/,
-    'createMainWindow must be hoisted to a shared outer-scope binding, not redeclared per call site')
-
-  const assignments = main.match(/createMainWindow = async \(\) => \{/g) ?? []
-  assert.equal(assignments.length, 1,
-    'createMainWindow must be assigned exactly once (inside app.whenReady()) — never a second, divergent construction path')
-})
-
-test('exactly one main-window construction literal exists (startup and recreate share it)', () => {
-  const main = read('apps/desktop/main/index.ts')
-
-  const constructions = main.match(/main = new BrowserWindow\(\{/g) ?? []
-  assert.equal(constructions.length, 1,
-    'there must be exactly one `main = new BrowserWindow(...)` literal — startup and the show() recreate branch call the same createMainWindow(), never a duplicated construction')
-
-  // The startup path must call the shared helper, not inline a second build.
-  assert.match(main, /await createMainWindow\(\)\s*\n\s*engineReady = true/,
-    'the startup path must construct the window via the shared createMainWindow() helper')
-})
-
-test('app.on(activate, show) and window-all-closed are unchanged (already correct)', () => {
-  const main = read('apps/desktop/main/index.ts')
-
-  assert.match(main, /app\.on\('activate', show\)/,
-    'activate must still trigger show(), which now recreates when needed')
   assert.match(main, /app\.on\('window-all-closed', \(\) => \{ \/\* Tray\/main remain alive by default\. \*\/ \}\)/,
-    'window-all-closed must still leave the app running in the Dock — this plan does not change that behavior')
+    'window-all-closed must still leave the app running in the Dock so activate can recreate a window')
+
+  const handler = main.match(/app\.on\('window-all-closed',[\s\S]*?\}\)/)
+  assert.ok(handler, 'a window-all-closed handler must exist')
+  assert.doesNotMatch(handler[0], /app\.quit\(/,
+    'window-all-closed must not call app.quit() — that would defeat recreate-after-all-windows-closed')
+})
+
+test('UI-02: showLastUsedOrHomepage recreates a Homepage window when none exists', () => {
+  const main = read('apps/desktop/main/index.ts').replace(/\r\n/g, '\n')
+
+  const start = main.indexOf('const showLastUsedOrHomepage = async () => {')
+  assert.ok(start > -1, 'showLastUsedOrHomepage must be an async function to await the recreate path')
+  const end = main.indexOf('\n  }\n', start)
+  assert.ok(end > start, 'showLastUsedOrHomepage body must be terminated')
+  const body = main.slice(start, end)
+
+  const restoreAt = body.search(/const record = lastUsed\(\)\s+if \(record\) \{ revealWindow\(record\); return \}/)
+  const createAt = body.search(/const created = await createMainWindow\?\.\(\{ kind: 'homepage' \}\)/)
+  const revealAt = body.search(/if \(created\) revealWindow\(created\)/)
+
+  assert.ok(restoreAt > -1,
+    'when lastUsed() yields a window it must be revealed and the function must return early')
+  assert.ok(createAt > -1,
+    "with no last-used window it must create a window through the shared createMainWindow({ kind: 'homepage' }) helper")
+  assert.ok(revealAt > -1,
+    'the freshly created window must be revealed, not just built')
+  assert.ok(restoreAt < createAt && createAt < revealAt,
+    'order must be: reuse last-used (early return), else create a Homepage, then reveal it')
 })

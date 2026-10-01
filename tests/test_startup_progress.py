@@ -9,6 +9,7 @@ import time
 import unittest
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+import child_python  # a child Python imports THIS checkout's engine (tests/child_python.py)
 
 from engine.startup_progress import parse_progress
 
@@ -64,7 +65,7 @@ time.sleep(.8)
             env = {**os.environ, "ORGTREE_DATA": str(root), "ORGTREE_V2_DATA": str(root), "ORGTREE_V2_UI_DIR": str(folder / "ui")}
             script = f"from engine import service_host as h;h.__file__={str(folder / 'service_host.py')!r};h.READY_TIMEOUT=2;raise SystemExit(h.main())"
             started = time.monotonic()
-            result = subprocess.run([sys.executable, "-c", script], cwd=REPO, env=env, capture_output=True, text=True, timeout=25)
+            result = subprocess.run(child_python.argv("-c", script, checkout=REPO), cwd=REPO, env=env, capture_output=True, text=True, timeout=25)
             self.assertTrue((root / ".desktop-engine.lock").exists(), "positive control: the engine really armed its guardian; " + result.stderr)
             # A second process must be able to acquire the real same root lock
             # immediately after the host's failure return (no retry delay).
