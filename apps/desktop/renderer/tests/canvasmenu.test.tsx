@@ -14,6 +14,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { HUD_FIT, HUD_SWITCHBOARD, OrgCanvas, resetCanvasSessionForTests } from '../src/canvas/OrgCanvas'
+import { addPin, forgetPins } from '../src/canvas/pins'
 import { resetConvos } from '../src/convo'
 import type { TreePayload } from '../src/types'
 
@@ -123,7 +124,7 @@ function uiTest(name: string, body: (host: HTMLElement, viewport: HTMLElement, r
     const v = await mountView(canvas(['ceo', 'cto', 'cfo']), (el) => el)
     t.after(async () => {
       try { await escape() } catch { /* closed */ }
-      await v.unmount(); uncap(); unrect(); resetConvos(); realClock(); localStorage.clear()
+      await v.unmount(); uncap(); unrect(); forgetPins(SLUG); resetConvos(); realClock(); localStorage.clear()
     })
     await flush(); await advance(2500)
     await body(v.el, v.el.querySelector('.viewport') as HTMLElement,
@@ -183,6 +184,24 @@ uiTest('"Focus last desk" focuses the most recently focused agent desk, named in
   await pick(`${LAST} (cto)`)
   assert.equal(openDesk(host), 'cto', 'the cto desk is open again')
   assert.ok(same(cam(host), atCto), `same camera as clicking cto: ${show(cam(host))} vs ${show(atCto)}`)
+})
+
+// review-sol 2026-10-01: a desk focused in its PINNED window is a focused desk
+// too — the camera never goes there, so following the camera alone missed it
+uiTest('"Focus last desk" follows a pinned desk focused in its own window', async (host, viewport) => {
+  await clickCard(cardOf(host, 'ceo'))
+  assert.equal(openDesk(host), 'ceo', 'positive control: ceo desk open on the canvas')
+  await press(hud(host, HUD_FIT))
+  await inAct(() => { addPin(SLUG, 'cto', { x: 30, y: 30, w: 420, h: 420 }) })
+  await flush(); await advance(600)
+  const input = [...document.querySelectorAll<HTMLTextAreaElement>('textarea')]
+  assert.equal(input.length, 1, 'positive control: the pinned cto desk is the only composer on screen')
+  await inAct(() => { input[0]!.focus() })
+  assert.equal(document.activeElement, input[0], 'focus is in the pinned desk')
+  await rightClick(viewport)
+  assert.deepEqual(labels(), [FIT, SWB, `${LAST} (cto)`], 'the pinned desk is the last one focused')
+  await pick(`${LAST} (cto)`)
+  assert.notEqual(openDesk(host), 'ceo', 'and the entry does not open the older ceo desk')
 })
 
 uiTest('"Focus last desk" is disabled once that agent is gone from the org', async (host, viewport, render) => {

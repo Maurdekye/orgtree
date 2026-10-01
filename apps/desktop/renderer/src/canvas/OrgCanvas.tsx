@@ -5,7 +5,7 @@ import { intersectsViewport, ViewportPath, worldViewport } from './viewport'
 import { renameDrafts } from '../draftstore'
 import { treePresence, sweepAbsentDrafts, sweepAbsentPreferences } from '../treepresence'
 import { treeSelections } from '../treeselection'
-import { setButtonAgent } from '../buttoncolours'
+import { buttonAgentOf, onButtonAgent, setButtonAgent } from '../buttoncolours'
 import { retiredFronts, savedTreeSelection } from './treeselection'
 import type { TreeBrowse } from '../treeview'
 import { DeskHosts, useDeskActionsNow } from './deskhosts'
@@ -2797,15 +2797,20 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   // THE CANVAS'S OWN MENU (user 2026-10-01): a right-click on EMPTY canvas
   // offers the nav cluster's two camera moves, through the very handlers the
   // buttons call, plus the agent desk focused most recently in this window
-  // (the switchboard is not an agent desk; it has its own entry).
+  // (the switchboard is not an agent desk; it has its own entry). "Focused" is
+  // read where every desk surface already reports it — the camera opening a
+  // desk, a click or keystroke in a pinned desk window, the Attention panel —
+  // the per-window button-colour selection (buttoncolours.ts), which only
+  // ever names agents; it clears when focus leaves, the last one is kept here.
   const hudFit = () => fitAll()
   const hudSwitchboard = () => centerOn(USER)
   const [lastDesk, setLastDesk] = useState<string | null>(null)
-  useEffect(() => { setLastDesk(null) }, [slug])
   useEffect(() => {
-    const id = pinnedFocusId ?? focusId
-    if (id && map.get(id)?.tier) setLastDesk(id)
-  }, [focusId, pinnedFocusId, map])
+    setLastDesk(null)
+    const read = () => { const id = buttonAgentOf(slug); if (id) setLastDesk(id) }
+    read()
+    return onButtonAgent(read)
+  }, [slug])
   const canvasMenu = useContextMenu(toast)
   const canvasMenuEntries = (): MenuEntry[] => {
     const last = lastDesk ? map.get(lastDesk) : undefined

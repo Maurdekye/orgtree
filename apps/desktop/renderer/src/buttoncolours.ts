@@ -14,6 +14,12 @@ export function setButtonAgent(org: string, agent: string | null): void {
   for (const listener of [...listeners]) listener()
 }
 
+/** the agent whose desk was last focused in this window for `org` (any desk
+ *  surface: the canvas desk, a pinned desk window, the Attention panel), or
+ *  null once focus left every desk; with `onButtonAgent` to follow it */
+export function buttonAgentOf(org: string): string | null { return selected.get(org) ?? null }
+export const onButtonAgent = subscribe
+
 export function buttonAccent(tier?: string | null): string {
   return tier ? `var(--prov-${providerOf(tier)})` : 'var(--line-hover)'
 }
