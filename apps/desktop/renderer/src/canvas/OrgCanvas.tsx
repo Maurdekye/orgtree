@@ -2789,11 +2789,16 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
   const focusId = pinnedFocusId ? null : nearestId
   focusRef.current = focusId
   useEffect(() => () => setButtonAgent(slug, null), [slug])
+  // the camera's desk is published when it CHANGES, not on every tree refresh:
+  // a re-publish of the same desk would claim it was focused again, over a
+  // pinned desk the user has used since (review-sol 2026-10-01, the canvas
+  // menu's "Focus last desk" reads this selection)
+  const camId = pinnedFocusId ?? focusId
+  const camDesk = camId && map.get(camId)?.tier ? camId : null
   useEffect(() => {
     if (worldHidden) return // the Attention desk owns focus while it is shown
-    const id = pinnedFocusId ?? focusId
-    setButtonAgent(slug, id && map.get(id)?.tier ? id : null)
-  }, [slug, worldHidden, focusId, pinnedFocusId, map])
+    setButtonAgent(slug, camDesk)
+  }, [slug, worldHidden, camDesk])
   // THE CANVAS'S OWN MENU (user 2026-10-01): a right-click on EMPTY canvas
   // offers the nav cluster's two camera moves, through the very handlers the
   // buttons call, plus the agent desk focused most recently in this window

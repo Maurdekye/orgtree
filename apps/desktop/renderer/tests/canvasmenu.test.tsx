@@ -204,6 +204,27 @@ uiTest('"Focus last desk" follows a pinned desk focused in its own window', asyn
   assert.notEqual(openDesk(host), 'ceo', 'and the entry does not open the older ceo desk')
 })
 
+// review-sol 2026-10-01: an unchanged tree refresh must not re-announce the
+// camera's (older) desk as newly focused over the pinned desk used since
+uiTest('"Focus last desk" keeps the pinned desk after a tree refresh while another desk stays open', async (host, viewport, render) => {
+  await clickCard(cardOf(host, 'ceo'))
+  assert.equal(openDesk(host), 'ceo', 'positive control: ceo desk open, and the camera stays there')
+  await inAct(() => { addPin(SLUG, 'cto', { x: 30, y: 30, w: 420, h: 420 }) })
+  await flush(); await advance(600)
+  const input = document.querySelector<HTMLTextAreaElement>('.pinwin textarea')
+  assert.ok(input, 'positive control: the pinned cto desk has a composer')
+  await inAct(() => { input!.focus() })
+  assert.equal(document.activeElement, input)
+  await rightClick(viewport)
+  assert.equal(items()[2]!.textContent?.trim(), `${LAST} (cto)`, 'positive control: cto is the last desk')
+  await escape()
+  await render(['ceo', 'cto', 'cfo'])      // the same org, fresh objects: a routine refresh
+  assert.equal(openDesk(host), 'ceo', 'the ceo desk is still open under the camera')
+  await rightClick(viewport)
+  assert.equal(items()[2]!.textContent?.trim(), `${LAST} (cto)`, 'a refresh does not make ceo the last desk')
+  await escape()
+})
+
 uiTest('"Focus last desk" is disabled once that agent is gone from the org', async (host, viewport, render) => {
   await clickCard(cardOf(host, 'cto'))
   assert.equal(openDesk(host), 'cto', 'positive control: cto desk open')
