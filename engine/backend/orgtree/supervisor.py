@@ -34257,7 +34257,8 @@ def _wd_popen(org: Org, owner: str, cmd: str,
         # none of the owner's overrides.
         env=spawn_env(org, bind_node=owner),
         creationflags=(subprocess.CREATE_NO_WINDOW      # type: ignore[attr-defined]
-                       if os.name == "nt" else 0))
+                       if os.name == "nt" else 0),
+        start_new_session=(os.name != "nt"))
     # ⚠ WHICH TREE THIS CHILD BELONGS TO IS THE WHOLE QUESTION (D-176). It is
     # spawned HERE, on a backend thread, so its parent is the backend and NOT
     # the CLI of whichever turn armed the dog — which is why a dog outlives its
@@ -34300,7 +34301,11 @@ def _wd_kill_tree(proc: "subprocess.Popen[str] | None") -> None:
         try:
             os.killpg(proc.pid, signal.SIGKILL)
         except ProcessLookupError:
-            pass
+            # not its own group leader (spawned without start_new_session): no group to kill
+            try:
+                proc.kill()
+            except OSError:
+                pass
     try:
         proc.wait(timeout=5)
     except (OSError, subprocess.TimeoutExpired):
