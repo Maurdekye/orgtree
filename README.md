@@ -8,7 +8,22 @@ Give agents jobs, see what they are doing, and keep their conversations, files a
 
 **[Download the latest Windows installer](https://github.com/Maurdekye/orgtree/releases/latest)** | [Release notes](https://github.com/Maurdekye/orgtree/releases) | [Report an issue](https://github.com/Maurdekye/orgtree/issues)
 
-This is **Orgtree V2**, the current desktop application. It replaces [claude-orgtree (V1)](https://github.com/Maurdekye/claude-orgtree).
+This is **Orgtree 3**, the current desktop application. It follows Orgtree 2 and replaces [claude-orgtree (V1)](https://github.com/Maurdekye/claude-orgtree).
+
+## New in Orgtree 3
+
+- **A real database for your organizations.** Organizations are now stored in a PostgreSQL database that comes inside the installer, instead of one file per organization. Saving a change touches only the records involved, so agents working on unrelated things no longer wait on each other.
+- **Your 2.x data moves over by itself.** The first time Orgtree 3 starts, it converts your existing organizations to the new database, shows the progress in a window, and checks each organization after copying it. Your old files are moved aside, not deleted. An interrupted conversion finishes on the next start. If the conversion fails, Orgtree does not start on half-converted data: it tells you that your data is unchanged, where the old files are, and how to go back to Orgtree 2.
+- **Built for large teams.** Much of the app was reworked so that organizations with hundreds of agents stay usable: desks load only the latest part of a conversation, the docket loads a light summary and draws only the rows on screen, retired agents load only when you look for them, the window shows the tree first and fills in side panels afterwards, and a big history no longer slows down startup, mail or the docket.
+- **The Attention view.** Beside the Canvas there is now an Attention view: one "Needs attention" list of tickets flagged for you, unread urgent mail and open questions, next to an agent desk. You handle each entry in place, and an agents drawer lets you switch desks without leaving the view. The whole view can be pinned or popped out into its own window.
+- **A limit on how many agent turns run at once.** In **App settings > Runtime**, choose how many agent turns may run at the same time (16 by default). Waiting turns are served in the order they arrived and shared fairly between organizations, and an agent's desk says when it is waiting for a free turn.
+- **One window per organization.** A single **Orgtree** menu in every window opens organizations, creates new ones, and opens Usage and App settings. Each organization opens in its own window, several can be open at once, and Orgtree can reopen your windows where you left them.
+- **New models.** Claude Sonnet 5.5 and GPT-6.1 Sol are available, and Gemini 4 Argon becomes selectable as soon as the Antigravity CLI offers it for your account. Older models (Terra, Gemini Pro) are hidden unless you turn on **Show legacy models**.
+- **More canvas and desk tools.** An optional circular org-chart layout, a quick "Open desk" look without moving anything, cards for an agent's watchdogs, a badge for an agent's thinking effort, and "cheap compact" for a whole subtree or organization at once.
+- **Runs as your normal Windows user.** The engine and its agents no longer run as administrator. If a task needs full rights, turn on **Run Orgtree as administrator** in **App settings > Runtime**.
+- **A more reliable engine.** If the background engine stops answering, Orgtree ends it and starts a new one, and an agent's credential works only for that exact agent, so a leftover process cannot act for its replacement.
+
+See the [release notes](https://github.com/Maurdekye/orgtree/releases) for the full list of changes.
 
 ## What you can do
 
@@ -17,7 +32,7 @@ This is **Orgtree V2**, the current desktop application. It replaces [claude-org
 - **Keep tasks on a shared docket.** Track ownership, status, progress and supporting evidence. Attach images and files to tickets so the work stays connected to its context.
 - **Let agents coordinate.** Agents can delegate, exchange mail, request decisions and deliver files or presentations. You can step in wherever needed.
 - **Control access and capacity.** Set folder permissions, tools and delegation budgets. Inspect account usage and choose which account an agent uses.
-- **Arrange your workspace.** Zoom into an agent, pin panels, open separate windows and choose a theme. Manage multiple organizations from the same app.
+- **Arrange your workspace.** Zoom into an agent, pin panels, open separate windows and choose a theme. Manage several organizations, each in its own window.
 - **Keep a team available between visits.** Closing the main window can leave the engine running in the system tray. Retiring an agent preserves its history so it can be brought back later.
 
 A typical workflow: give a coordinator a project, have a specialist investigate one part, ask another agent to review the result, and keep the decisions and deliverables on the project's tickets.
@@ -30,7 +45,7 @@ The published installer is for **64-bit Windows**.
 2. Download the **`Orgtree-Setup-<version>.exe`** asset and run it. You do not need GitHub's source-code ZIP to install the app.
 3. Launch **Orgtree** from the Start menu and follow the welcome screen.
 
-The installer includes the desktop app and its Python engine. You do **not** need to install Node.js or Python to use the packaged app. Provider applications and their accounts are set up separately.
+The installer includes the desktop app, its Python engine and the PostgreSQL database it uses. You do **not** need to install Node.js, Python or PostgreSQL to use the packaged app. Installing Orgtree 3 over Orgtree 2 keeps your data and converts it at the first start (see [Coming from Orgtree 2?](#coming-from-orgtree-2)). Provider applications and their accounts are set up separately.
 
 ### Set up a provider
 
@@ -43,7 +58,7 @@ Open **App settings > Providers** to discover installed providers and use their 
 | Antigravity | Install and sign into [Antigravity](https://antigravity.google/download). |
 | OpenRouter | Configure your OpenRouter API key and choose the models you want offered. |
 
-For a secondary account, use the add-account button in that provider's header. You can import an existing profile folder or create a managed profile, then use the account row to manage it or sign in again. Account usage belongs in the dedicated **Usage** window.
+For a secondary account, use the add-account button in that provider's header. You can import an existing profile folder or create a managed profile, then use the account row to manage it or sign in again. Account usage belongs in the dedicated **Usage** window, opened from the **Orgtree** menu.
 
 Orgtree does not include model access. Your provider's subscription, API charges and usage limits still apply. Availability depends on the provider, installed tools and signed-in account.
 
@@ -71,7 +86,7 @@ Agents have persistent identities and history. Retirement preserves that context
 
 Right-click Orgtree's **system-tray icon** to check for updates, see download progress and choose **Update now** when the download is ready. The update can be completed from that menu.
 
-**Automatic updates** are on by default. Turn them off in the tray menu or **App settings > Desktop** to stop background checks and idle installation. Manual update controls remain available. A download already in progress may finish; an installation already started completes.
+**Automatic updates** are on by default. Turn them off in the tray menu or **App settings > Runtime** to stop background checks and idle installation. Manual update controls remain available. A download already in progress may finish; an installation already started completes.
 
 The tray also provides organization navigation and controls for startup and **Exit on close**. With Exit on close disabled, closing the main window keeps Orgtree available in the background; open it again from the tray.
 
@@ -84,17 +99,17 @@ cannot select a separate account for a turn. Switching starts a new provider
 cache, and Codex starts a new session. The existing frozen-turn replay continues
 the interrupted task. Usage checks can refresh a registered profile's sign-in credentials when needed.
 
-## Coming from V1?
+## Coming from Orgtree 2?
 
-V2 uses its own application data directory. Installing it does not automatically move your V1 organizations or sign you into providers.
+Orgtree 3 uses the same data folder as Orgtree 2, and an automatic update or a new installer moves you over. At its first start, Orgtree 3 converts your organizations to its database and moves the old files aside into a `pre-postgres` folder instead of deleting them. Organizations in the trash are set aside unchanged. Provider sign-ins and account profiles carry over as they are.
 
-An explicit V1 import is available in Settings. It copies selected organizations into V2 and leaves the original V1 data in place. Review the import's warnings, especially if V1 still has agents working on the same projects. Provider sign-in and profile setup are separate from organization import.
+If the conversion cannot finish, Orgtree does not start. Its message says that your data is unchanged, which folders hold it, and how to go back to the last Orgtree 2 release (including turning off automatic updates there, so it does not update itself again).
 
-See [V1 import details](docs/v2-import.md) for the supported data, checks and limitations.
+Orgtree 3 no longer imports organizations from V1 (claude-orgtree). To bring V1 organizations over, import them with Orgtree 2 first, then upgrade.
 
 ## Data and privacy
 
-The engine runs locally, and organization data and retained history are stored on your machine. A standard Windows installation keeps V2 data under **`%APPDATA%\Orgtree v2\data`**. Account profiles can also use provider-specific locations.
+The engine runs locally, and organization data and retained history are stored on your machine, in a database that runs only on your computer. A standard Windows installation keeps Orgtree's data under **`%APPDATA%\Orgtree v2\data`** (the folder name is the same as in Orgtree 2). Account profiles can also use provider-specific locations.
 
 Agent requests still go to the providers you configure. Local storage does not mean model inference happens offline. Folder and tool permissions are worth choosing deliberately, just as they are when running the provider's coding tool directly.
 
