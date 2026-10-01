@@ -387,20 +387,18 @@ class LifecycleBoundary(unittest.TestCase):
         self.refused(self.agent('orgtree_move', {'node': 'leaf', 'new_parent': 'sib'}, 'mid'),
                      'mid has no authority over sib')
 
-    def test_a_same_parent_move_answers_any_caller_before_authority(self):
-        # recorded legacy defect 7 (lifecycle-tool-receipts-and-admission-keyed-rena, point 6): Org.move returns the
-        # same-parent no-op before promote/demote check authority, so an unrelated agent gets an accepted write cycle
-        # whose answer confirms the node's parent
+    def test_a_same_parent_move_checks_authority_first(self):
+        # legacy defect 7 FIXED (lifecycle-tool-receipts-and-admission-keyed-rena, point 6): the same-parent no-op
+        # used to answer before authority, confirming the node's parent to any caller. Now it is refused like a
+        # real move, and the refusal does not name the parent.
         for caller in ('top2', 'leaf'):
             with self.subTest(caller=caller):
-                r, changed, _, _ = self.act(self.agent('orgtree_move', {'node': 'leaf', 'new_parent': 'mid'}, caller))
-                self.assertEqual((r.status_code, r.json()['moved'], r.json()['changed']), (200, False, False), r.text)
-                self.assertIn('leaf already reports to mid', r.json()['warnings'][0])
-                self.assertEqual((changed, self.hub.call_count), ([], 1))
-        r, changed, _, _ = self.act(self.keyed('orgtree_move', {'node': 'leaf', 'new_parent': 'mid'}, 'top2'))
-        self.assertEqual((r.status_code, set(changed)), (200, {'op_receipts', 'op_receipts_meta'}))
-        # the control: a real move by the same caller is refused
-        self.refused(self.agent('orgtree_move', {'node': 'leaf', 'new_parent': 'sib'}, 'top2'), 'has no authority over')
+                r = self.agent('orgtree_move', {'node': 'leaf', 'new_parent': 'mid'}, caller)
+                self.refused(r, 'has no authority over leaf')
+        # an authorised caller still gets the no-op answer
+        r, changed, _, _ = self.act(self.agent('orgtree_move', {'node': 'leaf', 'new_parent': 'mid'}, 'top'))
+        self.assertEqual((r.status_code, r.json()['moved'], r.json()['changed']), (200, False, False), r.text)
+        self.assertIn('leaf already reports to mid', r.json()['warnings'][0])
 
     def test_swap_exchanges_the_seats(self):
         _, _, after = self.ok(self.agent('orgtree_swap', {'a': 'mid', 'b': 'sib'}, 'top'), 'swap_ok')

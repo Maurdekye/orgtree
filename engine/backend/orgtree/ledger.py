@@ -6610,6 +6610,11 @@ class Org:
         # and leaked the sentinel into user-facing messages
         cur = self.node(nid)["parent"]
         tgt = None if new_parent in (None, USER) else new_parent
+        # ⚠ AUTHORITY BEFORE THE NO-OP (item lifecycle-tool-receipts-and-
+        # admission-keyed-rena, point 6). The same-parent answer names the
+        # node's current parent, so returning it before the §7.1 check let an
+        # agent with no authority over `nid` learn where it sits in the chart.
+        self._require_authority(actor, nid)
         if tgt == cur:
             # ⚠ IT SAYS SO IN A FIELD, not only in prose. A success-shaped
             # result whose only trace of "nothing happened" is an English
