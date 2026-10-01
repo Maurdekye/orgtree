@@ -303,13 +303,14 @@ class RequestsBoundary(unittest.TestCase):
         self.refused(self.agent('orgtree_present', {'title': 'P', 'body': 'b'}, 'leaf'),
                      'presenting a document needs a DIRECT user audience')
 
-    def test_a_forwarded_report_mails_the_superior_and_drives_nobody(self):
-        # recorded legacy defect: the report's class is TX_POST and its result says delivery_accepted, but the
-        # superior it mailed is not woken
+    def test_a_forwarded_report_mails_and_wakes_the_superior(self):
+        # the legacy defect (the superior it mailed was not woken) is fixed: item
+        # a-report-forwarded-to-the-superior-is-mailed-but — the superior is driven like orgtree_message's recipient
         r, changed, _, _, mail = self.act(self.agent('orgtree_submit_report', {'title': 'R', 'body': 'b'}, 'leaf'))
         self.assertEqual((r.json()['forwarded'], r.json()['delivery_accepted'], mail),
                          (True, True, {'mid': [['leaf', 'request']]}))
-        self.drive.assert_not_called()
+        [call] = self.drive.call_args_list
+        self.assertEqual((call.args[1], call.kwargs['ping_reason']), ('mid', 'agent_mail'))
         self.assertNotIn('documents', changed)
         # a top-level report presents to the user instead and mails the user's inbox
         want = self.spec['cases']['submit_top']

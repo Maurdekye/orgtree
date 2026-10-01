@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -50,6 +51,13 @@ class ReportSubmissionTests(unittest.TestCase):
         # a full explicit scope/charter and are not relevant to this test.
         org.hire(ledger.USER, "boss", "haiku", 0, "worker")
         store.save_org(org)
+        # A report wakes the superior it mails; record that instead of
+        # starting a real provider turn for the fixture seat.
+        self.driven: list[str] = []
+        drive = patch.object(supervisor, "send_message",
+                             lambda slug, nid, *a, **k: self.driven.append(nid) or {})
+        drive.start()
+        self.addCleanup(drive.stop)
         self.client = TestClient(app)
         self.tokens = {n: agentauth.child_env(self.slug, n)["ORGTREE_AGENT_TOKEN"]
                        for n in ("top", "boss", "worker")}
@@ -90,6 +98,8 @@ class ReportSubmissionTests(unittest.TestCase):
         self.assertEqual(org.d.get("documents") or [], [])
         self.assertIn("No user presentation was created",
                       (org.d.get("mail") or {}).get("boss", [])[-1]["body"])
+        self.assertEqual(self.driven, ["boss"],
+                         "the superior must be woken for the report, once")
 
     def test_user_audience_allows_presentation_but_does_not_change_superior_mail(self) -> None:
         org = store.load_org(self.slug)

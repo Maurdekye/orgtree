@@ -12945,11 +12945,35 @@ def _report_door_body(t: pgdoor.AgentTx) -> dict[str, Any]:
     mails the caller's own superior: one hop up, decided on the caller's
     `parent` (its row is the door's own, FOR UPDATE) and delivered into the
     superior's rows (the spec's send rows), so the addressing path is fully
-    held (p01 condition C1) without `maildoor.hold_path`. The legacy cycle
-    popped `_mail_to` into `mail_to` but never drove it (only a `drive`
-    target reads `mail_to`), so nothing is driven here either."""
-    result = _agent_submit_report(t.org, t.node, t.args)
-    result.pop("_mail_to", None)
+    held (p01 condition C1) without `maildoor.hold_path`.
+
+    ⚠ THE SUPERIOR IS WOKEN, as `orgtree_message` wakes its recipient (item
+    a-report-forwarded-to-the-superior-is-mailed-but). This used to drive
+    nothing: the report sat in an idle superior's mailbox while the sender was
+    told `delivery_accepted`. After the commit the superior gets the same mail
+    ping and the result carries the same carrier note; an archived superior
+    (a deferred delivery) is not driven, and a top-level sender's report goes
+    to the user's inbox, which only needs the UI notification."""
+    slug, actor = str(t.call.org), t.node
+    result = _agent_submit_report(t.org, actor, t.args)
+    target = result.pop("_mail_to", None)
+    superior = str(result.get("mail_recipient") or "")
+    then = t.after.then
+    then.append(lambda _r: mail_notify(slug, actor, superior))
+    if target:
+        def _drive(res: Any) -> None:
+            r = supervisor.send_message(
+                slug, target,
+                "(orgtree) You have new mail above — handle it as "
+                "appropriate, and use orgtree_status when your own task "
+                "state changes.", mail_ping=True, sender=actor,
+                ping_reason="agent_mail")
+            if isinstance(res, dict):
+                res["delivery"] = supervisor.delivery_note(slug, target, r)
+                receipt = res.get("delivery_receipt")
+                if isinstance(receipt, dict):
+                    receipt["carrier_note"] = res["delivery"]
+        then.append(_drive)
     return result
 
 
@@ -14166,8 +14190,13 @@ def agent_call(body: AgentCall, request: Request) -> dict[str, Any]:
                 # the submitting node's superior in the same transaction.
                 result = _agent_submit_report(org, body.node, a)
                 _mail_target = result.pop("_mail_to", None)
+                mail_notify(body.org, body.node,
+                            str(result.get("mail_recipient") or USER))
                 if _mail_target:
+                    # wake the superior, as orgtree_message wakes its
+                    # recipient (it used to set mail_to and drive nothing)
                     mail_to = str(_mail_target)
+                    drive.append(mail_to)
             elif body.tool == "orgtree_hire":
                 result = _hire_seat(org, body.org, body.node, a, drive,
                                     _hire_harness)

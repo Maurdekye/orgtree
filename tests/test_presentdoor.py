@@ -11,7 +11,11 @@ that falls back into the resident DOC_LOCK cycle fails loudly.
     names the copy it left (p01 condition C4); a gate refusal copies nothing;
   * submit_report presents and mails the user (top-level caller), or only
     forwards to the superior (nested caller), exactly once even on a widen;
-    it drives nobody (legacy parity);
+    a forwarded report WAKES the superior once, after the commit, with the
+    carrier note in the result (item a-report-forwarded-to-the-superior-is-
+    mailed-but; it used to drive nobody), on the door and on the legacy
+    cycle alike; a report to the user, or to an archived superior, drives
+    nobody;
   * neither waits on DOC_LOCK (transition fence off, DOC_LOCK held);
   * ORGTREE_PGDOOR=0 keeps the legacy cycle.
 
@@ -175,7 +179,31 @@ class PresentDoor(unittest.TestCase):
         self.assertEqual(sum(1 for m in box
                              if 'REPORT FORWARDING ACTION: R' in str(m.get('body'))), 1)
         self.assertEqual(org.d.get('documents') or [], [])
-        self.assertEqual(self.sent, [], 'submit_report drove somebody')
+        self.assertEqual(self.sent, ['boss'],
+                         'a forwarded report must wake the superior, once')
+        self.assertIn('delivery', r)
+        self.assertEqual(r['delivery_receipt'].get('carrier_note'), r['delivery'])
+
+    def test_a_report_to_an_archived_superior_drives_nobody(self):
+        org = store.load_org(self.slug)
+        org.node('boss')['state'] = 'archived'
+        store.save_org(org)
+        r = self.tool(presentdoor.SUBMIT_REPORT, 'sub', title='R', body='d')
+        self.assertTrue(r['mail'].get('deferred'), r)
+        self.assertEqual(self.sent, [], 'an archived superior was driven')
+
+    def test_legacy_cycle_wakes_the_superior_too(self):
+        for x in self.p:
+            if getattr(x, 'attribute', '') == 'write_org':
+                x.stop()
+                self.p.remove(x)
+                break
+        with patch.dict(os.environ, {'ORGTREE_PGDOOR': '0'}):
+            self.assertFalse(pgdoor.routed(presentdoor.SUBMIT_REPORT, {}))
+            r = self.tool(presentdoor.SUBMIT_REPORT, 'sub', title='R', body='d')
+        self.assertTrue(r['forwarded'])
+        self.assertEqual(self.sent, ['boss'],
+                         'the legacy cycle must wake the superior, once')
 
     def test_nested_report_holds_only_the_superiors_mail(self):
         self.tool(presentdoor.SUBMIT_REPORT, 'sub', title='R', body='details')
