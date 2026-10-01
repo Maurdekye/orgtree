@@ -394,6 +394,12 @@ const PENDING_MOVE_MS = 5000
 /** one shown-but-unconfirmed hand move; `settled` once its op succeeded */
 type PendingMove = { to: string | null; settled: boolean }
 
+// the nav cluster's two camera buttons, named ONCE: the button tooltip and the
+// empty-canvas menu entry read the same words, so the two cannot drift apart
+export const HUD_FIT = 'fit the whole org'
+export const HUD_SWITCHBOARD = 'jump to the switchboard'
+const sentence = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+
 export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettings, onWorkItem,
   onAccounts, focusAgent, onFocusAgentHandled, openMailAt,
   onOpenMailHandled, openDocAt, onOpenDocHandled, onOpenAgentGallery,
@@ -2788,6 +2794,38 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
     const id = pinnedFocusId ?? focusId
     setButtonAgent(slug, id && map.get(id)?.tier ? id : null)
   }, [slug, worldHidden, focusId, pinnedFocusId, map])
+  // THE CANVAS'S OWN MENU (user 2026-10-01): a right-click on EMPTY canvas
+  // offers the nav cluster's two camera moves, through the very handlers the
+  // buttons call, plus the agent desk focused most recently in this window
+  // (the switchboard is not an agent desk; it has its own entry).
+  const hudFit = () => fitAll()
+  const hudSwitchboard = () => centerOn(USER)
+  const [lastDesk, setLastDesk] = useState<string | null>(null)
+  useEffect(() => { setLastDesk(null) }, [slug])
+  useEffect(() => {
+    const id = pinnedFocusId ?? focusId
+    if (id && map.get(id)?.tier) setLastDesk(id)
+  }, [focusId, pinnedFocusId, map])
+  const canvasMenu = useContextMenu(toast)
+  const canvasMenuEntries = (): MenuEntry[] => {
+    const last = lastDesk ? map.get(lastDesk) : undefined
+    const can = !!last && last.state !== 'archived'
+    return [
+      { label: sentence(HUD_FIT), onSelect: hudFit },
+      { label: sentence(HUD_SWITCHBOARD), onSelect: hudSwitchboard },
+      { label: can ? `Focus last desk (${lastDesk})` : 'Focus last desk',
+        onSelect: () => { if (can) centerOn(lastDesk!) }, disabled: !can },
+    ]
+  }
+  // empty background only: the viewport itself or the world plane under the
+  // cards. Cards, desks, pins and the HUD are other elements and keep their
+  // own menus (or the browser's); the dot grid and the wire layers are
+  // pointer-events: none, so a press there lands on one of these two.
+  const onCanvasContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
+    const t = e.target as Element
+    if (t !== e.currentTarget && !t.classList?.contains('space')) return
+    canvasMenu.open(e, canvasMenuEntries)
+  }
   // App reads the selected tree from this registration. Owners release
   // their contribution on unmount/org change, never on omission.
   const treeSelectionOwner = useRef({})
@@ -3420,6 +3458,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
          user-select rule in styles.css. Read that comment before adding a
          text surface to the canvas. */
       onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
+      onContextMenu={worldHidden ? undefined : onCanvasContextMenu}
       onScroll={(e) => {
         // the viewport pans by TRANSFORM only — any native scroll is the
         // browser force-scrolling an overflow:hidden box to reach a focused
@@ -3788,16 +3827,17 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onOrgSettin
       {/* nav cluster (user spec): bottom-LEFT beside the agents tray, so
           every zoom target lives in one stack — ordered top to bottom:
           switchboard · full view · zoom in · zoom out */}
+      {canvasMenu.node}
       <div className="zoomhud" onPointerDown={(e) => e.stopPropagation()}>
-        <button className="hud-eye" title="jump to the switchboard"
-          onClick={() => centerOn(USER)}>
+        <button className="hud-eye" title={HUD_SWITCHBOARD}
+          onClick={hudSwitchboard}>
           <svg viewBox="0 0 48 26">
             <path d="M 2 13 C 13 2, 35 2, 46 13 C 35 24, 13 24, 2 13 Z" />
             <circle className="iris" cx="24" cy="13" r="6.5" />
             <circle className="pupil" cx="24" cy="13" r="2.6" />
           </svg>
         </button>
-        <button title="fit the whole org" onClick={() => fitAll()}><FullscreenIcon fontSize="inherit" /></button>
+        <button title={HUD_FIT} onClick={hudFit}><FullscreenIcon fontSize="inherit" /></button>
         <button title="zoom in" onClick={() => zoomStep(1.3)}><AddIcon fontSize="inherit" /></button>
         <button title="zoom out" onClick={() => zoomStep(1 / 1.3)}><RemoveIcon fontSize="inherit" /></button>
       </div>
