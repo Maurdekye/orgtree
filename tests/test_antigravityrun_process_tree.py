@@ -27,6 +27,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 os.environ.setdefault("ORGTREE_DATA", tempfile.mkdtemp(prefix="antigravityrun-proctree-data-"))
 

@@ -1,5 +1,6 @@
 """The registry secret guard must accept filesystem paths and still refuse tokens."""
 import unittest
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from engine.backend.orgtree.accounts import SecretInRegistry, _reject_secrets
 

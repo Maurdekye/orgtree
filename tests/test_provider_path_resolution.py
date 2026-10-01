@@ -27,6 +27,7 @@ os.environ['ORGTREE_TURNLOG'] = '1'
 for _k in ('ORGTREE_V1_ROOT', 'ORGTREE_V1_DATA_ROOT', 'ORGTREE_V2_PORT'):
     os.environ.pop(_k, None)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'engine' / 'backend'))
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from orgtree import providers                       # noqa: E402
 from orgtree import supervisor as sup                # noqa: E402

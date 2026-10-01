@@ -21,6 +21,7 @@ from pathlib import Path
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.normpath(os.path.join(_HERE, ".."))
 sys.path.insert(0, _ROOT)                      # engine.* from THIS worktree
+import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
 
 from engine.mailhub_runtime import MailhubRuntime                    # noqa: E402
 

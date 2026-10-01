@@ -11,6 +11,7 @@ import time
 import unittest
 
 import import_provenance  # noqa: F401  asserts orgtree resolves inside this checkout
+import child_python
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -90,7 +91,7 @@ for _ in range(200):
     if leaf.exists():break
     time.sleep(.01)
 grandchild=json.loads(leaf.read_text())
-escaped=subprocess.Popen([sys.executable,'-c','import time;time.sleep(90)'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=(os.name!='nt'))
+escaped=subprocess.Popen([child.args[0],'-c','import time;time.sleep(90)'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=(os.name!='nt'))
 print(json.dumps({'engine':os.getpid(),'guard':guard,'child':child.pid,'grandchild':grandchild,'escaped_grandchild':escaped.pid}),flush=True)
 sys.stdin.readline()
 """, encoding='utf-8')
@@ -173,7 +174,7 @@ sys.stdin.readline()
         p.wait(timeout=8)
 
     def test_teardown_spares_unrelated_process_in_inherited_group(self):
-        bystander = subprocess.Popen([sys.executable, '-c', 'import time;time.sleep(90)'])
+        bystander = subprocess.Popen(child_python.argv('-c', 'import time;time.sleep(90)'))
         self.processes.append(bystander)
         self.assertTrue(alive(bystander.pid), 'positive control: bystander alive before teardown')
         p, ids = self.start()
@@ -188,7 +189,7 @@ sys.stdin.readline()
         # the guardian's sweep enumerates descendants, so the escaped-group grandchild's ppid
         # still points at the engine and is discoverable via the ppid walk. Matches the shape
         # of test_desktop_parent_exit_kills_owned_tree per RESEARCH.md Pitfall 2's warning signs.
-        parent = subprocess.Popen([sys.executable, '-c', 'import time;time.sleep(90)'],
+        parent = subprocess.Popen(child_python.argv('-c', 'import time;time.sleep(90)'),
                                   creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
         self.processes.append(parent)
         p, ids = self.start(parent.pid)

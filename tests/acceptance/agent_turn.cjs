@@ -6,7 +6,7 @@
 // the real chat composer, and observe the pass criteria run_claude.py already
 // proved (arithmetic result + exactly one read-only orgtree_chart call) —
 // through the app's own chat-transcript API, not an engine-internal
-// monkeypatch, since the real app always spawns the unmodified engine/launch.py.
+// monkeypatch, since the real app always spawns the unmodified engine launcher.
 const fs = require('node:fs')
 const path = require('node:path')
 const assert = require('node:assert/strict')
