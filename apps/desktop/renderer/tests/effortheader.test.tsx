@@ -477,11 +477,11 @@ test('§4d an unsupported ORG override blanks NEITHER surface — the regression
     assert.equal(onC!.getAttribute('title'), 'thinking effort — xhigh')
   })
 
-test('§4e …and an agent AT the resolved default is still silent on both',
+test('§4e …and an agent set AT the resolved default shows on the card',
   async (t: TestContext) => {
-    // the control for §4d: falling through to the fallback must not turn into
-    // "badge everything". The same junk override, an agent sitting at the real
-    // ordinary default, and both surfaces say nothing.
+    // the control for §4d: falling through to the fallback, an explicitly set
+    // agent at the real ordinary default still shows (user ruling 2026-10-02);
+    // the desk header never shows the tag.
     const orgDefault = resolveOrgDefault('ludicrous', 'high')
     installFetch(new FakeServer())
     const n = agent('high', 'high')
@@ -490,9 +490,9 @@ test('§4e …and an agent AT the resolved default is still silent on both',
     const d = await mountView(desk(n, orgDefault), (el) => el)
     t.after(() => d.unmount())
     await flush()
-    assert.equal(onCard(c.el), null, 'the card badged an agent at the real default')
-    assert.equal(onDesk(d.el), null, 'the desk badged an agent at the real default')
-    assert.equal(c.el.querySelector('[data-effort-level]'), null)
+    assert.equal(onCard(c.el)?.getAttribute('data-effort-level'), 'high',
+      'the card hid an agent explicitly set to the real default')
+    assert.equal(onDesk(d.el), null, 'the desk shows an effort card')
     assert.equal(d.el.querySelector('[data-effort-level]'), null)
   })
 
