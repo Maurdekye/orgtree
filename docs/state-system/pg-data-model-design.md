@@ -10,13 +10,14 @@ reviews the implementation again before the local alpha build. The companion
 **What changed:**
 
 - **Rev 7.2: decision 21 (the user's ruling, 2026-10-02), replacing decision 19's f13 part.**
-  - The docket list header and the `orgtree_work list` totals show counts of items that are not
-    archived only. An archived total comes only from an explicit archive request
-    (`include_archived`), and is then the number of archived items served.
+  - An agent's docket list header and its `orgtree_work list` totals count items that are not
+    archived only. An agent's archived total comes only from an explicit archive request
+    (`include_archived`), and is then the number of archived items served. The desktop (the
+    user) keeps its archived and backlog totals, from `docket_counters` as before.
   - So an agent's totals no longer need the direct-item pass over its archived items (an early
     measurement grew in step with the viewer's own archived history: 10× gave about +10 ms). The
-    three counter tables (`docket_counters`, `docket_subtree_counts`, `docket_anchor_counts`) and
-    their upkeep go too, and a tree move touches no counter at all.
+    two counters that served agents (`docket_subtree_counts`, `docket_anchor_counts`) and their
+    upkeep go too, and a tree move touches no counter at all.
   - The history-growth rule (10× inactive history, a heavy agent's list call at most 5% slower at
     p95) still applies to the list call, and its benchmark is still run (Appendix A.3).
   - Also in rev 7.2: the converter keeps the org-level `sandbox` key (§5.2, "Keys the engine no
@@ -1152,6 +1153,7 @@ Additions:
 | `org_extra(key PK, val json)` | a top-level section outside the engine's key registry, kept exactly (rev 4, §5.2) |
 | `turn_requests` | durable turn identities (rev 4, f2; §2.4) |
 | `org_topology` | the one-row topology lock (rev 4, f1; §2.2) |
+| `docket_counters` | the desktop's archived and backlog totals (rev 4, f13; A.3) |
 
 Appendix A gives the full detail: the tables, column groups, indexes, child and link tables, the
 measured reasons (the turns table, the tool lists, the access rule) and the deliberate duplicates.
@@ -1768,10 +1770,10 @@ The same estimates as rev 2 (inferred, replaced by measurements at the first pro
 
 ## 9. Tests
 
-**Rev 7.2 (decision 21):** the list calls carry no archived total unless the archive is
+**Rev 7.2 (decision 21):** an agent's list calls carry no archived total unless the archive is
 requested, so rev 2's "no growth with history" test below holds for every docket path again,
-with no exception (A.3). The list payload tests change with it: an archived count appears only
-with `include_archived`.
+with no exception (A.3). The agent list payload tests change with it: an archived count appears
+only with `include_archived`.
 
 **Rev 7 adds the tests of review round 4**: the receipt cases in §5.2 (a source path is not
 evidence, with its mutant), and the split guards and the tree-move guard in Appendix A.3. (It
@@ -1911,8 +1913,8 @@ reopened:
 | f15 | blocking | a source path is no longer evidence; a row moves only on its snapshot folder (in one org only, with the file matching the result) or on a delivery key that recomputes its id with the org's slug and an agent's lineage token; review round 4's grant case is a test, with a mutant | §5.2 |
 
 **After the approval (rev 7.2): decision 21** removed f13's direct pass, its timing condition and
-the three docket counter tables. List calls carry no archived total unless the archive is
-requested (Appendix A.3).
+the two counters that served agents' totals. An agent's list calls carry no archived total unless
+the archive is requested; the desktop keeps its totals (Appendix A.3).
 
 ## 10.1 Questions: all answered
 
@@ -2147,31 +2149,36 @@ the rule and changes the direction of the walk:
 
   Rows read are bounded by the active items: 12 to 102 on the four orgs measured, never the 1,075
   archived ones.
-- **Totals (rev 7.2, decision 21; it replaces rev 5–7's counters and decisions 18–19's f13
-  part).** A total counts only what its viewer may read, and only items that are not archived.
-  - The docket list header and the `orgtree_work list` totals carry `attention`, `active` and
-    `backlogged`. They carry **no archived total**: the archived group's line says only how to ask
-    for it (`include_archived`). An archived total comes only from an explicit archive request,
-    and is then the number of archived items served.
-  - *The desktop*, the user, reads everything: counts per status from `count(*) … WHERE
-    archived_at IS NULL` over the partial index.
-  - *An agent's totals* are the sizes of its readable set among the same rows, from the active
-    list's own pass (the point check per row, above). They are bounded by the active items.
+- **Totals (rev 7.2, decision 21; it replaces rev 5–7's agent counters and decisions 18–19's
+  f13 part).** A total counts only what its viewer may read.
+  - *The desktop*, the user, reads everything.
+    - Active counts per status come from `count(*) … WHERE archived_at IS NULL` over the partial
+      index.
+    - The archived and backlog totals come from `docket_counters(kind, n)`, updated in the
+      transaction that archives, unarchives, backlogs or unbacklogs an item. They are O(1),
+      nothing reads the archive, and a tree move does not touch them.
+  - *An agent's* docket list header and `orgtree_work list` totals carry `attention`, `active` and
+    `backlogged`, over items that are not archived. They carry **no archived total**: the
+    archived group's line says only how to ask for it (`include_archived`). An agent's archived
+    total comes only from an explicit archive request, and is then the number of archived items
+    served.
+    - These totals are the sizes of the agent's readable set among the non-archived rows, from the
+      active list's own pass (the point check per row, above). They are bounded by the active
+      items.
   - A row that is in the archive but still holds attention is served on the main list, as today
     (attention outranks the archive in `_work_archived`). A partial index on the archived rows
     that hold attention finds them, bounded by the rows holding attention, not by the archive.
-  - Nothing keeps a counter. Creating, archiving, moving or renaming changes no total row, and a
-    tree move touches only the moved agent rows.
+  - No counter serves an agent's totals, so a tree move or a rename changes no total row.
   - **What changes from today (decision 21):** an agent's `work_list` totals and `groups` stated
     the archived count even when the archive was not listed (`ledger.work_list`,
-    `_work_list_payload`), and the desktop's header showed the archived total. Both now show it
-    only when the archive is requested. The tests that expected the count change with it.
+    `_work_list_payload`). They now state it only when the archive is requested. The desktop's
+    header is unchanged. The tests that expected an agent's archived count change with it.
   - **Why (measured 2026-10-02, `probe/d19_probe.py` on the converted main org):** the
     agent-side archived total needed a pass over the viewer's own direct items, and it grew in
     step with them: for coordinator-opus, 0.96 ms at p95 1.75 ms with its 344 archived direct
     items, 10.7 ms at p95 14.2 ms with ten times as many. Rev 7's alternatives were a counter
     whose upkeep on a tree move grows with history (withdrawn by decision 19), or no archived
-    total (rev 6's option C, now chosen).
+    total for agents (rev 6's option C, now chosen).
   - **Guards:**
     - The authorization oracle checks every total and group count.
     - The seeds include hidden archived and backlog rows, anchors at archived bearers, and access
@@ -2201,9 +2208,9 @@ Archived agents and archived items are seeded at 1× and 10×, and archived rows
 ahead of active ones in the sort order. Then four rules apply:
 
 - **The row bound, for every path.** List and its totals (without the archive), get, the account
-  fan-out, the desktop's counts, and every item change: the statement counts and rows read must
-  not change between 1× and 10×. (Rev 7 exempted an agent's direct pass over its archived items;
-  decision 21 removed that pass.)
+  fan-out, the desktop's counts, and every item change with its counter upkeep: the statement
+  counts and rows read must not change between 1× and 10×. (Rev 7 exempted an agent's direct pass
+  over its archived items; decision 21 removed that pass.)
 - **The history-growth benchmark** (decisions 18, 19 and 21; mandatory). A heavy agent's whole
   list call (coordinator-opus on the converted main org) may be at most 5% slower at p95 at 10×
   inactive history than at 1×. The history is seeded inside the viewer's own subtree (retired
@@ -2314,5 +2321,10 @@ predicate stays as the test oracle.
      are kept exactly.
    - A name can outlive its agent, so it is not a foreign key.
    - A rename updates both in one transaction, as today's rename updates the stored references.
-Nothing else is stored twice. (Rev 5–7 also kept three docket counter tables for archived
-totals; decision 21 removed the archived totals, and the counters with them.)
+6. **`docket_counters`.** The desktop's archived and backlog totals, which its header would
+   otherwise compute by reading the archive (rev 5, f13). They are updated in the same transaction
+   as the archive or backlog change they count, and a test compares them with a full count.
+
+Nothing else is stored twice. (Rev 5–7 also kept two counters for agents' archived totals,
+`docket_subtree_counts` and `docket_anchor_counts`; decision 21 removed those totals, and the
+counters with them.)
