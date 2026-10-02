@@ -14,7 +14,7 @@ import import_provenance  # noqa: F401  asserts orgtree resolves inside this che
 from engine.launch import load_app
 app, *_ = load_app()
 from fastapi.testclient import TestClient
-from orgtree import appsettings, supervisor as sup
+from orgtree import antigravity_session, appsettings, supervisor as sup
 
 HEADERS = {"X-Orgtree-Desktop-Token": "turn-limits-tests"}
 URL = "/api/app-settings/runtime"
@@ -65,6 +65,25 @@ class TurnLimitTests(unittest.TestCase):
         with patch.object(sup, "TURN_TIMEOUT", 5), patch.object(sup, "TURN_IDLE", 0):
             self.assertEqual(sup.turn_timeout(), 5)
             self.assertIsNone(sup.turn_idle())
+
+    def spec(self):
+        return {"identity": "id", "argv_head": ["agy"], "model": "m", "effort": "low", "cwd": "c",
+                "servers": {}, "rights": {}, "generation": 1, "account": "a",
+                "env_extra": {}, "turn_timeout": 600}
+
+    def test_antigravity_warm_process_is_not_reused_across_a_different_total_limit(self):
+        # the CLI binds the limit into --print-timeout at launch, so a warm
+        # process started with another cap must not be claimed
+        base = antigravity_session.process_identity(self.spec())[0]
+        for changed in (1200, antigravity_session.AGY_NO_LIMIT_S, 60):
+            spec = {**self.spec(), "turn_timeout": changed}
+            self.assertNotEqual(antigravity_session.process_identity(spec)[0], base, changed)
+        self.assertEqual(antigravity_session.process_identity(self.spec())[0], base)
+
+    def test_antigravity_off_passes_a_huge_cli_limit_not_the_cli_default(self):
+        appsettings.set_turn_timeout_s(0)
+        self.assertIsNone(sup.turn_timeout())
+        self.assertEqual(sup.turn_timeout() or antigravity_session.AGY_NO_LIMIT_S, 31536000)
 
 
 if __name__ == "__main__":

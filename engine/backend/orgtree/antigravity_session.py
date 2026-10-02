@@ -198,7 +198,8 @@ def process_identity(spec: dict[str, Any]) -> tuple[str, dict[str, str]]:
     env = spec["env_extra"]
     raw = {"prompt": [spec["identity"], startup_files(spec)],
            "argv": [spec["argv_head"], spec["model"], spec["effort"], spec["cwd"],
-                    spec["servers"], spec["rights"], spec.get("generation")],
+                    spec["servers"], spec["rights"], spec.get("generation"),
+                    spec["turn_timeout"]],
            "cred": [spec["account"], env.get("GEMINI_API_KEY", ""), env.get("USERPROFILE", "")],
            "envov": {k: v for k, v in env.items() if not k.startswith("ORGTREE_AGENT_")}}
     parts = {k: hashlib.sha256(json.dumps(v, sort_keys=True).encode()).hexdigest()[:32]
