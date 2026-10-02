@@ -486,7 +486,15 @@ class Lifecycle:
         return Build(claim, stage, *args)
 
     def mark_filled(self, build: Build) -> None:
-        """The caller has filled and verified the staging database."""
+        """The caller has filled and verified the staging database. Every identity
+        sequence moves past the ids the caller assigned (only the admin may set them), so
+        inserts after publishing never collide."""
+        with self._admin(build.database) as c:
+            for table, col in c.execute(
+                    "SELECT table_name, column_name FROM information_schema.columns "
+                    "WHERE table_schema = 'orgtree' AND is_identity = 'YES'").fetchall():
+                c.execute(f"SELECT setval(pg_get_serial_sequence('orgtree.{table}', '{col}'), "
+                          f"coalesce((SELECT max({col}) FROM orgtree.{table}), 0) + 1, false)")
         self._step(build.claim, "filled")
 
     def publish(self, build: Build, *, state: str = "active", trashed_at: Any = None) -> str:

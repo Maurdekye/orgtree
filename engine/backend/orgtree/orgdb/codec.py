@@ -277,9 +277,14 @@ def _lists(spec: Spec) -> Iterator[Field]:
 
 
 def _linked(keys: Mapping[str, Any], link: Mapping[str, str] | None) -> dict[str, Any]:
-    """A record's key values under the names its children use (``link``
-    renames, e.g. {"id": "agent_id"}; only the record table renames)."""
-    return {(link or {}).get(k, k): v for k, v in keys.items()}
+    """A record's key values under the names its children use. Without
+    ``link`` the children carry every key column under its own name. With it
+    they carry only the columns ``link`` names, renamed (e.g. {"id":
+    "agent_id"}): a record table placed by more columns than its key (an
+    owner, an order) is still referenced by its key alone."""
+    if link is None:
+        return dict(keys)
+    return {new: keys[old] for old, new in link.items()}
 
 
 def layout(spec: Spec, keys: tuple[tuple[str, str], ...],
@@ -315,8 +320,13 @@ def layout(spec: Spec, keys: tuple[tuple[str, str], ...],
                 out[f.child_table] = {**entry, "columns": cols, "extra": False, "spec": None,
                                       "item": f.item}
 
-    as_parent = tuple(((link or {}).get(c, c), t) for c, t in keys)
-    walk(spec, keys, as_parent, 1)
+    if link is None:
+        own, as_parent = keys, keys
+    else:
+        types = dict(keys)
+        own = tuple((old, types[old]) for old in link)
+        as_parent = tuple((new, types[old]) for old, new in link.items())
+    walk(spec, own, as_parent, 1)
     return out
 
 
