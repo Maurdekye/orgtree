@@ -1,6 +1,15 @@
-// canvas/effort.tsx — ONE answer to "is this agent's thinking effort
-// non-default, and what level is it actually running at", shared verbatim by
-// the zoomed-out canvas card (cards.tsx) and the desk header (desk.tsx).
+// canvas/effort.tsx — ONE answer to "has this agent's thinking effort been
+// set explicitly, and what level is it actually running at", used by the
+// zoomed-out canvas card (cards.tsx). The full desk header carries no effort
+// tag (user ruling 2026-10-01).
+//
+// CURRENT RULE (user ruling 2026-10-02): the tag shows whenever the agent's
+// OWN `scope.effort` is a supported level — even when it equals the org
+// default — and hides only when no effort is set ("there's a difference
+// between it inheriting the default effort and having its effort explicitly
+// specified but still be the same as the default"). The org default no longer
+// decides whether the tag appears; the notes below that discuss it describe
+// how that default is resolved, which other readers of this module still use.
 //
 // THE PROBLEM (docket `show-non-default-effort-level-on-agent-headers`). An
 // agent's configured reasoning effort was invisible everywhere except the
@@ -63,9 +72,8 @@ const validLevel = (v: string | null | undefined): v is string =>
 
 /** THE ORG'S ORDINARY DEFAULT, ALREADY RESOLVED — the level an agent with no
  *  setting of its own actually runs at. `''` means "this render has not been
- *  told", and the helpers below then decline to call anything non-default
- *  rather than guess a level and be confidently wrong about which agents are
- *  unusual.
+ *  told", and the helpers below then decline to guess a level.
+ *  It no longer gates the effort tag (user ruling 2026-10-02).
  *
  *  ⚠ RESOLVED, NOT RAW. Put `resolveOrgDefault(tree.default_effort,
  *  tree.effort_default)` in here — never one of those fields on its own and
@@ -73,10 +81,8 @@ const validLevel = (v: string | null | undefined): v is string =>
  *  thing.
  *
  *  Provided once, in OrgCanvas, beside `OrgKillswitchContext` — that provider
- *  wraps every mount site of both surfaces (canvas cards, the canvas desk,
- *  switchboard panels, the mobile sheet and pinned desk windows), which is
- *  what makes "the two surfaces cannot disagree" structural rather than a
- *  convention two call sites have to keep. */
+ *  wraps every mount site of the canvas cards and desks, so the default is
+ *  available to any reader without a prop. */
 export const OrgDefaultEffort = createContext<string>('')
 
 export const useOrgDefaultEffort = (): string => useContext(OrgDefaultEffort)
@@ -146,7 +152,7 @@ function runningEffort(
  * The org default no longer gates the tag; the second argument is accepted and
  * ignored so existing call sites keep working.
  */
-export function nonDefaultEffort(
+export function explicitEffort(
   node: Pick<CanvasNode, 'scope' | 'effort_effective'>,
   _orgDefault?: string | null,
 ): string | null {
@@ -156,25 +162,22 @@ export function nonDefaultEffort(
 }
 
 /**
- * The compact header card itself — the same `.badge` language as the account,
+ * The compact effort card itself — the same `.badge` language as the account,
  * route, cost and lifecycle chips beside it, a SIGN and never an action (the
  * card's badge row is a row of signs; `ActionBadge` in cards.tsx records why).
  * The control that CHANGES the level stays where it was, in the composer, on
  * the open desk.
  *
- * ⚠ ONE COMPONENT SERVES BOTH SURFACES, mounted unchanged in `.sq-badges` and
- * in `.cc-head-meta`, so the text, the tooltip and the appear/disappear rule
- * are single-sourced. It reads the org default from context rather than from a
- * prop for the same reason: there is no second path for a call site to get
- * wrong, and a live change to either the agent's effort or the org default
- * re-renders both surfaces from the one fact.
+ * Mounted in the canvas card's `.sq-badges` only; the desk header carries no
+ * effort tag (user ruling 2026-10-01). It appears whenever the agent's own
+ * effort is set, whatever the org default is, and a live change to the
+ * agent's effort re-renders it.
  */
 export function EffortLevelBadge({ node }: {
   node: Pick<CanvasNode, 'scope' | 'effort_effective'>
 }) {
-  const orgDefault = useOrgDefaultEffort()
-  const level = nonDefaultEffort(node, orgDefault)
-  // `level` is non-null only once nonDefaultEffort has validated it.
+  const level = explicitEffort(node)
+  // `level` is non-null only once explicitEffort has validated it.
   if (!level) return null
   // ⚠ THE NAME, AND NOTHING ELSE. The first candidate also carried the
   // DIRECTION — an `above`/`below` class that coloured the chip, and a tooltip

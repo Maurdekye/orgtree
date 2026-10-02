@@ -1,26 +1,22 @@
-// effortheader.test.tsx — SHOW A NON-DEFAULT THINKING EFFORT ON BOTH AGENT
-// HEADERS (docket `show-non-default-effort-level-on-agent-headers`).
+// effortheader.test.tsx — SHOW THE THINKING EFFORT ON THE CANVAS CARD
+// WHENEVER IT IS SET ON THE AGENT (dockets
+// `show-non-default-effort-level-on-agent-headers`, then
+// `v3-show-the-effort-tag-whenever-effort-is-set-on`).
 //
-// THE PROBLEM. An agent's configured reasoning effort was invisible on the
-// zoomed-out canvas card and in the desk header, so an agent deliberately
-// pinned above or below the org default looked like every other agent. The
-// fix is one compact header card, in the same `.badge` language as the MCP,
-// cache-readiness, cost and account indicators beside it, shown ONLY when the
-// agent is non-default — and rendered from ONE shared component so the two
-// surfaces cannot disagree.
+// THE RULE (user ruling 2026-10-02): the compact effort card shows whenever the
+// agent's OWN `scope.effort` is a supported level — even when it equals the org
+// default — and not at all when none is set (the agent inherits). The full desk
+// header carries no effort tag (user ruling 2026-10-01), asserted in §3.
 //
-// ⚠ WHAT "DEFAULT" MEANS HERE IS NOT THIS SUITE'S INVENTION, and these tests
-// are written so that it cannot quietly become one. `ledger.Org
-// .effective_effort` resolves a turn's effort as `scope.effort ||
-// org.default_effort || ""`, clamped to EFFORTS else `Org.DEFAULT_EFFORT`.
-// Both halves of that fallback ship in the tree payload (`default_effort`,
-// `effort_default`). So §1d below pins the case that a hardcoded "high" would
-// get exactly backwards: an org whose default is `low`.
+// The org default is still resolved (`resolveOrgDefault`, §1x) the way
+// `ledger.Org
+// .effective_effort` does, but it no longer gates the card; §1d pins that the
+// answer is the same whatever the org default is.
 //
-//   §1  the rule, as a table — the whole appear/disappear decision
+//   §1  the rule, as a table — the whole appear/disappear decision, plus the org-default resolver
 //   §2  the canvas card
 //   §3  the desk header
-//   §4  the two surfaces agree, and keep agreeing when the value changes
+//   §4  the card follows live changes to the agent's effort
 //   §5  the far-scale presentations, which this card must not erode
 
 import './harness'
@@ -32,7 +28,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { DeskChat } from '../src/canvas/desk'
 import { NodeSquare } from '../src/canvas/cards'
-import { EFFORT_LEVELS, EffortLevelBadge, OrgDefaultEffort, nonDefaultEffort, resolveOrgDefault } from '../src/canvas/effort'
+import { EFFORT_LEVELS, EffortLevelBadge, OrgDefaultEffort, explicitEffort, resolveOrgDefault } from '../src/canvas/effort'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { OpResult } from '../src/types'
 
@@ -68,22 +64,22 @@ test('§1a an agent with NO effort of its own reports nothing', () => {
   // it follows the org default live (user ruling 2026-08-01, visible inherit),
   // so there is no configured level to show — whatever the default happens to
   // be, and even though `effort_effective` is never empty.
-  assert.equal(nonDefaultEffort(agent('', ORG_DEFAULT), ORG_DEFAULT), null)
-  assert.equal(nonDefaultEffort(agent('', 'low'), 'low'), null)
+  assert.equal(explicitEffort(agent('', ORG_DEFAULT), ORG_DEFAULT), null)
+  assert.equal(explicitEffort(agent('', 'low'), 'low'), null)
 })
 
 test('§1b an agent explicitly set AT the org default still reports its level', () => {
   // ⚠ USER RULING 2026-10-02: "there's a difference between it inheriting the
   // default effort and having its effort explicitly specified but still be the
   // same as the default; should only not show if no effort specified."
-  assert.equal(nonDefaultEffort(agent(ORG_DEFAULT, ORG_DEFAULT), ORG_DEFAULT), ORG_DEFAULT)
+  assert.equal(explicitEffort(agent(ORG_DEFAULT, ORG_DEFAULT), ORG_DEFAULT), ORG_DEFAULT)
 })
 
 test('§1c a pinned agent reports its level, above, below or at the default', () => {
-  assert.equal(nonDefaultEffort(agent('xhigh', 'xhigh'), ORG_DEFAULT), 'xhigh')
-  assert.equal(nonDefaultEffort(agent('max', 'max'), ORG_DEFAULT), 'max')
-  assert.equal(nonDefaultEffort(agent('low', 'low'), ORG_DEFAULT), 'low')
-  assert.equal(nonDefaultEffort(agent('medium', 'medium'), ORG_DEFAULT), 'medium')
+  assert.equal(explicitEffort(agent('xhigh', 'xhigh'), ORG_DEFAULT), 'xhigh')
+  assert.equal(explicitEffort(agent('max', 'max'), ORG_DEFAULT), 'max')
+  assert.equal(explicitEffort(agent('low', 'low'), ORG_DEFAULT), 'low')
+  assert.equal(explicitEffort(agent('medium', 'medium'), ORG_DEFAULT), 'medium')
 })
 
 test('§1d THE ORG DEFAULT IS THE ORG\'S, not a constant in the renderer',
@@ -93,17 +89,17 @@ test('§1d THE ORG DEFAULT IS THE ORG\'S, not a constant in the renderer',
     // untouched agent runs at low and the one interesting agent is the one
     // pinned at high. A renderer that believed the default were always high
     // would badge every ordinary agent and stay silent about the unusual one.
-    assert.equal(nonDefaultEffort(agent('high', 'high'), 'low'), 'high')
-    assert.equal(nonDefaultEffort(agent('low', 'low'), 'low'), 'low')
+    assert.equal(explicitEffort(agent('high', 'high'), 'low'), 'high')
+    assert.equal(explicitEffort(agent('low', 'low'), 'low'), 'low')
     // …and the org default no longer changes the answer
-    assert.equal(nonDefaultEffort(agent('low', 'low'), 'high'), 'low')
+    assert.equal(explicitEffort(agent('low', 'low'), 'high'), 'low')
   })
 
 test('§1e an UNSUPPORTED stored level is not a configuration and is not shown',
   () => {
     // the easy half: in an org at the plain default, a junk `scope.effort`
     // clamps to that same default and there is nothing to say
-    assert.equal(nonDefaultEffort(agent('ludicrous', ORG_DEFAULT), ORG_DEFAULT), null)
+    assert.equal(explicitEffort(agent('ludicrous', ORG_DEFAULT), ORG_DEFAULT), null)
 
     // ⚠ THE HALF THAT IS NOT THE SAME STATEMENT (multi-window-design,
     // 2026-09-21). `effective_effort` clamps an unsupported value to
@@ -112,22 +108,22 @@ test('§1e an UNSUPPORTED stored level is not a configuration and is not shown',
     // a card that read only the effective value would badge it "Effort high,
     // set on this agent" for a level nobody chose. The configured value is
     // validated against the supported list FIRST, so this is silent.
-    assert.equal(nonDefaultEffort(agent('ludicrous', 'high'), 'low'), null,
+    assert.equal(explicitEffort(agent('ludicrous', 'high'), 'low'), null,
       'a junk stored level was advertised as a deliberate configuration')
     // and the control that proves the fixture is not simply inert: the same
     // org, the same clamped-to level, but genuinely configured, DOES show
-    assert.equal(nonDefaultEffort(agent('high', 'high'), 'low'), 'high')
+    assert.equal(explicitEffort(agent('high', 'high'), 'low'), 'high')
 
     // the org default no longer gates the tag, so even an unresolved or junk
     // one leaves a configured agent visible
-    assert.equal(nonDefaultEffort(agent('xhigh', 'xhigh'), 'ludicrous'), 'xhigh')
+    assert.equal(explicitEffort(agent('xhigh', 'xhigh'), 'ludicrous'), 'xhigh')
   })
 
 test('§1f with no org default in hand, a configured agent still reports', () => {
-  assert.equal(nonDefaultEffort(agent('xhigh', 'xhigh'), ''), 'xhigh')
-  assert.equal(nonDefaultEffort(agent('xhigh', 'xhigh'), null), 'xhigh')
-  assert.equal(nonDefaultEffort(agent('xhigh', 'xhigh'), undefined), 'xhigh')
-  assert.equal(nonDefaultEffort(agent('', 'xhigh'), undefined), null)
+  assert.equal(explicitEffort(agent('xhigh', 'xhigh'), ''), 'xhigh')
+  assert.equal(explicitEffort(agent('xhigh', 'xhigh'), null), 'xhigh')
+  assert.equal(explicitEffort(agent('xhigh', 'xhigh'), undefined), 'xhigh')
+  assert.equal(explicitEffort(agent('', 'xhigh'), undefined), null)
 })
 
 /* ─── §1x the org-default resolver ───────────────────────────────────────── */
@@ -166,17 +162,17 @@ test('§1x2 an unsupported ORG override is NOT the same rule as an unsupported '
   // no chosen level for a card to name.
   const org = resolveOrgDefault('ludicrous', 'high')
   assert.equal(org, 'high', 'the org override did not fall through')
-  assert.equal(nonDefaultEffort(agent('xhigh', 'xhigh'), org), 'xhigh',
+  assert.equal(explicitEffort(agent('xhigh', 'xhigh'), org), 'xhigh',
     'a validly configured agent went silent under a junk ORG override')
-  assert.equal(nonDefaultEffort(agent('ludicrous', 'high'), org), null,
+  assert.equal(explicitEffort(agent('ludicrous', 'high'), org), null,
     'a junk AGENT setting was advertised as a deliberate configuration')
 })
 
 test('§1x3 an agent at the resolved default still shows when set explicitly', () => {
   const org = resolveOrgDefault('ludicrous', 'high')
-  assert.equal(nonDefaultEffort(agent('high', 'high'), org), 'high',
+  assert.equal(explicitEffort(agent('high', 'high'), org), 'high',
     'an explicitly set agent at the resolved default was hidden')
-  assert.equal(nonDefaultEffort(agent('', 'high'), org), null)
+  assert.equal(explicitEffort(agent('', 'high'), org), null)
 })
 
 test('§1g the level list is the composer control\'s list, in order', () => {
@@ -206,7 +202,7 @@ function card(n: CanvasNode, lod: 'mini' | 'norm', orgDefault = ORG_DEFAULT, map
 const onCard = (el: HTMLElement) =>
   el.querySelector<HTMLElement>('.sq-badges .badge.effort-level')
 
-test('§2a the zoomed-out card shows the configured level when it is non-default',
+test('§2a the zoomed-out card shows the configured level',
   async (t: TestContext) => {
     const view = await card(agent('xhigh', 'xhigh'), 'norm')
     t.after(() => view.unmount())
@@ -289,7 +285,7 @@ function desk(n: CanvasNode, orgDefault = ORG_DEFAULT) {
 const onDesk = (el: HTMLElement) =>
   el.querySelector<HTMLElement>('.cc-head .badge.effort-level')
 
-test('§3a the desk header does NOT show the effort card, even non-default',
+test('§3a the desk header does NOT show the effort card, even when set',
   async (t: TestContext) => {
     // user ruling 2026-10-01: the full desk header drops it; only the zoomed
     // canvas card keeps it. The control: the card for the same agent shows it.
@@ -323,7 +319,7 @@ test('§3b the desk shows no card and no placeholder, set at default or unset',
 
 /* ─── §4 one source of truth, and it stays live ──────────────────────────── */
 
-test('§4a both surfaces say the SAME thing about the same agent',
+test('§4a the card carries the level and the exact detail; the desk carries none',
   async (t: TestContext) => {
     // the parity that matters is not "both show something" but "both show the
     // same level and the same detail", which is what a shared component buys.
@@ -403,15 +399,11 @@ test('§4b changing the agent\'s effort changes BOTH surfaces, live',
     assert.equal(onCard(c.el), null, 'the card outlived the setting it described')
   })
 
-test('§4c changing the INHERITED org default changes both surfaces too',
+test('§4c the org default moving does not change the card',
   async (t: TestContext) => {
-    // the other half of the same fact, and the one a per-node feed would miss:
-    // the agent is untouched at `high` throughout. While the org default is
-    // high it is ordinary and silent; raise the org default to xhigh and the
-    // very same agent is now BELOW the default and says so — on BOTH surfaces,
-    // in the same render pass, because both read the one context. This is the
-    // live-inherit behaviour the composer's effort control already has
-    // (user ruling 2026-08-01), carried onto the headers.
+    // the org default is no longer an input to the card: the agent is
+    // untouched at `high` throughout, and the card says `high` both while the
+    // org default is high and after it moves to xhigh.
     installFetch(new FakeServer())
     const n = agent('high', 'high')
     const d = await mountView(desk(n, 'high'), (el) => el)
@@ -439,16 +431,12 @@ test('§4c changing the INHERITED org default changes both surfaces too',
     await flush()
     const onC = onCard(c.el)
     assert.equal(onDesk(d.el), null, 'the desk header shows an effort card')
-    assert.ok(onC, 'the org default moved and the card stayed silent about it')
+    assert.ok(onC, 'the org default moved and the card disappeared')
     assert.equal(onC!.getAttribute('data-effort-level'), 'high')
-    // The PROOF that both surfaces followed the org default to its new value
-    // is that they now render at all and name `high` (asserted just above) —
-    // this agent was silent while the default was still high. The detail no
-    // longer names the default, so it is not the carrier of that evidence.
     assert.equal(onC!.getAttribute('title'), 'thinking effort — high')
   })
 
-test('§4d an unsupported ORG override blanks NEITHER surface — the regression, '
+test('§4d an unsupported ORG override blanks neither the card nor the desk — the regression, '
   + 'rendered', async (t: TestContext) => {
     // ⚠ THE BEHAVIOURAL FORM OF §1x, through the real components rather than
     // the rule alone. In candidate 0dbede2 both of these rendered nothing at
@@ -471,7 +459,7 @@ test('§4d an unsupported ORG override blanks NEITHER surface — the regression
     assert.equal(onC!.getAttribute('data-effort-level'), 'xhigh')
     // Both measure against the RESOLVED default — which is what the f4
     // regression was about — and the evidence for that is that they RENDER
-    // here at all: an unresolved '' default makes nonDefaultEffort return null
+    // here at all: an unresolved '' default makes explicitEffort return null
     // and both surfaces go silent, which is exactly what 0dbede2 did. The
     // detail itself names only the level (user ruling 2026-09-21).
     assert.equal(onC!.getAttribute('title'), 'thinking effort — xhigh')
@@ -558,7 +546,7 @@ test('the badge renders nothing at all — not an empty span — when silent',
     assert.equal(view.el.innerHTML, '', 'the silent badge still emitted markup')
   })
 
-test('THE NAME AND NOTHING ELSE: no direction cue, either side of the default',
+test('THE NAME AND NOTHING ELSE: no direction cue, whatever the default',
   async (t: TestContext) => {
     // ⚠ THIS TEST USED TO ASSERT THE OPPOSITE. The first landed candidate
     // carried the DIRECTION as well as the level — an `above`/`below` class
