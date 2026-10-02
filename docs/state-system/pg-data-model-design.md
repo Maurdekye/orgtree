@@ -1,4 +1,4 @@
-# Orgtree on PostgreSQL, built for it from the ground up: target design (rev 4)
+# Orgtree on PostgreSQL, built for it from the ground up: target design (rev 4.1)
 
 Docket item: `v3-storage-keep-indexed-fields-in-real-postgresq` (drag-opus, 2026-10-02).
 
@@ -9,6 +9,10 @@ reviews the implementation again before the local alpha build. The companion
 
 **What changed:**
 
+- **Rev 4.1 adds decision 14** (user, 14:15Z: a tested upgrade path from 2.1.14, 3.0.9 and 3.1.0)
+  to §3.9, §5.1, §5.3, §5.4 and §9. It changes one earlier statement. **3.2.0 no longer migrates
+  the old database before converting it, and keeps the old org markers**, so the old build still
+  runs on its untouched data, as decision 14 point 3 requires. Nothing else changed since rev 4.
 - **Rev 4 answers review-sol's design review of rev 3.1** (commit `47ae47f`): 8 blocking findings,
   4 should-fix and 1 minor, all on the item. Each answer is marked "rev 4, finding fN" where it
   lives, and §10 maps every finding to its section. Rev 4 also adds what my preparation on copies
@@ -991,15 +995,19 @@ It is rev 2 §3.2–§3.10 with `org_id` removed.
 
 ### 3.9 What is removed
 
-These go:
+None of these exists in the new databases. The legacy database keeps all of them, untouched,
+until the cleanup release (Q3):
 
 - the 18 per-row triggers and their side tables;
 - the JSON expression indexes;
 - `json_extract`;
 - `public.receipts`;
 - the per-org schema creator chain (`orgtree_create_org_schema` and its 14 wrappers);
-- the org markers in `orgs/`. The registry is the only record of which orgs exist; today the markers
-  and `public.orgs` must agree.
+- the org markers in `orgs/`. The registry is the only record of which orgs exist. 3.2.0 reads the
+  markers once, in the converter's first pass (§5.2), and **never changes or removes them** (rev
+  4.1, decision 14). If they disappeared, the old build's startup would retire every org it no
+  longer finds a marker for (`retire_unmarked`), and a rollback would not work. The cleanup release
+  removes them with the legacy database.
 
 The legacy `orgtree` database stays untouched for one release (Q3), then is dropped.
 
@@ -1023,10 +1031,53 @@ The legacy `orgtree` database stays untouched for one release (Q3), then is drop
 
 ### 5.1 One path for every starting version
 
-| Starting point | Route |
-|---|---|
-| **v3.0.9, 3.1.0 and the other 3.0.x** (one database, per-org schemas) | Start the engine. It migrates the legacy database only if it is behind 0020 (0020 on 3.0.9), as every release has. **Measured:** importing at 0017 and then migrating to 0020 leaves the five base tables of all 4 orgs unchanged, and equal to an import made at 0020, by count and sha256 (`probe/v3x-states-0017.json`). So every 3.0.x and 3.1.0 state gives the converter identical input. |
-| **v2.1.14** (SQLite) | The first-launch import (`tools/pypg/pgimport.py`, driven by `pg_process.convert_existing_root`) writes the SQLite rows into the legacy layout, with its counts and checksums. Then the engine starts and runs the same converter. **Rehearsed, step 1:** the user's real pre-conversion SQLite data, copied with SQLite's backup API, imported with pgimport's own code (4 orgs, byte-for-byte read-back, 39 s). The same was done with a v2.1.14 re-save of it (§5.4). |
+**Three named starting points (decision 14).** Each has its own tested path into 3.2.0:
+
+| Starting point | What the user has | Route into 3.2.0 |
+|---|---|---|
+| **2.1.14** | SQLite files in `orgs/` | The first-launch import (`tools/pypg/pgimport.py`, driven by `pg_process.convert_existing_root`) creates a **new** legacy database: it applies the legacy migration chain 0001–0020 and writes the SQLite rows into the legacy layout, with its counts and checksums. The SQLite files move unchanged to `pre-postgres/orgs`. Then the converter runs. |
+| **3.0.9** | one PostgreSQL database `orgtree` at migration level 0019 | The converter reads the legacy database **as 3.0.9 left it**. Nothing migrates it. |
+| **3.1.0** | the same database at level 0020 | The same: read as 3.1.0 left it. |
+
+**3.2.0 never migrates an existing legacy database (rev 4.1).**
+
+- Rev 4 said 3.2.0 would first bring the legacy database up to 0020, "as every release has".
+  Decision 14 requires the old build to keep running on its untouched data.
+- Our engine refuses a database that holds a migration it does not know (`MigrationDrift`). So a
+  3.0.9 database migrated to 0020 would no longer start under 3.0.9.
+- 3.2.0's database bracket therefore runs the app and org migrations only. It never runs the
+  legacy chain on an existing `orgtree` database.
+- **Measured:** today's loader reads both levels with zero writes:
+  - the live 3.0.9 copy at 0019 (`livecopy`);
+  - the 3.1.0-level copy at 0020 (`lc310`, made below);
+  - and the 0020-level imports of the 2.x data.
+
+  See §5.4.
+
+**3.0.0 to 3.0.8 are the 3.0.9 starting point (measured, decision 14 point 1).**
+
+- Every tag from v3.0.0 to v3.0.9 ships the same 19 migration files, 0001–0019. The git blob ids
+  are identical, so the bytes are too. Tag v3.1.0 adds only 0020.
+- `pgstore._sha` checksums each file in its LF form, so checkouts with different line endings
+  record the same values.
+- Every 3.0.x engine applies all 19 files at its first start. So every 3.0.0–3.0.8 database has
+  exactly 3.0.9's migration level, objects and recorded checksums: its schema is identical to the
+  3.0.9 starting point.
+- The live copy's 19 recorded checksums match the files of v3.0.0, v3.0.9 and v3.1.0 (19 of 19
+  each).
+- What differs between 3.0.x releases is only the code that writes rows. The converter reads rows
+  through today's loader, which already reads every older shape, down to 2.1.12's.
+- This comparison is recorded as evidence on the item, and a repo test keeps it true (§9).
+
+**Which version wrote the live copy (measured).**
+
+- The installed app is 3.0.9 (`resources/build-info.json`: commit `f657e06`).
+- Its update log reports "latest version: 3.0.9" at every check from 2026-10-01 16:58Z to
+  2026-10-02 10:58Z. The dump was taken at 11:38Z.
+- The copy's `schema_migrations` show 0001–0017 applied on 2026-09-29 (the first-launch import of a
+  pre-release build) and 0018–0019 on 2026-09-30. That is the 3.0.x level.
+
+So `livecopy` is real 3.0.9 data.
 
 **One change to the first-launch import, for Q12.** Today it is all or nothing:
 
@@ -1174,40 +1225,104 @@ existing "updating the database" progress.
 
 ### 5.3 Old data and rollback
 
-**Nothing old is modified.** The legacy `orgtree` database (with its `schema_migrations`),
-`accounts-registry.json` and the side files stay exactly as they were. So **a rollback to 3.1.0 is
-simply running 3.1.0**: it opens the legacy database it always used, and does not know the new
-databases exist. Writes made after the conversion are lost, as `pgimport`'s rollback already
-states. A cleanup tool drops the new databases if the user wants the space back.
+**Nothing old is modified (rev 4.1, decision 14).** 3.2.0 never writes, migrates, moves or deletes
+any of these:
 
-One release later, the cleanup release drops the legacy database and the old side files (Q3).
-It does not drop them while any org is still `unavailable` from the import or the conversion. That
-org's old data is the only copy, so the cleanup keeps it and says why.
+- the legacy `orgtree` database, with its `schema_migrations`;
+- the org markers in `orgs/` and `store-backend.json`;
+- `accounts-registry.json`;
+- `reply-events.sqlite3`, `file-deliveries.db`;
+- `pre-postgres/`.
 
-### 5.4 Rehearsals (decisions 4 and 8)
+It reads them, once, in the converter's first pass.
 
-Every input is ready, built from copies in my dev cluster and recorded on the item:
+**With the new storage on, the engine never runs today's startup routine against the legacy
+database.** That routine (`claim_data_root`) writes:
 
-| Input | Contents |
+- `pgstore.migrate`;
+- the `workread` side-table bootstrap;
+- `backfill_always_rows`;
+- `retire_unmarked` / `revive_marked`, which write `public.orgs`;
+- the receipt-storage conversion.
+
+The converter reads the legacy database only through today's loader, on a pinned read-only
+connection (§5.2). The measured "zero writes" of §5.4 is for exactly that path.
+
+So **a rollback is installing the old build again**, and it runs on its untouched data:
+
+| Old build | Rollback |
 |---|---|
-| 3.x | a read-only `pg_dump` of the live cluster (3.0.9 data, migrations up to 0019), restored as `livecopy` |
-| 2.1.12/13 | the user's real pre-conversion SQLite orgs (backup-API copy) imported by pgimport, as `v2import` |
-| 2.1.14 | the same copy loaded and saved once through tag v2.1.14's own store code, then imported, as `v2114import` |
-| 3.0.x states | an import at 0017 migrated to 0020, as `v3x0017`; base tables identical to `v2import` |
+| 3.1.0 or 3.0.9 | It opens the legacy database it always used, at its own migration level. It does not know the new databases exist. |
+| 2.1.14 | Move the files in `pre-postgres/orgs` back into `orgs/`, as today's first-launch message already says. |
 
-The 2.1.14 input is a **synthetic re-save**, approved by the coordinator. No copy written by exactly
-2.1.14 exists: the user's last v2 writer was 2.1.12/13. From v2.1.12 to v2.1.14, `store.py` and
-`schema.py` do not change; `ledger.py` only adds load-time value heals. Measured, the re-save
-changed exactly `models.sol` and the Sol agents' version pins (46 / 38 / 2 agents), and nothing
-else.
+Writes made in 3.2.0 are not carried back, as `pgimport`'s rollback already states. A cleanup tool
+drops the new databases if the user wants the space back. The release owner checks each rollback
+in the end-to-end rehearsals before publish (§5.4).
 
-Each rehearsal runs the converter on every input and records:
+One release later, the cleanup release drops the legacy database, the markers and the old side
+files (Q3). It does not drop them while any org is still `unavailable` from the import or the
+conversion. That org's old data is the only copy, so the cleanup keeps it and says why.
 
-- per org and kind, counts and checksums before and after;
-- heals, `extra` keys, U+0000 fields and unparseable timestamps;
-- the time taken;
-- the tests;
-- the read and reshape benchmarks on the result.
+### 5.4 Rehearsals and upgrade-path tests (decisions 4, 8 and 14)
+
+**The three starting points, on real-data copies, before the local 3.2.0-alpha.0.** All inputs are
+copies in my dev cluster, a throwaway cluster, and are recorded on the item:
+
+| Starting point | Input | How it was made |
+|---|---|---|
+| 2.1.14 | `v2114import`, plus the SQLite copies it came from | The user's real pre-conversion SQLite orgs (backup-API copy) were loaded and saved once through tag v2.1.14's own store code, then imported by the first-launch importer. This is a **synthetic re-save**, approved by the coordinator. No copy written by exactly 2.1.14 exists: the user's last v2 writer was 2.1.12/13. From v2.1.12 to v2.1.14, `store.py` and `schema.py` do not change. Measured, the re-save changed exactly `models.sol` and the Sol agents' version pins (46 / 38 / 2 agents). |
+| 2.1.12/13 (extra) | `v2import` | the same SQLite copies, imported without the re-save |
+| 3.0.9 | `livecopy` | a read-only `pg_dump` of the live cluster, which was written by 3.0.9 (§5.1), at level 0019 |
+| 3.1.0 | `lc310` | `livecopy` cloned and migrated with **v3.1.0's own** `pgstore.migrate`. The worktree's `engine/` and `tools/pypg/` are identical to tag v3.1.0. It applied exactly `0020_work_list_parse_once.sql`, and every org's five base tables are unchanged by count and sha256 (`probe/level-lc310.json`). |
+
+**Each rehearsal checks:**
+
+1. **Counts plus independent checksums.**
+   - The converter's own report is compared with two probes that share none of its code:
+     - the raw inventory of every table of the legacy schema (`probe/legacy_inventory.py`);
+     - the per-section entry counts from today's loader on a read-only clone
+       (`probe/legacy_load.py`).
+   - The new databases are counted by SQL.
+   - The legacy inventory is taken again afterwards and must be identical.
+2. **The Q12 path.** On a clone with one org given a planted fault (`probe/plant_fault.py`):
+   - that org starts `unavailable` with its reason;
+   - the other orgs start;
+   - the faulty org's legacy data is unchanged;
+   - Retry succeeds once the fault is removed.
+
+   Planted faults whose expected outcome is "report" (an unparseable time, U+0000) must convert
+   and be counted.
+3. The time taken and the peak memory.
+4. The read and reshape benchmarks on the result.
+
+The results go to the coordinator, who gives p03-ws4-rcfamilies the go for the local alpha build.
+
+**The upgrade-path tests live in the repo (decision 14 point 4)**, so later changes keep the paths
+working:
+
+- `tests/test_upgrade_paths_pg.py` runs the converter on three committed **synthetic** fixtures,
+  one per starting point. A repo must never hold real data.
+  - Each fixture is written by that release's own code, from a committed generator script run
+    once against a worktree at the tag:
+    - a 2.1.14 SQLite org (tag v2.1.14's store);
+    - a 3.0.9-level and a 3.1.0-level PostgreSQL org, as plain SQL dumps of a throwaway cluster
+      (those tags' own engines).
+  - Each fixture covers every top-level section in `ledger.NODE_KEYED_SECTIONS`, with a manifest of
+    counts and checksums.
+  - The test checks the converter against the manifest, the Q12 outcome on a planted-fault variant
+    of each, and that the legacy input is unchanged afterwards.
+- `tests/test_published_migrations.py` holds the checksums of the legacy migration files every
+  published release shipped (3.0.0–3.0.9: 0001–0019; 3.1.0: 0001–0020). It fails if a legacy
+  migration file in the repo changes, because that would make an upgrading engine refuse (or
+  silently differ from) a database at that level.
+
+**Before any 3.2.0 publish (decision 14 point 3, owned by p03-ws4-rcfamilies):**
+
+- an end-to-end upgrade from each of the three starting points, done the way users upgrade. The
+  real old build is installed in an isolated place (a throwaway Windows user or an isolated data
+  root, never the live install) with real-data copies, then upgraded with the 3.2.0 installer;
+- a check that the app starts and the data matches;
+- a rollback check: the old build still runs on its untouched data (§5.3).
 
 ## 6. Release plan
 
@@ -1380,6 +1495,9 @@ The same estimates as rev 2 (inferred, replaced by measurements at the first pro
 | The first request to a cold org | – | +17 ms to open its pool |
 
 ## 9. Tests
+
+**Rev 4.1 adds the upgrade-path tests of decision 14** (`tests/test_upgrade_paths_pg.py`,
+`tests/test_published_migrations.py`, §5.4).
 
 **Rev 4 adds the tests named under each finding.** They are listed where each finding is answered:
 
